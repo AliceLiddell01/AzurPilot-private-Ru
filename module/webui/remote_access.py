@@ -15,10 +15,11 @@ import shlex
 import threading
 import time
 from dataclasses import dataclass
-from subprocess import PIPE, Popen, run
+from subprocess import PIPE, Popen
 from typing import TYPE_CHECKING, List, Optional, Tuple
 from urllib.parse import urlsplit
 
+from module.base.ssh import clear_ssh_host_key
 from module.config.utils import random_id
 from module.logger import logger
 from module.webui.setting import State
@@ -198,33 +199,6 @@ def _format_signal_error(error: Exception, signal_url: str) -> str:
     return f"P2P 信令连接失败（{message}），已继续使用 SSH 远程访问：{url}"
 
 
-def _remove_changed_host_key(server: str, port: int) -> bool:
-    """删除指定 SSH 服务的过期主机密钥，供容器重建后的单次重连使用。"""
-    host = server.rsplit("@", 1)[-1].strip("[]")
-    if not host:
-        return False
-
-    target = f"[{host}]:{port}"
-    try:
-        result = run(
-            ["ssh-keygen", "-R", target],
-            stdin=PIPE,
-            stdout=PIPE,
-            stderr=PIPE,
-            check=False,
-            text=True,
-        )
-    except FileNotFoundError:
-        logger.warning(f"SSH 主机密钥已变更，但找不到 ssh-keygen，无法清理 {target}")
-        return False
-
-    if result.returncode:
-        logger.warning(f"清理 SSH 过期主机密钥失败：{target}，{result.stderr.strip()}")
-        return False
-    logger.warning(f"检测到 SSH 主机密钥变更，已清理 {target} 的旧记录，将重新连接")
-    return True
-
-
 class RemoteAccessProvider:
     def start(self) -> None:
         raise NotImplementedError
@@ -297,6 +271,7 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
     ) -> Optional[Popen]:
         bin_path = State.deploy_config.SSHExecutable
         known_hosts = os.devnull
+        clear_ssh_host_key(server, server_port, ssh_executable=bin_path)
         cmd = (
             f"{bin_path} -oStrictHostKeyChecking=no "
             f"-oUserKnownHostsFile={known_hosts} "
@@ -374,7 +349,7 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
                     process.kill()
                 stderr = process.stderr.read().decode("utf8", errors="replace")
                 if HOST_KEY_CHANGED_MARKER in stderr.upper():
-                    _remove_changed_host_key(current_server, current_port)
+                    clear_ssh_host_key(current_server, current_port)
                     self.info.error = "ssh_host_key_changed"
                 else:
                     self.info.error = "invalid_provider_response"
