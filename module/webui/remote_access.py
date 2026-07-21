@@ -15,7 +15,7 @@ import shlex
 import threading
 import time
 from dataclasses import dataclass
-from subprocess import PIPE, Popen
+from subprocess import PIPE, Popen, run
 from typing import TYPE_CHECKING, List, Optional, Tuple
 from urllib.parse import urlsplit
 
@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
 HTTP_BODY_CHUNK = 12 * 1024
 P2P_SETUP_TIMEOUT = 60
+SSH_RECONNECT_DELAY = 2
+SSH_RECONNECT_MAX_DELAY = 30
+HOST_KEY_CHANGED_MARKER = "REMOTE HOST IDENTIFICATION HAS CHANGED"
 
 
 class ParseError(Exception):
@@ -195,6 +198,33 @@ def _format_signal_error(error: Exception, signal_url: str) -> str:
     return f"P2P 信令连接失败（{message}），已继续使用 SSH 远程访问：{url}"
 
 
+def _remove_changed_host_key(server: str, port: int) -> bool:
+    """删除指定 SSH 服务的过期主机密钥，供容器重建后的单次重连使用。"""
+    host = server.rsplit("@", 1)[-1].strip("[]")
+    if not host:
+        return False
+
+    target = f"[{host}]:{port}"
+    try:
+        result = run(
+            ["ssh-keygen", "-R", target],
+            stdin=PIPE,
+            stdout=PIPE,
+            stderr=PIPE,
+            check=False,
+            text=True,
+        )
+    except FileNotFoundError:
+        logger.warning(f"SSH 主机密钥已变更，但找不到 ssh-keygen，无法清理 {target}")
+        return False
+
+    if result.returncode:
+        logger.warning(f"清理 SSH 过期主机密钥失败：{target}，{result.stderr.strip()}")
+        return False
+    logger.warning(f"检测到 SSH 主机密钥变更，已清理 {target} 的旧记录，将重新连接")
+    return True
+
+
 class RemoteAccessProvider:
     def start(self) -> None:
         raise NotImplementedError
@@ -222,6 +252,7 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
     def __init__(self) -> None:
         self.process: Optional[Popen] = None
         self.thread: Optional[threading.Thread] = None
+        self.stop_event = threading.Event()
         self.notfound = False
         self.info = RemoteAccessInfo()
 
@@ -271,6 +302,9 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
             f"-oUserKnownHostsFile={known_hosts} "
             f"-oGlobalKnownHostsFile={known_hosts} "
             f"-oLogLevel=ERROR "
+            f"-oServerAliveInterval=15 "
+            f"-oServerAliveCountMax=3 "
+            f"-oExitOnForwardFailure=yes "
             f"-R {remote_port}:{local_host}:{local_port} "
             f"-p {server_port} {server} -- --output json"
         )
@@ -336,9 +370,14 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
             try:
                 connection_info = json.loads(stdout)
             except json.JSONDecodeError:
-                self.info.error = "invalid_provider_response"
                 if process.poll() is None:
                     process.kill()
+                stderr = process.stderr.read().decode("utf8", errors="replace")
+                if HOST_KEY_CHANGED_MARKER in stderr.upper():
+                    _remove_changed_host_key(current_server, current_port)
+                    self.info.error = "ssh_host_key_changed"
+                else:
+                    self.info.error = "invalid_provider_response"
                 break
 
             status = connection_info.get("status", "fail")
@@ -388,11 +427,19 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
             logger.debug(f"Remote access url: {self.info.address}")
             break
 
-        while not am_i_the_only_thread() and self.process and self.process.poll() is None:
+        while (
+            not self.stop_event.is_set()
+            and not am_i_the_only_thread()
+            and self.process
+            and self.process.poll() is None
+        ):
             time.sleep(1)
 
         if self.process and self.process.poll() is None:
-            logger.info("App process exit, killing ssh process")
+            if self.stop_event.is_set():
+                logger.info("Stop SSH remote access service")
+            else:
+                logger.info("App process exit, killing ssh process")
             self.process.kill()
         elif self.process:
             stderr = self.process.stderr.read().decode("utf8")
@@ -405,6 +452,11 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
         self.info.address = None
 
     def start(self) -> None:
+        if self.thread is not None and self.thread.is_alive():
+            return
+
+        self.stop_event.clear()
+        self.notfound = False
         server, server_port = _parse_host_port(State.deploy_config.SSHServer)
         if State.deploy_config.SSHUser is None:
             logger.info("SSHUser is not set, generate a random one")
@@ -425,20 +477,32 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
 
     def _thread_main(self, **kwargs) -> None:
         logger.info("Start SSH remote access service")
-        try:
-            self._run(**kwargs)
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            self.info.error = str(e)
-            logger.exception(e)
-        finally:
-            if self.process and self.process.poll() is None:
-                logger.info("Exception occurred, killing ssh process")
-                self.process.kill()
+        reconnect_delay = SSH_RECONNECT_DELAY
+        while not self.stop_event.is_set():
+            try:
+                self._run(**kwargs)
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                self.info.error = str(e)
+                logger.warning(f"SSH remote access service error: {e}")
+
+            if self.stop_event.is_set() or self.notfound:
+                break
+
+            logger.warning(f"SSH remote access disconnected, retry in {reconnect_delay} seconds")
+            self.info.connection_state = "reconnecting"
+            if self.stop_event.wait(reconnect_delay):
+                break
+            reconnect_delay = min(reconnect_delay * 2, SSH_RECONNECT_MAX_DELAY)
+
+        if self.process and self.process.poll() is None:
+            logger.info("Stop SSH remote access process")
+            self.process.kill()
         logger.info("Exit SSH remote access service thread")
 
     def stop(self) -> None:
+        self.stop_event.set()
         if self.process and self.process.poll() is None:
             self.process.kill()
 
