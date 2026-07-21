@@ -271,7 +271,7 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
     ) -> Optional[Popen]:
         bin_path = State.deploy_config.SSHExecutable
         known_hosts = os.devnull
-        clear_ssh_host_key(server, server_port)
+        clear_ssh_host_key(server, server_port, ssh_executable=bin_path)
         cmd = (
             f"{bin_path} -oStrictHostKeyChecking=no "
             f"-oUserKnownHostsFile={known_hosts} "
