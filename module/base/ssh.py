@@ -1,5 +1,6 @@
 """SSH 客户端公共工具。"""
 
+from pathlib import Path
 from subprocess import DEVNULL, PIPE, run
 
 from module.logger import logger
@@ -21,11 +22,12 @@ def clear_ssh_host_key(host: str, port: int) -> bool:
     if port == 22:
         targets.insert(0, host)
 
+    known_hosts = Path.home() / ".ssh" / "known_hosts"
     removed = False
     for target in targets:
         try:
             result = run(
-                ["ssh-keygen", "-R", target],
+                ["ssh-keygen", "-R", target, "-f", str(known_hosts)],
                 stdin=DEVNULL,
                 stdout=PIPE,
                 stderr=PIPE,
@@ -37,7 +39,7 @@ def clear_ssh_host_key(host: str, port: int) -> bool:
             return removed
 
         if result.returncode == 0:
-            logger.info(f"已清理 SSH 主机指纹：{target}")
+            logger.info(f"已清理 SSH 主机指纹：{target}（{known_hosts}）")
             removed = True
         elif result.returncode != 1:
             logger.warning(f"清理 SSH 主机指纹失败：{target}，{result.stderr.strip()}")
