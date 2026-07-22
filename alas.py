@@ -1218,6 +1218,7 @@ class AzurLaneAutoScript:
                 if (
                     self.config.Optimization_CloseEmulatorDuringLongWait
                     and wait_duration > timedelta(hours=3)
+                    and 'device' in self.__dict__ and self.device.emulator_instance is not None  # 远程设备（无线 ADB / SSH）没有本地模拟器实例可管理，跳过关闭流程，走常规等待逻辑
                 ):
                     logger.info(
                         f'下一个任务 `{task.command}` 将在 {wait_duration} 后运行，'
