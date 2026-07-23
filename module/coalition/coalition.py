@@ -234,7 +234,8 @@ class Coalition(CoalitionCombat, CampaignEvent):
     def handle_stage_name(event, stage):
         """标准化活动名称和关卡名称。
 
-        去除空白字符并转小写。霜落活动额外去除连字符。
+        去除空白字符并转小写。霜落活动额外去除连字符；
+        怪谈纪实兼容旧配置中的 TC-1/2/3 难度名。
 
         Args:
             event: 活动名称。
@@ -246,6 +247,15 @@ class Coalition(CoalitionCombat, CampaignEvent):
         stage = re.sub('[ \t\n]', '', str(stage)).lower()
         if event == 'coalition_20230323':
             stage = stage.replace('-', '')
+        elif event == 'coalition_20260723':
+            converted = {
+                'tc1': 'easy',
+                'tc2': 'normal',
+                'tc3': 'hard',
+            }.get(stage.replace('-', ''), stage)
+            if converted != stage:
+                logger.warning(f'Convert legacy Coalition stage: {stage} -> {converted}')
+                stage = converted
 
         return event, stage
 
