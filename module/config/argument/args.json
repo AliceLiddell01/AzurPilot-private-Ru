@@ -6058,10 +6058,11 @@
         "value": "campaign_main",
         "option": [
           "coalition_20230323",
-          "coalition_20260122"
+          "coalition_20260122",
+          "coalition_20260723"
         ],
         "option_cn": [
-          "coalition_20260122"
+          "coalition_20260723"
         ],
         "option_en": [
           "coalition_20260122"
@@ -6074,7 +6075,8 @@
         ],
         "option_bold": [
           "coalition_20230323",
-          "coalition_20260122"
+          "coalition_20260122",
+          "coalition_20260723"
         ]
       },
       "Mode": {
@@ -6128,7 +6130,7 @@
     "Coalition": {
       "Mode": {
         "type": "select",
-        "value": "tc3",
+        "value": "hard",
         "option": [
           "tc1",
           "tc2",
@@ -9805,10 +9807,11 @@
         "value": "campaign_main",
         "option": [
           "coalition_20230323",
-          "coalition_20260122"
+          "coalition_20260122",
+          "coalition_20260723"
         ],
         "option_cn": [
-          "coalition_20260122"
+          "coalition_20260723"
         ],
         "option_en": [
           "coalition_20260122"
@@ -9821,7 +9824,8 @@
         ],
         "option_bold": [
           "coalition_20230323",
-          "coalition_20260122"
+          "coalition_20260122",
+          "coalition_20260723"
         ]
       },
       "Mode": {
@@ -9875,14 +9879,18 @@
     "Coalition": {
       "Mode": {
         "type": "select",
-        "value": "tc3",
+        "value": "hard",
         "option": [
+          "easy",
+          "normal",
+          "hard",
           "tc1",
           "tc2",
           "tc3",
           "sp",
           "ex"
-        ]
+        ],
+        "display": "hide"
       },
       "Fleet": {
         "type": "select",

@@ -1064,6 +1064,7 @@
       "coalition_20250626": "The Neon City Investigator",
       "coalition_20251120": "DATE A LANE",
       "coalition_20260122": "Light & Shadow Fashion Shoot!",
+      "coalition_20260723": "怪谈纪实：逃离白夜山庄",
       "event_20200227_cn": "Northern Overture",
       "event_20200312_cn": "The Solomon Ranger Rerun",
       "event_20200326_cn": "Microlayer Medley",
@@ -1847,6 +1848,9 @@
     "Mode": {
       "name": "难度喵",
       "help": "SP图需用活动每日SP运行喵。 (´・ω・`)",
+      "easy": "easy",
+      "normal": "normal",
+      "hard": "hard",
       "tc1": "tc1",
       "tc2": "tc2",
       "tc3": "tc3",

@@ -77,6 +77,10 @@ class Coalition(CoalitionCombat, CampaignEvent):
             ocr = DALPtOcr(DAL_PT_OCR, name='OCR_PT', letter=(255, 213, 69), threshold=128)
         elif event == 'coalition_20260122':
             ocr = Digit(FASHION_PT_OCR, name='OCR_PT', letter=(41, 40, 40), threshold=128)
+        elif event == 'coalition_20260723':
+            # 本期尚未提供 PT 数值模板，保留任务运行并禁用 PT 上限判断。
+            logger.info('Mystery Record event does not support PT OCR, skip')
+            return 0
         else:
             logger.error(f'ocr object is not defined in event {event}')
             raise ScriptError
@@ -132,7 +136,10 @@ class Coalition(CoalitionCombat, CampaignEvent):
         部分活动出于 UI 设计考虑移除了燃油显示。
         参见: https://github.com/LmeSzinc/AzurLaneAutoScript/issues/5214
         """
-        if self.config.Campaign_Event == 'coalition_20260122':
+        if self.config.Campaign_Event in [
+            'coalition_20260122',
+            'coalition_20260723',
+        ]:
             return False
         return True
 
