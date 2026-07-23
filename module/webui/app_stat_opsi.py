@@ -1,7 +1,6 @@
 """WebUI 大世界统计视图。"""
 
 from module.webui.app_dependencies import (
-    alas_instance,
     current_time,
     put_button,
     put_html,
@@ -27,30 +26,68 @@ class OpsiStatisticsMixin(WebUIMixinBase):
     """WebUI 大世界统计视图。"""
 
     def _render_opsi_stats(self):
+        dependencies = self._load_opsi_stats_dependencies()
+        if dependencies is None:
+            return
+
+        (
+            instance_name,
+            summary,
+            cl1_db,
+            compute_monthly_cl1_akashi_ap,
+            get_ship_exp_stats,
+        ) = dependencies
+        exp_data = self._load_ship_exp_data(get_ship_exp_stats, instance_name)
+        if exp_data is None:
+            return
+
+        exp_stats, ships_data, target_level, last_check_time = exp_data
+        self._render_daily_exp_stats(
+            instance_name,
+            exp_stats,
+            ships_data,
+            target_level,
+            last_check_time,
+        )
+        labels, values, ap_bought = self._build_cl1_summary(
+            instance_name,
+            summary,
+            compute_monthly_cl1_akashi_ap,
+            get_ship_exp_stats,
+        )
+        meow_rows = self._build_meow_rows(cl1_db, instance_name)
+        self._render_opsi_summary(labels, values, ap_bought, meow_rows)
+
+    def _load_opsi_stats_dependencies(self):
         try:
             from module.statistics.opsi_month import (
                 get_opsi_stats,
                 compute_monthly_cl1_akashi_ap,
-                get_ap_timeline,
             )
             from module.statistics.cl1_database import db as cl1_db
             from module.statistics.ship_exp_stats import get_ship_exp_stats
 
-            # 使用当前实例名称获取统计数据，确保不为空
             instance_name = getattr(self, "alas_name", None)
             if not instance_name:
-                # 使用第一个可用的实例
                 from module.config.utils import alas_instance
 
                 all_instances = alas_instance()
                 instance_name = all_instances[0] if all_instances else None
-            s = get_opsi_stats(instance_name=instance_name).summary()
+            summary = get_opsi_stats(instance_name=instance_name).summary()
         except Exception as e:
             with use_scope("opsi_stats", clear=True):
                 put_text(t("Gui.Stat.LoadOpsiStatsFailed", e=e))
-            return
+            return None
 
-        # ====================每日经验检测====================
+        return (
+            instance_name,
+            summary,
+            cl1_db,
+            compute_monthly_cl1_akashi_ap,
+            get_ship_exp_stats,
+        )
+
+    def _load_ship_exp_data(self, get_ship_exp_stats, instance_name):
         try:
             exp_stats = get_ship_exp_stats(instance_name=instance_name)
             exp_data = exp_stats.data
@@ -60,8 +97,13 @@ class OpsiStatisticsMixin(WebUIMixinBase):
         except Exception as e:
             with use_scope("opsi_stats", clear=True):
                 put_text(t("Gui.Stat.LoadExpStatsFailed", e=e))
-            return
+            return None
 
+        return exp_stats, ships_data, target_level, last_check_time
+
+    def _render_daily_exp_stats(
+        self, instance_name, exp_stats, ships_data, target_level, last_check_time
+    ):
         with use_scope("opsi_stats", clear=True):
             put_html(build_title_block(t("Gui.Stat.DailyExpCheckTitle")))
             put_row(
@@ -114,22 +156,15 @@ class OpsiStatisticsMixin(WebUIMixinBase):
             else:
                 put_html(build_muted_notice(t("Gui.Stat.NoExpData")))
 
-        # ====================侵蚀1统计====================
-        labels = [
-            t("Gui.Stat.Month"),
-            t("Gui.Stat.BattleCount"),
-            t("Gui.Stat.BattleRounds"),
-            t("Gui.Stat.SortieCost"),
-            t("Gui.Stat.AkashiEncounters"),
-            t("Gui.Stat.AkashiRate"),
-            t("Gui.Stat.AverageAP"),
-            t("Gui.Stat.NetAP"),
-            t("Gui.Stat.LoopEfficiency"),
-            t("Gui.Stat.AvgBattleTimeHeader"),
-            t("Gui.Stat.AvgRoundTime"),
-        ]
-        month = s.get("month", "-")
-        total = s.get("total_battles", "-")
+    def _build_cl1_summary(
+        self,
+        instance_name,
+        summary,
+        compute_monthly_cl1_akashi_ap,
+        get_ship_exp_stats,
+    ):
+        month = summary.get("month", "-")
+        total = summary.get("total_battles", "-")
         try:
             tb = int(total)
             rounds = (tb + 1) // 2
@@ -139,7 +174,7 @@ class OpsiStatisticsMixin(WebUIMixinBase):
             rounds = "-"
             sortie_cost = "-"
 
-        akashi = s.get("akashi_encounters", 0)
+        akashi = summary.get("akashi_encounters", 0)
         try:
             ak = int(akashi)
         except Exception:
@@ -155,7 +190,7 @@ class OpsiStatisticsMixin(WebUIMixinBase):
             akashi_rate = "-"
 
         try:
-            siren_research = int(s.get("siren_research_devices", 0) or 0)
+            siren_research = int(summary.get("siren_research_devices", 0) or 0)
         except Exception:
             siren_research = 0
 
@@ -269,69 +304,71 @@ class OpsiStatisticsMixin(WebUIMixinBase):
             today_run_str,
         ]
 
+        return labels, values, ap_bought
+
+    def _build_meow_rows(self, cl1_db, instance_name):
+        meow_rows = []
+        try:
+            now = current_time()
+            for hazard_level in (3, 5):
+                meow_data = cl1_db.get_meow_stats(
+                    instance_name or "default",
+                    now.year,
+                    now.month,
+                    hazard_level=hazard_level,
+                )
+                meow_effective_rounds = float(
+                    meow_data.get("effective_rounds", 0) or 0
+                )
+                meow_rounds = round(meow_effective_rounds, 1)
+                if abs(meow_rounds - int(meow_rounds)) < 1e-6:
+                    meow_rounds = int(meow_rounds)
+
+                meow_avg_time = float(meow_data.get("avg_round_time", 0.0) or 0)
+                meow_avg_battle_time = float(
+                    meow_data.get("avg_battle_time", 0.0) or 0
+                )
+                siren_count = int(meow_data.get("siren_research_devices", 0) or 0)
+                siren_rate = float(meow_data.get("siren_research_rate", 0.0) or 0)
+
+                avg_time_str = (
+                    f"{meow_avg_time:.1f}{t('Gui.Stat.SecondUnit')}"
+                    if meow_avg_time > 0
+                    else "-"
+                )
+                avg_battle_time_str = (
+                    f"{meow_avg_battle_time:.1f}{t('Gui.Stat.SecondUnit')}"
+                    if meow_avg_battle_time > 0
+                    else "-"
+                )
+                siren_rate_str = (
+                    f"{siren_rate * 100:.2f}%" if meow_effective_rounds > 0 else "-"
+                )
+
+                meow_rows.append(
+                    [
+                        meow_data.get("month", "-"),
+                        hazard_level,
+                        int(meow_data.get("battle_count", 0) or 0),
+                        meow_rounds,
+                        avg_battle_time_str,
+                        avg_time_str,
+                        siren_count,
+                        siren_rate_str,
+                    ]
+                )
+        except Exception:
+            return []
+
+        return meow_rows
+
+    def _render_opsi_summary(self, labels, values, ap_bought, meow_rows):
         with use_scope("opsi_stats", clear=True):
             put_html(build_title_block(t("Gui.Stat.OpsiDataCollectionTitle")))
             put_row([put_text(t("Gui.Stat.MonthlyPurchasedAP", value=ap_bought))])
             put_html(build_simple_table(labels, [values]))
 
-            # 防缓存: 每次渲染生成唯一时间戳，确保前端不会复用旧表格 DOM。
             meow_refresh_token = int(time.time() * 1000)
-
-            # ========== 短猫统计数据 ==========
-            meow_rows = []
-            try:
-                from datetime import datetime
-
-                now = current_time()
-                for hazard_level in (3, 5):
-                    meow_data = cl1_db.get_meow_stats(
-                        instance_name or "default",
-                        now.year,
-                        now.month,
-                        hazard_level=hazard_level,
-                    )
-                    meow_effective_rounds = float(
-                        meow_data.get("effective_rounds", 0) or 0
-                    )
-                    meow_rounds = round(meow_effective_rounds, 1)
-                    if abs(meow_rounds - int(meow_rounds)) < 1e-6:
-                        meow_rounds = int(meow_rounds)
-
-                    meow_avg_time = float(meow_data.get("avg_round_time", 0.0) or 0)
-                    meow_avg_battle_time = float(
-                        meow_data.get("avg_battle_time", 0.0) or 0
-                    )
-                    siren_count = int(meow_data.get("siren_research_devices", 0) or 0)
-                    siren_rate = float(meow_data.get("siren_research_rate", 0.0) or 0)
-
-                    avg_time_str = (
-                        f"{meow_avg_time:.1f}{t('Gui.Stat.SecondUnit')}"
-                        if meow_avg_time > 0
-                        else "-"
-                    )
-                    avg_battle_time_str = (
-                        f"{meow_avg_battle_time:.1f}{t('Gui.Stat.SecondUnit')}"
-                        if meow_avg_battle_time > 0
-                        else "-"
-                    )
-                    siren_rate_str = (
-                        f"{siren_rate * 100:.2f}%" if meow_effective_rounds > 0 else "-"
-                    )
-
-                    meow_rows.append(
-                        [
-                            meow_data.get("month", "-"),
-                            hazard_level,
-                            int(meow_data.get("battle_count", 0) or 0),
-                            meow_rounds,
-                            avg_battle_time_str,
-                            avg_time_str,
-                            siren_count,
-                            siren_rate_str,
-                        ]
-                    )
-            except Exception:
-                meow_rows = []
 
             meow_labels = [
                 t("Gui.Stat.Month"),
@@ -354,7 +391,6 @@ class OpsiStatisticsMixin(WebUIMixinBase):
             put_html(f"<!-- meow-stats-refresh-token:{meow_refresh_token} -->")
             put_html(build_simple_table(meow_labels, meow_rows))
 
-            # ========== 短猫相接收获 ==========
             put_scope("meow_loot_scope")
 
             self._render_meowofficer_farming()

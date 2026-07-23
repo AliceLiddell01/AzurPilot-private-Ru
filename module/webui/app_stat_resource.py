@@ -1,7 +1,6 @@
 """WebUI 全资源趋势图视图。"""
 
 from module.webui.app_dependencies import (
-    alas_instance,
     datetime,
     json,
     put_button,
@@ -27,31 +26,36 @@ class ResourceStatisticsMixin(WebUIMixinBase):
     def _render_resource_chart(self):
         self.cleanup_client_resources("__resourceChartCleanups")
         try:
-            from module.statistics.opsi_month import get_resource_timeline
-
-            instance_name = getattr(self, "alas_name", None)
-            if not instance_name:
-                from module.config.utils import alas_instance
-
-                all_instances = alas_instance()
-                instance_name = all_instances[0] if all_instances else None
-
-            timeline = get_resource_timeline(instance_name=instance_name, limit=500)
+            timeline = self._load_resource_timeline()
         except Exception as e:
-            with use_scope("resource_chart", clear=True):
-                put_text(t("Gui.Stat.LoadResourceDataFailed", e=e))
+            self._show_resource_load_error(e)
             return
 
         if not timeline:
-            with use_scope("resource_chart", clear=True):
-                put_html(build_muted_notice(t("Gui.Stat.NoResourceData")))
-                put_button(
-                    t("Gui.Stat.Refresh"),
-                    onclick=self._render_resource_chart,
-                    color="off",
-                )
+            self._show_resource_no_data()
             return
 
+        labels, series_map = self._build_resource_series(timeline)
+        if not labels:
+            self._show_resource_no_valid_data()
+            return
+
+        html, js_code = self._build_resource_chart_content(labels, series_map)
+        self._output_resource_chart(html, js_code)
+
+    def _load_resource_timeline(self):
+        from module.statistics.opsi_month import get_resource_timeline
+
+        instance_name = getattr(self, "alas_name", None)
+        if not instance_name:
+            from module.config.utils import alas_instance
+
+            all_instances = alas_instance()
+            instance_name = all_instances[0] if all_instances else None
+
+        return get_resource_timeline(instance_name=instance_name, limit=500)
+
+    def _build_resource_series(self, timeline):
         labels = []
         series_map = {
             "Oil": {"name": t("Gui.Dashboard.Oil"), "color": "#ff8a65", "data": []},
@@ -123,11 +127,9 @@ class ResourceStatisticsMixin(WebUIMixinBase):
                 filled.append(prev)
             series_map[key]["data"] = filled
 
-        if not labels:
-            with use_scope("resource_chart", clear=True):
-                put_html(build_muted_notice(t("Gui.Stat.NoValidResourceData")))
-            return
+        return labels, series_map
 
+    def _build_resource_chart_content(self, labels, series_map):
         legend_html = ""
         stats_html = ""
         series_data = []
@@ -179,7 +181,27 @@ class ResourceStatisticsMixin(WebUIMixinBase):
             .replace("__CHART_ID__", chart_id)
             .replace("__CHART_TITLE__", t("Gui.Stat.ResourceChartTitle"))
         )
+        return html, js_code
 
+    def _show_resource_load_error(self, error):
+        with use_scope("resource_chart", clear=True):
+            put_text(t("Gui.Stat.LoadResourceDataFailed", e=error))
+
+    def _show_resource_no_data(self):
+        with use_scope("resource_chart", clear=True):
+            put_html(build_muted_notice(t("Gui.Stat.NoResourceData")))
+            put_button(
+                t("Gui.Stat.Refresh"),
+                onclick=self._render_resource_chart,
+                color="off",
+            )
+
+    def _show_resource_no_valid_data(self):
+        with use_scope("resource_chart", clear=True):
+            put_html(build_muted_notice(t("Gui.Stat.NoValidResourceData")))
+
+    @staticmethod
+    def _output_resource_chart(html, js_code):
         with use_scope("resource_chart", clear=True):
             put_html(html)
             run_js(js_code)
