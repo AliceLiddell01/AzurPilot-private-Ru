@@ -565,17 +565,34 @@ def _get_det_model(name):
         return _det_model_cache[key]
 
 
-def reset_ocr_model():
-    def _reset():
-        logger.info("Resetting OCR models")
-        for model in _model_cache.values():
-            close = getattr(model, "close", None)
-            if close is not None:
-                close()
-        _model_cache.clear()
-        _det_model_cache.clear()
+def release_ocr_models(names=None):
+    """在 OCR 工作线程中释放指定模型的全局缓存。"""
+    names = None if names is None else set(names)
 
-    return _run_ocr_queued(_reset)
+    def _release():
+        released = 0
+        for cache in (_model_cache, _det_model_cache):
+            keys = [key for key in cache if names is None or key[0] in names]
+            for key in keys:
+                model = cache.pop(key)
+                close = getattr(model, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception as exc:
+                        logger.warning("关闭 OCR 模型缓存失败: %s", exc)
+                released += 1
+
+        if released:
+            logger.info("已释放 %s 个 OCR 模型缓存", released)
+        return released
+
+    return _run_ocr_queued(_release)
+
+
+def reset_ocr_model():
+    logger.info("重置 OCR 模型")
+    return release_ocr_models()
 
 
 class AlOcr:
