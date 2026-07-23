@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 
 from module.logger import logger
@@ -12,6 +13,32 @@ QNN_NPU_DEVICE = "qnn_npu"
 OPENVINO_NPU_DEVICE = "openvino_npu"
 OPENVINO_GPU_DEVICE = "openvino_gpu"
 OPENVINO_CPU_DEVICE = "openvino_cpu"
+
+_MIN_DISCRETE_VIDEO_MEMORY_MIB = 1024
+_AMD_INTEGRATED_HD_MODELS = {
+    "6250",
+    "6290",
+    "6310",
+    "6320",
+    "6410d",
+    "6530d",
+    "6550d",
+    "7560d",
+    "7660d",
+}
+_AMD_INTEGRATED_VEGA_MODELS = {"3", "5", "6", "7", "8", "10", "11"}
+_AMD_INTEGRATED_RDNA_MODELS = {
+    "610m",
+    "660m",
+    "680m",
+    "740m",
+    "760m",
+    "780m",
+    "840m",
+    "860m",
+    "880m",
+    "890m",
+}
 
 _provider_lock = threading.Lock()
 _prepared_execution_providers = set()
@@ -195,7 +222,94 @@ def _vendor_execution_provider_names(device_preference):
 
 def _is_discrete_gpu(device):
     metadata = device.device.metadata
-    return str(metadata.get("Discrete", "")).lower() in ("1", "true")
+    discrete = metadata.get("Discrete")
+    if discrete is not None:
+        return str(discrete).lower() in ("1", "true")
+
+    # Windows 10 的部分驱动不会填充 Discrete。先排除已知核显名称，
+    # 再用 DXGI 专用显存确认其余设备，避免 GTX 1070 之类独显被漏掉。
+    name = _normalize_gpu_name(metadata.get("Description", ""))
+    if _is_known_integrated_gpu_name(name):
+        return False
+
+    video_memory_mib = _video_memory_mib(metadata.get("DxgiVideoMemory"))
+    return (
+        video_memory_mib is not None
+        and video_memory_mib >= _MIN_DISCRETE_VIDEO_MEMORY_MIB
+    )
+
+
+def _normalize_gpu_name(name):
+    name = str(name).lower()
+    name = name.replace("(r)", "").replace("(tm)", "")
+    return " ".join(name.split())
+
+
+def _is_known_integrated_gpu_name(name):
+    """根据 Windows 设备名识别没有 Discrete 元数据的常见核显。"""
+    if name.startswith(
+        (
+            "intel graphics media accelerator",
+            "intel gma ",
+            "intel hd graphics",
+            "intel iris graphics",
+            "intel iris plus graphics",
+            "intel iris pro graphics",
+            "intel iris xe graphics",
+            "intel uhd graphics",
+            "intel graphics",
+            "intel arc graphics",
+            "intel arc 130v",
+            "intel arc 140v",
+        )
+    ):
+        # Intel Iris Xe MAX 是独显，名称不会落入上述 Iris Xe Graphics 前缀。
+        return True
+
+    for prefix in ("amd ", "advanced micro devices, inc. "):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+
+    if name in {"radeon graphics", "radeon(tm) graphics"}:
+        return True
+    if re.fullmatch(r"radeon r[2-7] graphics", name):
+        return True
+    if re.fullmatch(
+        r"radeon hd (?:" + "|".join(_AMD_INTEGRATED_HD_MODELS) + r")(?: graphics)?",
+        name,
+    ):
+        return True
+    if re.fullmatch(
+        r"radeon vega (?:"
+        + "|".join(_AMD_INTEGRATED_VEGA_MODELS)
+        + r")(?: graphics)?",
+        name,
+    ):
+        return True
+    return bool(
+        re.fullmatch(
+            r"radeon (?:"
+            + "|".join(_AMD_INTEGRATED_RDNA_MODELS)
+            + r")(?: graphics)?",
+            name,
+        )
+    )
+
+
+def _video_memory_mib(value):
+    if value is None:
+        return None
+
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(MiB|MB|GiB|GB)?\s*", str(value))
+    if match is None:
+        return None
+
+    amount = float(match.group(1))
+    unit = (match.group(2) or "MiB").lower()
+    if unit in {"gib", "gb"}:
+        amount *= 1024
+    return int(amount)
 
 
 def _describe_device(device):
