@@ -502,8 +502,12 @@
         "value": "auto",
         "option": [
           "auto",
-          "cpu",
+          "qnn_npu",
+          "openvino_npu",
+          "openvino_gpu",
           "gpu",
+          "openvino_cpu",
+          "cpu",
           "ane"
         ]
       },
@@ -514,6 +518,14 @@
           "auto",
           "onnxruntime",
           "ncnn"
+        ]
+      },
+      "OcrWindowsMlVendorEp": {
+        "type": "checkbox",
+        "value": true,
+        "option": [
+          true,
+          false
         ]
       },
       "OcrModelVersionEnglish": {

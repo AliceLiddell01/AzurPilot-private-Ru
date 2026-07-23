@@ -108,6 +108,7 @@
     "Optimization": {
       "OcrDevice": "auto",
       "OcrBackend": "auto",
+      "OcrWindowsMlVendorEp": true,
       "OcrModelVersionEnglish": "auto",
       "OcrModelVersionChinese": "auto",
       "OcrModelVersionJapanese": "auto",

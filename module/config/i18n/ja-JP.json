@@ -737,10 +737,14 @@
     },
     "OcrDevice": {
       "name": "OCR デバイス",
-      "help": "OCR デバイスを選択します。GPU は Windows DirectML、ANE は macOS Apple Neural Engine です。自動：Apple Silicon Mac は ANE、Windows VRAM > 1GB は GPU、それ以外は CPU。",
+      "help": "OCR 推論デバイスを選択します。\n自動では Windows は QNN NPU、OpenVINO NPU、OpenVINO 専用 GPU、DirectML 専用 GPU、OpenVINO CPU、CPU の順に試行します。「ベンダー EP を自動インストールして使用」を無効にすると、DirectML 専用 GPU と CPU のみ試行します。\nQNN/OpenVINO デバイスは ONNX Runtime 専用です。ANE は Apple Silicon Mac 専用です。",
       "auto": "自動",
+      "qnn_npu": "QNN NPU",
+      "openvino_npu": "OpenVINO NPU",
+      "openvino_gpu": "OpenVINO 専用 GPU",
+      "gpu": "DirectML 専用 GPU",
+      "openvino_cpu": "OpenVINO CPU",
       "cpu": "CPU",
-      "gpu": "GPU",
       "ane": "ANE (Apple)"
     },
     "OcrBackend": {
@@ -749,6 +753,12 @@
       "auto": "自動 (onnxruntime)",
       "onnxruntime": "ONNX Runtime",
       "ncnn": "ncnn (Vulkan)"
+    },
+    "OcrWindowsMlVendorEp": {
+      "name": "ベンダー EP を自動インストールして使用",
+      "help": "Windows ML が Windows Update を通じて QNN/OpenVINO 実行プロバイダーをダウンロードして使用することを許可します。",
+      "True": "有効",
+      "False": "無効"
     },
     "OcrModelVersionEnglish": {
       "name": "OCR 英語モデルバージョン",

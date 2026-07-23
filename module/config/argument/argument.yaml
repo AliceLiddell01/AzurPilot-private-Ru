@@ -198,10 +198,14 @@ Error:
 Optimization:
   OcrDevice:
     value: auto
-    option: [auto, cpu, gpu, ane]
+    option: [auto, qnn_npu, openvino_npu, openvino_gpu, gpu, openvino_cpu, cpu, ane]
   OcrBackend:
     value: auto
     option: [auto, onnxruntime, ncnn]
+  OcrWindowsMlVendorEp:
+    type: checkbox
+    value: true
+    option: [true, false]
   OcrModelVersionEnglish:
     value: auto
     option:
