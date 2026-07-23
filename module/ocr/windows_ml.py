@@ -226,17 +226,17 @@ def _is_discrete_gpu(device):
     if discrete is not None:
         return str(discrete).lower() in ("1", "true")
 
-    # Windows 10 的部分驱动不会填充 Discrete。先排除已知核显名称，
-    # 再用 DXGI 专用显存确认其余设备，避免 GTX 1070 之类独显被漏掉。
+    # Windows 10 的部分驱动不会填充 Discrete。先排除已知核显和软件适配器，
+    # 再用 DXGI 专用显存确认其余设备；缺少显存元数据时仍放行未知名称，
+    # 避免 GTX 1070 之类独显被漏掉。
     name = _normalize_gpu_name(metadata.get("Description", ""))
-    if _is_known_integrated_gpu_name(name):
+    if _is_known_integrated_gpu_name(name) or _is_software_gpu_name(name):
         return False
 
     video_memory_mib = _video_memory_mib(metadata.get("DxgiVideoMemory"))
-    return (
-        video_memory_mib is not None
-        and video_memory_mib >= _MIN_DISCRETE_VIDEO_MEMORY_MIB
-    )
+    if video_memory_mib is None:
+        return True
+    return video_memory_mib >= _MIN_DISCRETE_VIDEO_MEMORY_MIB
 
 
 def _normalize_gpu_name(name):
@@ -293,6 +293,16 @@ def _is_known_integrated_gpu_name(name):
             + "|".join(_AMD_INTEGRATED_RDNA_MODELS)
             + r")(?: graphics)?",
             name,
+        )
+    )
+
+
+def _is_software_gpu_name(name):
+    return name.startswith(
+        (
+            "microsoft basic render driver",
+            "microsoft remote display adapter",
+            "remote display adapter",
         )
     )
 
