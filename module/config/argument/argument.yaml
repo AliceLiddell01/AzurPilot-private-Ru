@@ -588,7 +588,7 @@ MaritimeEscort:
 Coalition:
   Mode:
     value: hard
-    option: [ easy, normal, hard, tc1, tc2, tc3, sp, ex ]
+    option: [ easy, normal, hard, sp, ex ]
   Fleet:
     value: single
     option: [ single, multi ]

@@ -326,7 +326,7 @@ class GeneratedConfig:
     MaritimeEscort_Enable = True
 
     # 配置组 `Coalition`
-    Coalition_Mode = 'hard'  # easy, normal, hard, tc1, tc2, tc3, sp, ex
+    Coalition_Mode = 'hard'  # easy, normal, hard, sp, ex
     Coalition_Fleet = 'single'  # single, multi
 
     # 配置组 `EventShop`

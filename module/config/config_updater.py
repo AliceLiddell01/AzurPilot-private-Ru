@@ -724,15 +724,14 @@ class ConfigUpdater:
         for task in COALITIONS:
             default_stage(task, 'TC-3')
 
-        # 怪谈纪实活动沿用简单、普通、困难的关卡命名。
-        # 联动任务共用 Coalition.Mode，旧配置中的 TC-1/2/3 需要在切换活动后迁移。
+        # 联动任务统一使用简单、普通、困难的关卡命名。
+        # 旧配置中的 TC-1/2/3 在加载时迁移，霜落活动会在运行时转换回内部编号。
         if not is_template:
             for task in COALITIONS:
-                if deep_get(new, keys=f'{task}.Campaign.Event') == 'coalition_20260723':
-                    stage_key = f'{task}.Coalition.Mode'
-                    stage = deep_get(new, keys=stage_key)
-                    stage = coalition_to_little_academy(stage)
-                    deep_set(new, keys=stage_key, value=stage)
+                stage_key = f'{task}.Coalition.Mode'
+                stage = deep_get(new, keys=stage_key)
+                stage = coalition_to_little_academy(stage)
+                deep_set(new, keys=stage_key, value=stage)
 
         if not is_template:
             new = self.config_redirect(old, new)

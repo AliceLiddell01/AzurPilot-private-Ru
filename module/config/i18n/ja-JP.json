@@ -1848,14 +1848,11 @@
     "Mode": {
       "name": "難易度",
       "help": "SPステージはイベントデイリーSPで実行する必要があります",
-      "easy": "easy",
-      "normal": "normal",
-      "hard": "hard",
-      "tc1": "tc1",
-      "tc2": "tc2",
-      "tc3": "tc3",
-      "sp": "sp",
-      "ex": "ex"
+      "easy": "簡単",
+      "normal": "普通",
+      "hard": "困難",
+      "sp": "SP",
+      "ex": "EX"
     },
     "Fleet": {
       "name": "出撃艦隊",

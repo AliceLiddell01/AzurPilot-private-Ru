@@ -1848,14 +1848,11 @@
     "Mode": {
       "name": "Difficulty",
       "help": "SP map requires running the daily SP mission first",
-      "easy": "easy",
-      "normal": "normal",
-      "hard": "hard",
-      "tc1": "tc1",
-      "tc2": "tc2",
-      "tc3": "tc3",
+      "easy": "Easy",
+      "normal": "Normal",
+      "hard": "Hard",
       "sp": "SP",
-      "ex": "ex"
+      "ex": "EX"
     },
     "Fleet": {
       "name": "attack team",

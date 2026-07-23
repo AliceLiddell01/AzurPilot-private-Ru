@@ -1848,14 +1848,11 @@
     "Mode": {
       "name": "难度喵",
       "help": "SP图需用活动每日SP运行喵。 (´・ω・`)",
-      "easy": "easy",
-      "normal": "normal",
-      "hard": "hard",
-      "tc1": "tc1",
-      "tc2": "tc2",
-      "tc3": "tc3",
-      "sp": "sp喵",
-      "ex": "ex"
+      "easy": "简单喵",
+      "normal": "普通喵",
+      "hard": "困难喵",
+      "sp": "SP喵",
+      "ex": "EX喵"
     },
     "Fleet": {
       "name": "出击队伍模式",
