@@ -672,6 +672,7 @@ class AlasGUI(Frame):
             self._ap_chart_view = "line"
 
         def _render_ap_chart():
+            self.cleanup_client_resources("__apChartCleanups")
             try:
                 from module.statistics.opsi_month import (
                     get_ap_timeline,
@@ -1346,6 +1347,7 @@ class AlasGUI(Frame):
 
         # ========== 全资源趋势图 ==========
         def _render_resource_chart():
+            self.cleanup_client_resources("__resourceChartCleanups")
             try:
                 from module.statistics.opsi_month import get_resource_timeline
 
