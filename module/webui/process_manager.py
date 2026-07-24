@@ -124,15 +124,23 @@ class ProcessManager:
                 if process is not None and process.is_alive()
                 else self._registered_pid()
             )
+            stopped = pid is None
             if pid is not None:
-                self._kill_process_tree(pid)
                 if process is not None:
+                    process.kill()
                     process.join(timeout=3)
-                self.renderables.append(
-                    Text(f"[{self.config_name}] exited. Reason: Manual stop\n")
-                )
-            self._process = None
-            self._unregister_process()
+                    stopped = not process.is_alive()
+                else:
+                    stopped = self._kill_process_tree(pid)
+            if stopped:
+                self._process = None
+                self._unregister_process()
+                if pid is not None:
+                    self.renderables.append(
+                        Text(f"[{self.config_name}] exited. Reason: Manual stop\n")
+                    )
+            else:
+                logger.error(f"[{self.config_name}] failed to stop worker PID {pid}")
             log_queue_handler = self.thd_log_queue_handler
             if log_queue_handler is not None:
                 log_queue_handler.join(timeout=1)
@@ -143,33 +151,43 @@ class ProcessManager:
         logger.info(f"[{self.config_name}] exited")
 
     @staticmethod
-    def _kill_process_tree(pid: int) -> None:
-        """Terminate a worker and all of its child processes."""
+    def _kill_process_tree(pid: int) -> bool:
+        """终止 worker 及其派生进程，避免关闭 WebUI 后任务留在后台。"""
         if os.name == "nt":
             try:
-                subprocess.run(
+                result = subprocess.run(
                     ["taskkill", "/PID", str(pid), "/T", "/F"],
                     check=False,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    timeout=3,
                 )
-            except OSError:
-                os.kill(pid, 9)
-            return
+                return result.returncode == 0
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                logger.warning(f"Failed to stop worker PID {pid}: {exc}")
+                try:
+                    os.kill(pid, 9)
+                except (PermissionError, ProcessLookupError):
+                    return not ProcessManager._pid_exists(pid)
+                return not ProcessManager._pid_exists(pid)
+        else:
+            try:
+                import psutil
 
-        try:
-            import psutil
-
-            parent = psutil.Process(pid)
-            for child in reversed(parent.children(recursive=True)):
-                child.kill()
-        except (ImportError, OSError):
-            pass
+                parent = psutil.Process(pid)
+                for child in reversed(parent.children(recursive=True)):
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+            except (ImportError, psutil.Error if "psutil" in locals() else OSError):
+                pass
         try:
             os.kill(pid, 9)
         except ProcessLookupError:
-            pass
+            return True
+        return not ProcessManager._pid_exists(pid)
 
     @staticmethod
     def _pid_exists(pid: int) -> bool:

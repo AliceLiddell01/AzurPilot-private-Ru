@@ -31,8 +31,17 @@ class TestProcessManagerRegistry(unittest.TestCase):
         State.process_registry["alas"] = 12345
         manager = ProcessManager.get_manager("alas")
 
-        with patch.object(ProcessManager, "_kill_process_tree") as kill:
+        with patch.object(ProcessManager, "_kill_process_tree", return_value=True) as kill:
             manager.stop()
 
         kill.assert_called_once_with(12345)
         self.assertNotIn("alas", State.process_registry)
+
+    def test_failed_cross_session_stop_keeps_worker_registered(self):
+        State.process_registry["alas"] = 12345
+        manager = ProcessManager.get_manager("alas")
+
+        with patch.object(ProcessManager, "_kill_process_tree", return_value=False):
+            manager.stop()
+
+        self.assertEqual(12345, State.process_registry["alas"])
