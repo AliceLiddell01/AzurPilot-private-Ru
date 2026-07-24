@@ -5,6 +5,7 @@ import argparse
 from collections.abc import Sequence
 import os
 import queue
+import subprocess
 import threading
 import time
 from multiprocessing import Process
@@ -97,6 +98,7 @@ class ProcessManager:
             )
             self._process = process
             process.start()
+            self._register_process(process.pid)
             self.start_log_queue_handler()
 
     def start_log_queue_handler(self) -> None:
@@ -117,11 +119,20 @@ class ProcessManager:
 
         with lock:
             process = self._process
-            if process is not None and process.is_alive():
-                process.kill()
+            pid = (
+                process.pid
+                if process is not None and process.is_alive()
+                else self._registered_pid()
+            )
+            if pid is not None:
+                self._kill_process_tree(pid)
+                if process is not None:
+                    process.join(timeout=3)
                 self.renderables.append(
                     Text(f"[{self.config_name}] exited. Reason: Manual stop\n")
                 )
+            self._process = None
+            self._unregister_process()
             log_queue_handler = self.thd_log_queue_handler
             if log_queue_handler is not None:
                 log_queue_handler.join(timeout=1)
@@ -130,6 +141,63 @@ class ProcessManager:
                         "Log queue handler thread does not stop within 1 seconds"
                     )
         logger.info(f"[{self.config_name}] exited")
+
+    @staticmethod
+    def _kill_process_tree(pid: int) -> None:
+        """Terminate a worker and all of its child processes."""
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except OSError:
+                os.kill(pid, 9)
+            return
+
+        try:
+            import psutil
+
+            parent = psutil.Process(pid)
+            for child in reversed(parent.children(recursive=True)):
+                child.kill()
+        except (ImportError, OSError):
+            pass
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+
+    @staticmethod
+    def _pid_exists(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _registered_pid(self) -> int | None:
+        registry = State.process_registry
+        if registry is None:
+            return None
+        try:
+            pid = registry.get(self.config_name)
+            return int(pid) if pid is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _register_process(self, pid: int | None) -> None:
+        if pid is not None and State.process_registry is not None:
+            State.process_registry[self.config_name] = pid
+
+    def _unregister_process(self) -> None:
+        if State.process_registry is not None:
+            State.process_registry.pop(self.config_name, None)
 
     def _thread_log_queue_handler(self) -> None:
         while self.alive:
@@ -145,7 +213,14 @@ class ProcessManager:
     @property
     def alive(self) -> bool:
         process = self._process
-        return process is not None and process.is_alive()
+        if process is not None and process.is_alive():
+            return True
+        pid = self._registered_pid()
+        if pid is not None and self._pid_exists(pid):
+            return True
+        if pid is not None:
+            self._unregister_process()
+        return False
 
     @property
     def state(self) -> int:
@@ -322,11 +397,10 @@ class ProcessManager:
 
     @classmethod
     def running_instances(cls) -> List["ProcessManager"]:
-        l = []
-        for process in cls._processes.values():
-            if process.alive:
-                l.append(process)
-        return l
+        names = set(cls._processes)
+        if State.process_registry is not None:
+            names.update(State.process_registry.keys())
+        return [cls.get_manager(name) for name in names if cls.get_manager(name).alive]
 
     @staticmethod
     def restart_processes(
