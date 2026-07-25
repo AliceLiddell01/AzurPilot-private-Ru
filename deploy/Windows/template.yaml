@@ -19,10 +19,6 @@ Deploy:
     # [In most cases] Use true
     # [Other] Use false to when connected to an untrusted network
     SSLVerify: true
-    # Update AzurPilot at startup
-    # [In most cases] Use true
-    AutoUpdate: true
-
   Python:
     # Filepath of python executable `python.exe`
     # [Other] Use you own python, and its version should be 3.14.x 64bit
@@ -124,8 +120,8 @@ Deploy:
 
   Webui:
     # --host. Host to listen
-    # [IPv4/IPv6 双栈] '::'
-    # [IPv4/IPv6 dual stack] '::'
+    # [0.0.0.0 或 :: 均支持 IPv4/IPv6 双栈]
+    # [Both 0.0.0.0 and :: support IPv4/IPv6 dual stack]
     # [In most cases] Default to '0.0.0.0'
     WebuiHost: 0.0.0.0
     # --port. Port to listen
