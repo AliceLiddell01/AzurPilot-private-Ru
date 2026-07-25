@@ -126,12 +126,10 @@ class ProcessManager:
             )
             stopped = pid is None
             if pid is not None:
+                stopped = self._kill_process_tree(pid)
                 if process is not None:
-                    process.kill()
                     process.join(timeout=3)
-                    stopped = not process.is_alive()
-                else:
-                    stopped = self._kill_process_tree(pid)
+                    stopped = stopped and not process.is_alive()
             if stopped:
                 self._process = None
                 self._unregister_process()
@@ -187,7 +185,7 @@ class ProcessManager:
             os.kill(pid, 9)
         except ProcessLookupError:
             return True
-        return not ProcessManager._pid_exists(pid)
+        return ProcessManager._wait_pid_exit(pid, timeout=3)
 
     @staticmethod
     def _pid_exists(pid: int) -> bool:
@@ -198,6 +196,15 @@ class ProcessManager:
         except PermissionError:
             return True
         return True
+
+    @staticmethod
+    def _wait_pid_exit(pid: int, timeout: float) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not ProcessManager._pid_exists(pid):
+                return True
+            time.sleep(0.1)
+        return not ProcessManager._pid_exists(pid)
 
     def _registered_pid(self) -> int | None:
         registry = State.process_registry
