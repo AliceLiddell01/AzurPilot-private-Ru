@@ -357,7 +357,7 @@ class ProcessManager:
                 _instances.add(instance)
 
         try:
-            with open("./config/reloadalas", mode="r") as f:
+            with open("./config/reloadalas", mode="r", encoding="utf-8") as f:
                 for line in f.readlines():
                     line = line.strip()
                     _instances.add(ProcessManager.get_manager(line))
