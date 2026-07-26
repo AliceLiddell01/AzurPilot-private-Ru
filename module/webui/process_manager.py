@@ -223,7 +223,7 @@ class ProcessManager:
                 stopped = self._unregister_process()
                 if stopped and pid is not None:
                     self.renderables.append(
-                        Text(f"[{self.config_name}] 已退出。原因：手动停止\n")
+                        Text(f"[{self.config_name}] exited. Reason: Manual stop\n")
                     )
             if not stopped:
                 logger.error(f"[{self.config_name}] 停止工作进程失败 PID {pid}")
@@ -695,9 +695,9 @@ class ProcessManager:
                     f"[WebUI] 杂鱼大叔，连功能模块都找不到吗？{func} 这种东西根本不存在啦~"
                 )
             if e is not None and e.is_set():
-                logger.info(f"[{config_name}] 已退出。原因：更新\n")
+                logger.info(f"[{config_name}] exited. Reason: Update\n")
             else:
-                logger.info(f"[{config_name}] 已退出。原因：完成\n")
+                logger.info(f"[{config_name}] exited. Reason: Finish\n")
         except Exception as ex:
             logger.exception(ex)
 
