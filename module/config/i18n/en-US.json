@@ -111,7 +111,7 @@
       "help": "Farm affinity by having ships sunk in Coalition events. Recommend sortie with multiple fleets; the first fleet sinks. Refer to tutorials for details."
     },
     "MaritimeEscort": {
-      "name": "Merchant Ship Escort",
+      "name": "Trade Convoy Plus",
       "help": ""
     },
     "EventShop": {
@@ -155,11 +155,11 @@
       "help": ""
     },
     "Tactical": {
-      "name": "Tactical Academy",
+      "name": "Tactical Class Plus",
       "help": ""
     },
     "Research": {
-      "name": "Research",
+      "name": "Research Lab Plus",
       "help": ""
     },
     "Dorm": {
@@ -191,7 +191,7 @@
       "help": ""
     },
     "Exercise": {
-      "name": "Exercise",
+      "name": "Exercises Plus",
       "help": ""
     },
     "ShopFrequent": {
@@ -403,7 +403,16 @@
       "help": "Provides an entry point for manually restarting the emulator."
     },
     "BattlePass": {
-      "name": "Battle Pass Plus"
+      "name": "Battle Pass Plus",
+      "help": ""
+    },
+    "CoreShop": {
+      "name": "Core Shop Plus",
+      "help": ""
+    },
+    "MeowfficerTrain": {
+      "name": "Meowfficer Training Plus",
+      "help": ""
     }
   },
   "Scheduler": {
@@ -1001,8 +1010,8 @@
   },
   "OneClickRetire": {
     "_info": {
-      "name": "One-click retirement settings",
-      "help": "Only takes effect when \"Retirement Mode\" is set to \"One-click retirement\""
+      "name": "Quick Retire Settings",
+      "help": "Only takes effect when \"Retirement Mode\" is set to \"Quick Retire\""
     },
     "KeepLimitBreak": {
       "name": "Keep the star-filled ship with the same name",
@@ -1845,11 +1854,11 @@
   },
   "MaritimeEscort": {
     "_info": {
-      "name": "Merchant Escort",
+      "name": "Trade Convoy",
       "help": "Enter and immediately retreat, can earn about 70% of the rewards"
     },
     "Enable": {
-      "name": "Enable Merchant Escort",
+      "name": "Enable Trade Convoy",
       "help": ""
     }
   },
@@ -1952,7 +1961,7 @@
   },
   "Tactical": {
     "_info": {
-      "name": "Tactics Academy",
+      "name": "Tactical Class",
       "help": ""
     },
     "TacticalFilter": {
@@ -2021,7 +2030,7 @@
   },
   "Research": {
     "_info": {
-      "name": "Research",
+      "name": "Research Lab",
       "help": "When filters work with other settings, AzurPilot looks for items that satisfy all user settings simultaneously.\nFor example, if you set the research filter to `H1 > D2.5 > shortest` (including research that consumes cubes), but also set it not to allow cube consumption, the final result is that AzurPilot will not select research that consumes cubes. When you suddenly want to use cubes, you only need to enable cube consumption without modifying the filter, which is more convenient."
     },
     "UseCube": {
@@ -2509,7 +2518,7 @@
   },
   "CoreShop": {
     "_info": {
-      "name": "Core Data Exchange",
+      "name": "Core Shop",
       "help": ""
     },
     "Enable": {
@@ -2743,7 +2752,7 @@
       "help": "After getting S rank on the daily stage, sweep is unlocked. If not unlocked, it will automatically fall back to the traditional sortie."
     },
     "EscortMission": {
-      "name": "Escort Mission (Parts, Torpedo)",
+      "name": "Trade Convoy (Parts, Torpedo)",
       "help": "",
       "skip": "Skip",
       "first": "First",
@@ -2751,7 +2760,7 @@
       "third": "Third"
     },
     "EscortMissionFleet": {
-      "name": "Escort Mission sortie fleet",
+      "name": "Trade Convoy sortie fleet",
       "help": "",
       "1": "1",
       "2": "2",
@@ -2875,7 +2884,7 @@
   },
   "Exercise": {
     "_info": {
-      "name": "Exercise",
+      "name": "Exercises",
       "help": "Run Exercise, automatically retreat when HP is too low"
     },
     "DelayUntilHoursBeforeNextUpdate": {
@@ -3419,7 +3428,7 @@
       "help": "Operation Siren smart scheduling function, used to coordinate switching between Corrosion 1 Leveling and yellow coin replenishment tasks.\nOnce enabled, it will automatically switch between different tasks and send push notifications based on coins and Action Points.\n\nSome safety restrictions of the original AzurPilot have been lifted, please set parameters carefully"
     },
     "UseSmartSchedulingOperationCoinsPreserve": {
-      "name": "Reserve X Operation Supply Tokens",
+      "name": "Reserve X Operation Supply Coins",
       "help": "When enabled, will use the 'Obtain X Combat Supply Vouchers' configuration below. When disabled, will use the Corrosion 1 Leveling yellow coin retention configuration.\nWhen disabled, Action Points are used for control.\nWhen enabled, yellow coins are used for control.",
       "True": "Enabled",
       "False": "Disabled"
@@ -3433,7 +3442,7 @@
       "help": "Stop when Action Points are lower than X, and automatically open AP boxes. X includes AP in boxes. It is recommended to preserve 1000 AP for Corrosion 1 Leveling."
     },
     "OperationCoinsReturnThreshold": {
-      "name": "Return When Supply Tokens Below X",
+      "name": "Return When Supply Coins Below X",
       "help": "During the yellow coin acquisition task, obtain (increase) X Combat Supply Vouchers in total, then return to Corrosion 1 Leveling."
     },
     "EnableMeowfficerFarming": {
