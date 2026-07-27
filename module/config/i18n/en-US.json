@@ -401,18 +401,6 @@
     "EmulatorManager": {
       "name": "Emulator Manager",
       "help": "Provides an entry point for manually restarting the emulator."
-    },
-    "BattlePass": {
-      "name": "Battle Pass Plus",
-      "help": ""
-    },
-    "CoreShop": {
-      "name": "Core Shop Plus",
-      "help": ""
-    },
-    "MeowfficerTrain": {
-      "name": "Meowfficer Training Plus",
-      "help": ""
     }
   },
   "Scheduler": {
@@ -3472,10 +3460,6 @@
     "TaskPriority": {
       "name": "Replenishment Task Priority",
       "help": "The priority order of tasks for yellow coin replenishment when they are insufficient. Separated by >."
-    },
-    "APreserveUntilReset": {
-      "name": "Force Consume Action Points at Month-End Reset",
-      "help": "Auto-set reserved action points to 0 and consume remaining action points before Operation Siren reset\nRecommended to use with Corrosion 1 Leveling"
     }
   },
   "OpsiPreventActionPointOverflow": {

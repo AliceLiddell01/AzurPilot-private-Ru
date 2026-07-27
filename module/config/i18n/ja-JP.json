@@ -401,18 +401,6 @@
     "EmulatorManager": {
       "name": "エミュレータマネージャー",
       "help": "エミュレータを手動で再起動するためのエントリポイントを提供します。"
-    },
-    "MeowfficerTrain": {
-      "name": "オフニャ訓練Plus",
-      "help": ""
-    },
-    "BattlePass": {
-      "name": "シーズンパスPlus",
-      "help": ""
-    },
-    "CoreShop": {
-      "name": "コアショップPlus",
-      "help": ""
     }
   },
   "Scheduler": {
@@ -3472,10 +3460,6 @@
     "TaskPriority": {
       "name": "作戦コイン補充優先度",
       "help": "作戦コイン（黄）が不足している場合、作戦コイン補充任務の実行優先順位。> で区切ります。"
-    },
-    "APreserveUntilReset": {
-      "name": "月末リセット時に行動力を強制消費",
-      "help": "セイレーン作戦リセット前に、保留行動力を自動的に0に設定し、残余行動力を消費します。侵蝕1レベリングとの併用を推奨します。"
     }
   },
   "OpsiPreventActionPointOverflow": {

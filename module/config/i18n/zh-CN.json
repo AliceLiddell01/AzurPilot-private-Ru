@@ -401,18 +401,6 @@
     "EmulatorManager": {
       "name": "模拟器管理器",
       "help": "提供手动重启模拟器的入口"
-    },
-    "BattlePass": {
-      "name": "大月卡Plus",
-      "help": ""
-    },
-    "CoreShop": {
-      "name": "核心兑换Plus",
-      "help": ""
-    },
-    "MeowfficerTrain": {
-      "name": "指挥喵训练Plus",
-      "help": ""
     }
   },
   "Scheduler": {

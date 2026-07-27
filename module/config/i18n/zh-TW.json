@@ -401,18 +401,6 @@
     "EmulatorManager": {
       "name": "模擬器管理器",
       "help": "提供手動重啟模擬器的入口"
-    },
-    "BattlePass": {
-      "name": "大月卡Plus",
-      "help": ""
-    },
-    "CoreShop": {
-      "name": "核心兌換Plus",
-      "help": ""
-    },
-    "MeowfficerTrain": {
-      "name": "指揮喵訓練Plus",
-      "help": ""
     }
   },
   "Scheduler": {
@@ -1092,7 +1080,7 @@
       "event_20200326_cn": "Microlayer Medley",
       "event_20200423_cn": "Crimson Echoes Rerun",
       "event_20200507_cn": "The Way Home in the Night",
-      "event_20200521_cn": "穹頂下的聖詠曲",
+      "event_20200521_cn": "穹顶下的圣咏曲",
       "event_20200521_en": "Iris of Light and Dark Rerun",
       "event_20200603_cn": "復刻峽灣間的反擊",
       "event_20200603_en": "Prelude under the Moon Rerun",
@@ -1146,7 +1134,7 @@
       "event_20230803_cn": "奏響鳶尾之歌",
       "event_20230817_cn": "愚者的天平",
       "event_20230914_cn": "須臾望月抄",
-      "event_20231026_cn": "颶風與青春之泉",
+      "event_20231026_cn": "飓風與青春之泉",
       "event_20231123_cn": "蒼閃忍法帖",
       "event_20231221_cn": "星海逐光",
       "event_20240229_cn": "雪境迷蹤",
@@ -1171,7 +1159,7 @@
       "event_20260326_cn": "漫遊者招募計劃",
       "event_20260417_cn": "假日航線閃耀海濱",
       "event_20260520_cn": "聖印前的同盟",
-      "event_20260625_cn": "美夢巡演奇妙夜",
+      "event_20260625_cn": "美夢巡演奇秒夜",
       "raid_20200624": "特別演習埃塞克斯級(復刻)",
       "raid_20210708": "復刻穿越彼方的水線",
       "raid_20220127": "演習神秘事件調查",
@@ -1229,7 +1217,7 @@
       "war_archives_20230223_cn": "檔案 湮燼塵墟",
       "war_archives_20230525_cn": "檔案 空相交會點",
       "war_archives_20230803_cn": "檔案 奏響鳶尾之歌",
-      "war_archives_20231026_cn": "檔案 颶風與青春之泉",
+      "war_archives_20231026_cn": "檔案 飓風與青春之泉",
       "war_archives_20240725_cn": "檔案 幻夢間奏曲"
     },
     "Mode": {

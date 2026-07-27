@@ -401,18 +401,6 @@
     "EmulatorManager": {
       "name": "模拟器管理器",
       "help": "提供手动重启模拟器的入口喵~ (=^･ω･^=)"
-    },
-    "BattlePass": {
-      "name": "大月卡喵",
-      "help": "领取大月卡奖励喵~ (´・ω・`)"
-    },
-    "CoreShop": {
-      "name": "核心兑换喵",
-      "help": "到核心商店兑换需要的物品喵~ (・ω・)"
-    },
-    "MeowfficerTrain": {
-      "name": "指挥喵训练喵",
-      "help": "安排指挥喵训练，别让小猫偷懒喵~ (=^･ω･^=)"
     }
   },
   "Scheduler": {
