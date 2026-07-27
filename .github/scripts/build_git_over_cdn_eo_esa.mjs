@@ -6,6 +6,10 @@ import { spawn, spawnSync } from "node:child_process";
 import yazl from "yazl";
 
 const env = process.env;
+const MAIN_SITE_URL = "https://alas.nanoda.work/";
+const MAIN_SITE_HOST = "alas.nanoda.work";
+const SEO_TITLE = "AzurPilot 更新 CDN - 碧蓝航线自动化更新镜像";
+const SEO_DESCRIPTION = "AzurPilot 更新 CDN 提供 Git over CDN 静态更新文件、latest.json、更新包状态与最近提交信息，主站为 https://alas.nanoda.work/。";
 
 function printHelp() {
   console.log(`构建 EO/ESA/Pages 可用的 git-over-cdn 静态更新文件。
@@ -301,6 +305,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function escapeScriptJson(value) {
+  return String(value).replaceAll("<", "\\u003c");
+}
+
 function shortCommit(commit) {
   return commit.slice(0, 8);
 }
@@ -348,6 +356,20 @@ function writeIndexHtml(outputDir, options, latest, oldCommits, commitInfos) {
   const generatedAtTimestamp = Date.now();
   const generatedAt = new Date(generatedAtTimestamp).toISOString();
   const commitAge = formatDuration(generatedAtTimestamp - latestCommitInfo.committedAtTimestamp);
+  const structuredData = escapeScriptJson(JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: SEO_TITLE,
+    description: SEO_DESCRIPTION,
+    isPartOf: {
+      "@type": "WebSite",
+      name: "AzurPilot",
+      url: MAIN_SITE_URL,
+    },
+    about: "AzurPilot Git over CDN 更新镜像",
+    relatedLink: MAIN_SITE_URL,
+    dateModified: generatedAt,
+  }, null, 2));
   const packRows = oldCommits.map((commit) => {
     const filename = `${latest}/${commit}.zip`;
     return `
@@ -373,7 +395,21 @@ function writeIndexHtml(outputDir, options, latest, oldCommits, commitInfos) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AzurPilot 更新 CDN</title>
+  <title>${escapeHtml(SEO_TITLE)}</title>
+  <meta name="description" content="${escapeHtml(SEO_DESCRIPTION)}">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="${escapeHtml(MAIN_SITE_URL)}">
+  <link rel="home" href="${escapeHtml(MAIN_SITE_URL)}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="AzurPilot">
+  <meta property="og:title" content="${escapeHtml(SEO_TITLE)}">
+  <meta property="og:description" content="${escapeHtml(SEO_DESCRIPTION)}">
+  <meta property="og:url" content="${escapeHtml(MAIN_SITE_URL)}">
+  <meta property="og:see_also" content="${escapeHtml(MAIN_SITE_URL)}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="${escapeHtml(SEO_TITLE)}">
+  <meta name="twitter:description" content="${escapeHtml(SEO_DESCRIPTION)}">
+  <script type="application/ld+json">${structuredData}</script>
   <style>
     :root {
       color-scheme: light dark;
@@ -478,7 +514,7 @@ function writeIndexHtml(outputDir, options, latest, oldCommits, commitInfos) {
 <body>
   <main>
     <h1>AzurPilot 更新 CDN</h1>
-    <p>此页面由构建脚本自动生成，用于确认静态更新文件已发布。</p>
+    <p>此页面由构建脚本自动生成，用于确认静态更新文件已发布。项目主站：<a href="${escapeHtml(MAIN_SITE_URL)}">${escapeHtml(MAIN_SITE_HOST)}</a></p>
 
     <section>
       <dl>
@@ -486,6 +522,8 @@ function writeIndexHtml(outputDir, options, latest, oldCommits, commitInfos) {
         <dd><code>${escapeHtml(latest)}</code></dd>
         <dt>构建分支</dt>
         <dd><code>${escapeHtml(options.branch)}</code></dd>
+        <dt>项目主站</dt>
+        <dd><a href="${escapeHtml(MAIN_SITE_URL)}">${escapeHtml(MAIN_SITE_URL)}</a></dd>
         <dt>更新包数量</dt>
         <dd>${oldCommits.length}</dd>
         <dt>生成时间</dt>
