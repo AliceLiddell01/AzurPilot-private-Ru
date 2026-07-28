@@ -8,6 +8,7 @@ from deploy.utils import *
 
 
 CLOUD_UPDATE_CONTROL_URL = 'https://alas-apiv2.nanoda.work/api/updata'
+CLOUD_FORCE_UPDATE_CONTROL_URL = 'https://alas-apiv2.nanoda.work/api/force_update'
 
 
 class GitManager(DeployConfig):
@@ -111,6 +112,36 @@ class GitManager(DeployConfig):
             return False
 
         logger.info(f'Cloud update control is inaccessible: {text}')
+        return None
+
+    @staticmethod
+    def cloud_force_update_enabled():
+        logger.info(f'Check cloud force update control: {CLOUD_FORCE_UPDATE_CONTROL_URL}')
+        try:
+            resp = requests.get(
+                CLOUD_FORCE_UPDATE_CONTROL_URL,
+                timeout=5,
+                headers={'User-Agent': 'alas AzurPilot'},
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            logger.warning(f'Failed to check cloud force update control: {e}')
+            return None
+
+        text = resp.text.strip()
+        try:
+            data = resp.json()
+        except ValueError:
+            data = text
+
+        if data is True or (isinstance(data, str) and data.lower() in ('true', 'ture')):
+            logger.info('Cloud force update control is enabled')
+            return True
+        if data is False or (isinstance(data, str) and data.lower() in ('false', 'fales')):
+            logger.info('Cloud force update control is disabled')
+            return False
+
+        logger.info(f'Cloud force update control is inaccessible: {text}')
         return None
 
     def cloud_update_access_failed(self, fatal=True):
