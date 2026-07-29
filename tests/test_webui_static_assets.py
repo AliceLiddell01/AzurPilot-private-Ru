@@ -73,7 +73,7 @@ class TestWebUIStaticAssets(unittest.TestCase):
         self.assertIn('href="pywebio_static/css/app.css?v=', response.text)
         self.assertNotIn("cdn.jsdelivr.net", response.text)
 
-    def test_theme_assets_do_not_depend_on_external_font_services(self):
+    def test_theme_keeps_random_background_without_external_font_services(self):
         theme_css = (PROJECT_ROOT / "assets/gui/css/advanced-material-alas.css").read_text(
             encoding="utf-8"
         )
@@ -83,13 +83,6 @@ class TestWebUIStaticAssets(unittest.TestCase):
 
         self.assertNotIn("fonts.googleapis.com", theme_css)
         self.assertNotIn("fonts.gstatic.com", theme_css)
-        self.assertNotIn("api.yppp.net", theme_css)
+        self.assertIn('url("https://api.yppp.net/api.php")', theme_css)
         self.assertNotIn("fonts.googleapis.com", obs_overlay)
         self.assertNotIn("fonts.gstatic.com", obs_overlay)
-        self.assertIn('url("static/assets/gui/css/bj.jpg")', theme_css)
-        self.assertEqual(
-            urljoin(
-                "https://example.test/azur/", "static/assets/gui/css/bj.jpg"
-            ),
-            "https://example.test/azur/static/assets/gui/css/bj.jpg",
-        )
