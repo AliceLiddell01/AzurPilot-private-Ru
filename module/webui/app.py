@@ -7,6 +7,9 @@
 该模块是 WebUI 的顶层入口，被 gui.py 启动时引用。
 """
 
+from hashlib import sha256
+from pathlib import Path
+
 from module.webui.app_dashboard import DashboardMixin
 from module.webui.app_dependencies import (
     Dict,
@@ -29,7 +32,6 @@ from module.webui.app_dependencies import (
     local,
     logger,
     login,
-    os,
     popup,
     run_js,
     set_env,
@@ -76,7 +78,16 @@ from module.webui.app_statistics_page import StatisticsPageMixin
 from module.webui.app_task_config import TaskConfigMixin
 
 
-INITIAL_WEBUI_CSS = "/static/assets/gui/css/alas.css"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _versioned_static_asset(relative_path: str) -> str:
+    """返回带内容哈希的相对静态资源地址。"""
+    digest = sha256((PROJECT_ROOT / relative_path).read_bytes()).hexdigest()[:12]
+    return f"static/{relative_path}?v={digest}"
+
+
+INITIAL_WEBUI_CSS = _versioned_static_asset("assets/gui/css/alas.css")
 
 
 class AlasGUI(
@@ -167,7 +178,10 @@ def app():
     from deploy.atomic import atomic_failure_cleanup
 
     atomic_failure_cleanup("./config")
-    static_path = os.getcwd()
+    static_mounts = {
+        "/static/assets": str(PROJECT_ROOT / "assets"),
+        "/static/doc": str(PROJECT_ROOT / "doc"),
+    }
 
     def _block_restricted_device() -> bool:
         if is_demo_mode():
@@ -231,7 +245,7 @@ def app():
     application = asgi_app(
         applications=[index, manage],
         cdn=cdn,
-        static_dir=static_path,
+        static_mounts=static_mounts,
         debug=True,
         on_startup=[
             startup,
