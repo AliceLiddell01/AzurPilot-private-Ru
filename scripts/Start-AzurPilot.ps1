@@ -1,0 +1,1676 @@
+﻿#requires -Version 7.6
+
+[CmdletBinding()]
+param(
+    [Parameter()]
+    [ValidateNotNullOrEmpty()]
+    [string]$RepositoryPath = 'C:\AzurPilot',
+
+    [Parameter()]
+    [switch]$NoBrowser,
+
+    [Parameter()]
+    [switch]$FromShortcut,
+
+    [Parameter()]
+    [switch]$VerboseBackendOutput,
+
+    [Parameter()]
+    [ValidateRange(5, 600)]
+    [int]$StartupTimeoutSeconds = 120
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
+
+$script:RepositoryPathParameter = $RepositoryPath
+$script:NoBrowserParameter = $NoBrowser
+$script:FromShortcutParameter = $FromShortcut
+$script:VerboseBackendOutputParameter = $VerboseBackendOutput
+$script:StartupTimeoutSecondsParameter = $StartupTimeoutSeconds
+
+$script:ExitCodeSuccess = 0
+$script:ExitCodePreconditionFailure = 20
+$script:ExitCodeForeignPortOwner = 21
+$script:ExitCodeConcurrentStartTimeout = 22
+$script:ExitCodeEnvironmentFailure = 23
+$script:ExitCodeReadinessTimeout = 24
+$script:ExitCodeBackendFailure = 25
+$script:ExitCodeBrowserFailure = 26
+$script:ExitCodeUnexpectedFailure = 30
+
+$script:LogPath = $null
+$script:StartMutex = $null
+$script:StartMutexOwned = $false
+$script:StartedProcess = $null
+$script:StartedProcessData = $null
+$script:BackendReady = $false
+
+function Protect-SensitiveText {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [string]$Text
+    )
+
+    if ($null -eq $Text) {
+        return ''
+    }
+
+    $safeText = $Text
+    $safeText = $safeText -replace '(?i)(https?://)([^/\s:@]+):([^/\s@]+)@', '$1<REDACTED>@'
+    $safeText = $safeText -replace '(?i)([?&](?:access[_-]?token|api[_-]?key|token|auth|password|passwd|secret)=)[^&\s]+', '$1<REDACTED>'
+    $safeText = $safeText -replace '(?i)\b(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*\S+', '$1=<REDACTED>'
+
+    return $safeText
+}
+
+function Write-ConsoleMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Message
+    )
+
+    Write-Information -MessageData $Message -InformationAction Continue
+}
+
+function Initialize-StartLog {
+    [CmdletBinding()]
+    param()
+
+    $baseDirectory = $env:LOCALAPPDATA
+
+    if ([string]::IsNullOrWhiteSpace($baseDirectory)) {
+        $baseDirectory = $env:TEMP
+    }
+
+    if ([string]::IsNullOrWhiteSpace($baseDirectory)) {
+        throw 'Не удалось определить каталог для лога запуска.'
+    }
+
+    $logDirectory = Join-Path -Path $baseDirectory -ChildPath 'AzurPilot\logs'
+    New-Item -ItemType Directory -Path $logDirectory -Force -ErrorAction Stop | Out-Null
+
+    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $fileName = "Start-AzurPilot-$timestamp-$PID.log"
+    $script:LogPath = Join-Path -Path $logDirectory -ChildPath $fileName
+
+    New-Item -ItemType File -Path $script:LogPath -Force -ErrorAction Stop | Out-Null
+}
+
+function Write-StartLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet(
+            'INFO',
+            'WARN',
+            'ERROR'
+        )]
+        [string]$Level,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Message
+    )
+
+    $safeMessage = Protect-SensitiveText -Text $Message
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $line = "[$timestamp] [$Level] $safeMessage"
+
+    Write-ConsoleMessage -Message $line
+
+    if ($null -ne $script:LogPath) {
+        Add-Content -LiteralPath $script:LogPath -Value $line -Encoding utf8 -ErrorAction Stop
+    }
+}
+
+function Get-StartException {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [int]$Code,
+
+        [Parameter(Mandatory)]
+        [string]$Message
+    )
+
+    $exception = [System.InvalidOperationException]::new($Message)
+    $exception.Data['ExitCode'] = $Code
+
+    return $exception
+}
+
+function Complete-StartFailure {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [int]$Code,
+
+        [Parameter(Mandatory)]
+        [string]$Message
+    )
+
+    throw (Get-StartException -Code $Code -Message $Message)
+}
+
+function Show-ShortcutError {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Message
+    )
+
+    if (-not $FromShortcut) {
+        return
+    }
+
+    $dialogMessage = $Message
+
+    if ($null -ne $script:LogPath) {
+        $lineBreak = [Environment]::NewLine
+        $dialogMessage = '{0}{1}{1}Лог: {2}' -f $dialogMessage, $lineBreak, $script:LogPath
+    }
+
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+
+        [void][System.Windows.Forms.MessageBox]::Show(
+            $dialogMessage,
+            'AzurPilot — ошибка запуска',
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+    } catch {
+        Write-StartLog -Level 'WARN' -Message "Не удалось показать Windows-диалог: $($_.Exception.Message)"
+    }
+}
+
+function Resolve-RequiredPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [ValidateSet(
+            'Container',
+            'Leaf'
+        )]
+        [string]$PathType,
+
+        [Parameter(Mandatory)]
+        [string]$Label,
+
+        [Parameter()]
+        [int]$FailureCode = 20
+    )
+
+    $testPathType = if ($PathType -eq 'Container') {
+        'Container'
+    } else {
+        'Leaf'
+    }
+
+    if (-not (Test-Path -LiteralPath $Path -PathType $testPathType)) {
+        Complete-StartFailure -Code $FailureCode -Message "$Label не найден: $Path"
+    }
+
+    try {
+        return (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+    } catch {
+        Complete-StartFailure -Code $FailureCode -Message "Не удалось разрешить путь «$Label»: $($_.Exception.Message)"
+    }
+}
+
+function Get-PathHash {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $trimCharacters = [char[]]@(
+        [System.IO.Path]::DirectorySeparatorChar
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+
+    $normalizedPath = $Path.TrimEnd($trimCharacters).ToUpperInvariant()
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalizedPath)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+
+    try {
+        $hashBytes = $sha256.ComputeHash($bytes)
+    } finally {
+        $sha256.Dispose()
+    }
+
+    return [Convert]::ToHexString($hashBytes).ToLowerInvariant()
+}
+
+function ConvertFrom-YamlInlineCommentValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Value
+    )
+
+    $insideSingleQuote = $false
+    $insideDoubleQuote = $false
+
+    if ($Value.Length -eq 0) {
+        return ''
+    }
+
+    foreach ($index in 0..($Value.Length - 1)) {
+        $character = $Value[$index]
+
+        if ($character -eq "'" -and -not $insideDoubleQuote) {
+            $insideSingleQuote = -not $insideSingleQuote
+            continue
+        }
+
+        if ($character -eq '"' -and -not $insideSingleQuote) {
+            $insideDoubleQuote = -not $insideDoubleQuote
+            continue
+        }
+
+        if ($character -ne '#') {
+            continue
+        }
+
+        if ($insideSingleQuote -or $insideDoubleQuote) {
+            continue
+        }
+
+        if ($index -eq 0) {
+            return ''
+        }
+
+        if ([char]::IsWhiteSpace($Value[$index - 1])) {
+            return $Value.Substring(0, $index).TrimEnd()
+        }
+    }
+
+    return $Value.TrimEnd()
+}
+
+function ConvertFrom-SimpleYamlScalar {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [string]$Value
+    )
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    $valueWithoutComment = ConvertFrom-YamlInlineCommentValue -Value $Value
+    $trimmedValue = $valueWithoutComment.Trim()
+
+    if ([string]::IsNullOrWhiteSpace($trimmedValue)) {
+        return $null
+    }
+
+    if ($trimmedValue -in @(
+        'null',
+        'Null',
+        'NULL',
+        '~'
+    )) {
+        return $null
+    }
+
+    if (
+        $trimmedValue.Length -ge 2 -and
+        $trimmedValue.StartsWith("'") -and
+        $trimmedValue.EndsWith("'")
+    ) {
+        return $trimmedValue.Substring(1, $trimmedValue.Length - 2).Replace("''", "'")
+    }
+
+    if (
+        $trimmedValue.Length -ge 2 -and
+        $trimmedValue.StartsWith('"') -and
+        $trimmedValue.EndsWith('"')
+    ) {
+        return $trimmedValue.Substring(1, $trimmedValue.Length - 2)
+    }
+
+    return $trimmedValue
+}
+
+function ConvertTo-SimpleBoolean {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [string]$Value,
+
+        [Parameter(Mandatory)]
+        [string]$Key,
+
+        [Parameter(Mandatory)]
+        [bool]$DefaultValue
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $DefaultValue
+    }
+
+    switch ($Value.Trim().ToLowerInvariant()) {
+        'true' {
+            return $true
+        }
+
+        '1' {
+            return $true
+        }
+
+        'yes' {
+            return $true
+        }
+
+        'on' {
+            return $true
+        }
+
+        'false' {
+            return $false
+        }
+
+        '0' {
+            return $false
+        }
+
+        'no' {
+            return $false
+        }
+
+        'off' {
+            return $false
+        }
+
+        default {
+            $message = 'Некорректное логическое значение {0}: {1}' -f $Key, $Value
+            Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message $message
+        }
+    }
+}
+
+function Get-YamlScalarValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [string]$Key
+    )
+
+    $escapedKey = [regex]::Escape($Key)
+    $pattern = "^\s*$escapedKey\s*:\s*(.*)$"
+    $foundValues = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop) {
+        $match = [regex]::Match($line, $pattern)
+
+        if ($match.Success) {
+            $scalarValue = ConvertFrom-SimpleYamlScalar -Value $match.Groups[1].Value
+            [void]$foundValues.Add($scalarValue)
+        }
+    }
+
+    if ($foundValues.Count -eq 0) {
+        return $null
+    }
+
+    if ($foundValues.Count -gt 1) {
+        Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message "В конфигурации найдено несколько значений ключа $Key."
+    }
+
+    return $foundValues[0]
+}
+
+function Get-WebUiConfiguration {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$DeployConfigPath
+    )
+
+    $hostValue = Get-YamlScalarValue -Path $DeployConfigPath -Key 'WebuiHost'
+    $portValue = Get-YamlScalarValue -Path $DeployConfigPath -Key 'WebuiPort'
+    $sslKeyValue = Get-YamlScalarValue -Path $DeployConfigPath -Key 'WebuiSSLKey'
+    $sslCertValue = Get-YamlScalarValue -Path $DeployConfigPath -Key 'WebuiSSLCert'
+    $enableReloadValue = Get-YamlScalarValue -Path $DeployConfigPath -Key 'EnableReload'
+    $enableReloadParameters = @{
+        Value = $enableReloadValue
+        Key = 'EnableReload'
+        DefaultValue = $true
+    }
+
+    $enableReload = ConvertTo-SimpleBoolean @enableReloadParameters
+
+    if ($enableReload) {
+        Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message 'EnableReload должен быть явно установлен в false. Иначе встроенный updater снова получает управление обновлениями.'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($hostValue)) {
+        $hostValue = '0.0.0.0'
+    }
+
+    $port = 25548
+
+    if (-not [string]::IsNullOrWhiteSpace($portValue)) {
+        $parsedPort = 0
+        $portParsed = [int]::TryParse(
+            $portValue,
+            [System.Globalization.NumberStyles]::Integer,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [ref]$parsedPort
+        )
+
+        if (-not $portParsed -or $parsedPort -lt 1 -or $parsedPort -gt 65535) {
+            Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message "Некорректный WebuiPort в config\deploy.yaml: $portValue"
+        }
+
+        $port = $parsedPort
+    }
+
+    $sslEnabled = (
+        -not [string]::IsNullOrWhiteSpace($sslKeyValue) -and
+        -not [string]::IsNullOrWhiteSpace($sslCertValue)
+    )
+
+    $browserHost = $hostValue
+
+    if ($hostValue -in @(
+        '0.0.0.0',
+        '::',
+        '[::]',
+        'localhost'
+    )) {
+        $browserHost = '127.0.0.1'
+    }
+
+    $scheme = if ($sslEnabled) {
+        'https'
+    } else {
+        'http'
+    }
+
+    try {
+        $uriBuilder = [System.UriBuilder]::new(
+            $scheme,
+            $browserHost,
+            $port,
+            '/'
+        )
+        $browserUri = $uriBuilder.Uri
+    } catch {
+        Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message "Не удалось построить WebUI URL: $($_.Exception.Message)"
+    }
+
+    return [pscustomobject]@{
+        BindHost = $hostValue
+        Port = $port
+        SslEnabled = $sslEnabled
+        EnableReload = $enableReload
+        BrowserUri = $browserUri
+    }
+}
+
+function Invoke-PythonHealthCheck {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$PythonPath,
+
+        [Parameter(Mandatory)]
+        [string]$WorkingDirectory
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $PythonPath
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+    $startInfo.StandardOutputEncoding = $utf8Encoding
+    $startInfo.StandardErrorEncoding = $utf8Encoding
+    [void]$startInfo.ArgumentList.Add('-c')
+    [void]$startInfo.ArgumentList.Add('raise SystemExit(0)')
+
+    foreach ($environmentName in @(
+        'PYTHONHOME',
+        'pythonhome',
+        'PYTHONPATH',
+        'pythonpath',
+        'VIRTUAL_ENV',
+        'virtual_env',
+        '__PYVENV_LAUNCHER__'
+    )) {
+        [void]$startInfo.Environment.Remove($environmentName)
+    }
+
+    $startInfo.Environment['PYTHONUTF8'] = '1'
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+
+    try {
+        if (-not $process.Start()) {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Project Python не запустился.'
+        }
+
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+
+        if (-not $process.WaitForExit(15000)) {
+            try {
+                $process.Kill($true)
+            } catch {
+                Write-StartLog -Level 'WARN' -Message "Не удалось остановить зависшую проверку Python: $($_.Exception.Message)"
+            }
+
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Проверка project Python превысила 15 секунд.'
+        }
+
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+
+        if ($process.ExitCode -ne 0) {
+            $details = ($stderr, $stdout -join [Environment]::NewLine).Trim()
+
+            if ([string]::IsNullOrWhiteSpace($details)) {
+                $details = "Код завершения: $($process.ExitCode)"
+            }
+
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message "Project Python неисправен. $details"
+        }
+    } catch {
+        if ($_.Exception.Data.Contains('ExitCode')) {
+            throw
+        }
+
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message "Не удалось проверить project Python: $($_.Exception.Message)"
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function Enter-RepositoryMutex {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ResolvedRepositoryPath
+    )
+
+    $pathHash = Get-PathHash -Path $ResolvedRepositoryPath
+    $mutexName = "Local\AzurPilot.Start.$pathHash"
+    $mutex = [System.Threading.Mutex]::new($false, $mutexName)
+    $owned = $false
+
+    try {
+        $owned = $mutex.WaitOne(0, $false)
+    } catch [System.Threading.AbandonedMutexException] {
+        $owned = $true
+        Write-StartLog -Level 'WARN' -Message 'Обнаружен abandoned Start mutex. Владение восстановлено.'
+    } catch {
+        $mutex.Dispose()
+        Complete-StartFailure -Code $script:ExitCodeUnexpectedFailure -Message "Не удалось открыть Start mutex: $($_.Exception.Message)"
+    }
+
+    return [pscustomobject]@{
+        Name = $mutexName
+        Mutex = $mutex
+        Owned = $owned
+    }
+}
+
+function Get-ListeningProcessIdCollection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [int]$Port
+    )
+
+    $netCommand = Get-Command -Name Get-NetTCPConnection -CommandType Function, Cmdlet -ErrorAction SilentlyContinue
+
+    if ($null -eq $netCommand) {
+        Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message 'Командлет Get-NetTCPConnection недоступен.'
+    }
+
+    $connectionErrors = @()
+    $connectionParameters = @{
+        State = 'Listen'
+        LocalPort = $Port
+        ErrorAction = 'SilentlyContinue'
+        ErrorVariable = 'connectionErrors'
+    }
+
+    $connections = @(
+        Get-NetTCPConnection @connectionParameters
+    )
+
+    if ($connectionErrors.Count -gt 0 -and $connections.Count -eq 0) {
+        $unexpectedErrors = @(
+            $connectionErrors |
+                Where-Object {
+                    $_.CategoryInfo.Category -ne [System.Management.Automation.ErrorCategory]::ObjectNotFound
+                }
+        )
+
+        if ($unexpectedErrors.Count -gt 0) {
+            $errorText = $unexpectedErrors.Exception.Message -join [Environment]::NewLine
+            $message = 'Не удалось проверить TCP-порт {0}: {1}' -f $Port, $errorText
+            Complete-StartFailure -Code $script:ExitCodeUnexpectedFailure -Message $message
+        }
+    }
+
+    return @(
+        $connections |
+            Select-Object -ExpandProperty OwningProcess |
+            Where-Object {
+                $_ -gt 0
+            } |
+            Sort-Object -Unique
+    )
+}
+
+function Get-WindowsProcessRecord {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [int]$ProcessId
+    )
+
+    try {
+        return Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
+    } catch {
+        return $null
+    }
+}
+
+function Test-ProcessBelongsToRepository {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [int]$ProcessId,
+
+        [Parameter(Mandatory)]
+        [string]$ProjectPythonPath,
+
+        [Parameter(Mandatory)]
+        [string]$GuiPath
+    )
+
+    $currentProcessId = $ProcessId
+    $visitedProcessIds = @{}
+    $sawProjectPython = $false
+    $sawGuiCommand = $false
+
+    foreach ($depth in 0..11) {
+        if ($currentProcessId -le 0) {
+            break
+        }
+
+        if ($visitedProcessIds.ContainsKey($currentProcessId)) {
+            break
+        }
+
+        $visitedProcessIds[$currentProcessId] = $true
+        $processRecord = Get-WindowsProcessRecord -ProcessId $currentProcessId
+
+        if ($null -eq $processRecord) {
+            break
+        }
+
+        $executablePath = [string]$processRecord.ExecutablePath
+        $commandLine = [string]$processRecord.CommandLine
+
+        if (
+            -not [string]::IsNullOrWhiteSpace($executablePath) -and
+            [string]::Equals(
+                $executablePath,
+                $ProjectPythonPath,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            $sawProjectPython = $true
+        }
+
+        if (
+            -not [string]::IsNullOrWhiteSpace($commandLine) -and
+            $commandLine.IndexOf(
+                $GuiPath,
+                [System.StringComparison]::OrdinalIgnoreCase
+            ) -ge 0
+        ) {
+            $sawGuiCommand = $true
+        }
+
+        if ($sawProjectPython -and $sawGuiCommand) {
+            return $true
+        }
+
+        $currentProcessId = [int]$processRecord.ParentProcessId
+    }
+
+    return $false
+}
+
+function Get-PortOwnershipState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [int]$Port,
+
+        [Parameter(Mandatory)]
+        [string]$ProjectPythonPath,
+
+        [Parameter(Mandatory)]
+        [string]$GuiPath
+    )
+
+    $processIds = @(Get-ListeningProcessIdCollection -Port $Port)
+
+    if ($processIds.Count -eq 0) {
+        return [pscustomobject]@{
+            State = 'Free'
+            ProcessIds = @()
+        }
+    }
+
+    $foreignProcessIds = @()
+
+    foreach ($processId in $processIds) {
+        $processCheckParameters = @{
+            ProcessId = $processId
+            ProjectPythonPath = $ProjectPythonPath
+            GuiPath = $GuiPath
+        }
+
+        $belongsToRepository = Test-ProcessBelongsToRepository @processCheckParameters
+
+        if (-not $belongsToRepository) {
+            $foreignProcessIds += $processId
+        }
+    }
+
+    if ($foreignProcessIds.Count -gt 0) {
+        return [pscustomobject]@{
+            State = 'Foreign'
+            ProcessIds = $processIds
+            ForeignProcessIds = $foreignProcessIds
+        }
+    }
+
+    return [pscustomobject]@{
+        State = 'AzurPilot'
+        ProcessIds = $processIds
+        ForeignProcessIds = @()
+    }
+}
+
+function Get-ReadinessClient {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [bool]$SslEnabled
+    )
+
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.UseProxy = $false
+    $handler.AllowAutoRedirect = $false
+
+    if ($SslEnabled) {
+        $handler.ServerCertificateCustomValidationCallback = [System.Net.Http.HttpClientHandler]::DangerousAcceptAnyServerCertificateValidator
+    }
+
+    $client = [System.Net.Http.HttpClient]::new($handler, $true)
+    $client.Timeout = [TimeSpan]::FromSeconds(3)
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd('AzurPilot-Start/2C')
+
+    return $client
+}
+
+function Test-WebUiReady {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Net.Http.HttpClient]$Client,
+
+        [Parameter(Mandatory)]
+        [System.Uri]$Uri
+    )
+
+    $response = $null
+
+    try {
+        $response = $Client.GetAsync(
+            $Uri,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        ).GetAwaiter().GetResult()
+
+        $statusCode = [int]$response.StatusCode
+
+        if ($statusCode -ge 200 -and $statusCode -lt 400) {
+            return $true
+        }
+
+        if ($statusCode -in @(
+            401,
+            403
+        )) {
+            return $true
+        }
+
+        return $false
+    } catch {
+        return $false
+    } finally {
+        if ($null -ne $response) {
+            $response.Dispose()
+        }
+    }
+}
+
+function Add-BoundedOutputLine {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNull()]
+        [System.Collections.Generic.Queue[string]]$Buffer,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Line,
+
+        [Parameter()]
+        [ValidateRange(10, 1000)]
+        [int]$Limit = 200
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Line)) {
+        return
+    }
+
+    $Buffer.Enqueue($Line)
+
+    while ($Buffer.Count -gt $Limit) {
+        [void]$Buffer.Dequeue()
+    }
+}
+
+function Get-BackendOutputLevel {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet(
+            'stdout',
+            'stderr'
+        )]
+        [string]$StreamName,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Line
+    )
+
+    if ($StreamName -eq 'stdout') {
+        return 'INFO'
+    }
+
+    if ($Line -match '^\s*INFO:') {
+        return 'INFO'
+    }
+
+    if ($Line -match '(?i)\bwarning\b|DeprecationWarning') {
+        return 'WARN'
+    }
+
+    return 'ERROR'
+}
+
+function Write-BackendOutputLine {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet(
+            'stdout',
+            'stderr'
+        )]
+        [string]$StreamName,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Line
+    )
+
+    $level = Get-BackendOutputLevel -StreamName $StreamName -Line $Line
+    $message = '[gui {0}] {1}' -f $StreamName, $Line
+    Write-StartLog -Level $level -Message $message
+}
+
+function Read-AvailableProcessOutput {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$ProcessData
+    )
+
+    while (
+        $null -ne $ProcessData.StandardOutputReadTask -and
+        $ProcessData.StandardOutputReadTask.IsCompleted
+    ) {
+        try {
+            $line = $ProcessData.StandardOutputReadTask.GetAwaiter().GetResult()
+        } catch {
+            Write-StartLog -Level 'WARN' -Message "Не удалось прочитать stdout gui.py: $($_.Exception.Message)"
+            $ProcessData.StandardOutputReadTask = $null
+            break
+        }
+
+        if ($null -eq $line) {
+            $ProcessData.StandardOutputReadTask = $null
+            break
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Add-BoundedOutputLine -Buffer $ProcessData.StandardOutputBuffer -Line $line
+
+            if ($VerboseBackendOutput) {
+                Write-BackendOutputLine -StreamName 'stdout' -Line $line
+            }
+        }
+
+        $ProcessData.StandardOutputReadTask = $ProcessData.Process.StandardOutput.ReadLineAsync()
+    }
+
+    while (
+        $null -ne $ProcessData.StandardErrorReadTask -and
+        $ProcessData.StandardErrorReadTask.IsCompleted
+    ) {
+        try {
+            $line = $ProcessData.StandardErrorReadTask.GetAwaiter().GetResult()
+        } catch {
+            Write-StartLog -Level 'WARN' -Message "Не удалось прочитать stderr gui.py: $($_.Exception.Message)"
+            $ProcessData.StandardErrorReadTask = $null
+            break
+        }
+
+        if ($null -eq $line) {
+            $ProcessData.StandardErrorReadTask = $null
+            break
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Add-BoundedOutputLine -Buffer $ProcessData.StandardErrorBuffer -Line $line
+
+            if ($VerboseBackendOutput) {
+                Write-BackendOutputLine -StreamName 'stderr' -Line $line
+            }
+        }
+
+        $ProcessData.StandardErrorReadTask = $ProcessData.Process.StandardError.ReadLineAsync()
+    }
+}
+
+function Write-BufferedProcessOutput {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$ProcessData
+    )
+
+    if ($ProcessData.StandardOutputBuffer.Count -gt 0) {
+        Write-StartLog -Level 'INFO' -Message 'Последние строки stdout gui.py перед ошибкой:'
+
+        foreach ($line in $ProcessData.StandardOutputBuffer) {
+            Write-BackendOutputLine -StreamName 'stdout' -Line $line
+        }
+    }
+
+    if ($ProcessData.StandardErrorBuffer.Count -gt 0) {
+        Write-StartLog -Level 'INFO' -Message 'Последние строки stderr gui.py перед ошибкой:'
+
+        foreach ($line in $ProcessData.StandardErrorBuffer) {
+            Write-BackendOutputLine -StreamName 'stderr' -Line $line
+        }
+    }
+}
+
+function Read-ProcessOutputToEnd {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$ProcessData,
+
+        [Parameter()]
+        [ValidateRange(1, 30)]
+        [int]$TimeoutSeconds = 5
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        Read-AvailableProcessOutput -ProcessData $ProcessData
+
+        if (
+            $null -eq $ProcessData.StandardOutputReadTask -and
+            $null -eq $ProcessData.StandardErrorReadTask
+        ) {
+            return
+        }
+
+        Start-Sleep -Milliseconds 50
+    }
+
+    Write-StartLog -Level 'WARN' -Message 'Не удалось полностью дочитать stdout/stderr gui.py за отведённое время.'
+}
+
+function Add-PathEntry {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [ValidateNotNull()]
+        [System.Collections.Generic.List[string]]$Entries,
+
+        [Parameter(Mandatory)]
+        [string]$Entry
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Entry)) {
+        return
+    }
+
+    foreach ($existingEntry in $Entries) {
+        if (
+            [string]::Equals(
+                $existingEntry,
+                $Entry,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            return
+        }
+    }
+
+    [void]$Entries.Add($Entry)
+}
+
+function Invoke-AzurPilotBackendStart {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$PythonPath,
+
+        [Parameter(Mandatory)]
+        [string]$GuiPath,
+
+        [Parameter(Mandatory)]
+        [string]$ResolvedRepositoryPath
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $PythonPath
+    $startInfo.WorkingDirectory = $ResolvedRepositoryPath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = [bool]$FromShortcut
+    [void]$startInfo.ArgumentList.Add($GuiPath)
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+    $startInfo.StandardOutputEncoding = $utf8Encoding
+    $startInfo.StandardErrorEncoding = $utf8Encoding
+
+    foreach ($environmentName in @(
+        'PYTHONHOME',
+        'pythonhome',
+        'PYTHONPATH',
+        'pythonpath',
+        'VIRTUAL_ENV',
+        'virtual_env',
+        '__PYVENV_LAUNCHER__'
+    )) {
+        [void]$startInfo.Environment.Remove($environmentName)
+    }
+
+    $startInfo.Environment['PYTHONUTF8'] = '1'
+    $startInfo.Environment['PYTHONUNBUFFERED'] = '1'
+
+    $pathEntries = [System.Collections.Generic.List[string]]::new()
+    $venvScriptsPath = Split-Path -Path $PythonPath -Parent
+    $venvGitPath = Join-Path -Path $venvScriptsPath -ChildPath 'git\cmd'
+
+    Add-PathEntry -Entries $pathEntries -Entry $venvScriptsPath
+
+    if (Test-Path -LiteralPath $venvGitPath -PathType Container) {
+        Add-PathEntry -Entries $pathEntries -Entry $venvGitPath
+    }
+
+    $existingPath = [string]$startInfo.Environment['PATH']
+
+    foreach ($existingEntry in @($existingPath -split [regex]::Escape([System.IO.Path]::PathSeparator))) {
+        Add-PathEntry -Entries $pathEntries -Entry $existingEntry
+    }
+
+    $pathSeparator = [string][System.IO.Path]::PathSeparator
+    $startInfo.Environment['PATH'] = $pathEntries -join $pathSeparator
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+
+    try {
+        if (-not $process.Start()) {
+            Complete-StartFailure -Code $script:ExitCodeBackendFailure -Message 'Не удалось запустить gui.py.'
+        }
+
+        return [pscustomobject]@{
+            Process = $process
+            StandardOutputReadTask = $process.StandardOutput.ReadLineAsync()
+            StandardErrorReadTask = $process.StandardError.ReadLineAsync()
+            StandardOutputBuffer = [System.Collections.Generic.Queue[string]]::new()
+            StandardErrorBuffer = [System.Collections.Generic.Queue[string]]::new()
+        }
+    } catch {
+        $process.Dispose()
+
+        if ($_.Exception.Data.Contains('ExitCode')) {
+            throw
+        }
+
+        Complete-StartFailure -Code $script:ExitCodeBackendFailure -Message "Не удалось запустить gui.py: $($_.Exception.Message)"
+    }
+}
+
+function Invoke-StartedBackendStop {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [string]$Reason = 'завершение Start supervisor'
+    )
+
+    if ($null -eq $script:StartedProcess) {
+        return
+    }
+
+    try {
+        if ($script:StartedProcess.HasExited) {
+            return
+        }
+
+        $backendProcessId = $script:StartedProcess.Id
+        Write-StartLog -Level 'WARN' -Message (
+            'Останавливается backend PID {0}. Причина: {1}.' -f
+            $backendProcessId,
+            $Reason
+        )
+
+        $script:StartedProcess.Kill($true)
+        [void]$script:StartedProcess.WaitForExit(10000)
+
+        if (-not $script:StartedProcess.HasExited) {
+            throw (
+                'Backend PID {0} не завершился за 10 секунд после Kill(entireProcessTree).' -f
+                $backendProcessId
+            )
+        }
+
+        if ($null -ne $script:StartedProcessData) {
+            Read-ProcessOutputToEnd -ProcessData $script:StartedProcessData
+        }
+
+        Write-StartLog -Level 'INFO' -Message (
+            'Backend PID {0} и его process tree остановлены.' -f
+            $backendProcessId
+        )
+    } catch {
+        Write-StartLog -Level 'WARN' -Message (
+            'Не удалось остановить backend PID {0}: {1}' -f
+            $script:StartedProcess.Id,
+            $_.Exception.Message
+        )
+    }
+}
+
+function Wait-ForExistingBackend {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [int]$Port,
+
+        [Parameter(Mandatory)]
+        [string]$ProjectPythonPath,
+
+        [Parameter(Mandatory)]
+        [string]$GuiPath,
+
+        [Parameter(Mandatory)]
+        [System.Net.Http.HttpClient]$ReadinessClient,
+
+        [Parameter(Mandatory)]
+        [System.Uri]$BrowserUri,
+
+        [Parameter(Mandatory)]
+        [int]$TimeoutSeconds
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        $ownershipParameters = @{
+            Port = $Port
+            ProjectPythonPath = $ProjectPythonPath
+            GuiPath = $GuiPath
+        }
+
+        $ownership = Get-PortOwnershipState @ownershipParameters
+
+        if ($ownership.State -eq 'Foreign') {
+            $foreignText = $ownership.ForeignProcessIds -join ', '
+            Complete-StartFailure -Code $script:ExitCodeForeignPortOwner -Message "Порт $Port занят посторонним или неидентифицируемым процессом. PID: $foreignText"
+        }
+
+        if (
+            $ownership.State -eq 'AzurPilot' -and
+            (Test-WebUiReady -Client $ReadinessClient -Uri $BrowserUri)
+        ) {
+            return $true
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    return $false
+}
+
+function Wait-ForStartedBackend {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$ProcessData,
+
+        [Parameter(Mandatory)]
+        [int]$Port,
+
+        [Parameter(Mandatory)]
+        [string]$ProjectPythonPath,
+
+        [Parameter(Mandatory)]
+        [string]$GuiPath,
+
+        [Parameter(Mandatory)]
+        [System.Net.Http.HttpClient]$ReadinessClient,
+
+        [Parameter(Mandatory)]
+        [System.Uri]$BrowserUri,
+
+        [Parameter(Mandatory)]
+        [int]$TimeoutSeconds
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        Read-AvailableProcessOutput -ProcessData $ProcessData
+
+        if ($ProcessData.Process.HasExited) {
+            Read-ProcessOutputToEnd -ProcessData $ProcessData
+            Write-BufferedProcessOutput -ProcessData $ProcessData
+            Complete-StartFailure -Code $script:ExitCodeBackendFailure -Message "gui.py завершился до готовности. Код: $($ProcessData.Process.ExitCode)"
+        }
+
+        $ownershipParameters = @{
+            Port = $Port
+            ProjectPythonPath = $ProjectPythonPath
+            GuiPath = $GuiPath
+        }
+
+        $ownership = Get-PortOwnershipState @ownershipParameters
+
+        if ($ownership.State -eq 'Foreign') {
+            $foreignText = $ownership.ForeignProcessIds -join ', '
+            Read-ProcessOutputToEnd -ProcessData $ProcessData
+            Write-BufferedProcessOutput -ProcessData $ProcessData
+            Invoke-StartedBackendStop -Reason 'порт перехвачен посторонним процессом во время запуска'
+            Complete-StartFailure -Code $script:ExitCodeForeignPortOwner -Message "Порт $Port занят посторонним или неидентифицируемым процессом. PID: $foreignText"
+        }
+
+        if (
+            $ownership.State -eq 'AzurPilot' -and
+            (Test-WebUiReady -Client $ReadinessClient -Uri $BrowserUri)
+        ) {
+            return $true
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    Read-ProcessOutputToEnd -ProcessData $ProcessData
+    Write-BufferedProcessOutput -ProcessData $ProcessData
+    Invoke-StartedBackendStop -Reason 'readiness timeout'
+    Complete-StartFailure -Code $script:ExitCodeReadinessTimeout -Message "WebUI не стал готов за $TimeoutSeconds секунд: $BrowserUri"
+}
+
+function Open-WebUiBrowser {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Uri]$BrowserUri
+    )
+
+    if ($NoBrowser) {
+        Write-StartLog -Level 'INFO' -Message "Открытие браузера отключено параметром -NoBrowser. URL: $BrowserUri"
+        return $true
+    }
+
+    try {
+        Start-Process -FilePath $BrowserUri.AbsoluteUri -ErrorAction Stop | Out-Null
+        Write-StartLog -Level 'INFO' -Message "Открыт системный браузер: $BrowserUri"
+        return $true
+    } catch {
+        Write-StartLog -Level 'ERROR' -Message "Backend работает, но браузер открыть не удалось: $($_.Exception.Message)"
+        Write-ConsoleMessage -Message "Откройте вручную: $BrowserUri"
+
+        if ($FromShortcut) {
+            try {
+                Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+
+                [void][System.Windows.Forms.MessageBox]::Show(
+                    (
+                        'AzurPilot запущен, но браузер не открылся автоматически.' +
+                        [Environment]::NewLine +
+                        [Environment]::NewLine +
+                        'Откройте вручную:' +
+                        [Environment]::NewLine +
+                        $BrowserUri
+                    ),
+                    'AzurPilot запущен',
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Warning
+                )
+            } catch {
+                Write-StartLog -Level 'WARN' -Message "Не удалось показать URL через Windows-диалог: $($_.Exception.Message)"
+            }
+        }
+
+        return $false
+    }
+}
+
+function Invoke-AzurPilotStart {
+    [CmdletBinding()]
+    param()
+
+    $readinessClient = $null
+    $browserOpenFailed = $false
+
+    try {
+        Initialize-StartLog
+        Write-StartLog -Level 'INFO' -Message 'Запуск AzurPilot Stage 2C.'
+        Write-StartLog -Level 'INFO' -Message "PowerShell: $($PSVersionTable.PSVersion)"
+        Write-StartLog -Level 'INFO' -Message "RepositoryPath: $RepositoryPath"
+
+        if (-not $IsWindows) {
+            Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message 'Текущий Start MVP поддерживает только Windows.'
+        }
+
+        $repositoryPathParameters = @{
+            Path = $RepositoryPath
+            PathType = 'Container'
+            Label = 'Каталог AzurPilot'
+        }
+
+        $resolvedRepositoryPath = Resolve-RequiredPath @repositoryPathParameters
+
+        $guiPathParameters = @{
+            Path = Join-Path -Path $resolvedRepositoryPath -ChildPath 'gui.py'
+            PathType = 'Leaf'
+            Label = 'gui.py'
+        }
+
+        $guiPath = Resolve-RequiredPath @guiPathParameters
+
+        $deployConfigPathParameters = @{
+            Path = Join-Path -Path $resolvedRepositoryPath -ChildPath 'config\deploy.yaml'
+            PathType = 'Leaf'
+            Label = 'config\deploy.yaml'
+        }
+
+        $deployConfigPath = Resolve-RequiredPath @deployConfigPathParameters
+
+        $projectPythonPathParameters = @{
+            Path = Join-Path -Path $resolvedRepositoryPath -ChildPath '.venv\Scripts\python.exe'
+            PathType = 'Leaf'
+            Label = 'Project Python'
+            FailureCode = $script:ExitCodeEnvironmentFailure
+        }
+
+        $projectPythonPath = Resolve-RequiredPath @projectPythonPathParameters
+
+        $pythonHealthParameters = @{
+            PythonPath = $projectPythonPath
+            WorkingDirectory = $resolvedRepositoryPath
+        }
+
+        Invoke-PythonHealthCheck @pythonHealthParameters
+
+        Write-StartLog -Level 'INFO' -Message "Project Python исправен: $projectPythonPath"
+
+        $webUiConfiguration = Get-WebUiConfiguration -DeployConfigPath $deployConfigPath
+        $browserUri = $webUiConfiguration.BrowserUri
+
+        Write-StartLog -Level 'INFO' -Message "WebUI bind: $($webUiConfiguration.BindHost):$($webUiConfiguration.Port)"
+        Write-StartLog -Level 'INFO' -Message "WebUI URL: $browserUri"
+        Write-StartLog -Level 'INFO' -Message "SSL: $($webUiConfiguration.SslEnabled)"
+
+        $readinessClient = Get-ReadinessClient -SslEnabled $webUiConfiguration.SslEnabled
+
+        $mutexData = Enter-RepositoryMutex -ResolvedRepositoryPath $resolvedRepositoryPath
+        $script:StartMutex = $mutexData.Mutex
+        $script:StartMutexOwned = $mutexData.Owned
+
+        Write-StartLog -Level 'INFO' -Message "Start mutex: $($mutexData.Name)"
+        Write-StartLog -Level 'INFO' -Message "Start mutex acquired: $($mutexData.Owned)"
+
+        if (-not $mutexData.Owned) {
+            Write-StartLog -Level 'INFO' -Message 'Другой Start уже управляет этим репозиторием. Ожидание существующего WebUI.'
+
+            $existingBackendWaitParameters = @{
+                Port = $webUiConfiguration.Port
+                ProjectPythonPath = $projectPythonPath
+                GuiPath = $guiPath
+                ReadinessClient = $readinessClient
+                BrowserUri = $browserUri
+                TimeoutSeconds = $StartupTimeoutSeconds
+            }
+
+            $existingReady = Wait-ForExistingBackend @existingBackendWaitParameters
+
+            if (-not $existingReady) {
+                Complete-StartFailure -Code $script:ExitCodeConcurrentStartTimeout -Message "Другой Start не довёл WebUI до готовности за $StartupTimeoutSeconds секунд."
+            }
+
+            Write-StartLog -Level 'INFO' -Message 'Существующий AzurPilot подтверждён и готов.'
+
+            $browserOpened = Open-WebUiBrowser -BrowserUri $browserUri
+
+            if (-not $browserOpened) {
+                return $script:ExitCodeBrowserFailure
+            }
+
+            return $script:ExitCodeSuccess
+        }
+
+        $initialOwnershipParameters = @{
+            Port = $webUiConfiguration.Port
+            ProjectPythonPath = $projectPythonPath
+            GuiPath = $guiPath
+        }
+
+        $initialOwnership = Get-PortOwnershipState @initialOwnershipParameters
+
+        if ($initialOwnership.State -eq 'Foreign') {
+            $foreignText = $initialOwnership.ForeignProcessIds -join ', '
+            Complete-StartFailure -Code $script:ExitCodeForeignPortOwner -Message "Порт $($webUiConfiguration.Port) занят посторонним или неидентифицируемым процессом. PID: $foreignText"
+        }
+
+        if ($initialOwnership.State -eq 'AzurPilot') {
+            $existingBackendWaitParameters = @{
+                Port = $webUiConfiguration.Port
+                ProjectPythonPath = $projectPythonPath
+                GuiPath = $guiPath
+                ReadinessClient = $readinessClient
+                BrowserUri = $browserUri
+                TimeoutSeconds = $StartupTimeoutSeconds
+            }
+
+            $existingReady = Wait-ForExistingBackend @existingBackendWaitParameters
+
+            if (-not $existingReady) {
+                Complete-StartFailure -Code $script:ExitCodeReadinessTimeout -Message "Найден процесс AzurPilot, но WebUI не стал готов за $StartupTimeoutSeconds секунд."
+            }
+
+            Write-StartLog -Level 'INFO' -Message 'Найден уже работающий AzurPilot.'
+
+            $browserOpened = Open-WebUiBrowser -BrowserUri $browserUri
+
+            if (-not $browserOpened) {
+                return $script:ExitCodeBrowserFailure
+            }
+
+            return $script:ExitCodeSuccess
+        }
+
+        Write-StartLog -Level 'INFO' -Message 'Запуск gui.py без Git update и без dependency sync.'
+
+        $backendStartParameters = @{
+            PythonPath = $projectPythonPath
+            GuiPath = $guiPath
+            ResolvedRepositoryPath = $resolvedRepositoryPath
+        }
+
+        $script:StartedProcessData = Invoke-AzurPilotBackendStart @backendStartParameters
+
+        $script:StartedProcess = $script:StartedProcessData.Process
+
+        Write-StartLog -Level 'INFO' -Message "gui.py запущен. PID: $($script:StartedProcess.Id)"
+
+        $startedBackendWaitParameters = @{
+            ProcessData = $script:StartedProcessData
+            Port = $webUiConfiguration.Port
+            ProjectPythonPath = $projectPythonPath
+            GuiPath = $guiPath
+            ReadinessClient = $readinessClient
+            BrowserUri = $browserUri
+            TimeoutSeconds = $StartupTimeoutSeconds
+        }
+
+        [void](Wait-ForStartedBackend @startedBackendWaitParameters)
+
+        $script:BackendReady = $true
+        Write-StartLog -Level 'INFO' -Message "WebUI готов: $browserUri"
+
+        $browserOpened = Open-WebUiBrowser -BrowserUri $browserUri
+
+        if (-not $browserOpened) {
+            $browserOpenFailed = $true
+        }
+
+        Write-StartLog -Level 'INFO' -Message "Ожидание завершения backend PID $($script:StartedProcess.Id)."
+
+        while (-not $script:StartedProcess.HasExited) {
+            Read-AvailableProcessOutput -ProcessData $script:StartedProcessData
+            [void]$script:StartedProcess.WaitForExit(250)
+        }
+
+        Read-ProcessOutputToEnd -ProcessData $script:StartedProcessData
+
+        $backendExitCode = $script:StartedProcess.ExitCode
+        Write-StartLog -Level 'INFO' -Message "Backend завершился с кодом $backendExitCode."
+
+        if ($backendExitCode -ne 0) {
+            Write-BufferedProcessOutput -ProcessData $script:StartedProcessData
+            Complete-StartFailure -Code $script:ExitCodeBackendFailure -Message "AzurPilot завершился с кодом $backendExitCode."
+        }
+
+        if ($browserOpenFailed) {
+            return $script:ExitCodeBrowserFailure
+        }
+
+        return $script:ExitCodeSuccess
+    } catch {
+        $exitCode = $script:ExitCodeUnexpectedFailure
+
+        if ($_.Exception.Data.Contains('ExitCode')) {
+            $exitCode = [int]$_.Exception.Data['ExitCode']
+        }
+
+        if (
+            $null -ne $script:StartedProcess -and
+            -not $script:StartedProcess.HasExited
+        ) {
+            Invoke-StartedBackendStop -Reason 'ошибка или прерывание Start supervisor'
+        }
+
+        $errorMessage = $_.Exception.Message
+
+        try {
+            Write-StartLog -Level 'ERROR' -Message $errorMessage
+        } catch {
+            Write-ConsoleMessage -Message "AzurPilot: $errorMessage"
+        }
+
+        Show-ShortcutError -Message $errorMessage
+
+        return $exitCode
+    } finally {
+        if ($null -ne $readinessClient) {
+            $readinessClient.Dispose()
+        }
+
+        if ($null -ne $script:StartMutex) {
+            if ($script:StartMutexOwned) {
+                try {
+                    $script:StartMutex.ReleaseMutex()
+                } catch {
+                    if ($null -ne $script:LogPath) {
+                        Write-StartLog -Level 'WARN' -Message "Не удалось освободить Start mutex: $($_.Exception.Message)"
+                    }
+                }
+            }
+
+            $script:StartMutex.Dispose()
+        }
+
+        if ($null -ne $script:StartedProcess) {
+            if (-not $script:StartedProcess.HasExited) {
+                Invoke-StartedBackendStop -Reason 'выход Start supervisor'
+            }
+
+            $script:StartedProcess.Dispose()
+        }
+
+        if ($null -ne $script:LogPath) {
+            Write-ConsoleMessage -Message "Лог: $script:LogPath"
+        }
+    }
+}
+
+$startExitCode = Invoke-AzurPilotStart
+exit $startExitCode
