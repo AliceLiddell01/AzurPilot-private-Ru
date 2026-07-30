@@ -5,13 +5,14 @@
 <h1 align="center">AzurPilot Private RU</h1>
 
 <p align="center">
-  Персональная русская ветка AzurPilot с контролируемым обновлением и прозрачным PowerShell-контуром запуска, восстановления и подготовки установки.
+  Персональная русская ветка AzurPilot с безопасным обновлением и прозрачным PowerShell-контуром запуска, восстановления и подготовки установки.
 </p>
 
 <p align="center">
   <a href="https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki">
     <img src="https://img.shields.io/badge/Wiki-документация-2f81f7?style=flat-square" alt="Русская Wiki">
   </a>
+  <img src="https://img.shields.io/badge/Stage_2-завершён-2ea44f?style=flat-square" alt="Stage 2 завершён">
   <img src="https://img.shields.io/badge/Python-3.14.6-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.14.6">
   <img src="https://img.shields.io/badge/PowerShell-7.6-5391FE?style=flat-square&logo=powershell&logoColor=white" alt="PowerShell 7.6">
   <a href="LICENSE">
@@ -27,144 +28,60 @@
 
 AzurPilot — инструмент автоматизации для мобильной игры **Azur Lane**. Он подключается к Android-эмулятору или устройству, распознаёт элементы игрового интерфейса и выполняет настроенные задачи.
 
-Этот репозиторий является персональным форком проекта [`wess09/AzurPilot`](https://github.com/wess09/AzurPilot), который, в свою очередь, основан на [`LmeSzinc/AzurLaneAutoScript`](https://github.com/LmeSzinc/AzurLaneAutoScript).
+Этот репозиторий является персональным форком [`wess09/AzurPilot`](https://github.com/wess09/AzurPilot), который основан на [`LmeSzinc/AzurLaneAutoScript`](https://github.com/LmeSzinc/AzurLaneAutoScript).
 
-Цель персональной ветки — сохранить полезные возможности AzurPilot, но сделать установку, запуск, обновление и восстановление понятными, контролируемыми и менее зависимыми от исходной внешней инфраструктуры.
+Цель персональной ветки — сохранить полезные возможности AzurPilot, но сделать запуск, обновление и восстановление понятными, проверяемыми и менее зависимыми от исходной внешней инфраструктуры.
 
 ## Текущий статус
 
-| Область | Состояние |
-|---|---|
-| Контролируемое обновление из `origin/personal/stable` | Готово |
-| Безопасное fast-forward обновление Git | Готово |
-| Транзакционное обслуживание `.venv` | Готово |
-| Использование официального PyPI в активном потоке зависимостей | Готово |
-| Прозрачные команды Start / Update / Repair / Build | Готово |
-| Пользовательский запуск из меню «Пуск» | Готово |
-| Независимость обычной работы от `alas-launcher.exe` | Подтверждена |
-| Полная русская документация всего проекта | В работе |
+| Этап | Результат | Статус |
+|---|---|---|
+| Stage 1 | Контролируемое обновление из `origin/personal/stable` | Завершён |
+| Stage 2 | Прозрачные команды Start / Update / Repair / Build | Завершён |
+| Stage 2 | Запуск из меню «Пуск» без обязательного `alas-launcher.exe` | Подтверждён |
+| Stage 2 | Транзакционное восстановление `.venv` | Готово |
+| Документация | Русская Wiki по эксплуатационному контуру | Готова и расширяется |
+| Установщик и release pipeline | Отдельный будущий этап | Не реализованы |
 
-> [!NOTE]
-> Этапы 1 и 2 завершили контролируемое обновление и замену эксплуатационных обязанностей оригинального launcher-а. Репозиторий пока не является установщиком «в один клик» и не содержит release pipeline.
-
-## Быстрые ссылки
-
-| Раздел | Ссылка |
-|---|---|
-| Главная страница документации | [Русская Wiki](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki) |
-| Запуск и обслуживание | [Запуск и обслуживание AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Запуск-и-обслуживание-AzurPilot) |
-| Архитектура нового запуска | [Архитектура Stage 2](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Архитектура-Stage-2) |
-| Как обновить AzurPilot | [Обновление AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Обновление-AzurPilot) |
-| Что делать при ошибке | [Ошибки при обновлении](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Ошибки-при-обновлении) |
-| Как работает система обновления | [Как устроено обновление](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Как-устроено-обновление) |
-| Отличия от исходного проекта | [Отличия персональной версии](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Отличия-персональной-версии) |
-| Исходный AzurPilot | [`wess09/AzurPilot`](https://github.com/wess09/AzurPilot) |
-
-## Основные отличия персональной ветки
-
-### Четыре явные команды
-
-Эксплуатационный контур разделён на четыре команды:
+Финальный commit Stage 2:
 
 ```text
-scripts/
-├── Start-AzurPilot.ps1
-├── Update-AzurPilot.ps1
-├── Repair-AzurPilot.ps1
-└── Build-AzurPilot.ps1
+9602b2dbc345a12da8365c8b2cbd90163740ad0b
 ```
 
-- `Start` запускает уже подготовленную установку и не обновляет Git.
-- `Update` является единственным владельцем `fetch` и `merge --ff-only`.
-- `Repair` диагностирует и транзакционно восстанавливает существующую `.venv`.
-- `Build` подготавливает уже полученный checkout и не клонирует репозиторий.
+## Быстрый запуск
 
-Обычный запуск больше не требует `alas-launcher.exe`. Windows shortcut указывает на PowerShell 7, `scripts\Start-AzurPilot.ps1` и project-owned icon.
+После подготовленной установки откройте **AzurPilot** в меню «Пуск».
 
-### Контролируемый источник обновлений
-
-Автоматическое обслуживание персональной версии принимает изменения только из:
-
-```text
-origin/personal/stable
-git@github.com:AliceLiddell01/AzurPilot-private-Ru.git
-```
-
-Перед обновлением скрипт проверяет ветку, адрес `origin`, tracking branch, состояние рабочего дерева, незавершённые операции Git и наличие запущенных процессов AzurPilot.
-
-### Только безопасный fast-forward
-
-Updater не пытается автоматически исправлять историю Git и не уничтожает локальные изменения.
-
-Он не использует:
-
-```text
-git reset --hard
-git clean
-git checkout -f
-git pull
-git rebase
-git push --force
-```
-
-Разрешена только последовательная схема:
-
-```text
-git fetch → проверка истории → git merge --ff-only
-```
-
-Если локальная ветка опережает удалённую или история разошлась, обновление останавливается без автоматического merge, rebase или reset.
-
-### Транзакционное обслуживание зависимостей
-
-Если новая версия изменяет `pyproject.toml` или `uv.lock`, updater сначала:
-
-1. проверяет новые файлы зависимостей;
-2. создаёт и проверяет резервную копию `.venv`;
-3. синхронизирует среду Python;
-4. записывает фазу операции в журнал восстановления;
-5. только после этого обновляет Git HEAD.
-
-Repair использует отдельную транзакцию и восстанавливает исходную `.venv`, если новая среда не прошла проверку.
-
-### Официальные источники
-
-В активном потоке Python-зависимостей используются:
-
-```text
-https://pypi.org/simple
-https://files.pythonhosted.org
-```
-
-Build загружает зафиксированные официальные artifacts `uv` и Android platform-tools и проверяет их SHA-256 до использования.
-
-## Запуск приложения
-
-### Через меню «Пуск»
-
-После подготовленной установки откройте **AzurPilot** в меню «Пуск». Shortcut запускает hidden PowerShell supervisor, ожидает готовность WebUI и открывает:
+Ярлык запускает PowerShell 7, затем `scripts\Start-AzurPilot.ps1`, ожидает готовность WebUI и открывает:
 
 ```text
 http://127.0.0.1:25548/
 ```
 
-Закрытие вкладки браузера само по себе не означает остановку backend.
-
-### Ручной диагностический запуск
+Ручной диагностический запуск:
 
 ```powershell
 pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1"
 ```
 
-При ручном запуске `Ctrl+C` завершает supervisor и всё дерево Python-процессов. После остановки порт `25548` освобождается.
-
-### Запуск без открытия браузера
+Запуск без автоматического открытия браузера:
 
 ```powershell
 pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrowser
 ```
 
-## Обслуживание установки
+> [!NOTE]
+> Закрытие вкладки браузера само по себе не останавливает backend. При ручном запуске используйте `Ctrl+C` в окне Start.
+
+## Четыре команды обслуживания
+
+| Команда | Назначение | Чего она не делает |
+|---|---|---|
+| `Start-AzurPilot.ps1` | Запускает подготовленную установку и контролирует backend | Не обновляет Git и не перестраивает `.venv` |
+| `Update-AzurPilot.ps1` | Получает безопасное fast-forward обновление | Не выполняет rebase, reset или force push |
+| `Repair-AzurPilot.ps1` | Диагностирует и восстанавливает существующую `.venv` | Не меняет ветки, remotes и пользовательские данные |
+| `Build-AzurPilot.ps1` | Подготавливает уже полученный checkout | Не клонирует репозиторий и не обновляет HEAD |
 
 Перед Update, Repair или Build полностью остановите AzurPilot.
 
@@ -174,15 +91,13 @@ pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrow
 pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Update-AzurPilot.ps1"
 ```
 
-Update работает только с `origin/personal/stable` и допускает только fast-forward.
-
 ### Диагностика и восстановление
 
 ```powershell
 pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Repair-AzurPilot.ps1"
 ```
 
-Только диагностика без изменения `.venv`:
+Только диагностика:
 
 ```powershell
 pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Repair-AzurPilot.ps1" -DiagnosticOnly
@@ -194,9 +109,44 @@ pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Repair-AzurPilot.ps1" -Diagn
 pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Build-AzurPilot.ps1"
 ```
 
-Build создаёт отсутствующий `config\deploy.yaml`, подготавливает managed Python, frozen `.venv`, локальные `uv` и ADB. Существующий config сохраняется без изменений.
+## Документация
 
-## Журналы и резервные копии
+Вся пользовательская и эксплуатационная документация хранится в GitHub Wiki. Отдельная папка `docs/` в персональной ветке намеренно не используется.
+
+| Раздел | Ссылка |
+|---|---|
+| Главная страница | [Русская Wiki](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki) |
+| Запуск и обслуживание | [Запуск и обслуживание AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Запуск-и-обслуживание-AzurPilot) |
+| Архитектура Stage 2 | [Архитектура Stage 2](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Архитектура-Stage-2) |
+| Обновление | [Обновление AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Обновление-AzurPilot) |
+| Ошибки updater | [Ошибки при обновлении](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Ошибки-при-обновлении) |
+| Внутренняя логика updater | [Как устроено обновление](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Как-устроено-обновление) |
+| Отличия персональной версии | [Отличия персональной версии](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Отличия-персональной-версии) |
+
+## Основные гарантии персональной ветки
+
+- Только `Update-AzurPilot.ps1` владеет Git update-flow.
+- Обновления принимаются только из `origin/personal/stable`.
+- Разрешена схема `fetch → проверка истории → merge --ff-only`.
+- Локальные изменения не удаляются автоматически.
+- `Repair` использует backup, journal и rollback.
+- `Build` проверяет bootstrap-артефакты по SHA-256.
+- Существующий `config\deploy.yaml` не перезаписывается.
+- Неизвестный процесс на порту `25548` не завершается автоматически.
+- Обычный запуск не зависит от `alas-launcher.exe`.
+
+Автоматически не используются:
+
+```text
+git reset --hard
+git clean
+git checkout -f
+git pull
+git rebase
+git push --force
+```
+
+## Журналы и восстановление
 
 Основные журналы:
 
@@ -210,21 +160,9 @@ Build создаёт отсутствующий `config\deploy.yaml`, подго
 %LOCALAPPDATA%\AzurPilot\dependency-transactions
 ```
 
-Транзакции и backup Repair, Build и shortcut хранятся в отдельных подкаталогах `%LOCALAPPDATA%\AzurPilot`.
+Repair, Build и shortcut используют отдельные каталоги внутри `%LOCALAPPDATA%\AzurPilot`.
 
-Не удаляйте незавершённые transaction-каталоги вручную: следующий безопасный запуск использует их для восстановления.
-
-## Основные коды завершения
-
-| Код | Общее значение |
-|---:|---|
-| `0` | Операция успешна или изменение не требовалось |
-| `10` | Update не смог получить данные из `origin`; локальная версия не изменена |
-| `20` | Не выполнено обязательное условие |
-| `21`–`29` | Контролируемая ошибка конкретной команды |
-| `30` | Непредусмотренная ошибка |
-
-Точное значение кода выводится в журнал соответствующей команды и описывается в Wiki.
+Не удаляйте незавершённые transaction-каталоги вручную: они нужны следующему безопасному запуску для восстановления состояния.
 
 ## Модель веток
 
@@ -233,54 +171,28 @@ Build создаёт отсутствующий `config\deploy.yaml`, подго
 | `master` | Чистое зеркало исходной версии AzurPilot |
 | `personal/stable` | Рабочая стабильная персональная версия |
 | `origin` | Личный репозиторий и единственный автоматический источник обновлений |
-| `upstream` | Исходный проект; используется только для контролируемого ручного переноса изменений |
+| `upstream` | Исходный проект для контролируемого ручного переноса изменений |
 
-Изменения из `upstream` не переносятся автоматически. Каждый перенос должен отдельно проверяться и адаптироваться под персональную архитектуру.
+Изменения из `upstream` не переносятся автоматически.
 
-## Что этапы 1–2 не меняли
+## Что пока не заменено
 
-Новые Update и launcher-контур не означают, что весь проект переписан или полностью изолирован от внешних сервисов.
-
-Этапы 1–2 не заменяли:
+Этапы 1–2 не переписывали:
 
 - основной WebUI;
 - планировщик игровых задач;
 - распознавание интерфейса;
-- подключение к эмулятору;
+- внутреннюю ADB-логику;
 - игровые модули;
 - пользовательские конфигурации;
-- все оставшиеся сетевые интеграции проекта;
-- installer и release pipeline.
-
-Эти части рассматриваются отдельно и не входят в завершённый Stage 2.
-
-## Разработка из исходного кода
-
-Проект использует Python `3.14.6`, `uv`, корневой `pyproject.toml` и зафиксированный `uv.lock`.
-
-Для уже настроенной среды разработчика:
-
-```powershell
-uv sync --frozen --no-dev
-uv run python gui.py
-```
-
-Эти команды предназначены для разработки и не заменяют пользовательский `Start-AzurPilot.ps1`.
+- все оставшиеся сетевые интеграции;
+- полноценный installer и release pipeline.
 
 ## Скриншот интерфейса
 
 <p align="center">
   <img src="doc/GUI.png" alt="Веб-интерфейс AzurPilot" width="800">
 </p>
-
-## Безопасность и сохранность данных
-
-- Не выполняйте разрушительные Git-команды без резервной копии и отдельного плана восстановления.
-- Не публикуйте токены, пароли, приватные SSH-ключи, пользовательские конфигурации и журналы с чувствительными данными.
-- Перед экспериментальными изменениями сохраняйте пользовательские настройки.
-- При непонятном состоянии эксплуатационные команды намеренно останавливаются вместо автоматической очистки или переписывания истории.
-- `Start`, `Repair` и `Build` не обновляют Git.
-- Не используйте original launcher как штатный способ запуска или обновления персональной ветки.
 
 ## Происхождение и благодарности
 
