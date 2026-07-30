@@ -30,6 +30,45 @@ class TestUpdaterReload(unittest.TestCase):
         updater._update_lock = threading.Lock()
         return updater
 
+    def test_check_update_is_inert_without_hot_reload(self):
+        updater = self._updater()
+        updater.force_update = False
+        updater._force_update_checking = False
+        State.restart_event = None
+
+        with patch("module.webui.updater.threading.Thread") as thread:
+            result = updater.check_update()
+
+        self.assertFalse(result)
+        self.assertEqual(0, updater.state)
+        self.assertFalse(updater.force_update)
+        thread.assert_not_called()
+
+    def test_direct_check_does_not_access_cloud_without_hot_reload(self):
+        updater = self._updater()
+        updater.force_update = False
+        updater._check_cloud_update = Mock()
+        State.restart_event = None
+
+        result = updater._check_update()
+
+        self.assertFalse(result)
+        self.assertEqual(0, updater.state)
+        updater._check_cloud_update.assert_not_called()
+
+    def test_direct_update_does_not_run_git_without_hot_reload(self):
+        updater = object.__new__(Updater)
+        updater.state = None
+        updater.force_update = False
+        updater.git_install = Mock()
+        State.restart_event = None
+
+        result = updater.update()
+
+        self.assertFalse(result)
+        self.assertEqual(0, updater.state)
+        updater.git_install.assert_not_called()
+
     def test_update_cleans_before_triggering_webui_reload(self):
         order = []
         app_module = types.ModuleType("module.webui.app")
@@ -355,6 +394,13 @@ class TestUpdaterReload(unittest.TestCase):
 
 
 class TestUpdaterForceUpdate(unittest.TestCase):
+    def setUp(self):
+        self.original_restart_event = State.restart_event
+        State.restart_event = Mock()
+
+    def tearDown(self):
+        State.restart_event = self.original_restart_event
+
     @staticmethod
     def _updater():
         updater = object.__new__(Updater)

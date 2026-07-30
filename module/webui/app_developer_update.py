@@ -37,6 +37,7 @@ class DeveloperUpdateMixin(WebUIMixinBase):
         with use_scope("updater_info"):
             if State.restart_event is None:
                 put_warning(t("Gui.Update.DisabledWarn"))
+                return
 
             put_row(
                 content=[

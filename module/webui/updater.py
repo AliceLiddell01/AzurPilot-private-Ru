@@ -37,6 +37,19 @@ class Updater(DeployConfig, GitManager):
         import os
         os._exit(1)
 
+    def _builtin_updater_disabled(self) -> bool:
+        # Запретить встроенный updater при внешнем управлении обновлениями.
+        if State.restart_event is not None:
+            return False
+
+        self.state = 0
+        self.force_update = False
+        logger.info(
+            "[WebUI-обновление] Встроенный updater отключён. "
+            "Используйте scripts/Update-AzurPilot.ps1"
+        )
+        return True
+
     @property
     def delay(self):
         self.read()
@@ -89,6 +102,9 @@ class Updater(DeployConfig, GitManager):
         return self.cloud_force_update_enabled()
 
     def _check_update(self) -> bool:
+        if self._builtin_updater_disabled():
+            return False
+
         self.state = "checking"
 
         cloud_update = self._check_cloud_update()
@@ -233,6 +249,9 @@ class Updater(DeployConfig, GitManager):
     def _check_force_update_thread(self):
         """已有更新时，仅检查强制更新开关以保留前端状态。"""
         try:
+            if self._builtin_updater_disabled():
+                return
+
             cloud_update = self._check_cloud_update()
             if cloud_update is not True:
                 self.force_update = False
@@ -249,6 +268,9 @@ class Updater(DeployConfig, GitManager):
             self._force_update_checking = False
 
     def check_update(self):
+        if self._builtin_updater_disabled():
+            return False
+
         if self.state in (0, "failed", "finish"):
             self.state = "checking"
             threading.Thread(
@@ -280,6 +302,9 @@ class Updater(DeployConfig, GitManager):
         return super().git_install()
 
     def update(self):
+        if self._builtin_updater_disabled():
+            return False
+
         logger.hr("[WebUI-更新] 执行更新")
         try:
             self.git_install()
