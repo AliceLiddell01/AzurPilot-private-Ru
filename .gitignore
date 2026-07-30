@@ -319,8 +319,3 @@ RTK.md
 !/scripts/lib/
 /scripts/lib/*
 !/scripts/lib/AzurPilot.Shortcut.psm1
-!/docs/
-/docs/*
-!/docs/launcher/
-/docs/launcher/*
-!/docs/launcher/*.md
