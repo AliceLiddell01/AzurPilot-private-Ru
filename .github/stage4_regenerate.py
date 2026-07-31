@@ -4,7 +4,7 @@ from pathlib import Path
 AUDITOR = Path('dev_tools/russianization_audit.py')
 source = AUDITOR.read_text(encoding='utf-8')
 old = '    RESULTS_RELATIVE.as_posix() + "/",\n}'
-new = '    ".github/workflows/", ".github/stage4_",\n    RESULTS_RELATIVE.as_posix() + "/",\n}'
+new = '    "github/workflows/", "github/stage4_",\n    RESULTS_RELATIVE.as_posix() + "/",\n}'
 if old in source:
     source = source.replace(old, new, 1)
 elif new not in source:
