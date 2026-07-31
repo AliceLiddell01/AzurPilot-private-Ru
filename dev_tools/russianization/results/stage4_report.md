@@ -17,21 +17,21 @@ uv run python -m dev_tools.russianization_audit --check
 
 | Метрика | Значение |
 |---|---:|
-| Tracked files scanned | 10961 |
-| Text files scanned | 2104 |
+| Tracked files scanned | 10958 |
+| Text files scanned | 2106 |
 | Locale files | 5 |
 | UI string entries | 19621 |
 | UI translation required | 17907 |
-| First-party/direct log entries | 5708 |
-| Log translation required | 5056 |
-| Asset entries | 10457 |
-| Asset bytes represented | 585411292 |
+| First-party/direct log entries | 5714 |
+| Log translation required | 5061 |
+| Asset entries | 10458 |
+| Asset bytes represented | 585418955 |
 | EN/Global required candidates | 3695 |
 | Manual review assets | 1930 |
 | Probable delete candidates | 1228 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `36e3ee4a68a9536d72c3ee15c7925ff56ff3c62464a4dfdc4c384d48bfd79159`
+Source fingerprint: `1899e0d5809f67a0d8b6c07aa36727377a43ab30ad19d2df5811df1278ff74b7`
 
 ## Locale inventory
 
@@ -52,9 +52,9 @@ Locale files with missing keys against union: **0**.
 | UI locale → translation loader | да | 30 |
 | translation loader → deploy Language | да | 15 |
 | deploy Language → config generator | да | 30 |
-| config generator → event-name source | да | 23 |
-| event-name source → game server | да | 23 |
-| game server → OCR profile/model | да | 20 |
+| config generator → event-name source | да | 25 |
+| event-name source → game server | да | 28 |
+| game server → OCR profile/model | да | 25 |
 | OCR profile/model → package/server options | да | 30 |
 | package/server options → assets | да | 30 |
 
@@ -68,15 +68,15 @@ Inventory содержит путь, строку/ключ, источник, т
 
 ## First-party логи
 
-Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'webui_and_process_lifecycle': 314, 'deploy_and_dependencies': 293, 'other': 263, 'ocr': 107, 'scheduler_and_config': 44, 'tests': 9, 'screenshot_and_control': 4}`.
+Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'webui_and_process_lifecycle': 314, 'deploy_and_dependencies': 293, 'other': 269, 'ocr': 107, 'scheduler_and_config': 44, 'tests': 9, 'screenshot_and_control': 4}`.
 
 Сырые stdout/stderr/traceback отмечаются отдельно и должны сохраняться без перевода. В будущих Stage русифицируется только first-party контекст вокруг них.
 
 ## Assets
 
-Decision counts: `{'confirmed_keep': 7798, 'needs_manual_review': 702, 'probable_delete_candidate': 1228, 'probable_keep': 729}`.
+Decision counts: `{'confirmed_keep': 7799, 'needs_manual_review': 702, 'probable_delete_candidate': 1228, 'probable_keep': 729}`.
 
-Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1552}`.
+Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1553}`.
 
 `confirmed_delete_candidate` намеренно не присваивается на основании имени, CJK или суффикса. Наличие server marker без runtime evidence даёт максимум `probable_delete_candidate` и `manual_review_required: true`.
 
@@ -135,7 +135,7 @@ Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared
 | `assets/cn/island_manufacture/ISLAND_INDUSTRIAL_POST2.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
 | `assets/cn/island_manufacture/ISLAND_WOOD_PROCESSING_POST1.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
 
-Полный machine-readable manifest: `asset_manifest.json`. Решения: `asset_decisions.json`. Ресурсы EN/shared: `en_global_required.json`.
+Committed `asset_manifest.json` содержит агрегаты и review/delete findings с ограниченными evidence samples. Полный manifest воспроизводится командой из файла и сверяется по SHA-256. Решения: `asset_decisions.json`. Ресурсы EN/shared: `en_global_required.json`.
 
 ## Доказательные ограничения
 

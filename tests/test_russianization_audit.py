@@ -137,9 +137,17 @@ class RussianizationAuditTests(unittest.TestCase):
         ):
             payload = json.loads(outputs[filename])
             self.assertEqual(payload["schema_version"], 1)
-        self.assertIsInstance(json.loads(outputs["ui_strings.json"])["entries"], list)
-        self.assertIsInstance(json.loads(outputs["first_party_logs.json"])["entries"], list)
-        self.assertIsInstance(json.loads(outputs["asset_manifest.json"])["entries"], list)
+        ui_payload = json.loads(outputs["ui_strings.json"])
+        log_payload = json.loads(outputs["first_party_logs.json"])
+        asset_payload = json.loads(outputs["asset_manifest.json"])
+        self.assertIsInstance(ui_payload["columns"], list)
+        self.assertIsInstance(ui_payload["entries"], list)
+        self.assertIsInstance(log_payload["columns"], list)
+        self.assertIsInstance(log_payload["entries"], list)
+        self.assertIsInstance(asset_payload["columns"], list)
+        self.assertIsInstance(asset_payload["entries"], list)
+        self.assertFalse(asset_payload["full_manifest_committed"])
+        self.assertIn("full_manifest_sha256", asset_payload)
 
 
 if __name__ == "__main__":

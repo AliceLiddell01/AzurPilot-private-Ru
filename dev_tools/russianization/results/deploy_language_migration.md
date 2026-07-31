@@ -6,7 +6,7 @@
 
 ## Подтверждённая поверхность
 
-Dependency map содержит 201 evidence entries по цепочке locale/server/OCR/package/assets. Конкретные файлы и строки находятся в `locale_dependency_map.json`.
+Dependency map содержит 213 evidence entries по цепочке locale/server/OCR/package/assets. Конкретные файлы и строки находятся в `locale_dependency_map.json`.
 
 ## Контракт миграции
 

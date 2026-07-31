@@ -117,6 +117,18 @@ def json_bytes(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
+def compact_json_bytes(value: Any) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def tabular_payload(entries: list[dict[str, Any]], columns: tuple[str, ...]) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "columns": list(columns),
+        "entries": [[entry.get(column) for column in columns] for entry in entries],
+    }
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -824,33 +836,92 @@ class AuditEngine:
         dependency = self.dependency_map(locales, missing, extra)
         terminology = self.terminology()
         allowlist = self.allowlist()
-        decisions = {
-            "schema_version": SCHEMA_VERSION,
-            "entries": [
-                {key: item[key] for key in ("path", "decision_status", "confidence", "reason", "manual_review_required", "suspected_scope", "asset_type")}
-                for item in assets
-                if item["decision_status"] in {"confirmed_keep", "probable_keep", "needs_manual_review", "probable_delete_candidate", "confirmed_delete_candidate"}
-            ],
-        }
-        en_required = {
-            "schema_version": SCHEMA_VERSION,
-            "entries": [
-                {key: item[key] for key in ("path", "suspected_scope", "asset_type", "decision_status", "reason", "static_references", "dynamic_loader_references")}
-                for item in assets
-                if item["en_global_required_candidate"]
-            ],
-        }
+        ui_columns = (
+            "path", "line_or_key", "source_kind", "text", "language_guess", "subsystem",
+            "classification", "runtime_visibility", "generated", "translation_required", "notes",
+        )
+        log_columns = (
+            "path", "line", "call_kind", "source_kind", "message_or_template", "subsystem",
+            "first_party_or_external", "language_guess", "user_actionable", "translation_required",
+            "raw_external_payload_preserved", "notes",
+        )
+        decision_columns = (
+            "path", "decision_status", "confidence", "reason", "manual_review_required",
+            "suspected_scope", "asset_type",
+        )
+        en_columns = (
+            "path", "suspected_scope", "asset_type", "decision_status", "reason",
+            "static_reference_count", "dynamic_reference_count", "generated_reference_count",
+        )
+        manifest_columns = (
+            "path", "size_bytes", "extension", "content_hash_or_stable_fingerprint", "asset_type",
+            "suspected_scope", "language_or_server_markers", "static_references",
+            "dynamic_loader_references", "generated_references", "test_references",
+            "shared_runtime_candidate", "en_global_required_candidate", "deletable_candidate",
+            "decision_status", "confidence", "reason", "manual_review_required",
+        )
+        decisions = [
+            {key: item[key] for key in decision_columns}
+            for item in assets
+        ]
+        en_required = [
+            {
+                "path": item["path"],
+                "suspected_scope": item["suspected_scope"],
+                "asset_type": item["asset_type"],
+                "decision_status": item["decision_status"],
+                "reason": item["reason"],
+                "static_reference_count": len(item["static_references"]),
+                "dynamic_reference_count": len(item["dynamic_loader_references"]),
+                "generated_reference_count": len(item["generated_references"]),
+            }
+            for item in assets
+            if item["en_global_required_candidate"]
+        ]
+        review_assets = []
+        for item in assets:
+            if item["decision_status"] not in {"needs_manual_review", "probable_delete_candidate", "confirmed_delete_candidate"}:
+                continue
+            compact_item = dict(item)
+            compact_item["static_references"] = item["static_references"][:3]
+            compact_item["dynamic_loader_references"] = item["dynamic_loader_references"][:3]
+            compact_item["generated_references"] = item["generated_references"][:3]
+            compact_item["test_references"] = item["test_references"][:3]
+            compact_item["reference_counts"] = {
+                "static": len(item["static_references"]),
+                "dynamic": len(item["dynamic_loader_references"]),
+                "generated": len(item["generated_references"]),
+                "tests": len(item["test_references"]),
+            }
+            review_assets.append(compact_item)
+        full_manifest_payload = {"schema_version": SCHEMA_VERSION, "entries": assets}
+        full_manifest_digest = sha256_bytes(compact_json_bytes(full_manifest_payload))
         summary = self._summary(locales, missing, ui, logs, assets)
+        summary["full_asset_manifest_sha256"] = full_manifest_digest
+        asset_manifest = tabular_payload(review_assets, manifest_columns)
+        asset_manifest.update({
+            "mode": "aggregate_with_review_candidates",
+            "full_manifest_committed": False,
+            "full_manifest_entry_count": len(assets),
+            "full_manifest_sha256": full_manifest_digest,
+            "reference_samples_per_kind": 3,
+            "reproduction_command": "python -m dev_tools.russianization_audit --write --full-manifest .stage4/full_asset_manifest.json",
+            "aggregate": {
+                "decision_counts": summary["asset_decision_counts"],
+                "scope_counts": summary["asset_scope_counts"],
+                "bytes_total": summary["asset_bytes_total"],
+            },
+        })
         outputs: dict[str, bytes] = {
             "summary.json": json_bytes(summary),
-            "ui_strings.json": json_bytes({"schema_version": SCHEMA_VERSION, "entries": ui}),
-            "first_party_logs.json": json_bytes({"schema_version": SCHEMA_VERSION, "entries": logs}),
-            "asset_manifest.json": json_bytes({"schema_version": SCHEMA_VERSION, "entries": assets}),
+            "ui_strings.json": compact_json_bytes(tabular_payload(ui, ui_columns)),
+            "first_party_logs.json": compact_json_bytes(tabular_payload(logs, log_columns)),
+            "asset_manifest.json": compact_json_bytes(asset_manifest),
             "locale_dependency_map.json": json_bytes(dependency),
             "terminology.json": json_bytes(terminology),
             "technical_allowlist.json": json_bytes(allowlist),
-            "asset_decisions.json": json_bytes(decisions),
-            "en_global_required.json": json_bytes(en_required),
+            "asset_decisions.json": compact_json_bytes(tabular_payload(decisions, decision_columns)),
+            "en_global_required.json": compact_json_bytes(tabular_payload(en_required, en_columns)),
             "stage4_report.md": self._report(summary, dependency, assets, ui, logs).encode("utf-8"),
             "deploy_language_migration.md": self._migration_plan(dependency).encode("utf-8"),
             "stage5_9_test_matrix.md": self._test_matrix().encode("utf-8"),
@@ -983,7 +1054,7 @@ Scope counts: `{scope}`.
 |---|---|---|---:|
 {candidate_rows}
 
-Полный machine-readable manifest: `asset_manifest.json`. Решения: `asset_decisions.json`. Ресурсы EN/shared: `en_global_required.json`.
+Committed `asset_manifest.json` содержит агрегаты и review/delete findings с ограниченными evidence samples. Полный manifest воспроизводится командой из файла и сверяется по SHA-256. Решения: `asset_decisions.json`. Ресурсы EN/shared: `en_global_required.json`.
 
 ## Доказательные ограничения
 
@@ -1070,6 +1141,11 @@ Permanent gates retained: Ruff syntax/static, Stage 3 regression suite, button/c
             (self.output_dir / filename).write_bytes(data)
         return outputs
 
+    def write_full_asset_manifest(self, path: Path) -> None:
+        payload = {"schema_version": SCHEMA_VERSION, "entries": self.asset_manifest()}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(compact_json_bytes(payload))
+
     def check(self) -> list[str]:
         outputs = self.build_outputs()
         differences: list[str] = []
@@ -1098,6 +1174,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     mode.add_argument("--check", action="store_true", help="Compare generated results with committed baseline without writing.")
     parser.add_argument("--root", type=Path, default=None, help="Repository root; defaults to parent of dev_tools.")
     parser.add_argument("--output", type=Path, default=None, help="Output directory; defaults to dev_tools/russianization/results.")
+    parser.add_argument("--full-manifest", type=Path, default=None, help="Optional path for the complete local asset manifest; never required by --check.")
     return parser.parse_args(argv)
 
 
@@ -1109,6 +1186,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.write:
         outputs = engine.write()
         summary = json.loads(outputs["summary.json"])
+        if args.full_manifest is not None:
+            full_manifest_path = args.full_manifest.resolve()
+            engine.write_full_asset_manifest(full_manifest_path)
+            print(f"Full local asset manifest written: {full_manifest_path}")
         print(
             "Stage 4 audit written: "
             f"UI={summary['ui_strings']}, logs={summary['first_party_log_messages']}, "

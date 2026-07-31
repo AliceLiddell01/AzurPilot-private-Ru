@@ -1,12 +1,12 @@
 {
-  "asset_bytes_total": 585411292,
+  "asset_bytes_total": 585418955,
   "asset_decision_counts": {
-    "confirmed_keep": 7798,
+    "confirmed_keep": 7799,
     "needs_manual_review": 702,
     "probable_delete_candidate": 1228,
     "probable_keep": 729
   },
-  "asset_entries": 10457,
+  "asset_entries": 10458,
   "asset_scope_counts": {
     "cn": 3943,
     "en": 1673,
@@ -14,11 +14,12 @@
     "multi_server": 278,
     "shared": 109,
     "tw": 1445,
-    "unknown": 1552
+    "unknown": 1553
   },
   "confirmed_delete_candidates": 0,
   "en_global_required_candidates": 3695,
-  "first_party_log_messages": 5708,
+  "first_party_log_messages": 5714,
+  "full_asset_manifest_sha256": "8db08fd1304fa61ee46db25fc03d3ef0bdfa4fdfb55e50accb8eaae1551f5151",
   "locale_files": 5,
   "locale_files_with_missing_keys": 0,
   "locales": [
@@ -28,7 +29,7 @@
     "zh-MIAO",
     "zh-TW"
   ],
-  "log_translation_required": 5056,
+  "log_translation_required": 5061,
   "logs_by_subsystem": {
     "campaign_combat_fleet": 569,
     "deploy_and_dependencies": 293,
@@ -36,7 +37,7 @@
     "game_tasks": 2652,
     "ocr": 107,
     "operation_siren": 815,
-    "other": 263,
+    "other": 269,
     "scheduler_and_config": 44,
     "screenshot_and_control": 4,
     "tests": 9,
@@ -45,9 +46,9 @@
   "manual_review_assets": 1930,
   "probable_delete_candidates": 1228,
   "schema_version": 1,
-  "source_fingerprint": "36e3ee4a68a9536d72c3ee15c7925ff56ff3c62464a4dfdc4c384d48bfd79159",
-  "text_files_scanned": 2104,
-  "tracked_files_scanned": 10961,
+  "source_fingerprint": "1899e0d5809f67a0d8b6c07aa36727377a43ab30ad19d2df5811df1278ff74b7",
+  "text_files_scanned": 2106,
+  "tracked_files_scanned": 10958,
   "ui_by_subsystem": {
     "deploy_and_dependencies": 101,
     "other": 10,
