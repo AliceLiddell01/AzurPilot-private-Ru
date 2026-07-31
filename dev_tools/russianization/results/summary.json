@@ -1,5 +1,5 @@
 {
-  "asset_bytes_total": 585418955,
+  "asset_bytes_total": 585419231,
   "asset_decision_counts": {
     "confirmed_keep": 7799,
     "needs_manual_review": 702,
@@ -19,7 +19,7 @@
   "confirmed_delete_candidates": 0,
   "en_global_required_candidates": 3695,
   "first_party_log_messages": 5714,
-  "full_asset_manifest_sha256": "8db08fd1304fa61ee46db25fc03d3ef0bdfa4fdfb55e50accb8eaae1551f5151",
+  "full_asset_manifest_sha256": "a1ffebf5b554d6399b827521017fd3cb1d3f022dc1deb434cc58245af8a204ba",
   "locale_files": 5,
   "locale_files_with_missing_keys": 0,
   "locales": [
@@ -46,9 +46,9 @@
   "manual_review_assets": 1930,
   "probable_delete_candidates": 1228,
   "schema_version": 1,
-  "source_fingerprint": "303ed348bc824bb64443be43d772ebe012f94ffeca5be59d6ac077be8affc4d6",
+  "source_fingerprint": "5d6d35a055606603dd381edce7b1fc10c4abdb897ed5ae46f20676cba5ba7c76",
   "text_files_scanned": 2106,
-  "tracked_files_scanned": 10958,
+  "tracked_files_scanned": 10953,
   "ui_by_subsystem": {
     "deploy_and_dependencies": 101,
     "other": 10,

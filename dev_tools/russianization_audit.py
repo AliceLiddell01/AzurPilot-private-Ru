@@ -58,6 +58,7 @@ SOURCE_SCAN_ROOTS = {
 EXCLUDED_PREFIXES = {
     ".git/", ".venv/", "venv/", "node_modules/", "dist/", "build/",
     "__pycache__/", ".pytest_cache/", ".ruff_cache/", ".mypy_cache/",
+    "github/workflows/", "github/stage4_",
     RESULTS_RELATIVE.as_posix() + "/",
 }
 USER_UI_CLASSIFICATIONS = {

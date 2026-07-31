@@ -106,37 +106,37 @@
         },
         {
           "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 95,
+          "line": 96,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 95,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
           "line": 96,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-          "line": 96,
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
-          "line": 725,
+          "line": 726,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
-          "line": 725,
+          "line": 726,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
-          "line": 727,
+          "line": 728,
           "path": "dev_tools/russianization_audit.py"
         },
         {
@@ -263,12 +263,12 @@
         },
         {
           "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 95,
+          "line": 96,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-          "line": 96,
+          "line": 97,
           "path": "dev_tools/russianization_audit.py"
         }
       ],
@@ -355,27 +355,27 @@
         },
         {
           "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 95,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 95,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
           "line": 96,
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
           "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
-          "line": 725,
+          "line": 726,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
-          "line": 727,
+          "line": 728,
           "path": "dev_tools/russianization_audit.py"
         },
         {
@@ -522,12 +522,12 @@
         },
         {
           "code": "\"ServerName\", \"Event\", \"event_name\",",
-          "line": 97,
+          "line": 98,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"config generator\", \"event-name source\", evidence, (\"event_name\", \"Event\"), \"Stage 5: preserve server-specific event names independently.\"),",
-          "line": 728,
+          "line": 729,
           "path": "dev_tools/russianization_audit.py"
         },
         {
@@ -609,47 +609,47 @@
         },
         {
           "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 95,
+          "line": 96,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 95,
+          "line": 96,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "\"ServerName\", \"Event\", \"event_name\",",
-          "line": 97,
+          "line": 98,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-          "line": 729,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-          "line": 729,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-          "line": 729,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
           "line": 730,
           "path": "dev_tools/russianization_audit.py"
         },
         {
-          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+          "line": 730,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+          "line": 730,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
           "line": 731,
           "path": "dev_tools/russianization_audit.py"
         },
         {
-          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
           "line": 732,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
           "path": "dev_tools/russianization_audit.py"
         },
         {
@@ -761,42 +761,42 @@
         },
         {
           "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 95,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
           "line": 96,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-          "line": 96,
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-          "line": 729,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
           "line": 730,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
-          "line": 730,
+          "line": 731,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
-          "line": 730,
+          "line": 731,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+          "line": 731,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
-          "line": 732,
+          "line": 733,
           "path": "dev_tools/russianization_audit.py"
         },
         {
@@ -903,37 +903,37 @@
         },
         {
           "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-          "line": 96,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"ServerName\", \"Event\", \"event_name\",",
           "line": 97,
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "\"ServerName\", \"Event\", \"event_name\",",
+          "line": 98,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
           "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-          "line": 729,
+          "line": 730,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
-          "line": 731,
+          "line": 732,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
-          "line": 731,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
           "line": 732,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
-          "line": 732,
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
           "path": "dev_tools/russianization_audit.py"
         },
         {
@@ -1085,52 +1085,52 @@
         },
         {
           "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-          "line": 96,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-          "line": 96,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"ServerName\", \"Event\", \"event_name\",",
           "line": 97,
           "path": "dev_tools/russianization_audit.py"
         },
         {
-          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-          "line": 729,
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
           "path": "dev_tools/russianization_audit.py"
         },
         {
-          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+          "code": "\"ServerName\", \"Event\", \"event_name\",",
+          "line": 98,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
           "line": 730,
           "path": "dev_tools/russianization_audit.py"
         },
         {
-          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
           "line": 731,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
-          "line": 731,
+          "line": 732,
           "path": "dev_tools/russianization_audit.py"
         },
         {
-          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
           "line": 732,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
-          "line": 732,
+          "line": 733,
           "path": "dev_tools/russianization_audit.py"
         },
         {
           "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
-          "line": 732,
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
           "path": "dev_tools/russianization_audit.py"
         },
         {
@@ -1203,12 +1203,12 @@
     "BrowserLanguage": [
       {
         "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-        "line": 96,
+        "line": 97,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
-        "line": 725,
+        "line": 726,
         "path": "dev_tools/russianization_audit.py"
       }
     ],
@@ -1722,17 +1722,17 @@
       },
       {
         "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-        "line": 95,
+        "line": 96,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
-        "line": 725,
+        "line": 726,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
-        "line": 727,
+        "line": 728,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -1829,12 +1829,12 @@
     "LANG_TO_SERVER": [
       {
         "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-        "line": 95,
+        "line": 96,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-        "line": 729,
+        "line": 730,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -1921,77 +1921,77 @@
       },
       {
         "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-        "line": 95,
-        "path": "dev_tools/russianization_audit.py"
-      },
-      {
-        "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
         "line": 96,
         "path": "dev_tools/russianization_audit.py"
       },
       {
-        "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
-        "line": 725,
+        "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+        "line": 97,
         "path": "dev_tools/russianization_audit.py"
       },
       {
-        "code": "self._dependency_link(\"translation loader\", \"deploy Language\", evidence, (\"Language\",), \"Stage 5: migrate only Language key patch-wise.\"),",
+        "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
         "line": 726,
         "path": "dev_tools/russianization_audit.py"
       },
       {
-        "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
+        "code": "self._dependency_link(\"translation loader\", \"deploy Language\", evidence, (\"Language\",), \"Stage 5: migrate only Language key patch-wise.\"),",
         "line": 727,
         "path": "dev_tools/russianization_audit.py"
       },
       {
+        "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
+        "line": 728,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
         "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
-        "line": 730,
+        "line": 731,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "\"UI locale\", \"translation loader\", \"deploy Language\", \"config generator\",",
-        "line": 741,
+        "line": 742,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "return f\"\"\"# План миграции `Language` в пользовательском `config/deploy.yaml`",
-        "line": 1074,
+        "line": 1075,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "На Stage 5 безопасно преобразовать старое значение `Language` в `ru-RU`, не перезаписывая неизвестные пользовательские ключи и не связывая UI locale с game server.",
-        "line": 1078,
+        "line": 1079,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "2. Если файл отсутствует, шаблон Stage 5 создаёт новый config с `Language: ru-RU`.",
-        "line": 1087,
-        "path": "dev_tools/russianization_audit.py"
-      },
-      {
-        "code": "3. Если файл существует, изменить только скаляр `Language` patch-only механизмом, уже применяемым персональной веткой.",
         "line": 1088,
         "path": "dev_tools/russianization_audit.py"
       },
       {
-        "code": "4. Сохранить порядок, неизвестные ключи, комментарии и все значения, не относящиеся к `Language`, насколько это обеспечивает существующий writer.",
+        "code": "3. Если файл существует, изменить только скаляр `Language` patch-only механизмом, уже применяемым персональной веткой.",
         "line": 1089,
         "path": "dev_tools/russianization_audit.py"
       },
       {
+        "code": "4. Сохранить порядок, неизвестные ключи, комментарии и все значения, не относящиеся к `Language`, насколько это обеспечивает существующий writer.",
+        "line": 1090,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
         "code": "7. Повторный запуск при `Language: ru-RU` является no-op.",
-        "line": 1092,
+        "line": 1093,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "- отсутствующий `Language`;",
-        "line": 1099,
+        "line": 1100,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "| 5 | deploy migration | patch-only Language, unknown keys preserved, idempotence | existing user config copy |",
-        "line": 1118,
+        "line": 1119,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -2218,12 +2218,12 @@
     "OcrLanguage": [
       {
         "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-        "line": 96,
+        "line": 97,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
-        "line": 730,
+        "line": 731,
         "path": "dev_tools/russianization_audit.py"
       }
     ],
@@ -2250,17 +2250,17 @@
       },
       {
         "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-        "line": 96,
+        "line": 97,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
-        "line": 730,
+        "line": 731,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
-        "line": 732,
+        "line": 733,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -2502,17 +2502,17 @@
       },
       {
         "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-        "line": 96,
+        "line": 97,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
-        "line": 731,
+        "line": 732,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
-        "line": 732,
+        "line": 733,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -2734,17 +2734,17 @@
       },
       {
         "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-        "line": 95,
+        "line": 96,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-        "line": 729,
+        "line": 730,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
-        "line": 730,
+        "line": 731,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -2791,22 +2791,22 @@
       },
       {
         "code": "\"ServerName\", \"Event\", \"event_name\",",
-        "line": 97,
+        "line": 98,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
-        "line": 729,
+        "line": 730,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
-        "line": 731,
+        "line": 732,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
-        "line": 732,
+        "line": 733,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -3043,12 +3043,12 @@
     "event_name": [
       {
         "code": "\"ServerName\", \"Event\", \"event_name\",",
-        "line": 97,
+        "line": 98,
         "path": "dev_tools/russianization_audit.py"
       },
       {
         "code": "self._dependency_link(\"config generator\", \"event-name source\", evidence, (\"event_name\", \"Event\"), \"Stage 5: preserve server-specific event names independently.\"),",
-        "line": 728,
+        "line": 729,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -3095,7 +3095,7 @@
     "lang_to_server": [
       {
         "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-        "line": 96,
+        "line": 97,
         "path": "dev_tools/russianization_audit.py"
       },
       {
@@ -3117,7 +3117,7 @@
     "server_to_lang": [
       {
         "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-        "line": 95,
+        "line": 96,
         "path": "dev_tools/russianization_audit.py"
       }
     ]

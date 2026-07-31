@@ -9,7 +9,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from dev_tools.russianization_audit import AuditEngine, RESULT_FILENAMES
+from dev_tools.russianization_audit import AuditEngine, RESULT_FILENAMES, is_excluded
 
 
 class RussianizationAuditTests(unittest.TestCase):
@@ -65,6 +65,11 @@ class RussianizationAuditTests(unittest.TestCase):
         first = self._engine().build_outputs()
         second = self._engine().build_outputs()
         self.assertEqual(first, second)
+
+    def test_ci_and_stage4_transport_are_excluded(self) -> None:
+        self.assertTrue(is_excluded(".github/workflows/lint.yml"))
+        self.assertTrue(is_excluded(".github/stage4_regenerate.py"))
+        self.assertFalse(is_excluded("module/webui/app.py"))
 
     def test_all_locale_files_and_key_drift_are_detected(self) -> None:
         locales, missing, extra = self._engine().locale_inventory()
