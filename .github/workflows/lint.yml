@@ -32,6 +32,19 @@ jobs:
           tests/test_stage3e_release_cleanup.py
       - name: Run Stage 4 audit unit tests
         run: uv run python -m unittest -v tests/test_russianization_audit.py
+      - name: Create Stage 5 source archive
+        if: github.event.pull_request.head.ref == 'chatgpt/stage5-single-russian-locale'
+        run: >-
+          git archive --format=tar.gz --output=stage5-source.tar.gz HEAD
+          .github module deploy config tests dev_tools scripts
+          README.md PRIVACY_AND_DISCLAIMER.md pyproject.toml uv.lock alas.py
+      - name: Upload Stage 5 source archive
+        if: github.event.pull_request.head.ref == 'chatgpt/stage5-single-russian-locale'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5-source
+          path: stage5-source.tar.gz
+          retention-days: 1
       - name: Check Stage 4 audit baseline
         run: uv run python -m dev_tools.russianization_audit --check
 
@@ -129,23 +142,3 @@ jobs:
                   Out-String
               throw $details
           }
-
-  stage5-export:
-    if: github.ref == 'refs/heads/chatgpt/stage5-single-russian-locale' || github.event.pull_request.head.ref == 'chatgpt/stage5-single-russian-locale'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: chatgpt/stage5-single-russian-locale
-          fetch-depth: 1
-      - name: Create source archive
-        run: >-
-          git archive --format=tar.gz --output=stage5-source.tar.gz HEAD
-          .github module deploy config tests dev_tools scripts
-          README.md PRIVACY_AND_DISCLAIMER.md pyproject.toml uv.lock alas.py
-      - name: Upload source archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: stage5-source
-          path: stage5-source.tar.gz
-          retention-days: 1
