@@ -357,7 +357,6 @@ try {
         'deploy/git_over_cdn/client.py'
         'deploy/git_over_cdn/endpoints.py'
         'deploy/installer.py'
-        'module/base/api_client.py'
         'module/statistics/cl1_data_submitter.py'
         'module/webui/app_developer_update.py'
         'module/webui/updater.py'
@@ -370,6 +369,7 @@ try {
     }
 
     $requiredPaths = @(
+        'module/base/api_client.py'
         'module/daemon/uncensored.py'
         'module/webui/app_lifecycle.py'
         'module/webui/process_manager.py'
