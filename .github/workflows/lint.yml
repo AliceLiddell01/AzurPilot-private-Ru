@@ -31,6 +31,10 @@ jobs:
           tests/test_stage3d_templates.py
           tests/test_stage3d_webui_settings.py
           tests/test_stage3e_release_cleanup.py
+      - name: Run Stage 4 audit unit tests
+        run: uv run python -m unittest -v tests/test_russianization_audit.py
+      - name: Check Stage 4 audit baseline
+        run: uv run python -m dev_tools.russianization_audit --check
 
   button-config-check:
     runs-on: ubuntu-latest
@@ -137,30 +141,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.14'
-      - name: Apply compact baseline patch
-        run: git apply .github/stage4_compact.patch
-      - name: Include reference counts in compact asset findings
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('dev_tools/russianization_audit.py')
-          source = path.read_text(encoding='utf-8')
-          old = '            "dynamic_loader_references", "generated_references", "test_references",\n            "shared_runtime_candidate",'
-          new = '            "dynamic_loader_references", "generated_references", "test_references", "reference_counts",\n            "shared_runtime_candidate",'
-          if old not in source:
-              raise SystemExit('Expected compact manifest column block was not found.')
-          path.write_text(source.replace(old, new, 1), encoding='utf-8')
-          PY
-      - name: Install final Stage 4 CI definition
-        shell: bash
-        run: |
-          python - <<'PY'
-          import base64
-          from pathlib import Path
-          payload = 'bmFtZTogTGludAoKb246IFtwdXNoLCBwdWxsX3JlcXVlc3RdCgpqb2JzOgogIHJ1ZmY6CiAgICBydW5zLW9uOiB1YnVudHUtbGF0ZXN0CiAgICBzdGVwczoKICAgICAgLSB1c2VzOiBhY3Rpb25zL2NoZWNrb3V0QHYzCiAgICAgIC0gbmFtZTogSW5zdGFsbCB1dgogICAgICAgIHVzZXM6IGFzdHJhbC1zaC9zZXR1cC11dkB2NQogICAgICAgIHdpdGg6CiAgICAgICAgICBlbmFibGUtY2FjaGU6IHRydWUKICAgICAgLSBuYW1lOiBTZXQgdXAgUHl0aG9uCiAgICAgICAgdXNlczogYWN0aW9ucy9zZXR1cC1weXRob25AdjQKICAgICAgICB3aXRoOgogICAgICAgICAgcHl0aG9uLXZlcnNpb246ICczLjE0JwogICAgICAtIG5hbWU6IEluc3RhbGwgZGVwZW5kZW5jaWVzCiAgICAgICAgcnVuOiB1diBzeW5jCiAgICAgIC0gbmFtZTogUnVuIHJ1ZmYKICAgICAgICBydW46IHV2IHJ1biBydWZmIGNoZWNrIC4gLS1zZWxlY3QgRTksRjYzLEY3LEY4MiAtLWlnbm9yZSBGODIxLEY3MjIKICAgICAgLSBuYW1lOiBSdW4gU3RhZ2UgMyByZWdyZXNzaW9uIHRlc3RzCiAgICAgICAgcnVuOiA+LQogICAgICAgICAgdXYgcnVuIHB5dGhvbiAtbSB1bml0dGVzdCAtdgogICAgICAgICAgdGVzdHMvdGVzdF9kZXBsb3lfbG9jYXRpb24ucHkKICAgICAgICAgIHRlc3RzL3Rlc3Rfc3RhZ2UzZF9kZXBsb3lfc2V0LnB5CiAgICAgICAgICB0ZXN0cy90ZXN0X3N0YWdlM2RfbGVnYWN5X2luc3RhbGxlci5weQogICAgICAgICAgdGVzdHMvdGVzdF9zdGFnZTNkX3RlbXBsYXRlcy5weQogICAgICAgICAgdGVzdHMvdGVzdF9zdGFnZTNkX3dlYnVpX3NldHRpbmdzLnB5CiAgICAgICAgICB0ZXN0cy90ZXN0X3N0YWdlM2VfcmVsZWFzZV9jbGVhbnVwLnB5CiAgICAgIC0gbmFtZTogUnVuIFN0YWdlIDQgYXVkaXQgdW5pdCB0ZXN0cwogICAgICAgIHJ1bjogdXYgcnVuIHB5dGhvbiAtbSB1bml0dGVzdCAtdiB0ZXN0cy90ZXN0X3J1c3NpYW5pemF0aW9uX2F1ZGl0LnB5CiAgICAgIC0gbmFtZTogQ2hlY2sgU3RhZ2UgNCBhdWRpdCBiYXNlbGluZQogICAgICAgIHJ1bjogdXYgcnVuIHB5dGhvbiAtbSBkZXZfdG9vbHMucnVzc2lhbml6YXRpb25fYXVkaXQgLS1jaGVjawoKICBidXR0b24tY29uZmlnLWNoZWNrOgogICAgcnVucy1vbjogdWJ1bnR1LWxhdGVzdAogICAgc3RlcHM6CiAgICAgIC0gdXNlczogYWN0aW9ucy9jaGVja291dEB2MwogICAgICAtIG5hbWU6IEluc3RhbGwgdXYKICAgICAgICB1c2VzOiBhc3RyYWwtc2gvc2V0dXAtdXZAdjUKICAgICAgICB3aXRoOgogICAgICAgICAgZW5hYmxlLWNhY2hlOiB0cnVlCiAgICAgIC0gbmFtZTogU2V0IHVwIFB5dGhvbgogICAgICAgIHVzZXM6IGFjdGlvbnMvc2V0dXAtcHl0aG9uQHY0CiAgICAgICAgd2l0aDoKICAgICAgICAgIHB5dGhvbi12ZXJzaW9uOiAnMy4xNCcKICAgICAgLSBuYW1lOiBJbnN0YWxsIGRlcGVuZGVuY2llcwogICAgICAgIHJ1bjogdXYgc3luYyAtLW5vLWRldgogICAgICAtIG5hbWU6IFJ1biBidXR0b25fZXh0cmFjdAogICAgICAgIHJ1bjogdXYgcnVuIC1tIGRldl90b29scy5idXR0b25fZXh0cmFjdAogICAgICAtIG5hbWU6IFJ1biBjb25maWdfdXBkYXRlcgogICAgICAgIHJ1bjogdXYgcnVuIC1tIG1vZHVsZS5jb25maWcuY29uZmlnX3VwZGF0ZXIKICAgICAgLSBuYW1lOiBDaGVjayBmb3IgZGlmZmVyZW5jZXMKICAgICAgICBydW46IHwKICAgICAgICAgIGdpdCBkaWZmIC0tZXhpdC1jb2RlIC0taWdub3JlLXNwYWNlLWF0LWVvbAoKICBwb3dlcnNoZWxsOgogICAgcnVucy1vbjogd2luZG93cy1sYXRlc3QKICAgIHN0ZXBzOgogICAgICAtIHVzZXM6IGFjdGlvbnMvY2hlY2tvdXRAdjQKICAgICAgLSBuYW1lOiBJbnN0YWxsIFBTU2NyaXB0QW5hbHl6ZXIKICAgICAgICBzaGVsbDogcHdzaAogICAgICAgIHJ1bjogfAogICAgICAgICAgU2V0LVBTUmVwb3NpdG9yeSAtTmFtZSBQU0dhbGxlcnkgLUluc3RhbGxhdGlvblBvbGljeSBUcnVzdGVkCiAgICAgICAgICBJbnN0YWxsLU1vZHVsZSAtTmFtZSBQU1NjcmlwdEFuYWx5emVyIC1TY29wZSBDdXJyZW50VXNlciAtRm9yY2UgLUVycm9yQWN0aW9uIFN0b3AKICAgICAgLSBuYW1lOiBQYXJzZSBQb3dlclNoZWxsIHNjcmlwdHMKICAgICAgICBzaGVsbDogcHdzaAogICAgICAgIHJ1bjogfAogICAgICAgICAgJHNjcmlwdFJvb3QgPSBKb2luLVBhdGggLVBhdGggJFBXRCAtQ2hpbGRQYXRoICdzY3JpcHRzJwogICAgICAgICAgJHNjcmlwdEZpbGVzID0gQCgKICAgICAgICAgICAgICBHZXQtQ2hpbGRJdGVtIC1MaXRlcmFsUGF0aCAkc2NyaXB0Um9vdCAtUmVjdXJzZSAtRmlsZSB8CiAgICAgICAgICAgICAgICAgIFdoZXJlLU9iamVjdCB7CiAgICAgICAgICAgICAgICAgICAgICAkXy5FeHRlbnNpb24gLWluIEAoCiAgICAgICAgICAgICAgICAgICAgICAgICAgJy5wczEnCiAgICAgICAgICAgICAgICAgICAgICAgICAgJy5wc20xJwogICAgICAgICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgICB9CiAgICAgICAgICApCiAgICAgICAgICAkcGFyc2VGYWlsdXJlcyA9IFtTeXN0ZW0uQ29sbGVjdGlvbnMuR2VuZXJpYy5MaXN0W3N0cmluZ11dOjpuZXcoKQoKICAgICAgICAgIGZvcmVhY2ggKCRzY3JpcHRGaWxlIGluICRzY3JpcHRGaWxlcykgewogICAgICAgICAgICAgICR0b2tlbnMgPSAkbnVsbAogICAgICAgICAgICAgICRwYXJzZUVycm9ycyA9ICRudWxsCiAgICAgICAgICAgICAgW3ZvaWRdW1N5c3RlbS5NYW5hZ2VtZW50LkF1dG9tYXRpb24uTGFuZ3VhZ2UuUGFyc2VyXTo6UGFyc2VGaWxlKAogICAgICAgICAgICAgICAgICAkc2NyaXB0RmlsZS5GdWxsTmFtZSwKICAgICAgICAgICAgICAgICAgW3JlZl0kdG9rZW5zLAogICAgICAgICAgICAgICAgICBbcmVmXSRwYXJzZUVycm9ycwogICAgICAgICAgICAgICkKCiAgICAgICAgICAgICAgZm9yZWFjaCAoJHBhcnNlRXJyb3IgaW4gJHBhcnNlRXJyb3JzKSB7CiAgICAgICAgICAgICAgICAgICRwYXJzZUZhaWx1cmVzLkFkZCgKICAgICAgICAgICAgICAgICAgICAgICd7MH06ezF9OiB7Mn0nIC1mCiAgICAgICAgICAgICAgICAgICAgICAkc2NyaXB0RmlsZS5GdWxsTmFtZSwKICAgICAgICAgICAgICAgICAgICAgICRwYXJzZUVycm9yLkV4dGVudC5TdGFydExpbmVOdW1iZXIsCiAgICAgICAgICAgICAgICAgICAgICAkcGFyc2VFcnJvci5NZXNzYWdlCiAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICB9CiAgICAgICAgICB9CgogICAgICAgICAgaWYgKCRwYXJzZUZhaWx1cmVzLkNvdW50IC1ndCAwKSB7CiAgICAgICAgICAgICAgdGhyb3cgKCRwYXJzZUZhaWx1cmVzIC1qb2luIFtFbnZpcm9ubWVudF06Ok5ld0xpbmUpCiAgICAgICAgICB9CiAgICAgIC0gbmFtZTogQW5hbHl6ZSBQb3dlclNoZWxsIHNjcmlwdHMKICAgICAgICBzaGVsbDogcHdzaAogICAgICAgIHJ1bjogfAogICAgICAgICAgJGFuYWx5emVyUGFyYW1ldGVycyA9IEB7CiAgICAgICAgICAgICAgUGF0aCA9IChKb2luLVBhdGggLVBhdGggJFBXRCAtQ2hpbGRQYXRoICdzY3JpcHRzJykKICAgICAgICAgICAgICBSZWN1cnNlID0gJHRydWUKICAgICAgICAgICAgICBTZXZlcml0eSA9IEAoCiAgICAgICAgICAgICAgICAgICdFcnJvcicKICAgICAgICAgICAgICAgICAgJ1dhcm5pbmcnCiAgICAgICAgICAgICAgKQogICAgICAgICAgICAgIEV4Y2x1ZGVSdWxlID0gQCgKICAgICAgICAgICAgICAgICAgJ1BTVXNlQk9NRm9yVW5pY29kZUVuY29kZWRGaWxlJwogICAgICAgICAgICAgICkKICAgICAgICAgIH0KICAgICAgICAgICRmaW5kaW5ncyA9IEAoCiAgICAgICAgICAgICAgSW52b2tlLVNjcmlwdEFuYWx5emVyIEBhbmFseXplclBhcmFtZXRlcnMKICAgICAgICAgICkKCiAgICAgICAgICBpZiAoJGZpbmRpbmdzLkNvdW50IC1ndCAwKSB7CiAgICAgICAgICAgICAgJGRldGFpbHMgPSAkZmluZGluZ3MgfAogICAgICAgICAgICAgICAgICBGb3JtYXQtTGlzdCB8CiAgICAgICAgICAgICAgICAgIE91dC1TdHJpbmcKICAgICAgICAgICAgICB0aHJvdyAkZGV0YWlscwogICAgICAgICAgfQo='
-          Path('.github/workflows/lint.yml').write_bytes(base64.b64decode(payload))
-          PY
+      - name: Install final source and CI definition
+        run: python .github/stage4_finalize.py
       - name: Run Stage 4 audit unit tests
         run: python -m unittest -v tests/test_russianization_audit.py
       - name: Generate final Stage 4 audit results
@@ -210,7 +192,7 @@ jobs:
       - name: Commit final Stage 4 audit
         shell: bash
         run: |
-          git rm .github/stage4_compact.patch
+          git rm .github/stage4_finalize.py
           git add .github/workflows/lint.yml
           git add dev_tools/russianization_audit.py
           git add tests/test_russianization_audit.py
