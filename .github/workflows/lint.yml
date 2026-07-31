@@ -6,7 +6,9 @@ jobs:
   ruff:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -28,11 +30,17 @@ jobs:
           tests/test_stage3d_templates.py
           tests/test_stage3d_webui_settings.py
           tests/test_stage3e_release_cleanup.py
+      - name: Run Stage 4 audit unit tests
+        run: uv run python -m unittest -v tests/test_russianization_audit.py
+      - name: Check Stage 4 audit baseline
+        run: uv run python -m dev_tools.russianization_audit --check
 
   button-config-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:

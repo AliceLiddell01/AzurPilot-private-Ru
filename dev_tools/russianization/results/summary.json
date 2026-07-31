@@ -1,0 +1,61 @@
+{
+  "asset_bytes_total": 585419231,
+  "asset_decision_counts": {
+    "confirmed_keep": 7799,
+    "needs_manual_review": 702,
+    "probable_delete_candidate": 1228,
+    "probable_keep": 729
+  },
+  "asset_entries": 10458,
+  "asset_scope_counts": {
+    "cn": 3943,
+    "en": 1673,
+    "jp": 1457,
+    "multi_server": 278,
+    "shared": 109,
+    "tw": 1445,
+    "unknown": 1553
+  },
+  "confirmed_delete_candidates": 0,
+  "en_global_required_candidates": 3695,
+  "first_party_log_messages": 5714,
+  "full_asset_manifest_sha256": "a1ffebf5b554d6399b827521017fd3cb1d3f022dc1deb434cc58245af8a204ba",
+  "locale_files": 5,
+  "locale_files_with_missing_keys": 0,
+  "locales": [
+    "en-US",
+    "ja-JP",
+    "zh-CN",
+    "zh-MIAO",
+    "zh-TW"
+  ],
+  "log_translation_required": 5061,
+  "logs_by_subsystem": {
+    "campaign_combat_fleet": 569,
+    "deploy_and_dependencies": 293,
+    "device_adb_emulator": 638,
+    "game_tasks": 2652,
+    "ocr": 107,
+    "operation_siren": 815,
+    "other": 269,
+    "scheduler_and_config": 44,
+    "screenshot_and_control": 4,
+    "tests": 9,
+    "webui_and_process_lifecycle": 314
+  },
+  "manual_review_assets": 1930,
+  "probable_delete_candidates": 1228,
+  "schema_version": 1,
+  "source_fingerprint": "5d6d35a055606603dd381edce7b1fc10c4abdb897ed5ae46f20676cba5ba7c76",
+  "text_files_scanned": 2106,
+  "tracked_files_scanned": 10953,
+  "ui_by_subsystem": {
+    "deploy_and_dependencies": 101,
+    "other": 10,
+    "scheduler_and_config": 19200,
+    "tests": 9,
+    "webui_and_process_lifecycle": 301
+  },
+  "ui_strings": 19621,
+  "ui_translation_required": 17907
+}

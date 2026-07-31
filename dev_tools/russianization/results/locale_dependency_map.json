@@ -1,0 +1,3136 @@
+{
+  "current_locales": [
+    {
+      "content_hash": "9c31d2e6aaa7a02c8abbb164df061aa0e19a32f4680f9f3734f999567cc509a7",
+      "key_count": 4166,
+      "locale": "en-US",
+      "path": "module/config/i18n/en-US.json"
+    },
+    {
+      "content_hash": "46cd66bb8daba4a0e9d1b3e12a805711b93044fbb6210e4e48558932716b4275",
+      "key_count": 4166,
+      "locale": "ja-JP",
+      "path": "module/config/i18n/ja-JP.json"
+    },
+    {
+      "content_hash": "6633f276621cfcda83aea4e1dbec8c072ba95cd0b6876c1360a84d0e69ba0541",
+      "key_count": 4166,
+      "locale": "zh-CN",
+      "path": "module/config/i18n/zh-CN.json"
+    },
+    {
+      "content_hash": "cf27023851b4fae455d1357aad408d2599119fc0a980fb0dba17aad4c8ce78a3",
+      "key_count": 4166,
+      "locale": "zh-MIAO",
+      "path": "module/config/i18n/zh-MIAO.json"
+    },
+    {
+      "content_hash": "4b8f7c5d5c0f3537cf78ac5248e880e04ff9237d0809ef93bce7542c34b9e757",
+      "key_count": 4166,
+      "locale": "zh-TW",
+      "path": "module/config/i18n/zh-TW.json"
+    }
+  ],
+  "links": [
+    {
+      "evidence": [
+        {
+          "code": "- `utils.py` — 工具函数：`LANGUAGES`、`SERVER_TO_LANG`、`SERVER_TO_TIMEZONE`、`filepath_args()`、`filepath_config()`、`read_file()`、`write_file()`、`parse_value()`、`alas_instance()`、`is_oobe_needed()`。",
+          "line": 132,
+          "path": "CLAUDE.md"
+        },
+        {
+          "code": "lang = deploy_cfg.get('Language', 'zh-CN')",
+          "line": 41,
+          "path": "alas.py"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-AidLux-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-AidLux.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-cn.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-docker-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-docker.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-linux-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-linux.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template.yaml"
+        },
+        {
+          "code": "Language: str = \"en-US\"",
+          "line": 74,
+          "path": "deploy/Windows/config.py"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "deploy/Windows/template.yaml"
+        },
+        {
+          "code": "Language: str = \"en-US\"",
+          "line": 77,
+          "path": "deploy/config.py"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "deploy/template"
+        },
+        {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
+          "line": 726,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
+          "line": 726,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
+          "line": 728,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "for lang in LANGUAGES:",
+          "line": 629,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "- LANGUAGES: 支持的语言列表（zh-CN、zh-MIAO、en-US、ja-JP、zh-TW）",
+          "line": 11,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "LANGUAGES = ['zh-CN', 'zh-MIAO', 'en-US', 'ja-JP', 'zh-TW']",
+          "line": 32,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "from module.config.utils import LANGUAGES, alas_instance",
+          "line": 12,
+          "path": "module/webui/deploy_settings.py"
+        },
+        {
+          "code": "DeployField(\"Language\", \"select\", tuple(LANGUAGES)),",
+          "line": 92,
+          "path": "module/webui/deploy_settings.py"
+        },
+        {
+          "code": "from module.config.utils import LANGUAGES, filepath_i18n, read_file",
+          "line": 11,
+          "path": "module/webui/lang.py"
+        },
+        {
+          "code": "for i, lang in enumerate(LANGUAGES):",
+          "line": 21,
+          "path": "module/webui/lang.py"
+        },
+        {
+          "code": "LANG = LANGUAGES[i]",
+          "line": 24,
+          "path": "module/webui/lang.py"
+        },
+        {
+          "code": "for lang in LANGUAGES:",
+          "line": 64,
+          "path": "module/webui/lang.py"
+        }
+      ],
+      "exists": true,
+      "necessary_currently": true,
+      "required_tests": [
+        "Stage 5: retain only ru-RU UI locale."
+      ],
+      "source": "UI locale",
+      "stage5_break_or_refactor": true,
+      "target": "translation loader"
+    },
+    {
+      "evidence": [
+        {
+          "code": "lang = deploy_cfg.get('Language', 'zh-CN')",
+          "line": 41,
+          "path": "alas.py"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-AidLux-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-AidLux.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-cn.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-docker-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-docker.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-linux-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-linux.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template.yaml"
+        },
+        {
+          "code": "Language: str = \"en-US\"",
+          "line": 74,
+          "path": "deploy/Windows/config.py"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "deploy/Windows/template.yaml"
+        },
+        {
+          "code": "Language: str = \"en-US\"",
+          "line": 77,
+          "path": "deploy/config.py"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "deploy/template"
+        },
+        {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        }
+      ],
+      "exists": true,
+      "necessary_currently": true,
+      "required_tests": [
+        "Stage 5: migrate only Language key patch-wise."
+      ],
+      "source": "translation loader",
+      "stage5_break_or_refactor": true,
+      "target": "deploy Language"
+    },
+    {
+      "evidence": [
+        {
+          "code": "- `utils.py` — 工具函数：`LANGUAGES`、`SERVER_TO_LANG`、`SERVER_TO_TIMEZONE`、`filepath_args()`、`filepath_config()`、`read_file()`、`write_file()`、`parse_value()`、`alas_instance()`、`is_oobe_needed()`。",
+          "line": 132,
+          "path": "CLAUDE.md"
+        },
+        {
+          "code": "lang = deploy_cfg.get('Language', 'zh-CN')",
+          "line": 41,
+          "path": "alas.py"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-AidLux-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-AidLux.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-cn.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-docker-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-docker.yaml"
+        },
+        {
+          "code": "Language: zh-CN",
+          "line": 38,
+          "path": "config/deploy.template-linux-cn.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template-linux.yaml"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "config/deploy.template.yaml"
+        },
+        {
+          "code": "Language: str = \"en-US\"",
+          "line": 74,
+          "path": "deploy/Windows/config.py"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "deploy/Windows/template.yaml"
+        },
+        {
+          "code": "Language: str = \"en-US\"",
+          "line": 77,
+          "path": "deploy/config.py"
+        },
+        {
+          "code": "Language: en-US",
+          "line": 38,
+          "path": "deploy/template"
+        },
+        {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
+          "line": 726,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
+          "line": 728,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "for lang in LANGUAGES:",
+          "line": 629,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "- LANGUAGES: 支持的语言列表（zh-CN、zh-MIAO、en-US、ja-JP、zh-TW）",
+          "line": 11,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "LANGUAGES = ['zh-CN', 'zh-MIAO', 'en-US', 'ja-JP', 'zh-TW']",
+          "line": 32,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "from module.config.utils import LANGUAGES, alas_instance",
+          "line": 12,
+          "path": "module/webui/deploy_settings.py"
+        },
+        {
+          "code": "DeployField(\"Language\", \"select\", tuple(LANGUAGES)),",
+          "line": 92,
+          "path": "module/webui/deploy_settings.py"
+        },
+        {
+          "code": "from module.config.utils import LANGUAGES, filepath_i18n, read_file",
+          "line": 11,
+          "path": "module/webui/lang.py"
+        },
+        {
+          "code": "for i, lang in enumerate(LANGUAGES):",
+          "line": 21,
+          "path": "module/webui/lang.py"
+        },
+        {
+          "code": "LANG = LANGUAGES[i]",
+          "line": 24,
+          "path": "module/webui/lang.py"
+        },
+        {
+          "code": "for lang in LANGUAGES:",
+          "line": 64,
+          "path": "module/webui/lang.py"
+        },
+        {
+          "code": "from module.config.utils import LANGUAGES, filepath_i18n, read_file, write_file",
+          "line": 14,
+          "path": "module/webui/translate.py"
+        },
+        {
+          "code": "for L in LANGUAGES:",
+          "line": 126,
+          "path": "module/webui/translate.py"
+        }
+      ],
+      "exists": true,
+      "necessary_currently": true,
+      "required_tests": [
+        "Stage 5: separate generated UI locale from game server."
+      ],
+      "source": "deploy Language",
+      "stage5_break_or_refactor": true,
+      "target": "config generator"
+    },
+    {
+      "evidence": [
+        {
+          "code": "- 新增 key 的默认值 = key 路径本身（如 `\"Campaign.Event.name\"`），需人工翻译",
+          "line": 107,
+          "path": "AGENTS.md"
+        },
+        {
+          "code": "| `campaign/` | 战役执行（`CampaignBase`、`CampaignEvent`、`GemsFarming`） |",
+          "line": 289,
+          "path": "AGENTS.md"
+        },
+        {
+          "code": "- `CampaignEvent` (`campaign_event.py`) — 活动战役处理。",
+          "line": 193,
+          "path": "CLAUDE.md"
+        },
+        {
+          "code": "- 新增 key 的默认值 = key 路径本身（如 `\"Campaign.Event.name\"`），需人工翻译",
+          "line": 323,
+          "path": "CLAUDE.md"
+        },
+        {
+          "code": "stop_event: threading.Event = None",
+          "line": 62,
+          "path": "alas.py"
+        },
+        {
+          "code": "from module.shop_event.shop_event import EventShop",
+          "line": 718,
+          "path": "alas.py"
+        },
+        {
+          "code": "EventShop(config=self.config, device=self.device).run()",
+          "line": 719,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 832,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 933,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 938,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 943,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 948,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 953,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 958,
+          "path": "alas.py"
+        },
+        {
+          "code": "from module.event_hospital.hospital_event import HospitalEvent",
+          "line": 973,
+          "path": "alas.py"
+        },
+        {
+          "code": "\"ServerName\", \"Event\", \"event_name\",",
+          "line": 98,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"config generator\", \"event-name source\", evidence, (\"event_name\", \"Event\"), \"Stage 5: preserve server-specific event names independently.\"),",
+          "line": 729,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "def event_name_to_time(self, name):",
+          "line": 54,
+          "path": "dev_tools/war_archives_update.py"
+        },
+        {
+          "code": "events = [self.event_name_to_time(event)]",
+          "line": 240,
+          "path": "dev_tools/war_archives_update.py"
+        },
+        {
+          "code": "events = [self.latest_event_cn if e == 'recent' else self.event_name_to_time(e) for e in event]",
+          "line": 242,
+          "path": "dev_tools/war_archives_update.py"
+        },
+        {
+          "code": "活动地图文件存放在 campaign/{event_name}/ 目录下，",
+          "line": 10,
+          "path": "module/event/base.py"
+        },
+        {
+          "code": "关卡扫描自 campaign/{event_name}/ 目录，通过 EventDaily_StageFilter 配置",
+          "line": 6,
+          "path": "module/event/campaign_abcd.py"
+        },
+        {
+          "code": "def _parse_event_name(raw: str) -> str:",
+          "line": 165,
+          "path": "module/webui/event_calculator.py"
+        },
+        {
+          "code": "\"event_name\": _parse_event_name(cleaned),",
+          "line": 179,
+          "path": "module/webui/event_calculator.py"
+        },
+        {
+          "code": "root.querySelector('[data-role=\"event-name\"]').textContent = data.event_name ? `当前活动：${{data.event_name}}` : \"当前活动：未知\";",
+          "line": 579,
+          "path": "module/webui/event_calculator.py"
+        }
+      ],
+      "exists": true,
+      "necessary_currently": true,
+      "required_tests": [
+        "Stage 5: preserve server-specific event names independently."
+      ],
+      "source": "config generator",
+      "stage5_break_or_refactor": true,
+      "target": "event-name source"
+    },
+    {
+      "evidence": [
+        {
+          "code": "- `utils.py` — 工具函数：`LANGUAGES`、`SERVER_TO_LANG`、`SERVER_TO_TIMEZONE`、`filepath_args()`、`filepath_config()`、`read_file()`、`write_file()`、`parse_value()`、`alas_instance()`、`is_oobe_needed()`。",
+          "line": 132,
+          "path": "CLAUDE.md"
+        },
+        {
+          "code": "checker = ServerChecker(server=self.config.Emulator_ServerName)",
+          "line": 227,
+          "path": "alas.py"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\"",
+          "line": 8,
+          "path": "config/template.fpy.json"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\",",
+          "line": 74,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\"",
+          "line": 16,
+          "path": "config/template.maa.json"
+        },
+        {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"ServerName\", \"Event\", \"event_name\",",
+          "line": 98,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+          "line": 730,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+          "line": 730,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+          "line": 730,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+          "line": 731,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+          "line": 732,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"ServerName\": {",
+          "line": 251,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "ServerName:",
+          "line": 98,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "Emulator_ServerName = 'disabled'  # disabled, cn_android-0, cn_android-1, cn_android-2, cn_android-3, cn_android-4, cn_android-5, cn_android-6, cn_android-7, cn_android-8, cn_android-9, cn_android-10, cn_android-11, cn_android-12, cn_android-13, cn_android-14, cn_android-15, cn_android-16, cn_android-17, cn_android-18, cn_android-19, cn_android-20, cn_android-21, cn_android-22, cn_android-23, cn_android-24, cn_android-25, cn_android-26, cn_android-27, cn_android-28, cn_android-29, cn_ios-0, cn_i",
+          "line": 94,
+          "path": "module/config/config_generated.py"
+        },
+        {
+          "code": "if lang in LANG_TO_SERVER:",
+          "line": 384,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "name = event.__getattribute__(LANG_TO_SERVER[lang])",
+          "line": 385,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "if lang == SERVER_TO_LANG[server]:",
+          "line": 405,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "path = ['Emulator', 'ServerName', f'{server}-{index}']",
+          "line": 413,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "option = deep_get(self.argument, keys='Emulator.ServerName.option')",
+          "line": 609,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "deep_set(self.argument, keys='Emulator.ServerName.option', value=option)",
+          "line": 615,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "deep_set(self.args, keys='Alas.Emulator.ServerName.option', value=option)",
+          "line": 616,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "- SERVER_TO_LANG: 服务器到语言的映射",
+          "line": 12,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "SERVER_TO_LANG = {",
+          "line": 33,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "LANG_TO_SERVER = {v: k for k, v in SERVER_TO_LANG.items()}",
+          "line": 39,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "LANG_TO_SERVER = {v: k for k, v in SERVER_TO_LANG.items()}",
+          "line": 39,
+          "path": "module/config/utils.py"
+        }
+      ],
+      "exists": true,
+      "necessary_currently": true,
+      "required_tests": [
+        "Stage 5: make game server explicit."
+      ],
+      "source": "event-name source",
+      "stage5_break_or_refactor": true,
+      "target": "game server"
+    },
+    {
+      "evidence": [
+        {
+          "code": "- `utils.py` — 工具函数：`LANGUAGES`、`SERVER_TO_LANG`、`SERVER_TO_TIMEZONE`、`filepath_args()`、`filepath_config()`、`read_file()`、`write_file()`、`parse_value()`、`alas_instance()`、`is_oobe_needed()`。",
+          "line": 132,
+          "path": "CLAUDE.md"
+        },
+        {
+          "code": "\"OcrModelVersionEnglish\": \"auto\",",
+          "line": 113,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"OcrModelVersionChinese\": \"auto\",",
+          "line": 114,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"OcrModelVersionJapanese\": \"auto\",",
+          "line": 115,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"OcrModelVersionTraditionalChinese\": \"auto\",",
+          "line": 116,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+          "line": 96,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+          "line": 730,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+          "line": 731,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+          "line": 731,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+          "line": 731,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"OcrModelVersionEnglish\": {",
+          "line": 539,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"OcrModelVersionChinese\": {",
+          "line": 553,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"OcrModelVersionJapanese\": {",
+          "line": 565,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"OcrModelVersionTraditionalChinese\": {",
+          "line": 574,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "OcrModelVersionEnglish:",
+          "line": 213,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "OcrModelVersionChinese:",
+          "line": 226,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "OcrModelVersionJapanese:",
+          "line": 237,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "OcrModelVersionTraditionalChinese:",
+          "line": 240,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "if lang == SERVER_TO_LANG[server]:",
+          "line": 405,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "- SERVER_TO_LANG: 服务器到语言的映射",
+          "line": 12,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "SERVER_TO_LANG = {",
+          "line": 33,
+          "path": "module/config/utils.py"
+        },
+        {
+          "code": "LANG_TO_SERVER = {v: k for k, v in SERVER_TO_LANG.items()}",
+          "line": 39,
+          "path": "module/config/utils.py"
+        }
+      ],
+      "exists": true,
+      "necessary_currently": true,
+      "required_tests": [
+        "Stage 5/9: preserve EN/shared OCR fallback until runtime smoke."
+      ],
+      "source": "game server",
+      "stage5_break_or_refactor": true,
+      "target": "OCR profile/model"
+    },
+    {
+      "evidence": [
+        {
+          "code": "checker = ServerChecker(server=self.config.Emulator_ServerName)",
+          "line": 227,
+          "path": "alas.py"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\"",
+          "line": 8,
+          "path": "config/template.fpy.json"
+        },
+        {
+          "code": "\"PackageName\": \"auto\",",
+          "line": 73,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\",",
+          "line": 74,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"PackageName\": \"Official\",",
+          "line": 5,
+          "path": "config/template.maa.json"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\"",
+          "line": 16,
+          "path": "config/template.maa.json"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"ServerName\", \"Event\", \"event_name\",",
+          "line": 98,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+          "line": 730,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+          "line": 732,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+          "line": 732,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"PackageName\": {",
+          "line": 223,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"ServerName\": {",
+          "line": 251,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "PackageName:",
+          "line": 95,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "ServerName:",
+          "line": 98,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "Emulator_PackageName = 'auto'  # auto, com.bilibili.azurlane, com.YoStarEN.AzurLane, com.YoStarJP.AzurLane, com.hkmanjuu.azurlane.gp, com.bilibili.blhx.huawei, com.bilibili.blhx.honor, com.bilibili.blhx.mi, com.tencent.tmgp.bilibili.blhx, com.bilibili.blhx.baidu, com.bilibili.blhx.qihoo, com.bilibili.blhx.nearme.gamecenter, com.bilibili.blhx.vivo, com.bilibili.blhx.mz, com.bilibili.blhx.dl, com.bilibili.blhx.lenovo, com.bilibili.blhx.uc, com.bilibili.blhx.mzw, com.yiwu.blhx.yx15, com.bilibili.bl",
+          "line": 93,
+          "path": "module/config/config_generated.py"
+        },
+        {
+          "code": "Emulator_ServerName = 'disabled'  # disabled, cn_android-0, cn_android-1, cn_android-2, cn_android-3, cn_android-4, cn_android-5, cn_android-6, cn_android-7, cn_android-8, cn_android-9, cn_android-10, cn_android-11, cn_android-12, cn_android-13, cn_android-14, cn_android-15, cn_android-16, cn_android-17, cn_android-18, cn_android-19, cn_android-20, cn_android-21, cn_android-22, cn_android-23, cn_android-24, cn_android-25, cn_android-26, cn_android-27, cn_android-28, cn_android-29, cn_ios-0, cn_i",
+          "line": 94,
+          "path": "module/config/config_generated.py"
+        },
+        {
+          "code": "path = ['Emulator', 'PackageName', package]",
+          "line": 398,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "name = deep_get(new, keys=['Emulator', 'PackageName', to_package(server)])",
+          "line": 404,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "deep_set(new, keys=['Emulator', 'PackageName', package], value=value)",
+          "line": 409,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "path = ['Emulator', 'ServerName', f'{server}-{index}']",
+          "line": 413,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "option = deep_get(self.argument, keys='Emulator.PackageName.option')",
+          "line": 602,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "deep_set(self.argument, keys='Emulator.PackageName.option', value=option)",
+          "line": 605,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "deep_set(self.args, keys='Alas.Emulator.PackageName.option', value=option)",
+          "line": 606,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "option = deep_get(self.argument, keys='Emulator.ServerName.option')",
+          "line": 609,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "deep_set(self.argument, keys='Emulator.ServerName.option', value=option)",
+          "line": 615,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "deep_set(self.args, keys='Alas.Emulator.ServerName.option', value=option)",
+          "line": 616,
+          "path": "module/config/config_updater.py"
+        },
+        {
+          "code": "# ('Alas.Emulator.PackageName', 'Alas.DropRecord.API', api_redirect),",
+          "line": 652,
+          "path": "module/config/config_updater.py"
+        }
+      ],
+      "exists": true,
+      "necessary_currently": true,
+      "required_tests": [
+        "Stage 5/9: decouple options from UI locale."
+      ],
+      "source": "OCR profile/model",
+      "stage5_break_or_refactor": true,
+      "target": "package/server options"
+    },
+    {
+      "evidence": [
+        {
+          "code": "checker = ServerChecker(server=self.config.Emulator_ServerName)",
+          "line": 227,
+          "path": "alas.py"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\"",
+          "line": 8,
+          "path": "config/template.fpy.json"
+        },
+        {
+          "code": "\"PackageName\": \"auto\",",
+          "line": 73,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\",",
+          "line": 74,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"OcrModelVersionEnglish\": \"auto\",",
+          "line": 113,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"OcrModelVersionChinese\": \"auto\",",
+          "line": 114,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"OcrModelVersionJapanese\": \"auto\",",
+          "line": 115,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"OcrModelVersionTraditionalChinese\": \"auto\",",
+          "line": 116,
+          "path": "config/template.json"
+        },
+        {
+          "code": "\"PackageName\": \"Official\",",
+          "line": 5,
+          "path": "config/template.maa.json"
+        },
+        {
+          "code": "\"ServerName\": \"disabled\"",
+          "line": 16,
+          "path": "config/template.maa.json"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+          "line": 97,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"ServerName\", \"Event\", \"event_name\",",
+          "line": 98,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+          "line": 730,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+          "line": 731,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+          "line": 732,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+          "line": 732,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+          "line": 733,
+          "path": "dev_tools/russianization_audit.py"
+        },
+        {
+          "code": "\"PackageName\": {",
+          "line": 223,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"ServerName\": {",
+          "line": 251,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"OcrModelVersionEnglish\": {",
+          "line": 539,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"OcrModelVersionChinese\": {",
+          "line": 553,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"OcrModelVersionJapanese\": {",
+          "line": 565,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "\"OcrModelVersionTraditionalChinese\": {",
+          "line": 574,
+          "path": "module/config/argument/args.json"
+        },
+        {
+          "code": "PackageName:",
+          "line": 95,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "ServerName:",
+          "line": 98,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "OcrModelVersionEnglish:",
+          "line": 213,
+          "path": "module/config/argument/argument.yaml"
+        },
+        {
+          "code": "OcrModelVersionChinese:",
+          "line": 226,
+          "path": "module/config/argument/argument.yaml"
+        }
+      ],
+      "exists": true,
+      "necessary_currently": true,
+      "required_tests": [
+        "Stage 9: delete only after manifest evidence and EN smoke."
+      ],
+      "source": "package/server options",
+      "stage5_break_or_refactor": true,
+      "target": "assets"
+    }
+  ],
+  "locale_key_mismatches": {
+    "extra": {},
+    "missing": {}
+  },
+  "schema_version": 1,
+  "symbols": {
+    "BrowserLanguage": [
+      {
+        "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+        "line": 97,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
+        "line": 726,
+        "path": "dev_tools/russianization_audit.py"
+      }
+    ],
+    "Event": [
+      {
+        "code": "- 新增 key 的默认值 = key 路径本身（如 `\"Campaign.Event.name\"`），需人工翻译",
+        "line": 107,
+        "path": "AGENTS.md"
+      },
+      {
+        "code": "| `campaign/` | 战役执行（`CampaignBase`、`CampaignEvent`、`GemsFarming`） |",
+        "line": 289,
+        "path": "AGENTS.md"
+      },
+      {
+        "code": "- `CampaignEvent` (`campaign_event.py`) — 活动战役处理。",
+        "line": 193,
+        "path": "CLAUDE.md"
+      },
+      {
+        "code": "- 新增 key 的默认值 = key 路径本身（如 `\"Campaign.Event.name\"`），需人工翻译",
+        "line": 323,
+        "path": "CLAUDE.md"
+      },
+      {
+        "code": "stop_event: threading.Event = None",
+        "line": 62,
+        "path": "alas.py"
+      },
+      {
+        "code": "from module.shop_event.shop_event import EventShop",
+        "line": 718,
+        "path": "alas.py"
+      },
+      {
+        "code": "EventShop(config=self.config, device=self.device).run()",
+        "line": 719,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 832,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 933,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 938,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 943,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 948,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 953,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 958,
+        "path": "alas.py"
+      },
+      {
+        "code": "from module.event_hospital.hospital_event import HospitalEvent",
+        "line": 973,
+        "path": "alas.py"
+      },
+      {
+        "code": "HospitalEvent(config=self.config, device=self.device).run()",
+        "line": 974,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 991,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 996,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 1001,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 1006,
+        "path": "alas.py"
+      },
+      {
+        "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+        "line": 1011,
+        "path": "alas.py"
+      },
+      {
+        "code": "from module.eventstory.eventstory import EventStory",
+        "line": 1026,
+        "path": "alas.py"
+      },
+      {
+        "code": "EventStory(config=self.config, device=self.device, task=\"EventStory\").run()",
+        "line": 1027,
+        "path": "alas.py"
+      },
+      {
+        "code": "modal.addEventListener('wheel', function (e) {",
+        "line": 84,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "modalImg.addEventListener('mousedown', function (e) {",
+        "line": 104,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "window.addEventListener('mousemove', function (e) {",
+        "line": 111,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "window.addEventListener('mouseup', function (e) {",
+        "line": 121,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "modalImg.addEventListener('dblclick', function (e) {",
+        "line": 128,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "modal.addEventListener('click', function (e) {",
+        "line": 135,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "document.addEventListener('keydown', function (e) {",
+        "line": 139,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "state.mediaSource.addEventListener('sourceopen', function () {",
+        "line": 845,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "button.addEventListener('click', function (event) {",
+        "line": 1050,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "input.addEventListener('compositionstart', function () {",
+        "line": 1060,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "input.addEventListener('compositionend', function () {",
+        "line": 1063,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "input.addEventListener('input', function () {",
+        "line": 1070,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "input.addEventListener('keydown', function (event) {",
+        "line": 1075,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "function videoPointFromEvent(event) {",
+        "line": 1090,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "var point = videoPointFromEvent(event);",
+        "line": 1122,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "var point = videoPointFromEvent(event);",
+        "line": 1143,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "function bindControlEvents(enable) {",
+        "line": 1176,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "target.addEventListener('pointerdown', onPointerDown);",
+        "line": 1183,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "target.addEventListener('pointermove', onPointerMove);",
+        "line": 1184,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "target.addEventListener('pointerup', onPointerUp);",
+        "line": 1185,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "target.addEventListener('pointercancel', onPointerUp);",
+        "line": 1186,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "document.addEventListener('keydown', onKeyDown, true);",
+        "line": 1188,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "target.removeEventListener('pointerdown', onPointerDown);",
+        "line": 1191,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "target.removeEventListener('pointermove', onPointerMove);",
+        "line": 1192,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "target.removeEventListener('pointerup', onPointerUp);",
+        "line": 1193,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "target.removeEventListener('pointercancel', onPointerUp);",
+        "line": 1194,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "document.removeEventListener('keydown', onKeyDown, true);",
+        "line": 1196,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "bindControlEvents(true);",
+        "line": 1229,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "bindControlEvents(false);",
+        "line": 1239,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "document.addEventListener('fullscreenchange', function () {",
+        "line": 1249,
+        "path": "assets/gui/js/alas-utils.js"
+      },
+      {
+        "code": "# Event List",
+        "line": 1,
+        "path": "campaign/Readme.md"
+      },
+      {
+        "code": "**Event Name** Official name in English. If an event haven't aired in EN, use the name in CN.",
+        "line": 11,
+        "path": "campaign/Readme.md"
+      },
+      {
+        "code": "**CN, EN, JP, TW** Event names in GUI. If an event is not aired on some servers, use `-`.",
+        "line": 13,
+        "path": "campaign/Readme.md"
+      },
+      {
+        "code": "| Aired Date | Directory                | Event Name                                   | CN                         | EN                                                 | JP                                   | TW                         |",
+        "line": 16,
+        "path": "campaign/Readme.md"
+      },
+      {
+        "code": "entrance = self._search_archives_entrance(self.config.Campaign_Event)",
+        "line": 121,
+        "path": "campaign/campaign_war_archives/campaign_base.py"
+      },
+      {
+        "code": "class EventGrid(Grid):",
+        "line": 7,
+        "path": "campaign/event_20231221_cn/campaign_base.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 30,
+        "path": "campaign/event_20231221_cn/campaign_base.py"
+      },
+      {
+        "code": "class EventGrid(Grid):",
+        "line": 7,
+        "path": "campaign/event_20240229_cn/campaign_base.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 38,
+        "path": "campaign/event_20240229_cn/campaign_base.py"
+      },
+      {
+        "code": "# Event grids with sirens having small boss icons",
+        "line": 16,
+        "path": "campaign/event_20240521_cn/campaign_base.py"
+      },
+      {
+        "code": "class EventGrid(Grid):",
+        "line": 9,
+        "path": "campaign/event_20241024_cn/campaign_base.py"
+      },
+      {
+        "code": "from .campaign_base import CampaignBase, EventGrid",
+        "line": 1,
+        "path": "campaign/event_20241024_cn/t3.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 71,
+        "path": "campaign/event_20241024_cn/t3.py"
+      },
+      {
+        "code": "from .campaign_base import CampaignBase, EventGrid as Grid",
+        "line": 2,
+        "path": "campaign/event_20241024_cn/t4.py"
+      },
+      {
+        "code": "class EventGrid(Grid):",
+        "line": 83,
+        "path": "campaign/event_20241024_cn/t4.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 101,
+        "path": "campaign/event_20241024_cn/t4.py"
+      },
+      {
+        "code": "from .campaign_base import CampaignBase, EventGrid",
+        "line": 1,
+        "path": "campaign/event_20241024_cn/t5.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 72,
+        "path": "campaign/event_20241024_cn/t5.py"
+      },
+      {
+        "code": "class EventGrid(Grid):",
+        "line": 44,
+        "path": "campaign/war_archives_20190321_en/a1.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 68,
+        "path": "campaign/war_archives_20190321_en/a1.py"
+      },
+      {
+        "code": "from .a1 import EventGrid",
+        "line": 7,
+        "path": "campaign/war_archives_20190321_en/a3.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 60,
+        "path": "campaign/war_archives_20190321_en/a3.py"
+      },
+      {
+        "code": "from .a1 import EventGrid",
+        "line": 6,
+        "path": "campaign/war_archives_20190321_en/c1.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 52,
+        "path": "campaign/war_archives_20190321_en/c1.py"
+      },
+      {
+        "code": "from .a1 import EventGrid",
+        "line": 7,
+        "path": "campaign/war_archives_20190321_en/c3.py"
+      },
+      {
+        "code": "grid_class = EventGrid",
+        "line": 60,
+        "path": "campaign/war_archives_20190321_en/c3.py"
+      },
+      {
+        "code": "\"TaskPriorityAdjustment\": \"Restart\\n> OpsiCrossMonth\\n> Commission > Tactical > Research\\n> Exercise\\n> Dorm > Meowfficer > Guild > Gacha\\n> Reward\\n> ShopFrequent > ShopOnce > Shipyard > Freebies\\n> PrivateQuarters\\n> OpsiExplore\\n> OpsiPreventActionPointOverflow\\n> Minigame > Awaken\\n> OpsiAshBeacon\\n> OpsiDaily > OpsiShop > OpsiVoucher > EventShop\\n> OpsiAbyssal > OpsiStronghold > OpsiObscure > OpsiArchive\\n> Daily > Hard > OpsiAshBeacon > OpsiAshAssist > OpsiMonthBoss\\n> Sos > EventSp > Even",
+        "line": 177,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 215,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 297,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 379,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 478,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 564,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 650,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"EventGeneral\": {",
+        "line": 706,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"EventGeneral\": {",
+        "line": 707,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": {",
+        "line": 720,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Command\": \"Event\",",
+        "line": 725,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 733,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event2\": {",
+        "line": 802,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Command\": \"Event2\",",
+        "line": 807,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 815,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event3\": {",
+        "line": 884,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Command\": \"Event3\",",
+        "line": 889,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 897,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 983,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 1041,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 1152,
+        "path": "config/template.json"
+      }
+    ],
+    "LANGUAGES": [
+      {
+        "code": "- `utils.py` — 工具函数：`LANGUAGES`、`SERVER_TO_LANG`、`SERVER_TO_TIMEZONE`、`filepath_args()`、`filepath_config()`、`read_file()`、`write_file()`、`parse_value()`、`alas_instance()`、`is_oobe_needed()`。",
+        "line": 132,
+        "path": "CLAUDE.md"
+      },
+      {
+        "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+        "line": 96,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
+        "line": 726,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
+        "line": 728,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "for lang in LANGUAGES:",
+        "line": 629,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "- LANGUAGES: 支持的语言列表（zh-CN、zh-MIAO、en-US、ja-JP、zh-TW）",
+        "line": 11,
+        "path": "module/config/utils.py"
+      },
+      {
+        "code": "LANGUAGES = ['zh-CN', 'zh-MIAO', 'en-US', 'ja-JP', 'zh-TW']",
+        "line": 32,
+        "path": "module/config/utils.py"
+      },
+      {
+        "code": "from module.config.utils import LANGUAGES, alas_instance",
+        "line": 12,
+        "path": "module/webui/deploy_settings.py"
+      },
+      {
+        "code": "DeployField(\"Language\", \"select\", tuple(LANGUAGES)),",
+        "line": 92,
+        "path": "module/webui/deploy_settings.py"
+      },
+      {
+        "code": "from module.config.utils import LANGUAGES, filepath_i18n, read_file",
+        "line": 11,
+        "path": "module/webui/lang.py"
+      },
+      {
+        "code": "for i, lang in enumerate(LANGUAGES):",
+        "line": 21,
+        "path": "module/webui/lang.py"
+      },
+      {
+        "code": "LANG = LANGUAGES[i]",
+        "line": 24,
+        "path": "module/webui/lang.py"
+      },
+      {
+        "code": "for lang in LANGUAGES:",
+        "line": 64,
+        "path": "module/webui/lang.py"
+      },
+      {
+        "code": "from module.config.utils import LANGUAGES, filepath_i18n, read_file, write_file",
+        "line": 14,
+        "path": "module/webui/translate.py"
+      },
+      {
+        "code": "for L in LANGUAGES:",
+        "line": 126,
+        "path": "module/webui/translate.py"
+      },
+      {
+        "code": "_LANGUAGES = LANGUAGES.copy()",
+        "line": 163,
+        "path": "module/webui/translate.py"
+      },
+      {
+        "code": "_LANGUAGES.remove(V.lang)",
+        "line": 164,
+        "path": "module/webui/translate.py"
+      },
+      {
+        "code": "for L in _LANGUAGES:",
+        "line": 165,
+        "path": "module/webui/translate.py"
+      },
+      {
+        "code": "for LANG in LANGUAGES:",
+        "line": 185,
+        "path": "module/webui/translate.py"
+      },
+      {
+        "code": "options=LANGUAGES, value=V.lang, required=True),",
+        "line": 219,
+        "path": "module/webui/translate.py"
+      },
+      {
+        "code": "for lang in LANGUAGES:",
+        "line": 15,
+        "path": "submodule/AlasFpyBridge/module/config/config_updater.py"
+      },
+      {
+        "code": "for lang in LANGUAGES:",
+        "line": 21,
+        "path": "submodule/AlasMaaBridge/module/config/config_updater.py"
+      }
+    ],
+    "LANG_TO_SERVER": [
+      {
+        "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+        "line": 96,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+        "line": 730,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "if lang in LANG_TO_SERVER:",
+        "line": 384,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "name = event.__getattribute__(LANG_TO_SERVER[lang])",
+        "line": 385,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "LANG_TO_SERVER = {v: k for k, v in SERVER_TO_LANG.items()}",
+        "line": 39,
+        "path": "module/config/utils.py"
+      }
+    ],
+    "Language": [
+      {
+        "code": "lang = deploy_cfg.get('Language', 'zh-CN')",
+        "line": 41,
+        "path": "alas.py"
+      },
+      {
+        "code": "Language: zh-CN",
+        "line": 38,
+        "path": "config/deploy.template-AidLux-cn.yaml"
+      },
+      {
+        "code": "Language: en-US",
+        "line": 38,
+        "path": "config/deploy.template-AidLux.yaml"
+      },
+      {
+        "code": "Language: zh-CN",
+        "line": 38,
+        "path": "config/deploy.template-cn.yaml"
+      },
+      {
+        "code": "Language: zh-CN",
+        "line": 38,
+        "path": "config/deploy.template-docker-cn.yaml"
+      },
+      {
+        "code": "Language: en-US",
+        "line": 38,
+        "path": "config/deploy.template-docker.yaml"
+      },
+      {
+        "code": "Language: zh-CN",
+        "line": 38,
+        "path": "config/deploy.template-linux-cn.yaml"
+      },
+      {
+        "code": "Language: en-US",
+        "line": 38,
+        "path": "config/deploy.template-linux.yaml"
+      },
+      {
+        "code": "Language: en-US",
+        "line": 38,
+        "path": "config/deploy.template.yaml"
+      },
+      {
+        "code": "Language: str = \"en-US\"",
+        "line": 74,
+        "path": "deploy/Windows/config.py"
+      },
+      {
+        "code": "Language: en-US",
+        "line": 38,
+        "path": "deploy/Windows/template.yaml"
+      },
+      {
+        "code": "Language: str = \"en-US\"",
+        "line": 77,
+        "path": "deploy/config.py"
+      },
+      {
+        "code": "Language: en-US",
+        "line": 38,
+        "path": "deploy/template"
+      },
+      {
+        "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+        "line": 96,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+        "line": 97,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"UI locale\", \"translation loader\", evidence, (\"LANGUAGES\", \"Language\", \"BrowserLanguage\"), \"Stage 5: retain only ru-RU UI locale.\"),",
+        "line": 726,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"translation loader\", \"deploy Language\", evidence, (\"Language\",), \"Stage 5: migrate only Language key patch-wise.\"),",
+        "line": 727,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"LANGUAGES\"), \"Stage 5: separate generated UI locale from game server.\"),",
+        "line": 728,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+        "line": 731,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "\"UI locale\", \"translation loader\", \"deploy Language\", \"config generator\",",
+        "line": 742,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "return f\"\"\"# План миграции `Language` в пользовательском `config/deploy.yaml`",
+        "line": 1075,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "На Stage 5 безопасно преобразовать старое значение `Language` в `ru-RU`, не перезаписывая неизвестные пользовательские ключи и не связывая UI locale с game server.",
+        "line": 1079,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "2. Если файл отсутствует, шаблон Stage 5 создаёт новый config с `Language: ru-RU`.",
+        "line": 1088,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "3. Если файл существует, изменить только скаляр `Language` patch-only механизмом, уже применяемым персональной веткой.",
+        "line": 1089,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "4. Сохранить порядок, неизвестные ключи, комментарии и все значения, не относящиеся к `Language`, насколько это обеспечивает существующий writer.",
+        "line": 1090,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "7. Повторный запуск при `Language: ru-RU` является no-op.",
+        "line": 1093,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "- отсутствующий `Language`;",
+        "line": 1100,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "| 5 | deploy migration | patch-only Language, unknown keys preserved, idempotence | existing user config copy |",
+        "line": 1119,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "Language:",
+        "line": 260,
+        "path": "module/config/argument/gui.yaml"
+      },
+      {
+        "code": "LanguageHelp:",
+        "line": 261,
+        "path": "module/config/argument/gui.yaml"
+      },
+      {
+        "code": "WelcomeSelectLanguage:",
+        "line": 433,
+        "path": "module/config/argument/gui.yaml"
+      },
+      {
+        "code": "ReviewLanguage:",
+        "line": 448,
+        "path": "module/config/argument/gui.yaml"
+      },
+      {
+        "code": "'Language': 'zh-CN',",
+        "line": 563,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "\"Language\": \"WebUI Language\",",
+        "line": 6106,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"LanguageHelp\": \"Display language used by WebUI.\",",
+        "line": 6107,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"WelcomeSelectLanguage\": \"Select your language\",",
+        "line": 6278,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"ReviewLanguage\": \"Language\",",
+        "line": 6293,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"Language\": \"WebUI 言語\",",
+        "line": 6106,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"LanguageHelp\": \"WebUI の表示言語です。\",",
+        "line": 6107,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"WelcomeSelectLanguage\": \"言語を選択\",",
+        "line": 6278,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"ReviewLanguage\": \"言語\",",
+        "line": 6293,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"Language\": \"WebUI 语言\",",
+        "line": 6106,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"LanguageHelp\": \"WebUI 使用的显示语言。\",",
+        "line": 6107,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"WelcomeSelectLanguage\": \"选择语言\",",
+        "line": 6278,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"ReviewLanguage\": \"语言\",",
+        "line": 6293,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"Language\": \"WebUI 语言\",",
+        "line": 6106,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"LanguageHelp\": \"WebUI 使用的显示语言喵。\",",
+        "line": 6107,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"WelcomeSelectLanguage\": \"想用哪种语言喵？\",",
+        "line": 6278,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"ReviewLanguage\": \"语言喵\",",
+        "line": 6293,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"Language\": \"WebUI 語言\",",
+        "line": 6106,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"LanguageHelp\": \"WebUI 使用的顯示語言。\",",
+        "line": 6107,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"WelcomeSelectLanguage\": \"選擇語言\",",
+        "line": 6278,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"ReviewLanguage\": \"語言\",",
+        "line": 6293,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"Language\": \"WebUI 语言喵\",",
+        "line": 2304,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "\"LanguageHelp\": \"WebUI 使用的显示语言喵。\",",
+        "line": 2305,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "\"WelcomeSelectLanguage\": \"选择语言喵\",",
+        "line": 2476,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "\"ReviewLanguage\": \"语言喵\",",
+        "line": 2491,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "lang.LANG = State.deploy_config.Language",
+        "line": 154,
+        "path": "module/webui/app.py"
+      },
+      {
+        "code": "\"\" if State.deploy_config.Language.startswith(\"zh\") else \"/en.html\"",
+        "line": 289,
+        "path": "module/webui/app_developer_tools.py"
+      },
+      {
+        "code": "DeployField(\"Language\", \"select\", tuple(LANGUAGES)),",
+        "line": 92,
+        "path": "module/webui/deploy_settings.py"
+      },
+      {
+        "code": "State.deploy_config.Language = LANG",
+        "line": 29,
+        "path": "module/webui/lang.py"
+      },
+      {
+        "code": "print(f\"Language key ({s}) not found\")",
+        "line": 56,
+        "path": "module/webui/lang.py"
+      },
+      {
+        "code": "existing_lang = getattr(State.deploy_config, \"Language\", None)",
+        "line": 708,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "lang.t(\"Gui.OOBE.WelcomeSelectLanguage\"),",
+        "line": 792,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "f'<h2 class=\"oobe-section-title\">{lang.t(\"Gui.OOBE.WelcomeSelectLanguage\")}</h2>'",
+        "line": 961,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "(lang.t(\"Gui.OOBE.ReviewLanguage\"), lang.LANG),",
+        "line": 1244,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "headers.setdefault(\"Accept-Language\", accept_language)",
+        "line": 571,
+        "path": "module/webui/remote_access.py"
+      },
+      {
+        "code": "select(name='language', label='Language',",
+        "line": 218,
+        "path": "module/webui/translate.py"
+      },
+      {
+        "code": "[void][System.Management.Automation.Language.Parser]::ParseFile(",
+        "line": 553,
+        "path": "scripts/Verify-AzurPilot-Stage3.ps1"
+      },
+      {
+        "code": "Language: en-US",
+        "line": 20,
+        "path": "tests/test_deploy_location.py"
+      },
+      {
+        "code": "self.assertEqual(cn['Webui']['Language'], 'zh-CN')",
+        "line": 72,
+        "path": "tests/test_stage3d_templates.py"
+      },
+      {
+        "code": "TEMPLATE = '''Deploy:\\n  Python:\\n    PythonExecutable: python\\n    PypiMirror: null\\n    InstallDependencies: true\\n  Webui:\\n    EnableReload: false\\n    WebuiHost: 0.0.0.0\\n    WebuiPort: 25548\\n    Language: en-US\\n    Theme: default\\n    DpiScaling: true\\n    Password: null\\n    CDN: false\\n    WebuiSSLKey: null\\n    WebuiSSLCert: null\\n    Run: null\\n'''",
+        "line": 10,
+        "path": "tests/test_stage3d_webui_settings.py"
+      }
+    ],
+    "OcrLanguage": [
+      {
+        "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+        "line": 97,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+        "line": 731,
+        "path": "dev_tools/russianization_audit.py"
+      }
+    ],
+    "OcrModel": [
+      {
+        "code": "\"OcrModelVersionEnglish\": \"auto\",",
+        "line": 113,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": \"auto\",",
+        "line": 114,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": \"auto\",",
+        "line": 115,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": \"auto\",",
+        "line": 116,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+        "line": 97,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+        "line": 731,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+        "line": 733,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "\"OcrModelVersionEnglish\": {",
+        "line": 539,
+        "path": "module/config/argument/args.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": {",
+        "line": 553,
+        "path": "module/config/argument/args.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": {",
+        "line": 565,
+        "path": "module/config/argument/args.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": {",
+        "line": 574,
+        "path": "module/config/argument/args.json"
+      },
+      {
+        "code": "OcrModelVersionEnglish:",
+        "line": 213,
+        "path": "module/config/argument/argument.yaml"
+      },
+      {
+        "code": "OcrModelVersionChinese:",
+        "line": 226,
+        "path": "module/config/argument/argument.yaml"
+      },
+      {
+        "code": "OcrModelVersionJapanese:",
+        "line": 237,
+        "path": "module/config/argument/argument.yaml"
+      },
+      {
+        "code": "OcrModelVersionTraditionalChinese:",
+        "line": 240,
+        "path": "module/config/argument/argument.yaml"
+      },
+      {
+        "code": "return self.Optimization_OcrModelVersionEnglish",
+        "line": 261,
+        "path": "module/config/config.py"
+      },
+      {
+        "code": "return self.Optimization_OcrModelVersionChinese",
+        "line": 263,
+        "path": "module/config/config.py"
+      },
+      {
+        "code": "return self.Optimization_OcrModelVersionJapanese",
+        "line": 265,
+        "path": "module/config/config.py"
+      },
+      {
+        "code": "return self.Optimization_OcrModelVersionTraditionalChinese",
+        "line": 267,
+        "path": "module/config/config.py"
+      },
+      {
+        "code": "Optimization_OcrModelVersionEnglish = 'auto'  # auto, alocr_en_900k, azur_lane_v6_6, azur_lane_v6_5, ppocr_v6, alocr_en_v2_6, alocr_en_v2_0, alocr_en_v1_0",
+        "line": 133,
+        "path": "module/config/config_generated.py"
+      },
+      {
+        "code": "Optimization_OcrModelVersionChinese = 'auto'  # auto, cn_v6_1, cn_v6, ppocr_v6, alocr_cn_v3, alocr_cn_v2_5",
+        "line": 134,
+        "path": "module/config/config_generated.py"
+      },
+      {
+        "code": "Optimization_OcrModelVersionJapanese = 'auto'  # auto, azur_lane_jp_v6, ppocr_v6",
+        "line": 135,
+        "path": "module/config/config_generated.py"
+      },
+      {
+        "code": "Optimization_OcrModelVersionTraditionalChinese = 'auto'  # auto, ppocr_v6",
+        "line": 136,
+        "path": "module/config/config_generated.py"
+      },
+      {
+        "code": "\"OcrModelVersionEnglish\": {",
+        "line": 773,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": {",
+        "line": 785,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": {",
+        "line": 795,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": {",
+        "line": 802,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"OcrModelVersionEnglish\": {",
+        "line": 773,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": {",
+        "line": 785,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": {",
+        "line": 795,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": {",
+        "line": 802,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"OcrModelVersionEnglish\": {",
+        "line": 773,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": {",
+        "line": 785,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": {",
+        "line": 795,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": {",
+        "line": 802,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"OcrModelVersionEnglish\": {",
+        "line": 773,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": {",
+        "line": 785,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": {",
+        "line": 795,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": {",
+        "line": 802,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"OcrModelVersionEnglish\": {",
+        "line": 773,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": {",
+        "line": 785,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": {",
+        "line": 795,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": {",
+        "line": 802,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"OcrModelVersionEnglish\": {",
+        "line": 369,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": {",
+        "line": 381,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": {",
+        "line": 391,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": {",
+        "line": 398,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "class OcrModel:",
+        "line": 25,
+        "path": "module/ocr/models.py"
+      },
+      {
+        "code": "OCR_MODEL = OcrModel()",
+        "line": 64,
+        "path": "module/ocr/models.py"
+      },
+      {
+        "code": "from module.ocr.models import OcrModel",
+        "line": 248,
+        "path": "module/ocr/rpc.py"
+      },
+      {
+        "code": "class OCRServer(OcrModel):",
+        "line": 250,
+        "path": "module/ocr/rpc.py"
+      },
+      {
+        "code": "\"\"\"OCR RPC 服务端实现，继承 OcrModel 以复用模型加载逻辑。\"\"\"",
+        "line": 251,
+        "path": "module/ocr/rpc.py"
+      }
+    ],
+    "PackageName": [
+      {
+        "code": "\"PackageName\": \"auto\",",
+        "line": 73,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"PackageName\": \"Official\",",
+        "line": 5,
+        "path": "config/template.maa.json"
+      },
+      {
+        "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+        "line": 97,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+        "line": 732,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+        "line": 733,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 223,
+        "path": "module/config/argument/args.json"
+      },
+      {
+        "code": "PackageName:",
+        "line": 95,
+        "path": "module/config/argument/argument.yaml"
+      },
+      {
+        "code": "Emulator_PackageName = 'auto'  # auto, com.bilibili.azurlane, com.YoStarEN.AzurLane, com.YoStarJP.AzurLane, com.hkmanjuu.azurlane.gp, com.bilibili.blhx.huawei, com.bilibili.blhx.honor, com.bilibili.blhx.mi, com.tencent.tmgp.bilibili.blhx, com.bilibili.blhx.baidu, com.bilibili.blhx.qihoo, com.bilibili.blhx.nearme.gamecenter, com.bilibili.blhx.vivo, com.bilibili.blhx.mz, com.bilibili.blhx.dl, com.bilibili.blhx.lenovo, com.bilibili.blhx.uc, com.bilibili.blhx.mzw, com.yiwu.blhx.yx15, com.bilibili.bl",
+        "line": 93,
+        "path": "module/config/config_generated.py"
+      },
+      {
+        "code": "path = ['Emulator', 'PackageName', package]",
+        "line": 398,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "name = deep_get(new, keys=['Emulator', 'PackageName', to_package(server)])",
+        "line": 404,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "deep_set(new, keys=['Emulator', 'PackageName', package], value=value)",
+        "line": 409,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "option = deep_get(self.argument, keys='Emulator.PackageName.option')",
+        "line": 602,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "deep_set(self.argument, keys='Emulator.PackageName.option', value=option)",
+        "line": 605,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "deep_set(self.args, keys='Alas.Emulator.PackageName.option', value=option)",
+        "line": 606,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "# ('Alas.Emulator.PackageName', 'Alas.DropRecord.API', api_redirect),",
+        "line": 652,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "server = to_server(deep_get(new, 'Alas.Emulator.PackageName', 'cn'))",
+        "line": 737,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 475,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 475,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 475,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 475,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 475,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 71,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "self.package = self.config.Emulator_PackageName",
+        "line": 144,
+        "path": "module/device/connection.py"
+      },
+      {
+        "code": "f'复制到 Alas.Emulator.PackageName 中使用')",
+        "line": 1277,
+        "path": "module/device/connection.py"
+      },
+      {
+        "code": "self.config.Emulator_PackageName = self.package",
+        "line": 1294,
+        "path": "module/device/connection.py"
+      },
+      {
+        "code": "'请将上面列出的可用包之一复制到 Alas.Emulator.PackageName 中')",
+        "line": 1301,
+        "path": "module/device/connection.py"
+      },
+      {
+        "code": "self.package = getattr(self.config, 'Emulator_PackageName', 'auto')",
+        "line": 115,
+        "path": "module/device/device.py"
+      },
+      {
+        "code": "package_name = deep_get(config, \"Alas.Emulator.PackageName\", \"cn\")",
+        "line": 193,
+        "path": "module/webui/app_task_config.py"
+      },
+      {
+        "code": "label=lang.t(\"Emulator.PackageName.name\"),",
+        "line": 1006,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "deep_set(data, \"Alas.Emulator.PackageName\", self.package_name)",
+        "line": 1270,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "if self.config.MaaEmulator_PackageName in [\"YoStarEN\", \"YoStarJP\", \"YoStarKR\", \"txwy\"]:",
+        "line": 83,
+        "path": "submodule/AlasMaaBridge/maa.py"
+      },
+      {
+        "code": "'./resource/global/' + self.config.MaaEmulator_PackageName)",
+        "line": 86,
+        "path": "submodule/AlasMaaBridge/maa.py"
+      },
+      {
+        "code": "'./cache/resource/global/' + self.config.MaaEmulator_PackageName)",
+        "line": 90,
+        "path": "submodule/AlasMaaBridge/maa.py"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 9,
+        "path": "submodule/AlasMaaBridge/module/config/argument/args.json"
+      },
+      {
+        "code": "PackageName:",
+        "line": 42,
+        "path": "submodule/AlasMaaBridge/module/config/argument/argument.yaml"
+      },
+      {
+        "code": "MaaEmulator_PackageName = 'Official'  # Official, Bilibili, YoStarEN, YoStarJP, YoStarKR, txwy",
+        "line": 33,
+        "path": "submodule/AlasMaaBridge/module/config/config_generated.py"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 135,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 135,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"name\": \"MaaEmulator.PackageName.name\",",
+        "line": 136,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"help\": \"MaaEmulator.PackageName.help\",",
+        "line": 137,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 135,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 135,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"name\": \"MaaEmulator.PackageName.name\",",
+        "line": 136,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"help\": \"MaaEmulator.PackageName.help\",",
+        "line": 137,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"client_type\": self.config.MaaEmulator_PackageName",
+        "line": 293,
+        "path": "submodule/AlasMaaBridge/module/handler/handler.py"
+      },
+      {
+        "code": "\"client_type\": self.config.MaaEmulator_PackageName,",
+        "line": 297,
+        "path": "submodule/AlasMaaBridge/module/handler/handler.py"
+      },
+      {
+        "code": "\"client_type\": self.config.MaaEmulator_PackageName,",
+        "line": 311,
+        "path": "submodule/AlasMaaBridge/module/handler/handler.py"
+      }
+    ],
+    "SERVER_TO_LANG": [
+      {
+        "code": "- `utils.py` — 工具函数：`LANGUAGES`、`SERVER_TO_LANG`、`SERVER_TO_TIMEZONE`、`filepath_args()`、`filepath_config()`、`read_file()`、`write_file()`、`parse_value()`、`alas_instance()`、`is_oobe_needed()`。",
+        "line": 132,
+        "path": "CLAUDE.md"
+      },
+      {
+        "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+        "line": 96,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+        "line": 730,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"SERVER_TO_LANG\"), \"Stage 5/9: preserve EN/shared OCR fallback until runtime smoke.\"),",
+        "line": 731,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "if lang == SERVER_TO_LANG[server]:",
+        "line": 405,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "- SERVER_TO_LANG: 服务器到语言的映射",
+        "line": 12,
+        "path": "module/config/utils.py"
+      },
+      {
+        "code": "SERVER_TO_LANG = {",
+        "line": 33,
+        "path": "module/config/utils.py"
+      },
+      {
+        "code": "LANG_TO_SERVER = {v: k for k, v in SERVER_TO_LANG.items()}",
+        "line": 39,
+        "path": "module/config/utils.py"
+      }
+    ],
+    "ServerName": [
+      {
+        "code": "checker = ServerChecker(server=self.config.Emulator_ServerName)",
+        "line": 227,
+        "path": "alas.py"
+      },
+      {
+        "code": "\"ServerName\": \"disabled\"",
+        "line": 8,
+        "path": "config/template.fpy.json"
+      },
+      {
+        "code": "\"ServerName\": \"disabled\",",
+        "line": 74,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"ServerName\": \"disabled\"",
+        "line": 16,
+        "path": "config/template.maa.json"
+      },
+      {
+        "code": "\"ServerName\", \"Event\", \"event_name\",",
+        "line": 98,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"event-name source\", \"game server\", evidence, (\"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"ServerName\"), \"Stage 5: make game server explicit.\"),",
+        "line": 730,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"OCR profile/model\", \"package/server options\", evidence, (\"PackageName\", \"ServerName\"), \"Stage 5/9: decouple options from UI locale.\"),",
+        "line": 732,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9: delete only after manifest evidence and EN smoke.\"),",
+        "line": 733,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 251,
+        "path": "module/config/argument/args.json"
+      },
+      {
+        "code": "ServerName:",
+        "line": 98,
+        "path": "module/config/argument/argument.yaml"
+      },
+      {
+        "code": "Emulator_ServerName = 'disabled'  # disabled, cn_android-0, cn_android-1, cn_android-2, cn_android-3, cn_android-4, cn_android-5, cn_android-6, cn_android-7, cn_android-8, cn_android-9, cn_android-10, cn_android-11, cn_android-12, cn_android-13, cn_android-14, cn_android-15, cn_android-16, cn_android-17, cn_android-18, cn_android-19, cn_android-20, cn_android-21, cn_android-22, cn_android-23, cn_android-24, cn_android-25, cn_android-26, cn_android-27, cn_android-28, cn_android-29, cn_ios-0, cn_i",
+        "line": 94,
+        "path": "module/config/config_generated.py"
+      },
+      {
+        "code": "path = ['Emulator', 'ServerName', f'{server}-{index}']",
+        "line": 413,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "option = deep_get(self.argument, keys='Emulator.ServerName.option')",
+        "line": 609,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "deep_set(self.argument, keys='Emulator.ServerName.option', value=option)",
+        "line": 615,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "deep_set(self.args, keys='Alas.Emulator.ServerName.option', value=option)",
+        "line": 616,
+        "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 501,
+        "path": "module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 501,
+        "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 501,
+        "path": "module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 501,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 501,
+        "path": "module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 97,
+        "path": "module/config/zh-MIAO.json"
+      },
+      {
+        "code": "items = [(\"disabled\", lang.t(\"Emulator.ServerName.disabled\"), \"\")]",
+        "line": 1015,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "label=lang.t(\"Emulator.ServerName.name\"),",
+        "line": 1020,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "items.append((\"disabled\", lang.t(\"Emulator.ServerName.disabled\"), \"TW\"))",
+        "line": 1095,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "(lang.t(\"Emulator.ServerName.name\"), self.server_name),",
+        "line": 1248,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "deep_set(data, \"Alas.Emulator.ServerName\", self.server_name)",
+        "line": 1271,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 15,
+        "path": "submodule/AlasFpyBridge/module/config/argument/args.json"
+      },
+      {
+        "code": "ServerName:",
+        "line": 20,
+        "path": "submodule/AlasFpyBridge/module/config/argument/argument.yaml"
+      },
+      {
+        "code": "Emulator_ServerName = 'disabled'",
+        "line": 21,
+        "path": "submodule/AlasFpyBridge/module/config/config_generated.py"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 85,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"name\": \"Emulator.ServerName.name\",",
+        "line": 86,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"help\": \"Emulator.ServerName.help\"",
+        "line": 87,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 85,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"name\": \"Emulator.ServerName.name\",",
+        "line": 86,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"help\": \"Emulator.ServerName.help\"",
+        "line": 87,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 85,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"name\": \"Emulator.ServerName.name\",",
+        "line": 86,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"help\": \"Emulator.ServerName.help\"",
+        "line": 87,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 85,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"name\": \"Emulator.ServerName.name\",",
+        "line": 86,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"help\": \"Emulator.ServerName.help\"",
+        "line": 87,
+        "path": "submodule/AlasFpyBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 54,
+        "path": "submodule/AlasMaaBridge/module/config/argument/args.json"
+      },
+      {
+        "code": "ServerName:",
+        "line": 22,
+        "path": "submodule/AlasMaaBridge/module/config/argument/argument.yaml"
+      },
+      {
+        "code": "Emulator_ServerName = 'disabled'",
+        "line": 22,
+        "path": "submodule/AlasMaaBridge/module/config/config_generated.py"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 97,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"name\": \"Emulator.ServerName.name\",",
+        "line": 98,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"help\": \"Emulator.ServerName.help\"",
+        "line": 99,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/en-US.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 97,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"name\": \"Emulator.ServerName.name\",",
+        "line": 98,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"help\": \"Emulator.ServerName.help\"",
+        "line": 99,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 97,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/zh-CN.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 97,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"name\": \"Emulator.ServerName.name\",",
+        "line": 98,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"help\": \"Emulator.ServerName.help\"",
+        "line": 99,
+        "path": "submodule/AlasMaaBridge/module/config/i18n/zh-TW.json"
+      }
+    ],
+    "event_name": [
+      {
+        "code": "\"ServerName\", \"Event\", \"event_name\",",
+        "line": 98,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self._dependency_link(\"config generator\", \"event-name source\", evidence, (\"event_name\", \"Event\"), \"Stage 5: preserve server-specific event names independently.\"),",
+        "line": 729,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "def event_name_to_time(self, name):",
+        "line": 54,
+        "path": "dev_tools/war_archives_update.py"
+      },
+      {
+        "code": "events = [self.event_name_to_time(event)]",
+        "line": 240,
+        "path": "dev_tools/war_archives_update.py"
+      },
+      {
+        "code": "events = [self.latest_event_cn if e == 'recent' else self.event_name_to_time(e) for e in event]",
+        "line": 242,
+        "path": "dev_tools/war_archives_update.py"
+      },
+      {
+        "code": "活动地图文件存放在 campaign/{event_name}/ 目录下，",
+        "line": 10,
+        "path": "module/event/base.py"
+      },
+      {
+        "code": "关卡扫描自 campaign/{event_name}/ 目录，通过 EventDaily_StageFilter 配置",
+        "line": 6,
+        "path": "module/event/campaign_abcd.py"
+      },
+      {
+        "code": "def _parse_event_name(raw: str) -> str:",
+        "line": 165,
+        "path": "module/webui/event_calculator.py"
+      },
+      {
+        "code": "\"event_name\": _parse_event_name(cleaned),",
+        "line": 179,
+        "path": "module/webui/event_calculator.py"
+      },
+      {
+        "code": "root.querySelector('[data-role=\"event-name\"]').textContent = data.event_name ? `当前活动：${{data.event_name}}` : \"当前活动：未知\";",
+        "line": 579,
+        "path": "module/webui/event_calculator.py"
+      }
+    ],
+    "lang_to_server": [
+      {
+        "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
+        "line": 97,
+        "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "lang_to_server = {\"zh-CN\": \"cn\", \"en-US\": \"en\", \"ja-JP\": \"jp\", \"zh-TW\": \"tw\"}",
+        "line": 978,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "if l in lang_to_server:",
+        "line": 979,
+        "path": "module/webui/oobe.py"
+      },
+      {
+        "code": "self.server = lang_to_server[l]",
+        "line": 980,
+        "path": "module/webui/oobe.py"
+      }
+    ],
+    "server_to_lang": [
+      {
+        "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
+        "line": 96,
+        "path": "dev_tools/russianization_audit.py"
+      }
+    ]
+  },
+  "target_chain": [
+    "UI locale",
+    "translation loader",
+    "deploy Language",
+    "config generator",
+    "event-name source",
+    "game server",
+    "OCR profile/model",
+    "package/server options",
+    "assets"
+  ]
+}
