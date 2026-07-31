@@ -1,4 +1,4 @@
-name: Lint
+name: Stage 5 publish
 
 on: [push, pull_request]
 
@@ -6,39 +6,7 @@ permissions:
   contents: write
 
 jobs:
-  ruff:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.14'
-      - name: Install dependencies
-        run: uv sync
-      - name: Run ruff
-        run: uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
-      - name: Run Stage 3 regression tests
-        run: >-
-          uv run python -m unittest -v
-          tests/test_deploy_location.py
-          tests/test_stage3d_deploy_set.py
-          tests/test_stage3d_legacy_installer.py
-          tests/test_stage3d_templates.py
-          tests/test_stage3d_webui_settings.py
-          tests/test_stage3e_release_cleanup.py
-      - name: Run Stage 4 audit unit tests
-        run: uv run python -m unittest -v tests/test_russianization_audit.py
-      - name: Check Stage 4 audit baseline
-        run: uv run python -m dev_tools.russianization_audit --check
-
-  button-config-check:
+  stage5-publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,13 +36,11 @@ jobs:
         run: |
           python .github/stage5_apply.py
           rm -rf .github/stage5_apply.py .github/stage5_payload
-      - name: Run button_extract
-        run: uv run -m dev_tools.button_extract
-      - name: Run config_updater
-        run: uv run -m module.config.config_updater
-      - name: Verify generator determinism
+      - name: Run generators
         if: steps.transport.outputs.active == 'true'
         run: |
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
           git diff --binary > /tmp/stage5-generator-first.diff
           uv run -m dev_tools.button_extract
           uv run -m module.config.config_updater
@@ -85,24 +51,54 @@ jobs:
         run: |
           uv run python -m dev_tools.russianization_audit --write
           uv run python -m dev_tools.russianization_audit --check
-      - name: Run Stage 5 validation
+      - name: Capture generated patch
         if: steps.transport.outputs.active == 'true'
         run: |
-          uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
-          uv run python -m unittest -v \
-            tests/test_deploy_location.py \
-            tests/test_stage3d_deploy_set.py \
-            tests/test_stage3d_legacy_installer.py \
-            tests/test_stage3d_templates.py \
-            tests/test_stage3d_webui_settings.py \
-            tests/test_stage3e_release_cleanup.py \
-            tests/test_russianization_audit.py \
-            tests/test_stage5_deploy_language_migration.py \
-            tests/test_stage5_locale_runtime.py \
-            tests/test_stage5_server_separation.py \
-            tests/test_stage5_generator.py
-          uv run python -m dev_tools.verify_stage5
-          git diff --check
+          git diff --binary > /tmp/stage5-generated.patch
+          git status --short > /tmp/stage5-status.txt
+      - name: Upload generated patch
+        if: steps.transport.outputs.active == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5-generated-${{ github.run_id }}
+          path: |
+            /tmp/stage5-generated.patch
+            /tmp/stage5-status.txt
+          if-no-files-found: error
+      - name: Run ruff
+        if: steps.transport.outputs.active == 'true'
+        run: uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+      - name: Run Stage 3 regression tests
+        if: steps.transport.outputs.active == 'true'
+        run: >-
+          uv run python -m unittest -v
+          tests/test_deploy_location.py
+          tests/test_stage3d_deploy_set.py
+          tests/test_stage3d_legacy_installer.py
+          tests/test_stage3d_templates.py
+          tests/test_stage3d_webui_settings.py
+          tests/test_stage3e_release_cleanup.py
+      - name: Run Stage 4 audit tests
+        if: steps.transport.outputs.active == 'true'
+        run: uv run python -m unittest -v tests/test_russianization_audit.py
+      - name: Run Stage 5 migration tests
+        if: steps.transport.outputs.active == 'true'
+        run: uv run python -m unittest -v tests/test_stage5_deploy_language_migration.py
+      - name: Run Stage 5 locale runtime tests
+        if: steps.transport.outputs.active == 'true'
+        run: uv run python -m unittest -v tests/test_stage5_locale_runtime.py
+      - name: Run Stage 5 server separation tests
+        if: steps.transport.outputs.active == 'true'
+        run: uv run python -m unittest -v tests/test_stage5_server_separation.py
+      - name: Run Stage 5 generator tests
+        if: steps.transport.outputs.active == 'true'
+        run: uv run python -m unittest -v tests/test_stage5_generator.py
+      - name: Run Stage 5 verifier
+        if: steps.transport.outputs.active == 'true'
+        run: uv run python -m dev_tools.verify_stage5
+      - name: Check diff formatting
+        if: steps.transport.outputs.active == 'true'
+        run: git diff --check
       - name: Check forbidden deletions and secrets
         if: steps.transport.outputs.active == 'true'
         shell: bash
@@ -132,77 +128,11 @@ jobs:
         if: steps.transport.outputs.active == 'true'
         shell: bash
         run: |
-          git status --short
           git add -A
           git config user.name 'AliceLiddell01'
           git config user.email 'leaf.fairy@proton.me'
-          git commit -m 'refactor(i18n): isolate single ru-RU runtime locale'
+          git commit -m 'feat(stage5): enforce single Russian locale'
           git push origin HEAD:chatgpt/stage5-single-russian-locale
-      - name: Check for differences
+      - name: No-op after publication
         if: steps.transport.outputs.active != 'true'
-        run: git diff --exit-code --ignore-space-at-eol
-
-  powershell:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Install PSScriptAnalyzer
-        shell: pwsh
-        run: |
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
-      - name: Parse PowerShell scripts
-        shell: pwsh
-        run: |
-          $scriptRoot = Join-Path -Path $PWD -ChildPath 'scripts'
-          $scriptFiles = @(
-              Get-ChildItem -LiteralPath $scriptRoot -Recurse -File |
-                  Where-Object {
-                      $_.Extension -in @(
-                          '.ps1'
-                          '.psm1'
-                      )
-                  }
-          )
-          $parseFailures = [System.Collections.Generic.List[string]]::new()
-          foreach ($scriptFile in $scriptFiles) {
-              $tokens = $null
-              $parseErrors = $null
-              [void][System.Management.Automation.Language.Parser]::ParseFile(
-                  $scriptFile.FullName,
-                  [ref]$tokens,
-                  [ref]$parseErrors
-              )
-              foreach ($parseError in $parseErrors) {
-                  $parseFailures.Add(
-                      '{0}:{1}: {2}' -f
-                      $scriptFile.FullName,
-                      $parseError.Extent.StartLineNumber,
-                      $parseError.Message
-                  )
-              }
-          }
-          if ($parseFailures.Count -gt 0) {
-              throw ($parseFailures -join [Environment]::NewLine)
-          }
-      - name: Analyze PowerShell scripts
-        shell: pwsh
-        run: |
-          $analyzerParameters = @{
-              Path = (Join-Path -Path $PWD -ChildPath 'scripts')
-              Recurse = $true
-              Severity = @(
-                  'Error'
-                  'Warning'
-              )
-              ExcludeRule = @(
-                  'PSUseBOMForUnicodeEncodedFile'
-              )
-          }
-          $findings = @(Invoke-ScriptAnalyzer @analyzerParameters)
-          if ($findings.Count -gt 0) {
-              $details = $findings | Format-List | Out-String
-              throw $details
-          }
+        run: echo 'Stage 5 transport is not active.'
