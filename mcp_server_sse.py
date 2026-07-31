@@ -190,11 +190,6 @@ async def list_tools() -> List[Tool]:
             description="重启 ADB 服务，解决设备离线 (Device Offline) 的问题。",
             inputSchema={"type": "object", "properties": {"instance": {"type": "string", "description": "可选"}}}
         ),
-        Tool(
-            name="update_alas",
-            description="触发 AzurPilot 的 Git Pull 和依赖更新，让大模型能帮你做日常的程序维护。",
-            inputSchema={"type": "object", "properties": {}}
-        ),
     ]
 
 async def _tool_list_instances(arguments: Dict[str, Any]) -> ToolResponse:
@@ -450,19 +445,6 @@ async def _tool_restart_adb(arguments: Dict[str, Any]) -> ToolResponse:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
-async def _tool_update_alas(arguments: Dict[str, Any]) -> ToolResponse:
-    try:
-        from module.webui.updater import updater
-
-        def do_update():
-            updater.update()
-
-        threading.Thread(target=do_update).start()
-        return [TextContent(type="text", text="Success: Triggered AzurPilot update in background.")]
-    except Exception as e:
-        return [TextContent(type="text", text=f"Error: {str(e)}")]
-
-
 TOOL_HANDLERS = {
     "list_instances": _tool_list_instances,
     "get_status": _tool_get_status,
@@ -481,7 +463,6 @@ TOOL_HANDLERS = {
     "clear_scheduler_queue": _tool_clear_scheduler_queue,
     "restart_emulator": _tool_restart_emulator,
     "restart_adb": _tool_restart_adb,
-    "update_alas": _tool_update_alas,
 }
 
 

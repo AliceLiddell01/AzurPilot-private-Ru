@@ -893,14 +893,6 @@
       "save": "保存",
       "upload": "上传",
       "save_and_upload": "保存并上传"
-    },
-    "TelemetryReport": {
-      "name": "遥测数据上报",
-      "help": "启用后将定期向服务器匿名上报 CL1 统计数据（战斗次数、明石遇见概率等匿名数据）ID生成详见源码，统计信息 https://alas.nanoda.work/"
-    },
-    "BugReport": {
-      "name": "Bug 日志上报",
-      "help": "启用后将在遇到异常时向服务器匿名上报 Bug 日志以帮助改进ID生成详见源码"
     }
   },
   "Log": {
@@ -5872,23 +5864,17 @@
       "DashboardOFF": "展开",
       "ClearLog": "清空日志",
       "Setting": "设置",
-      "CheckUpdate": "检查更新",
-      "ClickToUpdate": "进行更新",
-      "RetryUpdate": "重试更新",
-      "CancelUpdate": "取消更新",
       "Open": "打开"
     },
     "Toast": {
       "DisableTranslateMode": "点击这里关闭翻译模式",
       "ConfigSaved": "设置已保存",
-      "AlasIsRunning": "调度器已在运行中",
-      "ClickToUpdate": "有可用更新nanoda!"
+      "AlasIsRunning": "调度器已在运行中"
     },
     "Status": {
       "Running": "秘书舰正在处理",
       "Inactive": "茗正在偷走你的箱子",
-      "Warning": "发生错误",
-      "Updating": "等待更新"
+      "Warning": "发生错误"
     },
     "MenuAlas": {
       "Overview": "总览",
@@ -5898,7 +5884,6 @@
       "HomePage": "主页",
       "Translate": "翻译",
       "Announcement": "公告",
-      "Update": "更新器",
       "Remote": "远程控制",
       "Setting": "设置",
       "Utils": "开发者工具"
@@ -6008,25 +5993,6 @@
       "Mod": "插件",
       "Actions": "操作"
     },
-    "Update": {
-      "UpToDate": "已是最新版本",
-      "HaveUpdate": "有新版本可用",
-      "UpdateStart": "开始更新",
-      "UpdateWait": "等待所有 AzurPilot 完成当前任务",
-      "UpdateRun": "更新中",
-      "UpdateSuccess": "更新成功，正在重启",
-      "UpdateFailed": "更新失败，可在./log/*_gui.txt中找到错误日志",
-      "UpdateChecking": "检查更新中",
-      "UpdateCancel": "取消更新，重启 AzurPilot 中",
-      "UpdateFinish": "更新成功，请手动重启",
-      "Local": "本地",
-      "Upstream": "上游仓库",
-      "Author": "作者",
-      "Time": "提交时间",
-      "Message": "提交信息",
-      "DisabledWarn": "更新模块未启用，你需要手动重启 AzurPilot 进行更新",
-      "DetailedHistory": "详细提交历史"
-    },
     "Remote": {
       "Running": "运行中",
       "NotRunning": "未运行，与服务器的连接断开或服务器离线",
@@ -6107,12 +6073,8 @@
       "OcrServerPortHelp": "WebUI 启动的 OCR 服务监听端口。",
       "OcrClientAddress": "OCR 客户端地址",
       "OcrClientAddressHelp": "实例连接 OCR 服务时使用的地址。",
-      "EnableReload": "启用内置更新和重载",
-      "EnableReloadHelp": "允许 WebUI 使用内置更新和自动重启能力。",
-      "CheckUpdateInterval": "检查更新间隔",
-      "CheckUpdateIntervalHelp": "每隔多少分钟检查一次更新，0 表示禁用。",
-      "AutoRestartTime": "定时重启时间",
-      "AutoRestartTimeHelp": "有更新时每天自动重启的时间，留空表示禁用。",
+      "EnableReload": "启用 WebUI 重载",
+      "EnableReloadHelp": "允许 WebUI 执行重启和重载操作。",
       "DiscordRichPresence": "Discord 富状态",
       "DiscordRichPresenceHelp": "在 Discord 中展示 AzurPilot 运行状态。",
       "EnableRemoteAccess": "启用远程访问",

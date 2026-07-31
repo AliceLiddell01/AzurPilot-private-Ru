@@ -893,14 +893,6 @@
       "save": "Save",
       "upload": "Upload",
       "save_and_upload": "Save and Upload"
-    },
-    "TelemetryReport": {
-      "name": "Telemetry Data Reporting",
-      "help": "After being enabled, CL1 statistics (anonymous data such as the number of battles and Akashi encounter probability) will be reported anonymously to the server on a regular basis. For details on ID generation, please see the source code. For statistical information https://alas.nanoda.work/"
-    },
-    "BugReport": {
-      "name": "Bug Log Reporting",
-      "help": "When enabled, bug logs will be anonymously reported to the server when an exception is encountered to help improve ID generation. See the source code for details."
     }
   },
   "Log": {
@@ -5872,23 +5864,17 @@
       "DashboardOFF": "Expand",
       "ClearLog": "Clear Log",
       "Setting": "Settings",
-      "CheckUpdate": "Check for Updates",
-      "ClickToUpdate": "Update Now",
-      "RetryUpdate": "Retry Update",
-      "CancelUpdate": "Cancel Update",
       "Open": "Open"
     },
     "Toast": {
       "DisableTranslateMode": "Click here to turn off translation mode",
       "ConfigSaved": "Settings saved",
-      "AlasIsRunning": "Scheduler is already running",
-      "ClickToUpdate": "Updates available nanoda!"
+      "AlasIsRunning": "Scheduler is already running"
     },
     "Status": {
       "Running": "Secretary ship is processing",
       "Inactive": "Akashi is stealing your boxes",
-      "Warning": "An error occurred",
-      "Updating": "Waiting for update"
+      "Warning": "An error occurred"
     },
     "MenuAlas": {
       "Overview": "Overview",
@@ -5898,7 +5884,6 @@
       "HomePage": "Home",
       "Translate": "Translate",
       "Announcement": "Announcement",
-      "Update": "Updater",
       "Remote": "Remote Control",
       "Setting": "Settings",
       "Utils": "Utils"
@@ -6008,25 +5993,6 @@
       "Mod": "Mod",
       "Actions": "Actions"
     },
-    "Update": {
-      "UpToDate": "Already the latest version",
-      "HaveUpdate": "A new version is available",
-      "UpdateStart": "Start updating",
-      "UpdateWait": "Wait for all AzurPilot to complete the current task",
-      "UpdateRun": "Updating",
-      "UpdateSuccess": "Update successful, restarting",
-      "UpdateFailed": "Update failed, error log can be found in ./log/*_gui.txt",
-      "UpdateChecking": "Checking for updates",
-      "UpdateCancel": "Cancel update and restart AzurPilot",
-      "UpdateFinish": "Update successful, please restart manually",
-      "Local": "Local",
-      "Upstream": "Upstream",
-      "Author": "Author",
-      "Time": "Commit Time",
-      "Message": "Commit Message",
-      "DisabledWarn": "The update module is not enabled, you need to manually restart AzurPilot to update",
-      "DetailedHistory": "Detailed commit history"
-    },
     "Remote": {
       "Running": "Running",
       "NotRunning": "Not running, the connection to the server is lost or the server is offline",
@@ -6107,12 +6073,8 @@
       "OcrServerPortHelp": "Listening port for the OCR service started by WebUI.",
       "OcrClientAddress": "OCR Client Address",
       "OcrClientAddressHelp": "Address used by instances to connect to the OCR service.",
-      "EnableReload": "Enable Built-in Update and Reload",
-      "EnableReloadHelp": "Allow WebUI to use built-in update and restart features.",
-      "CheckUpdateInterval": "Update Check Interval",
-      "CheckUpdateIntervalHelp": "Minutes between update checks. Use 0 to disable.",
-      "AutoRestartTime": "Scheduled Restart Time",
-      "AutoRestartTimeHelp": "Daily restart time when an update is available. Leave empty to disable.",
+      "EnableReload": "Enable WebUI Reload",
+      "EnableReloadHelp": "Allow WebUI restart and reload operations.",
       "DiscordRichPresence": "Discord Rich Presence",
       "DiscordRichPresenceHelp": "Show AzurPilot status in Discord.",
       "EnableRemoteAccess": "Enable Remote Access",

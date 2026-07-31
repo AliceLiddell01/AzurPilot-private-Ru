@@ -5,7 +5,6 @@ from module.webui.app_dependencies import (
     lang,
     put_button,
     t,
-    toast,
     use_scope,
 )
 from module.webui.app_types import WebUIMixinBase
@@ -29,12 +28,6 @@ class DeveloperMenuMixin(WebUIMixinBase):
         #     onclick=self.dev_translate,
         #     color="menu",
         # ).style(f"--menu-Translate--")
-
-        put_button(
-            label=t("Gui.MenuDevelop.Update"),
-            onclick=self.dev_update,
-            color="menu",
-        ).style(f"--menu-Update--")
 
         put_button(
             label=t("Gui.MenuDevelop.Remote"),
@@ -64,13 +57,6 @@ class DeveloperMenuMixin(WebUIMixinBase):
         go_app("translate", new_window=True)
         lang.TRANSLATE_MODE = True
         self.show_home()
-
-    def _preview_update_notice(self) -> None:
-        def handle_preview_click():
-            self._close_update_notice()
-            toast("success", color="success")
-
-        self._show_update_notice(handle_preview_click)
 
     def ui_develop(self) -> None:
         self.show_home()

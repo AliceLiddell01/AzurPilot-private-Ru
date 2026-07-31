@@ -326,10 +326,8 @@ class ConfigModel:
     OcrServerPort: int = 22268
     OcrClientAddress: str = "127.0.0.1:22268"
 
-    # 更新配置
+    # WebUI 重载配置
     EnableReload: bool = True
-    CheckUpdateInterval: int = 5
-    AutoRestartTime: str = "03:50"
 
     # WebUI 配置
     WebuiHost: str = "0.0.0.0"

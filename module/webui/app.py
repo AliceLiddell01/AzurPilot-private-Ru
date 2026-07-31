@@ -2,7 +2,7 @@
 
 提供 WebUI 的主应用类，通过多个 Mixin 组合实现各功能页面：
 仪表盘（Dashboard）、开发者菜单、开发者设置、开发者工具、
-版本更新、活动工具等。同时提供 ASGI 应用创建和路由注册。
+活动工具等。同时提供 ASGI 应用创建和路由注册。
 
 该模块是 WebUI 的顶层入口，被 gui.py 启动时引用。
 """
@@ -37,13 +37,11 @@ from module.webui.app_dependencies import (
     set_env,
     task_handler,
     time,
-    updater,
     webconfig,
 )
 from module.webui.app_developer_menu import DeveloperMenuMixin
 from module.webui.app_developer_settings import DeveloperSettingsMixin
 from module.webui.app_developer_tools import DeveloperToolsMixin
-from module.webui.app_developer_update import DeveloperUpdateMixin
 from module.webui.app_event_tools import EventToolsMixin
 from module.webui.app_helpers import (
     DEMO_DEVICE_ID_TEXT,
@@ -105,7 +103,6 @@ class AlasGUI(
     OverviewMixin,
     DashboardMixin,
     DeveloperMenuMixin,
-    DeveloperUpdateMixin,
     DeveloperSettingsMixin,
     DeveloperToolsMixin,
     InstanceMixin,
@@ -219,7 +216,7 @@ def app():
         localstorage = None
         if is_webui_password_set(key):
             localstorage = get_localstorage_values(
-                ("password", "clarity_notice_shown", "aside")
+                ("password", "aside")
             )
         if is_webui_password_set(key) and not login(
             key, stored_password=localstorage.get("password")
@@ -249,9 +246,7 @@ def app():
         debug=True,
         on_startup=[
             startup,
-            lambda: ProcessManager.restart_processes(
-                instances=instances, ev=updater.event
-            ),
+            lambda: ProcessManager.restart_processes(instances=instances),
         ],
         on_shutdown=[clearup],
     )

@@ -9,16 +9,13 @@ from module.webui.app_dependencies import (
     clear,
     current_time,
     filepath_args,
-    put_buttons,
     put_html,
     put_icon_buttons,
     put_loading_text,
     put_scope,
     queue,
     read_file,
-    run_js,
     t,
-    time,
     time_source_status,
     timedelta,
     timezone,
@@ -58,7 +55,6 @@ class AppShellMixin(WebUIMixinBase):
         self._announcement_result = None
         self._announcement_fetching = False
         self._announcement_force = False
-        self._update_notified = False
         self._simulator = None
         self._simulator_logger_pm = None
         self._overview_log = None
@@ -80,83 +76,6 @@ class AppShellMixin(WebUIMixinBase):
 
             self._simulator = OSSimulator()
         return self._simulator
-
-    def _close_update_notice(self) -> None:
-        run_js(
-            r"""
-            (function () {
-                var el = document.getElementById('alas-update-notice');
-                if (!el) return;
-                el.classList.add('is-leaving');
-                setTimeout(function () {
-                    if (el && el.parentNode) {
-                        el.parentNode.removeChild(el);
-                    }
-                }, 180);
-            })();
-            """
-        )
-
-    def _remove_update_notice(self) -> None:
-        run_js(
-            r"""
-            (function () {
-                var el = document.getElementById('alas-update-notice');
-                if (el && el.parentNode) {
-                    el.parentNode.removeChild(el);
-                }
-            })();
-            """
-        )
-
-    def _show_update_notice(self, onclick) -> None:
-        self._remove_update_notice()
-        scope = f"update_notice_{int(time.time() * 1000)}"
-
-        def handle_later():
-            self._close_update_notice()
-
-        with use_scope("ROOT"):
-            put_html(
-                f"""
-                <div id="alas-update-notice" class="alas-update-notice" role="status" aria-live="polite">
-                    <div class="alas-update-notice__halo"></div>
-                    <div class="alas-update-notice__icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <path d="M7 10l5 5 5-5"></path>
-                            <path d="M12 15V3"></path>
-                        </svg>
-                    </div>
-                    <div class="alas-update-notice__body">
-                        <div class="alas-update-notice__eyebrow">发现新版本</div>
-                        <div class="alas-update-notice__title">有可用更新！</div>
-                        <div class="alas-update-notice__text">
-                            建议及时更新，以获得更稳定的脚本运行体验。
-                        </div>
-                        <div id="pywebio-scope-{scope}" class="alas-update-notice__actions"></div>
-                    </div>
-                </div>
-                """
-            )
-            put_buttons(
-                [
-                    {
-                        "label": "立即更新",
-                        "value": "update",
-                        "color": "danger",
-                    },
-                    {
-                        "label": "稍后再说",
-                        "value": "later",
-                        "color": "secondary",
-                    },
-                ],
-                onclick=[onclick, handle_later],
-                small=True,
-                scope=scope,
-            )
 
     @use_scope("aside", clear=True)
     def set_aside(self) -> None:
@@ -220,11 +139,9 @@ class AppShellMixin(WebUIMixinBase):
                     icon_html = Icon.RUNNING
                 elif rendered_state == 3:
                     icon_html = Icon.ERROR
-                elif rendered_state == 4:
-                    icon_html = Icon.UPDATE
                 else:
                     icon_html = Icon.RUN
-                status_signal = "false" if rendered_state in (1, 3, 4) else "true"
+                status_signal = "false" if rendered_state in (1, 3) else "true"
                 if rendered_state == 1 and getattr(self, "af_flag", False):
                     icon_html = icon_html[:31] + " anim-rotate" + icon_html[31:]
                 put_icon_buttons(
@@ -266,7 +183,6 @@ class AppShellMixin(WebUIMixinBase):
                 1 (running)
                 2 (not running)
                 3 (warning, stop unexpectedly)
-                4 (stop for update)
                 0 (hide)
                 -1 (*state not changed)
         """
@@ -280,8 +196,6 @@ class AppShellMixin(WebUIMixinBase):
             put_loading_text(t("Gui.Status.Inactive"), color="secondary", fill=True)
         elif state == 3:
             put_loading_text(t("Gui.Status.Warning"), shape="grow", color="warning")
-        elif state == 4:
-            put_loading_text(t("Gui.Status.Updating"), shape="grow", color="success")
 
     @staticmethod
     def _format_tz_offset(offset: timedelta) -> str:

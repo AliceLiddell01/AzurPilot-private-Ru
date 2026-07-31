@@ -10,7 +10,6 @@ import inflection
 from cached_property import cached_property
 
 from module.base.decorator import del_cached_property
-from module.base.api_client import ApiClient
 from module.base.ssh import clear_ssh_host_key
 from module.config.config import AzurLaneConfig, TaskEnd
 from module.config.deep import deep_get, deep_set
@@ -1188,8 +1187,10 @@ class AzurLaneAutoScript:
                 return True
             if self.stop_event is not None:
                 if self.stop_event.is_set():
-                    logger.info('[Alas] 检测到更新事件')
-                    logger.info(f'[{self.config_name}] 已退出。原因: 更新 | Reason: Update')
+                    logger.info('[Alas] 收到停止请求')
+                    logger.info(
+                        f'[{self.config_name}] 已退出。原因: 停止请求 | Reason: Stop request'
+                    )
                     exit(0)
 
             time.sleep(5)
@@ -1311,11 +1312,13 @@ class AzurLaneAutoScript:
 
         while 1:
             try:
-                # 检查来自GUI的更新事件
+                # 检查来自 GUI 的通用停止请求
                 if self.stop_event is not None:
                     if self.stop_event.is_set():
-                        logger.info('[Alas] 检测到更新事件')
-                        logger.info(f"[Alas] [{self.config_name}] 已退出。原因: 更新 | Reason: Update")
+                        logger.info('[Alas] 收到停止请求')
+                        logger.info(
+                            f"[Alas] [{self.config_name}] 已退出。原因: 停止请求 | Reason: Stop request"
+                        )
                         break
                 # 检查游戏服务器维护
                 self.checker.wait_until_available()
@@ -1420,8 +1423,7 @@ class AzurLaneAutoScript:
                         title=f"诶呀！{self.config_name}出现了问题喵！",
                         content=f"因为 {task} 任务失败次数过多喵！",
                     )
-                    logger.warning("[Alas] 任务连续失败次数过多，正在上报错误日志...")
-                    ApiClient.submit_bug_log(f"AzurPilot <{self.config_name}> crashed\nTask `{task}` failed {failed} or more times.")
+                    logger.warning("[Alas] 任务连续失败次数过多，错误信息仅保留在本地日志中。")
                     exit(1)
 
                 if success == True:
@@ -1473,8 +1475,7 @@ class AzurLaneAutoScript:
                         level=50,
                     )
                     self.save_error_log()
-                    logger.warning("[Alas] 遇到无法恢复的致命错误，正在上报错误日志...")
-                    ApiClient.submit_bug_log(f"AzurPilot <{self.config_name}> 调度器终止。\n已达到最大全局失败次数 ({MAX_GLOBAL_FAILURES})。\n{traceback.format_exc()}")
+                    logger.warning("[Alas] 遇到无法恢复的致命错误，错误信息仅保留在本地日志中。")
                     exit(1)
 
                 # 尝试重启

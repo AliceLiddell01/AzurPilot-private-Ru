@@ -110,29 +110,9 @@ Deploy:
     OcrClientAddress: 127.0.0.1:22268
 
   Update:
-    # 启用自动更新和内置更新功能
-    # Use auto update and builtin updater feature
-    # 可能会引发问题 https://github.com/wess09/AzurPilot/issues/876
-    # This may cause problem https://github.com/wess09/AzurPilot/issues/876
+    # 启用 WebUI 重载支持
+    # Enable WebUI reload support
     EnableReload: true
-    # 每隔 X 分钟检查更新
-    # Check update every X minute
-    # [禁用] 0
-    # [Disable] 0
-    # [默认] 5
-    # [Default] 5
-    CheckUpdateInterval: 5
-    # 定时重启时间
-    # Scheduled restart time
-    # 如果有更新，AzurPilot 会在此时间每天自动重启并更新，
-    # 并恢复重启前正在运行的所有实例
-    # If there are updates, AzurPilot will automatically restart and update at this time every day
-    # and run all ap instances that running before restarted
-    # [禁用] null
-    # [Disable] null
-    # [默认] 08:00
-    # [Default] 08:00
-    AutoRestartTime: 08:00
 
   Misc:
     # 启用 Discord 富状态展示

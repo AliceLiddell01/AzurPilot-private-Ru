@@ -12,7 +12,6 @@ from module.webui.app_dependencies import (
     start_ocr_server_process,
     stop_ocr_server_process,
     task_handler,
-    updater,
 )
 
 from module.webui.app_helpers import (
@@ -39,10 +38,6 @@ def startup() -> None:
     """初始化 WebUI 进程级后台服务。"""
     State.init()
     lang.reload()
-    updater.event = State.manager.Event()
-    if updater.delay > 0:
-        task_handler.add(updater.check_update_loop(), 1)
-    task_handler.add(updater.schedule_update(), 86400)
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()

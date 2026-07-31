@@ -255,10 +255,6 @@ DeploySetting:
   OcrClientAddressHelp:
   EnableReload:
   EnableReloadHelp:
-  CheckUpdateInterval:
-  CheckUpdateIntervalHelp:
-  AutoRestartTime:
-  AutoRestartTimeHelp:
   DiscordRichPresence:
   DiscordRichPresenceHelp:
   EnableRemoteAccess:

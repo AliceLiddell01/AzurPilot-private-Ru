@@ -319,8 +319,6 @@ def put_icon_buttons(
             circle_c = "RUNNING"
         elif state == 3:
             circle_c = "ERROR"
-        elif state == 4:
-            circle_c = "UPDATE"
     if circle_c != "":
         status_html = getattr(Icon, circle_c)
 

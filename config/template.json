@@ -129,9 +129,7 @@
       "CombatRecord": "do_not",
       "OpsiRecord": "upload",
       "MeowfficerBuy": "do_not",
-      "MeowfficerTalent": "do_not",
-      "TelemetryReport": true,
-      "BugReport": true
+      "MeowfficerTalent": "do_not"
     },
     "EmulatorManagement": {
       "ScheduledEmulatorRestart": false,

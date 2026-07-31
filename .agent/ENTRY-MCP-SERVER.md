@@ -66,7 +66,7 @@ mcp_server = Server("ALAS-MCP")
 async def list_tools() -> List[Tool]:
 ```
 
-注册 18 个 MCP 工具。每个工具定义了 `name`、`description` 和 `inputSchema`。
+注册 17 个 MCP 工具。每个工具定义了 `name`、`description` 和 `inputSchema`。
 
 ### 3.1 工具清单
 
@@ -89,7 +89,6 @@ async def list_tools() -> List[Tool]:
 | 15 | `clear_scheduler_queue` | 清空任务队列 | `instance` | 无 |
 | 16 | `restart_emulator` | 重启模拟器 | `instance` | 无 |
 | 17 | `restart_adb` | 重启 ADB 服务 | 无 | `instance` |
-| 18 | `update_alas` | 触发 Git Pull 更新 | 无 | 无 |
 
 ### 3.2 inputSchema 设计
 
@@ -377,19 +376,6 @@ subprocess.run([adb_path, "start-server"], check=False)
 - **ADB 路径搜索顺序**: deploy.yaml 配置 -> `.venv/Scripts/adb.exe` -> `.venv/bin/adb` -> `./bin/adb/adb.exe` -> `adb` (PATH)
 - **实现**: kill-server + start-server
 
-#### `update_alas` (L439-L447)
-
-```python
-from module.webui.updater import updater
-def do_update():
-    updater.update()
-threading.Thread(target=do_update).start()
-```
-
-- **功能**: 在后台线程中触发 AzurPilot 更新
-- **实现**: 启动独立线程执行 `updater.update()`
-- **返回**: 立即返回成功消息（不等待更新完成）
-
 ### 4.2 错误处理 (L452-L454)
 
 ```python
@@ -627,7 +613,6 @@ mcp_server_sse.py
 | `restart_emulator` | 60 秒 | `time.sleep(60)` 阻塞 | 阻塞事件循环 |
 | `get_recent_logs` | 文件 I/O | 读取整个日志文件 | 大文件性能差 |
 | `get_current_running_task` | 文件 I/O | 读取整个日志文件 + 正则匹配 | 大文件性能差 |
-| `update_alas` | 后台线程 | Git 操作 | 不阻塞但资源竞争 |
 
 ### 11.2 优化建议
 
@@ -666,7 +651,6 @@ mcp_server_sse.py
 | `update_config` 可修改任意配置 | L238-L248 | **高** | 可修改密码、服务器等敏感配置 |
 | `start_instance` / `stop_instance` | L276-L292 | **中** | 可远程启停进程 |
 | `restart_emulator` | L390-L409 | **中** | 可远程重启模拟器 |
-| `update_alas` | L439-L447 | **中** | 可触发代码更新 |
 | `restart_adb` 子进程执行 | L433-L434 | **低** | `subprocess.run()` 但参数受控 |
 | 环境变量注入 | L295-L296 | **低** | 设置 `ALAS_CONFIG_NAME` 环境变量 |
 
