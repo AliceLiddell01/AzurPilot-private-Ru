@@ -144,6 +144,8 @@ jobs:
             cat .github/stage4_payload.part* | base64 --decode > "$RUNNER_TEMP/stage4_payload.tar.gz"
             tar -xzf "$RUNNER_TEMP/stage4_payload.tar.gz" -C .
           fi
+      - name: Apply Stage 4 determinism fix
+        run: python .github/stage4_fix.py
       - name: Run Stage 4 audit unit tests
         run: python -m unittest -v tests/test_russianization_audit.py
       - name: Generate Stage 4 audit results
@@ -157,6 +159,9 @@ jobs:
         run: |
           if compgen -G '.github/stage4_payload.part*' > /dev/null; then
             git rm .github/stage4_payload.part*
+          fi
+          if [ -f .github/stage4_fix.py ]; then
+            git rm .github/stage4_fix.py
           fi
           git add dev_tools/russianization_audit.py
           git add tests/test_russianization_audit.py
