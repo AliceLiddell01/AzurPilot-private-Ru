@@ -193,7 +193,6 @@ jobs:
         shell: bash
         run: |
           git rm .github/stage4_finalize.py
-          git add .github/workflows/lint.yml
           git add dev_tools/russianization_audit.py
           git add tests/test_russianization_audit.py
           git add dev_tools/russianization/results
