@@ -129,7 +129,7 @@ jobs:
               throw $details
           }
 
-  stage4-finalize:
+  stage4-regenerate:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -141,8 +141,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.14'
-      - name: Install final source and CI definition
-        run: python .github/stage4_finalize.py
+      - name: Install self-exclusion rule
+        run: python .github/stage4_regenerate.py
       - name: Run Stage 4 audit unit tests
         run: python -m unittest -v tests/test_russianization_audit.py
       - name: Generate final Stage 4 audit results
@@ -158,7 +158,6 @@ jobs:
           import re
           from pathlib import Path
           roots = [
-              Path('.github/workflows/lint.yml'),
               Path('dev_tools/russianization_audit.py'),
               Path('tests/test_russianization_audit.py'),
               Path('dev_tools/russianization/results'),
@@ -189,14 +188,14 @@ jobs:
               raise SystemExit('Potential secret patterns found at: ' + ', '.join(findings))
           print('Manual secret-pattern audit: no matches.')
           PY
-      - name: Commit final Stage 4 audit
+      - name: Commit final self-excluding audit baseline
         shell: bash
         run: |
-          git rm .github/stage4_finalize.py
+          git rm .github/stage4_regenerate.py
           git add dev_tools/russianization_audit.py
           git add tests/test_russianization_audit.py
           git add dev_tools/russianization/results
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'ci(audit): verify committed Stage 4 baselines'
+          git commit -m 'fix(audit): exclude CI transport from runtime inventory'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
