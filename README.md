@@ -5,14 +5,14 @@
 <h1 align="center">AzurPilot Private RU</h1>
 
 <p align="center">
-  Персональная русская ветка AzurPilot с безопасным обновлением и прозрачным PowerShell-контуром запуска, восстановления и подготовки установки.
+  Персональная русская версия AzurPilot с контролируемым обновлением, прозрачным запуском и сокращённым набором внешних сетевых зависимостей.
 </p>
 
 <p align="center">
   <a href="https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki">
     <img src="https://img.shields.io/badge/Wiki-документация-2f81f7?style=flat-square" alt="Русская Wiki">
   </a>
-  <img src="https://img.shields.io/badge/Stage_2-завершён-2ea44f?style=flat-square" alt="Stage 2 завершён">
+  <img src="https://img.shields.io/badge/телеметрия-удалена-2ea44f?style=flat-square" alt="Телеметрия удалена">
   <img src="https://img.shields.io/badge/Python-3.14.6-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.14.6">
   <img src="https://img.shields.io/badge/PowerShell-7.6-5391FE?style=flat-square&logo=powershell&logoColor=white" alt="PowerShell 7.6">
   <a href="LICENSE">
@@ -30,24 +30,79 @@ AzurPilot — инструмент автоматизации для мобил�
 
 Этот репозиторий является персональным форком [`wess09/AzurPilot`](https://github.com/wess09/AzurPilot), который основан на [`LmeSzinc/AzurLaneAutoScript`](https://github.com/LmeSzinc/AzurLaneAutoScript).
 
-Цель персональной ветки — сохранить полезные возможности AzurPilot, но сделать запуск, обновление и восстановление понятными, проверяемыми и менее зависимыми от исходной внешней инфраструктуры.
+Цель персональной версии — сохранить полезную игровую автоматизацию, но сделать запуск, обновление, восстановление и сетевое поведение понятными и контролируемыми.
 
-## Текущий статус
+## Основные особенности персональной версии
 
-| Этап | Результат | Статус |
-|---|---|---|
-| Stage 1 | Контролируемое обновление из `origin/personal/stable` | Завершён |
-| Stage 2 | Прозрачные команды Start / Update / Repair / Build | Завершён |
-| Stage 2 | Запуск из меню «Пуск» без обязательного `alas-launcher.exe` | Подтверждён |
-| Stage 2 | Транзакционное восстановление `.venv` | Готово |
-| Документация | Русская Wiki по эксплуатационному контуру | Готова и расширяется |
-| Установщик и release pipeline | Отдельный будущий этап | Не реализованы |
-
-Финальный commit Stage 2:
+### Отдельные команды запуска и обслуживания
 
 ```text
-9602b2dbc345a12da8365c8b2cbd90163740ad0b
+scripts/
+├── Start-AzurPilot.ps1
+├── Update-AzurPilot.ps1
+├── Repair-AzurPilot.ps1
+└── Build-AzurPilot.ps1
 ```
+
+| Команда | Назначение | Чего она не делает |
+|---|---|---|
+| `Start-AzurPilot.ps1` | Запускает подготовленную установку и контролирует backend | Не обновляет Git и не перестраивает `.venv` |
+| `Update-AzurPilot.ps1` | Получает безопасное fast-forward обновление | Не выполняет rebase, reset или force push |
+| `Repair-AzurPilot.ps1` | Диагностирует и восстанавливает существующую `.venv` | Не меняет ветки, remotes и пользовательские данные |
+| `Build-AzurPilot.ps1` | Подготавливает уже полученный checkout | Не клонирует репозиторий и не обновляет HEAD |
+
+Обычный запуск не зависит от `alas-launcher.exe` и не выполняет скрытое обновление.
+
+### Один владелец обновления
+
+Обновление пользовательской установки выполняет только `Update-AzurPilot.ps1`.
+
+Из WebUI и Python runtime удалены:
+
+- встроенная страница обновления;
+- автоматические проверки и запуск обновления;
+- самостоятельные Git-операции;
+- удалённая команда обновления через MCP;
+- legacy installer, geo redirect и Git-over-CDN runtime;
+- workflows и upload scripts для публикации Git-over-CDN artifacts.
+
+Разрешённая схема обновления:
+
+```text
+git fetch
+→ проверка истории
+→ git merge --ff-only
+```
+
+Локальные изменения и собственные commits не удаляются автоматически.
+
+### Приватность
+
+Из активной версии удалены:
+
+- автоматическая отправка статистики CL1;
+- удалённая отправка журналов ошибок;
+- Microsoft Clarity;
+- связанные настройки, интерфейс и локализация;
+- методы отправки статистики и отчётов в проектном API-клиенте.
+
+Публичные объявления могут загружаться только в режиме чтения. Проектный клиент объявлений не должен отправлять игровую статистику, журналы, снимки экрана или стабильный идентификатор компьютера.
+
+Сторонние интеграции, которые пользователь настраивает самостоятельно — уведомления, LLM, MCP, удалённый доступ, прокси и другие сервисы — могут передавать данные выбранным провайдерам.
+
+Подробности: [Приватность личной сборки](PRIVACY_AND_DISCLAIMER.md).
+
+### Пассивное чтение конфигурации
+
+Чтение `config\deploy.yaml` больше не должно:
+
+- выполнять geo lookup;
+- выбирать CDN или зеркало обновления;
+- менять адрес репозитория;
+- активировать Git-over-CDN;
+- записывать файл только из-за его чтения.
+
+Старые и неизвестные ключи сохраняются для совместимости, но устаревшие Git/updater-параметры не управляют активным runtime.
 
 ## Быстрый запуск
 
@@ -74,14 +129,7 @@ pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrow
 > [!NOTE]
 > Закрытие вкладки браузера само по себе не останавливает backend. При ручном запуске используйте `Ctrl+C` в окне Start.
 
-## Четыре команды обслуживания
-
-| Команда | Назначение | Чего она не делает |
-|---|---|---|
-| `Start-AzurPilot.ps1` | Запускает подготовленную установку и контролирует backend | Не обновляет Git и не перестраивает `.venv` |
-| `Update-AzurPilot.ps1` | Получает безопасное fast-forward обновление | Не выполняет rebase, reset или force push |
-| `Repair-AzurPilot.ps1` | Диагностирует и восстанавливает существующую `.venv` | Не меняет ветки, remotes и пользовательские данные |
-| `Build-AzurPilot.ps1` | Подготавливает уже полученный checkout | Не клонирует репозиторий и не обновляет HEAD |
+## Обслуживание установки
 
 Перед Update, Repair или Build полностью остановите AzurPilot.
 
@@ -109,33 +157,19 @@ pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Repair-AzurPilot.ps1" -Diagn
 pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Build-AzurPilot.ps1"
 ```
 
-## Документация
+## Основные гарантии
 
-Вся пользовательская и эксплуатационная документация хранится в GitHub Wiki. Отдельная папка `docs/` в персональной ветке намеренно не используется.
-
-| Раздел | Ссылка |
-|---|---|
-| Главная страница | [Русская Wiki](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki) |
-| Запуск и обслуживание | [Запуск и обслуживание AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Запуск-и-обслуживание-AzurPilot) |
-| Архитектура Stage 2 | [Архитектура Stage 2](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Архитектура-Stage-2) |
-| Обновление | [Обновление AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Обновление-AzurPilot) |
-| Ошибки updater | [Ошибки при обновлении](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Ошибки-при-обновлении) |
-| Внутренняя логика updater | [Как устроено обновление](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Как-устроено-обновление) |
-| Отличия персональной версии | [Отличия персональной версии](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Отличия-персональной-версии) |
-
-## Основные гарантии персональной ветки
-
-- Только `Update-AzurPilot.ps1` владеет Git update-flow.
 - Обновления принимаются только из `origin/personal/stable`.
-- Разрешена схема `fetch → проверка истории → merge --ff-only`.
-- Локальные изменения не удаляются автоматически.
+- Разрешён только fast-forward без переписывания истории.
+- `Start`, `Repair` и `Build` не обновляют Git.
 - `Repair` использует backup, journal и rollback.
 - `Build` проверяет bootstrap-артефакты по SHA-256.
-- Существующий `config\deploy.yaml` не перезаписывается.
+- Существующий `config\deploy.yaml` не перезаписывается целиком при обычном чтении или точечном изменении.
 - Неизвестный процесс на порту `25548` не завершается автоматически.
-- Обычный запуск не зависит от `alas-launcher.exe`.
+- Scheduler, очередь задач, worker lifecycle, startup-run и локальная ADB-логика сохранены.
+- Локальная статистика и базы не удаляются автоматически.
 
-Автоматически не используются:
+В эксплуатационном контуре не используются:
 
 ```text
 git reset --hard
@@ -154,15 +188,29 @@ git push --force
 %LOCALAPPDATA%\AzurPilot\logs
 ```
 
-Транзакции updater:
+Транзакции обновления:
 
 ```text
 %LOCALAPPDATA%\AzurPilot\dependency-transactions
 ```
 
-Repair, Build и shortcut используют отдельные каталоги внутри `%LOCALAPPDATA%\AzurPilot`.
+Repair, Build и ярлык используют отдельные каталоги внутри `%LOCALAPPDATA%\AzurPilot`.
 
 Не удаляйте незавершённые transaction-каталоги вручную: они нужны следующему безопасному запуску для восстановления состояния.
+
+## Документация
+
+Вся пользовательская и эксплуатационная документация хранится в GitHub Wiki. Отдельная папка `docs/` в персональной ветке намеренно не используется.
+
+| Раздел | Ссылка |
+|---|---|
+| Главная страница | [Русская Wiki](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki) |
+| Запуск и обслуживание | [Запуск и обслуживание AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Запуск-и-обслуживание-AzurPilot) |
+| Архитектура запуска и обслуживания | [Архитектура запуска и обслуживания](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Архитектура-запуска-и-обслуживания) |
+| Обновление | [Обновление AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Обновление-AzurPilot) |
+| Ошибки обновления | [Ошибки при обновлении](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Ошибки-при-обновлении) |
+| Приватность и сетевое поведение | [Приватность и сетевое поведение](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Приватность-и-сетевое-поведение) |
+| Отличия персональной версии | [Отличия персональной версии](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Отличия-персональной-версии) |
 
 ## Модель веток
 
@@ -175,18 +223,12 @@ Repair, Build и shortcut используют отдельные каталог
 
 Изменения из `upstream` не переносятся автоматически.
 
-## Что пока не заменено
+## Что пока не реализовано
 
-Этапы 1–2 не переписывали:
-
-- основной WebUI;
-- планировщик игровых задач;
-- распознавание интерфейса;
-- внутреннюю ADB-логику;
-- игровые модули;
-- пользовательские конфигурации;
-- все оставшиеся сетевые интеграции;
-- полноценный installer и release pipeline.
+- установщик «в один клик» для нового пользователя;
+- полноценный release pipeline;
+- новый desktop shell с tray, уведомлениями и autostart;
+- автоматическое удаление внешних Cloudflare, ESA, 123pan и SSH-ресурсов, которые могли быть настроены вне репозитория.
 
 ## Скриншот интерфейса
 
