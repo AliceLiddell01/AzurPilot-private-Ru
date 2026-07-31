@@ -42,16 +42,6 @@ class DeployField:
 
 DEPLOY_GROUPS: tuple[tuple[str, tuple[DeployField, ...]], ...] = (
     (
-        "Git",
-        (
-            DeployField("Repository"),
-            DeployField("Branch"),
-            DeployField("GitExecutable"),
-            DeployField("GitProxy", "nullable_string"),
-            DeployField("SSLVerify", "bool"),
-        ),
-    ),
-    (
         "Python",
         (
             DeployField("PythonExecutable"),
@@ -75,12 +65,6 @@ DEPLOY_GROUPS: tuple[tuple[str, tuple[DeployField, ...]], ...] = (
             DeployField("StartOcrServer", "bool"),
             DeployField("OcrServerPort", "int"),
             DeployField("OcrClientAddress"),
-        ),
-    ),
-    (
-        "Update",
-        (
-            DeployField("EnableReload", "bool"),
         ),
     ),
     ("Misc", (DeployField("DiscordRichPresence", "bool"),)),
@@ -108,6 +92,7 @@ DEPLOY_GROUPS: tuple[tuple[str, tuple[DeployField, ...]], ...] = (
             DeployField("Language", "select", tuple(LANGUAGES)),
             DeployField("Theme", "select", tuple(THEME_OPTIONS)),
             DeployField("DpiScaling", "bool"),
+            DeployField("EnableReload", "bool"),
             DeployField("Password", "nullable_string"),
             DeployField("CDN", "cdn"),
             DeployField("WebuiSSLKey", "nullable_string"),
@@ -174,8 +159,9 @@ def save_deploy_settings(data: dict[str, Any]) -> dict[str, Any]:
     for key, value in updates.items():
         State.deploy_config.config[key] = value
 
-    State.deploy_config.write()
-    State.deploy_config.read()
+    if updates:
+        State.deploy_config.write(keys=set(updates))
+        State.deploy_config.read()
     return {"updated": sorted(updates)}
 
 
@@ -208,7 +194,7 @@ def set_startup_run(instance: str, enabled: bool) -> dict[str, Any]:
         runs = [item for item in runs if item != instance]
 
     State.deploy_config.config["Run"] = format_run_config(runs)
-    State.deploy_config.write()
+    State.deploy_config.write(keys={"Run"})
     State.deploy_config.read()
 
     return get_startup_run(instance)

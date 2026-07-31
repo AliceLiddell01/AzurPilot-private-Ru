@@ -1,97 +1,147 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from deploy import config as deploy_config
-from deploy import geo
+from deploy import config as portable_config
 from deploy.Windows import config as windows_config
 
 
-class TestIp9Location(unittest.TestCase):
-    @patch('deploy.geo.requests.get')
-    def test_returns_lowercase_country_code(self, get):
-        response = get.return_value
-        response.json.return_value = {'data': {'country_code': 'CN'}}
+TEMPLATE = """Deploy:
+  Python:
+    PythonExecutable: python
+    PypiMirror: null
+    InstallDependencies: true
 
-        self.assertEqual(geo.get_country_code(), 'cn')
+  Webui:
+    EnableReload: false
+    WebuiHost: 0.0.0.0
+    WebuiPort: 25548
+    Language: en-US
+    Run: null
+"""
 
-        get.assert_called_once_with(
-            geo.IP9_LOCATION_URL,
-            timeout=5,
-            headers={'User-Agent': 'AzurPilot'},
-        )
-        response.raise_for_status.assert_called_once_with()
+LEGACY_CONFIG = """# user comment must survive
+Repository: git://git.pull/AzurPilot
+Branch: master
+GitExecutable: custom-git
+GitProxy: null
+SSLVerify: false
+GitOverCdn: true
+CheckUpdateInterval: 5
+AutoRestartTime: 03:50
+EnableReload: true
+WebuiPort: 25548
+UnknownCustomKey: preserve-me
+"""
 
-    @patch('deploy.geo.requests.get')
-    def test_invalid_response_returns_none(self, get):
-        response = get.return_value
-        response.json.return_value = {'data': {}}
-
-        self.assertIsNone(geo.get_country_code())
-
-
-class TestDeployLocation(unittest.TestCase):
-    def make_config(self, config_module, repository=None):
-        instance = object.__new__(config_module.DeployConfig)
-        instance.config = {
-            'Repository': repository or config_module.GITHUB_REPOSITORY,
-        }
-        instance.Repository = instance.config['Repository']
-        instance.Branch = 'master'
-        instance._github_location_checked = False
-        return instance
-
-    def test_china_uses_cdn_and_gitcode_fallback(self):
-        for config_module in (deploy_config, windows_config):
-            with self.subTest(config_module=config_module.__name__), patch.object(
-                config_module, 'get_country_code', return_value='cn'
-            ) as get_country_code:
-                config = self.make_config(config_module)
-
-                config.config_redirect()
-
-                self.assertEqual(config.config['Repository'], config_module.GIT_OVER_CDN_REPOSITORY)
-                self.assertTrue(config.GitOverCdn)
-                self.assertEqual(config.Repository, config_module.GIT_OVER_CDN_FALLBACK_REPOSITORY)
-                get_country_code.assert_called_once_with()
-
-    def test_non_china_keeps_github_and_only_checks_once(self):
-        for config_module in (deploy_config, windows_config):
-            with self.subTest(config_module=config_module.__name__), patch.object(
-                config_module, 'get_country_code', return_value='us'
-            ) as get_country_code:
-                config = self.make_config(config_module)
-
-                config.config_redirect()
-                config.config_redirect()
-
-                self.assertEqual(config.config['Repository'], config_module.GITHUB_REPOSITORY)
-                self.assertFalse(config.GitOverCdn)
-                self.assertEqual(config.Repository, config_module.GITHUB_REPOSITORY)
-                get_country_code.assert_called_once_with()
-
-    def test_failed_lookup_keeps_github(self):
-        for config_module in (deploy_config, windows_config):
-            with self.subTest(config_module=config_module.__name__), patch.object(
-                config_module, 'get_country_code', return_value=None
-            ):
-                config = self.make_config(config_module)
-
-                config.config_redirect()
-
-                self.assertEqual(config.config['Repository'], config_module.GITHUB_REPOSITORY)
-                self.assertFalse(config.GitOverCdn)
-
-    def test_custom_repository_does_not_query_location(self):
-        for config_module in (deploy_config, windows_config):
-            with self.subTest(config_module=config_module.__name__), patch.object(
-                config_module, 'get_country_code'
-            ) as get_country_code:
-                config = self.make_config(config_module, 'https://github.com/example/custom')
-
-                config.config_redirect()
-
-                get_country_code.assert_not_called()
+NANODA_CONFIG = LEGACY_CONFIG.replace(
+    "git://git.pull/AzurPilot",
+    "https://git.nanoda.work/git/AzurPilot",
+)
 
 
-if __name__ == '__main__':
+class DeployConfigCompatibilityTests(unittest.TestCase):
+    modules = (portable_config, windows_config)
+
+    def make_paths(self, root: Path, content: str = LEGACY_CONFIG):
+        template = root / "template.yaml"
+        user = root / "deploy.yaml"
+        template.write_text(TEMPLATE, encoding="utf-8")
+        user.write_text(content, encoding="utf-8")
+        return template, user
+
+    def load(self, module, template: Path, user: Path):
+        with patch(
+            "requests.get",
+            side_effect=AssertionError("config read attempted network access"),
+        ):
+            return module.DeployConfig(
+                file=str(user),
+                template_file=str(template),
+            )
+
+    def test_current_config_loads_without_updater_runtime(self):
+        for module in self.modules:
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                template, user = self.make_paths(
+                    root,
+                    "EnableReload: false\nWebuiPort: 25548\n",
+                )
+                before = user.read_bytes()
+                config = self.load(module, template, user)
+
+                self.assertEqual(user.read_bytes(), before)
+                self.assertFalse(config.EnableReload)
+                for key in (
+                    "Repository",
+                    "GitOverCdn",
+                    "CheckUpdateInterval",
+                    "AutoRestartTime",
+                ):
+                    self.assertFalse(hasattr(config, key))
+
+    def test_legacy_enable_reload_is_supervisor_only(self):
+        for module in self.modules:
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                template, user = self.make_paths(root)
+                config = self.load(module, template, user)
+
+                self.assertTrue(config.EnableReload)
+                self.assertEqual(
+                    config.config["Repository"],
+                    "git://git.pull/AzurPilot",
+                )
+                self.assertFalse(hasattr(config, "Repository"))
+                self.assertFalse(hasattr(config, "GitOverCdn"))
+
+    def test_old_repository_aliases_are_preserved_but_ignored(self):
+        for content in (LEGACY_CONFIG, NANODA_CONFIG):
+            for module in self.modules:
+                with self.subTest(module=module.__name__, content=content), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    template, user = self.make_paths(root, content)
+                    before = user.read_bytes()
+                    config = self.load(module, template, user)
+
+                    self.assertEqual(user.read_bytes(), before)
+                    self.assertIn("Repository", config.config)
+                    self.assertFalse(hasattr(config, "Repository"))
+
+    def test_unknown_keys_and_comments_survive_explicit_write(self):
+        for module in self.modules:
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                template, user = self.make_paths(root)
+                config = self.load(module, template, user)
+
+                config.config["WebuiPort"] = 26666
+                config.write(keys={"WebuiPort"})
+                text = user.read_text(encoding="utf-8")
+
+                self.assertIn("# user comment must survive", text)
+                self.assertIn("UnknownCustomKey: preserve-me", text)
+                self.assertIn(
+                    "Repository: git://git.pull/AzurPilot",
+                    text,
+                )
+                self.assertIn("WebuiPort: 26666", text)
+
+    def test_missing_config_read_does_not_create_file(self):
+        for module in self.modules:
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                template = root / "template.yaml"
+                user = root / "missing.yaml"
+                template.write_text(TEMPLATE, encoding="utf-8")
+
+                config = self.load(module, template, user)
+
+                self.assertFalse(user.exists())
+                self.assertEqual(config.WebuiPort, 25548)
+
+
+if __name__ == "__main__":
     unittest.main()

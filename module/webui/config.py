@@ -1,8 +1,8 @@
 """
 Web界面部署配置管理。
 
-提供 DeployConfig 的 WebUI 子类，将配置变更实时写入部署文件。
-通过 __setattr__ 拦截属性修改，自动同步到磁盘配置。
+提供 DeployConfig 的 WebUI 子类。配置读取无副作用；只有显式设置公开字段时，
+才会将该字段写回部署文件。
 """
 
 from deploy.config import DeployConfig as _DeployConfig
@@ -13,16 +13,15 @@ class DeployConfig(_DeployConfig):
         pass
 
     def __setattr__(self, key: str, value):
-        """
-        Catch __setattr__, copy to `self.config`, write deploy config.
-        """
+        """Persist one explicit public setting without rewriting the file."""
         super().__setattr__(key, value)
-        if key[0].isupper() and key in self.config:
-            if key in self.config:
-                before = self.config[key]
-                if before != value:
-                    self.config[key] = value
-                    self.write()
-            else:
-                self.config[key] = value
-                self.write()
+        config = self.__dict__.get("config")
+        if (
+            config is not None
+            and key
+            and key[0].isupper()
+            and key in config
+            and config[key] != value
+        ):
+            config[key] = value
+            self.write(keys={key})
