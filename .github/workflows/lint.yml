@@ -121,3 +121,10 @@ jobs:
                   Out-String
               throw $details
           }
+
+  stage4-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print repository tree SHA
+        run: git rev-parse "HEAD^{tree}"
