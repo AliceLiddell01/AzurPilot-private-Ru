@@ -83,10 +83,10 @@ class ProcessManager:
         强制设置临时的 UI 状态，用于图标测试。
 
         Args:
-            state: 状态值（1=运行中, 2=停止, 3=错误, 4=更新）
+            state: 状态值（1=运行中, 2=停止, 3=错误）
             duration: 覆盖持续时间（秒），为 0 或 None 时持续生效直到手动清除
         """
-        if state not in (1, 2, 3, 4):
+        if state not in (1, 2, 3):
             raise ValueError(f"Invalid state override: {state}")
         self._state_override = state
         if duration and duration > 0:
@@ -110,10 +110,10 @@ class ProcessManager:
         return self._state_override
 
     def start(self, func: str | None, ev: threading.Event | None = None) -> None:
-        # 更新事务持有 restart_lock；清理过程持有 cleanup_lock。请求线程不能在事务
-        # 期间长期阻塞；同线程的 RLock 重入仍允许更新失败后的实例恢复。
+        # WebUI 重启事务持有 restart_lock；清理过程持有 cleanup_lock。
+        # 请求线程不能在事务期间长期阻塞。
         if not State.restart_lock.acquire(blocking=False):
-            logger.info(f"[{self.config_name}] WebUI 更新或重启事务进行中，拒绝启动 worker")
+            logger.info(f"[{self.config_name}] WebUI 重启事务进行中，拒绝启动 worker")
             return
         try:
             if not State.cleanup_lock.acquire(blocking=False):
@@ -543,35 +543,15 @@ class ProcessManager:
                     console.print(renderable)
                 rendered_tail.append(capture.get().strip())
             s = rendered_tail[-1] if rendered_tail else ""
-            tail_text = "\n".join(rendered_tail)
-
             if ("Reason: Manual stop" in s) or ("原因: 手动停止" in s):
                 return 2
-
-            update_marker_hit = (
-                ("Reason: Update" in s)
-                or ("原因: 更新" in s)
-                or ("检测到更新事件" in s)
-            )
-            update_tail_hit = (
-                ("Reason: Update" in tail_text)
-                or ("原因: 更新" in tail_text)
-                or ("检测到更新事件" in tail_text)
-            )
-            if update_marker_hit:
-                return 4
-
+            if ("Reason: Stop request" in s) or ("原因: 停止请求" in s):
+                return 2
             if ("Reason: Finish" in s) or ("原因: 完成" in s):
-                # 在更新流程中，部分代码路径可能会在更新退出日志之后追加 "Finish"。
-                if update_tail_hit:
-                    return 4
                 return 2
-            elif "此版本为演示用途" in s:
+            if "此版本为演示用途" in s:
                 return 2
-            elif update_tail_hit:
-                return 4
-            else:
-                return 3
+            return 3
 
     @classmethod
     def get_manager(cls, config_name: str) -> "ProcessManager":
@@ -695,7 +675,7 @@ class ProcessManager:
                     f"[WebUI] 杂鱼大叔，连功能模块都找不到吗？{func} 这种东西根本不存在啦~"
                 )
             if e is not None and e.is_set():
-                logger.info(f"[{config_name}] exited. Reason: Update\n")
+                logger.info(f"[{config_name}] exited. Reason: Stop request\n")
             else:
                 logger.info(f"[{config_name}] exited. Reason: Finish\n")
         except Exception as ex:
@@ -715,11 +695,11 @@ class ProcessManager:
         ev: threading.Event | None = None,
     ) -> None:
         """
-        更新重载后（或更新失败时），重启所有更新前正在运行的 AzurPilot 实例。
+        WebUI 重载后，重启指定的 AzurPilot 实例。
 
         Args:
             instances: 需要重启的实例列表，元素为 ProcessManager 或配置名称字符串。
-            ev: 用于通知子进程执行更新的事件对象。
+            ev: 可选的通用停止事件，传递给重新启动的子进程。
         """
         logger.hr("[WebUI-进程管理] 重启 Alas")
 

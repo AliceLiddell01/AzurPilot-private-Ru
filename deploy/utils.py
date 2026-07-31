@@ -22,11 +22,7 @@ def get_deploy_template():
 
 
 class cached_property(Generic[T]):
-    """带类型支持的缓存属性描述符。
-
-    属性只在首次访问时计算一次，之后替换为普通属性。
-    删除属性后会重新计算。来源：bottlepy/bottle。
-    """
+    """带类型支持的缓存属性描述符。"""
 
     def __init__(self, func: Callable[..., T]):
         self.func = func
@@ -40,16 +36,7 @@ class cached_property(Generic[T]):
 
 
 def iter_folder(folder, is_dir=False, ext=None):
-    """遍历目录下的文件或子目录。
-
-    Args:
-        folder (str): 目录路径。
-        is_dir (bool): True 时只遍历子目录。
-        ext (str): 文件扩展名过滤，如 '.yaml'。
-
-    Yields:
-        str: 文件或目录的绝对路径。
-    """
+    """遍历目录下的文件或子目录。"""
     for file in os.listdir(folder):
         sub = os.path.join(folder, file)
         if is_dir:
@@ -65,16 +52,10 @@ def iter_folder(folder, is_dir=False, ext=None):
 
 
 def poor_yaml_read(file):
-    """简易 YAML 读取，不依赖 pyyaml，使用正则解析。
+    """读取项目使用的简单标量 YAML；缺失文件返回空配置。"""
+    if not os.path.exists(file):
+        return {}
 
-    仅支持简单的 key: value 格式，不支持嵌套结构。
-
-    Args:
-        file (str): YAML 文件路径。
-
-    Returns:
-        dict: 解析后的键值对。
-    """
     content = atomic_read_text(file)
     data = {}
     regex = re.compile(r'^(.*?):(.*?)$')
@@ -84,39 +65,68 @@ def poor_yaml_read(file):
             continue
         result = re.match(regex, line)
         if result:
-            k, v = result.group(1), result.group(2).strip('\n\r\t\' ')
-            if v:
-                if v.lower() == 'null':
-                    v = None
-                elif v.lower() == 'false':
-                    v = False
-                elif v.lower() == 'true':
-                    v = True
-                elif v.isdigit():
-                    v = int(v)
-                data[k] = v
+            key, value = result.group(1), result.group(2).strip("\n\r\t' ")
+            if value:
+                lowered = value.lower()
+                if lowered == 'null':
+                    value = None
+                elif lowered == 'false':
+                    value = False
+                elif lowered == 'true':
+                    value = True
+                elif value.isdigit():
+                    value = int(value)
+                data[key] = value
 
     return data
 
 
-def poor_yaml_write(data, file, template_file=DEPLOY_TEMPLATE):
-    """简易 YAML 写入，基于模板文件替换键值。
+def _format_yaml_scalar(value):
+    if value is None:
+        return 'null'
+    if value is True:
+        return 'true'
+    if value is False:
+        return 'false'
+    return str(value)
 
-    Args:
-        data (dict): 要写入的键值对。
-        file (str): 输出文件路径。
-        template_file (str): 模板文件路径。
-    """
-    text = atomic_read_text(template_file)
-    text = text.replace('\\', '/')
 
-    for key, value in data.items():
-        if value is None:
-            value = 'null'
-        elif value is True:
-            value = "true"
-        elif value is False:
-            value = "false"
-        text = re.sub(f'{key}:.*?\n', f'{key}: {value}\n', text)
+def poor_yaml_write(
+    data,
+    file,
+    template_file=DEPLOY_TEMPLATE,
+    *,
+    preserve_existing=False,
+    keys=None,
+):
+    """Write selected scalar keys while preserving an existing user file."""
+    source = file if preserve_existing and os.path.exists(file) else template_file
+    text = atomic_read_text(source)
+    selected_keys = list(data) if keys is None else list(keys)
+
+    for key in selected_keys:
+        if key not in data:
+            continue
+
+        value = _format_yaml_scalar(data[key])
+        pattern = re.compile(
+            rf'^(?P<prefix>\s*{re.escape(str(key))}\s*:).*$',
+            re.MULTILINE,
+        )
+        matches = list(pattern.finditer(text))
+        if len(matches) > 1:
+            raise ValueError(f'Duplicate deploy config key: {key}')
+        if matches:
+            text = pattern.sub(
+                lambda match: f"{match.group('prefix')} {value}",
+                text,
+                count=1,
+            )
+            continue
+
+        if preserve_existing:
+            if text and not text.endswith('\n'):
+                text += '\n'
+            text += f'{key}: {value}\n'
 
     atomic_write(file, text)

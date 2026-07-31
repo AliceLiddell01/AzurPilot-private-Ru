@@ -1,5 +1,8 @@
 """WebUI实例概览和守护模式"""
 
+import subprocess
+from pathlib import Path
+
 from module.webui.app_dependencies import (
     BinarySwitchButton,
     LogRes,
@@ -14,7 +17,6 @@ from module.webui.app_dependencies import (
     put_text,
     run_js,
     t,
-    updater,
     use_scope,
 )
 
@@ -25,6 +27,23 @@ from module.webui.app_helpers import (
 
 
 from module.webui.app_types import WebUIMixinBase
+
+
+def _get_local_version() -> str:
+    """Read the current local Git revision without update machinery."""
+    project_root = Path(__file__).resolve().parents[2]
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(project_root), "rev-parse", "--short", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "Unknown"
+    version = result.stdout.strip()
+    return version if result.returncode == 0 and version else "Unknown"
 
 
 class OverviewMixin(WebUIMixinBase):
@@ -207,8 +226,7 @@ class OverviewMixin(WebUIMixinBase):
                     ),
                 )
             # version
-            local_commit = updater.get_commit(short_sha1=True)
-            version = local_commit[0] if local_commit and local_commit[0] else "Unknown"
+            version = _get_local_version()
             device_id = DEMO_DEVICE_ID_TEXT if is_demo_mode() else get_device_id()
             put_scope("log-container", [put_scope("log", [put_html("")])]).style(
                 f"--device-id: '{device_id}'; --version: 'Ver.{version}';"

@@ -80,9 +80,9 @@ uv run -m dev_tools.button_extract    # 从截图中提取按钮定义
   - 热重载模式：`State.deploy_config.EnableReload` 在子进程中生成 `func()`
   - API 路由：`/api/cl1_stats`、`/api/ap_timeline`、`/api/notify`、`/api/notify_stream`、`/api/import_legacy_upload`、`/obs`、`/ws/live_screenshot`
   - MCP 挂载：`app.mount("/mcp", mcp_app)` — MCP SSE 服务器在 `/mcp`
-- **`mcp_server_sse.py`** — MCP 服务器，通过 SSE 暴露 18 个工具供外部 AI 助手集成。
+- **`mcp_server_sse.py`** — MCP 服务器，通过 SSE 暴露 17 个工具供外部 AI 助手集成。
   - 服务器名称：`"AzurPilot-MCP"`，传输：`SseServerTransport("/mcp/messages")`
-  - 工具：`list_instances`、`get_status`、`list_tasks`、`get_task_help`、`get_resources`、`get_config`、`update_config`、`get_recent_logs`、`start_instance`、`stop_instance`、`get_screenshot`、`get_current_running_task`、`get_scheduler_queue`、`trigger_task`、`clear_scheduler_queue`、`restart_emulator`、`restart_adb`、`update_alas`
+  - 工具：`list_instances`、`get_status`、`list_tasks`、`get_task_help`、`get_resources`、`get_config`、`update_config`、`get_recent_logs`、`start_instance`、`stop_instance`、`get_screenshot`、`get_current_running_task`、`get_scheduler_queue`、`trigger_task`、`clear_scheduler_queue`、`restart_emulator`、`restart_adb`
 
 ### 模块层结构 (`module/`)
 
@@ -458,7 +458,7 @@ uv run dev_tools/grids_debug.py         # 调试网格检测
 - LLM 错误分析（`module/llm.py`）使用 OpenAI API 诊断错误；通过 `Error_LlmAnalysis`、`Error_LlmApiKey`、`Error_LlmApiBase`、`Error_LlmModel` 配置
 - 日志器（`module/logger.py`）使用 Rich 进行带颜色格式化的控制台输出；支持文件轮转和 Web UI 流式输出
 - 推送通知（`module/notify/`）使用 onepush 库支持多渠道通知（QQ、微信等）
-- MCP 服务器（`mcp_server_sse.py`）通过 SSE 传输提供 18 个工具供外部 AI 助手集成
+- MCP 服务器（`mcp_server_sse.py`）通过 SSE 传输提供 17 个工具供外部 AI 助手集成
 
 ## 关键约定
 

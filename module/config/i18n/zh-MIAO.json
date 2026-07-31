@@ -893,14 +893,6 @@
       "save": "保存喵",
       "upload": "上传喵",
       "save_and_upload": "保存并上传喵"
-    },
-    "TelemetryReport": {
-      "name": "遥测数据上报",
-      "help": "匿名上报CL1统计数据，统计网站 https://alas.nanoda.work/ 喵。"
-    },
-    "BugReport": {
-      "name": "Bug 日志上报",
-      "help": "匿名上报异常日志帮助改进喵。"
     }
   },
   "Log": {
@@ -5872,23 +5864,17 @@
       "DashboardOFF": "展开喵",
       "ClearLog": "清空日志喵",
       "Setting": "设定喵",
-      "CheckUpdate": "看看有没有新鱼干",
-      "ClickToUpdate": "更新喵！",
-      "RetryUpdate": "再试一次喵",
-      "CancelUpdate": "算了吧喵",
       "Open": "打开喵"
     },
     "Toast": {
       "DisableTranslateMode": "点这里关翻译模式喵",
       "ConfigSaved": "设定已保存喵~",
-      "AlasIsRunning": "雪风已经在跑啦，别急喵~",
-      "ClickToUpdate": "有新鱼干可以更新啦喵！"
+      "AlasIsRunning": "雪风已经在跑啦，别急喵~"
     },
     "Status": {
       "Running": "雪风值班中喵",
       "Inactive": "茗正在偷你箱子",
-      "Warning": "出错了喵！",
-      "Updating": "更新中喵，稍等~"
+      "Warning": "出错了喵！"
     },
     "MenuAlas": {
       "Overview": "总览喵",
@@ -5898,7 +5884,6 @@
       "HomePage": "主页喵",
       "Translate": "翻译喵",
       "Announcement": "公告喵",
-      "Update": "更新器喵",
       "Remote": "远程控制喵",
       "Setting": "设置喵",
       "Utils": "开发者工具喵"
@@ -6008,25 +5993,6 @@
       "Mod": "插件喵",
       "Actions": "操作喵"
     },
-    "Update": {
-      "UpToDate": "已是最新喵",
-      "HaveUpdate": "有新版本可用喵！",
-      "UpdateStart": "开始更新喵",
-      "UpdateWait": "等待所有 AzurPilot 完成当前任务喵",
-      "UpdateRun": "更新中喵",
-      "UpdateSuccess": "更新成功，正在重启喵",
-      "UpdateFailed": "更新失败，日志在 ./log/*_gui.txt 喵",
-      "UpdateChecking": "检查更新中喵",
-      "UpdateCancel": "取消更新，重启 AzurPilot 喵",
-      "UpdateFinish": "更新成功，请手动重启喵",
-      "Local": "本地喵",
-      "Upstream": "上游仓库喵",
-      "Author": "作者喵",
-      "Time": "提交时间喵",
-      "Message": "提交信息喵",
-      "DisabledWarn": "更新模块未启用，需手动重启 AzurPilot 更新喵",
-      "DetailedHistory": "详细提交历史喵"
-    },
     "Remote": {
       "Running": "运行中喵",
       "NotRunning": "未运行，服务器连接断开或离线喵",
@@ -6107,12 +6073,8 @@
       "OcrServerPortHelp": "WebUI 启动的 OCR 服务监听端口喵。",
       "OcrClientAddress": "OCR 客户端地址",
       "OcrClientAddressHelp": "实例连接 OCR 服务时使用的地址喵。",
-      "EnableReload": "启用内置更新和重载",
-      "EnableReloadHelp": "允许 WebUI 使用内置更新和自动重启能力喵。",
-      "CheckUpdateInterval": "检查更新间隔",
-      "CheckUpdateIntervalHelp": "每隔多少分钟检查一次更新，0 表示禁用喵。",
-      "AutoRestartTime": "定时重启时间",
-      "AutoRestartTimeHelp": "有更新时每天自动重启的时间，留空表示禁用喵。",
+      "EnableReload": "启用 WebUI 重载",
+      "EnableReloadHelp": "允许 WebUI 执行重启和重载操作喵。",
       "DiscordRichPresence": "Discord 富状态",
       "DiscordRichPresenceHelp": "在 Discord 中展示 AzurPilot 运行状态喵。",
       "EnableRemoteAccess": "启用远程访问",

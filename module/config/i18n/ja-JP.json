@@ -893,14 +893,6 @@
       "save": "保存",
       "upload": "アップロード",
       "save_and_upload": "保存してアップロードする"
-    },
-    "TelemetryReport": {
-      "name": "テレメトリーデータレポート",
-      "help": "有効にすると、CL1の統計情報（戦闘回数や明石遭遇確率などの匿名データ）が定期的にサーバーに匿名で報告されます。 ID生成の詳細についてはソースコードを参照してください。統計情報については https://alas.nanoda.work/"
-    },
-    "BugReport": {
-      "name": "バグログレポート",
-      "help": "有効にすると、例外が発生したときにバグ ログが匿名でサーバーに報告され、ID 生成の改善に役立ちます。詳細についてはソースコードを参照してください。"
     }
   },
   "Log": {
@@ -5872,23 +5864,17 @@
       "DashboardOFF": "拡大する",
       "ClearLog": "ログをクリアする",
       "Setting": "設定",
-      "CheckUpdate": "アップデートをチェックする",
-      "ClickToUpdate": "アップデートを行う",
-      "RetryUpdate": "更新を再試行します",
-      "CancelUpdate": "更新をキャンセルする",
       "Open": "開く"
     },
     "Toast": {
       "DisableTranslateMode": "翻訳モードをオフにするにはここをクリックしてください",
       "ConfigSaved": "設定が保存されました",
-      "AlasIsRunning": "スケジューラはすでに実行されています",
-      "ClickToUpdate": "nanoda に利用可能なアップデートがあります!"
+      "AlasIsRunning": "スケジューラはすでに実行されています"
     },
     "Status": {
       "Running": "秘書艦が処理中です",
       "Inactive": "ミンがあなたの箱を盗んでいます",
-      "Warning": "エラーが発生しました",
-      "Updating": "更新を待っています"
+      "Warning": "エラーが発生しました"
     },
     "MenuAlas": {
       "Overview": "概要",
@@ -5898,7 +5884,6 @@
       "HomePage": "ホームページ",
       "Translate": "翻訳する",
       "Announcement": "発表",
-      "Update": "アップデーター",
       "Remote": "リモコン",
       "Setting": "設定",
       "Utils": "道具"
@@ -6008,25 +5993,6 @@
       "Mod": "プラグイン",
       "Actions": "操作する"
     },
-    "Update": {
-      "UpToDate": "すでに最新バージョン",
-      "HaveUpdate": "新しいバージョンが利用可能です",
-      "UpdateStart": "アップデートを開始する",
-      "UpdateWait": "悲しいかな、全員が現在のタスクを完了するまで待ちます",
-      "UpdateRun": "更新中",
-      "UpdateSuccess": "アップデートが成功しました。再起動します",
-      "UpdateFailed": "更新に失敗しました。エラー ログは ./log/*_gui.txt にあります。",
-      "UpdateChecking": "アップデートをチェックしています",
-      "UpdateCancel": "アップデートをキャンセルして再起動してください",
-      "UpdateFinish": "アップデートは成功しました。手動で再起動してください",
-      "Local": "地元",
-      "Upstream": "上流倉庫",
-      "Author": "著者",
-      "Time": "提出時間",
-      "Message": "情報の送信",
-      "DisabledWarn": "更新モジュールが有効になっていません。更新するには手動で再起動する必要があります。",
-      "DetailedHistory": "詳細なコミット履歴"
-    },
     "Remote": {
       "Running": "ランニング",
       "NotRunning": "実行されていない、サーバーへの接続が失われた、またはサーバーがオフラインになっています",
@@ -6107,12 +6073,8 @@
       "OcrServerPortHelp": "WebUI が起動する OCR サービスの待受ポートです。",
       "OcrClientAddress": "OCR クライアントアドレス",
       "OcrClientAddressHelp": "インスタンスが OCR サービスへ接続するときのアドレスです。",
-      "EnableReload": "内蔵更新とリロードを有効化",
-      "EnableReloadHelp": "WebUI の内蔵更新と再起動機能を使用します。",
-      "CheckUpdateInterval": "更新確認間隔",
-      "CheckUpdateIntervalHelp": "更新を確認する間隔（分）です。0 で無効になります。",
-      "AutoRestartTime": "定時再起動時刻",
-      "AutoRestartTimeHelp": "更新がある場合に毎日自動再起動する時刻です。空欄で無効になります。",
+      "EnableReload": "WebUI再読み込みを有効化",
+      "EnableReloadHelp": "WebUIの再起動と再読み込み操作を許可します。",
       "DiscordRichPresence": "Discord リッチプレゼンス",
       "DiscordRichPresenceHelp": "AzurPilot の実行状態を Discord に表示します。",
       "EnableRemoteAccess": "リモートアクセスを有効化",

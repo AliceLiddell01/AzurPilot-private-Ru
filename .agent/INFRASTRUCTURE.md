@@ -42,12 +42,6 @@ alwaysApply: true
   - 异步版本方法通过 `AsyncExecutor` 提交到后台线程
   - 短猫统计按侵蚀等级 (2-6) 拆分，支持有效轮次换算
 
-#### `cl1_data_submitter.py` (227 行)
-- **导出类型**：`Cl1DataSubmitter` 类、`get_cl1_submitter()` 工厂函数
-- **导入依赖**：`requests`, `hashlib`, `module.base.api_client.ApiClient`, `module.statistics.cl1_database`
-- **核心功能**：定时收集 CL1 统计数据并提交到云端 API
-- **关键设计**：10 分钟提交间隔控制，使用 `ApiClient` 处理双域名故障转移
-
 #### `drop_statistics.py` (190 行)
 - **导出类型**：`DropStatistics` 类
 - **导入依赖**：`tqdm`, `module.ocr.al_ocr`, `module.ocr.ocr`, `module.statistics.battle_status`, `module.statistics.campaign_bonus`, `module.statistics.get_items`
@@ -115,7 +109,6 @@ alwaysApply: true
 graph TD
     A[opsi_runtime.py] --> B[cl1_database.py]
     A --> C[ship_exp_stats.py]
-    D[cl1_data_submitter.py] --> B
     E[opsi_month.py] --> B
     F[commission_income_stats.py] --> B
     G[resource_stats.py] --> |独立SQLite| H[(resource_snapshots)]

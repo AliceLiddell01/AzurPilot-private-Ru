@@ -54,11 +54,11 @@ def prepare_webui_restart() -> bool:
 
 
 def request_webui_restart() -> bool:
-    """请求手动重启，且不打断正在执行的更新事务。"""
+    """请求由父监督器执行手动 WebUI 重启。"""
     if State.restart_event is None:
         return False
     if not State.restart_lock.acquire(blocking=False):
-        logger.info("自动更新事务正在进行，忽略本次手动重启请求")
+        logger.info("WebUI 重启事务正在进行，忽略重复请求")
         return False
 
     try:
@@ -110,11 +110,6 @@ class DeveloperToolsMixin(WebUIMixinBase):
             onclick=raise_exception,
             scope="develop_detail",
         )
-        put_button(
-            label=t("预览更新提示"),
-            onclick=self._preview_update_notice,
-            scope="develop_detail",
-        )
 
         def _get_debug_target_instance() -> Optional[str]:
             if getattr(self, "alas_name", ""):
@@ -156,7 +151,6 @@ class DeveloperToolsMixin(WebUIMixinBase):
             buttons=[
                 {"label": "模拟运行图标(10s)", "value": 1, "color": "success"},
                 {"label": "模拟错误图标(10s)", "value": 3, "color": "danger"},
-                {"label": "模拟更新图标(10s)", "value": 4, "color": "warning"},
             ],
             onclick=lambda state: _mock_icon_state(state, 10),
             scope="develop_detail",
@@ -175,21 +169,9 @@ class DeveloperToolsMixin(WebUIMixinBase):
             if request_webui_restart():
                 toast(t("Gui.Toast.AlasRestart"), duration=0, color="error")
             else:
-                toast("自动更新正在进行或无法保存运行实例，已取消重启", color="error")
+                toast("WebUI 重启事务繁忙或无法保存运行实例，已取消重启", color="error")
 
         put_button(label=t("重启Alas"), onclick=_force_restart, scope="develop_detail")
-
-        def _test_notify_update():
-            from module.notify.notify import notify_webui
-
-            instance = getattr(self, "alas_name", DEFAULT_CONFIG_NAME)
-            notify_webui(
-                instance=instance,
-                title="发现更新喵！",
-                content="测试更新推送逻辑，启动器应显示专用标题。",
-                update=True,
-            )
-            toast("已发送更新测试通知", color="success")
 
         def _test_notify_announcement():
             from module.notify.notify import notify_webui
@@ -224,11 +206,6 @@ class DeveloperToolsMixin(WebUIMixinBase):
         put_buttons(
             buttons=[
                 {
-                    "label": "测试更新推送 (updata=True)",
-                    "value": "update",
-                    "color": "danger",
-                },
-                {
                     "label": "测试公告推送 (updata=False)",
                     "value": "announcement",
                     "color": "info",
@@ -240,7 +217,6 @@ class DeveloperToolsMixin(WebUIMixinBase):
                 },
             ],
             onclick=[
-                _test_notify_update,
                 _test_notify_announcement,
                 _test_notify_error,
             ],

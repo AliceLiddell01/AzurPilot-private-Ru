@@ -96,7 +96,6 @@ from module.webui.pin import put_checkbox, put_input, put_select
 from module.webui.process_manager import ProcessManager
 from module.webui.remote_access import RemoteAccess
 from module.webui.setting import State
-from module.webui.updater import updater
 from module.webui.utils import (
     Icon,
     Switch,

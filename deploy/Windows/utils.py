@@ -10,11 +10,7 @@ DEPLOY_TEMPLATE = './deploy/Windows/template.yaml'
 
 
 class cached_property(Generic[T]):
-    """带类型支持的缓存属性描述符。
-
-    属性只在首次访问时计算一次，之后替换为普通属性。
-    删除属性后会重新计算。
-    """
+    """带类型支持的缓存属性描述符。"""
 
     def __init__(self, func: Callable[..., T]):
         self.func = func
@@ -28,16 +24,7 @@ class cached_property(Generic[T]):
 
 
 def iter_folder(folder, is_dir=False, ext=None):
-    """遍历目录下的文件或子目录。
-
-    Args:
-        folder (str): 目录路径。
-        is_dir (bool): True 时只遍历子目录。
-        ext (str): 文件扩展名过滤，如 '.yaml'。
-
-    Yields:
-        str: 文件或目录的绝对路径。
-    """
+    """遍历目录下的文件或子目录。"""
     for file in os.listdir(folder):
         sub = os.path.join(folder, file)
         if is_dir:
@@ -53,75 +40,98 @@ def iter_folder(folder, is_dir=False, ext=None):
 
 
 def poor_yaml_read(file):
-    """简易 YAML 读取，不依赖 pyyaml，使用正则解析。
-
-    Args:
-        file (str): YAML 文件路径。
-
-    Returns:
-        dict: 解析后的键值对。
-    """
+    """读取项目使用的简单标量 YAML；缺失文件返回空配置。"""
     if not os.path.exists(file):
         return {}
 
     data = {}
     regex = re.compile(r'^(.*?):(.*?)$')
-    with open(file, 'r', encoding='utf-8') as f:
-        for line in f.readlines():
+    with open(file, 'r', encoding='utf-8-sig') as stream:
+        for line in stream.readlines():
             line = line.strip('\n\r\t ').replace('\\', '/')
             if line.startswith('#'):
                 continue
             result = re.match(regex, line)
             if result:
-                k, v = result.group(1), result.group(2).strip('\n\r\t\' ')
-                if v:
-                    if v.lower() == 'null':
-                        v = None
-                    elif v.lower() == 'false':
-                        v = False
-                    elif v.lower() == 'true':
-                        v = True
-                    elif v.isdigit():
-                        v = int(v)
-                    data[k] = v
+                key, value = result.group(1), result.group(2).strip("\n\r\t' ")
+                if value:
+                    lowered = value.lower()
+                    if lowered == 'null':
+                        value = None
+                    elif lowered == 'false':
+                        value = False
+                    elif lowered == 'true':
+                        value = True
+                    elif value.isdigit():
+                        value = int(value)
+                    data[key] = value
 
     return data
 
 
-def poor_yaml_write(data, file, template_file=DEPLOY_TEMPLATE):
-    """简易 YAML 写入，基于模板文件替换键值。
+def _format_yaml_scalar(value):
+    if value is None:
+        return 'null'
+    if value is True:
+        return 'true'
+    if value is False:
+        return 'false'
+    return str(value)
 
-    Args:
-        data (dict): 要写入的键值对。
-        file (str): 输出文件路径。
-        template_file (str): 模板文件路径。
-    """
-    with open(template_file, 'r', encoding='utf-8') as f:
-        text = f.read().replace('\\', '/')
 
-    for key, value in data.items():
-        if value is None:
-            value = 'null'
-        elif value is True:
-            value = "true"
-        elif value is False:
-            value = "false"
-        text = re.sub(f'{key}:.*?\n', f'{key}: {value}\n', text)
+def poor_yaml_write(
+    data,
+    file,
+    template_file=DEPLOY_TEMPLATE,
+    *,
+    preserve_existing=False,
+    keys=None,
+):
+    """Write selected scalar keys while preserving an existing user file."""
+    source = file if preserve_existing and os.path.exists(file) else template_file
+    with open(source, 'r', encoding='utf-8-sig') as stream:
+        text = stream.read()
 
-    with open(file, 'w', encoding='utf-8', newline='') as f:
-        f.write(text)
+    selected_keys = list(data) if keys is None else list(keys)
+    for key in selected_keys:
+        if key not in data:
+            continue
+
+        value = _format_yaml_scalar(data[key])
+        pattern = re.compile(
+            rf'^(?P<prefix>\s*{re.escape(str(key))}\s*:).*$',
+            re.MULTILINE,
+        )
+        matches = list(pattern.finditer(text))
+        if len(matches) > 1:
+            raise ValueError(f'Duplicate deploy config key: {key}')
+        if matches:
+            text = pattern.sub(
+                lambda match: f"{match.group('prefix')} {value}",
+                text,
+                count=1,
+            )
+            continue
+
+        if preserve_existing:
+            if text and not text.endswith('\n'):
+                text += '\n'
+            text += f'{key}: {value}\n'
+
+    with open(file, 'w', encoding='utf-8', newline='') as stream:
+        stream.write(text)
 
 
 @dataclass
 class DataProcessInfo:
-    proc: object  # psutil.Process or psutil._pswindows.Process
+    proc: object
     pid: int
 
     @cached_property
     def name(self):
         try:
             name = self.proc.name()
-        except:
+        except Exception:
             name = ''
         return name
 
@@ -129,42 +139,27 @@ class DataProcessInfo:
     def cmdline(self):
         try:
             cmdline = self.proc.cmdline()
-        except:
-            # 可能抛出 psutil.AccessDenied 或 NoSuchProcess
+        except Exception:
             cmdline = []
-        cmdline = ' '.join(cmdline).replace(r'\\', '/').replace('\\', '/')
+        cmdline = ' '.join(cmdline).replace('\\\\', '/').replace('\\', '/')
         return cmdline
 
     def __str__(self):
-        # 不打印 proc 属性，获取进程属性会消耗时间
         return f'DataProcessInfo(name="{self.name}", pid={self.pid}, cmdline="{self.cmdline}")'
 
     __repr__ = __str__
 
 
 def iter_process() -> Iterable[DataProcessInfo]:
-    """遍历系统中所有进程。
-
-    Yields:
-        DataProcessInfo: 进程信息。
-    """
     try:
         import psutil
     except ModuleNotFoundError:
         return
 
     if psutil.WINDOWS:
-        # 直接访问 psutil._psplatform.Process 以跳过 is_running() 调用，耗时约 0.017s
         for pid in psutil.pids():
             proc = psutil._psplatform.Process(pid)
-            yield DataProcessInfo(
-                proc=proc,
-                pid=proc.pid,
-            )
+            yield DataProcessInfo(proc=proc, pid=proc.pid)
     else:
-        # 非 Windows 平台使用 process_iter()，耗时约 0.45s
         for proc in psutil.process_iter():
-            yield DataProcessInfo(
-                proc=proc,
-                pid=proc.pid,
-            )
+            yield DataProcessInfo(proc=proc, pid=proc.pid)

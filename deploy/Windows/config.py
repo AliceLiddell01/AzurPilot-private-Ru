@@ -4,14 +4,29 @@ import subprocess
 import sys
 from typing import Optional, Union
 
-from deploy.geo import get_country_code
 from deploy.Windows.logger import logger
-from deploy.Windows.utils import DEPLOY_CONFIG, DEPLOY_TEMPLATE, cached_property, poor_yaml_read, poor_yaml_write
+from deploy.Windows.utils import (
+    DEPLOY_CONFIG,
+    DEPLOY_TEMPLATE,
+    cached_property,
+    poor_yaml_read,
+    poor_yaml_write,
+)
 
 
-GIT_OVER_CDN_REPOSITORY = 'git://git.pull/AzurPilot'
-GIT_OVER_CDN_FALLBACK_REPOSITORY = 'https://gitcode.com/ddl2/AzurLaneAutoScript'
-GITHUB_REPOSITORY = 'https://github.com/wess09/AzurPilot'
+LEGACY_IGNORED_KEYS = frozenset(
+    {
+        "AutoUpdate",
+        "CheckUpdateInterval",
+        "AutoRestartTime",
+        "Repository",
+        "Branch",
+        "GitExecutable",
+        "GitProxy",
+        "SSLVerify",
+        "GitOverCdn",
+    }
+)
 
 
 class ExecutionError(Exception):
@@ -19,13 +34,6 @@ class ExecutionError(Exception):
 
 
 class ConfigModel:
-    # Git 配置
-    Repository: str = GITHUB_REPOSITORY
-    Branch: str = "master"
-    GitExecutable: str = "./.venv/Scripts/git/cmd/git.exe"
-    GitProxy: Optional[str] = None
-    SSLVerify: bool = False
-
     # Python 配置
     PythonExecutable: str = "./.venv/Scripts/python.exe"
     PypiMirror: Optional[str] = None
@@ -43,10 +51,8 @@ class ConfigModel:
     OcrServerPort: int = 22268
     OcrClientAddress: str = "127.0.0.1:22268"
 
-    # 更新配置
+    # WebUI supervisor 配置
     EnableReload: bool = True
-    CheckUpdateInterval: int = 5
-    AutoRestartTime: str = "03:50"
 
     # 杂项
     DiscordRichPresence: bool = False
@@ -74,93 +80,55 @@ class ConfigModel:
     AppAsarUpdate: bool = True
     NoSandbox: bool = True
 
-    # 动态配置
-    GitOverCdn: bool = False
-
 
 class DeployConfig(ConfigModel):
-    def __init__(self, file=DEPLOY_CONFIG):
-        """初始化部署配置。
-
-        Args:
-            file (str): 用户部署配置文件路径。
-        """
+    def __init__(self, file=DEPLOY_CONFIG, template_file=None):
+        """初始化部署配置，不执行网络请求或隐式写入。"""
         self.file = file
+        self.template_file = template_file or DEPLOY_TEMPLATE
         self.config = {}
         self.config_template = {}
-        self._github_location_checked = False
         self.read()
-
         self.show_config()
 
     def show_config(self):
         logger.hr("Show deploy config", 1)
-        for k, v in self.config.items():
-            if k in ("Password", "SSHUser"):
+        hidden = {"Password", "SSHUser"} | LEGACY_IGNORED_KEYS
+        for key, value in self.config.items():
+            if key in hidden:
                 continue
-            if self.config_template.get(k) == v:
+            if self.config_template.get(key) == value:
                 continue
-            logger.info(f"{k}: {v}")
+            logger.info(f"{key}: {value}")
 
-        logger.info(f"Rest of the configs are the same as default")
+        logger.info("Rest of the configs are the same as default")
 
     def read(self):
-        self.config = poor_yaml_read(DEPLOY_TEMPLATE)
-        self.config_template = copy.deepcopy(self.config)
+        """Load defaults and user values without network or file writes."""
+        template = poor_yaml_read(self.template_file)
+        self.config_template = copy.deepcopy(template)
         origin = poor_yaml_read(self.file)
+
+        self.config = template
         self.config.update(origin)
 
         for key, value in self.config.items():
+            if key in LEGACY_IGNORED_KEYS:
+                continue
             if hasattr(self, key):
                 super().__setattr__(key, value)
 
-        self.config_redirect()
-
-        if self.config != origin:
-            self.write()
-
-    def write(self):
-        poor_yaml_write(self.config, self.file)
-
-    def config_redirect(self):
-        """部署配置重定向，处理旧配置到新配置的迁移。
-
-        每次 `read()` 之后必须调用。
-        """
-        self.config.pop('AutoUpdate', None)
-        self._redirect_github_repository()
-        # 绕过 webui.config.DeployConfig.__setattr__()，不写入 deploy.yaml
-        super().__setattr__('GitOverCdn', self.Repository in ['cn', GIT_OVER_CDN_REPOSITORY])
-        if self.Repository in ['global']:
-            super().__setattr__('Repository', 'https://github.com/wess09/AzurPilot')
-        if self.Repository in ['cn', GIT_OVER_CDN_REPOSITORY]:
-            super().__setattr__('Repository', GIT_OVER_CDN_FALLBACK_REPOSITORY)
-
-    def _redirect_github_repository(self):
-        """为官方 GitHub 源一次性选择适合当前网络的更新镜像。"""
-        if self._github_location_checked or self.Repository != GITHUB_REPOSITORY:
-            return
-
-        self._github_location_checked = True
-        country_code = get_country_code()
-        if country_code == 'cn':
-            logger.info('检测到中国大陆网络，切换至国内 Git 更新源')
-            self.Repository = GIT_OVER_CDN_REPOSITORY
-            self.config['Repository'] = GIT_OVER_CDN_REPOSITORY
-        elif country_code is None:
-            logger.warning('无法检测网络所在国家，保留 GitHub 更新源')
-        else:
-            logger.info('当前网络不在中国大陆，保留 GitHub 更新源')
+    def write(self, keys=None):
+        """Persist explicit settings while preserving the existing user file."""
+        poor_yaml_write(
+            self.config,
+            self.file,
+            template_file=self.template_file,
+            preserve_existing=True,
+            keys=keys,
+        )
 
     def filepath(self, path):
-        """获取绝对文件路径。
-
-        Args:
-            path (str): 相对或绝对路径。
-
-        Returns:
-            str: 绝对文件路径。
-        """
         if os.path.isabs(path):
             return path
 
@@ -188,35 +156,19 @@ class DeployConfig(ConfigModel):
         return 'adb'
 
     @cached_property
-    def git(self) -> str:
-        exe = self.filepath(self.GitExecutable)
-        if os.path.exists(exe):
-            return exe
-
-        logger.warning(f'GitExecutable: {exe} does not exist, use `git` instead')
-        return 'git'
-
-    @cached_property
     def python(self) -> str:
         exe = self.filepath(self.PythonExecutable)
         if os.path.exists(exe):
             return exe
 
         current = sys.executable.replace("\\", "/")
-        logger.warning(f'PythonExecutable: {exe} does not exist, use current python instead: {current}')
+        logger.warning(
+            f'PythonExecutable: {exe} does not exist, '
+            f'use current python instead: {current}'
+        )
         return current
 
     def execute(self, command, allow_failure=False, output=True):
-        """执行系统命令。
-
-        Args:
-            command (str): 要执行的命令。
-            allow_failure (bool): 是否允许失败。
-            output (bool): 是否显示输出。
-
-        Returns:
-            bool: 是否成功。失败且不允许失败时终止安装流程。
-        """
         command = command.replace(r"\\", "/").replace("\\", "/").replace('"', '"')
         if not output:
             command = command + ' >nul 2>nul'
@@ -226,24 +178,13 @@ class DeployConfig(ConfigModel):
             if allow_failure:
                 logger.info(f"[ allowed failure ], error_code: {error_code}")
                 return False
-            else:
-                logger.info(f"[ failure ], error_code: {error_code}")
-                self.show_error(command)
-                raise ExecutionError
-        else:
-            logger.info(f"[ success ]")
-            return True
+            logger.info(f"[ failure ], error_code: {error_code}")
+            self.show_error(command)
+            raise ExecutionError
+        logger.info("[ success ]")
+        return True
 
     def subprocess_execute(self, cmd, timeout=10):
-        """在子进程中执行命令。
-
-        Args:
-            cmd (list[str]): 命令列表。
-            timeout: 超时秒数，默认 10。
-
-        Returns:
-            str: 命令的标准输出。
-        """
         logger.info(' '.join(cmd))
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
         try:
@@ -256,7 +197,7 @@ class DeployConfig(ConfigModel):
         return stdout.decode()
 
     def show_error(self, command=None):
-        logger.hr("Update failed", 0)
+        logger.hr("Operation failed", 0)
         self.show_config()
         logger.info("")
         logger.info(f"Last command: {command}")
