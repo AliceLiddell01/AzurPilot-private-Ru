@@ -125,51 +125,36 @@ jobs:
               throw $details
           }
 
-  stage4-generate:
+  stage4-compact:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.14'
-      - name: Extract Stage 4 audit sources
-        shell: bash
-        run: |
-          if compgen -G '.github/stage4_payload.part*' > /dev/null; then
-            cat .github/stage4_payload.part* | base64 --decode > "$RUNNER_TEMP/stage4_payload.tar.gz"
-            tar -xzf "$RUNNER_TEMP/stage4_payload.tar.gz" -C .
-          fi
-      - name: Apply Stage 4 determinism fix
-        run: python .github/stage4_fix.py
+      - name: Apply compact baseline patch
+        run: git apply .github/stage4_compact.patch
       - name: Run Stage 4 audit unit tests
         run: python -m unittest -v tests/test_russianization_audit.py
-      - name: Generate Stage 4 audit results
+      - name: Regenerate compact Stage 4 audit results
         run: python -m dev_tools.russianization_audit --write
       - name: Check Stage 4 audit determinism
         run: python -m dev_tools.russianization_audit --check
       - name: Check patch formatting
         run: git diff --check
-      - name: Commit generated Stage 4 audit
+      - name: Commit compact Stage 4 baseline
         shell: bash
         run: |
-          if compgen -G '.github/stage4_payload.part*' > /dev/null; then
-            git rm .github/stage4_payload.part*
-          fi
-          if [ -f .github/stage4_fix.py ]; then
-            git rm .github/stage4_fix.py
-          fi
+          git rm .github/stage4_compact.patch
           git add dev_tools/russianization_audit.py
           git add tests/test_russianization_audit.py
           git add dev_tools/russianization/results
-          if git diff --cached --quiet; then
-            exit 0
-          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(audit): add read-only russianization inventory tooling'
+          git commit -m 'refactor(audit): compact committed Stage 4 baselines'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
