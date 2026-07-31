@@ -1,4 +1,4 @@
-﻿#requires -Version 7.6
+#requires -Version 7.6
 
 [CmdletBinding()]
 param(
@@ -459,10 +459,6 @@ function Get-WebUiConfiguration {
     }
 
     $enableReload = ConvertTo-SimpleBoolean @enableReloadParameters
-
-    if ($enableReload) {
-        Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message 'EnableReload должен быть явно установлен в false. Иначе встроенный updater снова получает управление обновлениями.'
-    }
 
     if ([string]::IsNullOrWhiteSpace($hostValue)) {
         $hostValue = '0.0.0.0'
