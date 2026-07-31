@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Transport-only helper; excluded from the audit fingerprint before generation.
 AUDITOR = Path('dev_tools/russianization_audit.py')
 source = AUDITOR.read_text(encoding='utf-8')
 old = '    RESULTS_RELATIVE.as_posix() + "/",\n}'
