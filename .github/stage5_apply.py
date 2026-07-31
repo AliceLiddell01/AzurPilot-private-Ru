@@ -25,6 +25,17 @@ PARTS = (
     ("part3.txt", "d267ee467c49f49bf078dcf1f4b34898bce8c10ee1492b8d9763ed9b0b479801"),
 )
 PATCH_SHA256 = "6a05f75f45fdcc6b6790b587b17f26b12fea36f5e574f2e1ae43a7de48d9b922"
+DIAGNOSTIC_PATH = Path(".github/stage5_failure.log")
+BRANCH = "chatgpt/stage5-single-russian-locale"
+
+
+def run(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.STDOUT if capture else None,
+    )
 
 
 def read_payload() -> bytes:
@@ -72,11 +83,60 @@ def fix_stable_action_identifier() -> None:
     path.write_text(source.replace(old, new, 1), encoding="utf-8")
 
 
+def publish_diagnostic(output: bytes) -> None:
+    DIAGNOSTIC_PATH.write_bytes(output)
+    commands = (
+        ["git", "add", "--", str(DIAGNOSTIC_PATH)],
+        ["git", "config", "user.name", "AliceLiddell01"],
+        ["git", "config", "user.email", "leaf.fairy@proton.me"],
+        ["git", "commit", "-m", "test(stage5): capture remote validation failure"],
+        ["git", "push", "origin", f"HEAD:{BRANCH}"],
+    )
+    for command in commands:
+        completed = run(command)
+        if completed.returncode != 0:
+            raise SystemExit(completed.returncode)
+
+
+def diagnose_remote_validation() -> None:
+    setup_commands = (
+        ["uv", "run", "-m", "dev_tools.button_extract"],
+        ["uv", "run", "-m", "module.config.config_updater"],
+        ["uv", "run", "python", "-m", "dev_tools.russianization_audit", "--write"],
+        ["uv", "run", "python", "-m", "dev_tools.russianization_audit", "--check"],
+    )
+    output = bytearray()
+    for command in setup_commands:
+        completed = run(command, capture=True)
+        output.extend(b"$ " + " ".join(command).encode("utf-8") + b"\n")
+        output.extend(completed.stdout or b"")
+        output.extend(f"\n[exit={completed.returncode}]\n".encode("utf-8"))
+        if completed.returncode != 0:
+            publish_diagnostic(bytes(output))
+            raise SystemExit(completed.returncode)
+
+    tests = [
+        "tests/test_stage5_deploy_language_migration.py",
+        "tests/test_stage5_locale_runtime.py",
+        "tests/test_stage5_server_separation.py",
+        "tests/test_stage5_generator.py",
+    ]
+    command = ["uv", "run", "python", "-m", "unittest", "-v", *tests]
+    completed = run(command, capture=True)
+    output.extend(b"$ " + " ".join(command).encode("utf-8") + b"\n")
+    output.extend(completed.stdout or b"")
+    output.extend(f"\n[exit={completed.returncode}]\n".encode("utf-8"))
+    if completed.returncode != 0:
+        publish_diagnostic(bytes(output))
+        raise SystemExit(completed.returncode)
+
+
 def main() -> None:
     patch = read_payload()
     apply_patch(patch)
     bootstrap_ru_catalog()
     fix_stable_action_identifier()
+    diagnose_remote_validation()
 
 
 if __name__ == "__main__":
