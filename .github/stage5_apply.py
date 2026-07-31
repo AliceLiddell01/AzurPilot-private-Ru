@@ -9,6 +9,7 @@ import base64
 import gzip
 import hashlib
 import subprocess
+import sys
 from pathlib import Path
 
 PAYLOAD_DIR = Path(".github/stage5_payload")
@@ -25,7 +26,7 @@ PARTS = (
     ("part3.txt", "d267ee467c49f49bf078dcf1f4b34898bce8c10ee1492b8d9763ed9b0b479801"),
 )
 PATCH_SHA256 = "6a05f75f45fdcc6b6790b587b17f26b12fea36f5e574f2e1ae43a7de48d9b922"
-DIAGNOSTIC_PATH = Path(".github/stage5_failure.log")
+DIAGNOSTIC_PATH = Path("stage5_failure.log")
 BRANCH = "chatgpt/stage5-single-russian-locale"
 
 
@@ -84,6 +85,8 @@ def fix_stable_action_identifier() -> None:
 
 
 def publish_diagnostic(output: bytes) -> None:
+    sys.stdout.buffer.write(output)
+    sys.stdout.buffer.flush()
     DIAGNOSTIC_PATH.write_bytes(output)
     commands = (
         ["git", "add", "--", str(DIAGNOSTIC_PATH)],
