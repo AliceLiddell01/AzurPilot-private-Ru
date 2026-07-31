@@ -9,7 +9,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from dev_tools.russianization_audit import AuditEngine, RESULT_FILENAMES, is_excluded
+from dev_tools.russianization_audit import (
+    ALLOWED_EXTRA_RESULT_FILENAMES,
+    AuditEngine,
+    RESULT_FILENAMES,
+    is_excluded,
+)
 
 
 class RussianizationAuditTests(unittest.TestCase):
@@ -78,6 +83,37 @@ class RussianizationAuditTests(unittest.TestCase):
         self.assertIn("Menu.Home.help", missing["module/config/i18n/ja-JP.json"])
         self.assertIn("module/config/i18n/en-US.json", extra)
 
+    def test_stage5_runtime_locale_architecture_is_classified(self) -> None:
+        self._write(
+            "module/config/i18n/ru-RU.json",
+            json.dumps({"Menu": {"Home": {"name": "Главная", "help": "Открыть панель"}}}, ensure_ascii=False),
+        )
+        self._write(
+            "module/webui/lang.py",
+            "from module.config.utils import UI_LOCALE, filepath_i18n\n"
+            "LANG = UI_LOCALE\n"
+            "def reload():\n"
+            "    return filepath_i18n(UI_LOCALE)\n",
+        )
+        self._write(
+            "module/config/config_updater.py",
+            "EVENT_NAME_SOURCE = 'en'\n"
+            "def generate_i18n():\n"
+            "    return EVENT_NAME_SOURCE\n",
+        )
+        engine = self._engine()
+        locales, missing, extra = engine.locale_inventory()
+        dependency = engine.dependency_map(locales, missing, extra)
+        architecture = dependency["runtime_architecture"]
+        self.assertEqual(architecture["active_runtime_locales"], ["ru-RU"])
+        self.assertEqual(architecture["legacy_inactive_locale_files"], ["en-US", "ja-JP"])
+        self.assertFalse(architecture["foreign_runtime_fallback"])
+        self.assertFalse(architecture["ui_locale_linked_to_game_server"])
+        self.assertEqual(architecture["event_name_source"], "en")
+        statuses = {item["locale"]: item["runtime_status"] for item in locales}
+        self.assertEqual(statuses["ru-RU"], "active_runtime_locale")
+        self.assertEqual(statuses["en-US"], "legacy_inactive_locale_file")
+
     def test_known_hardcoded_ui_fixture_is_detected(self) -> None:
         entries = self._engine().inventory_ui_strings()
         matches = [entry for entry in entries if entry["text"] == "Known hardcoded UI"]
@@ -130,6 +166,13 @@ class RussianizationAuditTests(unittest.TestCase):
             data.decode("utf-8")
         report = outputs["stage4_report.md"].decode("utf-8")
         self.assertIn("аудит русификации", report)
+
+    def test_stage5_report_is_an_allowed_non_baseline_artifact(self) -> None:
+        engine = self._engine()
+        engine.write()
+        for filename in ALLOWED_EXTRA_RESULT_FILENAMES:
+            (self.output / filename).write_text("Stage 5 report\n", encoding="utf-8")
+        self.assertEqual(engine.check(), [])
 
     def test_machine_outputs_have_required_structure(self) -> None:
         outputs = self._engine().build_outputs()

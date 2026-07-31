@@ -8,8 +8,9 @@
 - 随机 ID：配置实例的唯一标识生成
 
 常量定义：
-- LANGUAGES: 支持的语言列表（zh-CN、zh-MIAO、en-US、ja-JP、zh-TW）
-- SERVER_TO_LANG: 服务器到语言的映射
+- UI_LOCALE: 唯一活动的 WebUI 语言（ru-RU）
+- LEGACY_UI_LOCALES: 仅保留到 Stage 9 的非活动旧语言文件
+- EVENT_NAME_SOURCE / EVENT_NAME_FALLBACK_ORDER: 与 UI 语言无关的活动名称来源
 - SERVER_TO_TIMEZONE: 服务器到时区的映射
 """
 
@@ -29,14 +30,12 @@ from module.base.decorator import run_once
 from module.config.time_source import now as current_time, timestamp as current_timestamp
 from module.logger import logger
 
-LANGUAGES = ['zh-CN', 'zh-MIAO', 'en-US', 'ja-JP', 'zh-TW']
-SERVER_TO_LANG = {
-    'cn': 'zh-CN',
-    'en': 'en-US',
-    'jp': 'ja-JP',
-    'tw': 'zh-TW',
-}
-LANG_TO_SERVER = {v: k for k, v in SERVER_TO_LANG.items()}
+from module.config.locale import (
+    EVENT_NAME_FALLBACK_ORDER,
+    EVENT_NAME_SOURCE,
+    LEGACY_UI_LOCALES,
+    UI_LOCALE,
+)
 SERVER_TO_TIMEZONE = {
     'cn': timedelta(hours=8),
     'en': timedelta(hours=-7),

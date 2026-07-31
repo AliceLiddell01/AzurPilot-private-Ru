@@ -1,9 +1,6 @@
-"""WebUI 翻译编辑器，提供交互式界面逐条编辑各语言的翻译文本。
-支持 zh-CN、zh-TW、en-US、ja-JP 四种语言，
-可筛选未翻译项并批量提交。"""
+"""Редактор единственного активного каталога ``ru-RU``."""
 
-# 此模块提供 WebUI 内的 i18n 翻译编辑功能。
-# 通过交互式表单逐条编辑各语言的翻译条目，支持筛选未翻译项。
+# Редактор работает только с активным каталогом ru-RU.
 from pywebio.input import (actions, checkbox, input, input_group, input_update,
                            select)
 from pywebio.output import put_buttons, put_markdown
@@ -11,41 +8,32 @@ from pywebio.session import defer_call, hold, run_js, set_env
 
 import module.webui.lang as lang
 from module.config.deep import deep_get, deep_iter, deep_set
-from module.config.utils import LANGUAGES, filepath_i18n, read_file, write_file
+from module.config.locale import UI_LOCALE
+from module.config.utils import filepath_i18n, read_file, write_file
 
 
 def translate():
     """
     启动 AzurPilot 翻译编辑器。
 
-    提供交互式界面，用于逐条编辑各语言（zh-CN、zh-TW、en-US、ja-JP）的翻译文本。
+    Предоставляет интерфейс для последовательного редактирования каталога ru-RU.
     """
     set_env(output_animation=False)
     run_js(r"""$('head').append('<style>footer {display: none}</style>')""")
 
     put_markdown("""
-        # Translate
-        You can submit(Next) by press `Enter`.
+        # Редактор русской локализации
+        Нажмите `Enter`, чтобы сохранить строку и перейти дальше.
     """)
 
-    dict_lang = {
-        "zh-CN": read_file(filepath_i18n('zh-CN')),
-        "zh-TW": read_file(filepath_i18n('zh-TW')),
-        "en-US": read_file(filepath_i18n('en-US')),
-        "ja-JP": read_file(filepath_i18n('ja-JP')),
-    }
-    modified = {
-        "zh-CN": {},
-        "zh-TW": {},
-        "en-US": {},
-        "ja-JP": {},
-    }
+    dict_lang = {UI_LOCALE: read_file(filepath_i18n(UI_LOCALE))}
+    modified = {UI_LOCALE: {}}
 
     list_path = []  # 完整路径，如 Menu.Task.name
     list_group = []  # 一级键（菜单分组）
     list_arg = []    # 二级键（任务名）
     list_key = []    # 三级键（字段名）
-    for L, _ in deep_iter(dict_lang['zh-CN'], depth=3):
+    for L, _ in deep_iter(dict_lang[UI_LOCALE], depth=3):
         list_path.append('.'.join(L))
         list_group.append(L[0])
         list_arg.append(L[1])
@@ -53,14 +41,14 @@ def translate():
     total = len(list_path)
 
     class V:
-        lang = lang.LANG
+        lang = UI_LOCALE
         untranslated_only = False
         clear = False
 
         idx = -1
         group = ''
         group_idx = 0
-        groups = list(dict_lang['zh-CN'].keys())
+        groups = list(dict_lang[UI_LOCALE].keys())
         arg = ''
         arg_idx = 0
         args = []
@@ -75,23 +63,23 @@ def translate():
             V.group_idx = V.idx
             V.arg = list_arg[V.idx]
             V.arg_idx = V.idx
-            V.args = list(dict_lang["zh-CN"][V.group].keys())
+            V.args = list(dict_lang[UI_LOCALE][V.group].keys())
             V.key = list_key[V.idx]
             V.key_idx = V.idx
-            V.keys = list(dict_lang["zh-CN"][V.group][V.arg].keys())
+            V.keys = list(dict_lang[UI_LOCALE][V.group][V.arg].keys())
         elif arg:
             V.arg = arg
             V.idx = list_arg.index(arg, V.group_idx)
             V.arg_idx = V.idx
-            V.args = list(dict_lang["zh-CN"][V.group].keys())
+            V.args = list(dict_lang[UI_LOCALE][V.group].keys())
             V.key = list_key[V.idx]
             V.key_idx = V.idx
-            V.keys = list(dict_lang["zh-CN"][V.group][V.arg].keys())
+            V.keys = list(dict_lang[UI_LOCALE][V.group][V.arg].keys())
         elif key:
             V.key = key
             V.idx = list_key.index(key, V.arg_idx)
             V.key_idx = V.idx
-            V.keys = list(dict_lang["zh-CN"][V.group][V.arg].keys())
+            V.keys = list(dict_lang[UI_LOCALE][V.group][V.arg].keys())
 
         update_form()
 
@@ -116,19 +104,18 @@ def translate():
         (V.group, V.arg, V.key) = tuple(list_path[V.idx].split('.'))
         V.group_idx = list_group.index(V.group)
         V.arg_idx = list_arg.index(V.arg, V.group_idx)
-        V.args = list(dict_lang["zh-CN"][V.group].keys())
+        V.args = list(dict_lang[UI_LOCALE][V.group].keys())
         V.key_idx = list_key.index(V.key, V.arg_idx)
-        V.keys = list(dict_lang["zh-CN"][V.group][V.arg].keys())
+        V.keys = list(dict_lang[UI_LOCALE][V.group][V.arg].keys())
 
     def update_form():
         input_update('arg', options=V.args, value=V.arg)
         input_update('key', options=V.keys, value=V.key)
-        for L in LANGUAGES:
-            input_update(L, value=deep_get(
-                dict_lang[L], f'{V.group}.{V.arg}.{V.key}', 'Key not found!'))
+        input_update(UI_LOCALE, value=deep_get(
+            dict_lang[UI_LOCALE], f'{V.group}.{V.arg}.{V.key}', 'Ключ не найден'))
 
         old = deep_get(dict_lang[V.lang],
-                       f'{V.group}.{V.arg}.{V.key}', 'Key not found!')
+                       f'{V.group}.{V.arg}.{V.key}', 'Ключ не найден')
         input_update(V.lang,
                      value=None if V.clear else old,
                      help_text=f'{V.group}.{V.arg}.{V.key}',
@@ -138,7 +125,7 @@ def translate():
     def get_inputs():
         out = []
         old = deep_get(dict_lang[V.lang],
-                       f'{V.group}.{V.arg}.{V.key}', 'Key not found!')
+                       f'{V.group}.{V.arg}.{V.key}', 'Ключ не найден')
         out.append(
             input(
                 name=V.lang,
@@ -160,33 +147,25 @@ def translate():
             select(name='key', label='Key', options=V.keys, value=V.key,
                    onchange=lambda k: update_var(key=k), required=True)
         )
-        _LANGUAGES = LANGUAGES.copy()
-        _LANGUAGES.remove(V.lang)
-        for L in _LANGUAGES:
-            out.append(
-                input(name=L, label=L, readonly=True, value=deep_get(
-                    dict_lang[L], f'{V.group}.{V.arg}.{V.key}', 'Key not found!'))
-            )
         out.append(
             actions(name='action', buttons=[
-                {"label": "Next", "value": 'Next',
+                {"label": "Далее", "value": 'Next',
                     "type": "submit", "color": "success"},
-                {"label": "Next without save", "value": 'Skip',
+                {"label": "Пропустить", "value": 'Skip',
                     "type": "submit", "color": "secondary"},
-                {"label": "Submit", "value": "Submit",
+                {"label": "Сохранить", "value": "Submit",
                     "type": "submit", "color": "primary"},
-                {"label": "Quit and save", "type": "cancel", "color": "secondary"},
+                {"label": "Выйти и сохранить", "type": "cancel", "color": "secondary"},
             ])
         )
 
         return out
 
     def save():
-        for LANG in LANGUAGES:
-            d = read_file(filepath_i18n(LANG))
-            for k in modified[LANG].keys():
-                deep_set(d, k, modified[LANG][k])
-            write_file(filepath_i18n(LANG), d)
+        data = read_file(filepath_i18n(UI_LOCALE))
+        for key, value in modified[UI_LOCALE].items():
+            deep_set(data, key, value)
+        write_file(filepath_i18n(UI_LOCALE), data)
     defer_call(save)
 
     def loop():
@@ -215,22 +194,19 @@ def translate():
 
     def setting():
         data = input_group(inputs=[
-            select(name='language', label='Language',
-                   options=LANGUAGES, value=V.lang, required=True),
-            checkbox(name='check', label='Other settings', options=[
+            checkbox(name='check', label='Настройки', options=[
                 {"label": 'Button [Next] only shows untranslated key',
                     'value': 'untranslated', 'selected': V.untranslated_only},
                 {"label": 'Do not fill input with old value (only effect the language you selected)',
                  "value": "clear", "selected": V.clear}
             ])
         ])
-        V.lang = data['language']
         V.untranslated_only = True if 'untranslated' in data['check'] else False
         V.clear = True if 'clear' in data['check'] else False
 
     put_buttons([
-        {"label": "Start", "value": "start"},
-        {"label": "Setting", "value": "setting"}
+        {"label": "Начать", "value": "start"},
+        {"label": "Настройки", "value": "setting"}
     ], onclick=[loop, setting])
     next_key()
     setting()

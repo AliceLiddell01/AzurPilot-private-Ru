@@ -1,77 +1,57 @@
-"""
-Web界面多语言支持。
-
-管理 WebUI 的语言切换和翻译文本加载。从 i18n JSON 文件读取翻译，
-通过 t() 函数获取当前语言的翻译文本，支持 zh-CN/en-US/ja-JP/zh-TW。
-"""
+"""Единственный runtime-загрузчик русской локализации WebUI."""
 
 from typing import Dict
 
 from module.config.deep import deep_iter
-from module.config.utils import LANGUAGES, filepath_i18n, read_file
+from module.config.locale import UI_LOCALE
+from module.config.utils import filepath_i18n, read_file
 from module.submodule.utils import list_mod_dir
-from module.webui.setting import State
 
-LANG = "zh-CN"
+LANG = UI_LOCALE
 TRANSLATE_MODE = False
 
+dic_lang: Dict[str, str] = {}
 
-def set_language(s: str, refresh=False):
-    global LANG
-    for i, lang in enumerate(LANGUAGES):
-        # pywebio.session.info.user_language return `zh-CN` or `zh-cn`, depends on browser
-        if lang.lower() == s.lower():
-            LANG = LANGUAGES[i]
-            break
-    else:
-        LANG = "en-US"
 
-    State.deploy_config.Language = LANG
+def set_language(value: str, refresh: bool = False) -> None:
+    """Совместимый shim: разрешён только обязательный ``ru-RU``.
 
+    Функция больше не записывает deploy-конфигурацию и не перезагружает страницу.
+    """
+    if not isinstance(value, str) or value.lower() != UI_LOCALE.lower():
+        raise ValueError(f"Поддерживается только язык интерфейса {UI_LOCALE}.")
     if refresh:
-        from pywebio.session import run_js
-
-        run_js("location.reload();")
+        raise ValueError("Перезагрузка для смены языка больше не поддерживается.")
 
 
-def t(s, *args, **kwargs):
-    """
-    Get translation.
-    other args, kwargs pass to .format()
-    """
+def t(key, *args, **kwargs):
+    """Вернуть русскую строку и применить исходные format-аргументы."""
     if TRANSLATE_MODE:
-        return s
-    return _t(s, LANG).format(*args, **kwargs)
+        return key
+    return _t(key).format(*args, **kwargs)
 
 
-def _t(s, lang=None):
-    """
-    Get translation, ignore TRANSLATE_MODE
-    """
-    if not lang:
-        lang = LANG
+def _t(key, lang=None):
+    """Вернуть перевод без foreign-locale fallback."""
+    if lang is not None and str(lang).lower() != UI_LOCALE.lower():
+        raise ValueError(f"Поддерживается только язык интерфейса {UI_LOCALE}.")
     try:
-        return dic_lang[lang][s]
+        return dic_lang[key]
     except KeyError:
-        print(f"Language key ({s}) not found")
-        return s
+        print(f"Отсутствует обязательный ключ русской локализации: {key}")
+        return key
 
 
-dic_lang: Dict[str, Dict[str, str]] = {}
+def reload() -> None:
+    """Перезагрузить только ``ru-RU`` из основного каталога и модулей."""
+    loaded: Dict[str, str] = {}
+    for mod_name, _ in list_mod_dir():
+        module_file = filepath_i18n(UI_LOCALE, mod_name)
+        for path, value in deep_iter(read_file(module_file), depth=3):
+            loaded[".".join(path)] = value
 
+    for path, value in deep_iter(read_file(filepath_i18n(UI_LOCALE)), depth=3):
+        loaded[".".join(path)] = value
 
-def reload():
-    for lang in LANGUAGES:
-        if lang not in dic_lang:
-            dic_lang[lang] = {}
-
-        for mod_name, dir_name in list_mod_dir():
-            for path, v in deep_iter(read_file(filepath_i18n(lang, mod_name)), depth=3):
-                dic_lang[lang][".".join(path)] = v
-
-        for path, v in deep_iter(read_file(filepath_i18n(lang)), depth=3):
-            dic_lang[lang][".".join(path)] = v
-
-    for key in dic_lang["ja-JP"].keys():
-        if dic_lang["ja-JP"][key] == key:
-            dic_lang["ja-JP"][key] = dic_lang["en-US"][key]
+    dic_lang.clear()
+    dic_lang.update(loaded)

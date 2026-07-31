@@ -71,7 +71,7 @@ class ConfigModel:
     # WebUI 配置
     WebuiHost: str = "0.0.0.0"
     WebuiPort: int = 25548
-    Language: str = "en-US"
+    Language: str = "ru-RU"
     Theme: str = "default"
     DpiScaling: bool = True
     Password: Optional[str] = None

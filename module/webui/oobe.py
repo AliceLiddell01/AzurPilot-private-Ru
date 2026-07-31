@@ -2,7 +2,7 @@
 首次启动向导（OOBE）。
 
 在用户首次启动且没有配置文件时，通过 PyWebIO 引导完成基本设置，
-包括语言选择、实例命名等初始化配置。
+包括服务器、设备和实例等初始化配置。
 """
 
 # OOBE (Out-Of-Box Experience) 初次设置向导
@@ -694,7 +694,7 @@ body {
 class OOBEWizard:
     """OOBE 向导 — 居中卡片式 UI"""
 
-    STEPS = ["intro", "import", "welcome", "server", "emulator", "review"]
+    STEPS = ["intro", "import", "server", "emulator", "review"]
 
     def __init__(self, gui):
         self.gui = gui
@@ -705,12 +705,6 @@ class OOBEWizard:
         self.server_name = "cn_android-0"
         self.config_name = "ap"
         self.screenshot_method = "auto"
-        existing_lang = getattr(State.deploy_config, "Language", None)
-        if existing_lang:
-            try:
-                lang.set_language(existing_lang)
-            except Exception:
-                pass
 
     @use_scope("ROOT", clear=True)
     def start(self):
@@ -789,7 +783,6 @@ class OOBEWizard:
     def _render_steps(self):
         labels = [
             lang.t("Gui.OOBE.ImportTitle"),
-            lang.t("Gui.OOBE.WelcomeSelectLanguage"),
             lang.t("Gui.OOBE.ServerTitle"),
             lang.t("Gui.OOBE.EmulatorTitle"),
             lang.t("Gui.OOBE.ReviewTitle"),
@@ -954,35 +947,8 @@ class OOBEWizard:
         """)
 
 
-    # ─── 步骤 1：语言选择 ───
+    # ─── Настройка игрового сервера ───
 
-    def _step_welcome(self):
-        put_html(
-            f'<h2 class="oobe-section-title">{lang.t("Gui.OOBE.WelcomeSelectLanguage")}</h2>'
-            f'<p class="oobe-section-hint">{lang.t("Gui.OOBE.WelcomeHint")}</p>'
-        )
-        put_buttons(
-            [
-                {"label": "简体中文", "value": "zh-CN"},
-                {"label": "English", "value": "en-US"},
-                {"label": "日本語", "value": "ja-JP"},
-                {"label": "繁體中文", "value": "zh-TW"},
-            ],
-            onclick=lambda l: self._on_language_selected(l),
-        )
-        put_html('<hr class="oobe-divider">')
-        self._render_footer(back=False)
-
-    def _on_language_selected(self, l):
-        lang.set_language(l)
-        lang_to_server = {"zh-CN": "cn", "en-US": "en", "ja-JP": "jp", "zh-TW": "tw"}
-        if l in lang_to_server:
-            self.server = lang_to_server[l]
-            self.package_name = self._package_for_server(self.server)
-            self.server_name = self._default_server_name_for_region(self.server)
-        self._render()
-
-    # ─── 步骤 2：服务器选择 ───
 
     def _step_server(self):
         put_html(
@@ -1241,7 +1207,6 @@ class OOBEWizard:
         server_display = {"cn": "CN", "en": "EN", "jp": "JP", "tw": "TW"}.get(self.server, self.server)
         items = [
             (lang.t("Gui.OOBE.ReviewConfigName"), self.config_name),
-            (lang.t("Gui.OOBE.ReviewLanguage"), lang.LANG),
             (lang.t("Gui.OOBE.ReviewServer"), server_display),
             (lang.t("Gui.OOBE.ReviewSerial"), self.emulator_serial),
             (lang.t("Gui.OOBE.ReviewPackage"), self.package_name),

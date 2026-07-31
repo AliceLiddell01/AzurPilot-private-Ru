@@ -15,7 +15,7 @@
     → menu.json（菜单结构）
     → config_generated.py（Python 配置类）
     → template.json（配置模板）
-    → i18n/*.json（五种语言翻译文件）
+    → i18n/ru-RU.json（единственный активный runtime locale）
 
 通过命令行调用：
     uv run -m module.config.config_updater
@@ -26,6 +26,7 @@
 - CampaignEvent: 战役活动配置管理
 """
 
+import json
 import re
 import typing as t
 from copy import deepcopy
@@ -35,6 +36,7 @@ from cached_property import cached_property
 from deploy.utils import DEPLOY_TEMPLATE, poor_yaml_read, poor_yaml_write
 from module.base.timer import timer
 from module.config.deep import deep_default, deep_get, deep_iter, deep_set
+from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE
 from module.config.env import IS_ON_PHONE_CLOUD
 from module.config.server import VALID_CHANNEL_PACKAGE, VALID_PACKAGE, VALID_SERVER_LIST, to_package, to_server
 from module.config.task_priority import get_scheduler_tasks, merge_task_priority
@@ -340,7 +342,7 @@ class ConfigGenerator:
                 f.write(text + '\n')
 
     @timer
-    def generate_i18n(self, lang):
+    def generate_i18n(self):
         """
         加载旧翻译文件并生成新的翻译文件。
 
@@ -348,8 +350,9 @@ class ConfigGenerator:
         (old) i18n/<lang>.json ---+
 
         """
+        lang = UI_LOCALE
         new = {}
-        old = read_file(filepath_i18n(lang))
+        old = read_file(filepath_i18n(UI_LOCALE))
 
         def deep_load(keys, default=True, words=('name', 'help')):
             for word in words:
@@ -377,15 +380,13 @@ class ConfigGenerator:
                 deep_load(path)
             if 'option' in data:
                 deep_load(path, words=data['option'], default=False)
-        # 活动名称翻译
-        # 名称来源优先级：同语言服务器 > en > cn > jp > tw
+        # Названия событий выбираются по серверным metadata, а не по UI locale.
         events = {}
-        for event in self.event:
-            if lang in LANG_TO_SERVER:
-                name = event.__getattribute__(LANG_TO_SERVER[lang])
-                if name:
-                    deep_default(events, keys=event.directory, value=name)
-        for server in ['en', 'cn', 'jp', 'tw']:
+        ordered_sources = (EVENT_NAME_SOURCE,) + tuple(
+            source for source in EVENT_NAME_FALLBACK_ORDER
+            if source != EVENT_NAME_SOURCE
+        )
+        for server in ordered_sources:
             for event in self.event:
                 name = event.__getattribute__(server)
                 if name:
@@ -402,10 +403,7 @@ class ConfigGenerator:
         for package, server_and_channel in VALID_CHANNEL_PACKAGE.items():
             server, channel = server_and_channel
             name = deep_get(new, keys=['Emulator', 'PackageName', to_package(server)])
-            if lang == SERVER_TO_LANG[server]:
-                value = f'{name} {channel}渠道服 {package}'
-            else:
-                value = f'{name} {package}'
+            value = f'{name} · канал {channel} · {package}'
             deep_set(new, keys=['Emulator', 'PackageName', package], value=value)
         # 游戏服务器名称
         for server, _list in VALID_SERVER_LIST.items():
@@ -418,22 +416,8 @@ class ConfigGenerator:
         for path, _ in deep_iter(self.gui, depth=2):
             group, key = path
             deep_load(keys=['Gui', group], words=(key,))
-        # zh-TW
-        dic_repl = {
-            '設置': '設定',
-            '支持': '支援',
-            '啓': '啟',
-            '异': '異',
-            '服務器': '伺服器',
-            '文件': '檔案',
-        }
-        if lang == 'zh-TW':
-            for path, value in deep_iter(new, depth=3):
-                for before, after in dic_repl.items():
-                    value = value.replace(before, after)
-                deep_set(new, keys=path, value=value)
-
-        write_file(filepath_i18n(lang), new)
+        content = json.dumps(new, indent=2, ensure_ascii=False, sort_keys=False, default=str)
+        atomic_write(filepath_i18n(UI_LOCALE), content + '\n')
 
     @cached_property
     def menu(self):
@@ -557,11 +541,7 @@ class ConfigGenerator:
     @staticmethod
     def generate_deploy_template():
         template = poor_yaml_read(DEPLOY_TEMPLATE)
-        cn = {
-            'Repository': 'git://git.pull/AzurPilot',
-            'PypiMirror': 'https://mirrors.aliyun.com/pypi/simple',
-            'Language': 'zh-CN',
-        }
+        template['Language'] = UI_LOCALE
         aidlux = {
             'GitExecutable': './.venv/bin/git',
             'PythonExecutable': './.venv/bin/python',
@@ -590,13 +570,9 @@ class ConfigGenerator:
             poor_yaml_write(data=new, file=file)
 
         update('template')
-        update('template-cn', cn)
         update('template-AidLux', aidlux)
-        update('template-AidLux-cn', aidlux, cn)
         update('template-docker', docker)
-        update('template-docker-cn', docker, cn)
         update('template-linux', linux)
-        update('template-linux-cn', linux, cn)
 
     def insert_package(self):
         option = deep_get(self.argument, keys='Emulator.PackageName.option')
@@ -626,8 +602,7 @@ class ConfigGenerator:
         write_file(filepath_args(), self.args)
         write_file(filepath_args('menu'), self.menu)
         self.generate_code()
-        for lang in LANGUAGES:
-            self.generate_i18n(lang)
+        self.generate_i18n()
         self.generate_deploy_template()
 
 

@@ -9,7 +9,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from module.config.utils import LANGUAGES, alas_instance
+from module.config.utils import alas_instance
 from module.webui.setting import State
 
 
@@ -89,7 +89,6 @@ DEPLOY_GROUPS: tuple[tuple[str, tuple[DeployField, ...]], ...] = (
         (
             DeployField("WebuiHost"),
             DeployField("WebuiPort", "int"),
-            DeployField("Language", "select", tuple(LANGUAGES)),
             DeployField("Theme", "select", tuple(THEME_OPTIONS)),
             DeployField("DpiScaling", "bool"),
             DeployField("EnableReload", "bool"),

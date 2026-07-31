@@ -1,10 +1,11 @@
 {
-  "asset_bytes_total": 585419231,
+  "active_runtime_locales": [],
+  "asset_bytes_total": 585419089,
   "asset_decision_counts": {
-    "confirmed_keep": 7799,
+    "confirmed_keep": 7800,
     "needs_manual_review": 702,
     "probable_delete_candidate": 1228,
-    "probable_keep": 729
+    "probable_keep": 728
   },
   "asset_entries": 10458,
   "asset_scope_counts": {
@@ -18,8 +19,17 @@
   },
   "confirmed_delete_candidates": 0,
   "en_global_required_candidates": 3695,
-  "first_party_log_messages": 5714,
-  "full_asset_manifest_sha256": "a1ffebf5b554d6399b827521017fd3cb1d3f022dc1deb434cc58245af8a204ba",
+  "event_name_source": null,
+  "first_party_log_messages": 5720,
+  "foreign_runtime_fallback": false,
+  "full_asset_manifest_sha256": "6eff6df4bd68301a7a48d663ff9f2c3eaa16136b12c742a51e0761404433bf17",
+  "legacy_inactive_locale_files": [
+    "en-US",
+    "ja-JP",
+    "zh-CN",
+    "zh-MIAO",
+    "zh-TW"
+  ],
   "locale_files": 5,
   "locale_files_with_missing_keys": 0,
   "locales": [
@@ -29,7 +39,7 @@
     "zh-MIAO",
     "zh-TW"
   ],
-  "log_translation_required": 5061,
+  "log_translation_required": 5062,
   "logs_by_subsystem": {
     "campaign_combat_fleet": 569,
     "deploy_and_dependencies": 293,
@@ -38,24 +48,25 @@
     "ocr": 107,
     "operation_siren": 815,
     "other": 269,
-    "scheduler_and_config": 44,
+    "scheduler_and_config": 45,
     "screenshot_and_control": 4,
     "tests": 9,
-    "webui_and_process_lifecycle": 314
+    "webui_and_process_lifecycle": 319
   },
   "manual_review_assets": 1930,
   "probable_delete_candidates": 1228,
   "schema_version": 1,
-  "source_fingerprint": "5d6d35a055606603dd381edce7b1fc10c4abdb897ed5ae46f20676cba5ba7c76",
+  "source_fingerprint": "5403656ee1b5d00d97a3173dca6fb62bf677b573f3d41322db373b68bdd4fb8a",
   "text_files_scanned": 2106,
-  "tracked_files_scanned": 10953,
+  "tracked_files_scanned": 10968,
   "ui_by_subsystem": {
     "deploy_and_dependencies": 101,
     "other": 10,
     "scheduler_and_config": 19200,
     "tests": 9,
-    "webui_and_process_lifecycle": 301
+    "webui_and_process_lifecycle": 296
   },
-  "ui_strings": 19621,
-  "ui_translation_required": 17907
+  "ui_locale_linked_to_game_server": false,
+  "ui_strings": 19616,
+  "ui_translation_required": 17901
 }

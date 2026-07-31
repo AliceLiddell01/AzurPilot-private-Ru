@@ -285,9 +285,7 @@ class DeveloperToolsMixin(WebUIMixinBase):
                 else:
                     put_text(t("Gui.Remote.NotEnable"), scope="remote_state")
                 put_text(t("Gui.Remote.ConfigureHint"), scope="remote_info")
-                url = "http://app.azurlane.cloud" + (
-                    "" if State.deploy_config.Language.startswith("zh") else "/en.html"
-                )
+                url = "http://app.azurlane.cloud/en.html"
                 put_html(
                     f'<a href="{url}" target="_blank">{url}</a>', scope="remote_info"
                 )
