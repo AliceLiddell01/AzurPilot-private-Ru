@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - chatgpt/validate-stage3-checkpoint-script
+  pull_request:
+    branches:
+      - personal/stable
   workflow_dispatch:
 
 permissions:
