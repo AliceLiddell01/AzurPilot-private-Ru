@@ -2,6 +2,9 @@ name: Lint
 
 on: [push, pull_request]
 
+permissions:
+  contents: write
+
 jobs:
   ruff:
     runs-on: ubuntu-latest
@@ -129,3 +132,39 @@ jobs:
                   Out-String
               throw $details
           }
+
+  stage4-sync-base:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.14'
+      - name: Merge current personal/stable
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin personal/stable
+          git merge --no-edit origin/personal/stable
+      - name: Run Stage 4 audit unit tests
+        run: python -m unittest -v tests/test_russianization_audit.py
+      - name: Regenerate audit baseline after base update
+        run: python -m dev_tools.russianization_audit --write
+      - name: Verify regenerated baseline
+        run: python -m dev_tools.russianization_audit --check
+      - name: Check patch formatting
+        run: git diff --check
+      - name: Commit and publish base synchronization
+        shell: bash
+        run: |
+          git add dev_tools/russianization/results
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore(audit): refresh baseline after stable update'
+          fi
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
