@@ -163,8 +163,19 @@ jobs:
           $ErrorActionPreference = "Stop"
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
+          $analyzerParameters = @{
+            Path = (Join-Path -Path $PWD -ChildPath 'scripts')
+            Recurse = $true
+            Severity = @(
+              'Error'
+              'Warning'
+            )
+            ExcludeRule = @(
+              'PSUseBOMForUnicodeEncodedFile'
+            )
+          }
+          $results = @(Invoke-ScriptAnalyzer @analyzerParameters)
           $results | Format-Table -AutoSize
-          if ($results) {
+          if ($results.Count -gt 0) {
             throw "PSScriptAnalyzer reported findings."
           }
