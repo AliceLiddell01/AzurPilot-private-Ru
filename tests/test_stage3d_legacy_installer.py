@@ -34,6 +34,20 @@ class LegacyInstallerRemovalTests(unittest.TestCase):
         self.assertIn('self.handle_app_login()', source)
         self.assertTrue(any(isinstance(node, ast.Try) for node in ast.walk(tree)))
 
+    def test_start_allows_supervisor_reload_without_updater_guard(self):
+        source = (ROOT / 'scripts/Start-AzurPilot.ps1').read_text(encoding='utf-8-sig')
+
+        self.assertIn("-Key 'EnableReload'", source)
+        self.assertIn('EnableReload = $enableReload', source)
+        self.assertNotIn(
+            'EnableReload должен быть явно установлен в false',
+            source,
+        )
+        self.assertNotIn(
+            'встроенный updater снова получает управление обновлениями',
+            source,
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
