@@ -32,6 +32,15 @@ jobs:
           tests/test_stage3e_release_cleanup.py
       - name: Run Stage 4 audit unit tests
         run: uv run python -m unittest -v tests/test_russianization_audit.py
+      - name: Check Stage 4 audit baseline
+        run: uv run python -m dev_tools.russianization_audit --check
+
+  button-config-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Create Stage 5 source archive
         if: github.event.pull_request.head.ref == 'chatgpt/stage5-single-russian-locale'
         run: >-
@@ -45,15 +54,6 @@ jobs:
           name: stage5-source
           path: stage5-source.tar.gz
           retention-days: 1
-      - name: Check Stage 4 audit baseline
-        run: uv run python -m dev_tools.russianization_audit --check
-
-  button-config-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
