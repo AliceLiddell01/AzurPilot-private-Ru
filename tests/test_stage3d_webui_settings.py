@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from deploy.config import DeployConfig
 from module.webui.setting import State
@@ -46,7 +47,12 @@ class WebUiDeploySettingsTests(unittest.TestCase):
         self.assertIn('WebuiPort: 26666', text)
 
     def test_startup_run_save_only_patches_run(self):
-        result = deploy_settings.set_startup_run('alpha', True)
+        with patch(
+            'module.webui.deploy_settings.alas_instance',
+            return_value=['alpha'],
+        ):
+            result = deploy_settings.set_startup_run('alpha', True)
+
         self.assertTrue(result['enabled'])
         text = self.user.read_text(encoding='utf-8')
         self.assertIn('UnknownCustomKey: preserve-me', text)
