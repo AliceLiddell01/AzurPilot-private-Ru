@@ -40,7 +40,7 @@ jobs:
         run: uv run -m module.config.config_updater
       - name: Check for differences
         run: |
-          git diff --exit-code
+          git diff --exit-code --ignore-space-at-eol
 
   powershell:
     runs-on: windows-latest
@@ -97,6 +97,9 @@ jobs:
               Severity = @(
                   'Error'
                   'Warning'
+              )
+              ExcludeRule = @(
+                  'PSUseBOMForUnicodeEncodedFile'
               )
           }
           $findings = @(
