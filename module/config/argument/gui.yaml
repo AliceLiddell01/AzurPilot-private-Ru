@@ -18,17 +18,23 @@ Button:
   DashboardOFF:
   ClearLog:
   Setting:
+  CheckUpdate:
+  ClickToUpdate:
+  RetryUpdate:
+  CancelUpdate:
   Open:
 
 Toast:
   DisableTranslateMode:
   ConfigSaved:
   AlasIsRunning:
+  ClickToUpdate:
 
 Status:
   Running:
   Inactive:
   Warning:
+  Updating:
 
 MenuAlas:
   Overview:
@@ -38,6 +44,7 @@ MenuDevelop:
   HomePage:
   Translate:
   Announcement:
+  Update:
   Remote:
   Setting:
   Utils:
@@ -147,6 +154,25 @@ AppManage:
   Mod:
   Actions:
 
+Update:
+  UpToDate:
+  HaveUpdate:
+  UpdateStart:
+  UpdateWait:
+  UpdateRun:
+  UpdateSuccess:
+  UpdateFailed:
+  UpdateChecking:
+  UpdateCancel:
+  UpdateFinish:
+  Local:
+  Upstream:
+  Author:
+  Time:
+  Message:
+  DisabledWarn:
+  DetailedHistory:
+
 Remote:
   Running:
   NotRunning:
@@ -187,12 +213,24 @@ DeploySetting:
   Enabled:
   Disabled:
   DemoDisabled:
+  GroupGit:
   GroupPython:
   GroupAdb:
   GroupOcr:
+  GroupUpdate:
   GroupMisc:
   GroupRemoteAccess:
   GroupWebui:
+  Repository:
+  RepositoryHelp:
+  Branch:
+  BranchHelp:
+  GitExecutable:
+  GitExecutableHelp:
+  GitProxy:
+  GitProxyHelp:
+  SSLVerify:
+  SSLVerifyHelp:
   PythonExecutable:
   PythonExecutableHelp:
   PypiMirror:
@@ -390,13 +428,14 @@ OpsiScheduling:
   UseSmartSchedulingOperationCoinsPreserve:
   OperationCoinsPreserve:
   ActionPointPreserve:
+
   OperationCoinsReturnThreshold:
   EnableMeowfficerFarming:
   EnableObscure:
   EnableAbyssal:
   EnableStronghold:
   TaskPriority:
-
+    
 Misc:
   Enabled:
   Disabled:
