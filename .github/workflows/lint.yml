@@ -19,6 +19,17 @@ jobs:
         run: uv sync
       - name: Run ruff
         run: uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+      - name: Run Stage 3 regression tests
+        run: >-
+          uv run pytest -q
+          tests/test_deploy_location.py
+          tests/test_git_over_cdn.py
+          tests/test_stage3d_deploy_set.py
+          tests/test_stage3d_legacy_installer.py
+          tests/test_stage3d_templates.py
+          tests/test_stage3d_webui_settings.py
+          tests/test_stage3e_release_cleanup.py
+          tests/test_webui_updater.py
 
   button-config-check:
     runs-on: ubuntu-latest
