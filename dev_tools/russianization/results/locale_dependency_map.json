@@ -15,6 +15,13 @@
       "runtime_status": "legacy_inactive_locale_file"
     },
     {
+      "content_hash": "3ae31e0c1bfa95805f618582fc6afb7ce61f5f36447065c2a0d44d46d8a627c0",
+      "key_count": 4166,
+      "locale": "ru-RU",
+      "path": "module/config/i18n/ru-RU.json",
+      "runtime_status": "active_runtime_locale"
+    },
+    {
       "content_hash": "6633f276621cfcda83aea4e1dbec8c072ba95cd0b6876c1360a84d0e69ba0541",
       "key_count": 4166,
       "locale": "zh-CN",
@@ -61,6 +68,36 @@
           "path": "alas.py"
         },
         {
+          "code": "from module.config.locale import UI_LOCALE",
+          "line": 15,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "current_value: str = UI_LOCALE",
+          "line": 52,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "if raw_value.lower() == UI_LOCALE.lower() and previous == UI_LOCALE:",
+          "line": 116,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "f\"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}\"",
+          "line": 119,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
+          "line": 132,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
+          "line": 134,
+          "path": "deploy/language_migration.py"
+        },
+        {
           "code": "\"UI_LOCALE\", \"EVENT_NAME_SOURCE\", \"filepath_i18n\",",
           "line": 101,
           "path": "dev_tools/russianization_audit.py"
@@ -86,21 +123,26 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "from module.config.locale import UI_LOCALE",
+          "line": 14,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "if UI_LOCALE.encode(\"utf-8\") not in after_bytes:",
+          "line": 61,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "\"result_locale\": UI_LOCALE,",
+          "line": 72,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
           "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
           "line": 39,
           "path": "module/config/config_updater.py"
         },
         {
-          "code": "lang = UI_LOCALE",
-          "line": 353,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "old = read_file(filepath_i18n(UI_LOCALE))",
-          "line": 355,
-          "path": "module/config/config_updater.py"
-        },
-        {
           "code": "old = read_file(filepath_i18n(UI_LOCALE))",
           "line": 355,
           "path": "module/config/config_updater.py"
@@ -109,45 +151,10 @@
           "code": "atomic_write(filepath_i18n(UI_LOCALE), content + '\\n')",
           "line": 420,
           "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "atomic_write(filepath_i18n(UI_LOCALE), content + '\\n')",
-          "line": 420,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "template['Language'] = UI_LOCALE",
-          "line": 544,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "from module.config.locale import UI_LOCALE",
-          "line": 20,
-          "path": "module/config/mcp_helper.py"
         },
         {
           "code": "from module.config.utils import read_file, filepath_args, filepath_i18n",
           "line": 21,
-          "path": "module/config/mcp_helper.py"
-        },
-        {
-          "code": "def __init__(self, lang=UI_LOCALE):",
-          "line": 36,
-          "path": "module/config/mcp_helper.py"
-        },
-        {
-          "code": "if lang != UI_LOCALE:",
-          "line": 37,
-          "path": "module/config/mcp_helper.py"
-        },
-        {
-          "code": "raise ValueError(f\"Поддерживается только язык интерфейса {UI_LOCALE}.\")",
-          "line": 38,
-          "path": "module/config/mcp_helper.py"
-        },
-        {
-          "code": "self.lang = UI_LOCALE",
-          "line": 39,
           "path": "module/config/mcp_helper.py"
         },
         {
@@ -264,19 +271,19 @@
           "path": "deploy/config.py"
         },
         {
-          "code": "Language: ru-RU",
-          "line": 38,
-          "path": "deploy/template"
+          "code": "\"\"\"Безопасная одноразовая миграция ``Language`` в deploy.yaml.\"\"\"",
+          "line": 1,
+          "path": "deploy/language_migration.py"
         },
         {
-          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 102,
-          "path": "dev_tools/russianization_audit.py"
+          "code": "r\"^(?P<indent>[ \\t]*)(?P<key>Language)(?P<spacing>[ \\t]*:[ \\t]*)(?P<value>[^\\r\\n#]*?)(?P<comment>[ \\t]+#.*)?(?P<eol>\\r\\n|\\n|\\r|$)\",",
+          "line": 18,
+          "path": "deploy/language_migration.py"
         },
         {
-          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-          "line": 103,
-          "path": "dev_tools/russianization_audit.py"
+          "code": "class DeployLanguageMigrationError(RuntimeError):",
+          "line": 23,
+          "path": "deploy/language_migration.py"
         }
       ],
       "exists": true,
@@ -362,23 +369,53 @@
           "path": "deploy/config.py"
         },
         {
-          "code": "Language: ru-RU",
-          "line": 38,
-          "path": "deploy/template"
+          "code": "\"\"\"Безопасная одноразовая миграция ``Language`` в deploy.yaml.\"\"\"",
+          "line": 1,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "from module.config.locale import UI_LOCALE",
+          "line": 15,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "r\"^(?P<indent>[ \\t]*)(?P<key>Language)(?P<spacing>[ \\t]*:[ \\t]*)(?P<value>[^\\r\\n#]*?)(?P<comment>[ \\t]+#.*)?(?P<eol>\\r\\n|\\n|\\r|$)\",",
+          "line": 18,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "class DeployLanguageMigrationError(RuntimeError):",
+          "line": 23,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "current_value: str = UI_LOCALE",
+          "line": 52,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "if raw_value.lower() == UI_LOCALE.lower() and previous == UI_LOCALE:",
+          "line": 116,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "f\"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}\"",
+          "line": 119,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
+          "line": 132,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
+          "line": 134,
+          "path": "deploy/language_migration.py"
         },
         {
           "code": "\"UI_LOCALE\", \"EVENT_NAME_SOURCE\", \"filepath_i18n\",",
           "line": 101,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
-          "line": 102,
-          "path": "dev_tools/russianization_audit.py"
-        },
-        {
-          "code": "\"lang_to_server\", \"BrowserLanguage\", \"OcrModel\", \"OcrLanguage\", \"PackageName\",",
-          "line": 103,
           "path": "dev_tools/russianization_audit.py"
         },
         {
@@ -392,54 +429,24 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "from module.config.locale import UI_LOCALE",
+          "line": 14,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "if UI_LOCALE.encode(\"utf-8\") not in after_bytes:",
+          "line": 61,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "\"result_locale\": UI_LOCALE,",
+          "line": 72,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
           "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
           "line": 39,
           "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "lang = UI_LOCALE",
-          "line": 353,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "old = read_file(filepath_i18n(UI_LOCALE))",
-          "line": 355,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "atomic_write(filepath_i18n(UI_LOCALE), content + '\\n')",
-          "line": 420,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "template['Language'] = UI_LOCALE",
-          "line": 544,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "from module.config.locale import UI_LOCALE",
-          "line": 20,
-          "path": "module/config/mcp_helper.py"
-        },
-        {
-          "code": "def __init__(self, lang=UI_LOCALE):",
-          "line": 36,
-          "path": "module/config/mcp_helper.py"
-        },
-        {
-          "code": "if lang != UI_LOCALE:",
-          "line": 37,
-          "path": "module/config/mcp_helper.py"
-        },
-        {
-          "code": "raise ValueError(f\"Поддерживается только язык интерфейса {UI_LOCALE}.\")",
-          "line": 38,
-          "path": "module/config/mcp_helper.py"
-        },
-        {
-          "code": "self.lang = UI_LOCALE",
-          "line": 39,
-          "path": "module/config/mcp_helper.py"
         }
       ],
       "exists": true,
@@ -565,6 +572,11 @@
           "path": "module/config/config_updater.py"
         },
         {
+          "code": "EVENT_NAME_SOURCE = \"en\"",
+          "line": 5,
+          "path": "module/config/locale.py"
+        },
+        {
           "code": "- EVENT_NAME_SOURCE / EVENT_NAME_FALLBACK_ORDER: 与 UI 语言无关的活动名称来源",
           "line": 13,
           "path": "module/config/utils.py"
@@ -583,6 +595,21 @@
           "code": "\"    return EVENT_NAME_SOURCE\\n\",",
           "line": 102,
           "path": "tests/test_russianization_audit.py"
+        },
+        {
+          "code": "self.assertIn(\"EVENT_NAME_SOURCE\", generate_i18n)",
+          "line": 37,
+          "path": "tests/test_stage5_generator.py"
+        },
+        {
+          "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
+          "line": 11,
+          "path": "tests/test_stage5_server_separation.py"
+        },
+        {
+          "code": "self.assertEqual(EVENT_NAME_SOURCE, \"en\")",
+          "line": 34,
+          "path": "tests/test_stage5_server_separation.py"
         }
       ],
       "exists": true,
@@ -663,6 +690,11 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "ServerName: en-0",
+          "line": 23,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
           "code": "\"ServerName\": {",
           "line": 251,
           "path": "module/config/argument/args.json"
@@ -703,9 +735,9 @@
           "path": "module/config/config_updater.py"
         },
         {
-          "code": "deep_set(self.argument, keys='Emulator.ServerName.option', value=option)",
-          "line": 591,
-          "path": "module/config/config_updater.py"
+          "code": "EVENT_NAME_SOURCE = \"en\"",
+          "line": 5,
+          "path": "module/config/locale.py"
         },
         {
           "code": "- EVENT_NAME_SOURCE / EVENT_NAME_FALLBACK_ORDER: 与 UI 语言无关的活动名称来源",
@@ -726,6 +758,21 @@
           "code": "\"    return EVENT_NAME_SOURCE\\n\",",
           "line": 102,
           "path": "tests/test_russianization_audit.py"
+        },
+        {
+          "code": "self.assertIn(\"EVENT_NAME_SOURCE\", generate_i18n)",
+          "line": 37,
+          "path": "tests/test_stage5_generator.py"
+        },
+        {
+          "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
+          "line": 11,
+          "path": "tests/test_stage5_server_separation.py"
+        },
+        {
+          "code": "self.assertEqual(EVENT_NAME_SOURCE, \"en\")",
+          "line": 34,
+          "path": "tests/test_stage5_server_separation.py"
         }
       ],
       "exists": true,
@@ -831,6 +878,21 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "ServerName: en-0",
+          "line": 23,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "OcrLanguage: en",
+          "line": 24,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "OcrModelVersionEnglish: azur_lane_v6_6",
+          "line": 25,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
           "code": "\"ServerName\": {",
           "line": 251,
           "path": "module/config/argument/args.json"
@@ -874,21 +936,6 @@
           "code": "OcrModelVersionJapanese:",
           "line": 237,
           "path": "module/config/argument/argument.yaml"
-        },
-        {
-          "code": "OcrModelVersionTraditionalChinese:",
-          "line": 240,
-          "path": "module/config/argument/argument.yaml"
-        },
-        {
-          "code": "Emulator_ServerName = 'disabled'  # disabled, cn_android-0, cn_android-1, cn_android-2, cn_android-3, cn_android-4, cn_android-5, cn_android-6, cn_android-7, cn_android-8, cn_android-9, cn_android-10, cn_android-11, cn_android-12, cn_android-13, cn_android-14, cn_android-15, cn_android-16, cn_android-17, cn_android-18, cn_android-19, cn_android-20, cn_android-21, cn_android-22, cn_android-23, cn_android-24, cn_android-25, cn_android-26, cn_android-27, cn_android-28, cn_android-29, cn_ios-0, cn_i",
-          "line": 94,
-          "path": "module/config/config_generated.py"
-        },
-        {
-          "code": "path = ['Emulator', 'ServerName', f'{server}-{index}']",
-          "line": 411,
-          "path": "module/config/config_updater.py"
         }
       ],
       "exists": true,
@@ -974,6 +1021,16 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "PackageName: com.YoStarEN.AzurLane",
+          "line": 22,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "ServerName: en-0",
+          "line": 23,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
           "code": "\"PackageName\": {",
           "line": 223,
           "path": "module/config/argument/args.json"
@@ -1041,16 +1098,6 @@
         {
           "code": "option = deep_get(self.argument, keys='Emulator.ServerName.option')",
           "line": 585,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "deep_set(self.argument, keys='Emulator.ServerName.option', value=option)",
-          "line": 591,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "# ('Alas.Emulator.PackageName', 'Alas.DropRecord.API', api_redirect),",
-          "line": 627,
           "path": "module/config/config_updater.py"
         }
       ],
@@ -1172,6 +1219,21 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "PackageName: com.YoStarEN.AzurLane",
+          "line": 22,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "ServerName: en-0",
+          "line": 23,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
+          "code": "OcrModelVersionEnglish: azur_lane_v6_6",
+          "line": 25,
+          "path": "dev_tools/verify_stage5.py"
+        },
+        {
           "code": "\"PackageName\": {",
           "line": 223,
           "path": "module/config/argument/args.json"
@@ -1200,21 +1262,6 @@
           "code": "\"OcrModelVersionTraditionalChinese\": {",
           "line": 574,
           "path": "module/config/argument/args.json"
-        },
-        {
-          "code": "PackageName:",
-          "line": 95,
-          "path": "module/config/argument/argument.yaml"
-        },
-        {
-          "code": "ServerName:",
-          "line": 98,
-          "path": "module/config/argument/argument.yaml"
-        },
-        {
-          "code": "OcrModelVersionEnglish:",
-          "line": 213,
-          "path": "module/config/argument/argument.yaml"
         }
       ],
       "exists": true,
@@ -1232,8 +1279,10 @@
     "missing": {}
   },
   "runtime_architecture": {
-    "active_runtime_locales": [],
-    "event_name_source": null,
+    "active_runtime_locales": [
+      "ru-RU"
+    ],
+    "event_name_source": "en",
     "foreign_runtime_fallback": false,
     "legacy_inactive_locale_files": [
       "en-US",
@@ -1290,6 +1339,11 @@
         "path": "module/config/config_updater.py"
       },
       {
+        "code": "EVENT_NAME_SOURCE = \"en\"",
+        "line": 5,
+        "path": "module/config/locale.py"
+      },
+      {
         "code": "- EVENT_NAME_SOURCE / EVENT_NAME_FALLBACK_ORDER: 与 UI 语言无关的活动名称来源",
         "line": 13,
         "path": "module/config/utils.py"
@@ -1308,6 +1362,26 @@
         "code": "\"    return EVENT_NAME_SOURCE\\n\",",
         "line": 102,
         "path": "tests/test_russianization_audit.py"
+      },
+      {
+        "code": "self.assertIn(\"EVENT_NAME_SOURCE\", generate_i18n)",
+        "line": 37,
+        "path": "tests/test_stage5_generator.py"
+      },
+      {
+        "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
+        "line": 11,
+        "path": "tests/test_stage5_server_separation.py"
+      },
+      {
+        "code": "self.assertEqual(EVENT_NAME_SOURCE, \"en\")",
+        "line": 34,
+        "path": "tests/test_stage5_server_separation.py"
+      },
+      {
+        "code": "self.assertNotEqual(EVENT_NAME_SOURCE, UI_LOCALE)",
+        "line": 36,
+        "path": "tests/test_stage5_server_separation.py"
       }
     ],
     "Event": [
@@ -1844,6 +1918,11 @@
         "code": "\"LANG_TO_SERVER\", \"SERVER_TO_LANG\", \"lang_to_server\",",
         "line": 493,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self.assertNotIn(\"LANG_TO_SERVER\", generate_i18n)",
+        "line": 38,
+        "path": "tests/test_stage5_generator.py"
       }
     ],
     "Language": [
@@ -1906,6 +1985,146 @@
         "code": "Language: str = \"ru-RU\"",
         "line": 77,
         "path": "deploy/config.py"
+      },
+      {
+        "code": "\"\"\"Безопасная одноразовая миграция ``Language`` в deploy.yaml.\"\"\"",
+        "line": 1,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "r\"^(?P<indent>[ \\t]*)(?P<key>Language)(?P<spacing>[ \\t]*:[ \\t]*)(?P<value>[^\\r\\n#]*?)(?P<comment>[ \\t]+#.*)?(?P<eol>\\r\\n|\\n|\\r|$)\",",
+        "line": 18,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "class DeployLanguageMigrationError(RuntimeError):",
+        "line": 23,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(f\"Обнаружен дублирующийся ключ YAML: {key}\")",
+        "line": 36,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "class LanguageMigrationResult:",
+        "line": 48,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "except DeployLanguageMigrationError:",
+        "line": 59,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 62,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 68,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 73,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"Обнаружено несколько ключей Language; исходный файл не изменён.\"",
+        "line": 74,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 77,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"Ключ Language должен содержать одно скалярное значение.\"",
+        "line": 78,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "if key == \"Language\":",
+        "line": 87,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 107,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"Обнаружено несколько строк Language; исходный файл не изменён.\"",
+        "line": 108,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "f\"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}\"",
+        "line": 119,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 125,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"Ключ Language найден в неоднозначной YAML-структуре; исходный файл не изменён.\"",
+        "line": 126,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
+        "line": 132,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
+        "line": 134,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "def migrate_deploy_language(file: str = DEPLOY_CONFIG) -> LanguageMigrationResult:",
+        "line": 138,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"\"\"Явно мигрировать ``Language``; обычное чтение конфигурации это не вызывает.\"\"\"",
+        "line": 139,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "return LanguageMigrationResult(str(path), False, None, reason=\"missing_file\")",
+        "line": 142,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 148,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "return LanguageMigrationResult(str(path), False, previous, reason=reason)",
+        "line": 155,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 166,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "f\"Не удалось атомарно обновить Language в deploy.yaml: {exc}\"",
+        "line": 167,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "return LanguageMigrationResult(str(path), True, previous, reason=reason)",
+        "line": 170,
+        "path": "deploy/language_migration.py"
       },
       {
         "code": "Language: ru-RU",
@@ -1988,6 +2207,31 @@
         "path": "dev_tools/russianization_audit.py"
       },
       {
+        "code": "Language: en-US",
+        "line": 19,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
+        "code": "OcrLanguage: en",
+        "line": 24,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
+        "code": "if key != \"Language\"",
+        "line": 35,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
+        "code": "raise RuntimeError(\"Миграция изменила значения, не относящиеся к Language.\")",
+        "line": 60,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
+        "code": "raise RuntimeError(\"В копии конфигурации не найдено итоговое Language: ru-RU.\")",
+        "line": 62,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
         "code": "Language:",
         "line": 260,
         "path": "module/config/argument/gui.yaml"
@@ -2051,6 +2295,26 @@
         "code": "\"ReviewLanguage\": \"言語\",",
         "line": 6293,
         "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"Language\": \"WebUI Language\",",
+        "line": 6106,
+        "path": "module/config/i18n/ru-RU.json"
+      },
+      {
+        "code": "\"LanguageHelp\": \"Display language used by WebUI.\",",
+        "line": 6107,
+        "path": "module/config/i18n/ru-RU.json"
+      },
+      {
+        "code": "\"WelcomeSelectLanguage\": \"Select your language\",",
+        "line": 6278,
+        "path": "module/config/i18n/ru-RU.json"
+      },
+      {
+        "code": "\"ReviewLanguage\": \"Language\",",
+        "line": 6293,
+        "path": "module/config/i18n/ru-RU.json"
       },
       {
         "code": "\"Language\": \"WebUI 语言\",",
@@ -2161,11 +2425,6 @@
         "code": "self.assertEqual(cn['Webui']['Language'], 'zh-CN')",
         "line": 72,
         "path": "tests/test_stage3d_templates.py"
-      },
-      {
-        "code": "TEMPLATE = '''Deploy:\\n  Python:\\n    PythonExecutable: python\\n    PypiMirror: null\\n    InstallDependencies: true\\n  Webui:\\n    EnableReload: false\\n    WebuiHost: 0.0.0.0\\n    WebuiPort: 25548\\n    Language: en-US\\n    Theme: default\\n    DpiScaling: true\\n    Password: null\\n    CDN: false\\n    WebuiSSLKey: null\\n    WebuiSSLCert: null\\n    Run: null\\n'''",
-        "line": 10,
-        "path": "tests/test_stage3d_webui_settings.py"
       }
     ],
     "OcrLanguage": [
@@ -2178,6 +2437,16 @@
         "code": "self._dependency_link(\"game server\", \"OCR profile/model\", evidence, (\"OcrModel\", \"OcrLanguage\", \"ServerName\"), \"Preserve server-specific OCR behaviour.\", True),",
         "line": 788,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "OcrLanguage: en",
+        "line": 24,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
+        "code": "source = f\"\"\"Deploy:\\n  Webui:\\n    Language: ja-JP\\nProfile:\\n  PackageName: {en_package}\\n  ServerName: {en_server_name}\\n  OcrModelVersionEnglish: azur_lane_v6_6\\n  OcrLanguage: en\\n  Event: campaign_main\\n\"\"\"",
+        "line": 21,
+        "path": "tests/test_stage5_server_separation.py"
       }
     ],
     "OcrModel": [
@@ -2215,6 +2484,11 @@
         "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9 handles evidence-based deletion.\", True),",
         "line": 790,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "OcrModelVersionEnglish: azur_lane_v6_6",
+        "line": 25,
+        "path": "dev_tools/verify_stage5.py"
       },
       {
         "code": "\"OcrModelVersionEnglish\": {",
@@ -2339,6 +2613,26 @@
       {
         "code": "\"OcrModelVersionEnglish\": {",
         "line": 773,
+        "path": "module/config/i18n/ru-RU.json"
+      },
+      {
+        "code": "\"OcrModelVersionChinese\": {",
+        "line": 785,
+        "path": "module/config/i18n/ru-RU.json"
+      },
+      {
+        "code": "\"OcrModelVersionJapanese\": {",
+        "line": 795,
+        "path": "module/config/i18n/ru-RU.json"
+      },
+      {
+        "code": "\"OcrModelVersionTraditionalChinese\": {",
+        "line": 802,
+        "path": "module/config/i18n/ru-RU.json"
+      },
+      {
+        "code": "\"OcrModelVersionEnglish\": {",
+        "line": 773,
         "path": "module/config/i18n/zh-CN.json"
       },
       {
@@ -2440,6 +2734,16 @@
         "code": "\"\"\"OCR RPC 服务端实现，继承 OcrModel 以复用模型加载逻辑。\"\"\"",
         "line": 251,
         "path": "module/ocr/rpc.py"
+      },
+      {
+        "code": "\"    OcrModelVersionEnglish: azur_lane_v6_6\\n\"",
+        "line": 34,
+        "path": "tests/test_stage5_deploy_language_migration.py"
+      },
+      {
+        "code": "source = f\"\"\"Deploy:\\n  Webui:\\n    Language: ja-JP\\nProfile:\\n  PackageName: {en_package}\\n  ServerName: {en_server_name}\\n  OcrModelVersionEnglish: azur_lane_v6_6\\n  OcrLanguage: en\\n  Event: campaign_main\\n\"\"\"",
+        "line": 21,
+        "path": "tests/test_stage5_server_separation.py"
       }
     ],
     "PackageName": [
@@ -2467,6 +2771,11 @@
         "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9 handles evidence-based deletion.\", True),",
         "line": 790,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "PackageName: com.YoStarEN.AzurLane",
+        "line": 22,
+        "path": "dev_tools/verify_stage5.py"
       },
       {
         "code": "\"PackageName\": {",
@@ -2532,6 +2841,11 @@
         "code": "\"PackageName\": {",
         "line": 475,
         "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"PackageName\": {",
+        "line": 475,
+        "path": "module/config/i18n/ru-RU.json"
       },
       {
         "code": "\"PackageName\": {",
@@ -2677,6 +2991,21 @@
         "code": "\"client_type\": self.config.MaaEmulator_PackageName,",
         "line": 311,
         "path": "submodule/AlasMaaBridge/module/handler/handler.py"
+      },
+      {
+        "code": "\"    PackageName: com.YoStarEN.AzurLane\\n\"",
+        "line": 30,
+        "path": "tests/test_stage5_deploy_language_migration.py"
+      },
+      {
+        "code": "source = f\"\"\"Deploy:\\n  Webui:\\n    Language: ja-JP\\nProfile:\\n  PackageName: {en_package}\\n  ServerName: {en_server_name}\\n  OcrModelVersionEnglish: azur_lane_v6_6\\n  OcrLanguage: en\\n  Event: campaign_main\\n\"\"\"",
+        "line": 21,
+        "path": "tests/test_stage5_server_separation.py"
+      },
+      {
+        "code": "self.assertEqual(to_server(after[\"Profile\"][\"PackageName\"]), \"en\")",
+        "line": 31,
+        "path": "tests/test_stage5_server_separation.py"
       }
     ],
     "SERVER_TO_LANG": [
@@ -2694,6 +3023,11 @@
         "code": "\"LANG_TO_SERVER\", \"SERVER_TO_LANG\", \"lang_to_server\",",
         "line": 493,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "self.assertNotIn(\"SERVER_TO_LANG\", generate_i18n)",
+        "line": 39,
+        "path": "tests/test_stage5_generator.py"
       }
     ],
     "ServerName": [
@@ -2743,6 +3077,11 @@
         "path": "dev_tools/russianization_audit.py"
       },
       {
+        "code": "ServerName: en-0",
+        "line": 23,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
         "code": "\"ServerName\": {",
         "line": 251,
         "path": "module/config/argument/args.json"
@@ -2786,6 +3125,11 @@
         "code": "\"ServerName\": {",
         "line": 501,
         "path": "module/config/i18n/ja-JP.json"
+      },
+      {
+        "code": "\"ServerName\": {",
+        "line": 501,
+        "path": "module/config/i18n/ru-RU.json"
       },
       {
         "code": "\"ServerName\": {",
@@ -2971,6 +3315,16 @@
         "code": "\"help\": \"Emulator.ServerName.help\"",
         "line": 99,
         "path": "submodule/AlasMaaBridge/module/config/i18n/zh-TW.json"
+      },
+      {
+        "code": "\"    ServerName: en-0\\n\"",
+        "line": 31,
+        "path": "tests/test_stage5_deploy_language_migration.py"
+      },
+      {
+        "code": "source = f\"\"\"Deploy:\\n  Webui:\\n    Language: ja-JP\\nProfile:\\n  PackageName: {en_package}\\n  ServerName: {en_server_name}\\n  OcrModelVersionEnglish: azur_lane_v6_6\\n  OcrLanguage: en\\n  Event: campaign_main\\n\"\"\"",
+        "line": 21,
+        "path": "tests/test_stage5_server_separation.py"
       }
     ],
     "UI_LOCALE": [
@@ -2983,6 +3337,36 @@
         "code": "i18n_file = filepath_i18n(UI_LOCALE)",
         "line": 38,
         "path": "alas.py"
+      },
+      {
+        "code": "from module.config.locale import UI_LOCALE",
+        "line": 15,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "current_value: str = UI_LOCALE",
+        "line": 52,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "if raw_value.lower() == UI_LOCALE.lower() and previous == UI_LOCALE:",
+        "line": 116,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "f\"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}\"",
+        "line": 119,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
+        "line": 132,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
+        "line": 134,
+        "path": "deploy/language_migration.py"
       },
       {
         "code": "\"UI_LOCALE\", \"EVENT_NAME_SOURCE\", \"filepath_i18n\",",
@@ -2998,6 +3382,21 @@
         "code": "self._dependency_link(\"deploy Language\", \"config generator\", evidence, (\"Language\", \"UI_LOCALE\"), \"Generator uses UI_LOCALE directly.\", False),",
         "line": 785,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "from module.config.locale import UI_LOCALE",
+        "line": 14,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
+        "code": "if UI_LOCALE.encode(\"utf-8\") not in after_bytes:",
+        "line": 61,
+        "path": "dev_tools/verify_stage5.py"
+      },
+      {
+        "code": "\"result_locale\": UI_LOCALE,",
+        "line": 72,
+        "path": "dev_tools/verify_stage5.py"
       },
       {
         "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
@@ -3023,6 +3422,16 @@
         "code": "template['Language'] = UI_LOCALE",
         "line": 544,
         "path": "module/config/config_updater.py"
+      },
+      {
+        "code": "UI_LOCALE = \"ru-RU\"",
+        "line": 3,
+        "path": "module/config/locale.py"
+      },
+      {
+        "code": "LEGACY_UI_LOCALES = (\"en-US\", \"ja-JP\", \"zh-CN\", \"zh-MIAO\", \"zh-TW\")",
+        "line": 4,
+        "path": "module/config/locale.py"
       },
       {
         "code": "from module.config.locale import UI_LOCALE",
@@ -3228,6 +3637,96 @@
         "code": "\"    return filepath_i18n(UI_LOCALE)\\n\",",
         "line": 96,
         "path": "tests/test_russianization_audit.py"
+      },
+      {
+        "code": "from module.config.locale import LEGACY_UI_LOCALES, UI_LOCALE",
+        "line": 8,
+        "path": "tests/test_stage5_generator.py"
+      },
+      {
+        "code": "self.assertIn(\"UI_LOCALE\", generate_i18n)",
+        "line": 36,
+        "path": "tests/test_stage5_generator.py"
+      },
+      {
+        "code": "self.assertEqual(data[\"Deploy\"][\"Webui\"][\"Language\"], UI_LOCALE)",
+        "line": 58,
+        "path": "tests/test_stage5_generator.py"
+      },
+      {
+        "code": "for locale in LEGACY_UI_LOCALES:",
+        "line": 64,
+        "path": "tests/test_stage5_generator.py"
+      },
+      {
+        "code": "self.assertTrue((ROOT / f\"module/config/i18n/{UI_LOCALE}.json\").is_file())",
+        "line": 66,
+        "path": "tests/test_stage5_generator.py"
+      },
+      {
+        "code": "from module.config.locale import LEGACY_UI_LOCALES, UI_LOCALE",
+        "line": 10,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "self.assertEqual(UI_LOCALE, \"ru-RU\")",
+        "line": 24,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "self.assertEqual(lang.LANG, UI_LOCALE)",
+        "line": 25,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "self.assertNotIn(UI_LOCALE, LEGACY_UI_LOCALES)",
+        "line": 26,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "self.assertEqual(set(LEGACY_UI_LOCALES), {\"en-US\", \"ja-JP\", \"zh-CN\", \"zh-MIAO\", \"zh-TW\"})",
+        "line": 27,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "for legacy in LEGACY_UI_LOCALES:",
+        "line": 42,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "for value in (*LEGACY_UI_LOCALES, \"de-DE\", \"unknown\"):",
+        "line": 46,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "self.assertEqual(lang.LANG, UI_LOCALE)",
+        "line": 51,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "lang.set_language(UI_LOCALE, refresh=True)",
+        "line": 53,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "for legacy in LEGACY_UI_LOCALES:",
+        "line": 58,
+        "path": "tests/test_stage5_locale_runtime.py"
+      },
+      {
+        "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
+        "line": 11,
+        "path": "tests/test_stage5_server_separation.py"
+      },
+      {
+        "code": "self.assertEqual(after[\"Deploy\"][\"Webui\"][\"Language\"], UI_LOCALE)",
+        "line": 29,
+        "path": "tests/test_stage5_server_separation.py"
+      },
+      {
+        "code": "self.assertNotEqual(EVENT_NAME_SOURCE, UI_LOCALE)",
+        "line": 36,
+        "path": "tests/test_stage5_server_separation.py"
       }
     ],
     "event_name": [
@@ -3295,6 +3794,11 @@
         "code": "self.assertEqual(architecture[\"event_name_source\"], \"en\")",
         "line": 112,
         "path": "tests/test_russianization_audit.py"
+      },
+      {
+        "code": "def test_event_name_source_is_explicit_and_server_based(self) -> None:",
+        "line": 33,
+        "path": "tests/test_stage5_server_separation.py"
       }
     ],
     "filepath_i18n": [
