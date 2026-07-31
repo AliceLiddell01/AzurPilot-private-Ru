@@ -1,54 +1,43 @@
-name: Stage 5 publish
+name: Stage 5 validation
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: stage5-publish-${{ github.event.pull_request.number || github.ref }}
+  group: stage5-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  stage5-publish:
-    if: github.event_name == 'pull_request'
+  python-validation:
+    name: Python, generators and regression tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.14'
+
       - name: Install dependencies
         run: uv sync
-      - name: Apply Stage 5 implementation
-        run: |
-          python .github/stage5_apply.py
-          python .github/stage5_audit_fix.py
-          rm -rf .github/stage5_apply.py .github/stage5_audit_fix.py .github/stage5_payload
-      - name: Run deterministic generators
-        run: |
-          uv run -m dev_tools.button_extract
-          uv run -m module.config.config_updater
-          git diff --binary > /tmp/stage5-generator-first.diff
-          uv run -m dev_tools.button_extract
-          uv run -m module.config.config_updater
-          git diff --binary > /tmp/stage5-generator-second.diff
-          cmp /tmp/stage5-generator-first.diff /tmp/stage5-generator-second.diff
-      - name: Regenerate and verify audit baseline
-        run: |
-          uv run python -m dev_tools.russianization_audit --write
-          uv run python -m dev_tools.russianization_audit --check
-      - name: Run ruff
+
+      - name: Run Ruff
         run: uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
-      - name: Run Stage 3 through Stage 5 tests
+
+      - name: Run Stage 3 regression tests
         run: >-
           uv run python -m unittest -v
           tests/test_deploy_location.py
@@ -57,30 +46,71 @@ jobs:
           tests/test_stage3d_templates.py
           tests/test_stage3d_webui_settings.py
           tests/test_stage3e_release_cleanup.py
-          tests/test_russianization_audit.py
+
+      - name: Run Stage 4 audit tests
+        run: uv run python -m unittest -v tests/test_russianization_audit.py
+
+      - name: Check Russianization audit baseline
+        run: uv run python -m dev_tools.russianization_audit --check
+
+      - name: Verify deterministic generators
+        run: |
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
+          git diff --binary > /tmp/generator-first.diff
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
+          git diff --binary > /tmp/generator-second.diff
+          cmp /tmp/generator-first.diff /tmp/generator-second.diff
+          git diff --exit-code --ignore-space-at-eol
+
+      - name: Run Stage 5 regression tests
+        run: >-
+          uv run python -m unittest -v
           tests/test_stage5_deploy_language_migration.py
           tests/test_stage5_locale_runtime.py
           tests/test_stage5_server_separation.py
           tests/test_stage5_generator.py
+
       - name: Run Stage 5 verifier
         run: uv run python -m dev_tools.verify_stage5
+
       - name: Check diff formatting
         run: git diff --check
+
       - name: Check forbidden deletions and secrets
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
-          forbidden_deletions="$({ git diff --name-status --diff-filter=D || true; } | awk '$2 ~ /^assets\// || $2 ~ /^module\/config\/i18n\/(en-US|ja-JP|zh-CN|zh-MIAO|zh-TW)\.json$/ { print }')"
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'pull_request' ]]; then
+            diff_range="${PR_BASE_SHA}...HEAD"
+          elif [[ -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != '0000000000000000000000000000000000000000' ]]; then
+            diff_range="${PUSH_BEFORE_SHA}..HEAD"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            diff_range='HEAD^..HEAD'
+          else
+            echo 'No parent commit is available for the diff audit.'
+            exit 0
+          fi
+
+          forbidden_deletions="$(git diff --name-status --diff-filter=D "$diff_range" | awk '$2 ~ /^assets\// || $2 ~ /^module\/config\/i18n\/(en-US|ja-JP|zh-CN|zh-MIAO|zh-TW)\.json$/ { print }')"
           if [[ -n "$forbidden_deletions" ]]; then
             echo 'Stage 5 attempted forbidden locale or asset deletions.'
             echo "$forbidden_deletions"
             exit 1
           fi
-          python - <<'PY'
+
+          DIFF_RANGE="$diff_range" python - <<'PY'
+          import os
           import re
           import subprocess
 
           diff = subprocess.run(
-              ['git', 'diff', '--unified=0', '--no-color'],
+              ['git', 'diff', '--unified=0', '--no-color', os.environ['DIFF_RANGE']],
               check=True,
               capture_output=True,
               text=True,
@@ -96,17 +126,45 @@ jobs:
               raise SystemExit('Potential secret patterns detected: ' + ', '.join(matched))
           print('Secret pattern audit: no matches.')
           PY
-      - name: Publish Stage 5 implementation
-        shell: bash
-        env:
-          TARGET_BRANCH: chatgpt/stage5-single-russian-locale
-          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+
+  powershell-validation:
+    name: PowerShell parser and PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse all PowerShell scripts
+        shell: pwsh
         run: |
-          set -euo pipefail
-          git restore --source=HEAD -- .github/workflows/lint.yml
-          git add -A
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(stage5): enforce single Russian locale'
-          git fetch origin "$TARGET_BRANCH"
-          git push --force-with-lease="refs/heads/${TARGET_BRANCH}:${EXPECTED_HEAD}" origin "HEAD:refs/heads/${TARGET_BRANCH}"
+          $ErrorActionPreference = "Stop"
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              Write-Error ("Parse errors in {0}:`n{1}" -f $_.FullName, ($errors | Out-String))
+            }
+          }
+
+          if ($failed) {
+            throw "PowerShell parse validation failed."
+          }
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
+          $results | Format-Table -AutoSize
+          if ($results) {
+            throw "PSScriptAnalyzer reported findings."
+          }
