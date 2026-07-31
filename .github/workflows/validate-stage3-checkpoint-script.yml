@@ -1,0 +1,54 @@
+name: Validate Stage 3 Checkpoint Script
+
+on:
+  push:
+    branches:
+      - chatgpt/validate-stage3-checkpoint-script
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
+
+      - name: Parse
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $PWD 'validation/Publish-Stage3Checkpoint.ps1'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              $scriptPath,
+              [ref]$tokens,
+              [ref]$errors
+          ) | Out-Null
+
+          if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Error
+              exit 1
+          }
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $scriptPath = Join-Path $PWD 'validation/Publish-Stage3Checkpoint.ps1'
+          $findings = @(
+              Invoke-ScriptAnalyzer -Path $scriptPath -Severity Error,Warning
+          )
+
+          if ($findings.Count -gt 0) {
+              $findings | Format-List | Out-String | Write-Error
+              exit 1
+          }
