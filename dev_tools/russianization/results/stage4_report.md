@@ -31,7 +31,7 @@ uv run python -m dev_tools.russianization_audit --check
 | Probable delete candidates | 1228 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `1899e0d5809f67a0d8b6c07aa36727377a43ab30ad19d2df5811df1278ff74b7`
+Source fingerprint: `303ed348bc824bb64443be43d772ebe012f94ffeca5be59d6ac077be8affc4d6`
 
 ## Locale inventory
 

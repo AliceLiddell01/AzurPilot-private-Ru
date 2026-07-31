@@ -856,7 +856,7 @@ class AuditEngine:
         manifest_columns = (
             "path", "size_bytes", "extension", "content_hash_or_stable_fingerprint", "asset_type",
             "suspected_scope", "language_or_server_markers", "static_references",
-            "dynamic_loader_references", "generated_references", "test_references",
+            "dynamic_loader_references", "generated_references", "test_references", "reference_counts",
             "shared_runtime_candidate", "en_global_required_candidate", "deletable_candidate",
             "decision_status", "confidence", "reason", "manual_review_required",
         )
