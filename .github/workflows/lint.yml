@@ -131,7 +131,7 @@ jobs:
           }
 
   stage5-export:
-    if: github.ref == 'refs/heads/chatgpt/stage5-single-russian-locale'
+    if: github.ref == 'refs/heads/chatgpt/stage5-single-russian-locale' || github.event.pull_request.head.ref == 'chatgpt/stage5-single-russian-locale'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
