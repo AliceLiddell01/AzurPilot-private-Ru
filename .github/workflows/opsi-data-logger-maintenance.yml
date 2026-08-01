@@ -48,22 +48,25 @@ jobs:
                   raise SystemExit("config import anchor not found")
               config = config.replace(import_anchor, import_replacement, 1)
 
-          old_special_radar = '''        def is_special_radar(task):
-              return deep_get(
-                  self.data, keys=f"{task}.OpsiExplore.SpecialRadar", default=False
-              )
-          '''
-          new_special_radar = '''        def is_special_radar(task):
-              if task == "OpsiExplore":
-                  return data_logger_is_active_from_data(self.data)
-              return deep_get(
-                  self.data, keys=f"{task}.OpsiExplore.SpecialRadar", default=False
-              )
-          '''
-          if new_special_radar not in config:
-              if old_special_radar not in config:
-                  raise SystemExit("is_special_radar anchor not found")
-              config = config.replace(old_special_radar, new_special_radar, 1)
+          replacement = (
+              '        def is_special_radar(task):\n'
+              '            if task == "OpsiExplore":\n'
+              '                return data_logger_is_active_from_data(self.data)\n'
+              '            return deep_get(\n'
+              '                self.data, keys=f"{task}.OpsiExplore.SpecialRadar", default=False\n'
+              '            )'
+          )
+          start_marker = "        def is_special_radar(task):\n"
+          end_marker = "\n\n        if recon_scan:"
+          start = config.find(start_marker)
+          if start < 0:
+              if replacement not in config:
+                  raise SystemExit("is_special_radar start marker not found")
+          else:
+              end = config.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit("is_special_radar end marker not found")
+              config = config[:start] + replacement + config[end:]
           config_path.write_text(config, encoding="utf-8", newline="\n")
 
           state_path = Path("module/config/opsi_data_logger.py")
