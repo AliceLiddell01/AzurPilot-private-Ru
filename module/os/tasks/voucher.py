@@ -4,6 +4,7 @@ from module.base.timer import Timer
 from module.base.utils import random_rectangle_point, rgb2gray
 from module.combat.assets import GET_ITEMS_1, GET_ITEMS_2
 from module.config.opsi_data_logger import (
+    DATA_LOGGER_MAX_FAILURES_PER_CYCLE,
     DATA_LOGGER_NAME,
     DataLoggerShopResult,
     DataLoggerShopState,
@@ -40,6 +41,7 @@ from module.ui.assets import BACK_ARROW
 DATA_LOGGER_RETRY_MINUTES = 360
 DATA_LOGGER_STORAGE_ENTER_SECONDS = 15
 DATA_LOGGER_STORAGE_USE_SECONDS = 25
+DATA_LOGGER_ACTIVATION_ABSENT_FRAMES = 3
 
 
 class OpsiVoucher(OSMap):
@@ -67,11 +69,22 @@ class OpsiVoucher(OSMap):
         self.os_globe_goto_map()
 
     def _data_logger_schedule_retry(self, reason):
+        failure_count = data_logger_set_retry(self.config, reason=reason)
+        if failure_count >= DATA_LOGGER_MAX_FAILURES_PER_CYCLE:
+            next_reset = get_os_next_reset()
+            logger.error(
+                f'[{DATA_LOGGER_NAME}] lifecycle remained unverifiable after '
+                f'{failure_count} attempts; paused until the next monthly reset: '
+                f'{reason}'
+            )
+            self.config.task_delay(target=next_reset)
+            return
+
         logger.warning(
-            f'[{DATA_LOGGER_NAME}] lifecycle incomplete, retry in no more than '
-            f'{DATA_LOGGER_RETRY_MINUTES} minutes: {reason}'
+            f'[{DATA_LOGGER_NAME}] lifecycle incomplete; retry '
+            f'{failure_count}/{DATA_LOGGER_MAX_FAILURES_PER_CYCLE - 1} in no more '
+            f'than {DATA_LOGGER_RETRY_MINUTES} minutes: {reason}'
         )
-        data_logger_set_retry(self.config, reason=reason)
         # Retry after six hours, but never later than the next daily server
         # update. task_delay converts the configured server update to local
         # time and selects the nearest target.
@@ -244,8 +257,10 @@ class OpsiVoucher(OSMap):
         return None
 
     def _data_logger_storage_activate_item(self):
-        attempted = False
+        item_selected = False
+        use_clicked = False
         success_observed = False
+        absent_after_use_frames = 0
         timeout = Timer.from_seconds(DATA_LOGGER_STORAGE_USE_SECONDS).start()
         self.interval_clear(STORAGE_CHECK)
         self.interval_clear(STORAGE_USE)
@@ -261,9 +276,12 @@ class OpsiVoucher(OSMap):
                 self.device.click(GET_MISSION)
                 continue
             if self.appear_then_click(STORAGE_USE, offset=(180, 30), interval=2):
+                use_clicked = True
+                absent_after_use_frames = 0
                 continue
             if self.appear_then_click(BOX_USE, offset=(180, 30), interval=2):
-                success_observed = True
+                use_clicked = True
+                absent_after_use_frames = 0
                 continue
             if self.appear_then_click(GET_ITEMS_1, interval=2):
                 success_observed = True
@@ -280,17 +298,37 @@ class OpsiVoucher(OSMap):
 
             if self.is_in_storage():
                 items = self._data_logger_storage_items()
-                if attempted and not items:
+                if items:
+                    absent_after_use_frames = 0
+                    if not item_selected or use_clicked:
+                        self.device.click(items[0])
+                        item_selected = True
+                        use_clicked = False
+                    continue
+
+                if success_observed:
                     logger.info(
-                        f'[{DATA_LOGGER_NAME}] activation confirmed by item disappearance'
+                        f'[{DATA_LOGGER_NAME}] activation confirmed by success UI'
                     )
                     return DataLoggerStorageState.ACTIVATED
-                if items:
-                    self.device.click(items[0])
-                    attempted = True
+
+                if use_clicked:
+                    absent_after_use_frames += 1
+                    if (
+                        absent_after_use_frames
+                        >= DATA_LOGGER_ACTIVATION_ABSENT_FRAMES
+                    ):
+                        logger.info(
+                            f'[{DATA_LOGGER_NAME}] activation confirmed after Use '
+                            'and stable item disappearance'
+                        )
+                        return DataLoggerStorageState.ACTIVATED
                     continue
-                if success_observed:
-                    return DataLoggerStorageState.ACTIVATED
+
+                if item_selected:
+                    # Selecting the item can hide the list behind a modal. The
+                    # disappearance is not evidence that Use was clicked.
+                    continue
 
         logger.warning(f'[{DATA_LOGGER_NAME}] Storage activation could not be confirmed')
         return DataLoggerStorageState.UNKNOWN
