@@ -2,7 +2,7 @@
   "active_runtime_locales": [
     "ru-RU"
   ],
-  "asset_bytes_total": 585495190,
+  "asset_bytes_total": 585496202,
   "asset_decision_counts": {
     "confirmed_keep": 7787,
     "needs_manual_review": 684,
@@ -22,9 +22,9 @@
   "confirmed_delete_candidates": 0,
   "en_global_required_candidates": 3664,
   "event_name_source": "en",
-  "first_party_log_messages": 5797,
+  "first_party_log_messages": 5798,
   "foreign_runtime_fallback": false,
-  "full_asset_manifest_sha256": "da0b66de2516f827aa4ff0b06bd5aafcba782348efbae6184d6de03228e8d06b",
+  "full_asset_manifest_sha256": "05bcf09fc2d873962a660adf3d25947dd2f29a51866aff2e09a2b204a9d745c2",
   "legacy_inactive_locale_files": [
     "en-US",
     "ja-JP",
@@ -42,12 +42,12 @@
     "zh-MIAO",
     "zh-TW"
   ],
-  "log_translation_required": 5097,
+  "log_translation_required": 5098,
   "logs_by_subsystem": {
     "campaign_combat_fleet": 569,
     "deploy_and_dependencies": 320,
     "device_adb_emulator": 638,
-    "game_tasks": 2658,
+    "game_tasks": 2659,
     "ocr": 107,
     "operation_siren": 841,
     "other": 286,
@@ -59,7 +59,7 @@
   "manual_review_assets": 1916,
   "probable_delete_candidates": 1231,
   "schema_version": 1,
-  "source_fingerprint": "b9c17fb7f2ec4482ea4fc848442ebffa573218ff19564f18284fb282f880f218",
+  "source_fingerprint": "e67d351a2bb0184a7b826c00b5ad75598d3643e0c9047335ff5fbcdf7010b394",
   "text_files_scanned": 2119,
   "tracked_files_scanned": 10953,
   "ui_by_subsystem": {

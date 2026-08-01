@@ -174,12 +174,12 @@
         },
         {
           "code": "module_file = filepath_i18n(UI_LOCALE, mod_name)",
-          "line": 74,
+          "line": 73,
           "path": "module/webui/lang.py"
         },
         {
           "code": "for path, value in deep_iter(read_file(filepath_i18n(UI_LOCALE)), depth=3):",
-          "line": 78,
+          "line": 77,
           "path": "module/webui/lang.py"
         },
         {
@@ -2537,22 +2537,22 @@
       },
       {
         "code": "return self.Optimization_OcrModelVersionEnglish",
-        "line": 261,
+        "line": 262,
         "path": "module/config/config.py"
       },
       {
         "code": "return self.Optimization_OcrModelVersionChinese",
-        "line": 263,
+        "line": 264,
         "path": "module/config/config.py"
       },
       {
         "code": "return self.Optimization_OcrModelVersionJapanese",
-        "line": 265,
+        "line": 266,
         "path": "module/config/config.py"
       },
       {
         "code": "return self.Optimization_OcrModelVersionTraditionalChinese",
-        "line": 267,
+        "line": 268,
         "path": "module/config/config.py"
       },
       {
@@ -3545,32 +3545,32 @@
       },
       {
         "code": "if not isinstance(value, str) or value.lower() != UI_LOCALE.lower():",
+        "line": 45,
+        "path": "module/webui/lang.py"
+      },
+      {
+        "code": "raise ValueError(f\"Поддерживается только язык интерфейса {UI_LOCALE}.\")",
         "line": 46,
         "path": "module/webui/lang.py"
       },
       {
-        "code": "raise ValueError(f\"Поддерживается только язык интерфейса {UI_LOCALE}.\")",
-        "line": 47,
+        "code": "if lang is not None and str(lang).lower() != UI_LOCALE.lower():",
+        "line": 60,
         "path": "module/webui/lang.py"
       },
       {
-        "code": "if lang is not None and str(lang).lower() != UI_LOCALE.lower():",
+        "code": "raise ValueError(f\"Поддерживается только язык интерфейса {UI_LOCALE}.\")",
         "line": 61,
         "path": "module/webui/lang.py"
       },
       {
-        "code": "raise ValueError(f\"Поддерживается только язык интерфейса {UI_LOCALE}.\")",
-        "line": 62,
-        "path": "module/webui/lang.py"
-      },
-      {
         "code": "module_file = filepath_i18n(UI_LOCALE, mod_name)",
-        "line": 74,
+        "line": 73,
         "path": "module/webui/lang.py"
       },
       {
         "code": "for path, value in deep_iter(read_file(filepath_i18n(UI_LOCALE)), depth=3):",
-        "line": 78,
+        "line": 77,
         "path": "module/webui/lang.py"
       },
       {
@@ -3914,12 +3914,12 @@
       },
       {
         "code": "module_file = filepath_i18n(UI_LOCALE, mod_name)",
-        "line": 74,
+        "line": 73,
         "path": "module/webui/lang.py"
       },
       {
         "code": "for path, value in deep_iter(read_file(filepath_i18n(UI_LOCALE)), depth=3):",
-        "line": 78,
+        "line": 77,
         "path": "module/webui/lang.py"
       },
       {
@@ -3964,7 +3964,7 @@
       },
       {
         "code": "monkeypatch.setattr(lang, \"filepath_i18n\", lambda *_args: \"ru-RU.json\")",
-        "line": 511,
+        "line": 610,
         "path": "tests/test_opsi_data_logger.py"
       },
       {

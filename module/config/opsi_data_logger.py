@@ -6,11 +6,9 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from functools import wraps
-from threading import RLock
 from typing import Any
 
-from module.config.deep import deep_get, deep_set
+from module.config.deep import deep_get
 from module.config.time_source import now as current_time
 from module.config.utils import get_os_next_reset, server_timezone
 
@@ -26,8 +24,6 @@ DATA_LOGGER_VALID_UNTIL_KEY = "OperationSirenDataLoggerValidUntil"
 DATA_LOGGER_RETRY_PENDING_KEY = "OperationSirenDataLoggerRetryPending"
 DATA_LOGGER_RETRY_REASON_KEY = "OperationSirenDataLoggerRetryReason"
 DATA_LOGGER_RETRY_CYCLE_KEY = "OperationSirenDataLoggerRetryCycle"
-
-_SCHEDULER_BRIDGE_LOCK = RLock()
 
 
 class DataLoggerShopState(Enum):
@@ -201,50 +197,3 @@ def data_logger_clear_retry(config) -> None:
             changed = True
     if changed:
         config.cross_set(keys=DATA_LOGGER_STORAGE_PATH, value=storage)
-
-
-def install_data_logger_scheduler_bridge() -> None:
-    """Make legacy scheduler checks consume monthly state, not user intent.
-
-    ``AzurLaneConfig.opsi_task_delay`` historically reads the visible
-    ``OpsiExplore_SpecialRadar`` attribute. Keep that persisted value as the
-    user's automation intent, but temporarily expose the validated monthly
-    state while the scheduler method executes. The lock prevents overlapping
-    scheduler calls from observing each other's temporary value.
-
-    This compatibility bridge is intentionally isolated here. A future direct
-    scheduler integration can remove it without changing persisted state.
-    """
-    from module.config.config import AzurLaneConfig
-
-    original = AzurLaneConfig.opsi_task_delay
-    if getattr(original, "_data_logger_monthly_state_bridge", False):
-        return
-
-    @wraps(original)
-    def wrapped(config, *args, **kwargs):
-        with _SCHEDULER_BRIDGE_LOCK:
-            previous = deep_get(
-                config.data,
-                keys=DATA_LOGGER_INTENT_PATH,
-                default=False,
-            )
-            deep_set(
-                config.data,
-                keys=DATA_LOGGER_INTENT_PATH,
-                value=data_logger_is_active_from_data(config.data),
-            )
-            try:
-                return original(config, *args, **kwargs)
-            finally:
-                deep_set(
-                    config.data,
-                    keys=DATA_LOGGER_INTENT_PATH,
-                    value=previous,
-                )
-
-    wrapped._data_logger_monthly_state_bridge = True
-    AzurLaneConfig.opsi_task_delay = wrapped
-
-
-install_data_logger_scheduler_bridge()
