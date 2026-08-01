@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Install dependencies
+      - name: Install project dependencies
         run: uv sync --frozen
 
       - name: Compile changed Python modules
@@ -45,19 +45,28 @@ jobs:
           module/webui/lang.py
           tests/test_opsi_data_logger.py
 
-      - name: Run Operation Siren Data Logger tests
-        run: uv run python -m pytest -q tests/test_opsi_data_logger.py
-
-      - name: Restore validation workflow
-        if: success()
-        run: git show 89fae04e3ac62acb73b71eec9c14f49ee27e9bc1:.github/workflows/lint.yml > .github/workflows/lint.yml
-
-      - name: Commit restored workflow
-        if: success()
+      - name: Run targeted tests and restore workflow
+        shell: bash
         run: |
+          set +e
+          uv pip install pytest
+          install_exit=$?
+          test_exit=$install_exit
+          if [[ $install_exit -eq 0 ]]; then
+            uv run python -m pytest -q tests/test_opsi_data_logger.py
+            test_exit=$?
+          fi
+
+          git show 89fae04e3ac62acb73b71eec9c14f49ee27e9bc1:.github/workflows/lint.yml > .github/workflows/lint.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- .github/workflows/lint.yml
           git diff --cached --check
           git commit -m 'ci: завершить точечную проверку Data Logger'
           git push origin HEAD:fix/opsi-data-logger
+          push_exit=$?
+
+          if [[ $push_exit -ne 0 ]]; then
+            exit $push_exit
+          fi
+          exit $test_exit
