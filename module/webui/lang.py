@@ -10,10 +10,9 @@ from module.submodule.utils import list_mod_dir
 LANG = UI_LOCALE
 TRANSLATE_MODE = False
 
-# Совместимость со старой локализацией: прежний термин заменяется только при
-# загрузке строк и не используется как публичное название предмета.
-_LEGACY_DATA_LOGGER_NAME = "Campaign Information Recorder"
-_DATA_LOGGER_NAME = "Operation Siren Data Logger"
+# Точечные переопределения относятся только к Data Logger. Глобальная замена
+# названий во всех строках намеренно не используется: она могла затронуть
+# несвязанные подсказки и скрывала устаревшие исходные переводы.
 _OPSI_DATA_LOGGER_TRANSLATIONS = {
     "OpsiExplore._info.help": (
         "Исследует все морские зоны Операции «Сирена» в начале месяца.\n"
@@ -78,12 +77,6 @@ def reload() -> None:
     for path, value in deep_iter(read_file(filepath_i18n(UI_LOCALE)), depth=3):
         loaded[".".join(path)] = value
 
-    for key, value in loaded.items():
-        if isinstance(value, str):
-            loaded[key] = value.replace(
-                _LEGACY_DATA_LOGGER_NAME,
-                _DATA_LOGGER_NAME,
-            )
     for key, value in _OPSI_DATA_LOGGER_TRANSLATIONS.items():
         if key in loaded:
             loaded[key] = value
