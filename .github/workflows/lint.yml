@@ -4,7 +4,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: stage5-audit-baseline-refresh-${{ github.event.pull_request.number }}
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   refresh-baseline:
-    name: Validate, regenerate and publish audit baseline
+    name: Validate and export audit baseline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -123,26 +123,15 @@ jobs:
           print('Secret pattern audit: no matches.')
           PY
 
-      - name: Commit and push generated baseline
-        env:
-          TARGET_BRANCH: chatgpt/stage5-single-russian-locale
-          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          if git diff --cached --quiet; then
-            echo 'Audit baseline is already current.'
-            exit 1
-          fi
-
-          remote_head="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | cut -f1)"
-          if [[ "$remote_head" != "$EXPECTED_HEAD" ]]; then
-            echo "Branch moved while baseline was generated."
-            echo "Expected: $EXPECTED_HEAD"
-            echo "Actual:   $remote_head"
-            exit 1
-          fi
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'chore(stage5): refresh Russianization audit baseline'
-          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
+      - name: Upload generated audit baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5-audit-baseline-${{ github.event.pull_request.head.sha }}
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            dev_tools/russianization/results/summary.json
+            dev_tools/russianization/results/first_party_logs.json
+            dev_tools/russianization/results/asset_manifest.json
+            dev_tools/russianization/results/locale_dependency_map.json
+            dev_tools/russianization/results/stage4_report.md
