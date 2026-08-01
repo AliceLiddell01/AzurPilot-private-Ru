@@ -13,6 +13,7 @@ from module.config.opsi_data_logger import (
     data_logger_intent_enabled,
     data_logger_is_active,
     data_logger_mark_active,
+    data_logger_retry_count,
     data_logger_retry_pending,
     data_logger_set_retry,
 )
@@ -68,22 +69,25 @@ class OpsiVoucher(OSMap):
         )
         self.os_globe_goto_map()
 
+    def _data_logger_schedule_failure_pause(self, reason, failure_count):
+        next_reset = get_os_next_reset()
+        logger.error(
+            f'[{DATA_LOGGER_NAME}] lifecycle remained unverifiable after '
+            f'{failure_count} attempts; paused until the next monthly reset: '
+            f'{reason}'
+        )
+        self.config.task_delay(target=next_reset)
+
     def _data_logger_schedule_retry(self, reason):
         failure_count = data_logger_set_retry(self.config, reason=reason)
         if failure_count >= DATA_LOGGER_MAX_FAILURES_PER_CYCLE:
-            next_reset = get_os_next_reset()
-            logger.error(
-                f'[{DATA_LOGGER_NAME}] lifecycle remained unverifiable after '
-                f'{failure_count} attempts; paused until the next monthly reset: '
-                f'{reason}'
-            )
-            self.config.task_delay(target=next_reset)
+            self._data_logger_schedule_failure_pause(reason, failure_count)
             return
 
         logger.warning(
-            f'[{DATA_LOGGER_NAME}] lifecycle incomplete; retry '
-            f'{failure_count}/{DATA_LOGGER_MAX_FAILURES_PER_CYCLE - 1} in no more '
-            f'than {DATA_LOGGER_RETRY_MINUTES} minutes: {reason}'
+            f'[{DATA_LOGGER_NAME}] lifecycle incomplete; unresolved attempt '
+            f'{failure_count}/{DATA_LOGGER_MAX_FAILURES_PER_CYCLE}, retry in no '
+            f'more than {DATA_LOGGER_RETRY_MINUTES} minutes: {reason}'
         )
         # Retry after six hours, but never later than the next daily server
         # update. task_delay converts the configured server update to local
@@ -300,10 +304,9 @@ class OpsiVoucher(OSMap):
                 items = self._data_logger_storage_items()
                 if items:
                     absent_after_use_frames = 0
-                    if not item_selected or use_clicked:
+                    if not item_selected:
                         self.device.click(items[0])
                         item_selected = True
-                        use_clicked = False
                     continue
 
                 if success_observed:
@@ -366,10 +369,24 @@ class OpsiVoucher(OSMap):
         intent = data_logger_intent_enabled(self.config)
         active = data_logger_is_active(self.config)
         retry_only = data_logger_retry_pending(self.config)
+        failure_count = data_logger_retry_count(self.config)
         logger.info(
             f'[{DATA_LOGGER_NAME}] visible intent={intent}, '
-            f'monthly active={active}, retry-only={retry_only}'
+            f'monthly active={active}, retry-only={retry_only}, '
+            f'failures={failure_count}'
         )
+
+        if (
+            intent
+            and not active
+            and retry_only
+            and failure_count >= DATA_LOGGER_MAX_FAILURES_PER_CYCLE
+        ):
+            self._data_logger_schedule_failure_pause(
+                'retry_limit_reached',
+                failure_count,
+            )
+            return
 
         self._os_voucher_enter()
         shop = self._create_voucher_shop()
