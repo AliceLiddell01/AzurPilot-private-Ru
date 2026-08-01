@@ -133,20 +133,20 @@ def app():
     Returns:
         Starlette: 挂载 WebUI 页面和 MCP 子应用的 ASGI 应用。
     """
-    parser = argparse.ArgumentParser(description="Alas web service")
+    parser = argparse.ArgumentParser(description="Веб-служба AzurPilot")
     parser.add_argument(
-        "-k", "--key", type=str, help="Password of alas. No password by default"
+        "-k", "--key", type=str, help="Пароль AzurPilot. По умолчанию пароль не используется"
     )
     parser.add_argument(
         "--cdn",
         action="store_true",
-        help="Use jsdelivr cdn for pywebio static files (css, js). Self host cdn by default.",
+        help="Загружать статические файлы PyWebIO (CSS, JS) через CDN jsDelivr. По умолчанию используются локальные файлы.",
     )
     parser.add_argument(
         "--run",
         nargs="+",
         type=str,
-        help="Run alas by config names on startup",
+        help="Запустить при старте указанные конфигурации AzurPilot",
     )
     args, _ = parser.parse_known_args()
 
@@ -193,7 +193,7 @@ def app():
         if get_device_id() not in RESTRICTED_DEVICE_IDS:
             return False
         popup(
-            "安全保护",
+            "Защита",
             RESTRICTED_DEVICE_MESSAGE,
             implicit_close=False,
             closable=False,
@@ -204,7 +204,7 @@ def app():
         if is_demo_mode() or password_error is None:
             return False
         popup(
-            "安全保护",
+            "Защита",
             PUBLIC_WEBUI_PASSWORD_GENERATE_FAILED_MESSAGE,
             implicit_close=False,
             closable=False,

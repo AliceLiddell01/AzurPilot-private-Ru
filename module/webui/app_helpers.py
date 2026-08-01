@@ -11,7 +11,7 @@ from module.webui.app_dependencies import (
 )
 
 WEBUI_AUTO_PASSWORD_FILE = "password.txt"
-DEMO_DEVICE_ID_TEXT = "此程序是为了演示用途构建的版本/This application is a version built for demonstration purposes."
+DEMO_DEVICE_ID_TEXT = "Эта сборка предназначена для демонстрации."
 
 
 def is_demo_mode():

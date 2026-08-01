@@ -5869,7 +5869,9 @@
     "Toast": {
       "DisableTranslateMode": "點選這裡關閉翻譯模式",
       "ConfigSaved": "設定已儲存",
-      "AlasIsRunning": "排程器已在執行中"
+      "AlasIsRunning": "排程器已在執行中",
+      "AlasRestart": "AzurPilot 正在重新啟動…",
+      "ReloadEnabled": "已啟用重新載入"
     },
     "Status": {
       "Running": "秘書艦正在處理",

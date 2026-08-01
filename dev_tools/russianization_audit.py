@@ -34,6 +34,9 @@ RESULT_FILENAMES = (
 )
 ALLOWED_EXTRA_RESULT_FILENAMES = (
     "stage5_report.md",
+    "stage6_metrics.json",
+    "stage6_report.md",
+    "ui_translation_exceptions.json",
 )
 
 TEXT_EXTENSIONS = {
@@ -370,12 +373,17 @@ class AuditEngine:
         if len(data) > 5_000_000 or b"\x00" in data[:8192]:
             return None
         try:
-            return data.decode("utf-8")
+            return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
         except UnicodeDecodeError:
             try:
-                return data.decode("utf-8-sig")
+                return data.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
             except UnicodeDecodeError:
                 return None
+
+    def _stable_bytes(self, relative: str, data: bytes) -> bytes:
+        """Normalize every UTF-8 text file, including extensionless and model metadata."""
+        text = self._read_text(relative)
+        return text.encode("utf-8") if text is not None else data
 
     def _load_texts_and_reference_index(self) -> None:
         for relative in self.paths:
@@ -418,7 +426,7 @@ class AuditEngine:
                 continue
             digest.update(relative.encode("utf-8"))
             digest.update(b"\0")
-            digest.update(hashlib.sha256(data).digest())
+            digest.update(hashlib.sha256(self._stable_bytes(relative, data)).digest())
         return digest.hexdigest()
 
     def locale_inventory(self) -> tuple[list[dict[str, Any]], dict[str, list[str]], dict[str, list[str]]]:
@@ -740,6 +748,7 @@ class AuditEngine:
                 data = path.read_bytes()
             except OSError:
                 continue
+            stable_data = self._stable_bytes(relative, data)
             scope, markers = scope_markers(relative)
             static_refs, dynamic_refs, generated_refs, test_refs = self._references_for_asset(relative)
             status, manual, confidence, reason = status_from_evidence(scope, static_refs, dynamic_refs, generated_refs, test_refs)
@@ -750,9 +759,9 @@ class AuditEngine:
             )
             records.append({
                 "path": relative,
-                "size_bytes": len(data),
+                "size_bytes": len(stable_data),
                 "extension": path.suffix.lower(),
-                "content_hash_or_stable_fingerprint": sha256_bytes(data),
+                "content_hash_or_stable_fingerprint": sha256_bytes(stable_data),
                 "asset_type": asset_type(relative),
                 "suspected_scope": scope,
                 "language_or_server_markers": markers,

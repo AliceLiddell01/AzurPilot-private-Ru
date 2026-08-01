@@ -12,7 +12,11 @@ from module.webui import lang
 from module.webui import deploy_settings
 
 ROOT = Path(__file__).resolve().parents[1]
-PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}|%(?:\([^)]+\))?[#0 +\-]?(?:\d+|\*)?(?:\.\d+)?[diouxXeEfFgGcrs%]")
+PLACEHOLDER_RE = re.compile(
+    r"\{[^{}]*\}"
+    r"|%\([^)]+\)[#0 +\-]?(?:\d+|\*)?(?:\.\d+)?[diouxXeEfFgGcrs]"
+    r"|%[#0+\-]?(?:\d+|\*)?(?:\.\d+)?[diouxXeEfFgGcrs%]"
+)
 
 
 def flatten_strings(data):

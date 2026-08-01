@@ -25,10 +25,10 @@ def _clearup_step(name, handler) -> bool:
         return handler() is not False
     except Exception as exc:
         logger.exception_context(
-            title=f'WebUI 清理失败: {name}',
+            title=f'Ошибка очистки WebUI: {name}',
             exc=exc,
-            impact='其余 WebUI 资源仍会继续清理。',
-            action='检查对应资源的退出日志，确认是否遗留子进程。',
+            impact='Очистка остальных ресурсов WebUI будет продолжена.',
+            action='Проверьте журнал завершения ресурса и наличие оставшихся дочерних процессов.',
             level=40,
         )
         return False
@@ -74,10 +74,10 @@ def clearup() -> bool:
             instances = ProcessManager.running_instances()
         except Exception as exc:
             logger.exception_context(
-                title='WebUI 清理失败: 枚举运行实例',
+                title='Ошибка очистки WebUI: не удалось получить запущенные профили',
                 exc=exc,
-                impact='无法确认所有 AzurPilot 工作进程是否已停止。',
-                action='检查 WebUI 进程注册表和 Manager 服务状态。',
+                impact='Нельзя подтвердить остановку всех рабочих процессов AzurPilot.',
+                action='Проверьте реестр процессов WebUI и состояние службы Manager.',
                 level=40,
             )
             instances = []
@@ -91,10 +91,10 @@ def clearup() -> bool:
                 State.clearup()
             except Exception as exc:
                 logger.exception_context(
-                    title='WebUI 清理失败: 共享状态',
+                    title='Ошибка очистки WebUI: общее состояние',
                     exc=exc,
-                    impact='Manager 未能完全关闭，父进程将通过进程树终止兜底。',
-                    action='检查 Manager 服务和系统进程权限。',
+                    impact='Manager завершён не полностью; родительский процесс принудительно закроет дерево процессов.',
+                    action='Проверьте службу Manager и системные права управления процессами.',
                     level=40,
                 )
                 success = False

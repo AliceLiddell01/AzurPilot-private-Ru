@@ -61,7 +61,7 @@ def app_manage(gui: "AlasGUI") -> None:
         """读取配置 JSON，并确保根节点是对象。"""
         data = read_file(path)
         if not isinstance(data, dict):
-            raise ValueError(f"配置文件根节点不是对象：{path}")
+            raise ValueError(f"Корневой элемент файла конфигурации должен быть объектом: {path}")
         return cast(Dict[str, Any], data)
 
     def _show_legacy_import_result():

@@ -73,7 +73,7 @@ def _parse_host_port(value: Optional[str]) -> Tuple[str, int]:
         server, port = str(value or "").rsplit(":", 1)
         return server, int(port)
     except (TypeError, ValueError) as e:
-        raise ParseError(f"Failed to parse SSH server [{value}]") from e
+        raise ParseError(f"Не удалось разобрать адрес SSH-сервера [{value}]") from e
 
 
 def _parse_host_port_default(value: Optional[str], default_port: int) -> Tuple[str, int]:
@@ -244,7 +244,7 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
         host, port = _parse_host_port_default(ssh_server, 1022)
         host = host.strip().lower()
         if not host:
-            raise ParseError("Redirect ssh_server host is empty")
+            raise ParseError("Хост SSH-сервера для перенаправления не задан")
         if _is_private_redirect_host(host):
             raise ParseError(f"Refuse redirect to private host [{host}]")
         allowed_hosts = [item.lower() for item in self._redirect_hosts(primary_host)]
@@ -385,7 +385,7 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
                 message = connection_info.get("message", "")
                 self.info.error = message or status or "remote_access_failed"
                 logger.info(
-                    "Failed to establish remote access, this is the error message "
+                    "Не удалось установить удалённое подключение. Сообщение об ошибке: "
                     f"from service provider: {message}"
                 )
                 new_username = connection_info.get("change_username", None)
@@ -814,7 +814,7 @@ class WebRTCRemoteAccessProvider(RemoteAccessProvider):
         logger.info("启动WebRTC远程访问服务")
         try:
             if not self._wait_for_ssh_info():
-                self.info.error = "SSH fallback is not ready"
+                self.info.error = "Резервное подключение SSH не готово"
                 return
 
             self.info.address = self.ssh_provider.info.address
@@ -823,7 +823,7 @@ class WebRTCRemoteAccessProvider(RemoteAccessProvider):
             self.info.signal_url = self.ssh_provider.info.signal_url or _signal_url_from_ssh_server()
             self.info.ice_servers = self.ssh_provider.info.ice_servers
             if not self.info.peer_id:
-                raise ParseError("localshare 服务端未返回 peer_id，无法启用 P2P")
+                raise ParseError("Сервер localshare не вернул peer_id; включить P2P невозможно")
             self.info.connection_state = "signaling"
             asyncio.run(self._run_signal_loop())
         except RemoteDependencyError as e:
@@ -847,11 +847,11 @@ class WebRTCRemoteAccessProvider(RemoteAccessProvider):
             from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
             from aiortc.sdp import candidate_from_sdp
         except ImportError as e:
-            raise RemoteDependencyError("缺少 aiortc/aiohttp 依赖，已退回 SSH 转发") from e
+            raise RemoteDependencyError("Нет зависимостей aiortc/aiohttp; используется перенаправление SSH") from e
 
         signal_url = self.info.signal_url
         if not signal_url:
-            raise ParseError("SignalingServer is empty")
+            raise ParseError("Адрес сервера сигнализации не задан")
 
         ice_servers = _configured_ice_servers(self.info.ice_servers)
         rtc_servers = []

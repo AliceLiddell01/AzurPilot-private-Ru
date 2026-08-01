@@ -169,7 +169,7 @@ class State:
 
         workers = get_workers(os.getpid())
         if workers:
-            raise RuntimeError(f"仍有未回收的 worker 登记: {list(workers)}")
+            raise RuntimeError(f"Остались незавершённые записи рабочих процессов: {list(workers)}")
         cls._clearup = True
         manager = cls.manager
         try:

@@ -139,11 +139,11 @@ def deploy_settings_schema(translate) -> dict[str, Any]:
 def save_deploy_settings(data: dict[str, Any]) -> dict[str, Any]:
     """校验并保存部署设置。"""
     if is_demo_mode():
-        raise PermissionError("演示模式下不能修改部署设置")
+        raise PermissionError("В демонстрационном режиме нельзя изменять настройки развёртывания")
 
     values = data.get("values", data)
     if not isinstance(values, dict):
-        raise ValueError("values 必须是对象")
+        raise ValueError("Поле values должно быть объектом")
 
     State.deploy_config.read()
     updates = {}
@@ -152,7 +152,7 @@ def save_deploy_settings(data: dict[str, Any]) -> dict[str, Any]:
             continue
         field = DEPLOY_FIELDS.get(key)
         if field is None:
-            raise ValueError(f"未知部署配置项: {key}")
+            raise ValueError(f"Неизвестный параметр развёртывания: {key}")
         updates[key] = _parse_value(field, value)
 
     for key, value in updates.items():
@@ -178,9 +178,9 @@ def get_startup_run(instance: str) -> dict[str, Any]:
 
 def set_startup_run(instance: str, enabled: bool) -> dict[str, Any]:
     if is_demo_mode():
-        raise PermissionError("演示模式下不能修改启动时自动运行")
+        raise PermissionError("В демонстрационном режиме нельзя изменять запуск профилей вместе с WebUI")
     if not isinstance(enabled, bool):
-        raise ValueError("enabled 必须是布尔值")
+        raise ValueError("Поле enabled должно иметь логический тип")
 
     instance = _validate_instance_name(instance, require_exists=True)
     State.deploy_config.read()
@@ -253,23 +253,23 @@ def _parse_value(field: DeployField, value: Any) -> Any:
     if field.kind == "bool":
         if isinstance(value, bool):
             return value
-        raise ValueError(f"{field.key} 必须是布尔值")
+        raise ValueError(f"Параметр {field.key} должен иметь логический тип")
 
     if field.kind == "int":
         if isinstance(value, bool):
-            raise ValueError(f"{field.key} 必须是整数")
+            raise ValueError(f"Параметр {field.key} должен быть целым числом")
         try:
             parsed = int(value)
         except (TypeError, ValueError) as e:
-            raise ValueError(f"{field.key} 必须是整数") from e
+            raise ValueError(f"Параметр {field.key} должен быть целым числом") from e
         if parsed < 0:
-            raise ValueError(f"{field.key} 不能小于 0")
+            raise ValueError(f"Параметр {field.key} не может быть меньше 0")
         return parsed
 
     if field.kind == "select":
         value = str(value or "").strip()
         if value not in field.options:
-            raise ValueError(f"{field.key} 的值无效")
+            raise ValueError(f"Недопустимое значение параметра {field.key}")
         return value
 
     if field.kind == "nullable_string":
@@ -299,11 +299,11 @@ def _parse_value(field: DeployField, value: Any) -> Any:
 def _validate_instance_name(instance: str, require_exists: bool) -> str:
     instance = str(instance or "").strip()
     if not instance:
-        raise ValueError("缺少实例名")
+        raise ValueError("Не указано имя профиля")
     if set(instance) & INVALID_INSTANCE_CHARS:
-        raise ValueError("实例名包含非法字符")
+        raise ValueError("Имя профиля содержит недопустимые символы")
     if instance.lower().startswith("template"):
-        raise ValueError("实例名不能以 template 开头")
+        raise ValueError("Имя профиля не может начинаться с template")
     if require_exists and instance not in alas_instance():
-        raise ValueError(f"实例不存在: {instance}")
+        raise ValueError(f"Профиль не существует: {instance}")
     return instance

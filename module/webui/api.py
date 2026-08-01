@@ -77,7 +77,7 @@ def serve_obs_overlay(request):
             content = f.read()
         return HTMLResponse(content)
     except Exception as e:
-        return HTMLResponse(f"Error loading obs overlay: {e}", status_code=500)
+        return HTMLResponse(f"Не удалось загрузить оверлей OBS: {e}", status_code=500)
 
 
 def _get_ffmpeg_path():
@@ -562,7 +562,7 @@ class LiveWsScrcpySession:
 
     def start_server(self):
         if not os.path.exists(WS_SCRCPY_FILEPATH_LOCAL):
-            raise RuntimeError(f"未找到 ws-scrcpy server: {WS_SCRCPY_FILEPATH_LOCAL}")
+            raise RuntimeError(f"Сервер ws-scrcpy не найден: {WS_SCRCPY_FILEPATH_LOCAL}")
 
         logger.hr("[WebUI] 实时 ws-scrcpy 预览启动")
         self.connection.adb_push(WS_SCRCPY_FILEPATH_LOCAL, WS_SCRCPY_FILEPATH_REMOTE)
@@ -578,7 +578,7 @@ class LiveWsScrcpySession:
         from websockets.asyncio.client import connect
 
         if not self.local_port:
-            raise RuntimeError("ws-scrcpy 未创建 ADB forward")
+            raise RuntimeError("ws-scrcpy не создал перенаправление ADB")
 
         self.loop = asyncio.get_running_loop()
         self.send_lock = asyncio.Lock()
@@ -592,7 +592,7 @@ class LiveWsScrcpySession:
             except Exception as e:
                 last_error = e
                 await asyncio.sleep(0.1)
-        raise RuntimeError(f"连接 ws-scrcpy server 失败: {last_error}")
+        raise RuntimeError(f"Не удалось подключиться к серверу ws-scrcpy: {last_error}")
 
     async def recv(self):
         if self.remote_ws is None:
@@ -820,7 +820,7 @@ class LiveScrcpySession:
 
             ret = self.server_stream.read(10)
             if b"Aborted" in ret:
-                raise RuntimeError("scrcpy-server 启动失败：Aborted")
+                raise RuntimeError("Не удалось запустить scrcpy-server: Aborted")
             if ret == b"[server] E":
                 ret += recv_all(self.server_stream)
                 raise RuntimeError(ret.decode("utf-8", errors="replace"))
@@ -830,7 +830,7 @@ class LiveScrcpySession:
             self.video_socket = self._connect_scrcpy_socket()
             dummy_byte = self.video_socket.recv(1)
             if dummy_byte != b"\x00":
-                raise RuntimeError("scrcpy 视频流握手失败")
+                raise RuntimeError("Ошибка согласования видеопотока scrcpy")
 
             self.control_socket = self._connect_scrcpy_socket()
             device_name = self.video_socket.recv(64).decode("utf-8", errors="replace").rstrip("\x00")
@@ -838,7 +838,7 @@ class LiveScrcpySession:
                 logger.attr("Scrcpy直播设备", device_name)
             resolution = self.video_socket.recv(4)
             if len(resolution) != 4:
-                raise RuntimeError("scrcpy 未返回视频分辨率")
+                raise RuntimeError("scrcpy не вернул разрешение видео")
             self.resolution = struct.unpack(">HH", resolution)
             logger.attr("Scrcpy直播分辨率", self.resolution)
             self.video_socket.settimeout(1)
@@ -864,7 +864,7 @@ class LiveScrcpySession:
                 return sock
             except AdbError:
                 sleep(0.1)
-        raise RuntimeError("连接 scrcpy socket 超时")
+        raise RuntimeError("Истекло время подключения к сокету scrcpy")
 
     def read_video(self, size=0x10000):
         if not self.video_socket:
@@ -1021,7 +1021,7 @@ async def ws_live_screenshot(websocket):
     if is_demo_mode():
         await websocket.send_text(json.dumps({
             "type": "error",
-            "message": "DEMO=1，实时预览已禁用，避免初始化设备资源。",
+            "message": "В режиме DEMO=1 предпросмотр отключён, чтобы не инициализировать ресурсы устройства.",
         }))
         await websocket.close()
         return
@@ -1062,7 +1062,7 @@ async def ws_live_screenshot(websocket):
     if not ffmpeg:
         await websocket.send_text(json.dumps({
             "type": "error",
-            "message": "未找到 ffmpeg，截图兜底模式无法启动。",
+            "message": "ffmpeg не найден; резервный режим снимков экрана недоступен.",
         }))
         await websocket.close()
         return
@@ -1099,7 +1099,7 @@ async def _ws_live_ws_scrcpy(websocket, instance, fps, target_width, bitrate_sca
         initial = await asyncio.wait_for(session.recv(), timeout=3)
         info = _ws_scrcpy_parse_initial(initial)
         if not info:
-            raise RuntimeError("ws-scrcpy 未返回初始设备信息")
+            raise RuntimeError("ws-scrcpy не вернул начальные сведения об устройстве")
 
         display = (info.get("displays") or [{}])[0]
         width = int(display.get("screen_width") or display.get("width") or target_width)
@@ -1169,7 +1169,7 @@ async def _ws_live_raw_scrcpy(websocket, instance, fps, target_width, bitrate_sc
         width, height = session.resolution
         preroll = await asyncio.to_thread(_collect_h264_preroll, session, stop_event)
         if not preroll:
-            raise RuntimeError("scrcpy 未输出 H264 视频数据")
+            raise RuntimeError("scrcpy не передал видеоданные H.264")
         codec_string = _h264_avc1_codec(preroll)
         description = _h264_avcc_description(preroll)
         logger.attr("Scrcpy预缓冲", f"{len(preroll)} bytes, {codec_string}")
@@ -1195,7 +1195,7 @@ async def _ws_live_raw_scrcpy(websocket, instance, fps, target_width, bitrate_sc
                 continue
             if raw_h264 == b"":
                 if not stop_event.is_set() and session.alive:
-                    await websocket.send_text(json.dumps({"type": "error", "message": "scrcpy 视频流已断开"}))
+                    await websocket.send_text(json.dumps({"type": "error", "message": "Видеопоток scrcpy прерван"}))
                 break
             await websocket.send_bytes(raw_h264)
     finally:
@@ -1329,7 +1329,7 @@ async def ws_live_control(websocket):
     if is_demo_mode():
         await websocket.send_text(json.dumps({
             "type": "error",
-            "message": "DEMO=1，实时控制已禁用，避免初始化设备资源。",
+            "message": "В режиме DEMO=1 управление отключено, чтобы не инициализировать ресурсы устройства.",
         }))
         await websocket.close()
         return
@@ -1354,7 +1354,7 @@ async def ws_live_control(websocket):
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                await websocket.send_text(json.dumps({"type": "error", "message": "控制消息不是有效 JSON"}))
+                await websocket.send_text(json.dumps({"type": "error", "message": "Команда управления не является корректным JSON"}))
                 continue
 
             action = data.get("type")
@@ -1389,7 +1389,7 @@ async def ws_live_control(websocket):
                 logger.info(f"[WebUI] 实时预览控制：系统按键 {action} ({keycode})")
                 await asyncio.to_thread(target.keycode, keycode)
             else:
-                await websocket.send_text(json.dumps({"type": "error", "message": f"未知控制动作: {action}"}))
+                await websocket.send_text(json.dumps({"type": "error", "message": f"Неизвестное действие управления: {action}"}))
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -1439,19 +1439,19 @@ async def api_launcher_startup(request):
     """POST /api/launcher/startup — 请求启动器设置 Windows 开机自启动"""
     if not is_local_request(request):
         return JSONResponse(
-            {"success": False, "error": "开机自启动只能从本机 WebUI 设置"},
+            {"success": False, "error": "Автозапуск можно настраивать только из локальной WebUI"},
             status_code=403,
         )
 
     try:
         data = await request.json()
     except Exception:
-        return JSONResponse({"success": False, "error": "请求体不是有效 JSON"}, status_code=400)
+        return JSONResponse({"success": False, "error": "Тело запроса не является корректным JSON"}, status_code=400)
 
     if "enabled" not in data:
-        return JSONResponse({"success": False, "error": "缺少 enabled 字段"}, status_code=400)
+        return JSONResponse({"success": False, "error": "Отсутствует поле enabled"}, status_code=400)
     if not isinstance(data.get("enabled"), bool):
-        return JSONResponse({"success": False, "error": "enabled 必须是布尔值"}, status_code=400)
+        return JSONResponse({"success": False, "error": "Поле enabled должно иметь логический тип"}, status_code=400)
 
     result = await launcher_control.set_autostart(data["enabled"])
     status = 200 if result.get("success") else 500
@@ -1462,7 +1462,7 @@ async def api_launcher_stream(request):
     """GET /api/launcher/stream — 启动器订阅的本地命令流"""
     if not is_local_request(request):
         return JSONResponse(
-            {"success": False, "error": "启动器命令流只允许本机连接"},
+            {"success": False, "error": "Поток команд лаунчера доступен только локальным подключениям"},
             status_code=403,
         )
 
@@ -1493,14 +1493,14 @@ async def api_launcher_report(request):
     """POST /api/launcher/report — 启动器回报命令执行结果"""
     if not is_local_request(request):
         return JSONResponse(
-            {"success": False, "error": "启动器回报只允许本机连接"},
+            {"success": False, "error": "Отчёты лаунчера принимаются только от локальных подключений"},
             status_code=403,
         )
 
     try:
         data = await request.json()
     except Exception:
-        return JSONResponse({"success": False, "error": "请求体不是有效 JSON"}, status_code=400)
+        return JSONResponse({"success": False, "error": "Тело запроса не является корректным JSON"}, status_code=400)
 
     result = await launcher_control.report(data)
     return JSONResponse(result)
@@ -1510,7 +1510,7 @@ async def api_deploy_settings(request):
     """GET /api/deploy/settings — 查询 deploy.yaml 可视化配置。"""
     if not is_local_request(request):
         return JSONResponse(
-            {"success": False, "error": "部署设置只允许从本机 WebUI 读取"},
+            {"success": False, "error": "Настройки развёртывания можно читать только из локальной WebUI"},
             status_code=403,
         )
 
@@ -1525,14 +1525,14 @@ async def api_deploy_settings_save(request):
     """POST /api/deploy/settings — 保存 deploy.yaml 可视化配置。"""
     if not is_local_request(request):
         return JSONResponse(
-            {"success": False, "error": "部署设置只允许从本机 WebUI 保存"},
+            {"success": False, "error": "Настройки развёртывания можно сохранять только из локальной WebUI"},
             status_code=403,
         )
 
     try:
         data = await request.json()
     except Exception:
-        return JSONResponse({"success": False, "error": "请求体不是有效 JSON"}, status_code=400)
+        return JSONResponse({"success": False, "error": "Тело запроса не является корректным JSON"}, status_code=400)
 
     try:
         result = save_deploy_settings(data)
@@ -1551,7 +1551,7 @@ async def api_deploy_startup_run(request):
     """GET /api/deploy/startup-run — 查询实例是否随 WebUI 启动自动运行。"""
     if not is_local_request(request):
         return JSONResponse(
-            {"success": False, "error": "启动时自动运行只允许从本机 WebUI 读取"},
+            {"success": False, "error": "Настройки запуска профиля можно читать только из локальной WebUI"},
             status_code=403,
         )
 
@@ -1570,14 +1570,14 @@ async def api_deploy_startup_run_save(request):
     """POST /api/deploy/startup-run — 保存实例启动时自动运行设置。"""
     if not is_local_request(request):
         return JSONResponse(
-            {"success": False, "error": "启动时自动运行只允许从本机 WebUI 保存"},
+            {"success": False, "error": "Настройки запуска профиля можно сохранять только из локальной WebUI"},
             status_code=403,
         )
 
     try:
         data = await request.json()
     except Exception:
-        return JSONResponse({"success": False, "error": "请求体不是有效 JSON"}, status_code=400)
+        return JSONResponse({"success": False, "error": "Тело запроса не является корректным JSON"}, status_code=400)
 
     try:
         result = set_startup_run(data.get("instance", ""), data.get("enabled"))

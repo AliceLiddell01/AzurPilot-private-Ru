@@ -85,9 +85,9 @@ class LauncherControl:
 
     async def set_autostart(self, enabled: bool) -> dict[str, Any]:
         if not is_windows():
-            return self._error("当前平台不支持开机自启动")
+            return self._error("Автозапуск не поддерживается на этой платформе")
         if not self._is_connected():
-            return self._error("启动器未连接，请通过启动器打开 AzurPilot")
+            return self._error("Лаунчер не подключён. Откройте AzurPilot через лаунчер")
 
         command = self._build_command(
             "startup.set",
@@ -101,7 +101,7 @@ class LauncherControl:
             result = await asyncio.wait_for(future, timeout=COMMAND_TIMEOUT)
         except asyncio.TimeoutError:
             self._pending.pop(command["id"], None)
-            self.last_error = "等待启动器响应超时"
+            self.last_error = "Истекло время ожидания ответа лаунчера"
             return self._error(self.last_error)
 
         if result.get("success"):
@@ -111,7 +111,7 @@ class LauncherControl:
             self.last_error = ""
             return {"success": True, "data": self.status()}
 
-        self.last_error = str(result.get("error") or "启动器设置失败")
+        self.last_error = str(result.get("error") or "Не удалось применить настройки лаунчера")
         return self._error(self.last_error)
 
     async def report(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -124,7 +124,7 @@ class LauncherControl:
             self.autostart_enabled = bool(payload["enabled"])
             self.last_error = ""
         elif not success:
-            self.last_error = str(data.get("error") or "启动器命令执行失败")
+            self.last_error = str(data.get("error") or "Не удалось выполнить команду лаунчера")
 
         if command_id:
             future = self._pending.pop(command_id, None)

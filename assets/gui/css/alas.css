@@ -84,7 +84,7 @@ footer {
 }
 
 .btn-aside {
-    width: 4rem;
+    width: 5.5rem;
     font-weight: 500;
     font-size: .8rem;
     background-color: transparent;
@@ -94,6 +94,8 @@ footer {
     transition: background-color .2s ease-in-out, color .2s ease-in-out;
     margin: 0;
     text-align: center;
+    overflow-wrap: normal;
+    word-break: keep-all;
 }
 
 .btn-aside:hover,

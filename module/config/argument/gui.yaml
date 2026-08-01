@@ -24,6 +24,8 @@ Toast:
   DisableTranslateMode:
   ConfigSaved:
   AlasIsRunning:
+  AlasRestart:
+  ReloadEnabled:
 
 Status:
   Running:

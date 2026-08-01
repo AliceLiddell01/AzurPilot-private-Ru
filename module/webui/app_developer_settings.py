@@ -99,7 +99,7 @@ class DeveloperSettingsMixin(WebUIMixinBase):
                   }});
                   const result = await resp.json();
                   if (!result.success) {{
-                    throw new Error(result.error || 'unknown error');
+                    throw new Error(result.error || 'Неизвестная ошибка');
                   }}
                 }} catch (err) {{
                   switchEl.checked = !target;
@@ -220,7 +220,7 @@ class DeveloperSettingsMixin(WebUIMixinBase):
                   const resp = await fetch('/api/deploy/settings', {{cache: 'no-store'}});
                   const result = await resp.json();
                   if (!result.success) {{
-                    throw new Error(result.error || 'unknown error');
+                    throw new Error(result.error || 'Неизвестная ошибка');
                   }}
                   render(result.data);
                   statusEl.textContent = '';
@@ -242,7 +242,7 @@ class DeveloperSettingsMixin(WebUIMixinBase):
                   }});
                   const result = await resp.json();
                   if (!result.success) {{
-                    throw new Error(result.error || 'unknown error');
+                    throw new Error(result.error || 'Неизвестная ошибка');
                   }}
                   await refresh();
                   statusEl.textContent = text.saved;

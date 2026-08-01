@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "base_sha": "4764f66baeafb0dd2152599839afec739af8ab40",
+  "active_runtime_locales": [
+    "ru-RU"
+  ],
+  "foreign_runtime_fallback": false,
+  "ui_locale_linked_to_game_server": false,
+  "catalog_keys": 4168,
+  "translated_active_ui": 2959,
+  "missing_translation_keys": 0,
+  "extra_translation_keys": 0,
+  "empty_replacements": 0,
+  "unresolved_active_ui": 0,
+  "unreviewed_English_active_ui": 0,
+  "unreviewed_CJK_active_ui": 0,
+  "placeholder_mismatches": 0,
+  "raw_translation_keys_rendered": 0,
+  "Gui.Missing_rendered": 0,
+  "reviewed_technical_values": 541,
+  "reviewed_proper_names": 270,
+  "reviewed_original_metadata": 238,
+  "reviewed_external_content": 4,
+  "remaining_log_translation_count": 5066,
+  "legacy_locale_count": 5,
+  "asset_count": 10464,
+  "catalog_candidates_reviewed": 1049,
+  "direct_ui_candidates": 0
+}

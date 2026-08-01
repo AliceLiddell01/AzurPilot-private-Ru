@@ -172,7 +172,7 @@
 })();
 
 // ============================================================
-// 实时截图预览（H264 over WebSocket）
+// Трансляция экрана预览（H264 over WebSocket）
 // ============================================================
 (function () {
     var state = {
@@ -239,18 +239,18 @@
         panel.id = 'alas-live-preview';
         panel.innerHTML = [
             '<div class="alas-live-preview-head">',
-            '<span class="alas-live-preview-title">实时截图</span>',
-            '<button class="alas-live-preview-control" type="button" data-live-control="back" title="返回">↩</button>',
-            '<button class="alas-live-preview-control" type="button" data-live-control="home" title="主页">⌂</button>',
-            '<button class="alas-live-preview-control" type="button" data-live-control="app_switch" title="后台">▣</button>',
-            '<button class="alas-live-preview-control" type="button" data-live-control="keyboard" title="手机键盘">⌨</button>',
-            '<button class="alas-live-preview-fullscreen" type="button" title="全屏控制">⛶</button>',
-            '<button class="alas-live-preview-close" type="button" title="关闭">×</button>',
+            '<span class="alas-live-preview-title">Трансляция экрана</span>',
+            '<button class="alas-live-preview-control" type="button" data-live-control="back" title="Назад">↩</button>',
+            '<button class="alas-live-preview-control" type="button" data-live-control="home" title="Домой">⌂</button>',
+            '<button class="alas-live-preview-control" type="button" data-live-control="app_switch" title="Недавние приложения">▣</button>',
+            '<button class="alas-live-preview-control" type="button" data-live-control="keyboard" title="Клавиатура устройства">⌨</button>',
+            '<button class="alas-live-preview-fullscreen" type="button" title="Полноэкранное управление">⛶</button>',
+            '<button class="alas-live-preview-close" type="button" title="Закрыть">×</button>',
             '</div>',
             '<video class="alas-live-preview-video" muted autoplay playsinline></video>',
             '<canvas class="alas-live-preview-canvas"></canvas>',
             '<textarea class="alas-live-preview-keyboard-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>',
-            '<div class="alas-live-preview-status">连接中</div>'
+            '<div class="alas-live-preview-status">Подключение…</div>'
         ].join('');
 
         var style = document.createElement('style');
@@ -412,7 +412,7 @@
         state.videoPressure = true;
         resetMediaQueue();
         lowerQualityForMediaPressure();
-        reconnectForQuality('浏览器视频缓冲积压，降低质量并重新连接');
+        reconnectForQuality('Буфер видео переполнен: снижаем качество и подключаемся заново');
         return false;
     }
 
@@ -459,7 +459,7 @@
             state.videoPressure = true;
             resetMediaQueue();
             lowerQualityForMediaPressure();
-            reconnectForQuality('浏览器视频缓冲异常，降低质量并重新连接');
+            reconnectForQuality('Ошибка буфера видео: снижаем качество и подключаемся заново');
         }
     }
 
@@ -544,7 +544,7 @@
         if (data && typeof data.arrayBuffer === 'function') {
             return data.arrayBuffer();
         }
-        return Promise.reject(new TypeError('未知的视频数据类型'));
+        return Promise.reject(new TypeError('Неизвестный тип видеоданных'));
     }
 
     function attachRawH264(socket, msg, transportId) {
@@ -553,7 +553,7 @@
         var canvas = panel.querySelector('.alas-live-preview-canvas');
         if (!('VideoDecoder' in window) || !('EncodedVideoChunk' in window)) {
             state.mode = 'screenshot';
-            reconnectForQuality('当前浏览器不支持 WebCodecs，回退截图模式');
+            reconnectForQuality('Браузер не поддерживает WebCodecs; используется режим снимков');
             return;
         }
 
@@ -591,7 +591,7 @@
                 }
             },
             error: function (error) {
-                setStatus((error && error.message) || 'WebCodecs 解码失败');
+                setStatus((error && error.message) || 'Не удалось декодировать видео через WebCodecs');
                 state.videoPressure = true;
             }
         });
@@ -603,7 +603,7 @@
                 configured = true;
                 return true;
             } catch (e) {
-                setStatus((e && e.message) || 'WebCodecs 初始化失败');
+                setStatus((e && e.message) || 'Не удалось инициализировать WebCodecs');
                 return false;
             }
         }
@@ -645,7 +645,7 @@
                 setStatus('');
             } catch (e) {
                 waitingForKeyFrame = true;
-                setStatus((e && e.message) || 'H264 解码失败');
+                setStatus((e && e.message) || 'Не удалось декодировать H264');
             }
         }
 
@@ -682,14 +682,14 @@
             toArrayBuffer(event.data).then(function (buffer) {
                 handleNals(extractAnnexBNals(buffer, false));
             }).catch(function (e) {
-                setStatus((e && e.message) || '视频数据读取失败');
+                setStatus((e && e.message) || 'Не удалось прочитать видеоданные');
             });
         };
         socket.onerror = function () {
-            if (transportId === state.transportId) setStatus('实时截图连接错误');
+            if (transportId === state.transportId) setStatus('Ошибка подключения к трансляции экрана');
         };
         socket.onclose = function () {
-            if (state.open && transportId === state.transportId) setStatus('实时截图已断开');
+            if (state.open && transportId === state.transportId) setStatus('Трансляция экрана отключена');
         };
     }
 
@@ -742,7 +742,7 @@
         if (now - state.lastReconnectAt < minInterval) return;
 
         state.bitrateScale = nextScale;
-        reconnectForQuality((delta < 0 ? '链路拥塞，降低码率' : '链路稳定，提升码率') + ' ' + Math.round(nextScale * 100) + '%');
+        reconnectForQuality((delta < 0 ? 'Канал перегружен: снижаем битрейт' : 'Канал стабилен: повышаем битрейт') + ' ' + Math.round(nextScale * 100) + '%');
     }
 
     function changeFpsStep(delta) {
@@ -757,7 +757,7 @@
         if (now - state.lastReconnectAt < minInterval) return false;
 
         state.fps = nextFps;
-        reconnectForQuality((delta < 0 ? '链路拥塞，降低帧率' : '链路稳定，提升帧率') + ' ' + nextFps + ' FPS');
+        reconnectForQuality((delta < 0 ? 'Канал перегружен: снижаем частоту кадров' : 'Канал стабилен: повышаем частоту кадров') + ' ' + nextFps + ' FPS');
         return true;
     }
 
@@ -770,7 +770,7 @@
 
         if (!state.firstChunkAt && state.lastReconnectAt && now - state.lastReconnectAt > 12000) {
             state.mode = 'screenshot';
-            reconnectForQuality('scrcpy 暂无可播放画面，回退截图模式');
+            reconnectForQuality('scrcpy пока не передаёт изображение; используется режим снимков');
             return;
         }
         if (!state.firstChunkAt) return;
@@ -847,7 +847,7 @@
                 return;
             }
             if (!MediaSource.isTypeSupported(mime)) {
-                setStatus(codec.toUpperCase() + ' 当前浏览器不支持');
+                setStatus(codec.toUpperCase() + ' не поддерживается этим браузером');
                 cleanupTransport();
                 return;
             }
@@ -860,10 +860,10 @@
             startQualityMonitor(transportId);
             appendNext(transportId);
             state.socket.onerror = function () {
-                if (transportId === state.transportId) setStatus('实时截图连接错误');
+                if (transportId === state.transportId) setStatus('Ошибка подключения к трансляции экрана');
             };
             state.socket.onclose = function () {
-                if (state.open && transportId === state.transportId) setStatus('实时截图已断开');
+                if (state.open && transportId === state.transportId) setStatus('Трансляция экрана отключена');
             };
         }, { once: true });
     }
@@ -904,7 +904,7 @@
         }
         state.reconnectingForQuality = qualityReconnect && keepBitrate;
         panel.style.display = 'block';
-        setStatus('连接中');
+        setStatus('Подключение…');
         var transportId = state.transportId;
         var candidates = getSocketCandidates();
         var attempt = 0;
@@ -912,7 +912,7 @@
         function connectNext() {
             if (!state.open || transportId !== state.transportId) return;
             if (attempt >= candidates.length) {
-                setStatus('实时截图连接失败');
+                setStatus('Не удалось подключиться к трансляции экрана');
                 return;
             }
 
@@ -937,7 +937,7 @@
                     state.videoHeight = msg.height || state.videoHeight;
                     if (msg.maxrate) {
                         state.maxrate = msg.maxrate;
-                        setStatus('连接中，' + (msg.mode || 'preview') + '，' + state.fps + ' FPS，码率上限 ' + msg.maxrate);
+                        setStatus('Подключено: ' + (msg.mode || 'preview') + ', ' + state.fps + ' FPS, предел битрейта ' + msg.maxrate);
                     }
                     if (msg.format === 'raw_h264') {
                         attachRawH264(socket, msg, transportId);
@@ -957,7 +957,7 @@
                 if (!ready && !state.socket) {
                     advance();
                 } else if (ready && state.socket === socket) {
-                    setStatus('实时截图已断开');
+                    setStatus('Трансляция экрана отключена');
                 }
             };
         }
@@ -973,12 +973,12 @@
         state.controlSocket = socket;
         socket.onopen = function () {
             state.controlReady = true;
-            setStatus('全屏控制已开启');
+            setStatus('Полноэкранное управление включено');
             flushControlQueue();
         };
         socket.onerror = function () {
             state.controlReady = false;
-            setStatus('控制连接错误');
+            setStatus('Ошибка подключения управления');
         };
         socket.onclose = function () {
             state.controlReady = false;
@@ -1033,7 +1033,7 @@
         if (!input) return;
         input.value = '';
         input.focus({ preventScroll: true });
-        setStatus('手机键盘已呼出');
+        setStatus('Клавиатура устройства открыта');
     }
 
     function handleSystemAction(action) {
@@ -1219,7 +1219,7 @@
     function enterFullscreenControl() {
         var panel = ensurePanel();
         if (!panel.requestFullscreen) {
-            setStatus('当前浏览器不支持全屏控制');
+            setStatus('Браузер не поддерживает полноэкранное управление');
             return;
         }
         panel.requestFullscreen().then(function () {
@@ -1229,7 +1229,7 @@
             bindControlEvents(true);
             startControl();
         }).catch(function (e) {
-            setStatus((e && e.message) || '进入全屏失败');
+            setStatus((e && e.message) || 'Не удалось перейти в полноэкранный режим');
         });
     }
 
@@ -1351,7 +1351,7 @@
         btnContainer.style.cssText = 'margin-top:16px;text-align:center;flex-shrink:0;';
 
         var closeBtn = document.createElement('button');
-        closeBtn.textContent = '确认';
+        closeBtn.textContent = 'Подтвердить';
         closeBtn.style.cssText = 'background:linear-gradient(90deg,#00b894,#0984e3);color:#fff;border:none;padding:10px 32px;border-radius:6px;cursor:pointer;font-size:1rem;display:inline-block;';
         closeBtn.onmouseover = function () { closeBtn.style.opacity = '0.9'; };
         closeBtn.onmouseout = function () { closeBtn.style.opacity = '1'; };

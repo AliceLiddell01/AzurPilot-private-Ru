@@ -167,6 +167,19 @@ class RussianizationAuditTests(unittest.TestCase):
         report = outputs["stage4_report.md"].decode("utf-8")
         self.assertIn("аудит русификации", report)
 
+    def test_stable_bytes_normalizes_utf8_text_without_known_extension(self) -> None:
+        self._write_bytes("bin/model.param", b"alpha\r\nbeta\r\n")
+        self._write_bytes("assets/unknown.dat", b"\x00\r\n")
+        audit = self._engine()
+        self.assertEqual(
+            audit._stable_bytes("bin/model.param", b"alpha\r\nbeta\r\n"),
+            b"alpha\nbeta\n",
+        )
+        self.assertEqual(
+            audit._stable_bytes("assets/unknown.dat", b"\x00\r\n"),
+            b"\x00\r\n",
+        )
+
     def test_stage5_report_is_an_allowed_non_baseline_artifact(self) -> None:
         engine = self._engine()
         engine.write()
