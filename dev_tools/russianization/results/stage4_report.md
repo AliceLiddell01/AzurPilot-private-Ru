@@ -21,17 +21,17 @@ uv run python -m dev_tools.russianization_audit --check
 | Text files scanned | 2118 |
 | Locale files | 6 |
 | UI string entries | 23345 |
-| UI translation required | 18617 |
+| UI translation required | 18623 |
 | First-party/direct log entries | 5765 |
 | Log translation required | 5066 |
 | Asset entries | 10464 |
-| Asset bytes represented | 585462039 |
+| Asset bytes represented | 585461870 |
 | EN/Global required candidates | 3670 |
-| Manual review assets | 1914 |
+| Manual review assets | 1913 |
 | Probable delete candidates | 1231 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `1ebde9ad8abd2ca2cd16626221a0f776debce9a92887ccbcd091a09e00b3a57c`
+Source fingerprint: `83f3d30fb146f025e837b8fa9a092f5809c355f5d7fdc0abe5e01390b528e0b2`
 
 ## Runtime locale architecture
 
@@ -83,7 +83,7 @@ Inventory содержит путь, строку/ключ, источник, т
 
 ## Assets
 
-Decision counts: `{'confirmed_keep': 7787, 'needs_manual_review': 683, 'probable_delete_candidate': 1231, 'probable_keep': 763}`.
+Decision counts: `{'confirmed_keep': 7788, 'needs_manual_review': 682, 'probable_delete_candidate': 1231, 'probable_keep': 763}`.
 
 Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1559}`.
 

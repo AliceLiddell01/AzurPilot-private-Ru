@@ -381,9 +381,7 @@ class AuditEngine:
                 return None
 
     def _stable_bytes(self, relative: str, data: bytes) -> bytes:
-        """Normalize text newlines so audit fingerprints are OS-independent."""
-        if Path(relative).suffix.lower() not in TEXT_EXTENSIONS:
-            return data
+        """Normalize every UTF-8 text file, including extensionless and model metadata."""
         text = self._read_text(relative)
         return text.encode("utf-8") if text is not None else data
 

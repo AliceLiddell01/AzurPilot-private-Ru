@@ -7253,6 +7253,16 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "IslandBusinessShop4._info.name",
+      "text": "Squid BBQ",
+      "category": "proper_name",
+      "reason": "Официальное имя продукта, персонажа или корабля сохранено в исходной форме.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=english."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandBusinessShop5.Char1.Akashi",
       "text": "Akashi",
       "category": "proper_name",
@@ -8793,6 +8803,16 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiDaily._info.help",
+      "text": "Выполняет ежедневные задания Операции «Сирена».\nТребуется завершить основной сюжет, `Simulation Battle` и `Siren Proving Ground`.\nТакже включите исследование OpSi или используйте `Campaign Information Recorder` (предмет за 5000 нефти).",
+      "category": "proper_name",
+      "reason": "Официальное имя продукта, персонажа или корабля сохранено в исходной форме.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiExplore.LastZone.help",
       "text": "Автоматически обновляется. Введите 0, чтобы сбросить прогресс. После сброса автоматически пропустятся уже исследованные морские зоны.\nПоддерживает ID морской зоны, названия зон серверов CN/EN/JP/TW, например: \"51\", \"NA Ocean SE Sector E\"",
       "category": "technical_value",
@@ -8805,8 +8825,8 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiExplore.SpecialRadar.name",
       "text": "`Campaign Information Recorder` куплен",
-      "category": "technical_value",
-      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "category": "proper_name",
+      "reason": "Официальное имя продукта, персонажа или корабля сохранено в исходной форме.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
       "stage": 6,
       "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
@@ -8815,8 +8835,8 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiExplore._info.help",
       "text": "Исследует все морские зоны Операции «Сирена» в начале месяца без покупки `Campaign Information Recorder` (5000 нефти).\nЗачищает одну зону каждые 27 минут, выдерживая время восстановления поиска воздушного пространства.\nТребуется завершить основной сюжет, `Simulation Battle` и `Siren Proving Ground`.\nПосле выполнения условий задача запускается автоматически.",
-      "category": "technical_value",
-      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "category": "proper_name",
+      "reason": "Официальное имя продукта, персонажа или корабля сохранено в исходной форме.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
       "stage": 6,
       "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
@@ -8874,7 +8894,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiGeneral.OpsiOnePushConfig.help",
-      "text": "Настройки отправки уведомлений об Операция «Сирена»\nПри включённом поставщике уведомлений «Сирена» уведомления будут отправляться только при включённом этом параметре.\nНастройки уведомлений «Сирена» позволяют задавать различные поставщики OnePush, отличные от уведомлений об ошибках.\nПри отключении независимого поставщика уведомления будут отправляться через поставщик уведомлений об ошибках",
+      "text": "Настройки отправки уведомлений об Операции «Сирена».\nУведомления отправляются через выбранный OnePush-провайдер только при включении этого параметра.\nДля OpSi можно выбрать провайдера, отличного от канала ошибок.\nЕсли отдельный канал отключён, используется провайдер уведомлений об ошибках.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9017,6 +9037,26 @@
       "text": "Рекомендуются уровни 5 или 3:\nони дают лучшее соотношение мяуфицеров к затраченным AP.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiMonthBoss._info.help",
+      "text": "Побеждает ежемесячного босса на обычной или сложной сложности. На обычной сложности атаки продолжаются до победы; на сложной задача завершается после первой неудачи.\nДля использования функции требуется:\n- завершить основной сюжет Операции «Сирена», `Simulation Battle` и `Siren Proving Ground`;\n- включить исследование OpSi или использовать `Campaign Information Recorder` (предмет за 5000 нефти).",
+      "category": "proper_name",
+      "reason": "Официальное имя продукта, персонажа или корабля сохранено в исходной форме.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiObscure._info.help",
+      "text": "Зачищает скрытую зону каждые 27 минут, выдерживая время восстановления поиска зон.\nДля использования функции требуется:\n- завершить основной сюжет Операции «Сирена», `Simulation Battle` и `Siren Proving Ground`;\n- включить исследование OpSi или использовать `Campaign Information Recorder` (предмет за 5000 нефти).",
+      "category": "proper_name",
+      "reason": "Официальное имя продукта, персонажа или корабля сохранено в исходной форме.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
       "stage": 6,
       "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
@@ -9213,6 +9253,16 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiStronghold._info.help",
+      "text": "Зачищает еженедельную крепость Сирен.\nДля использования функции требуется:\n- завершить основной сюжет Операции «Сирена», `Simulation Battle` и `Siren Proving Ground`;\n- включить исследование OpSi или использовать `Campaign Information Recorder` (предмет за 5000 нефти).",
+      "category": "proper_name",
+      "reason": "Официальное имя продукта, персонажа или корабля сохранено в исходной форме.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiTarget.TargetZone.help",
       "text": "Боевой выход только в указанные зоны. Можно использовать для получения звёзд достижений в Операция «Сирена».\nПоддерживает ID зоны, названия зон на языках CN/EN/JP/TW, например: \"51\", \"NA Ocean SE Sector E\"\nВведите значение по умолчанию 0 или удалите значение, чтобы отменить целевую зону",
       "category": "technical_value",
@@ -9227,6 +9277,16 @@
       "text": "Справочная документация: https://github.com/LmeSzinc/AzurLaneAutoScript/wiki/reward_shop_filter_string",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiVoucher._info.help",
+      "text": "Покупает предметы в ежемесячном магазине ваучеров.\nДля использования функции требуется:\n- завершить основной сюжет Операции «Сирена», `Simulation Battle` и `Siren Proving Ground`.",
+      "category": "proper_name",
+      "reason": "Официальное имя продукта, персонажа или корабля сохранено в исходной форме.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
       "stage": 6,
       "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."

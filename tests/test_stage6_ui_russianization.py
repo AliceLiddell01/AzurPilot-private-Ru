@@ -13,6 +13,7 @@ from dev_tools.stage6_ui_audit import (
     exception_category,
     format_signature,
     javascript_ui_candidates,
+    javascript_file_ui_candidates,
     python_translation_key_usage,
 )
 from module.webui.event_calculator import build_event_calculator_js
@@ -108,6 +109,11 @@ class Stage6UiRussianizationTests(unittest.TestCase):
             "module/webui/fixture.py",
         )
         self.assertEqual([candidate.text for candidate in candidates], ["unknown error"])
+        asset_candidates = javascript_file_ui_candidates(
+            "panel.innerHTML = ['<span>实时截图</span>'].join('');",
+            "assets/gui/js/fixture.js",
+        )
+        self.assertEqual([candidate.text for candidate in asset_candidates], ["实时截图"])
 
         with tempfile.NamedTemporaryFile(
             mode="w",

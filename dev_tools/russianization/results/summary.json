@@ -2,10 +2,10 @@
   "active_runtime_locales": [
     "ru-RU"
   ],
-  "asset_bytes_total": 585462039,
+  "asset_bytes_total": 585461870,
   "asset_decision_counts": {
-    "confirmed_keep": 7787,
-    "needs_manual_review": 683,
+    "confirmed_keep": 7788,
+    "needs_manual_review": 682,
     "probable_delete_candidate": 1231,
     "probable_keep": 763
   },
@@ -24,7 +24,7 @@
   "event_name_source": "en",
   "first_party_log_messages": 5765,
   "foreign_runtime_fallback": false,
-  "full_asset_manifest_sha256": "fe0c484798c0e478bab2dd09e087eb6cee60031cb4a8c61fcff4d152cc22ae8d",
+  "full_asset_manifest_sha256": "4d10a29f03bba00aeee665741a5af5e5fe44569589b22d6662a7cc419fc28604",
   "legacy_inactive_locale_files": [
     "en-US",
     "ja-JP",
@@ -56,10 +56,10 @@
     "tests": 9,
     "webui_and_process_lifecycle": 320
   },
-  "manual_review_assets": 1914,
+  "manual_review_assets": 1913,
   "probable_delete_candidates": 1231,
   "schema_version": 1,
-  "source_fingerprint": "1ebde9ad8abd2ca2cd16626221a0f776debce9a92887ccbcd091a09e00b3a57c",
+  "source_fingerprint": "83f3d30fb146f025e837b8fa9a092f5809c355f5d7fdc0abe5e01390b528e0b2",
   "text_files_scanned": 2118,
   "tracked_files_scanned": 10952,
   "ui_by_subsystem": {
@@ -71,5 +71,5 @@
   },
   "ui_locale_linked_to_game_server": false,
   "ui_strings": 23345,
-  "ui_translation_required": 18617
+  "ui_translation_required": 18623
 }

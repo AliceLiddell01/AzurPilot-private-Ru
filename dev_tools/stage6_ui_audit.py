@@ -98,6 +98,13 @@ TECHNICAL_PATH_PARTS = (
     ".OcrModelVersion", ".ResearchSeries.", ".ZipMethod.", ".Mode.",
 )
 
+CONFIRMED_ORIGINAL_TERMS = (
+    "Campaign Information Recorder",
+    "Simulation Battle",
+    "Siren Proving Ground",
+    "Squid BBQ",
+)
+
 MANUAL_EXCEPTIONS = (
     {
         "path": "module/webui/app_event_tools.py",
@@ -282,6 +289,8 @@ def exception_category(key: str, text: str) -> str | None:
             return "proper_name"
     if any(part in key for part in TECHNICAL_PATH_PARTS):
         return "technical_value"
+    if any(term in text for term in CONFIRMED_ORIGINAL_TERMS):
+        return "proper_name"
     if key.startswith("Optimization.") and not CYRILLIC_RE.search(text):
         return "technical_value"
     if key.startswith("Emulator.") and not CYRILLIC_RE.search(text):
@@ -350,6 +359,25 @@ def javascript_ui_candidates(source: str, relative: str) -> list[Candidate]:
                 continue
             seen.add(marker)
             results.append(Candidate(relative, line, text, "javascript_ui_literal", kind))
+    return results
+
+
+def javascript_file_ui_candidates(source: str, relative: str) -> list[Candidate]:
+    """Scan a loaded JavaScript asset, including CJK embedded in HTML arrays."""
+    results = javascript_ui_candidates(source, relative)
+    seen = {(int(item.key_or_line), item.text) for item in results}
+    for quoted in QUOTED_STRING_RE.finditer(source):
+        raw = quoted.group("text").strip()
+        if not CJK_RE.search(raw):
+            continue
+        line = source.count("\n", 0, quoted.start()) + 1
+        displayed = visible_text(raw)
+        marker = (line, displayed)
+        if displayed and marker not in seen:
+            results.append(Candidate(
+                relative, line, displayed, "javascript_asset_ui_literal", foreign_kind(displayed) or "cjk"
+            ))
+            seen.add(marker)
     return results
 
 
@@ -609,6 +637,10 @@ class Stage6Audit:
             results.extend(python_ui_candidates(path))
         for path in sorted((self.root / "webapp").rglob("*.html")):
             results.extend(html_ui_candidates(path))
+        js_path = self.root / "assets" / "gui" / "js" / "alas-utils.js"
+        results.extend(javascript_file_ui_candidates(
+            js_path.read_text(encoding="utf-8"), js_path.relative_to(self.root).as_posix()
+        ))
         return results
 
     def runtime_key_integrity(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
