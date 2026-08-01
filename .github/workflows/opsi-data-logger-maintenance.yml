@@ -88,7 +88,7 @@ jobs:
         run: PYTHONPATH=. uv run pytest -q tests/test_opsi_data_logger.py
 
       - name: Regenerate Russianization audit artifacts
-        run: PYTHONPATH=. uv run python -m dev_tools.russianization_audit
+        run: PYTHONPATH=. uv run python -m dev_tools.russianization_audit --write
 
       - name: Package candidate and regenerated artifacts
         run: |
