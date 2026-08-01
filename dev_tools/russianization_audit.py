@@ -63,6 +63,7 @@ SOURCE_SCAN_ROOTS = {
     "module", "deploy", "scripts", "dev_tools", "campaign", "tests", ".github",
     "config", "gui.py", "alas.py", "submodule", "webapp",
 }
+EXCLUDED_PATHS = {"README.md"}
 EXCLUDED_PREFIXES = {
     ".git/", ".venv/", "venv/", "node_modules/", "dist/", "build/",
     "__pycache__/", ".pytest_cache/", ".ruff_cache/", ".mypy_cache/",
@@ -260,6 +261,8 @@ def likely_external_raw(text: str) -> bool:
 
 def is_excluded(path: str) -> bool:
     normalized = normalize_path(path)
+    if normalized in EXCLUDED_PATHS:
+        return True
     return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in EXCLUDED_PREFIXES)
 
 
