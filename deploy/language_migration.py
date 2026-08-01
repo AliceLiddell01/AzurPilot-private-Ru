@@ -170,6 +170,8 @@ def _patch_language_node(text: str, node: _LanguageNode) -> str:
             "Не удалось однозначно определить скалярное значение Language."
         )
 
+    if value_start == value_end:
+        return text[:value_start] + f" {UI_LOCALE}" + text[value_end:]
     return text[:value_start] + UI_LOCALE + text[value_end:]
 
 
