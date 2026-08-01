@@ -40,8 +40,8 @@ Base SHA: `4764f66baeafb0dd2152599839afec739af8ab40`
 ## Сохранённый объём
 
 - legacy locale files: 5;
-- assets: 10464;
-- first-party log messages requiring later translation: 5066.
+- assets: 10465;
+- first-party log messages requiring later translation: 5097.
 
 ## Gate
 
