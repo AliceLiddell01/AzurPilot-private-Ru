@@ -1,9 +1,9 @@
 name: Regenerate Data Logger audit baselines
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/opsi-data-logger
+      - personal/stable
     paths:
       - .github/workflows/opsi-data-logger-regenerate.yml
 
@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   regenerate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     steps:
       - name: Check out review branch
