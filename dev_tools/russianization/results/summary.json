@@ -2,14 +2,14 @@
   "active_runtime_locales": [
     "ru-RU"
   ],
-  "asset_bytes_total": 585462302,
+  "asset_bytes_total": 585495120,
   "asset_decision_counts": {
-    "confirmed_keep": 7786,
-    "needs_manual_review": 683,
+    "confirmed_keep": 7787,
+    "needs_manual_review": 684,
     "probable_delete_candidate": 1231,
-    "probable_keep": 764
+    "probable_keep": 763
   },
-  "asset_entries": 10464,
+  "asset_entries": 10465,
   "asset_scope_counts": {
     "cn": 3943,
     "en": 1673,
@@ -17,14 +17,14 @@
     "multi_server": 278,
     "shared": 109,
     "tw": 1445,
-    "unknown": 1559
+    "unknown": 1560
   },
   "confirmed_delete_candidates": 0,
-  "en_global_required_candidates": 3670,
+  "en_global_required_candidates": 3664,
   "event_name_source": "en",
-  "first_party_log_messages": 5765,
+  "first_party_log_messages": 5797,
   "foreign_runtime_fallback": false,
-  "full_asset_manifest_sha256": "ad2b7a6a7d533553b983eafd544540a22da697494bfe0a796d4781eeebfbf00b",
+  "full_asset_manifest_sha256": "8205ceac53118d4a8bb8d0568e555251450865cbdec022e4d11d23aa8d2a40ae",
   "legacy_inactive_locale_files": [
     "en-US",
     "ja-JP",
@@ -42,26 +42,26 @@
     "zh-MIAO",
     "zh-TW"
   ],
-  "log_translation_required": 5066,
+  "log_translation_required": 5097,
   "logs_by_subsystem": {
     "campaign_combat_fleet": 569,
     "deploy_and_dependencies": 320,
     "device_adb_emulator": 638,
-    "game_tasks": 2652,
+    "game_tasks": 2658,
     "ocr": 107,
-    "operation_siren": 815,
+    "operation_siren": 841,
     "other": 286,
     "scheduler_and_config": 45,
     "screenshot_and_control": 4,
     "tests": 9,
     "webui_and_process_lifecycle": 320
   },
-  "manual_review_assets": 1915,
+  "manual_review_assets": 1916,
   "probable_delete_candidates": 1231,
   "schema_version": 1,
-  "source_fingerprint": "56b3c391b063971d6f064baa56c17916993f1109d276578447c9eb086d822a17",
-  "text_files_scanned": 2117,
-  "tracked_files_scanned": 10951,
+  "source_fingerprint": "6827bd46d314a292a8545a0c9ce4b62f01ad74b4e04e5d7b52182ac15d59f0f0",
+  "text_files_scanned": 2119,
+  "tracked_files_scanned": 10953,
   "ui_by_subsystem": {
     "deploy_and_dependencies": 114,
     "other": 8,

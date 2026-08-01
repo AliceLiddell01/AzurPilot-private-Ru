@@ -17,21 +17,21 @@ uv run python -m dev_tools.russianization_audit --check
 
 | Метрика | Значение |
 |---|---:|
-| Tracked files scanned | 10951 |
-| Text files scanned | 2117 |
+| Tracked files scanned | 10953 |
+| Text files scanned | 2119 |
 | Locale files | 6 |
 | UI string entries | 23345 |
 | UI translation required | 18622 |
-| First-party/direct log entries | 5765 |
-| Log translation required | 5066 |
-| Asset entries | 10464 |
-| Asset bytes represented | 585462302 |
-| EN/Global required candidates | 3670 |
-| Manual review assets | 1915 |
+| First-party/direct log entries | 5797 |
+| Log translation required | 5097 |
+| Asset entries | 10465 |
+| Asset bytes represented | 585495120 |
+| EN/Global required candidates | 3664 |
+| Manual review assets | 1916 |
 | Probable delete candidates | 1231 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `56b3c391b063971d6f064baa56c17916993f1109d276578447c9eb086d822a17`
+Source fingerprint: `6827bd46d314a292a8545a0c9ce4b62f01ad74b4e04e5d7b52182ac15d59f0f0`
 
 ## Runtime locale architecture
 
@@ -77,15 +77,15 @@ Inventory содержит путь, строку/ключ, источник, т
 
 ## First-party логи
 
-Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'deploy_and_dependencies': 320, 'webui_and_process_lifecycle': 320, 'other': 286, 'ocr': 107, 'scheduler_and_config': 45, 'tests': 9, 'screenshot_and_control': 4}`.
+Разбиение по подсистемам: `{'game_tasks': 2658, 'operation_siren': 841, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'deploy_and_dependencies': 320, 'webui_and_process_lifecycle': 320, 'other': 286, 'ocr': 107, 'scheduler_and_config': 45, 'tests': 9, 'screenshot_and_control': 4}`.
 
 Сырые stdout/stderr/traceback отмечаются отдельно и должны сохраняться без перевода. В будущих Stage русифицируется только first-party контекст вокруг них.
 
 ## Assets
 
-Decision counts: `{'confirmed_keep': 7786, 'needs_manual_review': 683, 'probable_delete_candidate': 1231, 'probable_keep': 764}`.
+Decision counts: `{'confirmed_keep': 7787, 'needs_manual_review': 684, 'probable_delete_candidate': 1231, 'probable_keep': 763}`.
 
-Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1559}`.
+Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1560}`.
 
 `confirmed_delete_candidate` намеренно не присваивается на основании имени, CJK или суффикса. Наличие server marker без runtime evidence даёт максимум `probable_delete_candidate` и `manual_review_required: true`.
 
