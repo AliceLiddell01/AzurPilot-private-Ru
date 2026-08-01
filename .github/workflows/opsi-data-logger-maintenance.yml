@@ -31,23 +31,76 @@ jobs:
           uv sync --frozen
           uv pip install pytest
 
+      - name: Build direct scheduler integration candidate
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          config_path = Path("module/config/config.py")
+          config = config_path.read_text(encoding="utf-8")
+          import_anchor = "from module.config.deep import deep_get, deep_set\n"
+          import_replacement = (
+              import_anchor
+              + "from module.config.opsi_data_logger import data_logger_is_active_from_data\n"
+          )
+          if import_replacement not in config:
+              if import_anchor not in config:
+                  raise SystemExit("config import anchor not found")
+              config = config.replace(import_anchor, import_replacement, 1)
+
+          old_special_radar = '''        def is_special_radar(task):
+              return deep_get(
+                  self.data, keys=f"{task}.OpsiExplore.SpecialRadar", default=False
+              )
+          '''
+          new_special_radar = '''        def is_special_radar(task):
+              if task == "OpsiExplore":
+                  return data_logger_is_active_from_data(self.data)
+              return deep_get(
+                  self.data, keys=f"{task}.OpsiExplore.SpecialRadar", default=False
+              )
+          '''
+          if new_special_radar not in config:
+              if old_special_radar not in config:
+                  raise SystemExit("is_special_radar anchor not found")
+              config = config.replace(old_special_radar, new_special_radar, 1)
+          config_path.write_text(config, encoding="utf-8", newline="\n")
+
+          state_path = Path("module/config/opsi_data_logger.py")
+          state = state_path.read_text(encoding="utf-8")
+          state = state.replace("from functools import wraps\n", "")
+          state = state.replace("from threading import RLock\n", "")
+          state = state.replace(
+              "from module.config.deep import deep_get, deep_set\n",
+              "from module.config.deep import deep_get\n",
+          )
+          state = state.replace("\n_SCHEDULER_BRIDGE_LOCK = RLock()\n", "")
+          bridge_marker = "\ndef install_data_logger_scheduler_bridge() -> None:\n"
+          if bridge_marker in state:
+              state = state.split(bridge_marker, 1)[0].rstrip() + "\n"
+          state_path.write_text(state, encoding="utf-8", newline="\n")
+          PY
+
       - name: Run focused Data Logger tests
         run: uv run pytest -q tests/test_opsi_data_logger.py
 
       - name: Regenerate Russianization audit artifacts
         run: uv run python -m dev_tools.russianization_audit
 
-      - name: Package regenerated artifacts
+      - name: Package candidate and regenerated artifacts
         run: |
-          mkdir -p /tmp/opsi-russianization/dev_tools/russianization/results
-          cp dev_tools/russianization/results/summary.json /tmp/opsi-russianization/dev_tools/russianization/results/
-          cp dev_tools/russianization/results/first_party_logs.json /tmp/opsi-russianization/dev_tools/russianization/results/
-          cp dev_tools/russianization/results/asset_manifest.json /tmp/opsi-russianization/dev_tools/russianization/results/
-          cp dev_tools/russianization/results/locale_dependency_map.json /tmp/opsi-russianization/dev_tools/russianization/results/
-          cp dev_tools/russianization/results/stage4_report.md /tmp/opsi-russianization/dev_tools/russianization/results/
+          mkdir -p /tmp/opsi-candidate/module/config
+          mkdir -p /tmp/opsi-candidate/dev_tools/russianization/results
+          cp module/config/config.py /tmp/opsi-candidate/module/config/
+          cp module/config/opsi_data_logger.py /tmp/opsi-candidate/module/config/
+          cp dev_tools/russianization/results/summary.json /tmp/opsi-candidate/dev_tools/russianization/results/
+          cp dev_tools/russianization/results/first_party_logs.json /tmp/opsi-candidate/dev_tools/russianization/results/
+          cp dev_tools/russianization/results/asset_manifest.json /tmp/opsi-candidate/dev_tools/russianization/results/
+          cp dev_tools/russianization/results/locale_dependency_map.json /tmp/opsi-candidate/dev_tools/russianization/results/
+          cp dev_tools/russianization/results/stage4_report.md /tmp/opsi-candidate/dev_tools/russianization/results/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: opsi-russianization-results
-          path: /tmp/opsi-russianization
+          name: opsi-data-logger-candidate
+          path: /tmp/opsi-candidate
           if-no-files-found: error
