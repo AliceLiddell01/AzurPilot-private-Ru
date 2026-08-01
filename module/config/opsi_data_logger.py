@@ -24,6 +24,11 @@ DATA_LOGGER_VALID_UNTIL_KEY = "OperationSirenDataLoggerValidUntil"
 DATA_LOGGER_RETRY_PENDING_KEY = "OperationSirenDataLoggerRetryPending"
 DATA_LOGGER_RETRY_REASON_KEY = "OperationSirenDataLoggerRetryReason"
 DATA_LOGGER_RETRY_CYCLE_KEY = "OperationSirenDataLoggerRetryCycle"
+DATA_LOGGER_RETRY_COUNT_KEY = "OperationSirenDataLoggerRetryCount"
+
+# The fifth unresolved attempt is persisted and paused until the next
+# Operation Siren monthly reset instead of retrying for the rest of the month.
+DATA_LOGGER_MAX_FAILURES_PER_CYCLE = 5
 
 
 class DataLoggerShopState(Enum):
@@ -35,8 +40,8 @@ class DataLoggerShopState(Enum):
 class DataLoggerStorageState(Enum):
     ACTIVATED = "activated"
     ABSENT = "absent"
-    # Kept for compatibility with already imported code/tests from early
-    # iterations. Absence alone is no longer treated as proof of activation.
+    # Deprecated compatibility value; the current lifecycle never emits it.
+    # Absence alone is not proof that the item was activated.
     ALREADY_ACTIVATED = "already_activated"
     UNKNOWN = "unknown"
     ENTER_TIMEOUT = "enter_timeout"
@@ -146,6 +151,24 @@ def data_logger_retry_pending(
     )
 
 
+def data_logger_retry_count(
+    config,
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> int:
+    """Return the number of unresolved lifecycle attempts in this server cycle."""
+    storage = data_logger_storage_from_data(config.data)
+    cycle_key = data_logger_cycle_key(next_reset, server_now=server_now)
+    if storage.get(DATA_LOGGER_RETRY_CYCLE_KEY) != cycle_key:
+        return 0
+    try:
+        count = int(storage.get(DATA_LOGGER_RETRY_COUNT_KEY, 0))
+    except (TypeError, ValueError):
+        return 0
+    return max(count, 0)
+
+
 def _updated_storage(config) -> dict[str, Any]:
     return deepcopy(data_logger_storage_from_data(config.data))
 
@@ -163,6 +186,7 @@ def data_logger_mark_active(
     storage.pop(DATA_LOGGER_RETRY_PENDING_KEY, None)
     storage.pop(DATA_LOGGER_RETRY_REASON_KEY, None)
     storage.pop(DATA_LOGGER_RETRY_CYCLE_KEY, None)
+    storage.pop(DATA_LOGGER_RETRY_COUNT_KEY, None)
     config.cross_set(keys=DATA_LOGGER_STORAGE_PATH, value=storage)
     return cycle_key
 
@@ -173,15 +197,28 @@ def data_logger_set_retry(
     next_reset: datetime | None = None,
     *,
     server_now: datetime | None = None,
-) -> None:
+) -> int:
+    """Persist one unresolved attempt and return its per-cycle failure count."""
+    cycle_key = data_logger_cycle_key(next_reset, server_now=server_now)
     storage = _updated_storage(config)
+    if storage.get(DATA_LOGGER_RETRY_CYCLE_KEY) == cycle_key:
+        try:
+            previous_count = max(
+                int(storage.get(DATA_LOGGER_RETRY_COUNT_KEY, 0)),
+                0,
+            )
+        except (TypeError, ValueError):
+            previous_count = 0
+    else:
+        previous_count = 0
+
+    failure_count = previous_count + 1
     storage[DATA_LOGGER_RETRY_PENDING_KEY] = True
     storage[DATA_LOGGER_RETRY_REASON_KEY] = str(reason)
-    storage[DATA_LOGGER_RETRY_CYCLE_KEY] = data_logger_cycle_key(
-        next_reset,
-        server_now=server_now,
-    )
+    storage[DATA_LOGGER_RETRY_CYCLE_KEY] = cycle_key
+    storage[DATA_LOGGER_RETRY_COUNT_KEY] = failure_count
     config.cross_set(keys=DATA_LOGGER_STORAGE_PATH, value=storage)
+    return failure_count
 
 
 def data_logger_clear_retry(config) -> None:
@@ -191,6 +228,7 @@ def data_logger_clear_retry(config) -> None:
         DATA_LOGGER_RETRY_PENDING_KEY,
         DATA_LOGGER_RETRY_REASON_KEY,
         DATA_LOGGER_RETRY_CYCLE_KEY,
+        DATA_LOGGER_RETRY_COUNT_KEY,
     ):
         if key in storage:
             storage.pop(key)
