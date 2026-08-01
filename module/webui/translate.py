@@ -195,9 +195,9 @@ def translate():
     def setting():
         data = input_group(inputs=[
             checkbox(name='check', label='Настройки', options=[
-                {"label": 'Button [Next] only shows untranslated key',
+                {"label": 'Кнопка «Далее» показывает только непереведённые ключи',
                     'value': 'untranslated', 'selected': V.untranslated_only},
-                {"label": 'Do not fill input with old value (only effect the language you selected)',
+                {"label": 'Не подставлять прежнее значение в поле выбранного языка',
                  "value": "clear", "selected": V.clear}
             ])
         ])

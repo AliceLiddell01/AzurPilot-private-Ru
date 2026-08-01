@@ -43,10 +43,10 @@ def prepare_webui_restart() -> bool:
         atomic_write("./config/reloadalas", "".join(names))
     except Exception as exc:
         logger.exception_context(
-            title='无法准备 WebUI 手动重启',
+            title='Не удалось подготовить ручной перезапуск WebUI',
             exc=exc,
-            impact='继续重启会导致当前运行的 AzurPilot 实例无法自动恢复。',
-            action='检查 config 目录写入权限后重试。',
+            impact='При продолжении запущенные профили AzurPilot не будут восстановлены автоматически.',
+            action='Проверьте права записи в каталог config и повторите попытку.',
             level=50,
         )
         return False
@@ -73,10 +73,10 @@ def request_webui_restart() -> bool:
                 logger.warning("WebUI 清理未完成，将由父进程终止完整进程树")
         except Exception as exc:
             logger.exception_context(
-                title='WebUI 手动重启清理失败',
+                title='Ошибка очистки при ручном перезапуске WebUI',
                 exc=exc,
-                impact='父进程仍会终止旧 WebUI 进程树。',
-                action='检查 WebUI 清理日志，确认是否有残留资源。',
+                impact='Родительский процесс всё равно завершит дерево процессов старой WebUI.',
+                action='Проверьте журнал очистки WebUI на наличие оставшихся ресурсов.',
                 level=50,
             )
 
@@ -85,10 +85,10 @@ def request_webui_restart() -> bool:
         except Exception as exc:
             State._restart_requested = False
             logger.exception_context(
-                title='无法通知父进程执行 WebUI 手动重启',
+                title='Не удалось запросить у родительского процесса перезапуск WebUI',
                 exc=exc,
-                impact='当前 WebUI 不会退出，已保存的实例恢复标记将保留。',
-                action='检查父子进程事件状态后重新发起重启。',
+                impact='Текущая WebUI не завершится, а сохранённая отметка восстановления профилей останется.',
+                action='Проверьте связь с родительским процессом и повторите перезапуск.',
                 level=50,
             )
             return False
@@ -106,7 +106,7 @@ class DeveloperToolsMixin(WebUIMixinBase):
         self.set_title(t("Gui.MenuDevelop.Utils"))
         put_scope("develop_detail")
         put_button(
-            label=t("GUI测试 抛出异常事件"),
+            label="Тест GUI: вызвать исключение",
             onclick=raise_exception,
             scope="develop_detail",
         )
@@ -130,33 +130,33 @@ class DeveloperToolsMixin(WebUIMixinBase):
         def _mock_icon_state(state: int, seconds: int = 10):
             target = _get_debug_target_instance()
             if not target:
-                toast("未找到可用实例，无法模拟图标状态", color="warning")
+                toast("Нет доступного профиля для имитации состояния значка", color="warning")
                 return
             ProcessManager.get_manager(target).set_state_override(
                 state, duration=seconds
             )
             _refresh_debug_status()
-            toast(f"已为 {target} 模拟状态 {state}（{seconds}s）", color="info")
+            toast(f"Для {target} установлено тестовое состояние {state} на {seconds} с", color="info")
 
         def _clear_mock_icon_state():
             target = _get_debug_target_instance()
             if not target:
-                toast("未找到可用实例，无法清除模拟状态", color="warning")
+                toast("Нет доступного профиля для сброса тестового состояния", color="warning")
                 return
             ProcessManager.get_manager(target).clear_state_override()
             _refresh_debug_status()
-            toast(f"已清除 {target} 的图标状态模拟", color="success")
+            toast(f"Тестовое состояние значка {target} сброшено", color="success")
 
         put_buttons(
             buttons=[
-                {"label": "模拟运行图标(10s)", "value": 1, "color": "success"},
-                {"label": "模拟错误图标(10s)", "value": 3, "color": "danger"},
+                {"label": "Значок работы (10 с)", "value": 1, "color": "success"},
+                {"label": "Значок ошибки (10 с)", "value": 3, "color": "danger"},
             ],
             onclick=lambda state: _mock_icon_state(state, 10),
             scope="develop_detail",
         )
         put_button(
-            label="清除图标模拟状态",
+            label="Сбросить тестовый значок",
             onclick=_clear_mock_icon_state,
             color="secondary",
             scope="develop_detail",
@@ -169,9 +169,9 @@ class DeveloperToolsMixin(WebUIMixinBase):
             if request_webui_restart():
                 toast(t("Gui.Toast.AlasRestart"), duration=0, color="error")
             else:
-                toast("WebUI 重启事务繁忙或无法保存运行实例，已取消重启", color="error")
+                toast("Перезапуск WebUI отменён: операция занята или не удалось сохранить активный профиль", color="error")
 
-        put_button(label=t("重启Alas"), onclick=_force_restart, scope="develop_detail")
+        put_button(label="Перезапустить AzurPilot", onclick=_force_restart, scope="develop_detail")
 
         def _test_notify_announcement():
             from module.notify.notify import notify_webui
@@ -179,39 +179,39 @@ class DeveloperToolsMixin(WebUIMixinBase):
             instance = getattr(self, "alas_name", DEFAULT_CONFIG_NAME)
             notify_webui(
                 instance=instance,
-                title="新公告喵！",
-                content="测试公告推送逻辑，启动器应显示专用标题。",
+                title="Новое объявление!",
+                content="Тест уведомления об объявлении: лаунчер должен показать отдельный заголовок.",
                 updata=False,
             )
-            toast("已发送公告测试通知", color="info")
+            toast("Тестовое уведомление об объявлении отправлено", color="info")
 
         def _test_notify_error():
             from module.notify import handle_notify
 
             instance = _get_debug_target_instance()
             if not instance:
-                toast("未找到可用实例，无法发送错误推送测试", color="warning")
+                toast("Нет доступного профиля для теста уведомления об ошибке", color="warning")
                 return
             config = load_config(instance)
             success = handle_notify(
                 config.Error_OnePushConfig,
-                title=f"AzurPilot <{instance}> 崩溃",
-                content=f"<{instance}> 开发者错误推送测试",
+                title=f"Сбой AzurPilot <{instance}>",
+                content=f"<{instance}>: тест уведомления разработчика об ошибке",
             )
             if success:
-                toast("已发送错误推送测试", color="success")
+                toast("Тестовое уведомление об ошибке отправлено", color="success")
             else:
-                toast("错误推送测试发送失败，请检查错误推送设置", color="error")
+                toast("Не удалось отправить тестовое уведомление. Проверьте настройки уведомлений об ошибках", color="error")
 
         put_buttons(
             buttons=[
                 {
-                    "label": "测试公告推送 (updata=False)",
+                    "label": "Тест уведомления об объявлении",
                     "value": "announcement",
                     "color": "info",
                 },
                 {
-                    "label": "测试错误推送",
+                    "label": "Тест уведомления об ошибке",
                     "value": "error",
                     "color": "danger",
                 },
@@ -270,7 +270,7 @@ class DeveloperToolsMixin(WebUIMixinBase):
                     else:
                         put_link(name=entrypoint, url=entrypoint, scope="remote_info")
                 else:
-                    put_text("Loading...", scope="remote_info")
+                    put_text("Загрузка...", scope="remote_info")
                 remote_error = RemoteAccess.get_error()
                 if remote_error and remote_status in ("dependency_missing", "failed"):
                     put_warning(remote_error, closable=False, scope="remote_info")

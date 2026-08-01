@@ -5869,7 +5869,8 @@
     "Toast": {
       "DisableTranslateMode": "Click here to turn off translation mode",
       "ConfigSaved": "Settings saved",
-      "AlasIsRunning": "Scheduler is already running"
+      "AlasIsRunning": "Scheduler is already running",
+      "AlasRestart": "AzurPilot is restarting..."
     },
     "Status": {
       "Running": "Secretary ship is processing",

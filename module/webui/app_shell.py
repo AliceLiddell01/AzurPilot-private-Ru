@@ -210,11 +210,11 @@ class AppShellMixin(WebUIMixinBase):
         data = time_source_status()
         local_offset = current_time(timezone.utc).astimezone().utcoffset()
         local_tz = self._format_tz_offset(local_offset or timedelta(0))
-        sync_text = "已同步" if data["synced"] else "本机时间"
-        enabled_text = "NTP" if data["enabled"] else "NTP关闭"
+        sync_text = "синхронизировано" if data["synced"] else "локальное время"
+        enabled_text = "NTP" if data["enabled"] else "NTP отключён"
         return (
-            f"{enabled_text} {sync_text} · 偏移 {data['offset']:+.3f}s · "
-            f"本机 {local_tz}"
+            f"{enabled_text}: {sync_text} · смещение {data['offset']:+.3f} с · "
+            f"локальный пояс {local_tz}"
         )
 
     @classmethod

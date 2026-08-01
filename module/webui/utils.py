@@ -597,7 +597,7 @@ def _record_login_failure():
         ):
             _webui_login_forbidden = True
             logger.warning(
-                "密码错误次数过多，已禁止所有登录，重启后恢复。"
+                "Слишком много неверных паролей. Вход заблокирован до перезапуска."
             )
         return _webui_login_failure_count
 
@@ -605,13 +605,13 @@ def _record_login_failure():
 def _show_password_help(action):
     if action == "new":
         popup(
-            "没设置过密码？",
-            put_text("系统已自动生成密码，请到项目根目录 password.txt 查看。"),
+            "Пароль ещё не настроен?",
+            put_text("Система создала пароль автоматически. Он сохранён в файле password.txt в корне проекта."),
         )
     elif action == "forgot":
         popup(
-            "忘记密码？",
-            put_text("请到 config/deploy.yaml 的 Password 字段查看当前密码。"),
+            "Забыли пароль?",
+            put_text("Текущий пароль указан в поле Password файла config/deploy.yaml."),
         )
 
 
@@ -624,7 +624,7 @@ def _input_webui_password():
                 inputs=[
                     input(
                         name="password",
-                        label="请输入 WebUI 密码",
+                        label="Введите пароль WebUI",
                         type=PASSWORD,
                         placeholder="PASSWORD",
                     ),
@@ -632,19 +632,19 @@ def _input_webui_password():
                         name="action",
                         buttons=[
                             {
-                                "label": "登录",
+                                "label": "Войти",
                                 "value": "login",
                                 "type": "submit",
                                 "color": "primary",
                             },
                             {
-                                "label": "没设置过密码？",
+                                "label": "Пароль ещё не настроен?",
                                 "value": "new",
                                 "type": "submit",
                                 "color": "secondary",
                             },
                             {
-                                "label": "忘记密码？",
+                                "label": "Забыли пароль?",
                                 "value": "forgot",
                                 "type": "submit",
                                 "color": "secondary",
@@ -663,7 +663,7 @@ def _input_webui_password():
 
 def login(password, stored_password=_LOCALSTORAGE_UNSET):
     if is_login_forbidden():
-        toast("密码错误次数过多，请重启后再试。", color="error")
+        toast("Слишком много неверных попыток. Перезапустите AzurPilot и повторите вход.", color="error")
         return False
     if stored_password is _LOCALSTORAGE_UNSET:
         stored_password = get_localstorage("password")
@@ -671,7 +671,7 @@ def login(password, stored_password=_LOCALSTORAGE_UNSET):
         return True
     pwd = _input_webui_password()
     if is_login_forbidden():
-        toast("密码错误次数过多，请重启后再试。", color="error")
+        toast("Слишком много неверных попыток. Перезапустите AzurPilot и повторите вход.", color="error")
         return False
     if str(pwd) == str(password):
         set_localstorage("password", str(pwd))
@@ -680,9 +680,9 @@ def login(password, stored_password=_LOCALSTORAGE_UNSET):
         count = _record_login_failure()
         remaining = WEBUI_LOGIN_MAX_FAILURES - count
         if remaining > 0:
-            toast(f"密码错误，还剩 {remaining} 次机会。", color="error")
+            toast(f"Неверный пароль. Осталось попыток: {remaining}.", color="error")
         else:
-            toast("密码错误次数过多，请重启后再试。", color="error")
+            toast("Слишком много неверных попыток. Перезапустите AzurPilot и повторите вход.", color="error")
         return False
 
 

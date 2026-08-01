@@ -20,18 +20,18 @@ uv run python -m dev_tools.russianization_audit --check
 | Tracked files scanned | 10948 |
 | Text files scanned | 2114 |
 | Locale files | 6 |
-| UI string entries | 23334 |
-| UI translation required | 21348 |
+| UI string entries | 23339 |
+| UI translation required | 18605 |
 | First-party/direct log entries | 5753 |
-| Log translation required | 5088 |
+| Log translation required | 5056 |
 | Asset entries | 10463 |
-| Asset bytes represented | 585446899 |
+| Asset bytes represented | 585454786 |
 | EN/Global required candidates | 3670 |
 | Manual review assets | 1943 |
 | Probable delete candidates | 1231 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `975e8c2571d0fa78d667383e4d75b78d7f396e2851486f7c349fcaafbfd3153b`
+Source fingerprint: `cf84aff2d37eb0b2c66313a64a14404298bb43b62ca7412fbb035a3077be818b`
 
 ## Runtime locale architecture
 
@@ -45,12 +45,12 @@ Source fingerprint: `975e8c2571d0fa78d667383e4d75b78d7f396e2851486f7c349fcaafbfd
 
 | Locale | Path | Runtime status | String keys |
 |---|---|---|---:|
-| `en-US` | `module/config/i18n/en-US.json` | legacy_inactive_locale_file | 4166 |
-| `ja-JP` | `module/config/i18n/ja-JP.json` | legacy_inactive_locale_file | 4166 |
-| `ru-RU` | `module/config/i18n/ru-RU.json` | active_runtime_locale | 4166 |
-| `zh-CN` | `module/config/i18n/zh-CN.json` | legacy_inactive_locale_file | 4166 |
-| `zh-MIAO` | `module/config/i18n/zh-MIAO.json` | legacy_inactive_locale_file | 4166 |
-| `zh-TW` | `module/config/i18n/zh-TW.json` | legacy_inactive_locale_file | 4166 |
+| `en-US` | `module/config/i18n/en-US.json` | legacy_inactive_locale_file | 4167 |
+| `ja-JP` | `module/config/i18n/ja-JP.json` | legacy_inactive_locale_file | 4167 |
+| `ru-RU` | `module/config/i18n/ru-RU.json` | active_runtime_locale | 4167 |
+| `zh-CN` | `module/config/i18n/zh-CN.json` | legacy_inactive_locale_file | 4167 |
+| `zh-MIAO` | `module/config/i18n/zh-MIAO.json` | legacy_inactive_locale_file | 4167 |
+| `zh-TW` | `module/config/i18n/zh-TW.json` | legacy_inactive_locale_file | 4167 |
 
 Locale files with missing keys against union: **0**.
 
@@ -71,7 +71,7 @@ Locale files with missing keys against union: **0**.
 
 ## Пользовательские строки
 
-Разбиение по подсистемам: `{'scheduler_and_config': 22905, 'webui_and_process_lifecycle': 296, 'deploy_and_dependencies': 114, 'other': 10, 'tests': 9}`.
+Разбиение по подсистемам: `{'scheduler_and_config': 22911, 'webui_and_process_lifecycle': 297, 'deploy_and_dependencies': 114, 'tests': 9, 'other': 8}`.
 
 Inventory содержит путь, строку/ключ, источник, текст, language guess, classification, runtime visibility, generated flag и решение о необходимости перевода. Эвристика не считает любой ASCII-текст пользовательским английским: identifiers, paths, commands и technical values отделены.
 

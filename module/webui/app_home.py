@@ -80,16 +80,15 @@ class HomeMixin(WebUIMixinBase):
             # show something
             put_markdown(
                 """
-            AzurPilot 是基于上游项目 Alas (AzurLaneAutoScript) 的修改版本，采用 GPL-3.0 许可证，免费开源。如果你在任何渠道付费购买，那你一定是个大傻逼，请申请退款。
-            AzurPilot is a modified version based on the upstream project Alas (AzurLaneAutoScript), licensed under GPL-3.0, free and open-source. If you paid through any channel, please request a refund.
-            AzurPilotは上流プロジェクトAlas (AzurLaneAutoScript) の改変版で、GPL-3.0ライセンスの無料オープンソースです。購入された場合は、返金をリクエストしてください。
-            AzurPilot는 상류 프로젝트 Alas(AzurLaneAutoScript)의 수정 버전이며, GPL-3.0 라이선스의 무료 오픈 소스입니다. 구매하셨다면 환불을 요청해 주세요.
-            AzurPilot 是基於上游專案 Alas (AzurLaneAutoScript) 的修改版本，採用 GPL-3.0 許可證，免費開源。如果您透過任何管道付費購買，請申請退款。
+            AzurPilot — бесплатная модификация проекта Alas (AzurLaneAutoScript),
+            распространяемая по лицензии GPL-3.0. Если вы заплатили за программу,
+            запросите возврат средств.
 
-            上游项目 / Upstream / 上流プロジェクト / 상류 프로젝트 / 上游專案：`https://github.com/LmeSzinc/AzurLaneAutoScript`
-            本项目 / This project / 本プロジェクト / 본 프로젝트 / 本專案：`https://github.com/wess09/AzurPilot`
+            Исходный проект: `https://github.com/LmeSzinc/AzurLaneAutoScript`
 
-            如需支持，请联系 / For support, please contact / サポートについてはこちらへ / 지원이 필요하면 아래로 / 如需支援請聯繫：`https://addgroup.nanoda.work/`
+            AzurPilot: `https://github.com/wess09/AzurPilot`
+
+            Персональная русская версия: `https://github.com/AliceLiddell01/AzurPilot-private-Ru`
             """
             ).style("text-align: center")
 
@@ -153,7 +152,7 @@ class HomeMixin(WebUIMixinBase):
             # 有错误
             _, force, error = result
             if force:
-                toast(f"Check failed: {error}", color="error")
+                toast(f"Проверка не выполнена: {error}", color="error")
             return True
 
         data, force = result
@@ -202,7 +201,7 @@ class HomeMixin(WebUIMixinBase):
             self._last_announcement_id = announcement_id
 
         elif force:
-            toast("暂无公告 / No announcement", color="info")
+            toast("Новых объявлений нет", color="info")
 
         return True
 
@@ -215,7 +214,7 @@ class HomeMixin(WebUIMixinBase):
         """
         self._start_announcement_fetch(force=force)
         if force:
-            toast("正在获取公告... / Fetching announcement...", color="info")
+            toast("Получение объявления...", color="info")
 
     def _load_deferred_client_assets(self) -> None:
         """在首次绘制后加载本地交互资源。"""

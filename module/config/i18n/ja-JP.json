@@ -5869,7 +5869,8 @@
     "Toast": {
       "DisableTranslateMode": "翻訳モードをオフにするにはここをクリックしてください",
       "ConfigSaved": "設定が保存されました",
-      "AlasIsRunning": "スケジューラはすでに実行されています"
+      "AlasIsRunning": "スケジューラはすでに実行されています",
+      "AlasRestart": "AzurPilot を再起動しています…"
     },
     "Status": {
       "Running": "秘書艦が処理中です",

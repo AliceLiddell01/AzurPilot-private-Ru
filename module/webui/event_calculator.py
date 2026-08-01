@@ -22,6 +22,38 @@ WIKI_RAW_URL = (
 CACHE_FILE = "./cache/wiki_event_calculator.json"
 CACHE_VERSION = 2
 
+EVENT_ITEM_RU_MAP = {
+    "深潜许可": "Разрешение на глубоководное погружение",
+    "建造券": "Купон на постройку",
+    "魔方": "Куб",
+    "心智单元II": "Когнитивный модуль II",
+    "心智单元": "Когнитивный модуль",
+    "外观装备箱": "Ящик декоративного снаряжения",
+    "定向蓝图·八期": "Направленный чертёж · сезон 8",
+    "高级定向蓝图·八期": "Продвинутый направленный чертёж · сезон 8",
+    "定向蓝图": "Направленный чертёж",
+    "高级定向蓝图": "Продвинутый направленный чертёж",
+    "特殊兵装核心": "Ядро особого вооружения",
+    "兵装强化石T2": "Камень усиления вооружения T2",
+    "兵装重构核心T2": "Ядро реконструкции вооружения T2",
+    "兵装重构核心T1": "Ядро реконструкции вооружения T1",
+    "喵箱SSR": "Ящик мяуфицера SSR",
+    "喵箱SR": "Ящик мяуфицера SR",
+    "喵箱R": "Ящик мяуфицера R",
+    "科技箱T4": "Технический ящик T4",
+    "通用部件T3": "Универсальные детали T3",
+    "主炮部件T3": "Детали главного калибра T3",
+    "鱼雷部件T3": "Детали торпед T3",
+    "防空炮部件T3": "Детали ПВО T3",
+    "舰载机部件T3": "Детали палубной авиации T3",
+    "物资": "Монеты",
+    "石油": "Нефть",
+    "酸素可乐": "Кислородная кола",
+    "建造3次": "Выполнить 3 постройки",
+    "出击胜利15次": "Победить в 15 боевых выходах",
+    "通关1次困难关卡": "Пройти 1 сложный этап",
+}
+
 EVENT_SHOP_FILTER_MAP = [
     ("深潜许可", "URpt"),
     ("建造券", "GachaTicket"),
@@ -110,6 +142,11 @@ def _clean_name(text: str) -> str:
     return text.strip()
 
 
+def _translate_wiki_name(text: str) -> str:
+    clean = _clean_name(text)
+    return EVENT_ITEM_RU_MAP.get(clean, clean)
+
+
 def _to_int(value: str, default: int = 0) -> int:
     match = re.search(r"-?\d+", str(value).replace(",", ""))
     if match is None:
@@ -139,12 +176,13 @@ def _parse_shop(rows: List[List[str]]) -> List[Dict[str, Any]]:
         quantity = _to_int(row[2])
         if price <= 0 or quantity < 0:
             continue
+        source_name = _clean_name(row[0])
         out.append(
             {
-                "name": _clean_name(row[0]) or "未命名项目",
+                "name": _translate_wiki_name(row[0]) or "Безымянный предмет",
                 "price": price,
                 "quantity": quantity,
-                "filter": match_event_shop_filter(_clean_name(row[0]), price, quantity),
+                "filter": match_event_shop_filter(source_name, price, quantity),
             }
         )
     return out
@@ -158,7 +196,7 @@ def _parse_points(rows: List[List[str]], key_name: str) -> List[Dict[str, Any]]:
         points = _to_int(row[1])
         if points <= 0:
             continue
-        out.append({"name": _clean_name(row[0]), key_name: points})
+        out.append({"name": _translate_wiki_name(row[0]), key_name: points})
     return out
 
 
@@ -230,7 +268,7 @@ def load_event_calculator(force_refresh: bool = False) -> Dict[str, Any]:
         response.raise_for_status()
         data = parse_event_calculator(response.text)
         if not data["shop_items"] or not data["stages"]:
-            raise ValueError("Wiki event calculator table is incomplete")
+            raise ValueError("таблица калькулятора события в Wiki заполнена не полностью")
         _write_cache(data)
         return {**data, "from_cache": False}
     except Exception as e:
@@ -370,36 +408,36 @@ def build_event_calculator_html(scope_id: str) -> str:
   <div class="event-calc-toolbar">
     <span class="event-calc-badge" data-role="event-name"></span>
     <span class="event-calc-badge" data-role="source"></span>
-    <span class="event-calc-badge">总价 <span class="event-calc-total" data-role="shop-total" style="margin-left:4px;"></span></span>
+    <span class="event-calc-badge">Итого <span class="event-calc-total" data-role="shop-total" style="margin-left:4px;"></span></span>
     <label class="event-calc-badge" style="gap:6px;">
       <input data-field="auto-target" type="checkbox" checked>
-      商店变动同步目标
+      Синхронизировать цель с магазином
     </label>
-    <button type="button" data-action="import-shop">导入商店总价</button>
-    <button type="button" data-action="clear-shop">清空兑换</button>
-    <button type="button" data-action="fill-shop">重置兑换</button>
+    <button type="button" data-action="import-shop">Взять итог магазина</button>
+    <button type="button" data-action="clear-shop">Очистить покупки</button>
+    <button type="button" data-action="fill-shop">Выбрать всё</button>
     <span id="pywebio-scope-{scope_id}_write_actions" class="event-calc-write-actions"></span>
   </div>
   <div class="event-calc-grid">
     <div class="event-calc-panel">
-      <div class="event-calc-title">目标与每日收益</div>
+      <div class="event-calc-title">Цель и ежедневный доход</div>
       <div class="event-calc-fields">
-        <label>目标点数<input data-field="target" type="number" min="0" step="1"></label>
-        <label>已有点数<input data-field="owned" type="number" min="0" step="1"></label>
-        <label>结束日期<input data-field="end-date" type="date"></label>
-        <label>剩余天数<input data-field="remaining-days" type="number" readonly></label>
+        <label>Целевые очки<input data-field="target" type="number" min="0" step="1"></label>
+        <label>Уже получено<input data-field="owned" type="number" min="0" step="1"></label>
+        <label>Дата окончания<input data-field="end-date" type="date"></label>
+        <label>Осталось дней<input data-field="remaining-days" type="number" readonly></label>
       </div>
-      <div class="event-calc-title">日常任务</div>
+      <div class="event-calc-title">Ежедневные задания</div>
       <table data-role="daily"></table>
-      <div class="event-calc-title" style="margin-top:10px;">每日额外</div>
+      <div class="event-calc-title" style="margin-top:10px;">Дополнительно за день</div>
       <table data-role="extra"></table>
     </div>
     <div class="event-calc-panel">
-      <div class="event-calc-title">兑换商店</div>
+      <div class="event-calc-title">Магазин обмена</div>
       <table data-role="shop"></table>
     </div>
     <div class="event-calc-panel">
-      <div class="event-calc-title">出击数计算</div>
+      <div class="event-calc-title">Расчёт боевых выходов</div>
       <table data-role="stages"></table>
     </div>
   </div>
@@ -468,9 +506,9 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
         if (!amounts.has(item.filter)) order.push(item.filter);
         amounts.set(item.filter, (amounts.get(item.filter) || 0) + value);
       }} else if (item.filter === "URpt") {{
-        missing.push(`${{item.name || "URpt"}}（由UR兑换逻辑单独处理）`);
+        missing.push(`${{item.name || "URpt"}} (обрабатывается отдельно логикой обмена UR)`);
       }} else {{
-        missing.push(item.name || "未命名项目");
+        missing.push(item.name || "Безымянный предмет");
       }}
     }}
     return {{
@@ -488,7 +526,7 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
 
   function renderDailyTable(role, rows) {{
     const table = root.querySelector(`[data-role="${{role}}"]`);
-    table.innerHTML = `<thead><tr><th>项目</th><th>点数</th><th>不做/不打</th><th>今天已做/已打</th></tr></thead><tbody></tbody>`;
+    table.innerHTML = `<thead><tr><th>Задание</th><th>Очки</th><th>Пропустить</th><th>Уже выполнено сегодня</th></tr></thead><tbody></tbody>`;
     const tbody = table.querySelector("tbody");
     rows.forEach((item, index) => {{
       const tr = document.createElement("tr");
@@ -504,7 +542,7 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
 
   function renderShopTable() {{
     const table = root.querySelector('[data-role="shop"]');
-    table.innerHTML = `<thead><tr><th>项目</th><th>单价</th><th>个数</th><th></th><th>总价</th></tr></thead><tbody></tbody>`;
+    table.innerHTML = `<thead><tr><th>Предмет</th><th>Цена</th><th>Количество</th><th></th><th>Итого</th></tr></thead><tbody></tbody>`;
     const tbody = table.querySelector("tbody");
     state.shop.forEach((item, index) => {{
       const tr = document.createElement("tr");
@@ -521,7 +559,7 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
 
   function renderStages() {{
     const table = root.querySelector('[data-role="stages"]');
-    table.innerHTML = `<thead><tr><th>如果只打</th><th>每次拿</th><th>还要打</th></tr></thead><tbody></tbody>`;
+    table.innerHTML = `<thead><tr><th>Если проходить только</th><th>Очков за раз</th><th>Осталось прохождений</th></tr></thead><tbody></tbody>`;
     const tbody = table.querySelector("tbody");
     (data.stages || []).forEach((item, index) => {{
       const tr = document.createElement("tr");
@@ -576,8 +614,8 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
     calculate();
   }}
 
-  root.querySelector('[data-role="event-name"]').textContent = data.event_name ? `当前活动：${{data.event_name}}` : "当前活动：未知";
-  root.querySelector('[data-role="source"]').textContent = data.from_cache ? "来源：缓存" : "来源：Wiki";
+  root.querySelector('[data-role="event-name"]').textContent = data.event_name ? `Текущее событие: ${{data.event_name}}` : "Текущее событие: неизвестно";
+  root.querySelector('[data-role="source"]').textContent = data.from_cache ? "Источник: кеш" : "Источник: Wiki";
   root.querySelector('[data-field="target"]').value = intValue(initial.target) || intValue(data.shop_total);
   root.querySelector('[data-field="owned"]').value = intValue(initial.owned);
   root.querySelector('[data-field="end-date"]').value = (initial.end_date || data.end_date || "").replaceAll("/", "-").slice(0, 10);
@@ -634,6 +672,6 @@ def build_error_html(message: str) -> str:
     return (
         '<div style="border:1px solid rgba(200,80,80,.35);border-radius:6px;'
         'padding:10px;margin-top:10px;">'
-        f"活动计算器数据加载失败：{escape(message)}"
+        f"Не удалось загрузить данные калькулятора события: {escape(message)}"
         "</div>"
     )

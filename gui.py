@@ -150,40 +150,40 @@ def func(
     State.dependency_sync_event = dependency_sync_event
 
     # 解析命令行参数
-    parser = argparse.ArgumentParser(description="AzurPilot Web 服务")
+    parser = argparse.ArgumentParser(description="Веб-служба AzurPilot")
     parser.add_argument(
         "--host",
         type=str,
-        help="监听主机。默认使用部署设置中的WebuiHost",
+        help="Адрес прослушивания. По умолчанию используется WebuiHost из настроек развёртывания",
     )
     parser.add_argument(
         "-p",
         "--port",
         type=int,
-        help="监听端口。默认使用部署设置中的WebuiPort",
+        help="Порт прослушивания. По умолчанию используется WebuiPort из настроек развёртывания",
     )
     parser.add_argument(
-        "-k", "--key", type=str, help="AzurPilot密码。默认无密码"
+        "-k", "--key", type=str, help="Пароль AzurPilot. По умолчанию пароль не используется"
     )
     parser.add_argument(
         "--cdn",
         action="store_true",
-        help="使用jsdelivr CDN获取pywebio静态文件（css, js）。默认使用自托管CDN",
+        help="Загружать статические файлы PyWebIO (CSS, JS) через CDN jsDelivr. По умолчанию используются локальные файлы",
     )
     parser.add_argument(
-        "--electron", action="store_true", help="由Electron客户端运行"
+        "--electron", action="store_true", help="Запуск из клиента Electron"
     )
     parser.add_argument(
-        "--ssl-key", dest="ssl_key", type=str, help="SSL密钥文件路径，用于HTTPS支持"
+        "--ssl-key", dest="ssl_key", type=str, help="Путь к ключу SSL для HTTPS"
     )
     parser.add_argument(
-        "--ssl-cert", type=str, help="SSL证书文件路径，用于HTTPS支持"
+        "--ssl-cert", type=str, help="Путь к сертификату SSL для HTTPS"
     )
     parser.add_argument(
         "--run",
         nargs="+",
         type=str,
-        help="启动时运行指定配置的AzurPilot",
+        help="Запустить при старте указанные конфигурации AzurPilot",
     )
     args, _ = parser.parse_known_args()
 
@@ -257,10 +257,10 @@ def func(
             _run_uvicorn_server(config, ready_event=ready_event)
     except Exception as e:
         logger.exception_context(
-            title='WebUI 服务启动失败',
+            title='Не удалось запустить службу WebUI',
             exc=e,
-            impact='WebUI 进程将退出，无法管理 AzurPilot。',
-            action='检查端口是否被占用、SSL 证书和密钥是否匹配，并确认依赖已通过 uv sync --frozen 安装。',
+            impact='Процесс WebUI завершится, управление AzurPilot будет недоступно.',
+            action='Проверьте доступность порта, соответствие сертификата и ключа SSL и установку зависимостей через uv sync --frozen.',
             level=50,
         )
         raise
@@ -640,10 +640,10 @@ def _start_dependency_sync_service_with_retry():
             return _start_dependency_sync_service()
         except Exception as exc:
             logger.exception_context(
-                title='依赖同步服务启动失败',
+                title='Не удалось запустить службу синхронизации зависимостей',
                 exc=exc,
-                impact='当前 WebUI 无法安全执行自动更新依赖。',
-                action='检查系统进程权限和 Python 环境；启动器会有限重试。',
+                impact='Текущая WebUI не может безопасно обновить зависимости автоматически.',
+                action='Проверьте права управления процессами и окружение Python; лаунчер выполнит ограниченное число повторов.',
                 level=50,
             )
             if attempt < DEPENDENCY_SYNC_START_RETRY_LIMIT:
@@ -868,10 +868,10 @@ def run_webui_supervisor() -> None:
                 _stop_webui_process_tree(process)
                 startup_failures += 1
                 logger.exception_context(
-                    title='WebUI 子进程启动失败',
+                    title='Не удалось запустить дочерний процесс WebUI',
                     exc=exc,
-                    impact='当前 WebUI 无法提供服务。',
-                    action='检查进程权限和系统资源；启动失败会自动有限重试。',
+                    impact='WebUI сейчас недоступна.',
+                    action='Проверьте права управления процессами и системные ресурсы; запуск будет повторён ограниченное число раз.',
                     level=50,
                 )
                 if startup_failures >= WEBUI_START_RETRY_LIMIT:
@@ -932,10 +932,10 @@ def run_webui_supervisor() -> None:
                     break
                 except Exception as e:
                     logger.exception_context(
-                        title='WebUI 重启事件处理失败',
+                        title='Ошибка обработки события перезапуска WebUI',
                         exc=e,
-                        impact='WebUI 将停止热重载并退出。',
-                        action='检查 WebUI 子进程状态和系统进程权限。',
+                        impact='WebUI прекратит горячую перезагрузку и завершится.',
+                        action='Проверьте состояние дочернего процесса WebUI и системные права управления процессами.',
                         level=50,
                     )
                     should_exit = True

@@ -490,10 +490,10 @@ class ProcessManager:
                 return False
         except Exception as exc:
             logger.exception_context(
-                title='无法清除 worker 登记',
+                title='Не удалось очистить запись рабочего процесса',
                 exc=exc,
-                impact='父进程会在下一次重启前再次验证该 PID。',
-                action='检查 config 目录写入权限。',
+                impact='Родительский процесс повторно проверит этот PID перед следующим перезапуском.',
+                action='Проверьте права записи в каталог config.',
                 level=40,
             )
             return False
@@ -607,7 +607,7 @@ class ProcessManager:
         parser.add_argument(
             "--electron",
             action="store_true",
-            help="由 Electron 客户端运行时启用此参数。",
+                help="Включается при запуске из клиента Electron.",
         )
         args, _ = parser.parse_known_args()
         State.electron = args.electron

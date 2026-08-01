@@ -76,7 +76,7 @@ class EventToolsMixin(WebUIMixinBase):
     ) -> None:
         state = self._event_calculator_state()
         if not state:
-            toast("活动计算器还没有加载完成", color="warning")
+            toast("Калькулятор события ещё не загрузился", color="warning")
             return
 
         modified: Dict[str, Any] = {}
@@ -86,20 +86,21 @@ class EventToolsMixin(WebUIMixinBase):
         if save_time:
             end_time = self._format_event_end_time(state.get("endDate") or "")
             if end_time is None:
-                toast("活动结束日期无效", color="warning")
+                toast("Указана некорректная дата окончания события", color="warning")
                 return
             modified["EventGeneral.EventGeneral.TimeLimit"] = end_time
         if save_shop_filter:
             filters = state.get("shopFilter") or []
             if not filters:
-                toast("没有可写入的商店过滤器项目", color="warning")
+                toast("Нет позиций магазина для записи в фильтр", color="warning")
                 return
             missing = state.get("shopFilterMissing") or []
             modified["EventShop.EventShop.PresetFilter"] = "custom"
             modified["EventShop.EventShop.CustomFilter"] = " > ".join(filters)
             if missing:
                 toast(
-                    "以下兑换项暂未映射到过滤器：" + "、".join(missing),
+                    "Для следующих позиций пока нет соответствия в фильтре: "
+                    + ", ".join(missing),
                     color="warning",
                     duration=6,
                 )
@@ -148,17 +149,17 @@ class EventToolsMixin(WebUIMixinBase):
         else:
             gacha_amount = 0
         set_daily(
-            "建造3次",
+            "Выполнить 3 постройки",
             self._is_task_enabled(config, "Gacha") and gacha_amount >= 3,
             self._is_task_done_today(config, "Gacha"),
         )
         set_daily(
-            "出击胜利15次",
+            "Победить в 15 боевых выходах",
             self._is_task_enabled(config, "Daily"),
             self._is_task_done_today(config, "Daily"),
         )
         set_daily(
-            "通关1次困难关卡",
+            "Пройти 1 сложный этап",
             self._is_task_enabled(config, "Hard"),
             self._is_task_done_today(config, "Hard"),
         )
@@ -193,9 +194,9 @@ class EventToolsMixin(WebUIMixinBase):
     ) -> None:
         scope_id = self._event_calculator_scope_id()
         with use_scope("group_EventCalculator", clear=True):
-            put_text("活动计算器")
+            put_text("Калькулятор события")
             put_text(
-                "从碧蓝航线 Wiki 自动读取活动商店、结束日期和各图 PT，计算后可写回活动通用设置。"
+                "Автоматически загружает из Wiki Azur Lane магазин события, дату окончания и PT карт. Результат можно записать в общие настройки события."
             )
             put_html('<hr class="hr-group">')
 
@@ -203,7 +204,7 @@ class EventToolsMixin(WebUIMixinBase):
             if data.get("error") and not data.get("shop_items"):
                 put_html(build_error_html(data["error"]))
                 put_button(
-                    label="重新从 Wiki 拉取",
+                    label="Повторить загрузку из Wiki",
                     onclick=lambda: self._render_event_calculator(
                         self.alas_config.read_file(self.alas_name), True
                     ),
@@ -235,35 +236,35 @@ class EventToolsMixin(WebUIMixinBase):
             put_row(
                 [
                     put_button(
-                        label="刷新 Wiki 数据",
+                        label="Обновить данные Wiki",
                         onclick=lambda: self._render_event_calculator(
                             self.alas_config.read_file(self.alas_name), True
                         ),
                         color="off",
                     ),
                     put_button(
-                        label="写入目标 PT",
+                        label="Записать целевое PT",
                         onclick=lambda: self._save_event_calculator_result(
                             save_target=True, save_time=False
                         ),
                         color="off",
                     ),
                     put_button(
-                        label="写入结束时间",
+                        label="Записать время окончания",
                         onclick=lambda: self._save_event_calculator_result(
                             save_target=False, save_time=True
                         ),
                         color="off",
                     ),
                     put_button(
-                        label="写入目标 PT 和结束时间",
+                        label="Записать PT и время окончания",
                         onclick=lambda: self._save_event_calculator_result(
                             save_target=True, save_time=True
                         ),
                         color="off",
                     ),
                     put_button(
-                        label="写入商店过滤器",
+                        label="Записать фильтр магазина",
                         onclick=lambda: self._save_event_calculator_result(
                             save_target=False,
                             save_time=False,
@@ -346,7 +347,7 @@ class EventToolsMixin(WebUIMixinBase):
                             [
                                 put_scope("log_scroll_btn"),
                                 put_button(
-                                    label="截图预览",
+            label="Предпросмотр снимка",
                                     onclick=lambda: run_js(
                                         f"window.alasToggleLivePreview({json.dumps(self.alas_name)});"
                                     ),

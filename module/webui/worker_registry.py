@@ -13,9 +13,11 @@ from typing import Iterator
 from deploy.atomic import atomic_remove, atomic_replace, atomic_write
 
 
-WORKER_REGISTRY_FILE = Path("./cache/webui-workers.json")
+DEFAULT_WORKER_REGISTRY_FILE = Path("./cache/webui-workers.json")
+WORKER_REGISTRY_FILE = Path(
+    os.environ.get("AZURPILOT_WORKER_REGISTRY_FILE", DEFAULT_WORKER_REGISTRY_FILE)
+)
 LEGACY_WORKER_REGISTRY_FILE = Path("./config/webui-workers.json")
-DEFAULT_WORKER_REGISTRY_FILE = WORKER_REGISTRY_FILE
 REGISTRY_LOCK_TIMEOUT = 10.0
 REGISTRY_LOCK_RETRY_INTERVAL = 0.05
 
@@ -93,7 +95,7 @@ def _acquire_file_lock(handle) -> None:
         try:
             import fcntl
         except ImportError as exc:
-            raise WorkerRegistryLockError("当前平台不支持 worker 登记文件锁") from exc
+            raise WorkerRegistryLockError("Эта платформа не поддерживает блокировку реестра рабочих процессов") from exc
 
         def acquire() -> None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -104,9 +106,9 @@ def _acquire_file_lock(handle) -> None:
             return
         except OSError as exc:
             if not _is_lock_conflict(exc):
-                raise WorkerRegistryLockError(f"无法锁定 worker 登记文件: {exc}") from exc
+                raise WorkerRegistryLockError(f"Не удалось заблокировать реестр рабочих процессов: {exc}") from exc
             if time.monotonic() >= deadline:
-                raise WorkerRegistryLockError("等待 worker 登记文件锁超时") from exc
+                raise WorkerRegistryLockError("Истекло время ожидания блокировки реестра рабочих процессов") from exc
             time.sleep(REGISTRY_LOCK_RETRY_INTERVAL)
 
 
@@ -166,24 +168,24 @@ def _migrate_legacy_registry() -> Path:
         if WORKER_REGISTRY_FILE.exists():
             current_registry = _read_registry(WORKER_REGISTRY_FILE)
             if current_registry != legacy_registry:
-                raise WorkerRegistryLockError("新旧 worker 登记文件内容冲突")
+                raise WorkerRegistryLockError("Содержимое нового и старого реестров рабочих процессов конфликтует")
         return LEGACY_WORKER_REGISTRY_FILE
 
     if WORKER_REGISTRY_FILE.exists():
         current_registry = _read_registry(WORKER_REGISTRY_FILE)
         if current_registry != legacy_registry:
-            raise WorkerRegistryLockError("新旧 worker 登记文件内容冲突")
+            raise WorkerRegistryLockError("Содержимое нового и старого реестров рабочих процессов конфликтует")
         try:
             atomic_remove(LEGACY_WORKER_REGISTRY_FILE)
         except OSError as exc:
-            raise RuntimeError(f"无法清理旧 worker 登记文件: {exc}") from exc
+            raise RuntimeError(f"Не удалось удалить старый реестр рабочих процессов: {exc}") from exc
         return WORKER_REGISTRY_FILE
 
     try:
         WORKER_REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
         atomic_replace(LEGACY_WORKER_REGISTRY_FILE, WORKER_REGISTRY_FILE)
     except OSError as exc:
-        raise RuntimeError(f"无法迁移旧 worker 登记文件: {exc}") from exc
+        raise RuntimeError(f"Не удалось перенести старый реестр рабочих процессов: {exc}") from exc
     return WORKER_REGISTRY_FILE
 
 
@@ -208,7 +210,7 @@ def _read_registry(registry_file: Path) -> dict:
     except FileNotFoundError:
         return _empty_registry()
     except OSError as exc:
-        raise RuntimeError(f"无法读取 worker 登记文件: {exc}") from exc
+        raise RuntimeError(f"Не удалось прочитать реестр рабочих процессов: {exc}") from exc
 
     try:
         registry = json.loads(raw)
@@ -222,9 +224,9 @@ def _read_registry(registry_file: Path) -> dict:
         else:
             owner_created_at = None
         if not isinstance(workers, dict):
-            raise ValueError("workers 不是对象")
+            raise ValueError("Поле workers должно быть объектом")
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"worker 登记文件格式无效: {exc}") from exc
+        raise RuntimeError(f"Недопустимый формат реестра рабочих процессов: {exc}") from exc
 
     return {
         "owner_created_at": owner_created_at,
@@ -246,7 +248,7 @@ def _process_created_at(pid: int) -> float:
 
         return psutil.Process(pid).create_time()
     except Exception as exc:
-        raise RuntimeError(f"无法读取 worker PID {pid} 的创建时间: {exc}") from exc
+        raise RuntimeError(f"Не удалось получить время создания рабочего процесса PID {pid}: {exc}") from exc
 
 
 def _owner_record(registry: dict) -> dict | None:
@@ -264,26 +266,26 @@ def _require_current_owner(registry: dict, owner_pid: int) -> None:
     try:
         expected_pid = int(owner_pid)
     except (TypeError, ValueError) as exc:
-        raise WorkerRegistryOwnershipError(f"无效的 WebUI 所有者 PID: {owner_pid}") from exc
+        raise WorkerRegistryOwnershipError(f"Недопустимый PID владельца WebUI: {owner_pid}") from exc
 
     record = _owner_record(registry)
     if record is None or record["pid"] != expected_pid:
         raise WorkerRegistryOwnershipError(
-            f"worker 登记所有者不匹配: {registry['owner_pid']} != {expected_pid}"
+            f"Владелец реестра рабочих процессов не совпадает: {registry['owner_pid']} != {expected_pid}"
         )
     if "created_at" not in record:
-        raise WorkerRegistryOwnershipError("worker 登记所有者缺少进程身份信息")
+        raise WorkerRegistryOwnershipError("У владельца реестра нет данных идентификации процесса")
 
     try:
         created_at = _process_created_at(expected_pid)
     except RuntimeError as exc:
         raise WorkerRegistryOwnershipError(
-            f"无法验证 WebUI 所有者 PID {expected_pid}: {exc}"
+            f"Не удалось проверить владельца WebUI PID {expected_pid}: {exc}"
         ) from exc
     if abs(created_at - record["created_at"]) < 0.01:
         return
     raise WorkerRegistryOwnershipError(
-        f"WebUI 所有者 PID {expected_pid} 身份不匹配，拒绝修改登记"
+        f"Идентификатор владельца WebUI PID {expected_pid} не совпадает; изменение реестра отклонено"
     )
 
 
@@ -303,7 +305,7 @@ def claim_owner(owner_pid: int) -> None:
     try:
         owner_pid = int(owner_pid)
     except (TypeError, ValueError) as exc:
-        raise WorkerRegistryOwnershipError(f"无效的 WebUI 所有者 PID: {owner_pid}") from exc
+        raise WorkerRegistryOwnershipError(f"Недопустимый PID владельца WebUI: {owner_pid}") from exc
     owner_created_at = _process_created_at(owner_pid)
 
     with _locked_registry() as registry_file:
@@ -321,21 +323,21 @@ def claim_owner(owner_pid: int) -> None:
 
             if "created_at" not in previous_owner:
                 raise WorkerRegistryOwnershipError(
-                    "旧 WebUI 所有者缺少进程身份信息，拒绝覆盖其 worker 登记"
+                    "У прежнего владельца WebUI нет данных идентификации процесса; перезапись реестра отклонена"
                 )
             try:
                 previous_owner_alive = process_matches(previous_owner)
             except RuntimeError as exc:
                 raise WorkerRegistryOwnershipError(
-                    f"无法验证旧 WebUI 所有者: {exc}"
+                    f"Не удалось проверить прежнего владельца WebUI: {exc}"
                 ) from exc
             if previous_owner_alive is True:
                 raise WorkerRegistryOwnershipError(
-                    f"WebUI 所有者仍在运行 (PID: {previous_owner['pid']})，拒绝启动第二个 WebUI"
+                    f"Владелец WebUI ещё работает (PID: {previous_owner['pid']}); запуск второй WebUI отклонён"
                 )
             if registry["workers"]:
                 raise WorkerRegistryOwnershipError(
-                    "旧 WebUI 仍有 worker 登记，必须先由父进程完成回收"
+                    "У прежней WebUI остались рабочие процессы; сначала родительский процесс должен завершить их очистку"
                 )
 
         _write_registry(_empty_registry(owner_pid, owner_created_at), registry_file)
@@ -346,7 +348,7 @@ def register_worker(owner_pid: int, config_name: str, pid: int) -> None:
     try:
         pid = int(pid)
     except (TypeError, ValueError) as exc:
-        raise RuntimeError(f"无效的 worker PID: {pid}") from exc
+        raise RuntimeError(f"Недопустимый PID рабочего процесса: {pid}") from exc
 
     with _locked_registry() as registry_file:
         registry = _read_registry(registry_file)
@@ -402,7 +404,7 @@ def clear_owner(owner_pid: int) -> bool:
             return True
         if record["pid"] != owner_pid:
             raise WorkerRegistryOwnershipError(
-                f"worker 登记所有者不匹配: {record['pid']} != {owner_pid}"
+                f"Владелец реестра рабочих процессов не совпадает: {record['pid']} != {owner_pid}"
             )
 
         if owner_pid == os.getpid():
@@ -410,18 +412,18 @@ def clear_owner(owner_pid: int) -> bool:
         elif "created_at" not in record:
             if _pid_exists(owner_pid):
                 raise WorkerRegistryOwnershipError(
-                    f"旧 WebUI 所有者 PID {owner_pid} 仍存在，拒绝清除登记"
+                    f"Прежний владелец WebUI PID {owner_pid} ещё существует; очистка реестра отклонена"
                 )
         else:
             try:
                 owner_matches = process_matches(record)
             except RuntimeError as exc:
                 raise WorkerRegistryOwnershipError(
-                    f"无法验证旧 WebUI 所有者 PID {owner_pid}: {exc}"
+                    f"Не удалось проверить прежнего владельца WebUI PID {owner_pid}: {exc}"
                 ) from exc
             if owner_matches is True:
                 raise WorkerRegistryOwnershipError(
-                    f"WebUI 所有者仍在运行 (PID: {owner_pid})，拒绝清除登记"
+                    f"Владелец WebUI ещё работает (PID: {owner_pid}); очистка реестра отклонена"
                 )
 
         _write_registry(_empty_registry(), registry_file)
@@ -446,7 +448,7 @@ def process_matches(record: dict) -> bool | None:
         pid = int(record["pid"])
         created_at = float(record["created_at"])
     except (KeyError, TypeError, ValueError):
-        raise RuntimeError("worker 登记记录无效")
+        raise RuntimeError("Недопустимая запись реестра рабочего процесса")
 
     try:
         import psutil
@@ -466,4 +468,4 @@ def process_matches(record: dict) -> bool | None:
                 return None
         except ImportError:
             pass
-        raise RuntimeError(f"无法验证 worker PID {pid}: {exc}") from exc
+        raise RuntimeError(f"Не удалось проверить рабочий процесс PID {pid}: {exc}") from exc

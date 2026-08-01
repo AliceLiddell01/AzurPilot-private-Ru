@@ -708,7 +708,7 @@ class OOBEWizard:
 
     @use_scope("ROOT", clear=True)
     def start(self):
-        set_env(title="AzurPilot - Setup", output_animation=False)
+        set_env(title="AzurPilot — первоначальная настройка", output_animation=False)
         load_webui_styles(theme=self.gui.theme, is_mobile=self.gui.is_mobile)
 
         put_html(f"<style>{CSS}</style>")
@@ -743,20 +743,7 @@ class OOBEWizard:
 
     @staticmethod
     def _hello_words():
-        return [
-            "你好",
-            "Hello",
-            "こんにちは",
-            "Bonjour",
-            "Hola",
-            "Ciao",
-            "Hallo",
-            "안녕하세요",
-            "Olá",
-            "Привет",
-            "Hej",
-            "สวัสดี",
-        ]
+        return ["Привет"]
 
     def _render_hello_rotator(self):
         hello_rotator = "".join(
@@ -1147,9 +1134,9 @@ class OOBEWizard:
             options.append({"label": label, "value": value, "detected": detected_device})
 
         for serial in detected:
-            add(serial, f"已检测到 / Detected: {serial}", True)
+            add(serial, f"Обнаружено: {serial}", True)
 
-        add("auto", "自动检测 / Auto")
+        add("auto", "Автоматическое определение")
         common = [
             ("127.0.0.1:5555", "BlueStacks / 雷电"),
             ("127.0.0.1:62001", "Nox / 夜神"),
@@ -1164,7 +1151,7 @@ class OOBEWizard:
             add(serial, f"{name} ({serial})")
 
         if self.emulator_serial and self.emulator_serial not in seen:
-            add(self.emulator_serial, f"当前值 / Current: {self.emulator_serial}")
+            add(self.emulator_serial, f"Текущее значение: {self.emulator_serial}")
         return options
 
     @staticmethod
@@ -1239,7 +1226,7 @@ class OOBEWizard:
         except Exception as e:
             from pywebio.output import put_error
             with use_scope("oobe_content"):
-                put_error(f"Failed to create config: {e}")
+                put_error(f"Не удалось создать конфигурацию: {e}")
             return
 
         run_js("window.location.reload();")

@@ -140,7 +140,7 @@ class DashboardMixin(WebUIMixinBase):
 
             # Handle time delta
             if value_time == datetime(2023, 1, 1, 0, 0, 0):
-                value = "None"
+                value = t("Gui.Dashboard.NoData")
                 delta = timedelta_to_text()
             else:
                 delta = timedelta_to_text(time_delta(value_time - time_now))
@@ -156,12 +156,12 @@ class DashboardMixin(WebUIMixinBase):
 
             # if self._log.first_display:
             # Handle width
-            # value_width = len(value) * 0.7 + 0.6 if value != 'None' else 4.5
+            # value_width = len(value) * 0.7 + 0.6 if value != t("Gui.Dashboard.NoData") else 4.5
             # value_width = str(value_width/1.12) + 'rem' if self.is_mobile else str(value_width) + 'rem'
-            value_limit = "" if value == "None" else value_limit
+            value_limit = "" if value == t("Gui.Dashboard.NoData") else value_limit
             # limit_width = len(value_limit) * 0.7
             # limit_width = str(limit_width) + 'rem'
-            value_total = "" if value == "None" else value_total
+            value_total = "" if value == t("Gui.Dashboard.NoData") else value_total
             limit_style = (
                 "--dashboard-limit--" if value_limit else "--dashboard-total--"
             )

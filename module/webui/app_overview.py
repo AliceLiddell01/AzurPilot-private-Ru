@@ -41,9 +41,9 @@ def _get_local_version() -> str:
             timeout=3,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return "Unknown"
+        return "Неизвестно"
     version = result.stdout.strip()
-    return version if result.returncode == 0 and version else "Unknown"
+    return version if result.returncode == 0 and version else "Неизвестно"
 
 
 class OverviewMixin(WebUIMixinBase):
@@ -211,7 +211,7 @@ class OverviewMixin(WebUIMixinBase):
                                 [
                                     put_scope("log_scroll_btn"),
                                     put_button(
-                                        label="截图预览",
+                                        label="Предпросмотр снимка",
                                         onclick=lambda: run_js(
                                             f"window.alasToggleLivePreview({json.dumps(self.alas_name)});"
                                         ),
@@ -345,7 +345,7 @@ class OverviewMixin(WebUIMixinBase):
                 [
                     put_scope("log_scroll_btn"),
                     put_button(
-                        label="截图预览",
+                        label="Предпросмотр снимка",
                         onclick=lambda: run_js(
                             f"window.alasToggleLivePreview({json.dumps(self.alas_name)});"
                         ),
