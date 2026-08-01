@@ -380,24 +380,17 @@ class VoucherShop(ShopClerk, ShopStatus):
                 reason=reason,
             )
 
-        self.shop_currency()
-        if self._currency <= 0 or item.price > self._currency:
-            logger.warning(
-                f'[{DATA_LOGGER_NAME}] недостаточно ваучеров: '
-                f'price={item.price}, currency={self._currency}'
-            )
-            return DataLoggerShopResult(
-                state=DataLoggerShopState.AVAILABLE,
-                reason='insufficient_currency',
-            )
-
-        logger.info(f'[{DATA_LOGGER_NAME}] покупка подтверждённо доступного предмета')
+        logger.info(
+            f'[{DATA_LOGGER_NAME}] покупка подтверждённо доступного предмета: '
+            f'cost={getattr(item, "cost", None)}, price={item.price}'
+        )
         self.shop_buy_execute(item)
         self.device.screenshot()
         confirmed_state, _, confirmed_reason = self.inspect_data_logger()
         if confirmed_state is not DataLoggerShopState.SOLD_OUT:
             logger.warning(
-                f'[{DATA_LOGGER_NAME}] покупка не подтверждена состоянием SOLD_OUT'
+                f'[{DATA_LOGGER_NAME}] покупка не подтверждена состоянием SOLD_OUT; '
+                'возможна нехватка Oil или неопределённое состояние магазина'
             )
             return DataLoggerShopResult(
                 state=DataLoggerShopState.UNKNOWN,
