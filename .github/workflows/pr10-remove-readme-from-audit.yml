@@ -1,0 +1,138 @@
+name: PR10 remove README from audit
+
+on:
+  push:
+    branches:
+      - docs/full-russian-interface
+    paths:
+      - .github/workflows/pr10-remove-readme-from-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: docs/full-russian-interface
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Exclude README from the audit inputs
+        shell: python
+        run: |
+          from pathlib import Path
+
+          audit_path = Path("dev_tools/russianization_audit.py")
+          source = audit_path.read_text(encoding="utf-8")
+
+          old_constants = '''EXCLUDED_PREFIXES = {
+              ".git/", ".venv/", "venv/", "node_modules/", "dist/", "build/",
+              "__pycache__/", ".pytest_cache/", ".ruff_cache/", ".mypy_cache/",
+              "github/workflows/", "github/stage4_",
+              RESULTS_RELATIVE.as_posix() + "/",
+          }
+          '''
+          new_constants = '''EXCLUDED_PATHS = {"README.md"}
+          EXCLUDED_PREFIXES = {
+              ".git/", ".venv/", "venv/", "node_modules/", "dist/", "build/",
+              "__pycache__/", ".pytest_cache/", ".ruff_cache/", ".mypy_cache/",
+              "github/workflows/", "github/stage4_",
+              RESULTS_RELATIVE.as_posix() + "/",
+          }
+          '''
+          if old_constants not in source:
+              raise SystemExit("Expected EXCLUDED_PREFIXES block was not found")
+          source = source.replace(old_constants, new_constants, 1)
+
+          old_function = '''def is_excluded(path: str) -> bool:
+              normalized = normalize_path(path)
+              return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in EXCLUDED_PREFIXES)
+          '''
+          new_function = '''def is_excluded(path: str) -> bool:
+              normalized = normalize_path(path)
+              if normalized in EXCLUDED_PATHS:
+                  return True
+              return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in EXCLUDED_PREFIXES)
+          '''
+          if old_function not in source:
+              raise SystemExit("Expected is_excluded function was not found")
+          source = source.replace(old_function, new_function, 1)
+          audit_path.write_text(source, encoding="utf-8")
+
+          test_path = Path("tests/test_russianization_readme_exclusion.py")
+          test_path.write_text(
+              '''from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from dev_tools.russianization_audit import AuditEngine, is_excluded
+
+
+class RussianizationReadmeExclusionTests(unittest.TestCase):
+    def test_readme_changes_do_not_change_audit_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "dev_tools/russianization/results"
+            module_path = root / "module/example.py"
+            module_path.parent.mkdir(parents=True)
+            module_path.write_text("VALUE = 'stable'\n", encoding="utf-8")
+            readme_path = root / "README.md"
+            readme_path.write_text("Первая версия документации.\n", encoding="utf-8")
+
+            first_engine = AuditEngine(root, output)
+            first_outputs = first_engine.build_outputs()
+
+            readme_path.write_text("Полностью изменённая документация.\n", encoding="utf-8")
+            second_engine = AuditEngine(root, output)
+            second_outputs = second_engine.build_outputs()
+
+            self.assertTrue(is_excluded("README.md"))
+            self.assertNotIn("README.md", first_engine.paths)
+            self.assertNotIn("README.md", second_engine.paths)
+            self.assertEqual(first_outputs, second_outputs)
+
+
+if __name__ == "__main__":
+    unittest.main()
+''',
+              encoding="utf-8",
+          )
+
+      - name: Run targeted lint and tests
+        run: |
+          uv run ruff check dev_tools/russianization_audit.py tests/test_russianization_audit.py tests/test_russianization_readme_exclusion.py --select E9,F63,F7,F82 --ignore F821,F722
+          uv run python -m unittest -v tests/test_russianization_audit.py tests/test_russianization_readme_exclusion.py
+
+      - name: Regenerate and verify audit baseline
+        run: |
+          uv run python -m dev_tools.russianization_audit --write
+          uv run python -m dev_tools.russianization_audit --check
+
+      - name: Commit generated fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev_tools/russianization_audit.py
+          git add tests/test_russianization_readme_exclusion.py
+          git add dev_tools/russianization/results
+          git diff --cached --check
+          git commit -m "fix(audit): исключить README из входных данных"
+          git push origin HEAD:docs/full-russian-interface
