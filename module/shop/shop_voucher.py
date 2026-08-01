@@ -35,6 +35,7 @@ PRICE_OCR = DigitYuv([], letter=(255, 223, 57), threshold=128, name='Price_ocr')
 VOUCHER_SHOP_SCROLL = Scroll(VOUCHER_SHOP_SCROLL_AREA, color=(255, 255, 255))
 TEMPLATE_VOUCHER_ICON = Template('./assets/shop/cost/Voucher.png')
 DATA_LOGGER_TEMPLATE_SIMILARITY = 0.82
+DATA_LOGGER_PURCHASE_SECONDS = 45
 
 
 class VoucherShop(ShopClerk, ShopStatus):
@@ -101,7 +102,7 @@ class VoucherShop(ShopClerk, ShopStatus):
         原点、间距和行数，适配不同服务器布局。
 
         Returns:
-            ButtonGrid: 商店商品网格
+            ButtonGrid: 商店商品网格对象
         """
         vouchers = self._get_vouchers()
         count = len(vouchers)
@@ -112,8 +113,6 @@ class VoucherShop(ShopClerk, ShopStatus):
             row = 2
         elif count == 1:
             y_list = vouchers[:, 1]
-            # +306, 裁剪区域顶部偏移 (_get_vouchers)
-            # -133, 从凭证图标顶部到商品顶部的偏移
             origin_y = y_list[0] + 306 - 133
             delta_y = 191
             row = 1
@@ -129,10 +128,6 @@ class VoucherShop(ShopClerk, ShopStatus):
             delta_y = 191
             row = 2
 
-        # 构建 ButtonGrid
-        # 原始网格参数:
-        # shop_grid = ButtonGrid(
-        #     origin=(463, 200), delta=(156, 191), button_shape=(99, 99), grid_shape=(5, 2), name='SHOP_GRID')
         if self.config.SERVER in ['cn', 'jp', 'tw']:
             shop_grid = ButtonGrid(
                 origin=(305, origin_y), delta=(189.5, delta_y), button_shape=(99, 99), grid_shape=(5, row),
@@ -165,34 +160,17 @@ class VoucherShop(ShopClerk, ShopStatus):
         return shop_voucher_items
 
     def shop_items(self):
-        """获取商店商品网格的统一接口。
-
-        所有商店共享相同的属性名，使用 @Config 时需要
-        定义唯一的别名作为覆盖。
-
-        Returns:
-            ShopItemGrid: 商店商品网格
-        """
+        """获取商店商品网格的统一接口。"""
         return self.shop_voucher_items
 
     def shop_currency(self):
-        """OCR 识别凭证商店货币数量。
-
-        通过状态检测获取当前凭证余额并记录日志。
-
-        Returns:
-            int: 凭证数量
-        """
+        """OCR 识别凭证商店货币数量。"""
         self._currency = self.status_get_voucher()
         logger.info(f'凭证: {self._currency}')
         return self._currency
 
     def shop_interval_clear(self):
-        """清除购买界面相关按钮的点击间隔。
-
-        重置购买确认、选择、数量等按钮的 interval 状态，
-        防止误触发。
-        """
+        """清除购买界面相关按钮的点击间隔。"""
         self.interval_clear(BACK_ARROW)
         self.interval_clear(SHOP_BUY_CONFIRM)
         self.interval_clear([
@@ -203,16 +181,7 @@ class VoucherShop(ShopClerk, ShopStatus):
         ])
 
     def shop_buy_handle(self, item):
-        """处理凭证商店购买界面。
-
-        检测并处理购买确认选择、数量输入、弹窗确认等界面。
-
-        Args:
-            item: 待购买的商品对象
-
-        Returns:
-            bool: 是否检测到购买界面并进行了处理
-        """
+        """处理凭证商店购买界面。"""
         if self.appear(SHOP_BUY_CONFIRM_SELECT, offset=(20, 20), interval=3):
             self.shop_buy_select_execute(item)
             self.interval_reset(SHOP_BUY_CONFIRM_SELECT)
@@ -224,26 +193,33 @@ class VoucherShop(ShopClerk, ShopStatus):
         if self.handle_popup_confirm(name='SHOP_BUY_VOUCHER', offset=(20, 50)):
             return True
         if self.config.SERVER in ['cn', 'jp', 'tw']:
-            # 购买数量为 1 时显示"兑换"按钮
             if self.appear_then_click(SHOP_BUY_CONFIRM_AMOUNT, offset=(-20, -160, 20, -120), interval=3):
                 return True
 
         return False
 
-    def shop_buy_execute(self, item, skip_first_screenshot=True):
+    def shop_buy_execute(
+        self,
+        item,
+        skip_first_screenshot=True,
+        timeout_seconds=None,
+    ):
         """执行凭证商店购买操作。
 
-        通过状态循环完成从点击商品到购买确认的完整流程。
-        处理退役、遮挡、信息栏等意外情况。
+        ``timeout_seconds`` 默认为 ``None``，保持普通商店购买流程的原有
+        行为。特殊 Data Logger 流程传入有限超时，避免无法识别的弹窗或
+        UI 状态导致任务永久卡住。
 
-        Args:
-            item: 待购买的商品对象
-            skip_first_screenshot: 是否跳过首次截图
+        Returns:
+            bool: 是否观察到购买完成并返回商店页面
         """
         success = False
+        timeout = None
+        if timeout_seconds is not None:
+            timeout = Timer.from_seconds(timeout_seconds).start()
         self.shop_interval_clear()
 
-        while 1:
+        while timeout is None or not timeout.reached():
             if skip_first_screenshot:
                 skip_first_screenshot = False
             else:
@@ -270,9 +246,14 @@ class VoucherShop(ShopClerk, ShopStatus):
                 success = True
                 continue
 
-            # 结束条件
             if success and self.appear(BACK_ARROW, offset=(30, 30)):
-                break
+                return True
+
+        logger.warning(
+            f'[{DATA_LOGGER_NAME}] purchase state machine timed out after '
+            f'{timeout_seconds} seconds'
+        )
+        return False
 
     def _reset_page_cache(self):
         del_cached_property(self, 'shop_grid')
@@ -384,7 +365,17 @@ class VoucherShop(ShopClerk, ShopStatus):
             f'[{DATA_LOGGER_NAME}] покупка подтверждённо доступного предмета: '
             f'cost={getattr(item, "cost", None)}, price={item.price}'
         )
-        self.shop_buy_execute(item)
+        purchase_finished = self.shop_buy_execute(
+            item,
+            timeout_seconds=DATA_LOGGER_PURCHASE_SECONDS,
+        )
+        if not purchase_finished:
+            return DataLoggerShopResult(
+                state=DataLoggerShopState.UNKNOWN,
+                reason='purchase_timeout',
+                purchased=True,
+            )
+
         self.device.screenshot()
         confirmed_state, _, confirmed_reason = self.inspect_data_logger()
         if confirmed_state is not DataLoggerShopState.SOLD_OUT:
@@ -404,49 +395,30 @@ class VoucherShop(ShopClerk, ShopStatus):
         )
 
     def run(self):
-        """运行凭证商店购买流程。
-
-        Pages: in: page_shop (voucher shop tab)
-
-        按照过滤器配置购买凭证商店商品，自动翻页直到列表底部。
-        """
-        # 过滤器为空时直接退出
+        """运行凭证商店购买流程。"""
         if not self.shop_filter:
             return
 
-        # 调用时应已在凭证商店界面
         logger.hr('[商店-代币] 代币商店', level=1)
         self.wait_until_voucher_appear()
 
-        # 执行购买操作
         VOUCHER_SHOP_SCROLL.set_top(main=self)
         while 1:
             self.shop_buy()
             if VOUCHER_SHOP_SCROLL.at_bottom(main=self):
                 logger.info('[商店-代币] 代币商店到达底部，停止')
                 break
-            else:
-                VOUCHER_SHOP_SCROLL.next_page(main=self)
-                del_cached_property(self, 'shop_grid')
-                del_cached_property(self, 'shop_voucher_items')
-                continue
+            VOUCHER_SHOP_SCROLL.next_page(main=self)
+            del_cached_property(self, 'shop_grid')
+            del_cached_property(self, 'shop_voucher_items')
 
     def run_once(self):
-        """单次运行凭证商店，购买一个日志档案类型商品。
-
-        Pages: in: page_shop (voucher shop tab)
-
-        Returns:
-            bool: 是否成功购买
-        """
-        # 替换过滤器
+        """单次运行凭证商店，购买一个日志档案类型商品。"""
         self.shop_filter = 'LoggerArchive'
 
-        # 调用时应已在凭证商店界面
         logger.hr('[商店-代币] 代币商店单次购买', level=1)
         self.wait_until_voucher_appear()
 
-        # 执行购买操作
         items = self.shop_get_items()
         self.shop_currency()
         if self._currency <= 0:
