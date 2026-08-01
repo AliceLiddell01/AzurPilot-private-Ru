@@ -15,8 +15,8 @@ Base SHA: `4764f66baeafb0dd2152599839afec739af8ab40`
 
 ## Итоговые метрики
 
-- catalog keys: 4167;
-- translated active UI: 2958;
+- catalog keys: 4168;
+- translated active UI: 2959;
 - missing translation keys: 0;
 - empty replacements: 0;
 - unresolved active UI: 0;
@@ -28,10 +28,10 @@ Base SHA: `4764f66baeafb0dd2152599839afec739af8ab40`
 
 ## Точечные reviewed exceptions
 
-- technical values: 534;
+- technical values: 543;
 - proper names: 263;
 - original metadata: 238;
-- external content: 2.
+- external content: 4.
 
 Полный machine-readable реестр: `ui_translation_exceptions.json`. Каждая запись содержит
 конкретный путь, ключ или устойчивый идентификатор, текст, категорию, причину, runtime-контекст,
@@ -40,8 +40,8 @@ Base SHA: `4764f66baeafb0dd2152599839afec739af8ab40`
 ## Сохранённый объём
 
 - legacy locale files: 5;
-- assets: 10463;
-- first-party log messages requiring later translation: 5056.
+- assets: 10464;
+- first-party log messages requiring later translation: 5066.
 
 ## Gate
 

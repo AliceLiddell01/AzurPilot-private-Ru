@@ -347,7 +347,7 @@ class EventToolsMixin(WebUIMixinBase):
                             [
                                 put_scope("log_scroll_btn"),
                                 put_button(
-            label="Предпросмотр снимка",
+                                    label="Предпросмотр снимка",
                                     onclick=lambda: run_js(
                                         f"window.alasToggleLivePreview({json.dumps(self.alas_name)});"
                                     ),

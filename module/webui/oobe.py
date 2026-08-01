@@ -919,7 +919,7 @@ class OOBEWizard:
                     var resp = await fetch('/api/import_legacy_upload', {{ method: 'POST', body: formData }});
                     var result = await resp.json();
                     if (!result.success) {{
-                        alert({lang.t("Gui.OOBE.ImportErrorFailed")!r} + ': ' + (result.error || 'unknown'));
+                        alert({lang.t("Gui.OOBE.ImportErrorFailed")!r} + ': ' + (result.error || 'неизвестная ошибка'));
                         return;
                     }}
                     location.reload();

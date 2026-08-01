@@ -17,21 +17,21 @@ uv run python -m dev_tools.russianization_audit --check
 
 | Метрика | Значение |
 |---|---:|
-| Tracked files scanned | 10948 |
-| Text files scanned | 2114 |
+| Tracked files scanned | 10952 |
+| Text files scanned | 2118 |
 | Locale files | 6 |
-| UI string entries | 23339 |
-| UI translation required | 18605 |
-| First-party/direct log entries | 5753 |
-| Log translation required | 5056 |
-| Asset entries | 10463 |
-| Asset bytes represented | 585454786 |
+| UI string entries | 23345 |
+| UI translation required | 18617 |
+| First-party/direct log entries | 5765 |
+| Log translation required | 5066 |
+| Asset entries | 10464 |
+| Asset bytes represented | 585462039 |
 | EN/Global required candidates | 3670 |
-| Manual review assets | 1943 |
+| Manual review assets | 1914 |
 | Probable delete candidates | 1231 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `cf84aff2d37eb0b2c66313a64a14404298bb43b62ca7412fbb035a3077be818b`
+Source fingerprint: `1ebde9ad8abd2ca2cd16626221a0f776debce9a92887ccbcd091a09e00b3a57c`
 
 ## Runtime locale architecture
 
@@ -45,12 +45,12 @@ Source fingerprint: `cf84aff2d37eb0b2c66313a64a14404298bb43b62ca7412fbb035a3077b
 
 | Locale | Path | Runtime status | String keys |
 |---|---|---|---:|
-| `en-US` | `module/config/i18n/en-US.json` | legacy_inactive_locale_file | 4167 |
-| `ja-JP` | `module/config/i18n/ja-JP.json` | legacy_inactive_locale_file | 4167 |
-| `ru-RU` | `module/config/i18n/ru-RU.json` | active_runtime_locale | 4167 |
-| `zh-CN` | `module/config/i18n/zh-CN.json` | legacy_inactive_locale_file | 4167 |
-| `zh-MIAO` | `module/config/i18n/zh-MIAO.json` | legacy_inactive_locale_file | 4167 |
-| `zh-TW` | `module/config/i18n/zh-TW.json` | legacy_inactive_locale_file | 4167 |
+| `en-US` | `module/config/i18n/en-US.json` | legacy_inactive_locale_file | 4168 |
+| `ja-JP` | `module/config/i18n/ja-JP.json` | legacy_inactive_locale_file | 4168 |
+| `ru-RU` | `module/config/i18n/ru-RU.json` | active_runtime_locale | 4168 |
+| `zh-CN` | `module/config/i18n/zh-CN.json` | legacy_inactive_locale_file | 4168 |
+| `zh-MIAO` | `module/config/i18n/zh-MIAO.json` | legacy_inactive_locale_file | 4168 |
+| `zh-TW` | `module/config/i18n/zh-TW.json` | legacy_inactive_locale_file | 4168 |
 
 Locale files with missing keys against union: **0**.
 
@@ -71,21 +71,21 @@ Locale files with missing keys against union: **0**.
 
 ## Пользовательские строки
 
-Разбиение по подсистемам: `{'scheduler_and_config': 22911, 'webui_and_process_lifecycle': 297, 'deploy_and_dependencies': 114, 'tests': 9, 'other': 8}`.
+Разбиение по подсистемам: `{'scheduler_and_config': 22917, 'webui_and_process_lifecycle': 297, 'deploy_and_dependencies': 114, 'tests': 9, 'other': 8}`.
 
 Inventory содержит путь, строку/ключ, источник, текст, language guess, classification, runtime visibility, generated flag и решение о необходимости перевода. Эвристика не считает любой ASCII-текст пользовательским английским: identifiers, paths, commands и technical values отделены.
 
 ## First-party логи
 
-Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'deploy_and_dependencies': 320, 'webui_and_process_lifecycle': 320, 'other': 274, 'ocr': 107, 'scheduler_and_config': 45, 'tests': 9, 'screenshot_and_control': 4}`.
+Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'deploy_and_dependencies': 320, 'webui_and_process_lifecycle': 320, 'other': 286, 'ocr': 107, 'scheduler_and_config': 45, 'tests': 9, 'screenshot_and_control': 4}`.
 
 Сырые stdout/stderr/traceback отмечаются отдельно и должны сохраняться без перевода. В будущих Stage русифицируется только first-party контекст вокруг них.
 
 ## Assets
 
-Decision counts: `{'confirmed_keep': 7784, 'needs_manual_review': 712, 'probable_delete_candidate': 1231, 'probable_keep': 736}`.
+Decision counts: `{'confirmed_keep': 7787, 'needs_manual_review': 683, 'probable_delete_candidate': 1231, 'probable_keep': 763}`.
 
-Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1558}`.
+Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1559}`.
 
 `confirmed_delete_candidate` намеренно не присваивается на основании имени, CJK или суффикса. Наличие server marker без runtime evidence даёт максимум `probable_delete_candidate` и `manual_review_required: true`.
 

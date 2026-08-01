@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,7 +12,10 @@ from dev_tools.stage6_ui_audit import (
     Stage6Audit,
     exception_category,
     format_signature,
+    javascript_ui_candidates,
+    python_translation_key_usage,
 )
+from module.webui.event_calculator import build_event_calculator_js
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,13 +92,56 @@ class Stage6UiRussianizationTests(unittest.TestCase):
         self.assertEqual(self.audit.direct_candidates(), [])
 
     def test_placeholder_and_markup_signature_covers_stage6_formats(self) -> None:
-        sample = "{name} %(count)03d %s <b>x</b> [red]y[/red] ${value}\\n"
+        sample = "{name} %(count)03d %s <b>x</b> [red]y[/red] ${value}\n"
         signature = format_signature(sample)
         self.assertEqual(signature["placeholders"], ["%(count)03d", "%s", "{name}", "{value}"])
-        self.assertEqual(signature["html"], ["b", "b"])
+        self.assertEqual(signature["html"], ["start:b", "end:b"])
         self.assertEqual(signature["rich"], ["red", "/red"])
         self.assertEqual(signature["js_interpolation"], ["${value}"])
-        self.assertEqual(signature["escapes"], ["\\n"])
+        self.assertEqual(signature["control_characters"], ["\\n"])
+        self.assertEqual(signature["literal_escapes"], [])
+        self.assertNotEqual(format_signature("<b>x</b>"), format_signature("<b>x<b/>"))
+
+    def test_javascript_and_runtime_key_regressions_are_detected(self) -> None:
+        candidates = javascript_ui_candidates(
+            "statusEl.textContent = err.message || 'unknown error';",
+            "module/webui/fixture.py",
+        )
+        self.assertEqual([candidate.text for candidate in candidates], ["unknown error"])
+
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".py",
+            dir=ROOT,
+            encoding="utf-8",
+            delete=False,
+        ) as fixture:
+            fixture.write(
+                'from module.webui.lang import t\n'
+                'put_text(t("Gui.Text.Save"))\n'
+                'put_text("Gui.Missing")\n'
+            )
+            fixture_path = Path(fixture.name)
+        try:
+            translated, raw = python_translation_key_usage(fixture_path)
+        finally:
+            fixture_path.unlink(missing_ok=True)
+        self.assertEqual([item["key"] for item in translated], ["Gui.Text.Save"])
+        self.assertEqual([item["key"] for item in raw], ["Gui.Missing"])
+
+    def test_external_wiki_names_are_escaped_before_table_rendering(self) -> None:
+        data = {
+            "event_name": "<img src=x onerror=alert(1)>",
+            "shop_items": [{"name": "<script>alert(1)</script>", "quantity": 1}],
+            "daily": [],
+            "extra": [],
+            "stages": [],
+        }
+        script = build_event_calculator_js("fixture", data, {})
+        self.assertIn("function escapeHtml(value)", script)
+        self.assertEqual(script.count("${escapeHtml(item.name)}"), 3)
+        self.assertIn("[data-role=\"event-name\"]').textContent", script)
+        self.assertNotIn("<td>${item.name", script)
 
     def test_server_package_and_event_sources_remain_independent(self) -> None:
         updater = (ROOT / "module/config/config_updater.py").read_text(encoding="utf-8")

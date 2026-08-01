@@ -483,6 +483,15 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
     return Number.isFinite(number) ? number : 0;
   }}
 
+  function escapeHtml(value) {{
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }}
+
   function remainingDays(dateValue) {{
     if (!dateValue) return 0;
     const end = new Date(dateValue + "T00:00:00+08:00");
@@ -531,7 +540,7 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
     rows.forEach((item, index) => {{
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${{item.name || ""}}</td>
+        <td>${{escapeHtml(item.name)}}</td>
         <td>${{item.points || 0}}</td>
         <td style="text-align:center"><input type="checkbox" data-role="${{role}}" data-index="${{index}}" data-field="never" ${{item.never ? "checked" : ""}}></td>
         <td style="text-align:center"><input type="checkbox" data-role="${{role}}" data-index="${{index}}" data-field="already" ${{item.already ? "checked" : ""}}></td>
@@ -547,7 +556,7 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
     state.shop.forEach((item, index) => {{
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${{item.name || ""}}</td>
+        <td>${{escapeHtml(item.name)}}</td>
         <td>${{item.price || 0}}</td>
         <td><input class="event-calc-number" type="number" min="0" max="${{item.quantity || 0}}" value="${{item.value || 0}}" data-shop-number="${{index}}"></td>
         <td><input class="event-calc-range" type="range" min="0" max="${{item.quantity || 0}}" value="${{item.value || 0}}" data-shop-range="${{index}}"></td>
@@ -563,7 +572,7 @@ def build_event_calculator_js(scope_id: str, data: Dict[str, Any], initial: Dict
     const tbody = table.querySelector("tbody");
     (data.stages || []).forEach((item, index) => {{
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${{item.name || ""}}</td><td>${{item.points || 0}}</td><td data-stage-result="${{index}}"></td>`;
+      tr.innerHTML = `<td>${{escapeHtml(item.name)}}</td><td>${{item.points || 0}}</td><td data-stage-result="${{index}}"></td>`;
       tbody.appendChild(tr);
     }});
   }}

@@ -1,43 +1,43 @@
 {
   "current_locales": [
     {
-      "content_hash": "952dbf8e141210d48bea5edc9ad8b73de644109fe99c882df4c399bb1032e832",
-      "key_count": 4167,
+      "content_hash": "a5871a2a4b272386dad5cf0c4fbe0c28e2136a1f906071ef8705f2c5f85fb196",
+      "key_count": 4168,
       "locale": "en-US",
       "path": "module/config/i18n/en-US.json",
       "runtime_status": "legacy_inactive_locale_file"
     },
     {
-      "content_hash": "c23fdd5348a1fc61aaf48baafd5350ddc54a3661e2ddc00bbe3b54730f8989d8",
-      "key_count": 4167,
+      "content_hash": "89fd11c125d1d909a98f72615c5db93838a7cff7757c5bd6d268fe1290984cc1",
+      "key_count": 4168,
       "locale": "ja-JP",
       "path": "module/config/i18n/ja-JP.json",
       "runtime_status": "legacy_inactive_locale_file"
     },
     {
-      "content_hash": "8d0a5b965356940602bdc64d5f66ace2e9a01ecc4b672c5dfd9fe60a4e3b2a91",
-      "key_count": 4167,
+      "content_hash": "33f3a867a761f9c9d889b00f9f09fddf1eeb6d2a67812c1530cb70d62517dc4d",
+      "key_count": 4168,
       "locale": "ru-RU",
       "path": "module/config/i18n/ru-RU.json",
       "runtime_status": "active_runtime_locale"
     },
     {
-      "content_hash": "68885b6c1cb1f8f67f90ae287c5f98cf7716ac51e45b34458d64792788f6f1c4",
-      "key_count": 4167,
+      "content_hash": "14aeb69e1b481e742d9b0656f5fdd101908f239db0232ef78cbf06e57fc029b9",
+      "key_count": 4168,
       "locale": "zh-CN",
       "path": "module/config/i18n/zh-CN.json",
       "runtime_status": "legacy_inactive_locale_file"
     },
     {
-      "content_hash": "46fc3968aa72cabfd8c2d7b6112722d35dcc271151c27d209ae699cfe83412c4",
-      "key_count": 4167,
+      "content_hash": "7f8fdc91e2d013e26cf39e4dc09a1a2095855ca3b46b97bd78d966a87191f6a1",
+      "key_count": 4168,
       "locale": "zh-MIAO",
       "path": "module/config/i18n/zh-MIAO.json",
       "runtime_status": "legacy_inactive_locale_file"
     },
     {
-      "content_hash": "0f59accee1f79a9adc6495ad13c46706ef3e56017a9896fe8cdf40e19c504558",
-      "key_count": 4167,
+      "content_hash": "559c67c23ac0b9b818667ddf20c1936649702297088b38cfd39ad494b9ca6e92",
+      "key_count": 4168,
       "locale": "zh-TW",
       "path": "module/config/i18n/zh-TW.json",
       "runtime_status": "legacy_inactive_locale_file"
@@ -690,6 +690,11 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
+          "line": 267,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
           "code": "ServerName: en-0",
           "line": 23,
           "path": "dev_tools/verify_stage5.py"
@@ -727,11 +732,6 @@
         {
           "code": "path = ['Emulator', 'ServerName', f'{server}-{index}']",
           "line": 411,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "option = deep_get(self.argument, keys='Emulator.ServerName.option')",
-          "line": 585,
           "path": "module/config/config_updater.py"
         },
         {
@@ -878,6 +878,16 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "\".OcrModelVersion\", \".ResearchSeries.\", \".ZipMethod.\", \".Mode.\",",
+          "line": 98,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
+          "line": 267,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
           "code": "ServerName: en-0",
           "line": 23,
           "path": "dev_tools/verify_stage5.py"
@@ -925,16 +935,6 @@
         {
           "code": "OcrModelVersionEnglish:",
           "line": 213,
-          "path": "module/config/argument/argument.yaml"
-        },
-        {
-          "code": "OcrModelVersionChinese:",
-          "line": 226,
-          "path": "module/config/argument/argument.yaml"
-        },
-        {
-          "code": "OcrModelVersionJapanese:",
-          "line": 237,
           "path": "module/config/argument/argument.yaml"
         }
       ],
@@ -1021,6 +1021,41 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
+          "line": 267,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "if key.startswith(\"Emulator.PackageName.\") and key not in {",
+          "line": 271,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.name\", \"Emulator.PackageName.help\", \"Emulator.PackageName.auto\",",
+          "line": 272,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.com.bilibili.azurlane\",",
+          "line": 273,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.com.YoStarEN.AzurLane\",",
+          "line": 274,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.com.YoStarJP.AzurLane\",",
+          "line": 275,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.com.hkmanjuu.azurlane.gp\",",
+          "line": 276,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
           "code": "PackageName: com.YoStarEN.AzurLane",
           "line": 22,
           "path": "dev_tools/verify_stage5.py"
@@ -1061,43 +1096,8 @@
           "path": "module/config/config_generated.py"
         },
         {
-          "code": "path = ['Emulator', 'PackageName', package]",
-          "line": 399,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "name = deep_get(new, keys=['Emulator', 'PackageName', to_package(server)])",
-          "line": 405,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "deep_set(new, keys=['Emulator', 'PackageName', package], value=value)",
-          "line": 407,
-          "path": "module/config/config_updater.py"
-        },
-        {
           "code": "path = ['Emulator', 'ServerName', f'{server}-{index}']",
           "line": 411,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "option = deep_get(self.argument, keys='Emulator.PackageName.option')",
-          "line": 578,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "deep_set(self.argument, keys='Emulator.PackageName.option', value=option)",
-          "line": 581,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "deep_set(self.args, keys='Alas.Emulator.PackageName.option', value=option)",
-          "line": 582,
-          "path": "module/config/config_updater.py"
-        },
-        {
-          "code": "option = deep_get(self.argument, keys='Emulator.ServerName.option')",
-          "line": 585,
           "path": "module/config/config_updater.py"
         }
       ],
@@ -1219,49 +1219,49 @@
           "path": "dev_tools/russianization_audit.py"
         },
         {
+          "code": "\".OcrModelVersion\", \".ResearchSeries.\", \".ZipMethod.\", \".Mode.\",",
+          "line": 98,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
+          "line": 267,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "if key.startswith(\"Emulator.PackageName.\") and key not in {",
+          "line": 271,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.name\", \"Emulator.PackageName.help\", \"Emulator.PackageName.auto\",",
+          "line": 272,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.com.bilibili.azurlane\",",
+          "line": 273,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.com.YoStarEN.AzurLane\",",
+          "line": 274,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.com.YoStarJP.AzurLane\",",
+          "line": 275,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
+          "code": "\"Emulator.PackageName.com.hkmanjuu.azurlane.gp\",",
+          "line": 276,
+          "path": "dev_tools/stage6_ui_audit.py"
+        },
+        {
           "code": "PackageName: com.YoStarEN.AzurLane",
           "line": 22,
           "path": "dev_tools/verify_stage5.py"
-        },
-        {
-          "code": "ServerName: en-0",
-          "line": 23,
-          "path": "dev_tools/verify_stage5.py"
-        },
-        {
-          "code": "OcrModelVersionEnglish: azur_lane_v6_6",
-          "line": 25,
-          "path": "dev_tools/verify_stage5.py"
-        },
-        {
-          "code": "\"PackageName\": {",
-          "line": 223,
-          "path": "module/config/argument/args.json"
-        },
-        {
-          "code": "\"ServerName\": {",
-          "line": 251,
-          "path": "module/config/argument/args.json"
-        },
-        {
-          "code": "\"OcrModelVersionEnglish\": {",
-          "line": 539,
-          "path": "module/config/argument/args.json"
-        },
-        {
-          "code": "\"OcrModelVersionChinese\": {",
-          "line": 553,
-          "path": "module/config/argument/args.json"
-        },
-        {
-          "code": "\"OcrModelVersionJapanese\": {",
-          "line": 565,
-          "path": "module/config/argument/args.json"
-        },
-        {
-          "code": "\"OcrModelVersionTraditionalChinese\": {",
-          "line": 574,
-          "path": "module/config/argument/args.json"
         }
       ],
       "exists": true,
@@ -1382,6 +1382,11 @@
         "code": "self.assertNotEqual(EVENT_NAME_SOURCE, UI_LOCALE)",
         "line": 36,
         "path": "tests/test_stage5_server_separation.py"
+      },
+      {
+        "code": "self.assertIn(\"EVENT_NAME_SOURCE\", updater)",
+        "line": 149,
+        "path": "tests/test_stage6_ui_russianization.py"
       }
     ],
     "Event": [
@@ -2293,22 +2298,22 @@
       },
       {
         "code": "Language:",
-        "line": 261,
-        "path": "module/config/argument/gui.yaml"
-      },
-      {
-        "code": "LanguageHelp:",
         "line": 262,
         "path": "module/config/argument/gui.yaml"
       },
       {
+        "code": "LanguageHelp:",
+        "line": 263,
+        "path": "module/config/argument/gui.yaml"
+      },
+      {
         "code": "WelcomeSelectLanguage:",
-        "line": 434,
+        "line": 435,
         "path": "module/config/argument/gui.yaml"
       },
       {
         "code": "ReviewLanguage:",
-        "line": 449,
+        "line": 450,
         "path": "module/config/argument/gui.yaml"
       },
       {
@@ -2318,107 +2323,107 @@
       },
       {
         "code": "\"Language\": \"WebUI Language\",",
-        "line": 6107,
+        "line": 6108,
         "path": "module/config/i18n/en-US.json"
       },
       {
         "code": "\"LanguageHelp\": \"Display language used by WebUI.\",",
-        "line": 6108,
+        "line": 6109,
         "path": "module/config/i18n/en-US.json"
       },
       {
         "code": "\"WelcomeSelectLanguage\": \"Select your language\",",
-        "line": 6279,
+        "line": 6280,
         "path": "module/config/i18n/en-US.json"
       },
       {
         "code": "\"ReviewLanguage\": \"Language\",",
-        "line": 6294,
+        "line": 6295,
         "path": "module/config/i18n/en-US.json"
       },
       {
         "code": "\"Language\": \"WebUI 言語\",",
-        "line": 6107,
+        "line": 6108,
         "path": "module/config/i18n/ja-JP.json"
       },
       {
         "code": "\"LanguageHelp\": \"WebUI の表示言語です。\",",
-        "line": 6108,
+        "line": 6109,
         "path": "module/config/i18n/ja-JP.json"
       },
       {
         "code": "\"WelcomeSelectLanguage\": \"言語を選択\",",
-        "line": 6279,
+        "line": 6280,
         "path": "module/config/i18n/ja-JP.json"
       },
       {
         "code": "\"ReviewLanguage\": \"言語\",",
-        "line": 6294,
+        "line": 6295,
         "path": "module/config/i18n/ja-JP.json"
       },
       {
         "code": "\"Language\": \"Язык WebUI\",",
-        "line": 6107,
+        "line": 6108,
         "path": "module/config/i18n/ru-RU.json"
       },
       {
         "code": "\"LanguageHelp\": \"Язык интерфейса WebUI\",",
-        "line": 6108,
+        "line": 6109,
         "path": "module/config/i18n/ru-RU.json"
       },
       {
         "code": "\"WelcomeSelectLanguage\": \"Выберите язык\",",
-        "line": 6279,
+        "line": 6280,
         "path": "module/config/i18n/ru-RU.json"
       },
       {
         "code": "\"ReviewLanguage\": \"Язык\",",
-        "line": 6294,
+        "line": 6295,
         "path": "module/config/i18n/ru-RU.json"
       },
       {
         "code": "\"Language\": \"WebUI 语言\",",
-        "line": 6107,
+        "line": 6108,
         "path": "module/config/i18n/zh-CN.json"
       },
       {
         "code": "\"LanguageHelp\": \"WebUI 使用的显示语言。\",",
-        "line": 6108,
+        "line": 6109,
         "path": "module/config/i18n/zh-CN.json"
       },
       {
         "code": "\"WelcomeSelectLanguage\": \"选择语言\",",
-        "line": 6279,
+        "line": 6280,
         "path": "module/config/i18n/zh-CN.json"
       },
       {
         "code": "\"ReviewLanguage\": \"语言\",",
-        "line": 6294,
+        "line": 6295,
         "path": "module/config/i18n/zh-CN.json"
       },
       {
         "code": "\"Language\": \"WebUI 语言\",",
-        "line": 6107,
-        "path": "module/config/i18n/zh-MIAO.json"
-      },
-      {
-        "code": "\"LanguageHelp\": \"WebUI 使用的显示语言喵。\",",
         "line": 6108,
         "path": "module/config/i18n/zh-MIAO.json"
       },
       {
+        "code": "\"LanguageHelp\": \"WebUI 使用的显示语言喵。\",",
+        "line": 6109,
+        "path": "module/config/i18n/zh-MIAO.json"
+      },
+      {
         "code": "\"WelcomeSelectLanguage\": \"想用哪种语言喵？\",",
-        "line": 6279,
+        "line": 6280,
         "path": "module/config/i18n/zh-MIAO.json"
       },
       {
         "code": "\"ReviewLanguage\": \"语言喵\",",
-        "line": 6294,
+        "line": 6295,
         "path": "module/config/i18n/zh-MIAO.json"
       },
       {
         "code": "\"Language\": \"WebUI 語言\",",
-        "line": 6107,
+        "line": 6108,
         "path": "module/config/i18n/zh-TW.json"
       }
     ],
@@ -2479,6 +2484,11 @@
         "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9 handles evidence-based deletion.\", True),",
         "line": 801,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "\".OcrModelVersion\", \".ResearchSeries.\", \".ZipMethod.\", \".Mode.\",",
+        "line": 98,
+        "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "OcrModelVersionEnglish: azur_lane_v6_6",
@@ -2766,6 +2776,36 @@
         "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9 handles evidence-based deletion.\", True),",
         "line": 801,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "if key.startswith(\"Emulator.PackageName.\") and key not in {",
+        "line": 271,
+        "path": "dev_tools/stage6_ui_audit.py"
+      },
+      {
+        "code": "\"Emulator.PackageName.name\", \"Emulator.PackageName.help\", \"Emulator.PackageName.auto\",",
+        "line": 272,
+        "path": "dev_tools/stage6_ui_audit.py"
+      },
+      {
+        "code": "\"Emulator.PackageName.com.bilibili.azurlane\",",
+        "line": 273,
+        "path": "dev_tools/stage6_ui_audit.py"
+      },
+      {
+        "code": "\"Emulator.PackageName.com.YoStarEN.AzurLane\",",
+        "line": 274,
+        "path": "dev_tools/stage6_ui_audit.py"
+      },
+      {
+        "code": "\"Emulator.PackageName.com.YoStarJP.AzurLane\",",
+        "line": 275,
+        "path": "dev_tools/stage6_ui_audit.py"
+      },
+      {
+        "code": "\"Emulator.PackageName.com.hkmanjuu.azurlane.gp\",",
+        "line": 276,
+        "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "PackageName: com.YoStarEN.AzurLane",
@@ -3065,6 +3105,11 @@
         "code": "self._dependency_link(\"package/server options\", \"assets\", evidence, (\"PackageName\", \"ServerName\", \"OcrModel\"), \"Stage 9 handles evidence-based deletion.\", True),",
         "line": 801,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
+        "line": 267,
+        "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "ServerName: en-0",
@@ -3722,6 +3767,16 @@
         "code": "self.assertNotEqual(EVENT_NAME_SOURCE, UI_LOCALE)",
         "line": 36,
         "path": "tests/test_stage5_server_separation.py"
+      },
+      {
+        "code": "self.assertNotIn(\"UI_LOCALE = to_server\", locale)",
+        "line": 152,
+        "path": "tests/test_stage6_ui_russianization.py"
+      },
+      {
+        "code": "self.assertNotIn(\"to_server(UI_LOCALE\", updater)",
+        "line": 153,
+        "path": "tests/test_stage6_ui_russianization.py"
       }
     ],
     "event_name": [
@@ -3744,6 +3799,11 @@
         "code": "- Event-name source: `{summary['event_name_source']}`",
         "line": 1105,
         "path": "dev_tools/russianization_audit.py"
+      },
+      {
+        "code": "\"key_or_line\": \"_parse_event_name.event_name\",",
+        "line": 124,
+        "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "def event_name_to_time(self, name):",
@@ -3782,7 +3842,7 @@
       },
       {
         "code": "root.querySelector('[data-role=\"event-name\"]').textContent = data.event_name ? `Текущее событие: ${{data.event_name}}` : \"Текущее событие: неизвестно\";",
-        "line": 617,
+        "line": 626,
         "path": "module/webui/event_calculator.py"
       },
       {
@@ -3794,6 +3854,11 @@
         "code": "def test_event_name_source_is_explicit_and_server_based(self) -> None:",
         "line": 33,
         "path": "tests/test_stage5_server_separation.py"
+      },
+      {
+        "code": "\"event_name\": \"<img src=x onerror=alert(1)>\",",
+        "line": 134,
+        "path": "tests/test_stage6_ui_russianization.py"
       }
     ],
     "filepath_i18n": [

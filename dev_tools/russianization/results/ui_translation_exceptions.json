@@ -133,16 +133,6 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
-      "key_or_line": "C122MediumLeveling._info.help",
-      "text": "Используйте слабый флот для повышения уровня на 12-2, отступайте после победы над врагами, не достигающими 3 звезд. Увеличьте соотношение EXP/нефти, снижая мощность флота",
-      "category": "technical_value",
-      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
-      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
-      "stage": 6,
-      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
-    },
-    {
-      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "C124LargeLeveling.NonLargeEnterTolerance.name",
       "text": "После входа на карту, проходить X битв с врагами, не достигающими 3 звезд, и отступать",
       "category": "technical_value",
@@ -165,16 +155,6 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "C124LargeLeveling.PickupAmmo.name",
       "text": "Собирать боеприпасы после X битв",
-      "category": "technical_value",
-      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
-      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
-      "stage": 6,
-      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
-    },
-    {
-      "path": "module/config/i18n/ru-RU.json",
-      "key_or_line": "C124LargeLeveling._info.help",
-      "text": "Используйте сильный флот для повышения уровня на 12-4, отступайте после победы над врагами 3 звезды. Увеличьте соотношение EXP/нефти, побеждая больше врагов 3 звезды",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -1704,7 +1684,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Campaign.Name.help",
-      "text": "Например, 7-2, 12-4, D3, SP4, нечувствительный к регистру\nЕсли уровень отсутствует, подождите обновления",
+      "text": "Например: 7-2, 12-4, D3 или SP4; регистр не учитывается.\nЕсли этап отсутствует, дождитесь обновления.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -1784,7 +1764,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "ControlExpOverflow._info.help",
-      "text": "Предотвращает использование книг продвинутых навыков, когда они переполняются большим количеством опыта при достижении почти полного уровня навыков. Например, если книга T3 переполняется на 100 пунктов, а книга T4 — на 100 пунктов, при оставшихся 1100 пунктах опыта книга T4 не будет использоваться, а вместо этого будет использована книга T3.",
+      "text": "Не позволяет тратить книги навыков высокого уровня, если навык почти изучен и значительная часть опыта пропадёт.\nНапример, если до следующего уровня осталось 1100 опыта и книги T3 и T4 превысят лимит на 100 опыта, будет использована книга T3, а не T4.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -1794,7 +1774,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Daemon._info.help",
-      "text": "При атаке на уровни, не адаптированные под вас, это полезно, так как значительно уменьшает количество ручных операций. AzurPilot поможет вам кликнуть для подготовки к бою, закрыть бой, пропустить сценарий, автоматически отойти и закрыть различные попап-окна. Вам нужно только выбрать врага вручную.",
+      "text": "Полезно на этапах без готового сценария: значительно сокращает число ручных действий.\nAzurPilot подтверждает подготовку и результаты боя, пропускает сюжетные сцены, автоматически разбирает лишние корабли и закрывает всплывающие окна. Вам остаётся вручную выбирать противника.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -3493,8 +3473,18 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "EventGeneral.PtLimit.help",
+      "text": "Когда накоплено указанное количество PT события, все задачи события отключаются. Значение 0 снимает ограничение. При автоматическом поиске условие может сработать не сразу.\nПосле включения достаточно активировать нужные задачи события — подсчитывать общее число запусков не требуется.",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "EventGeneral.PtLimit.name",
-      "text": "Остановить при достижении X очков действия в событии",
+      "text": "Остановить при достижении X PT события",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -3504,7 +3494,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "EventShop.BuyURShip.name",
-      "text": "Купить X элитных кораблей",
+      "text": "Купить X кораблей UR",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -3903,6 +3893,16 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "Gui.DeploySetting.DiscordRichPresence",
+      "text": "Расширенный статус в Discord",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.DeploySetting.DiscordRichPresenceHelp",
       "text": "Показывать статус AzurPilot в Discord",
       "category": "technical_value",
@@ -3914,7 +3914,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.DeploySetting.DpiScaling",
-      "text": "Следовать масштабированию DPI системы",
+      "text": "Использовать системное масштабирование DPI",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4064,7 +4064,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.DeploySetting.InstallUiautomator2Help",
-      "text": "Проверьте и переустановите uiautomator2 при запуске.",
+      "text": "Проверять и при необходимости переустанавливать uiautomator2 при запуске.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4164,7 +4164,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.DeploySetting.PythonExecutable",
-      "text": "Исполняемый Python",
+      "text": "Исполняемый файл Python",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4174,7 +4174,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.DeploySetting.PythonExecutableHelp",
-      "text": "Используемый Python для запуска AzurPilot",
+      "text": "Исполняемый файл Python, используемый для запуска AzurPilot.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4434,7 +4434,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.DeploySetting.WebuiHostHelp",
-      "text": "Адрес хоста, на котором слушает WebUI, например 0.0.0.0, 127.0.0.1 или ::.",
+      "text": "Адрес, который прослушивает WebUI, например 0.0.0.0, 127.0.0.1 или `::`.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4514,7 +4514,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.Launcher.AutoStartHelp",
-      "text": "При включении запускается после входа в Windows и по умолчанию скрывается в трее.",
+      "text": "При включении AzurPilot запускается после входа в Windows и по умолчанию сворачивается в трей.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4535,6 +4535,16 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.Launcher.RemoteUnavailable",
       "text": "Автозапуск можно настроить только с локальной WebUI.",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "Gui.Launcher.StartupTitle",
+      "text": "Автозапуск AzurPilot",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4564,7 +4574,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.OOBE.ImportErrorInvalid",
-      "text": "Это не действительная конфигурация AzurPilot/ALAS",
+      "text": "Это некорректная конфигурация AzurPilot/ALAS",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4744,7 +4754,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.StartupRun.Description",
-      "text": "При включении этот профиль запускается автоматически при старте WebUI или запускающего модуля AzurPilot. Влияет только на следующий запуск.",
+      "text": "При включении профиль автоматически запускается вместе с WebUI или когда лаунчер запускает AzurPilot. Изменение применяется со следующего запуска.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4784,7 +4794,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.Stat.DetailChartTitle",
-      "text": "Подробная диаграмма колебаний AP (24 часа)",
+      "text": "Подробный график изменения AP за сутки",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4843,6 +4853,16 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "Gui.Stat.LoadApDataFailed",
+      "text": "Не удалось загрузить данные AP: {e}",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.Stat.LoadExpStatsFailed",
       "text": "Ошибка загрузки статистики EXP: {e}",
       "category": "technical_value",
@@ -4883,6 +4903,16 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "Gui.Stat.MonthlyPurchasedAP",
+      "text": "Куплено AP за месяц: {value}",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.Stat.NetAP",
       "text": "Чистое изменение AP",
       "category": "technical_value",
@@ -4905,6 +4935,16 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.Stat.NoExpData",
       "text": "Данных по EXP пока нет. Запись начнётся после повышения уровня в OpSi-1.",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "Gui.Stat.NoValidApData",
+      "text": "Корректных данных AP нет.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -4945,16 +4985,6 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Gui.Stat.TotalExp",
       "text": "Итого EXP",
-      "category": "technical_value",
-      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
-      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
-      "stage": 6,
-      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
-    },
-    {
-      "path": "module/config/i18n/ru-RU.json",
-      "key_or_line": "Gui.Stat.ViewMonthButton",
-      "text": "Просмотр месяца (ежедневные K)",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -5024,7 +5054,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "GuildShop.PR1.name",
-      "text": "Выбор чертежа исследования PR1",
+      "text": "Выбор чертёжа исследования PR1",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -5044,7 +5074,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "GuildShop.PR2.name",
-      "text": "Выбор чертежа исследования PR2",
+      "text": "Выбор чертёжа исследования PR2",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -5064,7 +5094,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "GuildShop.PR3.name",
-      "text": "Выбор чертежа исследования PR3",
+      "text": "Выбор чертёжа исследования PR3",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -7704,7 +7734,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandDailyGather.WorkerFilter.help",
-      "text": "Подключайтесь через >. До 3 персонажей, привязанных к позициям сбора 1–3.\nПодключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nЕжедневный сбор не поддерживает WorkerJuu; если указан, он будет проигнорирован.\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, позиция переходит к существующей логике сбора.",
+      "text": "Укажите персонажей через `>`. До 3 персонажей, привязанных к позициям сбора 1–3.\nУкажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nЕжедневный сбор не поддерживает WorkerJuu; если указан, он будет проигнорирован.\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, позиция переходит к существующей логике сбора.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -7744,7 +7774,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandFarm.WorkerFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -7754,7 +7784,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandFishery.RancherFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -7774,7 +7804,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandForest.WorkerFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -7784,7 +7814,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandGrill.ChefFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -7894,7 +7924,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandJuuCoffee.ChefFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8014,7 +8044,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandJuuEatery.ChefFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8124,7 +8154,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandMine.WorkerFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8134,7 +8164,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandNursery.WorkerFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8144,7 +8174,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandOrchard.WorkerFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8154,7 +8184,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandPearlSell._info.help",
-      "text": "Поддерживается только minitouch. Каждое второе понедельник в 01:00 автоматически обрабатывает жемчуг: сначала покупает текущую недельную партию по максимальной цене, затем продаёт имеющиеся жемчужины по минимальной цене. Все незавершённые процессы будут отложены на следующее второе понедельник для повтора. Убедитесь, что у вас достаточно монет для покупки 200×220 единиц, что является минимальным требованием для полной покупки всей партии жемчуга, иначе могут возникнуть ошибки.",
+      "text": "Поддерживается только minitouch. Каждый вторник в 01:00 автоматически обрабатывает жемчуг: сначала покупает недельную партию по максимальной закупочной цене, затем продаёт имеющийся жемчуг по минимальной цене продажи. Незавершённые операции повторяются на следующий день в 01:00.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8164,7 +8194,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandRancher.RancherFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8174,7 +8204,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandRancher.WoolWorkerFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8184,7 +8214,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandRestaurant.ChefFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8284,7 +8314,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "IslandTeahouse.ChefFilter.help",
-      "text": "Подключайтесь через >, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаёт только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
+      "text": "Укажите персонажей через `>`, например: ChaoHo > NewJersey > Amagi_chan\nSaratoga > Akashi > Tashkent > YingSwei\nLeMalin > Unicorn > Shimakaze > Cheshire\nChenHai > WilliamDPorter\nHelena > Friedrich > Atago\nYixian > August > Eugen > Hood > Javelin > Laffey > Explorer > Navigator > OceanCrosser > FeiYun > Takao\nРаспознаются только первые две строки в порядке по умолчанию. Если указанный персонаж недоступен, переходит к WorkerJuu.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8744,7 +8774,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiDaily.KeepMissionZone.help",
-      "text": "После выполнения дневной миссии выйти из морской зоны. На следующий раз, когда миссия появится в той же зоне, не потребуется AP для входа.\nВсе незавершённые зоны будут очищены на последний день каждого месяца.",
+      "text": "После выполнения ежедневного задания выйти из зоны. Если следующее задание появится в той же зоне, AP на вход не потребуются.\nВсе незачищенные зоны будут зачищены в последний день месяца.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8765,6 +8795,26 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiExplore.LastZone.help",
       "text": "Автоматически обновляется. Введите 0, чтобы сбросить прогресс. После сброса автоматически пропустятся уже исследованные морские зоны.\nПоддерживает ID морской зоны, названия зон серверов CN/EN/JP/TW, например: \"51\", \"NA Ocean SE Sector E\"",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiExplore.SpecialRadar.name",
+      "text": "`Campaign Information Recorder` куплен",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiExplore._info.help",
+      "text": "Исследует все морские зоны Операции «Сирена» в начале месяца без покупки `Campaign Information Recorder` (5000 нефти).\nЗачищает одну зону каждые 27 минут, выдерживая время восстановления поиска воздушного пространства.\nТребуется завершить основной сюжет, `Simulation Battle` и `Siren Proving Ground`.\nПосле выполнения условий задача запускается автоматически.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8874,7 +8924,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiHazard1Leveling.OperationCoinsPreserve.help",
-      "text": "Когда количество боевых квитанций ниже X, запускать фарминг с Мяуфицером. Не рекомендуется изменять.",
+      "text": "Когда ваучеров боевого снабжения становится меньше X, запускать фарм мяуфицеров. Изменять значение не рекомендуется.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8884,7 +8934,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiHazard1Leveling.OperationCoinsPreserve.name",
-      "text": "Сохранять X вексель боевых ресурсов",
+      "text": "Сохранять X ваучеров боевого снабжения",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8894,7 +8944,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiHazard1Leveling.RecordNonCL1AP.name",
-      "text": "Записывать источники несущих очков действия (не коррозия, 1 AP)",
+      "text": "Записывать источники AP вне зоны коррозии 1",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -8963,6 +9013,26 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiMeowfficerFarming.HazardLevel.help",
+      "text": "Рекомендуются уровни 5 или 3:\nони дают лучшее соотношение мяуфицеров к затраченным AP.",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiPreventActionPointOverflow.ActionPointUpperbound.help",
+      "text": "Запускать задачи Операции «Сирена», когда текущий запас AP достигнет этого значения.",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiPreventActionPointOverflow._info.name",
       "text": "Не допускать переполнения AP",
       "category": "technical_value",
@@ -8994,7 +9064,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiScheduling.OperationCoinsPreserve.help",
-      "text": "Когда количество боевых монет падает ниже X, запускается задача по пополнению желтых монет. Не рекомендуется изменять.",
+      "text": "Когда количество боевых монет падает ниже X, запускается задача по пополнению жёлтых монет. Не рекомендуется изменять.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9004,7 +9074,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiScheduling.OperationCoinsPreserve.name",
-      "text": "Уровень коррозии 1: сохранять X боевые монеты",
+      "text": "Прокачка в зоне коррозии 1: сохранять X ваучеров боевого снабжения",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9014,7 +9084,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiScheduling.OperationCoinsReturnThreshold.help",
-      "text": "В ходе задачи по получению желтых монет в сумме получается (увеличивается) X боевых монет, затем возвращается к уровню коррозии 1.",
+      "text": "Во время пополнения жёлтых монет получить суммарно X ваучеров, затем вернуться к прокачке в зоне коррозии 1.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9024,7 +9094,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiScheduling.OperationCoinsReturnThreshold.name",
-      "text": "Возвращаться, когда боевых монет меньше X",
+      "text": "Вернуться после получения X ваучеров боевого снабжения",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9044,7 +9114,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiScheduling.UseSmartSchedulingOperationCoinsPreserve.name",
-      "text": "Зарезервировать X боевых монет",
+      "text": "Сохранять X ваучеров боевого снабжения",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9074,7 +9144,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiShop.DisableBeforeDate.name",
-      "text": "Не покупать в магазине Операция «Сирена» Плюс до X-го дня каждого месяца",
+      "text": "Не покупать в магазине OpSi+ до X-го дня месяца",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9084,7 +9154,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiShop.PresetFilter.help",
-      "text": "По умолчанию достаточно. Если бесплатные купоны превышают лимит, выберите «Высокие предметы и материалы META». Для новичков выберите «Не покупать материалы META», при этом покупаются все предметы, кроме материалов META. Высокие предметы — это очки действия, координаты, золото или более высокий уровень товара; материалы META включают общие учебники по тактике и 4 типа улучшений.",
+      "text": "Обычно достаточно фильтра по умолчанию. Если бесплатные ваучеры могут переполниться, выберите «Ценные предметы и материалы META». Новичкам подойдёт вариант «Не покупать материалы META»: он приобретает всё, кроме материалов META.\nК ценным относятся AP, координаты, золото и товары более высокого уровня; к материалам META — общие тактические учебники и четыре вида материалов усиления.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9094,7 +9164,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiShop.PresetFilter.max_benefit_meta",
-      "text": "Высокие предметы и материалы META",
+      "text": "Ценные предметы и материалы META",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9125,6 +9195,16 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "OpsiSimulatorParameters.AkashiProbability.name",
       "text": "Вероятность встречи с Akashi",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "OpsiStronghold.SubmarineEveryCombat.help",
+      "text": "Если у подводного флота закончатся боеприпасы, AzurPilot выйдет из крепости Сирен и отложит задачу.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9704,7 +9784,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Research.PresetFilter.help",
-      "text": "Для исследований и обновлений проектов, см. https://azur-stats.lyoko.io/. Люди, не имеющие базового понимания этих вопросов, не рекомендуют писать кастомные фильтры. Рекомендуется использовать предварительно оптимизированные фильтры исследований.",
+      "text": "Сведения о наградах исследований и обновлении проектов: https://azur-stats.lyoko.io/. Не создавайте собственные фильтры без понимания этих механизмов; рекомендуется использовать заранее оптимизированные фильтры.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9774,7 +9854,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Research.RemainingCommissions.help",
-      "text": "Количество комиссий, которые ещё необходимы для ожидаемых исследований T-серии. -1 означает, что нет ожидаемых исследований T-серии.",
+      "text": "Количество комиссий, необходимых для ожидающего проекта серии T. `-1` означает, что такого проекта нет.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -9784,7 +9864,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Research.RemainingCommissions.name",
-      "text": "Оставшиеся T-серии комиссии",
+      "text": "Оставшиеся комиссии для проектов серии T",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -10064,7 +10144,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "StopCondition.StageIncrease.help",
-      "text": "Автоматически переходит на следующий этап. Убедитесь, что флот достаточно силён и соответствует требованиям этапа. Также настройте параметр «Остановка после достижения завершения карты». Например, если включить эту функцию и выбрать «100% завершено», следующий этап начнётся после полного прохождения карты.\nПоддерживаемые этапы: 1-1—15-4, A1—A3, B1—B3, C1—C3, D1—D3, T1—T6 и SP1—SP4.",
+      "text": "Автоматически переходит к следующему этапу. Убедитесь, что флот достаточно силён и соответствует требованиям этапа. Настройте параметр «Остановка после достижения цели карты».\nНапример, если включить эту функцию и выбрать «100%-я зачистка», переход произойдёт после полного прохождения карты.\nПоддерживаемые этапы: 1-1—15-4, A1—A3, B1—B3, C1—C3, D1—D3, T1—T6 и SP1—SP4.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -10174,7 +10254,7 @@
     {
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Task.IslandDailyInteract.help",
-      "text": "Поддерживает только minitouch. Обрабатывает уход за островом, JUU Express, доставку бизнеса и еженедельные фото-задания. Включается после создания соответствующих элементов интерфейса",
+      "text": "Поддерживается только minitouch. Выполняет поглаживание животных, доставку JUU Express, бизнес-доставку и еженедельные фотозадания. Включайте после генерации соответствующих assets кнопок.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -10283,6 +10363,16 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "Task.OpsiScheduling.help",
+      "text": "Умное планирование задач Операции «Сирена» координирует прокачку в зоне коррозии 1 и пополнение жёлтых монет.\nПосле включения задачи OpSi будут запускаться в согласованном порядке.",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Task.OpsiShop.name",
       "text": "Магазин OpSi+",
       "category": "technical_value",
@@ -10370,6 +10460,26 @@
       "runtime_context": "Состояния загрузки, отсутствия данных и ошибок принадлежат проекту и переведены на русский.",
       "stage": 6,
       "evidence": "announcement_checker передаёт внешние title/content в клиентский renderer без изменения payload."
+    },
+    {
+      "path": "module/webui/event_calculator.py",
+      "key_or_line": "_parse_event_name.event_name",
+      "text": "Оригинальное название текущего события Wiki",
+      "category": "external_content",
+      "reason": "Название события является внешней metadata и может не иметь подтверждённого русского варианта.",
+      "runtime_context": "Русская подпись «Текущее событие» отделена от поступившего из Wiki названия.",
+      "stage": 6,
+      "evidence": "Название назначается через DOM textContent, поэтому внешняя разметка не исполняется."
+    },
+    {
+      "path": "module/webui/event_calculator.py",
+      "key_or_line": "_translate_wiki_name.fallback",
+      "text": "Неизвестные названия предметов, заданий и этапов Wiki",
+      "category": "external_content",
+      "reason": "Wiki может добавить значения раньше, чем для них появится подтверждённый русский глоссарий.",
+      "runtime_context": "Известные значения переводятся через EVENT_ITEM_RU_MAP; неизвестные сохраняются как external metadata.",
+      "stage": 6,
+      "evidence": "При выводе динамические имена проходят escapeHtml перед вставкой в table innerHTML."
     }
   ]
 }

@@ -5870,7 +5870,8 @@
       "DisableTranslateMode": "Click here to turn off translation mode",
       "ConfigSaved": "Settings saved",
       "AlasIsRunning": "Scheduler is already running",
-      "AlasRestart": "AzurPilot is restarting..."
+      "AlasRestart": "AzurPilot is restarting...",
+      "ReloadEnabled": "Reload enabled"
     },
     "Status": {
       "Running": "Secretary ship is processing",

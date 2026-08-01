@@ -322,7 +322,7 @@ class TaskConfigMixin(WebUIMixinBase):
                   const resp = await fetch('/api/deploy/startup-run?instance=' + encodeURIComponent(instance), {{cache: 'no-store'}});
                   const result = await resp.json();
                   if (!result.success) {{
-                    throw new Error(result.error || 'unknown error');
+                    throw new Error(result.error || 'Неизвестная ошибка');
                   }}
                   switchEl.checked = result.data.enabled === true;
                   switchEl.disabled = false;
@@ -344,7 +344,7 @@ class TaskConfigMixin(WebUIMixinBase):
                   }});
                   const result = await resp.json();
                   if (!result.success) {{
-                    throw new Error(result.error || 'unknown error');
+                    throw new Error(result.error || 'Неизвестная ошибка');
                   }}
                   switchEl.checked = result.data.enabled === true;
                   statusEl.textContent = result.data.enabled ? text.enabled : text.disabled;

@@ -8,6 +8,7 @@ import re
 import sys
 from collections import Counter
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -46,6 +47,12 @@ ORDINARY_ENGLISH_RE = re.compile(
     r"save|saved|select|server|settings|start|stay|stop|task|the|time|unknown|use|"
     r"value|when|with|without|write)(?![A-Za-z])"
 )
+JS_VISIBLE_EXPRESSION_RE = re.compile(
+    r"\.\s*(?:textContent|innerText|placeholder|title)\s*=\s*(?P<assignment>[^;\n]{1,1000})"
+    r"|(?:throw\s+new\s+Error|alert|confirm)\s*\((?P<call>[^;\n]{1,1000})",
+    re.IGNORECASE,
+)
+QUOTED_STRING_RE = re.compile(r"(?P<quote>['\"])(?P<text>.*?)(?P=quote)")
 
 TECHNICAL_TOKENS = {
     "ADB", "ALAS", "ANE", "AP", "API", "CSS", "CDN", "CPU", "CSV", "DPI",
@@ -103,6 +110,26 @@ MANUAL_EXCEPTIONS = (
         "evidence": "Значения используются как ключи daily в _event_calculator_defaults и не являются подписью элемента управления.",
     },
     {
+        "path": "module/webui/event_calculator.py",
+        "key_or_line": "_translate_wiki_name.fallback",
+        "text": "Неизвестные названия предметов, заданий и этапов Wiki",
+        "category": "external_content",
+        "reason": "Wiki может добавить значения раньше, чем для них появится подтверждённый русский глоссарий.",
+        "runtime_context": "Известные значения переводятся через EVENT_ITEM_RU_MAP; неизвестные сохраняются как external metadata.",
+        "stage": 6,
+        "evidence": "При выводе динамические имена проходят escapeHtml перед вставкой в table innerHTML.",
+    },
+    {
+        "path": "module/webui/event_calculator.py",
+        "key_or_line": "_parse_event_name.event_name",
+        "text": "Оригинальное название текущего события Wiki",
+        "category": "external_content",
+        "reason": "Название события является внешней metadata и может не иметь подтверждённого русского варианта.",
+        "runtime_context": "Русская подпись «Текущее событие» отделена от поступившего из Wiki названия.",
+        "stage": 6,
+        "evidence": "Название назначается через DOM textContent, поэтому внешняя разметка не исполняется.",
+    },
+    {
         "path": "module/webui/app_home.py",
         "key_or_line": "announcement.payload",
         "text": "title/content/url",
@@ -124,6 +151,33 @@ class Candidate:
     foreign_kind: str
 
 
+class MarkupSignatureParser(HTMLParser):
+    """Build a structural HTML signature and retain malformed nesting."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.events: list[str] = []
+        self.stack: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        self.events.append(f"start:{tag}")
+        self.stack.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        self.events.append(f"self:{tag}")
+
+    def handle_endtag(self, tag: str) -> None:
+        self.events.append(f"end:{tag}")
+        if not self.stack or self.stack[-1] != tag:
+            expected = self.stack[-1] if self.stack else "none"
+            self.events.append(f"error:expected-{expected}:got-{tag}")
+            return
+        self.stack.pop()
+
+    def signature(self) -> list[str]:
+        return [*self.events, *(f"unclosed:{tag}" for tag in reversed(self.stack))]
+
+
 def flatten(value: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]]:
     if isinstance(value, dict):
         for key, child in value.items():
@@ -137,12 +191,20 @@ def canonical_json(value: Any) -> bytes:
 
 
 def format_signature(text: str) -> dict[str, list[str]]:
+    parser = MarkupSignatureParser()
+    parser.feed(text)
+    parser.close()
     return {
         "placeholders": sorted(PLACEHOLDER_RE.findall(text)),
-        "html": HTML_TAG_RE.findall(text),
+        "html": parser.signature(),
         "rich": [f"{closing}{name}" for closing, name in RICH_TAG_RE.findall(text)],
         "js_interpolation": sorted(JS_INTERPOLATION_RE.findall(text)),
-        "escapes": sorted(re.findall(r"\\[nrt]", text)),
+        "control_characters": sorted(
+            {"\n": r"\n", "\r": r"\r", "\t": r"\t"}[character]
+            for character in text
+            if character in "\n\r\t"
+        ),
+        "literal_escapes": sorted(re.findall(r"\\[nrt]", text)),
     }
 
 
@@ -267,6 +329,30 @@ def call_name(node: ast.Call) -> str:
     return ".".join(reversed(parts))
 
 
+def javascript_ui_candidates(source: str, relative: str) -> list[Candidate]:
+    """Find quoted fallbacks rendered by JavaScript embedded in Python UI."""
+    results: list[Candidate] = []
+    seen: set[tuple[int, str]] = set()
+    for match in JS_VISIBLE_EXPRESSION_RE.finditer(source):
+        expression = match.group("assignment") or match.group("call") or ""
+        line = source.count("\n", 0, match.start()) + 1
+        for quoted in QUOTED_STRING_RE.finditer(expression):
+            text = quoted.group("text").strip()
+            kind = foreign_kind(text)
+            marker = (line, text)
+            if (
+                not text
+                or marker in seen
+                or kind not in {"english", "cjk", "cjk_and_english"}
+            ):
+                continue
+            if kind == "english" and not ORDINARY_ENGLISH_RE.search(text):
+                continue
+            seen.add(marker)
+            results.append(Candidate(relative, line, text, "javascript_ui_literal", kind))
+    return results
+
+
 def python_ui_candidates(path: Path) -> list[Candidate]:
     relative = path.relative_to(ROOT).as_posix()
     source = path.read_text(encoding="utf-8")
@@ -341,7 +427,24 @@ def python_ui_candidates(path: Path) -> list[Candidate]:
             continue
         text = node.value.strip()
         marker = (getattr(node, "lineno", 0), text)
-        if not text or marker in emitted or not CJK_RE.search(text):
+        if (
+            TRANSLATION_KEY_RE.fullmatch(text)
+            or re.fullmatch(r"[A-Za-z0-9_.:/@+\-]+", text)
+            or len(text) > 500
+            or any(hint in text for hint in (
+                "window.", "document.", "querySelector", "class=\"", "style=\"",
+                "grid-template", "data-role", "data-field", "function(", "function ",
+            ))
+        ):
+            continue
+        kind = foreign_kind(text)
+        if (
+            not text
+            or marker in emitted
+            or kind not in {"english", "cjk", "cjk_and_english"}
+        ):
+            continue
+        if kind == "english" and not ORDINARY_ENGLISH_RE.search(text):
             continue
         parent = parents.get(node)
         if isinstance(parent, ast.Expr) and parent.value is node:
@@ -373,7 +476,18 @@ def python_ui_candidates(path: Path) -> list[Candidate]:
                     break
             current = parents.get(current)
         if displayed:
-            results.append(Candidate(relative, marker[0], visible_text(text), "python_runtime_ui_literal", "cjk"))
+            results.append(Candidate(
+                relative,
+                marker[0],
+                visible_text(text),
+                "python_runtime_ui_literal",
+                kind,
+            ))
+            emitted.add(marker)
+    for candidate in javascript_ui_candidates(source, relative):
+        marker = (int(candidate.key_or_line), candidate.text)
+        if marker not in emitted:
+            results.append(candidate)
             emitted.add(marker)
     return results
 
@@ -392,6 +506,76 @@ def html_ui_candidates(path: Path) -> list[Candidate]:
             ):
                 if kind != "english" or ORDINARY_ENGLISH_RE.search(displayed):
                     results.append(Candidate(relative, line_number, displayed, "html_ui_literal", kind))
+    return results
+
+
+def python_translation_key_usage(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return translated references and raw keys passed to visible Python UI sinks."""
+    relative = path.relative_to(ROOT).as_posix()
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative)
+    translated: list[dict[str, Any]] = []
+    raw: list[dict[str, Any]] = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        tail = call_name(node).rsplit(".", 1)[-1].lower()
+        if tail in {"t", "_t"} and node.args:
+            argument = node.args[0]
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                if TRANSLATION_KEY_RE.fullmatch(argument.value):
+                    translated.append({
+                        "path": relative,
+                        "line": getattr(argument, "lineno", getattr(node, "lineno", 0)),
+                        "key": argument.value,
+                    })
+
+        is_ui = tail.startswith("put_") or tail in {
+            "toast", "popup", "input", "input_group", "actions", "checkbox",
+            "radio", "select", "textarea", "htmlresponse", "alert", "confirm",
+        } or any(hint in tail for hint in ("toast", "popup", "button", "label", "title"))
+        if not is_ui:
+            continue
+
+        visible_nodes = [*node.args, *(
+            keyword.value
+            for keyword in node.keywords
+            if keyword.arg in {
+                "text", "label", "title", "message", "placeholder", "help",
+                "description", "buttons", "inputs", "options",
+            }
+        )]
+
+        def inspect(current: ast.AST, translated_context: bool = False) -> None:
+            if isinstance(current, ast.Call):
+                current_tail = call_name(current).rsplit(".", 1)[-1].lower()
+                translated_context = translated_context or current_tail in {"t", "_t"}
+            if (
+                isinstance(current, ast.Constant)
+                and isinstance(current.value, str)
+                and TRANSLATION_KEY_RE.fullmatch(current.value)
+                and not translated_context
+            ):
+                raw.append({
+                    "path": relative,
+                    "line": getattr(current, "lineno", getattr(node, "lineno", 0)),
+                    "key": current.value,
+                })
+            for child in ast.iter_child_nodes(current):
+                inspect(child, translated_context)
+
+        for visible in visible_nodes:
+            inspect(visible)
+
+    return translated, raw
+
+
+def html_raw_translation_keys(path: Path) -> list[dict[str, Any]]:
+    relative = path.relative_to(ROOT).as_posix()
+    results = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for fragment in re.findall(r">\s*((?:Gui|Task|Menu)\.[A-Za-z0-9_.]+)\s*<", line):
+            results.append({"path": relative, "line": line_number, "key": fragment})
     return results
 
 
@@ -427,9 +611,24 @@ class Stage6Audit:
             results.extend(html_ui_candidates(path))
         return results
 
+    def runtime_key_integrity(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        translated: list[dict[str, Any]] = []
+        raw: list[dict[str, Any]] = []
+        files = sorted((self.root / "module" / "webui").rglob("*.py"))
+        files.append(self.root / "gui.py")
+        for path in files:
+            references, raw_keys = python_translation_key_usage(path)
+            translated.extend(references)
+            raw.extend(raw_keys)
+        for path in sorted((self.root / "webapp").rglob("*.html")):
+            raw.extend(html_raw_translation_keys(path))
+        missing = [reference for reference in translated if reference["key"] not in self.ru_flat]
+        return missing, raw
+
     def build(self) -> tuple[dict[str, bytes], dict[str, Any]]:
         catalog = self.catalog_candidates()
         direct = self.direct_candidates()
+        missing_runtime_keys, raw_runtime_keys = self.runtime_key_integrity()
         exceptions: list[dict[str, Any]] = []
         unresolved: list[dict[str, Any]] = []
         for candidate in catalog:
@@ -461,10 +660,14 @@ class Stage6Audit:
                     "source": format_signature(source),
                     "target": format_signature(target),
                 })
-        raw_key_values = sorted(
+        raw_catalog_values = sorted(
             key for key, value in self.ru_flat.items()
             if isinstance(value, str) and value == key and "." in key
         )
+        raw_key_values = [
+            *({"path": "module/config/i18n/ru-RU.json", "key": key} for key in raw_catalog_values),
+            *raw_runtime_keys,
+        ]
         exception_counts = Counter(item["category"] for item in exceptions)
         unresolved_english = sum(
             item["foreign_kind"] in {"english", "cjk_and_english"} for item in unresolved
@@ -497,7 +700,7 @@ class Stage6Audit:
             "unreviewed_CJK_active_ui": unresolved_cjk,
             "placeholder_mismatches": len(placeholder_mismatches),
             "raw_translation_keys_rendered": 0 if not raw_key_values else len(raw_key_values),
-            "Gui.Missing_rendered": 0,
+            "Gui.Missing_rendered": len(missing_runtime_keys) + len(raw_runtime_keys),
             "reviewed_technical_values": exception_counts["technical_value"],
             "reviewed_proper_names": exception_counts["proper_name"],
             "reviewed_original_metadata": exception_counts["original_metadata"],
@@ -516,6 +719,8 @@ class Stage6Audit:
             "empty_replacements": empty_replacements,
             "placeholder_mismatches": placeholder_mismatches,
             "raw_key_values": raw_key_values,
+            "missing_runtime_keys": missing_runtime_keys,
+            "raw_runtime_keys": raw_runtime_keys,
             "unresolved": unresolved,
         }
         report = self.report(metrics, details, exception_counts)
@@ -533,6 +738,7 @@ class Stage6Audit:
             metrics["missing_translation_keys"], metrics["extra_translation_keys"],
             metrics["empty_replacements"], metrics["unresolved_active_ui"],
             metrics["placeholder_mismatches"], metrics["raw_translation_keys_rendered"],
+            metrics["Gui.Missing_rendered"],
         )) else "FAIL"
         return f"""# Stage 6 — полный русский active UI
 
@@ -605,7 +811,7 @@ Base SHA: `{metrics['base_sha']}`
                 failures.append(f"outdated result: {path.relative_to(ROOT).as_posix()}")
         for key in (
             "missing_keys", "extra_keys", "empty_replacements", "placeholder_mismatches",
-            "raw_key_values", "unresolved",
+            "raw_key_values", "missing_runtime_keys", "raw_runtime_keys", "unresolved",
         ):
             if details[key]:
                 failures.append(f"{key}: {len(details[key])}")
