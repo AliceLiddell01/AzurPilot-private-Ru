@@ -25,13 +25,13 @@ uv run python -m dev_tools.russianization_audit --check
 | First-party/direct log entries | 5765 |
 | Log translation required | 5066 |
 | Asset entries | 10464 |
-| Asset bytes represented | 585461870 |
+| Asset bytes represented | 585461869 |
 | EN/Global required candidates | 3670 |
 | Manual review assets | 1913 |
 | Probable delete candidates | 1231 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `83f3d30fb146f025e837b8fa9a092f5809c355f5d7fdc0abe5e01390b528e0b2`
+Source fingerprint: `f5cbd63aafd7a1a1ff3ce7264661aa56ff7b564ffa2ac3c319811e072e635a92`
 
 ## Runtime locale architecture
 
