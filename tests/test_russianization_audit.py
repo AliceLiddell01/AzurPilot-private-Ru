@@ -58,6 +58,14 @@ class RussianizationAuditTests(unittest.TestCase):
     def _engine(self) -> AuditEngine:
         return AuditEngine(self.root, self.output)
 
+    def test_readme_is_excluded_from_audit_inputs(self) -> None:
+        first = self._engine().build_outputs()
+        self._write("README.md", "Полностью изменённая документация.\n")
+        second = self._engine().build_outputs()
+
+        self.assertTrue(is_excluded("README.md"))
+        self.assertEqual(first, second)
+
     def test_check_mode_is_read_only(self) -> None:
         engine = self._engine()
         engine.write()
