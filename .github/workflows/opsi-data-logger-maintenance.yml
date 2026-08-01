@@ -85,10 +85,10 @@ jobs:
           PY
 
       - name: Run focused Data Logger tests
-        run: uv run pytest -q tests/test_opsi_data_logger.py
+        run: PYTHONPATH=. uv run pytest -q tests/test_opsi_data_logger.py
 
       - name: Regenerate Russianization audit artifacts
-        run: uv run python -m dev_tools.russianization_audit
+        run: PYTHONPATH=. uv run python -m dev_tools.russianization_audit
 
       - name: Package candidate and regenerated artifacts
         run: |
