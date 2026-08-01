@@ -16,7 +16,7 @@ Base SHA: `4764f66baeafb0dd2152599839afec739af8ab40`
 ## Итоговые метрики
 
 - catalog keys: 4168;
-- translated active UI: 2958;
+- translated active UI: 2959;
 - missing translation keys: 0;
 - empty replacements: 0;
 - unresolved active UI: 0;
@@ -29,7 +29,7 @@ Base SHA: `4764f66baeafb0dd2152599839afec739af8ab40`
 ## Точечные reviewed exceptions
 
 - technical values: 541;
-- proper names: 271;
+- proper names: 270;
 - original metadata: 238;
 - external content: 4.
 

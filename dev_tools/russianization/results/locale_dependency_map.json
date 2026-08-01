@@ -15,7 +15,7 @@
       "runtime_status": "legacy_inactive_locale_file"
     },
     {
-      "content_hash": "49026d04700b8257d25b5d3b36bc67ab6b01b56a6398d17e1e2d34f2007d4a6a",
+      "content_hash": "1539e661b91e9429df60f7f13b58e388bbd5e6f8c767543f8704f7abd4674d5f",
       "key_count": 4168,
       "locale": "ru-RU",
       "path": "module/config/i18n/ru-RU.json",
@@ -691,7 +691,7 @@
         },
         {
           "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
-          "line": 274,
+          "line": 273,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
@@ -884,7 +884,7 @@
         },
         {
           "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
-          "line": 274,
+          "line": 273,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
@@ -1022,37 +1022,37 @@
         },
         {
           "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
-          "line": 274,
+          "line": 273,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "if key.startswith(\"Emulator.PackageName.\") and key not in {",
-          "line": 278,
+          "line": 277,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.name\", \"Emulator.PackageName.help\", \"Emulator.PackageName.auto\",",
-          "line": 279,
+          "line": 278,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.com.bilibili.azurlane\",",
-          "line": 280,
+          "line": 279,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.com.YoStarEN.AzurLane\",",
-          "line": 281,
+          "line": 280,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.com.YoStarJP.AzurLane\",",
-          "line": 282,
+          "line": 281,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.com.hkmanjuu.azurlane.gp\",",
-          "line": 283,
+          "line": 282,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
@@ -1225,37 +1225,37 @@
         },
         {
           "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
-          "line": 274,
+          "line": 273,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "if key.startswith(\"Emulator.PackageName.\") and key not in {",
-          "line": 278,
+          "line": 277,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.name\", \"Emulator.PackageName.help\", \"Emulator.PackageName.auto\",",
-          "line": 279,
+          "line": 278,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.com.bilibili.azurlane\",",
-          "line": 280,
+          "line": 279,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.com.YoStarEN.AzurLane\",",
-          "line": 281,
+          "line": 280,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.com.YoStarJP.AzurLane\",",
-          "line": 282,
+          "line": 281,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
           "code": "\"Emulator.PackageName.com.hkmanjuu.azurlane.gp\",",
-          "line": 283,
+          "line": 282,
           "path": "dev_tools/stage6_ui_audit.py"
         },
         {
@@ -2779,32 +2779,32 @@
       },
       {
         "code": "if key.startswith(\"Emulator.PackageName.\") and key not in {",
-        "line": 278,
+        "line": 277,
         "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "\"Emulator.PackageName.name\", \"Emulator.PackageName.help\", \"Emulator.PackageName.auto\",",
-        "line": 279,
+        "line": 278,
         "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "\"Emulator.PackageName.com.bilibili.azurlane\",",
-        "line": 280,
+        "line": 279,
         "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "\"Emulator.PackageName.com.YoStarEN.AzurLane\",",
-        "line": 281,
+        "line": 280,
         "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "\"Emulator.PackageName.com.YoStarJP.AzurLane\",",
-        "line": 282,
+        "line": 281,
         "path": "dev_tools/stage6_ui_audit.py"
       },
       {
         "code": "\"Emulator.PackageName.com.hkmanjuu.azurlane.gp\",",
-        "line": 283,
+        "line": 282,
         "path": "dev_tools/stage6_ui_audit.py"
       },
       {
@@ -3108,7 +3108,7 @@
       },
       {
         "code": "if key.startswith(\"Emulator.ServerName.\") and key.rsplit(\".\", 1)[-1] not in {",
-        "line": 274,
+        "line": 273,
         "path": "dev_tools/stage6_ui_audit.py"
       },
       {
@@ -3802,7 +3802,7 @@
       },
       {
         "code": "\"key_or_line\": \"_parse_event_name.event_name\",",
-        "line": 131,
+        "line": 130,
         "path": "dev_tools/stage6_ui_audit.py"
       },
       {

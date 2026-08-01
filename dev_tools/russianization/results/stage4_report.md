@@ -21,7 +21,7 @@ uv run python -m dev_tools.russianization_audit --check
 | Text files scanned | 2118 |
 | Locale files | 6 |
 | UI string entries | 23345 |
-| UI translation required | 18623 |
+| UI translation required | 18622 |
 | First-party/direct log entries | 5765 |
 | Log translation required | 5066 |
 | Asset entries | 10464 |
@@ -31,7 +31,7 @@ uv run python -m dev_tools.russianization_audit --check
 | Probable delete candidates | 1231 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `f5cbd63aafd7a1a1ff3ce7264661aa56ff7b564ffa2ac3c319811e072e635a92`
+Source fingerprint: `41e5419f9242eebb9aec0cc558dee61774b8c2fcdd735ea35ca4b476613f43d6`
 
 ## Runtime locale architecture
 

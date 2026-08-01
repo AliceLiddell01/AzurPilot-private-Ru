@@ -24,7 +24,7 @@
   "event_name_source": "en",
   "first_party_log_messages": 5765,
   "foreign_runtime_fallback": false,
-  "full_asset_manifest_sha256": "606b05cb4a10534fade3002bfa819282326360aabeddd4df703b0a39ec5073b8",
+  "full_asset_manifest_sha256": "3976011d979334f2b8fee1d90adbafb205df22708c8989224c3467d16b63a262",
   "legacy_inactive_locale_files": [
     "en-US",
     "ja-JP",
@@ -59,7 +59,7 @@
   "manual_review_assets": 1913,
   "probable_delete_candidates": 1231,
   "schema_version": 1,
-  "source_fingerprint": "f5cbd63aafd7a1a1ff3ce7264661aa56ff7b564ffa2ac3c319811e072e635a92",
+  "source_fingerprint": "41e5419f9242eebb9aec0cc558dee61774b8c2fcdd735ea35ca4b476613f43d6",
   "text_files_scanned": 2118,
   "tracked_files_scanned": 10952,
   "ui_by_subsystem": {
@@ -71,5 +71,5 @@
   },
   "ui_locale_linked_to_game_server": false,
   "ui_strings": 23345,
-  "ui_translation_required": 18623
+  "ui_translation_required": 18622
 }

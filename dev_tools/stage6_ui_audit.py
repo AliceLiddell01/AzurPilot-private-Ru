@@ -102,7 +102,6 @@ CONFIRMED_ORIGINAL_TERMS = (
     "Campaign Information Recorder",
     "Simulation Battle",
     "Siren Proving Ground",
-    "Squid BBQ",
 )
 
 MANUAL_EXCEPTIONS = (
