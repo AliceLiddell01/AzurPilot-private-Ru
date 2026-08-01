@@ -268,7 +268,6 @@ console.bat
 .vscode/*
 
 # Cursor/Cline configuration (personal tool settings)
-.cursor/
 
 # Pylance configuration file
 pyrightconfig.json
@@ -284,7 +283,6 @@ pyrightconfig.json
 # Cursor Helper Version: 0.1.5
 # Cursor Helper AI 相关文件
 # 忽略 .cursor/commands 目录（Cursor 命令文件）
-.cursor/commands/
 
 # cursor-helper 目录：只允许提交报告文件
 # 忽略所有 diff 目录（临时文件）
@@ -312,10 +310,14 @@ cursor-helper/**/review/reports/files/
 # - cursor-helper/**/fix/fix_report.md （修复报告）
 # - cursor-helper/**/organize-rules/** （规则整理报告）
 
-AGENTS.md
 RTK.md
 
 # AzurPilot Stage 2 tracked launcher infrastructure
 !/scripts/lib/
 /scripts/lib/*
 !/scripts/lib/AzurPilot.Shortcut.psm1
+
+# Неиспользуемые локальные конфигурации AI-инструментов
+.cursor/
+.claude/
+.agent/
