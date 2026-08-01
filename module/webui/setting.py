@@ -3,7 +3,7 @@
 以及预览资源路径定义和缓存管理机制。"""
 
 # 此文件专门用于管理 Web 界面自身的偏好设置及持久化状态类文件。
-# 包括界面主题、常用项展开折叠状态以及各类预览占位图、图标资源的路径定义和缓存管理机制。
+# 包括界面主题、常用项展开折叠状态以及各类预览占位图、图标资源的路径定义与缓存管理机制。
 import multiprocessing
 import os
 import threading
@@ -50,8 +50,8 @@ class cached_class_property(Generic[T]):
     by its cache; rather, it stores values under its access name with
     added underscores. For example, when wrapping getters named
     "choices", "choices_" or "_choices", each class's result is stored
-    at "_choices_"; decoration of a getter named "_choices_" would raise
-    an error.
+    on the class at "_choices_"; decoration of a getter named
+    "_choices_" would raise an exception.
     """
 
     class AliasConflict(ValueError):
@@ -181,7 +181,7 @@ class State:
             clear_owner(os.getpid())
 
     @cached_class_property
-    def deploy_config(cls) -> "DeployConfig":
+    def deploy_config(self) -> "DeployConfig":
         """Мигрировать UI locale до первого чтения и кеширования deploy-конфигурации."""
         from deploy.language_migration import migrate_deploy_language
 
@@ -196,7 +196,7 @@ class State:
         return DeployConfig()
 
     @cached_class_property
-    def config_updater(cls) -> "ConfigUpdater":
+    def config_updater(self) -> "ConfigUpdater":
         """
         Returns:
             ConfigUpdater：
