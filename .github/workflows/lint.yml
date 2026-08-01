@@ -121,12 +121,17 @@ jobs:
           import re
           import subprocess
 
-          diff = subprocess.run(
+          raw_diff = subprocess.run(
               ['git', 'diff', '--unified=0', '--no-color', os.environ['DIFF_RANGE']],
               check=True,
               capture_output=True,
               text=True,
           ).stdout
+          diff = '\n'.join(
+              line[1:]
+              for line in raw_diff.splitlines()
+              if line.startswith('+') and not line.startswith('+++')
+          )
           patterns = {
               'private key': r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
               'GitHub token': r'\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b',
