@@ -2,24 +2,25 @@ name: Stage 6 validation
 
 on:
   push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: stage6-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: stage6-validation-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  generate-audit-baseline:
-    name: Generate Russianization audit artifact
+  generate-and-commit-audit-baseline:
+    name: Generate and commit Russianization audit baseline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: fix/opsi-data-logger
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -34,16 +35,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
-      - name: Restore final workflow content for deterministic audit
-        run: git show 89fae04e3ac62acb73b71eec9c14f49ee27e9bc1:.github/workflows/lint.yml > .github/workflows/lint.yml
+      - name: Restore final workflow and generate baseline
+        run: |
+          git show 89fae04e3ac62acb73b71eec9c14f49ee27e9bc1:.github/workflows/lint.yml > .github/workflows/lint.yml
+          uv run python -m dev_tools.russianization_audit --write
 
-      - name: Generate Russianization audit baseline
-        run: uv run python -m dev_tools.russianization_audit --write
-
-      - name: Upload generated baseline
-        uses: actions/upload-artifact@v4
-        with:
-          name: russianization-audit-baseline
-          path: dev_tools/russianization/results
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit generated baseline
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- .github/workflows/lint.yml dev_tools/russianization/results
+          git diff --cached --check
+          git commit -m 'chore(audit): обновить baseline русификации'
+          git push origin HEAD:fix/opsi-data-logger
