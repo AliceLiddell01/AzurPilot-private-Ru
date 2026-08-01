@@ -462,26 +462,6 @@
       "active_runtime_link": false,
       "evidence": [
         {
-          "code": "- 新增 key 的默认值 = key 路径本身（如 `\"Campaign.Event.name\"`），需人工翻译",
-          "line": 107,
-          "path": "AGENTS.md"
-        },
-        {
-          "code": "| `campaign/` | 战役执行（`CampaignBase`、`CampaignEvent`、`GemsFarming`） |",
-          "line": 289,
-          "path": "AGENTS.md"
-        },
-        {
-          "code": "- `CampaignEvent` (`campaign_event.py`) — 活动战役处理。",
-          "line": 193,
-          "path": "CLAUDE.md"
-        },
-        {
-          "code": "- 新增 key 的默认值 = key 路径本身（如 `\"Campaign.Event.name\"`），需人工翻译",
-          "line": 323,
-          "path": "CLAUDE.md"
-        },
-        {
           "code": "stop_event: threading.Event = None",
           "line": 54,
           "path": "alas.py"
@@ -534,6 +514,26 @@
         {
           "code": "from module.event_hospital.hospital_event import HospitalEvent",
           "line": 965,
+          "path": "alas.py"
+        },
+        {
+          "code": "HospitalEvent(config=self.config, device=self.device).run()",
+          "line": 966,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 983,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 988,
+          "path": "alas.py"
+        },
+        {
+          "code": "name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)",
+          "line": 993,
           "path": "alas.py"
         },
         {
@@ -1386,26 +1386,6 @@
     ],
     "Event": [
       {
-        "code": "- 新增 key 的默认值 = key 路径本身（如 `\"Campaign.Event.name\"`），需人工翻译",
-        "line": 107,
-        "path": "AGENTS.md"
-      },
-      {
-        "code": "| `campaign/` | 战役执行（`CampaignBase`、`CampaignEvent`、`GemsFarming`） |",
-        "line": 289,
-        "path": "AGENTS.md"
-      },
-      {
-        "code": "- `CampaignEvent` (`campaign_event.py`) — 活动战役处理。",
-        "line": 193,
-        "path": "CLAUDE.md"
-      },
-      {
-        "code": "- 新增 key 的默认值 = key 路径本身（如 `\"Campaign.Event.name\"`），需人工翻译",
-        "line": 323,
-        "path": "CLAUDE.md"
-      },
-      {
         "code": "stop_event: threading.Event = None",
         "line": 54,
         "path": "alas.py"
@@ -1884,14 +1864,29 @@
         "code": "\"Event\": \"campaign_main\",",
         "line": 1152,
         "path": "config/template.json"
+      },
+      {
+        "code": "\"Event\": \"campaign_main\",",
+        "line": 1210,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"EventShop\": {",
+        "line": 1270,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"Command\": \"EventShop\",",
+        "line": 1275,
+        "path": "config/template.json"
+      },
+      {
+        "code": "\"EventShop\": {",
+        "line": 1281,
+        "path": "config/template.json"
       }
     ],
     "LANGUAGES": [
-      {
-        "code": "- `utils.py` — 工具函数：`LANGUAGES`、`SERVER_TO_LANG`、`SERVER_TO_TIMEZONE`、`filepath_args()`、`filepath_config()`、`read_file()`、`write_file()`、`parse_value()`、`alas_instance()`、`is_oobe_needed()`。",
-        "line": 132,
-        "path": "CLAUDE.md"
-      },
       {
         "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
         "line": 102,
@@ -3009,11 +3004,6 @@
       }
     ],
     "SERVER_TO_LANG": [
-      {
-        "code": "- `utils.py` — 工具函数：`LANGUAGES`、`SERVER_TO_LANG`、`SERVER_TO_TIMEZONE`、`filepath_args()`、`filepath_config()`、`read_file()`、`write_file()`、`parse_value()`、`alas_instance()`、`is_oobe_needed()`。",
-        "line": 132,
-        "path": "CLAUDE.md"
-      },
       {
         "code": "\"Language\", \"LANGUAGES\", \"SERVER_TO_LANG\", \"LANG_TO_SERVER\", \"server_to_lang\",",
         "line": 102,

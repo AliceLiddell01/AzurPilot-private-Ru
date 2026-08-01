@@ -6,6 +6,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def legacy_runtime_exists(path: Path) -> bool:
+    """Не считать оставшийся после удалённого runtime bytecode рабочим кодом."""
+    if not path.exists():
+        return False
+    if path.is_file():
+        return True
+
+    return any(
+        '__pycache__' not in candidate.relative_to(path).parts
+        for candidate in path.rglob('*')
+    )
+
+
 class LegacyInstallerRemovalTests(unittest.TestCase):
     def test_autonomous_git_runtime_is_absent(self):
         for relative_path in (
@@ -18,7 +31,7 @@ class LegacyInstallerRemovalTests(unittest.TestCase):
             'tests/test_git_over_cdn.py',
         ):
             with self.subTest(relative_path=relative_path):
-                self.assertFalse((ROOT / relative_path).exists())
+                self.assertFalse(legacy_runtime_exists(ROOT / relative_path))
 
     def test_uncensored_task_keeps_device_flow_without_git_manager(self):
         path = ROOT / 'module/daemon/uncensored.py'

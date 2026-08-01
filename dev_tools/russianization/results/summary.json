@@ -2,12 +2,12 @@
   "active_runtime_locales": [
     "ru-RU"
   ],
-  "asset_bytes_total": 585446494,
+  "asset_bytes_total": 585450747,
   "asset_decision_counts": {
-    "confirmed_keep": 7805,
-    "needs_manual_review": 701,
-    "probable_delete_candidate": 1228,
-    "probable_keep": 729
+    "confirmed_keep": 7784,
+    "needs_manual_review": 712,
+    "probable_delete_candidate": 1231,
+    "probable_keep": 736
   },
   "asset_entries": 10463,
   "asset_scope_counts": {
@@ -20,11 +20,11 @@
     "unknown": 1558
   },
   "confirmed_delete_candidates": 0,
-  "en_global_required_candidates": 3695,
+  "en_global_required_candidates": 3670,
   "event_name_source": "en",
   "first_party_log_messages": 5753,
   "foreign_runtime_fallback": false,
-  "full_asset_manifest_sha256": "c140cd432d17db50557d575f4f0e699437159d2cd2074b10b845e5b6173f99c4",
+  "full_asset_manifest_sha256": "71fbccb6a6dc212a6279c3a233e1fbad34e58027f10ebcce8cdac024068fba1a",
   "legacy_inactive_locale_files": [
     "en-US",
     "ja-JP",
@@ -56,11 +56,11 @@
     "tests": 9,
     "webui_and_process_lifecycle": 320
   },
-  "manual_review_assets": 1929,
-  "probable_delete_candidates": 1228,
+  "manual_review_assets": 1943,
+  "probable_delete_candidates": 1231,
   "schema_version": 1,
-  "source_fingerprint": "96566a15a5f76d2bad36720dad87fe94b5ed1c6f219fe120a5409aea1c224a6d",
-  "text_files_scanned": 2115,
+  "source_fingerprint": "6887c76429d13ed8350cfb182e24210c0f2c771beef9216ee92283bd2c8589cd",
+  "text_files_scanned": 2114,
   "tracked_files_scanned": 10962,
   "ui_by_subsystem": {
     "deploy_and_dependencies": 114,

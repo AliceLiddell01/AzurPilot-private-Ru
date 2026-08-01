@@ -18,20 +18,20 @@ uv run python -m dev_tools.russianization_audit --check
 | Метрика | Значение |
 |---|---:|
 | Tracked files scanned | 10962 |
-| Text files scanned | 2115 |
+| Text files scanned | 2114 |
 | Locale files | 6 |
 | UI string entries | 23334 |
 | UI translation required | 21348 |
 | First-party/direct log entries | 5753 |
 | Log translation required | 5088 |
 | Asset entries | 10463 |
-| Asset bytes represented | 585446494 |
-| EN/Global required candidates | 3695 |
-| Manual review assets | 1929 |
-| Probable delete candidates | 1228 |
+| Asset bytes represented | 585450747 |
+| EN/Global required candidates | 3670 |
+| Manual review assets | 1943 |
+| Probable delete candidates | 1231 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `96566a15a5f76d2bad36720dad87fe94b5ed1c6f219fe120a5409aea1c224a6d`
+Source fingerprint: `6887c76429d13ed8350cfb182e24210c0f2c771beef9216ee92283bd2c8589cd`
 
 ## Runtime locale architecture
 
@@ -83,7 +83,7 @@ Inventory содержит путь, строку/ключ, источник, т
 
 ## Assets
 
-Decision counts: `{'confirmed_keep': 7805, 'needs_manual_review': 701, 'probable_delete_candidate': 1228, 'probable_keep': 729}`.
+Decision counts: `{'confirmed_keep': 7784, 'needs_manual_review': 712, 'probable_delete_candidate': 1231, 'probable_keep': 736}`.
 
 Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1558}`.
 
@@ -94,6 +94,7 @@ Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared
 | Path | Scope | Type | Confidence |
 |---|---|---|---:|
 | `assets/cn/awaken/AWAKEN_FINISH.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
+| `assets/cn/combat/BATTLE_PREPARATION.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
 | `assets/cn/combat/BATTLE_STATUS_A.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
 | `assets/cn/combat/BATTLE_STATUS_B.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
 | `assets/cn/combat/BATTLE_STATUS_C.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
@@ -142,7 +143,6 @@ Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared
 | `assets/cn/island_manufacture/ISLAND_HANDMADE_POST2.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
 | `assets/cn/island_manufacture/ISLAND_INDUSTRIAL_POST1.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
 | `assets/cn/island_manufacture/ISLAND_INDUSTRIAL_POST2.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
-| `assets/cn/island_manufacture/ISLAND_WOOD_PROCESSING_POST1.BUTTON.png` | cn | recognition screenshot/template | 0.55 |
 
 Committed `asset_manifest.json` содержит агрегаты и review/delete findings с ограниченными evidence samples. Полный manifest воспроизводится командой из файла и сверяется по SHA-256. Решения: `asset_decisions.json`. Ресурсы EN/shared: `en_global_required.json`.
 
