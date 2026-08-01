@@ -68,11 +68,17 @@ class OpsiVoucher(OSMap):
 
     def _data_logger_schedule_retry(self, reason):
         logger.warning(
-            f'[{DATA_LOGGER_NAME}] lifecycle incomplete, retry in '
+            f'[{DATA_LOGGER_NAME}] lifecycle incomplete, retry in no more than '
             f'{DATA_LOGGER_RETRY_MINUTES} minutes: {reason}'
         )
         data_logger_set_retry(self.config, reason=reason)
-        self.config.task_delay(minute=DATA_LOGGER_RETRY_MINUTES)
+        # Retry after six hours, but never later than the next daily server
+        # update. task_delay converts the configured server update to local
+        # time and selects the nearest target.
+        self.config.task_delay(
+            minute=DATA_LOGGER_RETRY_MINUTES,
+            server_update=True,
+        )
 
     def _data_logger_schedule_month_reset(self):
         data_logger_clear_retry(self.config)
@@ -298,11 +304,11 @@ class OpsiVoucher(OSMap):
             if items is None:
                 return DataLoggerStorageState.UNKNOWN
             if not items:
-                logger.info(
-                    f'[{DATA_LOGGER_NAME}] SOLD_OUT in shop and absent in Storage; '
-                    'treating as already activated'
+                logger.warning(
+                    f'[{DATA_LOGGER_NAME}] item is absent in Storage; '
+                    'absence alone is not accepted as proof of activation'
                 )
-                return DataLoggerStorageState.ALREADY_ACTIVATED
+                return DataLoggerStorageState.ABSENT
             return self._data_logger_storage_activate_item()
         finally:
             self._data_logger_storage_quit()
@@ -357,13 +363,11 @@ class OpsiVoucher(OSMap):
                     logger.exception(f'[{DATA_LOGGER_NAME}] Storage lifecycle failed: {exc}')
                     storage_state = DataLoggerStorageState.UNKNOWN
 
-                if storage_state in (
-                    DataLoggerStorageState.ACTIVATED,
-                    DataLoggerStorageState.ALREADY_ACTIVATED,
-                ):
-                    valid_until = data_logger_mark_active(self.config)
+                if storage_state is DataLoggerStorageState.ACTIVATED:
+                    cycle_key = data_logger_mark_active(self.config)
                     logger.info(
-                        f'[{DATA_LOGGER_NAME}] monthly success saved until {valid_until}'
+                        f'[{DATA_LOGGER_NAME}] monthly success saved for server cycle '
+                        f'{cycle_key}'
                     )
                     self._data_logger_schedule_month_reset()
                     return
