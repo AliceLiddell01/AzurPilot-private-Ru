@@ -1,24 +1,23 @@
 name: Stage 5 audit baseline refresh
 
 on:
-  push:
-    branches:
-      - chatgpt/stage5-single-russian-locale
+  pull_request:
 
 permissions:
   contents: write
 
 concurrency:
-  group: stage5-audit-baseline-refresh
-  cancel-in-progress: false
+  group: stage5-audit-baseline-refresh-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   refresh-baseline:
-    name: Regenerate and publish read-only audit baseline
+    name: Validate, regenerate and publish audit baseline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Install uv
@@ -39,20 +38,47 @@ jobs:
           PERMANENT_WORKFLOW_COMMIT: 022d79b991fb5276861ddae6034cf7d84528092d
         run: git show "${PERMANENT_WORKFLOW_COMMIT}:.github/workflows/lint.yml" > .github/workflows/lint.yml
 
-      - name: Validate implementation before baseline generation
-        run: |
-          uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
-          uv run python -m unittest -v \
-            tests/test_stage5_deploy_language_migration.py \
-            tests/test_stage5_locale_runtime.py \
-            tests/test_stage5_server_separation.py \
-            tests/test_stage5_generator.py
+      - name: Run Ruff
+        run: uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+
+      - name: Run Stage 3 regression tests
+        run: >-
+          uv run python -m unittest -v
+          tests/test_deploy_location.py
+          tests/test_stage3d_deploy_set.py
+          tests/test_stage3d_legacy_installer.py
+          tests/test_stage3d_templates.py
+          tests/test_stage3d_webui_settings.py
+          tests/test_stage3e_release_cleanup.py
+
+      - name: Run Stage 4 audit tests
+        run: uv run python -m unittest -v tests/test_russianization_audit.py
+
+      - name: Run Stage 5 regression tests
+        run: >-
+          uv run python -m unittest -v
+          tests/test_stage5_deploy_language_migration.py
+          tests/test_stage5_locale_runtime.py
+          tests/test_stage5_server_separation.py
+          tests/test_stage5_generator.py
 
       - name: Generate and verify audit baseline
         run: |
           uv run python -m dev_tools.russianization_audit --write
           uv run python -m dev_tools.russianization_audit --check
-          git diff --check
+
+      - name: Verify deterministic generators
+        run: |
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
+          git diff --binary > /tmp/generator-first.diff
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
+          git diff --binary > /tmp/generator-second.diff
+          cmp /tmp/generator-first.diff /tmp/generator-second.diff
+
+      - name: Run Stage 5 verifier
+        run: uv run python -m dev_tools.verify_stage5
 
       - name: Stage exact generated outputs and permanent workflow
         run: |
@@ -100,7 +126,7 @@ jobs:
       - name: Commit and push generated baseline
         env:
           TARGET_BRANCH: chatgpt/stage5-single-russian-locale
-          EXPECTED_HEAD: ${{ github.sha }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           if git diff --cached --quiet; then
