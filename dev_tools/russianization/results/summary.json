@@ -2,7 +2,7 @@
   "active_runtime_locales": [
     "ru-RU"
   ],
-  "asset_bytes_total": 585495120,
+  "asset_bytes_total": 585495190,
   "asset_decision_counts": {
     "confirmed_keep": 7787,
     "needs_manual_review": 684,
@@ -24,7 +24,7 @@
   "event_name_source": "en",
   "first_party_log_messages": 5797,
   "foreign_runtime_fallback": false,
-  "full_asset_manifest_sha256": "8205ceac53118d4a8bb8d0568e555251450865cbdec022e4d11d23aa8d2a40ae",
+  "full_asset_manifest_sha256": "da0b66de2516f827aa4ff0b06bd5aafcba782348efbae6184d6de03228e8d06b",
   "legacy_inactive_locale_files": [
     "en-US",
     "ja-JP",
@@ -59,7 +59,7 @@
   "manual_review_assets": 1916,
   "probable_delete_candidates": 1231,
   "schema_version": 1,
-  "source_fingerprint": "6827bd46d314a292a8545a0c9ce4b62f01ad74b4e04e5d7b52182ac15d59f0f0",
+  "source_fingerprint": "b9c17fb7f2ec4482ea4fc848442ebffa573218ff19564f18284fb282f880f218",
   "text_files_scanned": 2119,
   "tracked_files_scanned": 10953,
   "ui_by_subsystem": {
