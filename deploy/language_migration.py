@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,11 +12,6 @@ import yaml
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
 from deploy.utils import DEPLOY_CONFIG
 from module.config.locale import UI_LOCALE
-
-_LANGUAGE_LINE_RE = re.compile(
-    r"^(?P<indent>[ \t]*)(?P<key>Language)(?P<spacing>[ \t]*:[ \t]*)(?P<value>[^\r\n#]*?)(?P<comment>[ \t]+#.*)?(?P<eol>\r\n|\n|\r|$)",
-    re.MULTILINE,
-)
 
 
 class DeployLanguageMigrationError(RuntimeError):
@@ -53,6 +47,12 @@ class LanguageMigrationResult:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class _LanguageNode:
+    key: yaml.ScalarNode
+    value: yaml.Node
+
+
 def _parse_and_validate(text: str) -> dict[str, Any]:
     try:
         parsed = yaml.load(text, Loader=_UniqueKeyLoader)
@@ -82,14 +82,57 @@ def _parse_and_validate(text: str) -> dict[str, Any]:
 
 def _language_values(value: object) -> list[object]:
     found: list[object] = []
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key == "Language":
-                found.append(child)
-            found.extend(_language_values(child))
-    elif isinstance(value, list):
-        for child in value:
-            found.extend(_language_values(child))
+    visited: set[int] = set()
+
+    def visit(current: object) -> None:
+        if isinstance(current, (dict, list)):
+            identity = id(current)
+            if identity in visited:
+                return
+            visited.add(identity)
+
+        if isinstance(current, dict):
+            for key, child in current.items():
+                if key == "Language":
+                    found.append(child)
+                visit(child)
+        elif isinstance(current, list):
+            for child in current:
+                visit(child)
+
+    visit(value)
+    return found
+
+
+def _language_nodes(text: str) -> list[_LanguageNode]:
+    try:
+        root = yaml.compose(text)
+    except yaml.YAMLError as exc:
+        raise DeployLanguageMigrationError(
+            "Не удалось разобрать структуру deploy.yaml; исходный файл не изменён."
+        ) from exc
+
+    found: list[_LanguageNode] = []
+    visited: set[int] = set()
+
+    def visit(node: yaml.Node | None) -> None:
+        if node is None:
+            return
+        identity = id(node)
+        if identity in visited:
+            return
+        visited.add(identity)
+
+        if isinstance(node, yaml.MappingNode):
+            for key_node, value_node in node.value:
+                if isinstance(key_node, yaml.ScalarNode) and key_node.value == "Language":
+                    found.append(_LanguageNode(key=key_node, value=value_node))
+                visit(value_node)
+        elif isinstance(node, yaml.SequenceNode):
+            for child in node.value:
+                visit(child)
+
+    visit(root)
     return found
 
 
@@ -101,30 +144,52 @@ def _newline_style(text: str) -> str:
     return "\n"
 
 
+def _patch_language_node(text: str, node: _LanguageNode) -> str:
+    value_node = node.value
+    if not isinstance(value_node, yaml.ScalarNode):
+        raise DeployLanguageMigrationError(
+            "Ключ Language должен содержать простое скалярное значение."
+        )
+    if value_node.style in ("|", ">"):
+        raise DeployLanguageMigrationError(
+            "Многострочное значение Language нельзя безопасно заменить точечно."
+        )
+    if (
+        node.key.start_mark.line != value_node.start_mark.line
+        or value_node.start_mark.line != value_node.end_mark.line
+    ):
+        raise DeployLanguageMigrationError(
+            "Ключ Language записан в неподдерживаемой многострочной форме."
+        )
+
+    key_end = node.key.end_mark.index
+    value_start = value_node.start_mark.index
+    value_end = value_node.end_mark.index
+    if key_end > value_start or ":" not in text[key_end:value_start]:
+        raise DeployLanguageMigrationError(
+            "Не удалось однозначно определить скалярное значение Language."
+        )
+
+    return text[:value_start] + UI_LOCALE + text[value_end:]
+
+
 def _patched_text(text: str, parsed: dict[str, Any]) -> tuple[str, object, str]:
-    matches = list(_LANGUAGE_LINE_RE.finditer(text))
-    if len(matches) > 1:
-        raise DeployLanguageMigrationError(
-            "Обнаружено несколько строк Language; исходный файл не изменён."
-        )
-
     values = _language_values(parsed)
-    previous = values[0] if values else None
-    if len(matches) == 1:
-        match = matches[0]
-        raw_value = match.group("value").strip().strip("'\"")
-        if raw_value.lower() == UI_LOCALE.lower() and previous == UI_LOCALE:
-            return text, previous, "already_current"
-        replacement = (
-            f"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}"
-            f"{match.group('comment') or ''}{match.group('eol')}"
-        )
-        return text[:match.start()] + replacement + text[match.end():], previous, "replaced"
-
-    if values:
+    nodes = _language_nodes(text)
+    if len(nodes) > 1:
         raise DeployLanguageMigrationError(
-            "Ключ Language найден в неоднозначной YAML-структуре; исходный файл не изменён."
+            "Обнаружено несколько узлов Language; исходный файл не изменён."
         )
+    if len(nodes) != len(values):
+        raise DeployLanguageMigrationError(
+            "Структура Language неоднозначна; исходный файл не изменён."
+        )
+
+    previous = values[0] if values else None
+    if nodes:
+        if previous == UI_LOCALE:
+            return text, previous, "already_current"
+        return _patch_language_node(text, nodes[0]), previous, "replaced"
 
     newline = _newline_style(text)
     had_final_newline = text.endswith(("\n", "\r"))
