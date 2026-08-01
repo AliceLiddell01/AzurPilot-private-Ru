@@ -8,14 +8,15 @@ on:
       - .github/workflows/opsi-data-logger-maintenance.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate-and-regenerate:
+  validate-regenerate-and-commit:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: fix/opsi-data-logger
           fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v5
@@ -31,7 +32,7 @@ jobs:
           uv sync --frozen
           uv pip install pytest
 
-      - name: Build direct scheduler integration candidate
+      - name: Build direct scheduler integration
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -90,20 +91,17 @@ jobs:
       - name: Regenerate Russianization audit artifacts
         run: PYTHONPATH=. uv run python -m dev_tools.russianization_audit --write
 
-      - name: Package candidate and regenerated artifacts
+      - name: Commit verified candidate
         run: |
-          mkdir -p /tmp/opsi-candidate/module/config
-          mkdir -p /tmp/opsi-candidate/dev_tools/russianization/results
-          cp module/config/config.py /tmp/opsi-candidate/module/config/
-          cp module/config/opsi_data_logger.py /tmp/opsi-candidate/module/config/
-          cp dev_tools/russianization/results/summary.json /tmp/opsi-candidate/dev_tools/russianization/results/
-          cp dev_tools/russianization/results/first_party_logs.json /tmp/opsi-candidate/dev_tools/russianization/results/
-          cp dev_tools/russianization/results/asset_manifest.json /tmp/opsi-candidate/dev_tools/russianization/results/
-          cp dev_tools/russianization/results/locale_dependency_map.json /tmp/opsi-candidate/dev_tools/russianization/results/
-          cp dev_tools/russianization/results/stage4_report.md /tmp/opsi-candidate/dev_tools/russianization/results/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: opsi-data-logger-candidate
-          path: /tmp/opsi-candidate
-          if-no-files-found: error
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add module/config/config.py
+          git add module/config/opsi_data_logger.py
+          git add dev_tools/russianization/results/summary.json
+          git add dev_tools/russianization/results/first_party_logs.json
+          git add dev_tools/russianization/results/asset_manifest.json
+          git add dev_tools/russianization/results/locale_dependency_map.json
+          git add dev_tools/russianization/results/stage4_report.md
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(opsi): integrate monthly state into scheduler"
+          git push origin HEAD:fix/opsi-data-logger
