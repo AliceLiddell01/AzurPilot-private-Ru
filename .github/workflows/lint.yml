@@ -83,12 +83,12 @@ jobs:
           marker = '''    def test_check_mode_is_read_only(self) -> None:
           '''
           addition = '''    def test_readme_is_excluded_from_audit_inputs(self) -> None:
-              first = self._engine().build_outputs()
-              self._write("README.md", "Полностью изменённая документация.\\n")
-              second = self._engine().build_outputs()
+                  first = self._engine().build_outputs()
+                  self._write("README.md", "Полностью изменённая документация.\\n")
+                  second = self._engine().build_outputs()
 
-              self.assertTrue(is_excluded("README.md"))
-              self.assertEqual(first, second)
+                  self.assertTrue(is_excluded("README.md"))
+                  self.assertEqual(first, second)
 
           '''
           if marker not in tests:
