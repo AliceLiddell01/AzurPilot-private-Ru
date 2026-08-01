@@ -31,7 +31,7 @@ uv run python -m dev_tools.russianization_audit --check
 | Probable delete candidates | 1231 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `071789f6df4364901ae879fde091fd2c0a7c8dfebf7ab36774ef2620bf0f7390`
+Source fingerprint: `0c6910da1807970025e517598d30619f7627d7b044c5b5127bec709bb929b8ed`
 
 ## Runtime locale architecture
 

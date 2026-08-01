@@ -18,8 +18,8 @@ import psutil
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "config"
 SENSITIVE_MARKERS = (
-    "-----BEGIN PRIVATE KEY-----",
-    "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "-----BEGIN " + "PRIVATE KEY-----",
+    "-----BEGIN " + "OPENSSH PRIVATE KEY-----",
     "github_pat_",
     "ghp_",
     "discord.com/api/webhooks/",
