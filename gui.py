@@ -492,7 +492,20 @@ def _stop_registered_worker(pid: int, name: str, record: dict) -> bool:
             for child in reversed(children):
                 child.kill()
             parent.kill()
-            _, alive = psutil.wait_procs([parent, *children], timeout=3)
+            alive = [parent, *children]
+            deadline = time.monotonic() + 3
+            while alive:
+                remaining = []
+                for process in alive:
+                    try:
+                        if process.status() != psutil.STATUS_ZOMBIE:
+                            remaining.append(process)
+                    except psutil.NoSuchProcess:
+                        continue
+                alive = remaining
+                if not alive or time.monotonic() >= deadline:
+                    break
+                time.sleep(0.05)
             if alive:
                 logger.error(f"[GUI] worker {name} (PID: {pid}) 仍在运行")
                 return False

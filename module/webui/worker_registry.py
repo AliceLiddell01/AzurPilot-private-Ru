@@ -454,6 +454,8 @@ def process_matches(record: dict) -> bool | None:
         import psutil
 
         process = psutil.Process(pid)
+        if process.status() == psutil.STATUS_ZOMBIE:
+            return None
         return abs(process.create_time() - created_at) < 0.01
     except Exception as exc:
         try:
