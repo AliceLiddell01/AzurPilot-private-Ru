@@ -4,21 +4,30 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from functools import wraps
+from threading import RLock
 from typing import Any
 
 from module.config.deep import deep_get, deep_set
-from module.config.utils import get_os_next_reset
+from module.config.time_source import now as current_time
+from module.config.utils import get_os_next_reset, server_timezone
 
 DATA_LOGGER_NAME = "Operation Siren Data Logger"
 DATA_LOGGER_ITEM_NAME = "LoggerUnlockT1"
 DATA_LOGGER_INTENT_PATH = "OpsiExplore.OpsiExplore.SpecialRadar"
 DATA_LOGGER_STORAGE_PATH = "OpsiExplore.Storage.Storage"
+DATA_LOGGER_CYCLE_KEY = "OperationSirenDataLoggerCycle"
+# Legacy key written by early versions of this branch. New writes use
+# DATA_LOGGER_CYCLE_KEY because a local "valid until" timestamp is not stable
+# when the host changes UTC offset (DST, timezone or system-time changes).
 DATA_LOGGER_VALID_UNTIL_KEY = "OperationSirenDataLoggerValidUntil"
 DATA_LOGGER_RETRY_PENDING_KEY = "OperationSirenDataLoggerRetryPending"
 DATA_LOGGER_RETRY_REASON_KEY = "OperationSirenDataLoggerRetryReason"
 DATA_LOGGER_RETRY_CYCLE_KEY = "OperationSirenDataLoggerRetryCycle"
+
+_SCHEDULER_BRIDGE_LOCK = RLock()
 
 
 class DataLoggerShopState(Enum):
@@ -29,6 +38,9 @@ class DataLoggerShopState(Enum):
 
 class DataLoggerStorageState(Enum):
     ACTIVATED = "activated"
+    ABSENT = "absent"
+    # Kept for compatibility with already imported code/tests from early
+    # iterations. Absence alone is no longer treated as proof of activation.
     ALREADY_ACTIVATED = "already_activated"
     UNKNOWN = "unknown"
     ENTER_TIMEOUT = "enter_timeout"
@@ -41,11 +53,44 @@ class DataLoggerShopResult:
     purchased: bool = False
 
 
-def data_logger_cycle_key(next_reset=None) -> str:
-    """Return the canonical key for the current Operation Siren month."""
-    if next_reset is None:
-        next_reset = get_os_next_reset()
-    return next_reset.replace(microsecond=0).isoformat(sep=" ")
+def _server_now(value: datetime | None = None) -> datetime:
+    """Return a naive datetime in the selected game server's fixed timezone.
+
+    A timezone-aware ``value`` is treated as an absolute instant. A naive value
+    is treated as an already converted server-local time, which is useful for
+    deterministic tests and migrations.
+    """
+    if value is not None and value.tzinfo is None:
+        return value
+    if value is None:
+        value = current_time(timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return (value + server_timezone()).replace(tzinfo=None)
+
+
+def data_logger_cycle_key(
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> str:
+    """Return a stable identifier for the current Operation Siren month.
+
+    The canonical identity is the calendar month on the game server, not a
+    local reset timestamp. This keeps the value stable across DST and local
+    timezone changes.
+
+    ``next_reset`` is accepted for compatibility with existing callers/tests.
+    It represents the next monthly boundary, so the preceding calendar month
+    is returned. Production code should normally omit it.
+    """
+    if server_now is not None:
+        value = _server_now(server_now)
+    elif next_reset is not None:
+        value = next_reset.replace(day=1) - timedelta(days=1)
+    else:
+        value = _server_now()
+    return f"{value.year:04d}-{value.month:02d}"
 
 
 def data_logger_intent_enabled(config) -> bool:
@@ -57,20 +102,51 @@ def data_logger_storage_from_data(data: dict[str, Any]) -> dict[str, Any]:
     return storage if isinstance(storage, dict) else {}
 
 
-def data_logger_is_active_from_data(data: dict[str, Any], next_reset=None) -> bool:
+def _legacy_valid_until_matches(storage: dict[str, Any]) -> bool:
+    """Recognize the exact legacy local-reset value for a one-way migration."""
+    legacy_value = storage.get(DATA_LOGGER_VALID_UNTIL_KEY)
+    if not isinstance(legacy_value, str):
+        return False
+    expected = get_os_next_reset().replace(microsecond=0).isoformat(sep=" ")
+    return legacy_value == expected
+
+
+def data_logger_is_active_from_data(
+    data: dict[str, Any],
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> bool:
     storage = data_logger_storage_from_data(data)
-    return storage.get(DATA_LOGGER_VALID_UNTIL_KEY) == data_logger_cycle_key(next_reset)
+    cycle_key = data_logger_cycle_key(next_reset, server_now=server_now)
+    if storage.get(DATA_LOGGER_CYCLE_KEY) == cycle_key:
+        return True
+    return next_reset is None and server_now is None and _legacy_valid_until_matches(storage)
 
 
-def data_logger_is_active(config, next_reset=None) -> bool:
-    return data_logger_is_active_from_data(config.data, next_reset=next_reset)
+def data_logger_is_active(
+    config,
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> bool:
+    return data_logger_is_active_from_data(
+        config.data,
+        next_reset=next_reset,
+        server_now=server_now,
+    )
 
 
-def data_logger_retry_pending(config, next_reset=None) -> bool:
+def data_logger_retry_pending(
+    config,
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> bool:
     storage = data_logger_storage_from_data(config.data)
     return bool(storage.get(DATA_LOGGER_RETRY_PENDING_KEY, False)) and (
         storage.get(DATA_LOGGER_RETRY_CYCLE_KEY)
-        == data_logger_cycle_key(next_reset)
+        == data_logger_cycle_key(next_reset, server_now=server_now)
     )
 
 
@@ -78,10 +154,16 @@ def _updated_storage(config) -> dict[str, Any]:
     return deepcopy(data_logger_storage_from_data(config.data))
 
 
-def data_logger_mark_active(config, next_reset=None) -> str:
-    cycle_key = data_logger_cycle_key(next_reset)
+def data_logger_mark_active(
+    config,
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> str:
+    cycle_key = data_logger_cycle_key(next_reset, server_now=server_now)
     storage = _updated_storage(config)
-    storage[DATA_LOGGER_VALID_UNTIL_KEY] = cycle_key
+    storage[DATA_LOGGER_CYCLE_KEY] = cycle_key
+    storage.pop(DATA_LOGGER_VALID_UNTIL_KEY, None)
     storage.pop(DATA_LOGGER_RETRY_PENDING_KEY, None)
     storage.pop(DATA_LOGGER_RETRY_REASON_KEY, None)
     storage.pop(DATA_LOGGER_RETRY_CYCLE_KEY, None)
@@ -89,11 +171,20 @@ def data_logger_mark_active(config, next_reset=None) -> str:
     return cycle_key
 
 
-def data_logger_set_retry(config, reason: str) -> None:
+def data_logger_set_retry(
+    config,
+    reason: str,
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> None:
     storage = _updated_storage(config)
     storage[DATA_LOGGER_RETRY_PENDING_KEY] = True
     storage[DATA_LOGGER_RETRY_REASON_KEY] = str(reason)
-    storage[DATA_LOGGER_RETRY_CYCLE_KEY] = data_logger_cycle_key()
+    storage[DATA_LOGGER_RETRY_CYCLE_KEY] = data_logger_cycle_key(
+        next_reset,
+        server_now=server_now,
+    )
     config.cross_set(keys=DATA_LOGGER_STORAGE_PATH, value=storage)
 
 
@@ -116,10 +207,13 @@ def install_data_logger_scheduler_bridge() -> None:
     """Make legacy scheduler checks consume monthly state, not user intent.
 
     ``AzurLaneConfig.opsi_task_delay`` historically reads the visible
-    ``OpsiExplore_SpecialRadar`` attribute.  Keep that persisted value as the
+    ``OpsiExplore_SpecialRadar`` attribute. Keep that persisted value as the
     user's automation intent, but temporarily expose the validated monthly
-    state while the scheduler method executes.  The persisted configuration
-    and the visible switch are restored unchanged.
+    state while the scheduler method executes. The lock prevents overlapping
+    scheduler calls from observing each other's temporary value.
+
+    This compatibility bridge is intentionally isolated here. A future direct
+    scheduler integration can remove it without changing persisted state.
     """
     from module.config.config import AzurLaneConfig
 
@@ -129,24 +223,25 @@ def install_data_logger_scheduler_bridge() -> None:
 
     @wraps(original)
     def wrapped(config, *args, **kwargs):
-        previous = deep_get(
-            config.data,
-            keys=DATA_LOGGER_INTENT_PATH,
-            default=False,
-        )
-        deep_set(
-            config.data,
-            keys=DATA_LOGGER_INTENT_PATH,
-            value=data_logger_is_active_from_data(config.data),
-        )
-        try:
-            return original(config, *args, **kwargs)
-        finally:
+        with _SCHEDULER_BRIDGE_LOCK:
+            previous = deep_get(
+                config.data,
+                keys=DATA_LOGGER_INTENT_PATH,
+                default=False,
+            )
             deep_set(
                 config.data,
                 keys=DATA_LOGGER_INTENT_PATH,
-                value=previous,
+                value=data_logger_is_active_from_data(config.data),
             )
+            try:
+                return original(config, *args, **kwargs)
+            finally:
+                deep_set(
+                    config.data,
+                    keys=DATA_LOGGER_INTENT_PATH,
+                    value=previous,
+                )
 
     wrapped._data_logger_monthly_state_bridge = True
     AzurLaneConfig.opsi_task_delay = wrapped
