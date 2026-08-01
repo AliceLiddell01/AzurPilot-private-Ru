@@ -4,6 +4,7 @@ import importlib
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import yaml
@@ -78,6 +79,40 @@ class Stage5DeployLanguageMigrationTests(unittest.TestCase):
             original + "\nLanguage: ru-RU",
         )
 
+    def test_block_scalar_text_is_not_treated_as_language_key(self) -> None:
+        original = (
+            "Deploy:\n"
+            "  Webui:\n"
+            "    Theme: dark\n"
+            "UnknownNotes: |\n"
+            "  Language: en-US\n"
+            "  Keep this text byte-for-byte.\n"
+        )
+        self.file.write_text(original, encoding="utf-8")
+        result = migrate_deploy_language(str(self.file))
+        after = self.file.read_text(encoding="utf-8")
+        self.assertTrue(result.changed)
+        self.assertIn("UnknownNotes: |\n  Language: en-US\n", after)
+        self.assertEqual(after, original + "Language: ru-RU\n")
+
+    def test_quoted_key_is_patched_without_touching_block_scalar_text(self) -> None:
+        original = (
+            "Deploy:\n"
+            "  Webui:\n"
+            '    "Language": "en-US"  # keep\n'
+            "UnknownNotes: |\n"
+            "  Language: untouched\n"
+        )
+        self.file.write_text(original, encoding="utf-8")
+        result = migrate_deploy_language(str(self.file))
+        after = self.file.read_text(encoding="utf-8")
+        self.assertTrue(result.changed)
+        self.assertEqual(
+            after,
+            original.replace('"en-US"', "ru-RU", 1),
+        )
+        self.assertIn("  Language: untouched\n", after)
+
     def test_ru_ru_is_byte_for_byte_no_op(self) -> None:
         original = deploy_text("ru-RU", newline="\r\n", final_newline=False).encode("utf-8")
         self.file.write_bytes(original)
@@ -103,6 +138,7 @@ class Stage5DeployLanguageMigrationTests(unittest.TestCase):
             "Deploy:\n  Webui:\n    Language: en-US\n    Language: zh-CN\n",
             "Deploy:\n  Webui: [\n    Language: en-US\n",
             "Deploy:\n  Webui:\n    Language:\n      nested: invalid\n",
+            "Deploy:\n  Webui:\n    Language: |\n      en-US\n",
         )
         for content in fixtures:
             with self.subTest(content=content):
@@ -138,6 +174,43 @@ class Stage5DeployLanguageMigrationTests(unittest.TestCase):
         self.assertEqual(self.file.read_bytes(), before)
         config.read()
         self.assertEqual(self.file.read_bytes(), before)
+
+    def test_cached_state_migrates_before_deploy_config_constructor(self) -> None:
+        from module.webui.setting import State
+
+        cache_name = "_deploy_config_"
+        missing = object()
+        previous = vars(State).get(cache_name, missing)
+        if previous is not missing:
+            delattr(State, cache_name)
+
+        events: list[str] = []
+        expected_config = object()
+
+        def migrate():
+            events.append("migration")
+            return SimpleNamespace(changed=False)
+
+        def construct():
+            events.append("constructor")
+            return expected_config
+
+        try:
+            with patch(
+                "deploy.language_migration.migrate_deploy_language",
+                side_effect=migrate,
+            ), patch(
+                "module.webui.config.DeployConfig",
+                side_effect=construct,
+            ):
+                self.assertIs(State.deploy_config, expected_config)
+                self.assertIs(State.deploy_config, expected_config)
+            self.assertEqual(events, ["migration", "constructor"])
+        finally:
+            if cache_name in vars(State):
+                delattr(State, cache_name)
+            if previous is not missing:
+                setattr(State, cache_name, previous)
 
     def test_parsed_runtime_values_except_language_are_unchanged(self) -> None:
         self.file.write_text(deploy_text("ja-JP"), encoding="utf-8")
