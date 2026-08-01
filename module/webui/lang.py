@@ -84,7 +84,9 @@ def reload() -> None:
                 _LEGACY_DATA_LOGGER_NAME,
                 _DATA_LOGGER_NAME,
             )
-    loaded.update(_OPSI_DATA_LOGGER_TRANSLATIONS)
+    for key, value in _OPSI_DATA_LOGGER_TRANSLATIONS.items():
+        if key in loaded:
+            loaded[key] = value
 
     dic_lang.clear()
     dic_lang.update(loaded)
