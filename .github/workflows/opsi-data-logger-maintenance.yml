@@ -1,14 +1,14 @@
 name: Opsi Data Logger maintenance
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/opsi-data-logger
+      - personal/stable
     paths:
       - .github/workflows/opsi-data-logger-maintenance.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate-and-regenerate:
@@ -16,7 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/opsi-data-logger
           fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v5
@@ -38,15 +37,17 @@ jobs:
       - name: Regenerate Russianization audit artifacts
         run: uv run python -m dev_tools.russianization_audit
 
-      - name: Commit regenerated artifacts
+      - name: Package regenerated artifacts
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dev_tools/russianization/results/summary.json
-          git add dev_tools/russianization/results/first_party_logs.json
-          git add dev_tools/russianization/results/asset_manifest.json
-          git add dev_tools/russianization/results/locale_dependency_map.json
-          git add dev_tools/russianization/results/stage4_report.md
-          git diff --cached --quiet && exit 0
-          git commit -m "chore(audit): regenerate Data Logger baselines"
-          git push origin HEAD:fix/opsi-data-logger
+          mkdir -p /tmp/opsi-russianization/dev_tools/russianization/results
+          cp dev_tools/russianization/results/summary.json /tmp/opsi-russianization/dev_tools/russianization/results/
+          cp dev_tools/russianization/results/first_party_logs.json /tmp/opsi-russianization/dev_tools/russianization/results/
+          cp dev_tools/russianization/results/asset_manifest.json /tmp/opsi-russianization/dev_tools/russianization/results/
+          cp dev_tools/russianization/results/locale_dependency_map.json /tmp/opsi-russianization/dev_tools/russianization/results/
+          cp dev_tools/russianization/results/stage4_report.md /tmp/opsi-russianization/dev_tools/russianization/results/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opsi-russianization-results
+          path: /tmp/opsi-russianization
+          if-no-files-found: error
