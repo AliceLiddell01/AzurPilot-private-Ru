@@ -69,32 +69,37 @@
         },
         {
           "code": "from module.config.locale import UI_LOCALE",
-          "line": 15,
+          "line": 14,
           "path": "deploy/language_migration.py"
         },
         {
           "code": "current_value: str = UI_LOCALE",
-          "line": 52,
+          "line": 46,
           "path": "deploy/language_migration.py"
         },
         {
-          "code": "if raw_value.lower() == UI_LOCALE.lower() and previous == UI_LOCALE:",
-          "line": 116,
+          "code": "return text[:value_start] + f\" {UI_LOCALE}\" + text[value_end:]",
+          "line": 174,
           "path": "deploy/language_migration.py"
         },
         {
-          "code": "f\"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}\"",
-          "line": 119,
+          "code": "return text[:value_start] + UI_LOCALE + text[value_end:]",
+          "line": 175,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "if previous == UI_LOCALE:",
+          "line": 192,
           "path": "deploy/language_migration.py"
         },
         {
           "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
-          "line": 132,
+          "line": 199,
           "path": "deploy/language_migration.py"
         },
         {
           "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
-          "line": 134,
+          "line": 201,
           "path": "deploy/language_migration.py"
         },
         {
@@ -136,11 +141,6 @@
           "code": "\"result_locale\": UI_LOCALE,",
           "line": 72,
           "path": "dev_tools/verify_stage5.py"
-        },
-        {
-          "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
-          "line": 39,
-          "path": "module/config/config_updater.py"
         },
         {
           "code": "old = read_file(filepath_i18n(UI_LOCALE))",
@@ -276,13 +276,13 @@
           "path": "deploy/language_migration.py"
         },
         {
-          "code": "r\"^(?P<indent>[ \\t]*)(?P<key>Language)(?P<spacing>[ \\t]*:[ \\t]*)(?P<value>[^\\r\\n#]*?)(?P<comment>[ \\t]+#.*)?(?P<eol>\\r\\n|\\n|\\r|$)\",",
-          "line": 18,
+          "code": "class DeployLanguageMigrationError(RuntimeError):",
+          "line": 17,
           "path": "deploy/language_migration.py"
         },
         {
-          "code": "class DeployLanguageMigrationError(RuntimeError):",
-          "line": 23,
+          "code": "raise DeployLanguageMigrationError(f\"Обнаружен дублирующийся ключ YAML: {key}\")",
+          "line": 30,
           "path": "deploy/language_migration.py"
         }
       ],
@@ -375,42 +375,47 @@
         },
         {
           "code": "from module.config.locale import UI_LOCALE",
-          "line": 15,
-          "path": "deploy/language_migration.py"
-        },
-        {
-          "code": "r\"^(?P<indent>[ \\t]*)(?P<key>Language)(?P<spacing>[ \\t]*:[ \\t]*)(?P<value>[^\\r\\n#]*?)(?P<comment>[ \\t]+#.*)?(?P<eol>\\r\\n|\\n|\\r|$)\",",
-          "line": 18,
+          "line": 14,
           "path": "deploy/language_migration.py"
         },
         {
           "code": "class DeployLanguageMigrationError(RuntimeError):",
-          "line": 23,
+          "line": 17,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "raise DeployLanguageMigrationError(f\"Обнаружен дублирующийся ключ YAML: {key}\")",
+          "line": 30,
           "path": "deploy/language_migration.py"
         },
         {
           "code": "current_value: str = UI_LOCALE",
-          "line": 52,
+          "line": 46,
           "path": "deploy/language_migration.py"
         },
         {
-          "code": "if raw_value.lower() == UI_LOCALE.lower() and previous == UI_LOCALE:",
-          "line": 116,
+          "code": "return text[:value_start] + f\" {UI_LOCALE}\" + text[value_end:]",
+          "line": 174,
           "path": "deploy/language_migration.py"
         },
         {
-          "code": "f\"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}\"",
-          "line": 119,
+          "code": "return text[:value_start] + UI_LOCALE + text[value_end:]",
+          "line": 175,
+          "path": "deploy/language_migration.py"
+        },
+        {
+          "code": "if previous == UI_LOCALE:",
+          "line": 192,
           "path": "deploy/language_migration.py"
         },
         {
           "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
-          "line": 132,
+          "line": 199,
           "path": "deploy/language_migration.py"
         },
         {
           "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
-          "line": 134,
+          "line": 201,
           "path": "deploy/language_migration.py"
         },
         {
@@ -442,11 +447,6 @@
           "code": "\"result_locale\": UI_LOCALE,",
           "line": 72,
           "path": "dev_tools/verify_stage5.py"
-        },
-        {
-          "code": "from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE",
-          "line": 39,
-          "path": "module/config/config_updater.py"
         }
       ],
       "exists": true,
@@ -1992,23 +1992,23 @@
         "path": "deploy/language_migration.py"
       },
       {
-        "code": "r\"^(?P<indent>[ \\t]*)(?P<key>Language)(?P<spacing>[ \\t]*:[ \\t]*)(?P<value>[^\\r\\n#]*?)(?P<comment>[ \\t]+#.*)?(?P<eol>\\r\\n|\\n|\\r|$)\",",
-        "line": 18,
-        "path": "deploy/language_migration.py"
-      },
-      {
         "code": "class DeployLanguageMigrationError(RuntimeError):",
-        "line": 23,
+        "line": 17,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "raise DeployLanguageMigrationError(f\"Обнаружен дублирующийся ключ YAML: {key}\")",
-        "line": 36,
+        "line": 30,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "class LanguageMigrationResult:",
-        "line": 48,
+        "line": 42,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "class _LanguageNode:",
+        "line": 51,
         "path": "deploy/language_migration.py"
       },
       {
@@ -2048,82 +2048,147 @@
       },
       {
         "code": "if key == \"Language\":",
-        "line": 87,
+        "line": 96,
         "path": "deploy/language_migration.py"
       },
       {
-        "code": "raise DeployLanguageMigrationError(",
+        "code": "def _language_nodes(text: str) -> list[_LanguageNode]:",
         "line": 107,
         "path": "deploy/language_migration.py"
       },
       {
-        "code": "\"Обнаружено несколько строк Language; исходный файл не изменён.\"",
-        "line": 108,
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 111,
         "path": "deploy/language_migration.py"
       },
       {
-        "code": "f\"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}\"",
-        "line": 119,
+        "code": "found: list[_LanguageNode] = []",
+        "line": 115,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "if isinstance(key_node, yaml.ScalarNode) and key_node.value == \"Language\":",
+        "line": 128,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "found.append(_LanguageNode(key=key_node, value=value_node))",
+        "line": 129,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "def _patch_language_node(text: str, node: _LanguageNode) -> str:",
+        "line": 147,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "raise DeployLanguageMigrationError(",
-        "line": 125,
+        "line": 150,
         "path": "deploy/language_migration.py"
       },
       {
-        "code": "\"Ключ Language найден в неоднозначной YAML-структуре; исходный файл не изменён.\"",
-        "line": 126,
-        "path": "deploy/language_migration.py"
-      },
-      {
-        "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
-        "line": 132,
-        "path": "deploy/language_migration.py"
-      },
-      {
-        "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
-        "line": 134,
-        "path": "deploy/language_migration.py"
-      },
-      {
-        "code": "def migrate_deploy_language(file: str = DEPLOY_CONFIG) -> LanguageMigrationResult:",
-        "line": 138,
-        "path": "deploy/language_migration.py"
-      },
-      {
-        "code": "\"\"\"Явно мигрировать ``Language``; обычное чтение конфигурации это не вызывает.\"\"\"",
-        "line": 139,
-        "path": "deploy/language_migration.py"
-      },
-      {
-        "code": "return LanguageMigrationResult(str(path), False, None, reason=\"missing_file\")",
-        "line": 142,
+        "code": "\"Ключ Language должен содержать простое скалярное значение.\"",
+        "line": 151,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "raise DeployLanguageMigrationError(",
-        "line": 148,
+        "line": 154,
         "path": "deploy/language_migration.py"
       },
       {
-        "code": "return LanguageMigrationResult(str(path), False, previous, reason=reason)",
+        "code": "\"Многострочное значение Language нельзя безопасно заменить точечно.\"",
         "line": 155,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "raise DeployLanguageMigrationError(",
-        "line": 166,
+        "line": 161,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"Ключ Language записан в неподдерживаемой многострочной форме.\"",
+        "line": 162,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 169,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"Не удалось однозначно определить скалярное значение Language.\"",
+        "line": 170,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 182,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"Обнаружено несколько узлов Language; исходный файл не изменён.\"",
+        "line": 183,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 186,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"Структура Language неоднозначна; исходный файл не изменён.\"",
+        "line": 187,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
+        "line": 199,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
+        "line": 201,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "def migrate_deploy_language(file: str = DEPLOY_CONFIG) -> LanguageMigrationResult:",
+        "line": 205,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "\"\"\"Явно мигрировать ``Language``; обычное чтение конфигурации это не вызывает.\"\"\"",
+        "line": 206,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "return LanguageMigrationResult(str(path), False, None, reason=\"missing_file\")",
+        "line": 209,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 215,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "return LanguageMigrationResult(str(path), False, previous, reason=reason)",
+        "line": 222,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "raise DeployLanguageMigrationError(",
+        "line": 233,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "f\"Не удалось атомарно обновить Language в deploy.yaml: {exc}\"",
-        "line": 167,
+        "line": 234,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "return LanguageMigrationResult(str(path), True, previous, reason=reason)",
-        "line": 170,
+        "line": 237,
         "path": "deploy/language_migration.py"
       },
       {
@@ -2360,71 +2425,6 @@
         "code": "\"Language\": \"WebUI 語言\",",
         "line": 6106,
         "path": "module/config/i18n/zh-TW.json"
-      },
-      {
-        "code": "\"LanguageHelp\": \"WebUI 使用的顯示語言。\",",
-        "line": 6107,
-        "path": "module/config/i18n/zh-TW.json"
-      },
-      {
-        "code": "\"WelcomeSelectLanguage\": \"選擇語言\",",
-        "line": 6278,
-        "path": "module/config/i18n/zh-TW.json"
-      },
-      {
-        "code": "\"ReviewLanguage\": \"語言\",",
-        "line": 6293,
-        "path": "module/config/i18n/zh-TW.json"
-      },
-      {
-        "code": "\"Language\": \"WebUI 语言喵\",",
-        "line": 2304,
-        "path": "module/config/zh-MIAO.json"
-      },
-      {
-        "code": "\"LanguageHelp\": \"WebUI 使用的显示语言喵。\",",
-        "line": 2305,
-        "path": "module/config/zh-MIAO.json"
-      },
-      {
-        "code": "\"WelcomeSelectLanguage\": \"选择语言喵\",",
-        "line": 2476,
-        "path": "module/config/zh-MIAO.json"
-      },
-      {
-        "code": "\"ReviewLanguage\": \"语言喵\",",
-        "line": 2491,
-        "path": "module/config/zh-MIAO.json"
-      },
-      {
-        "code": "logger.info(\"[WebUI] Старое значение Language безопасно изменено на ru-RU\")",
-        "line": 158,
-        "path": "module/webui/app.py"
-      },
-      {
-        "code": "logger.info(\"[WebUI] Старое значение Language безопасно изменено на ru-RU\")",
-        "line": 43,
-        "path": "module/webui/app_lifecycle.py"
-      },
-      {
-        "code": "headers.setdefault(\"Accept-Language\", accept_language)",
-        "line": 571,
-        "path": "module/webui/remote_access.py"
-      },
-      {
-        "code": "[void][System.Management.Automation.Language.Parser]::ParseFile(",
-        "line": 553,
-        "path": "scripts/Verify-AzurPilot-Stage3.ps1"
-      },
-      {
-        "code": "Language: en-US",
-        "line": 20,
-        "path": "tests/test_deploy_location.py"
-      },
-      {
-        "code": "self.assertEqual(cn['Webui']['Language'], 'zh-CN')",
-        "line": 72,
-        "path": "tests/test_stage3d_templates.py"
       }
     ],
     "OcrLanguage": [
@@ -2737,7 +2737,7 @@
       },
       {
         "code": "\"    OcrModelVersionEnglish: azur_lane_v6_6\\n\"",
-        "line": 34,
+        "line": 35,
         "path": "tests/test_stage5_deploy_language_migration.py"
       },
       {
@@ -2994,7 +2994,7 @@
       },
       {
         "code": "\"    PackageName: com.YoStarEN.AzurLane\\n\"",
-        "line": 30,
+        "line": 31,
         "path": "tests/test_stage5_deploy_language_migration.py"
       },
       {
@@ -3318,7 +3318,7 @@
       },
       {
         "code": "\"    ServerName: en-0\\n\"",
-        "line": 31,
+        "line": 32,
         "path": "tests/test_stage5_deploy_language_migration.py"
       },
       {
@@ -3340,32 +3340,37 @@
       },
       {
         "code": "from module.config.locale import UI_LOCALE",
-        "line": 15,
+        "line": 14,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "current_value: str = UI_LOCALE",
-        "line": 52,
+        "line": 46,
         "path": "deploy/language_migration.py"
       },
       {
-        "code": "if raw_value.lower() == UI_LOCALE.lower() and previous == UI_LOCALE:",
-        "line": 116,
+        "code": "return text[:value_start] + f\" {UI_LOCALE}\" + text[value_end:]",
+        "line": 174,
         "path": "deploy/language_migration.py"
       },
       {
-        "code": "f\"{match.group('indent')}Language{match.group('spacing')}{UI_LOCALE}\"",
-        "line": 119,
+        "code": "return text[:value_start] + UI_LOCALE + text[value_end:]",
+        "line": 175,
+        "path": "deploy/language_migration.py"
+      },
+      {
+        "code": "if previous == UI_LOCALE:",
+        "line": 192,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "return f\"Language: {UI_LOCALE}\", None, \"added\"",
-        "line": 132,
+        "line": 199,
         "path": "deploy/language_migration.py"
       },
       {
         "code": "suffix = f\"Language: {UI_LOCALE}{newline if had_final_newline else ''}\"",
-        "line": 134,
+        "line": 201,
         "path": "deploy/language_migration.py"
       },
       {

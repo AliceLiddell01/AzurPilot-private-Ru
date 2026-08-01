@@ -22,16 +22,16 @@ uv run python -m dev_tools.russianization_audit --check
 | Locale files | 6 |
 | UI string entries | 23334 |
 | UI translation required | 21348 |
-| First-party/direct log entries | 5747 |
-| Log translation required | 5082 |
+| First-party/direct log entries | 5753 |
+| Log translation required | 5088 |
 | Asset entries | 10463 |
-| Asset bytes represented | 585441206 |
+| Asset bytes represented | 585446494 |
 | EN/Global required candidates | 3695 |
 | Manual review assets | 1929 |
 | Probable delete candidates | 1228 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `10997d0e572bc79ee61c238df1ce71f86984aa9f7609e7ef6c54ec285696ee7d`
+Source fingerprint: `96566a15a5f76d2bad36720dad87fe94b5ed1c6f219fe120a5409aea1c224a6d`
 
 ## Runtime locale architecture
 
@@ -77,7 +77,7 @@ Inventory содержит путь, строку/ключ, источник, т
 
 ## First-party логи
 
-Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'webui_and_process_lifecycle': 319, 'deploy_and_dependencies': 315, 'other': 274, 'ocr': 107, 'scheduler_and_config': 45, 'tests': 9, 'screenshot_and_control': 4}`.
+Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'deploy_and_dependencies': 320, 'webui_and_process_lifecycle': 320, 'other': 274, 'ocr': 107, 'scheduler_and_config': 45, 'tests': 9, 'screenshot_and_control': 4}`.
 
 Сырые stdout/stderr/traceback отмечаются отдельно и должны сохраняться без перевода. В будущих Stage русифицируется только first-party контекст вокруг них.
 

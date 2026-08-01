@@ -1,84 +1,116 @@
-name: Stage 5 audit baseline commit
+name: Stage 5 validation
 
 on:
+  push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
-  actions: read
-  contents: write
+  contents: read
 
 concurrency:
-  group: stage5-audit-baseline-commit-${{ github.event.pull_request.number }}
+  group: stage5-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  prepare-commit:
-    name: Create validated detached commit
+  python-validation:
+    name: Python, generators and regression tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      - name: Download validated audit baseline
-        uses: actions/download-artifact@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          name: stage5-audit-baseline-94e95b7f93fe73e1507df37bbd3baab34117564a
-          path: /tmp/stage5-audit-baseline
-          github-token: ${{ github.token }}
-          run-id: 30689616664
+          enable-cache: true
 
-      - name: Verify artifact files
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run Ruff
+        run: uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+
+      - name: Run Stage 3 regression tests
+        run: >-
+          uv run python -m unittest -v
+          tests/test_deploy_location.py
+          tests/test_stage3d_deploy_set.py
+          tests/test_stage3d_legacy_installer.py
+          tests/test_stage3d_templates.py
+          tests/test_stage3d_webui_settings.py
+          tests/test_stage3e_release_cleanup.py
+
+      - name: Run Stage 4 audit tests
+        run: uv run python -m unittest -v tests/test_russianization_audit.py
+
+      - name: Check Russianization audit baseline
+        run: uv run python -m dev_tools.russianization_audit --check
+
+      - name: Verify deterministic generators
         run: |
-          set -euo pipefail
-          cd /tmp/stage5-audit-baseline
-          printf '%s  %s\n' \
-            'cab158ee74bac5ffd3f3deeb019495fe566e96784a5da2e915c6a5ef2e5f0240' 'summary.json' \
-            'a885f3239bec6e6233e1a2fac4c2e40ba7aa723d9ea45f09abbe6697b8e39058' 'first_party_logs.json' \
-            '276beb4d92111e6a582cc9517bdc471886ad8286b4087dc7a43fec65fd47088f' 'asset_manifest.json' \
-            'fd8847a1abc9656d2652ed64da667e69a3736e6987486c83f71a355a0825c0c8' 'locale_dependency_map.json' \
-            '9a4f14ce28fc85fac975a8723fa1e66a6f88d1d132d81edd6a9afa17aa1578f6' 'stage4_report.md' |
-            sha256sum --check --strict
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
+          git diff --binary > /tmp/generator-first.diff
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
+          git diff --binary > /tmp/generator-second.diff
+          cmp /tmp/generator-first.diff /tmp/generator-second.diff
+          git diff --exit-code --ignore-space-at-eol
 
-          actual_files="$(find . -maxdepth 1 -type f -printf '%f\n' | sort)"
-          expected_files="$(printf '%s\n' \
-            asset_manifest.json \
-            first_party_logs.json \
-            locale_dependency_map.json \
-            stage4_report.md \
-            summary.json)"
-          test "$actual_files" = "$expected_files"
+      - name: Run Stage 5 regression tests
+        run: >-
+          uv run python -m unittest -v
+          tests/test_stage5_deploy_language_migration.py
+          tests/test_stage5_locale_runtime.py
+          tests/test_stage5_server_separation.py
+          tests/test_stage5_generator.py
 
-      - name: Restore validated files and permanent workflow
+      - name: Run Stage 5 verifier
+        run: uv run python -m dev_tools.verify_stage5
+
+      - name: Check diff formatting
+        run: git diff --check
+
+      - name: Check forbidden deletions and secrets
+        shell: bash
         env:
-          PERMANENT_WORKFLOW_COMMIT: 022d79b991fb5276861ddae6034cf7d84528092d
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          cp /tmp/stage5-audit-baseline/summary.json dev_tools/russianization/results/summary.json
-          cp /tmp/stage5-audit-baseline/first_party_logs.json dev_tools/russianization/results/first_party_logs.json
-          cp /tmp/stage5-audit-baseline/asset_manifest.json dev_tools/russianization/results/asset_manifest.json
-          cp /tmp/stage5-audit-baseline/locale_dependency_map.json dev_tools/russianization/results/locale_dependency_map.json
-          cp /tmp/stage5-audit-baseline/stage4_report.md dev_tools/russianization/results/stage4_report.md
-          git show "${PERMANENT_WORKFLOW_COMMIT}:.github/workflows/lint.yml" > .github/workflows/lint.yml
+          if [[ "$EVENT_NAME" == 'pull_request' ]]; then
+            diff_range="${PR_BASE_SHA}...HEAD"
+          elif [[ -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != '0000000000000000000000000000000000000000' ]]; then
+            diff_range="${PUSH_BEFORE_SHA}..HEAD"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            diff_range='HEAD^..HEAD'
+          else
+            echo 'No parent commit is available for the diff audit.'
+            exit 0
+          fi
 
-          git add -- \
-            .github/workflows/lint.yml \
-            dev_tools/russianization/results/summary.json \
-            dev_tools/russianization/results/first_party_logs.json \
-            dev_tools/russianization/results/asset_manifest.json \
-            dev_tools/russianization/results/locale_dependency_map.json \
-            dev_tools/russianization/results/stage4_report.md
-          git diff --cached --check
+          forbidden_deletions="$(git diff --name-status --diff-filter=D "$diff_range" | awk '$2 ~ /^assets\// || $2 ~ /^module\/config\/i18n\/(en-US|ja-JP|zh-CN|zh-MIAO|zh-TW)\.json$/ { print }')"
+          if [[ -n "$forbidden_deletions" ]]; then
+            echo 'Stage 5 attempted forbidden locale or asset deletions.'
+            echo "$forbidden_deletions"
+            exit 1
+          fi
 
-      - name: Audit staged diff for secret patterns
-        run: |
-          python - <<'PY'
+          DIFF_RANGE="$diff_range" python - <<'PY'
+          import os
           import re
           import subprocess
 
           diff = subprocess.run(
-              ['git', 'diff', '--cached', '--unified=0', '--no-color'],
+              ['git', 'diff', '--unified=0', '--no-color', os.environ['DIFF_RANGE']],
               check=True,
               capture_output=True,
               text=True,
@@ -95,70 +127,55 @@ jobs:
           print('Secret pattern audit: no matches.')
           PY
 
-      - name: Create detached Git commit
-        id: detached
-        uses: actions/github-script@v7
-        env:
-          BASE_SHA: ${{ github.event.pull_request.head.sha }}
-        with:
-          script: |
-            const fs = require('fs');
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const baseSha = process.env.BASE_SHA;
-            const paths = [
-              '.github/workflows/lint.yml',
-              'dev_tools/russianization/results/summary.json',
-              'dev_tools/russianization/results/first_party_logs.json',
-              'dev_tools/russianization/results/asset_manifest.json',
-              'dev_tools/russianization/results/locale_dependency_map.json',
-              'dev_tools/russianization/results/stage4_report.md',
-            ];
+  powershell-validation:
+    name: PowerShell parser and PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            const baseCommit = await github.rest.git.getCommit({
-              owner,
-              repo,
-              commit_sha: baseSha,
-            });
+      - name: Parse all PowerShell scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
 
-            const tree = [];
-            for (const path of paths) {
-              const blob = await github.rest.git.createBlob({
-                owner,
-                repo,
-                content: fs.readFileSync(path).toString('base64'),
-                encoding: 'base64',
-              });
-              tree.push({
-                path,
-                mode: '100644',
-                type: 'blob',
-                sha: blob.data.sha,
-              });
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              Write-Error ("Parse errors in {0}:`n{1}" -f $_.FullName, ($errors | Out-String))
             }
+          }
 
-            const newTree = await github.rest.git.createTree({
-              owner,
-              repo,
-              base_tree: baseCommit.data.tree.sha,
-              tree,
-            });
-            const commit = await github.rest.git.createCommit({
-              owner,
-              repo,
-              message: 'chore(stage5): refresh Russianization audit baseline',
-              tree: newTree.data.sha,
-              parents: [baseSha],
-            });
+          if ($failed) {
+            throw "PowerShell parse validation failed."
+          }
 
-            core.info(`Detached commit: ${commit.data.sha}`);
-            core.setOutput('sha', commit.data.sha);
-            fs.writeFileSync('/tmp/stage5-detached-commit.txt', `${commit.data.sha}\n`);
-
-      - name: Upload detached commit SHA
-        uses: actions/upload-artifact@v4
-        with:
-          name: stage5-detached-commit-${{ github.event.pull_request.head.sha }}
-          path: /tmp/stage5-detached-commit.txt
-          if-no-files-found: error
-          retention-days: 1
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          $analyzerParameters = @{
+            Path = (Join-Path -Path $PWD -ChildPath 'scripts')
+            Recurse = $true
+            Severity = @(
+              'Error'
+              'Warning'
+            )
+            ExcludeRule = @(
+              'PSUseBOMForUnicodeEncodedFile'
+            )
+          }
+          $results = @(Invoke-ScriptAnalyzer @analyzerParameters)
+          $results | Format-Table -AutoSize
+          if ($results.Count -gt 0) {
+            throw "PSScriptAnalyzer reported findings."
+          }
