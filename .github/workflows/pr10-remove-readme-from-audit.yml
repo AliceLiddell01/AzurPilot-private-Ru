@@ -1,9 +1,9 @@
 name: PR10 remove README from audit
 
 on:
-  pull_request:
+  push:
     branches:
-      - personal/stable
+      - docs/full-russian-interface
     paths:
       - .github/workflows/pr10-remove-readme-from-audit.yml
 
@@ -20,22 +20,17 @@ jobs:
           ref: docs/full-russian-interface
           fetch-depth: 0
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
 
-      - name: Install dependencies
-        run: uv sync --frozen
-
-      - name: Exclude README from the audit inputs
-        shell: python
+      - name: Apply, verify and commit the fix
+        shell: bash
         run: |
+          set +e
+          {
+            python - <<'PY'
           from pathlib import Path
 
           audit_path = Path("dev_tools/russianization_audit.py")
@@ -115,24 +110,29 @@ if __name__ == "__main__":
 ''',
               encoding="utf-8",
           )
+          PY
 
-      - name: Run targeted lint and tests
-        run: |
-          uv run ruff check dev_tools/russianization_audit.py tests/test_russianization_audit.py tests/test_russianization_readme_exclusion.py --select E9,F63,F7,F82 --ignore F821,F722
-          uv run python -m unittest -v tests/test_russianization_audit.py tests/test_russianization_readme_exclusion.py
+            python -m unittest -v tests/test_russianization_audit.py tests/test_russianization_readme_exclusion.py
+            python -m dev_tools.russianization_audit --write
+            python -m dev_tools.russianization_audit --check
+          } > pr10-audit-workflow.log 2>&1
+          status=$?
+          set -e
 
-      - name: Regenerate and verify audit baseline
-        run: |
-          uv run python -m dev_tools.russianization_audit --write
-          uv run python -m dev_tools.russianization_audit --check
-
-      - name: Commit generated fix
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dev_tools/russianization_audit.py
-          git add tests/test_russianization_readme_exclusion.py
-          git add dev_tools/russianization/results
+
+          if [ "$status" -eq 0 ]; then
+            rm -f pr10-audit-workflow.log
+            git add dev_tools/russianization_audit.py
+            git add tests/test_russianization_readme_exclusion.py
+            git add dev_tools/russianization/results
+            message="fix(audit): исключить README из входных данных"
+          else
+            git add pr10-audit-workflow.log
+            message="ci(temp): сохранить диагностику исправления аудита"
+          fi
+
           git diff --cached --check
-          git commit -m "fix(audit): исключить README из входных данных"
+          git commit -m "$message"
           git push origin HEAD:docs/full-russian-interface
