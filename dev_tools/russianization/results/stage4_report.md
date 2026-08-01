@@ -2,7 +2,7 @@
 
 ## Границы
 
-Этот отчёт создан read-only аудитором. Runtime locale, язык по умолчанию, WebUI, логи, OCR-модели, server logic и существующие assets не изменялись и не удалялись.
+Этот отчёт создан read-only аудитором после перехода на единый runtime locale `ru-RU`. Legacy locale-файлы и assets не удалялись; game server, OCR и package options сохранены.
 
 ## Воспроизводимость
 
@@ -17,66 +17,75 @@ uv run python -m dev_tools.russianization_audit --check
 
 | Метрика | Значение |
 |---|---:|
-| Tracked files scanned | 10953 |
-| Text files scanned | 2106 |
-| Locale files | 5 |
-| UI string entries | 19621 |
-| UI translation required | 17907 |
-| First-party/direct log entries | 5714 |
-| Log translation required | 5061 |
-| Asset entries | 10458 |
-| Asset bytes represented | 585419231 |
+| Tracked files scanned | 10962 |
+| Text files scanned | 2115 |
+| Locale files | 6 |
+| UI string entries | 23334 |
+| UI translation required | 21348 |
+| First-party/direct log entries | 5753 |
+| Log translation required | 5088 |
+| Asset entries | 10463 |
+| Asset bytes represented | 585446494 |
 | EN/Global required candidates | 3695 |
-| Manual review assets | 1930 |
+| Manual review assets | 1929 |
 | Probable delete candidates | 1228 |
 | Confirmed delete candidates | 0 |
 
-Source fingerprint: `5d6d35a055606603dd381edce7b1fc10c4abdb897ed5ae46f20676cba5ba7c76`
+Source fingerprint: `96566a15a5f76d2bad36720dad87fe94b5ed1c6f219fe120a5409aea1c224a6d`
+
+## Runtime locale architecture
+
+- Active runtime locales: `['ru-RU']`
+- Legacy inactive locale files: `['en-US', 'ja-JP', 'zh-CN', 'zh-MIAO', 'zh-TW']`
+- Foreign runtime fallback: `False`
+- UI locale linked to game server: `False`
+- Event-name source: `en`
 
 ## Locale inventory
 
-| Locale | Path | String keys |
-|---|---|---:|
-| `en-US` | `module/config/i18n/en-US.json` | 4166 |
-| `ja-JP` | `module/config/i18n/ja-JP.json` | 4166 |
-| `zh-CN` | `module/config/i18n/zh-CN.json` | 4166 |
-| `zh-MIAO` | `module/config/i18n/zh-MIAO.json` | 4166 |
-| `zh-TW` | `module/config/i18n/zh-TW.json` | 4166 |
+| Locale | Path | Runtime status | String keys |
+|---|---|---|---:|
+| `en-US` | `module/config/i18n/en-US.json` | legacy_inactive_locale_file | 4166 |
+| `ja-JP` | `module/config/i18n/ja-JP.json` | legacy_inactive_locale_file | 4166 |
+| `ru-RU` | `module/config/i18n/ru-RU.json` | active_runtime_locale | 4166 |
+| `zh-CN` | `module/config/i18n/zh-CN.json` | legacy_inactive_locale_file | 4166 |
+| `zh-MIAO` | `module/config/i18n/zh-MIAO.json` | legacy_inactive_locale_file | 4166 |
+| `zh-TW` | `module/config/i18n/zh-TW.json` | legacy_inactive_locale_file | 4166 |
 
 Locale files with missing keys against union: **0**.
 
 ## Locale / server / OCR dependency map
 
-| Связь | Фактически найдена | Evidence entries |
+| Связь | Runtime state | Evidence entries |
 |---|---|---:|
-| UI locale → translation loader | да | 30 |
-| translation loader → deploy Language | да | 15 |
-| deploy Language → config generator | да | 30 |
-| config generator → event-name source | да | 25 |
-| event-name source → game server | да | 28 |
-| game server → OCR profile/model | да | 25 |
-| OCR profile/model → package/server options | да | 30 |
-| package/server options → assets | да | 30 |
+| UI locale → translation loader | активна | 30 |
+| translation loader → deploy Language | разорвана | 15 |
+| deploy Language → config generator | разорвана | 30 |
+| config generator → event-name source | разорвана | 30 |
+| event-name source → game server | активна | 30 |
+| game server → OCR profile/model | активна | 30 |
+| OCR profile/model → package/server options | активна | 30 |
+| package/server options → assets | активна | 30 |
 
-Архитектурный вывод: текущие связи должны разрываться только в Stage 5, сохраняя game server, event-name source, OCR profile и package options независимо от UI locale.
+Архитектурный вывод: UI locale отделён от deploy compatibility value, event-name source, game server, OCR profile и package options. Server-specific связи ниже по цепочке сохранены.
 
 ## Пользовательские строки
 
-Разбиение по подсистемам: `{'scheduler_and_config': 19200, 'webui_and_process_lifecycle': 301, 'deploy_and_dependencies': 101, 'other': 10, 'tests': 9}`.
+Разбиение по подсистемам: `{'scheduler_and_config': 22905, 'webui_and_process_lifecycle': 296, 'deploy_and_dependencies': 114, 'other': 10, 'tests': 9}`.
 
 Inventory содержит путь, строку/ключ, источник, текст, language guess, classification, runtime visibility, generated flag и решение о необходимости перевода. Эвристика не считает любой ASCII-текст пользовательским английским: identifiers, paths, commands и technical values отделены.
 
 ## First-party логи
 
-Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'webui_and_process_lifecycle': 314, 'deploy_and_dependencies': 293, 'other': 269, 'ocr': 107, 'scheduler_and_config': 44, 'tests': 9, 'screenshot_and_control': 4}`.
+Разбиение по подсистемам: `{'game_tasks': 2652, 'operation_siren': 815, 'device_adb_emulator': 638, 'campaign_combat_fleet': 569, 'deploy_and_dependencies': 320, 'webui_and_process_lifecycle': 320, 'other': 274, 'ocr': 107, 'scheduler_and_config': 45, 'tests': 9, 'screenshot_and_control': 4}`.
 
 Сырые stdout/stderr/traceback отмечаются отдельно и должны сохраняться без перевода. В будущих Stage русифицируется только first-party контекст вокруг них.
 
 ## Assets
 
-Decision counts: `{'confirmed_keep': 7799, 'needs_manual_review': 702, 'probable_delete_candidate': 1228, 'probable_keep': 729}`.
+Decision counts: `{'confirmed_keep': 7805, 'needs_manual_review': 701, 'probable_delete_candidate': 1228, 'probable_keep': 729}`.
 
-Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1553}`.
+Scope counts: `{'cn': 3943, 'en': 1673, 'jp': 1457, 'multi_server': 278, 'shared': 109, 'tw': 1445, 'unknown': 1558}`.
 
 `confirmed_delete_candidate` намеренно не присваивается на основании имени, CJK или суффикса. Наличие server marker без runtime evidence даёт максимум `probable_delete_candidate` и `manual_review_required: true`.
 

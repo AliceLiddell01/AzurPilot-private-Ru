@@ -35,7 +35,12 @@ def _clearup_step(name, handler) -> bool:
 
 
 def startup() -> None:
-    """初始化 WebUI 进程级后台服务。"""
+    """Инициализировать WebUI после явной миграции UI locale."""
+    from deploy.language_migration import migrate_deploy_language
+
+    result = migrate_deploy_language()
+    if result.changed:
+        logger.info("[WebUI] Старое значение Language безопасно изменено на ru-RU")
     State.init()
     lang.reload()
     task_handler.start()

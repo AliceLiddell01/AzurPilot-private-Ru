@@ -52,42 +52,24 @@ class HomeMixin(WebUIMixinBase):
             del self.alas
         self.set_status(0)
 
-        def set_language(l):
-            lang.set_language(l)
-            self.show_home()
-            self.refresh_aside_labels()
-
         def set_theme(t):
             self.set_theme(t)
             set_localstorage("aside", "Home")
             go_app("index", new_window=False)
 
         with use_scope("content"):
-            put_text("Select your language / 选择语言").style(
-                "text-align: center; font-weight: 600"
-            )
+            put_text("Тема интерфейса").style("text-align: center")
             put_buttons(
                 [
-                    {"label": "简体中文", "value": "zh-CN"},
-                    {"label": "喵体中文", "value": "zh-MIAO"},
-                    {"label": "繁體中文", "value": "zh-TW"},
-                    {"label": "English", "value": "en-US"},
-                    {"label": "日本語", "value": "ja-JP"},
-                ],
-                onclick=lambda l: set_language(l),
-            ).style("text-align: center")
-            put_text("Change theme / 更改主题").style("text-align: center")
-            put_buttons(
-                [
-                    {"label": "Light", "value": "default", "color": "light"},
-                    {"label": "Dark", "value": "dark", "color": "dark"},
+                    {"label": "Светлая", "value": "default", "color": "light"},
+                    {"label": "Тёмная", "value": "dark", "color": "dark"},
                     {
-                        "label": "高级材质",
+                        "label": "Современная",
                         "value": "advanced_material",
                         "color": "primary",
                     },
                     {
-                        "label": "高级材质（暗色）",
+                        "label": "Современная тёмная",
                         "value": "dark_advanced_material",
                         "color": "dark",
                     },

@@ -1,12 +1,15 @@
 {
-  "asset_bytes_total": 585419231,
+  "active_runtime_locales": [
+    "ru-RU"
+  ],
+  "asset_bytes_total": 585446494,
   "asset_decision_counts": {
-    "confirmed_keep": 7799,
-    "needs_manual_review": 702,
+    "confirmed_keep": 7805,
+    "needs_manual_review": 701,
     "probable_delete_candidate": 1228,
     "probable_keep": 729
   },
-  "asset_entries": 10458,
+  "asset_entries": 10463,
   "asset_scope_counts": {
     "cn": 3943,
     "en": 1673,
@@ -14,48 +17,59 @@
     "multi_server": 278,
     "shared": 109,
     "tw": 1445,
-    "unknown": 1553
+    "unknown": 1558
   },
   "confirmed_delete_candidates": 0,
   "en_global_required_candidates": 3695,
-  "first_party_log_messages": 5714,
-  "full_asset_manifest_sha256": "a1ffebf5b554d6399b827521017fd3cb1d3f022dc1deb434cc58245af8a204ba",
-  "locale_files": 5,
-  "locale_files_with_missing_keys": 0,
-  "locales": [
+  "event_name_source": "en",
+  "first_party_log_messages": 5753,
+  "foreign_runtime_fallback": false,
+  "full_asset_manifest_sha256": "c140cd432d17db50557d575f4f0e699437159d2cd2074b10b845e5b6173f99c4",
+  "legacy_inactive_locale_files": [
     "en-US",
     "ja-JP",
     "zh-CN",
     "zh-MIAO",
     "zh-TW"
   ],
-  "log_translation_required": 5061,
+  "locale_files": 6,
+  "locale_files_with_missing_keys": 0,
+  "locales": [
+    "en-US",
+    "ja-JP",
+    "ru-RU",
+    "zh-CN",
+    "zh-MIAO",
+    "zh-TW"
+  ],
+  "log_translation_required": 5088,
   "logs_by_subsystem": {
     "campaign_combat_fleet": 569,
-    "deploy_and_dependencies": 293,
+    "deploy_and_dependencies": 320,
     "device_adb_emulator": 638,
     "game_tasks": 2652,
     "ocr": 107,
     "operation_siren": 815,
-    "other": 269,
-    "scheduler_and_config": 44,
+    "other": 274,
+    "scheduler_and_config": 45,
     "screenshot_and_control": 4,
     "tests": 9,
-    "webui_and_process_lifecycle": 314
+    "webui_and_process_lifecycle": 320
   },
-  "manual_review_assets": 1930,
+  "manual_review_assets": 1929,
   "probable_delete_candidates": 1228,
   "schema_version": 1,
-  "source_fingerprint": "5d6d35a055606603dd381edce7b1fc10c4abdb897ed5ae46f20676cba5ba7c76",
-  "text_files_scanned": 2106,
-  "tracked_files_scanned": 10953,
+  "source_fingerprint": "96566a15a5f76d2bad36720dad87fe94b5ed1c6f219fe120a5409aea1c224a6d",
+  "text_files_scanned": 2115,
+  "tracked_files_scanned": 10962,
   "ui_by_subsystem": {
-    "deploy_and_dependencies": 101,
+    "deploy_and_dependencies": 114,
     "other": 10,
-    "scheduler_and_config": 19200,
+    "scheduler_and_config": 22905,
     "tests": 9,
-    "webui_and_process_lifecycle": 301
+    "webui_and_process_lifecycle": 296
   },
-  "ui_strings": 19621,
-  "ui_translation_required": 17907
+  "ui_locale_linked_to_game_server": false,
+  "ui_strings": 23334,
+  "ui_translation_required": 21348
 }

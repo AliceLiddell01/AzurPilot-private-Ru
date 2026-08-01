@@ -1,26 +1,42 @@
-name: Lint
+name: Stage 5 validation
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage5-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  ruff:
+  python-validation:
+    name: Python, generators and regression tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.14'
+
       - name: Install dependencies
         run: uv sync
-      - name: Run ruff
+
+      - name: Run Ruff
         run: uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+
       - name: Run Stage 3 regression tests
         run: >-
           uv run python -m unittest -v
@@ -30,102 +46,136 @@ jobs:
           tests/test_stage3d_templates.py
           tests/test_stage3d_webui_settings.py
           tests/test_stage3e_release_cleanup.py
-      - name: Run Stage 4 audit unit tests
+
+      - name: Run Stage 4 audit tests
         run: uv run python -m unittest -v tests/test_russianization_audit.py
-      - name: Check Stage 4 audit baseline
+
+      - name: Check Russianization audit baseline
         run: uv run python -m dev_tools.russianization_audit --check
 
-  button-config-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.14'
-      - name: Install dependencies
-        run: uv sync --no-dev
-      - name: Run button_extract
-        run: uv run -m dev_tools.button_extract
-      - name: Run config_updater
-        run: uv run -m module.config.config_updater
-      - name: Check for differences
+      - name: Verify deterministic generators
         run: |
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
+          git diff --binary > /tmp/generator-first.diff
+          uv run -m dev_tools.button_extract
+          uv run -m module.config.config_updater
+          git diff --binary > /tmp/generator-second.diff
+          cmp /tmp/generator-first.diff /tmp/generator-second.diff
           git diff --exit-code --ignore-space-at-eol
 
-  powershell:
+      - name: Run Stage 5 regression tests
+        run: >-
+          uv run python -m unittest -v
+          tests/test_stage5_deploy_language_migration.py
+          tests/test_stage5_locale_runtime.py
+          tests/test_stage5_server_separation.py
+          tests/test_stage5_generator.py
+
+      - name: Run Stage 5 verifier
+        run: uv run python -m dev_tools.verify_stage5
+
+      - name: Check diff formatting
+        run: git diff --check
+
+      - name: Check forbidden deletions and secrets
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'pull_request' ]]; then
+            diff_range="${PR_BASE_SHA}...HEAD"
+          elif [[ -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != '0000000000000000000000000000000000000000' ]]; then
+            diff_range="${PUSH_BEFORE_SHA}..HEAD"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            diff_range='HEAD^..HEAD'
+          else
+            echo 'No parent commit is available for the diff audit.'
+            exit 0
+          fi
+
+          forbidden_deletions="$(git diff --name-status --diff-filter=D "$diff_range" | awk '$2 ~ /^assets\// || $2 ~ /^module\/config\/i18n\/(en-US|ja-JP|zh-CN|zh-MIAO|zh-TW)\.json$/ { print }')"
+          if [[ -n "$forbidden_deletions" ]]; then
+            echo 'Stage 5 attempted forbidden locale or asset deletions.'
+            echo "$forbidden_deletions"
+            exit 1
+          fi
+
+          DIFF_RANGE="$diff_range" python - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          diff = subprocess.run(
+              ['git', 'diff', '--unified=0', '--no-color', os.environ['DIFF_RANGE']],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout
+          patterns = {
+              'private key': r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
+              'GitHub token': r'\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b',
+              'AWS access key': r'\bAKIA[0-9A-Z]{16}\b',
+              'webhook URL': r'https://(?:discord(?:app)?\.com/api/webhooks|hooks\.slack\.com/services)/[^\s]+',
+          }
+          matched = [name for name, pattern in patterns.items() if re.search(pattern, diff)]
+          if matched:
+              raise SystemExit('Potential secret patterns detected: ' + ', '.join(matched))
+          print('Secret pattern audit: no matches.')
+          PY
+
+  powershell-validation:
+    name: PowerShell parser and PSScriptAnalyzer
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install PSScriptAnalyzer
+
+      - name: Parse all PowerShell scripts
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              Write-Error ("Parse errors in {0}:`n{1}" -f $_.FullName, ($errors | Out-String))
+            }
+          }
+
+          if ($failed) {
+            throw "PowerShell parse validation failed."
+          }
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
-      - name: Parse PowerShell scripts
-        shell: pwsh
-        run: |
-          $scriptRoot = Join-Path -Path $PWD -ChildPath 'scripts'
-          $scriptFiles = @(
-              Get-ChildItem -LiteralPath $scriptRoot -Recurse -File |
-                  Where-Object {
-                      $_.Extension -in @(
-                          '.ps1'
-                          '.psm1'
-                      )
-                  }
-          )
-          $parseFailures = [System.Collections.Generic.List[string]]::new()
-
-          foreach ($scriptFile in $scriptFiles) {
-              $tokens = $null
-              $parseErrors = $null
-              [void][System.Management.Automation.Language.Parser]::ParseFile(
-                  $scriptFile.FullName,
-                  [ref]$tokens,
-                  [ref]$parseErrors
-              )
-
-              foreach ($parseError in $parseErrors) {
-                  $parseFailures.Add(
-                      '{0}:{1}: {2}' -f
-                      $scriptFile.FullName,
-                      $parseError.Extent.StartLineNumber,
-                      $parseError.Message
-                  )
-              }
-          }
-
-          if ($parseFailures.Count -gt 0) {
-              throw ($parseFailures -join [Environment]::NewLine)
-          }
-      - name: Analyze PowerShell scripts
-        shell: pwsh
-        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
           $analyzerParameters = @{
-              Path = (Join-Path -Path $PWD -ChildPath 'scripts')
-              Recurse = $true
-              Severity = @(
-                  'Error'
-                  'Warning'
-              )
-              ExcludeRule = @(
-                  'PSUseBOMForUnicodeEncodedFile'
-              )
+            Path = (Join-Path -Path $PWD -ChildPath 'scripts')
+            Recurse = $true
+            Severity = @(
+              'Error'
+              'Warning'
+            )
+            ExcludeRule = @(
+              'PSUseBOMForUnicodeEncodedFile'
+            )
           }
-          $findings = @(
-              Invoke-ScriptAnalyzer @analyzerParameters
-          )
-
-          if ($findings.Count -gt 0) {
-              $details = $findings |
-                  Format-List |
-                  Out-String
-              throw $details
+          $results = @(Invoke-ScriptAnalyzer @analyzerParameters)
+          $results | Format-Table -AutoSize
+          if ($results.Count -gt 0) {
+            throw "PSScriptAnalyzer reported findings."
           }

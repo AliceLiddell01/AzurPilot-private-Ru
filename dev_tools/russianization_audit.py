@@ -15,6 +15,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Iterator
 
 SCHEMA_VERSION = 1
+ACTIVE_RUNTIME_LOCALE = "ru-RU"
+LEGACY_INACTIVE_LOCALES = ("en-US", "ja-JP", "zh-CN", "zh-MIAO", "zh-TW")
 RESULTS_RELATIVE = Path("dev_tools/russianization/results")
 RESULT_FILENAMES = (
     "summary.json",
@@ -29,6 +31,9 @@ RESULT_FILENAMES = (
     "stage4_report.md",
     "deploy_language_migration.md",
     "stage5_9_test_matrix.md",
+)
+ALLOWED_EXTRA_RESULT_FILENAMES = (
+    "stage5_report.md",
 )
 
 TEXT_EXTENSIONS = {
@@ -93,6 +98,7 @@ JS_UI_RE = re.compile(
     re.IGNORECASE,
 )
 LANGUAGE_SYMBOLS = (
+    "UI_LOCALE", "EVENT_NAME_SOURCE", "filepath_i18n",
     "Language", "LANGUAGES", "SERVER_TO_LANG", "LANG_TO_SERVER", "server_to_lang",
     "lang_to_server", "BrowserLanguage", "OcrModel", "OcrLanguage", "PackageName",
     "ServerName", "Event", "event_name",
@@ -427,14 +433,23 @@ class AuditEngine:
             try:
                 data = json.loads((self.root / relative).read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-                locales.append({"path": relative, "locale": Path(relative).stem, "error": str(exc), "key_count": 0})
+                locale = Path(relative).stem
+                locales.append({
+                    "path": relative,
+                    "locale": locale,
+                    "runtime_status": self._locale_runtime_status(locale),
+                    "error": str(exc),
+                    "key_count": 0,
+                })
                 key_sets[relative] = set()
                 continue
             keys = {".".join(key) for key, value in flatten_json(data) if isinstance(value, str)}
             key_sets[relative] = keys
+            locale = Path(relative).stem
             locales.append({
                 "path": relative,
-                "locale": Path(relative).stem,
+                "locale": locale,
+                "runtime_status": self._locale_runtime_status(locale),
                 "key_count": len(keys),
                 "content_hash": sha256_bytes(json_bytes(data)),
             })
@@ -445,6 +460,47 @@ class AuditEngine:
             intersection = set.intersection(*key_sets.values()) if key_sets else set()
             extra = {path: sorted(keys - intersection) for path, keys in key_sets.items() if keys - intersection}
         return sorted(locales, key=lambda item: item["path"]), missing, extra
+
+    @staticmethod
+    def _locale_runtime_status(locale: str) -> str:
+        if locale == ACTIVE_RUNTIME_LOCALE:
+            return "active_runtime_locale"
+        if locale in LEGACY_INACTIVE_LOCALES:
+            return "legacy_inactive_locale_file"
+        return "unclassified_locale_file"
+
+    def _runtime_locale_architecture(self, locales: list[dict[str, Any]]) -> dict[str, Any]:
+        lang_source = self.source_texts.get("module/webui/lang.py")
+        generator_source = self.source_texts.get("module/config/config_updater.py")
+        locale_source = self.source_texts.get("module/config/locale.py")
+        combined = "\n".join(
+            source.text for source in (lang_source, generator_source, locale_source)
+            if source is not None
+        )
+        foreign_tokens = tuple(f'"{locale}"' for locale in LEGACY_INACTIVE_LOCALES) + tuple(
+            f"'{locale}'" for locale in LEGACY_INACTIVE_LOCALES
+        )
+        active = [
+            item["locale"] for item in locales
+            if item.get("runtime_status") == "active_runtime_locale"
+        ]
+        legacy = [
+            item["locale"] for item in locales
+            if item.get("runtime_status") == "legacy_inactive_locale_file"
+        ]
+        foreign_runtime_fallback = any(token in (lang_source.text if lang_source else "") for token in foreign_tokens)
+        ui_server_coupling_tokens = (
+            "LANG_TO_SERVER", "SERVER_TO_LANG", "lang_to_server",
+            "deploy_config.Language", "State.deploy_config.Language",
+        )
+        ui_locale_linked = any(token in combined for token in ui_server_coupling_tokens)
+        return {
+            "active_runtime_locales": sorted(active),
+            "legacy_inactive_locale_files": sorted(legacy),
+            "foreign_runtime_fallback": foreign_runtime_fallback,
+            "ui_locale_linked_to_game_server": ui_locale_linked,
+            "event_name_source": "en" if "EVENT_NAME_SOURCE = 'en'" in combined or 'EVENT_NAME_SOURCE = "en"' in combined else None,
+        }
 
     def inventory_ui_strings(self) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
@@ -722,18 +778,20 @@ class AuditEngine:
                 for symbol in LANGUAGE_SYMBOLS:
                     if symbol in line and len(evidence[symbol]) < 100:
                         evidence[symbol].append({"path": relative, "line": line_number, "code": line.strip()[:500]})
+        architecture = self._runtime_locale_architecture(locales)
         links = [
-            self._dependency_link("UI locale", "translation loader", evidence, ("LANGUAGES", "Language", "BrowserLanguage"), "Stage 5: retain only ru-RU UI locale."),
-            self._dependency_link("translation loader", "deploy Language", evidence, ("Language",), "Stage 5: migrate only Language key patch-wise."),
-            self._dependency_link("deploy Language", "config generator", evidence, ("Language", "LANGUAGES"), "Stage 5: separate generated UI locale from game server."),
-            self._dependency_link("config generator", "event-name source", evidence, ("event_name", "Event"), "Stage 5: preserve server-specific event names independently."),
-            self._dependency_link("event-name source", "game server", evidence, ("SERVER_TO_LANG", "LANG_TO_SERVER", "ServerName"), "Stage 5: make game server explicit."),
-            self._dependency_link("game server", "OCR profile/model", evidence, ("OcrModel", "OcrLanguage", "SERVER_TO_LANG"), "Stage 5/9: preserve EN/shared OCR fallback until runtime smoke."),
-            self._dependency_link("OCR profile/model", "package/server options", evidence, ("PackageName", "ServerName"), "Stage 5/9: decouple options from UI locale."),
-            self._dependency_link("package/server options", "assets", evidence, ("PackageName", "ServerName", "OcrModel"), "Stage 9: delete only after manifest evidence and EN smoke."),
+            self._dependency_link("UI locale", "translation loader", evidence, ("UI_LOCALE", "filepath_i18n"), "Single ru-RU loader remains active.", True),
+            self._dependency_link("translation loader", "deploy Language", evidence, ("Language",), "Deploy Language is compatibility/migration data only.", False),
+            self._dependency_link("deploy Language", "config generator", evidence, ("Language", "UI_LOCALE"), "Generator uses UI_LOCALE directly.", False),
+            self._dependency_link("config generator", "event-name source", evidence, ("EVENT_NAME_SOURCE", "Event"), "Event source is explicit server metadata.", False),
+            self._dependency_link("event-name source", "game server", evidence, ("EVENT_NAME_SOURCE", "ServerName"), "Server event metadata remains supported.", True),
+            self._dependency_link("game server", "OCR profile/model", evidence, ("OcrModel", "OcrLanguage", "ServerName"), "Preserve server-specific OCR behaviour.", True),
+            self._dependency_link("OCR profile/model", "package/server options", evidence, ("PackageName", "ServerName"), "Preserve package/server options independently.", True),
+            self._dependency_link("package/server options", "assets", evidence, ("PackageName", "ServerName", "OcrModel"), "Stage 9 handles evidence-based deletion.", True),
         ]
         return {
             "schema_version": SCHEMA_VERSION,
+            "runtime_architecture": architecture,
             "current_locales": locales,
             "locale_key_mismatches": {"missing": missing, "extra": extra},
             "symbols": evidence,
@@ -746,7 +804,14 @@ class AuditEngine:
         }
 
     @staticmethod
-    def _dependency_link(source: str, target: str, evidence: dict[str, list[dict[str, Any]]], symbols: tuple[str, ...], action: str) -> dict[str, Any]:
+    def _dependency_link(
+        source: str,
+        target: str,
+        evidence: dict[str, list[dict[str, Any]]],
+        symbols: tuple[str, ...],
+        action: str,
+        active_runtime_link: bool,
+    ) -> dict[str, Any]:
         refs: list[dict[str, Any]] = []
         for symbol in symbols:
             refs.extend(evidence.get(symbol, [])[:15])
@@ -756,7 +821,8 @@ class AuditEngine:
             "target": target,
             "exists": bool(refs),
             "necessary_currently": bool(refs),
-            "stage5_break_or_refactor": True,
+            "stage5_break_or_refactor": not active_runtime_link,
+            "active_runtime_link": active_runtime_link,
             "evidence": refs,
             "required_tests": [action],
         }
@@ -935,9 +1001,15 @@ class AuditEngine:
         scope_counts = Counter(item["suspected_scope"] for item in assets)
         ui_subsystems = Counter(item["subsystem"] for item in ui)
         log_subsystems = Counter(item["subsystem"] for item in logs)
+        architecture = self._runtime_locale_architecture(locales)
         return {
             "schema_version": SCHEMA_VERSION,
             "source_fingerprint": self.source_fingerprint(),
+            "active_runtime_locales": architecture["active_runtime_locales"],
+            "legacy_inactive_locale_files": architecture["legacy_inactive_locale_files"],
+            "foreign_runtime_fallback": architecture["foreign_runtime_fallback"],
+            "ui_locale_linked_to_game_server": architecture["ui_locale_linked_to_game_server"],
+            "event_name_source": architecture["event_name_source"],
             "tracked_files_scanned": len(self.paths),
             "text_files_scanned": len(self.source_texts),
             "locale_files": len(locales),
@@ -964,11 +1036,11 @@ class AuditEngine:
         decision = summary["asset_decision_counts"]
         scope = summary["asset_scope_counts"]
         locale_rows = "\n".join(
-            f"| `{item['locale']}` | `{item['path']}` | {item['key_count']} |"
+            f"| `{item['locale']}` | `{item['path']}` | {item['runtime_status']} | {item['key_count']} |"
             for item in dependency["current_locales"]
         ) or "| — | — | 0 |"
         links = "\n".join(
-            f"| {item['source']} → {item['target']} | {'да' if item['exists'] else 'не подтверждено'} | {len(item['evidence'])} |"
+            f"| {item['source']} → {item['target']} | {'активна' if item['active_runtime_link'] else 'разорвана'} | {len(item['evidence'])} |"
             for item in dependency["links"]
         )
         candidates = [item for item in assets if item["decision_status"] == "probable_delete_candidate"][:50]
@@ -982,7 +1054,7 @@ class AuditEngine:
 
 ## Границы
 
-Этот отчёт создан read-only аудитором. Runtime locale, язык по умолчанию, WebUI, логи, OCR-модели, server logic и существующие assets не изменялись и не удалялись.
+Этот отчёт создан read-only аудитором после перехода на единый runtime locale `ru-RU`. Legacy locale-файлы и assets не удалялись; game server, OCR и package options сохранены.
 
 ## Воспроизводимость
 
@@ -1013,21 +1085,29 @@ uv run python -m dev_tools.russianization_audit --check
 
 Source fingerprint: `{summary['source_fingerprint']}`
 
+## Runtime locale architecture
+
+- Active runtime locales: `{summary['active_runtime_locales']}`
+- Legacy inactive locale files: `{summary['legacy_inactive_locale_files']}`
+- Foreign runtime fallback: `{summary['foreign_runtime_fallback']}`
+- UI locale linked to game server: `{summary['ui_locale_linked_to_game_server']}`
+- Event-name source: `{summary['event_name_source']}`
+
 ## Locale inventory
 
-| Locale | Path | String keys |
-|---|---|---:|
+| Locale | Path | Runtime status | String keys |
+|---|---|---|---:|
 {locale_rows}
 
 Locale files with missing keys against union: **{summary['locale_files_with_missing_keys']}**.
 
 ## Locale / server / OCR dependency map
 
-| Связь | Фактически найдена | Evidence entries |
+| Связь | Runtime state | Evidence entries |
 |---|---|---:|
 {links}
 
-Архитектурный вывод: текущие связи должны разрываться только в Stage 5, сохраняя game server, event-name source, OCR profile и package options независимо от UI locale.
+Архитектурный вывод: UI locale отделён от deploy compatibility value, event-name source, game server, OCR profile и package options. Server-specific связи ниже по цепочке сохранены.
 
 ## Пользовательские строки
 
@@ -1160,9 +1240,10 @@ Permanent gates retained: Ruff syntax/static, Stage 3 regression suite, button/c
                 continue
             if actual != expected:
                 differences.append(f"outdated: {path.relative_to(self.root) if path.is_relative_to(self.root) else path}")
+        allowed_result_files = set(RESULT_FILENAMES) | set(ALLOWED_EXTRA_RESULT_FILENAMES)
         unexpected = sorted(
             path.name for path in self.output_dir.glob("*")
-            if path.is_file() and path.name not in RESULT_FILENAMES
+            if path.is_file() and path.name not in allowed_result_files
         ) if self.output_dir.exists() else []
         differences.extend(f"unexpected: {self.output_dir / name}" for name in unexpected)
         return differences

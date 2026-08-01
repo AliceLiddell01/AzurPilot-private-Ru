@@ -150,8 +150,15 @@ def app():
     )
     args, _ = parser.parse_known_args()
 
+    from deploy.language_migration import migrate_deploy_language
+    from module.config.utils import UI_LOCALE
+
+    migration = migrate_deploy_language()
+    if migration.changed:
+        logger.info("[WebUI] Старое значение Language безопасно изменено на ru-RU")
+
     AlasGUI.set_theme(theme=State.deploy_config.Theme)
-    lang.LANG = State.deploy_config.Language
+    lang.LANG = UI_LOCALE
     key = args.key if is_webui_password_set(args.key) else State.deploy_config.Password
     key, password_error = ensure_public_webui_password(key)
     cdn: str | bool = args.cdn if args.cdn else State.deploy_config.CDN

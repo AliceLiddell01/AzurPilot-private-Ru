@@ -182,10 +182,15 @@ class State:
 
     @cached_class_property
     def deploy_config(self) -> "DeployConfig":
-        """
-        Returns:
-            DeployConfig：
-        """
+        """Мигрировать UI locale до первого чтения и кеширования deploy-конфигурации."""
+        from deploy.language_migration import migrate_deploy_language
+
+        migration = migrate_deploy_language()
+        if migration.changed:
+            from module.logger import logger
+
+            logger.info("[WebUI] Старое значение Language безопасно изменено на ru-RU")
+
         from module.webui.config import DeployConfig
 
         return DeployConfig()

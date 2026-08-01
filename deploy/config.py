@@ -74,7 +74,7 @@ class ConfigModel:
     WebuiPort: int = 25548
     WebuiSSLKey: Optional[str] = None
     WebuiSSLCert: Optional[str] = None
-    Language: str = "en-US"
+    Language: str = "ru-RU"
     Theme: str = "default"
     DpiScaling: bool = True
     Password: Optional[str] = None

@@ -35,7 +35,7 @@ Deploy:
   Webui:
     WebuiHost: 0.0.0.0
     WebuiPort: 25548
-    Language: en-US
+    Language: ru-RU
     Theme: default
     DpiScaling: true
     EnableReload: true

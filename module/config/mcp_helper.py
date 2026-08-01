@@ -17,6 +17,7 @@ MCP 服务器通过此模块获取任务列表、任务详情和配置信息，
 import json
 import os
 from typing import Dict, Any, List, Optional
+from module.config.locale import UI_LOCALE
 from module.config.utils import read_file, filepath_args, filepath_i18n
 
 
@@ -32,10 +33,12 @@ class McpConfigHelper:
         i18n_data (dict): 从 i18n 文件加载的国际化数据。
     """
 
-    def __init__(self, lang="zh-CN"):
-        self.lang = lang
+    def __init__(self, lang=UI_LOCALE):
+        if lang != UI_LOCALE:
+            raise ValueError(f"Поддерживается только язык интерфейса {UI_LOCALE}.")
+        self.lang = UI_LOCALE
         self.args_data = read_file(filepath_args("args"))
-        self.i18n_data = read_file(filepath_i18n(lang))
+        self.i18n_data = read_file(filepath_i18n(UI_LOCALE))
 
     def get_tasks(self) -> List[str]:
         """获取 args.json 中所有任务名称。"""

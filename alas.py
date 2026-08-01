@@ -22,6 +22,7 @@ from module.config.utils import (
     get_server_next_update,
     read_file,
 )
+from module.config.locale import UI_LOCALE
 from module.exception import *
 from module.logger import logger
 from module.notify import handle_notify, notify_webui
@@ -34,16 +35,7 @@ def _get_task_display_name(task_command):
     if _i18n_task_names is None:
         _i18n_task_names = {}
         try:
-            # 优先使用 deploy.yaml 中配置的语言，否则默认 zh-CN
-            deploy_cfg = read_file('./config/deploy.yaml')
-            lang = 'zh-CN'
-            if isinstance(deploy_cfg, dict):
-                lang = deploy_cfg.get('Language', 'zh-CN')
-        except Exception:
-            lang = 'zh-CN'
-
-        try:
-            i18n_file = filepath_i18n(lang)
+            i18n_file = filepath_i18n(UI_LOCALE)
             if os.path.exists(i18n_file):
                 with open(i18n_file, encoding='utf-8') as f:
                     data = json.load(f)
