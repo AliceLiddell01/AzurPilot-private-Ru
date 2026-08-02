@@ -1,3 +1,4 @@
+# This standalone file is migrated into the required Stage 6 module by CI.
 import unittest
 from unittest.mock import Mock, patch
 
