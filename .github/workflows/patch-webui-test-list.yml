@@ -1,4 +1,4 @@
-name: Temporary WebUI test-list patch
+name: Temporary WebUI regression-test patch
 
 on:
   push:
@@ -12,53 +12,98 @@ permissions:
   contents: write
 
 jobs:
-  patch-test-list:
+  patch-regression-test:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: fix/webui-no-reload-orphan-recovery
 
-      - name: Patch required Stage 6 test list
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+
+      - name: Synchronize dependencies
+        run: uv sync --frozen
+
+      - name: Move regression into required Stage 6 module
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           from pathlib import Path
 
-          path = Path('.github/workflows/lint.yml')
-          lines = path.read_text(encoding='utf-8').splitlines(keepends=True)
-          target = 'tests/test_webui_worker_registry.py'
-          added = 'tests/test_webui_no_reload_recovery.py'
+          path = Path('tests/test_webui_worker_registry.py')
+          source = path.read_text(encoding='utf-8')
+          class_name = 'class TestWebUiNoReloadRecovery(unittest.TestCase):'
+          marker = '\n\nif __name__ == "__main__":\n    unittest.main()\n'
+          block = '''
 
-          if any(line.strip() == added for line in lines):
-              raise SystemExit(0)
+class TestWebUiNoReloadRecovery(unittest.TestCase):
+    def test_no_reload_starts_only_after_orphan_recovery(self):
+        call_order = []
 
-          for index, line in enumerate(lines):
-              if line.strip() == target:
-                  indentation = line[: len(line) - len(line.lstrip())]
-                  lines.insert(index + 1, f'{indentation}{added}\n')
-                  path.write_text(''.join(lines), encoding='utf-8')
-                  break
-          else:
-              raise SystemExit('Stage 6 worker-registry test entry was not found')
+        def recover():
+            call_order.append("recover")
+            return True
+
+        def run_webui(*args):
+            call_order.append(("func", args))
+
+        gui = _get_gui()
+        with (
+            patch.object(gui, "_recover_orphaned_workers", side_effect=recover) as recovery,
+            patch.object(gui, "func", side_effect=run_webui) as func,
+        ):
+            self.assertTrue(gui._run_webui_without_reload())
+
+        recovery.assert_called_once_with()
+        func.assert_called_once_with(None, None)
+        self.assertEqual(["recover", ("func", (None, None))], call_order)
+
+    def test_no_reload_refuses_start_when_orphan_recovery_fails(self):
+        gui = _get_gui()
+        with (
+            patch.object(gui, "_recover_orphaned_workers", return_value=False) as recovery,
+            patch.object(gui, "func", new=Mock()) as func,
+        ):
+            self.assertFalse(gui._run_webui_without_reload())
+
+        recovery.assert_called_once_with()
+        func.assert_not_called()
+'''
+
+          if class_name not in source:
+              if marker not in source:
+                  raise SystemExit('unittest main marker was not found')
+              source = source.replace(marker, block + marker, 1)
+              path.write_text(source, encoding='utf-8')
+
+          standalone = Path('tests/test_webui_no_reload_recovery.py')
+          if standalone.exists():
+              standalone.unlink()
           PY
 
-      - name: Verify test-list update
+      - name: Run required Stage 6 worker-registry tests
+        run: uv run python -m unittest -v tests/test_webui_worker_registry.py
+
+      - name: Run Ruff and diff checks
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          text = Path('.github/workflows/lint.yml').read_text(encoding='utf-8')
-          assert text.count('tests/test_webui_no_reload_recovery.py') == 1
-          PY
+          uv run ruff check gui.py tests/test_webui_worker_registry.py --select E9,F63,F7,F82 --ignore F821,F722
           git diff --check
 
-      - name: Commit test-list update
+      - name: Commit regression-test update
         run: |
-          if git diff --quiet -- .github/workflows/lint.yml; then
-            echo 'Stage 6 test list is already updated.'
+          if git diff --quiet -- tests/test_webui_worker_registry.py tests/test_webui_no_reload_recovery.py; then
+            echo 'Regression test is already in the required Stage 6 module.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/workflows/lint.yml
-          git commit -m 'ci: запускать no-reload recovery regression'
+          git add tests/test_webui_worker_registry.py tests/test_webui_no_reload_recovery.py
+          git commit -m 'test(webui): закрепить no-reload orphan recovery'
           git push origin HEAD:fix/webui-no-reload-orphan-recovery
