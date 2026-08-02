@@ -107,6 +107,11 @@ class Stage7StableContractTests(unittest.TestCase):
         self.assertIn("Run specialized Gitleaks scan", workflow)
         self.assertIn("Verify deterministic and idempotent generators", workflow)
         self.assertIn("Run Stage 7 semantic verifier", workflow)
+        self.assertIn(
+            "STAGE7_BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/personal/stable' }}",
+            workflow,
+        )
+        self.assertIn('--base-ref "$STAGE7_BASE_REF"', workflow)
         self.assertNotIn("continue-on-error: true\n        run: uv run python -m dev_tools.verify_stage7", workflow)
 
 
