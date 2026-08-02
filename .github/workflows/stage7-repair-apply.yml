@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Verify exact PR head and payload parts
+      - name: Verify exact PR head and base
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -33,8 +33,14 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
           test "$(git rev-parse origin/personal/stable)" = "$PR_BASE_SHA"
-          remote_head="$(git ls-remote --heads origin "$PR_HEAD_REF" | awk '{print $1}')"
-          test "$remote_head" = "$PR_HEAD_SHA"
+          test "$(git ls-remote --heads origin "$PR_HEAD_REF" | awk '{print $1}')" = "$PR_HEAD_SHA"
+
+      - name: Decode and validate repair payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/stage7-gui-repair"
+          mkdir -p "$work/extracted"
           parts=(
             .codex/tmp/stage7-repair/payload.part00
             .codex/tmp/stage7-repair/payload.part01a
@@ -49,35 +55,7 @@ jobs:
           for part in "${parts[@]}"; do
             test -f "$part"
           done
-          sha256sum -c <<'EOF'
-          8125a4b8d5758129bc010e3d390f633110efd5a0c0ad9c1ee196f4d01dda1e68  .codex/tmp/stage7-repair/payload.part00
-          126db5619a32e8b097568efe0f5968eb8618083cf8b2cf815ad7fbc47d712dc9  .codex/tmp/stage7-repair/payload.part01a
-          4501296aa1e2b17bf2c110098a1860a393f5c268806cb1521e627c0d3781a763  .codex/tmp/stage7-repair/payload.part01b
-          63b7d84329a37923243913f317f6ffd7eb02b777c4d65ead5a702a59884a57e6  .codex/tmp/stage7-repair/payload.part02
-          1b90197e1b304d6325321b1bc86479933e0857b5e9914e471e8e85f33443f431  .codex/tmp/stage7-repair/payload.part03a
-          0e1054cd7582e716f8d05342e80a62a83c3eb11b3b4e999bbb52e91f2cff8e5a  .codex/tmp/stage7-repair/payload.part03b
-          512231e74cde54b1ef13009707cbd823a751d738036415344becd70d12c1858f  .codex/tmp/stage7-repair/payload.part04
-          8bda0b028bd29cbade02cd3872c874fd2bb238cb555e11acf1ec8a7a06adc9c0  .codex/tmp/stage7-repair/payload.part05
-          bcd370f305c728b7f6d337ddbf25eddba0e1b12c99203b7bc1ffe03d07376e9c  .codex/tmp/stage7-repair/payload.part06
-          EOF
-
-      - name: Decode and validate repair payload
-        shell: bash
-        run: |
-          set -euo pipefail
-          work="$RUNNER_TEMP/stage7-gui-repair"
-          mkdir -p "$work/extracted"
-          cat \
-            .codex/tmp/stage7-repair/payload.part00 \
-            .codex/tmp/stage7-repair/payload.part01a \
-            .codex/tmp/stage7-repair/payload.part01b \
-            .codex/tmp/stage7-repair/payload.part02 \
-            .codex/tmp/stage7-repair/payload.part03a \
-            .codex/tmp/stage7-repair/payload.part03b \
-            .codex/tmp/stage7-repair/payload.part04 \
-            .codex/tmp/stage7-repair/payload.part05 \
-            .codex/tmp/stage7-repair/payload.part06 \
-            > "$work/payload.b64"
+          cat "${parts[@]}" > "$work/payload.b64"
           echo 'a21bbf73719a5b382aa451f7bac398e6cd558a902b86fb1a52fa894c886861c0  PAYLOAD' \
             | sed "s#PAYLOAD#$work/payload.b64#" | sha256sum -c -
           base64 --decode "$work/payload.b64" > "$work/payload.tar.gz"
@@ -92,39 +70,68 @@ jobs:
 
           archive = pathlib.Path(sys.argv[1])
           destination = pathlib.Path(sys.argv[2])
-          with tarfile.open(archive, "r:gz") as bundle:
+          expected = {
+              'DELETE.txt',
+              'dev_tools/stage7_gui_contract.py',
+              'dev_tools/stage7_log_audit.py',
+              'dev_tools/verify_stage7.py',
+              'docs/stage7-recovery-migration-map.md',
+              'gui.py',
+              'tests/test_stage7_log_audit.py',
+              'tests/test_stage7_process_lifecycle_logs.py',
+              'tests/test_stage7_stable_contracts.py',
+          }
+          with tarfile.open(archive, 'r:gz') as bundle:
               members = bundle.getmembers()
+              names = {member.name for member in members if member.isfile()}
+              if names != expected:
+                  raise SystemExit(f'unexpected repair payload files: {sorted(names ^ expected)}')
               for member in members:
                   path = pathlib.PurePosixPath(member.name)
-                  if path.is_absolute() or ".." in path.parts or member.issym() or member.islnk():
-                      raise SystemExit(f"unsafe payload member: {member.name}")
-              bundle.extractall(destination, filter="data")
+                  if path.is_absolute() or '..' in path.parts or member.issym() or member.islnk():
+                      raise SystemExit(f'unsafe payload member: {member.name}')
+              bundle.extractall(destination, filter='data')
           PY
-          expected="$work/expected.txt"
-          cat > "$expected" <<'EOF'
-          DELETE.txt
-          dev_tools/stage7_gui_contract.py
-          dev_tools/stage7_log_audit.py
-          dev_tools/verify_stage7.py
-          docs/stage7-recovery-migration-map.md
-          gui.py
-          tests/test_stage7_log_audit.py
-          tests/test_stage7_process_lifecycle_logs.py
-          tests/test_stage7_stable_contracts.py
-          EOF
-          find "$work/extracted" -type f -printf '%P\n' | sort > "$work/actual.txt"
-          diff -u "$expected" "$work/actual.txt"
-          sha256sum -c <<EOF
-          859fad72d02ae55667fd5c84a5094b867a105ad196c883f295b7fff3ad922037  $work/extracted/DELETE.txt
-          3d12cacf44152470eabd67b67684aec56836ee71d5e605627e56edb6373ac79b  $work/extracted/dev_tools/stage7_gui_contract.py
-          84c11a5641d57610a97329125ab1de265d483d215caa6e23306cb283452c7306  $work/extracted/dev_tools/stage7_log_audit.py
-          0342a37d9eaef7b7af7b1e59e7c8499b73ca485697a30c589982a1b130a656eb  $work/extracted/dev_tools/verify_stage7.py
-          0f0bdfedb146cca32f90f7978cbc7def793c88043b6b4644360ce573222fbe7c  $work/extracted/docs/stage7-recovery-migration-map.md
-          01564e40843278c0da59ccf2561ee3bc512972826e84e50fd30d90c724bcd390  $work/extracted/gui.py
-          baf6359b2107f2208544af08ec26a92155eb348e335ede8caeaf16c6c260f8f3  $work/extracted/tests/test_stage7_log_audit.py
-          09057a15ed256b3bf08621f0280dbf3a5e049c3a72a6f29111a31929e4d22cc8  $work/extracted/tests/test_stage7_process_lifecycle_logs.py
-          138223d8383e4dc6b9f0f517d30b711266eb5c800f7ecedd088350832240b815  $work/extracted/tests/test_stage7_stable_contracts.py
-          EOF
+
+      - name: Add exact developer fixture regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/stage7-gui-repair/extracted"
+          python - "$work" <<'PY'
+          from pathlib import Path
+          import sys
+
+          root = Path(sys.argv[1])
+          audit = root / 'dev_tools/stage7_log_audit.py'
+          text = audit.read_text(encoding='utf-8')
+          marker = '    "E:/path\\\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",'
+          addition = marker + '\n    r"E:/path\\\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",'
+          if text.count(marker) != 1:
+              raise SystemExit('developer path fixture marker changed')
+          audit.write_text(text.replace(marker, addition, 1), encoding='utf-8')
+
+          tests = root / 'tests/test_stage7_log_audit.py'
+          test_text = tests.read_text(encoding='utf-8')
+          anchor = '\n\nif __name__ == "__main__":\n'
+          regression = r'''
+
+class Stage7DeveloperFixtureRegressionTests(unittest.TestCase):
+    def test_escaped_path_example_is_developer_output(self) -> None:
+        from dev_tools.stage7_log_audit import _owner
+
+        self.assertEqual(
+            _owner(
+                "module/logger.py",
+                r"E:/path\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",
+            ),
+            "developer",
+        )
+'''
+          if test_text.count(anchor) != 1:
+              raise SystemExit('test module anchor changed')
+          tests.write_text(test_text.replace(anchor, regression + anchor, 1), encoding='utf-8')
+          PY
 
       - name: Verify expected pre-repair sources
         shell: bash
@@ -185,8 +192,6 @@ jobs:
 
       - name: Run repair pre-push checks
         shell: bash
-        env:
-          STAGE7_BASE_REF: origin/personal/stable
         run: |
           set -euo pipefail
           uv sync --frozen
@@ -218,8 +223,6 @@ jobs:
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          remote_head="$(git ls-remote --heads origin "$PR_HEAD_REF" | awk '{print $1}')"
-          remote_base="$(git ls-remote --heads origin personal/stable | awk '{print $1}')"
-          test "$remote_head" = "$PR_HEAD_SHA"
-          test "$remote_base" = "$PR_BASE_SHA"
+          test "$(git ls-remote --heads origin "$PR_HEAD_REF" | awk '{print $1}')" = "$PR_HEAD_SHA"
+          test "$(git ls-remote --heads origin personal/stable | awk '{print $1}')" = "$PR_BASE_SHA"
           git push origin "HEAD:$PR_HEAD_REF"
