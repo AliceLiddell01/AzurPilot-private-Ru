@@ -1022,6 +1022,14 @@ def run_webui_supervisor() -> None:
         logger.info("[GUI] AzurPilot Web服务已成功退出")
 
 
+def _run_webui_without_reload() -> bool:
+    """Восстановить orphaned worker-процессы перед прямым запуском WebUI."""
+    if not _recover_orphaned_workers():
+        return False
+    func(None, None)
+    return True
+
+
 if __name__ == "__main__":
     # 设置multiprocessing启动方式为spawn（macOS兼容性要求）
     try:
@@ -1035,5 +1043,4 @@ if __name__ == "__main__":
     if State.deploy_config.EnableReload:
         run_webui_supervisor()
     else:
-        # 非重载模式：直接运行
-        func(None, None)
+        _run_webui_without_reload()
