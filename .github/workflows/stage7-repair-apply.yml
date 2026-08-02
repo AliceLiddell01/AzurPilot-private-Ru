@@ -1,0 +1,296 @@
+name: Stage 7 repair apply
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: Apply Stage 7 repair hardening
+    if: github.event.pull_request.head.ref == 'codex/stage7-log-russianization-recovery'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Apply fail-closed hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              if new in text:
+                  return
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one replacement point, found {count}')
+              target.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'dev_tools/stage7_gui_contract.py',
+              '''TECHNICAL_IDENTIFIERS = {
+              "SSL",
+              "PID",
+              "IPv4",
+              "IPv6",
+              "Electron",
+              "WebUI",
+              "uv",
+              "taskkill",
+              "psutil",
+          }
+          GUI_BLOCKING_METRICS = (
+          ''',
+              '''TECHNICAL_IDENTIFIERS = {
+              "SSL",
+              "PID",
+              "IPv4",
+              "IPv6",
+              "Electron",
+              "WebUI",
+              "uv",
+              "taskkill",
+              "psutil",
+          }
+          ALLOWED_LATIN_TOKENS = TECHNICAL_IDENTIFIERS | {
+              "GUI",
+              "AzurPilot",
+              "KeyboardInterrupt",
+              "Python",
+              "config",
+              "dependency-sync",
+              "fork",
+              "frozen",
+              "gui.py",
+              "kill",
+              "macOS",
+              "spawn",
+              "stdout",
+              "sync",
+              "terminate",
+              "worker",
+          }
+          LATIN_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.-]*")
+          GUI_BLOCKING_METRICS = (
+          ''',
+          )
+
+          classification = '''def _classification(template: str) -> tuple[str, bool, str]:
+              stripped = template.strip()
+              if stripped in TECHNICAL_IDENTIFIERS:
+                  return (
+                      "technical_identifier",
+                      False,
+                      "Точный product/protocol token сохраняется без перевода.",
+                  )
+              if CJK_RE.search(template):
+                  return (
+                      "stage7_first_party_message",
+                      True,
+                      "First-party CJK-текст текущего WebUI supervisor требует русификации.",
+                  )
+              if CYRILLIC_RE.search(template):
+                  return (
+                      "stage7_first_party_message",
+                      False,
+                      "First-party контекст на русском языке.",
+                  )
+              if LATIN_RE.search(template):
+                  return (
+                      "stage7_first_party_message",
+                      True,
+                      "Обычный английский first-party текст требует русификации.",
+                  )
+              return (
+                  "technical_identifier",
+                  False,
+                  "Структурный символ или нейтральный технический фрагмент.",
+              )
+
+
+          '''
+          helpers = classification + '''def _ordinary_english_tokens(template: str) -> tuple[str, ...]:
+              scrubbed = BRACE_PLACEHOLDER_RE.sub(" ", template)
+              scrubbed = PERCENT_PLACEHOLDER_RE.sub(" ", scrubbed)
+              remaining: list[str] = []
+              for token in LATIN_TOKEN_RE.findall(scrubbed):
+                  normalized = token.rstrip(".")
+                  if normalized not in ALLOWED_LATIN_TOKENS:
+                      remaining.append(normalized)
+              return tuple(remaining)
+
+
+          def _translation_state(template: str) -> str:
+              if CJK_RE.search(template):
+                  return "cjk"
+              if not CYRILLIC_RE.search(template):
+                  return "english" if LATIN_RE.search(template) else "untranslated"
+              if _ordinary_english_tokens(template):
+                  return "english"
+              return "translated"
+
+
+          '''
+          replace_once('dev_tools/stage7_gui_contract.py', classification, helpers)
+
+          replace_once(
+              'dev_tools/stage7_gui_contract.py',
+              '''        if old.translation_required:
+                      allowed_paths.add(old.ast_path)
+                      if new.translation_required:
+                          unresolved += 1
+                          if CJK_RE.search(new.template):
+                              cjk_remaining += 1
+                          elif LATIN_RE.search(new.template) and not CYRILLIC_RE.search(new.template):
+                              english_remaining += 1
+                      else:
+                          translated += 1
+                      approved.append(
+          ''',
+              '''        if old.translation_required:
+                      allowed_paths.add(old.ast_path)
+                      translation_state = _translation_state(new.template)
+                      if translation_state != "translated":
+                          unresolved += 1
+                          if translation_state == "cjk":
+                              cjk_remaining += 1
+                          elif translation_state == "english":
+                              english_remaining += 1
+                      else:
+                          translated += 1
+                      approved.append(
+          ''',
+          )
+
+          control_flow_test = '''    def test_gui_contract_rejects_control_flow_change(self) -> None:
+                  base = """
+          def run(pid):
+              logger.info(f"Запуск (PID: {pid})")
+          """
+                  head = """
+          def run(pid):
+              if pid:
+                  logger.info(f"Запуск (PID: {pid})")
+          """
+                  result = analyze_gui_contract(base, head, base_sha="0" * 40)
+                  self.assertGreater(
+                      result["metrics"]["stage7_gui_control_flow_mismatches"], 0
+                  )
+
+          '''
+          hardening_tests = control_flow_test + '''    def test_gui_contract_rejects_message_replaced_by_technical_token(self) -> None:
+                  base = """
+          def run(pid):
+              logger.warning(f"Stopping service (PID: {pid})")
+          """
+                  head = """
+          def run(pid):
+              logger.warning(f"SSL (PID: {pid})")
+          """
+                  result = analyze_gui_contract(base, head, base_sha="0" * 40)
+                  self.assertGreater(result["metrics"]["stage7_gui_unresolved"], 0)
+
+              def test_gui_contract_rejects_deleted_first_party_text(self) -> None:
+                  base = """
+          def run():
+              logger.warning("Dependency sync service is not running")
+          """
+                  head = """
+          def run():
+              logger.warning("")
+          """
+                  result = analyze_gui_contract(base, head, base_sha="0" * 40)
+                  self.assertGreater(result["metrics"]["stage7_gui_unresolved"], 0)
+
+              def test_gui_contract_rejects_mixed_ordinary_english(self) -> None:
+                  base = """
+          def run():
+              logger.warning("Dependency sync service is not running")
+          """
+                  head = """
+          def run():
+              logger.warning("Служба dependency sync service не запущена")
+          """
+                  result = analyze_gui_contract(base, head, base_sha="0" * 40)
+                  self.assertEqual(
+                      result["metrics"]["stage7_gui_english_first_party_remaining"], 1
+                  )
+
+              def test_gui_contract_allows_russian_with_technical_tokens(self) -> None:
+                  base = """
+          def run(pid):
+              logger.warning(f"[GUI] WebUI worker failed (PID: {pid})")
+          """
+                  head = """
+          def run(pid):
+              logger.warning(f"[GUI] Не удалось завершить worker WebUI (PID: {pid})")
+          """
+                  result = analyze_gui_contract(base, head, base_sha="0" * 40)
+                  self.assertEqual(result["errors"], [])
+
+          '''
+          replace_once('tests/test_stage7_log_audit.py', control_flow_test, hardening_tests)
+
+          replace_once(
+              '.github/workflows/lint.yml',
+              '''      - name: Run Stage 7 semantic verifier
+                  run: >-
+                    uv run python -m dev_tools.verify_stage7
+                    --base-ref origin/personal/stable
+                    --output-dir artifacts/stage7
+          ''',
+              '''      - name: Run Stage 7 semantic verifier
+                  env:
+                    STAGE7_BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/personal/stable' }}
+                  run: >-
+                    uv run python -m dev_tools.verify_stage7
+                    --base-ref "$STAGE7_BASE_REF"
+                    --output-dir artifacts/stage7
+          ''',
+          )
+
+          replace_once(
+              'tests/test_stage7_stable_contracts.py',
+              '''        self.assertIn("Run Stage 7 semantic verifier", workflow)
+                  self.assertNotIn("continue-on-error: true\\n        run: uv run python -m dev_tools.verify_stage7", workflow)
+          ''',
+              '''        self.assertIn("Run Stage 7 semantic verifier", workflow)
+                  self.assertIn(
+                      "STAGE7_BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/personal/stable' }}",
+                      workflow,
+                  )
+                  self.assertIn('--base-ref "$STAGE7_BASE_REF"', workflow)
+                  self.assertNotIn("continue-on-error: true\\n        run: uv run python -m dev_tools.verify_stage7", workflow)
+          ''',
+          )
+          PY
+
+      - name: Validate patched Python syntax
+        run: python -m py_compile dev_tools/stage7_gui_contract.py tests/test_stage7_log_audit.py tests/test_stage7_stable_contracts.py
+
+      - name: Commit and push hardening
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo 'Hardening is already applied.'
+            exit 0
+          fi
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- dev_tools/stage7_gui_contract.py tests/test_stage7_log_audit.py tests/test_stage7_stable_contracts.py .github/workflows/lint.yml
+          git commit -m 'fix(stage7): усилить fail-closed контракт gui.py'
+          git push origin "HEAD:$HEAD_BRANCH"
