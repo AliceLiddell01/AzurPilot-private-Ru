@@ -27,7 +27,12 @@ from module.os.tasks.voucher import (
     DATA_LOGGER_STORAGE_USE_SECONDS,
     OpsiVoucher,
 )
-from module.os_handler.assets import GET_ADAPTABILITY, STORAGE_USE
+from module.os_handler.assets import (
+    AUTO_SEARCH_REWARD,
+    GET_ADAPTABILITY,
+    STORAGE_ENTER,
+    STORAGE_USE,
+)
 from module.os_handler.storage import SCROLL_STORAGE
 from module.storage.assets import BOX_USE
 
@@ -153,6 +158,49 @@ class LostMapHarness(OpsiVoucher):
         return False
 
 
+class StorageTransitionHarness(OpsiVoucher):
+    def __init__(self):
+        self.frame = 0
+        self.storage_clicks = 0
+        self.zone = SimpleNamespace(is_azur_port=True)
+        self.device = SimpleNamespace(
+            screenshot=self._screenshot,
+            click=lambda _button: None,
+        )
+
+    def _screenshot(self):
+        self.frame += 1
+
+    def _data_logger_ensure_port_map(self):
+        return True
+
+    def interval_clear(self, _button):
+        return None
+
+    def is_in_storage(self):
+        return self.frame >= 4
+
+    def handle_info_bar(self):
+        return None
+
+    def appear(self, *_args, **_kwargs):
+        return False
+
+    def appear_then_click(self, button, **_kwargs):
+        if button is AUTO_SEARCH_REWARD:
+            return False
+        if button is STORAGE_ENTER and self.frame == 1:
+            self.storage_clicks += 1
+            return True
+        return False
+
+    def handle_map_event(self):
+        return False
+
+    def is_in_map(self):
+        return self.frame in {1, 2}
+
+
 @pytest.fixture(autouse=True)
 def fixed_server_time(monkeypatch):
     monkeypatch.setattr(
@@ -271,3 +319,23 @@ def test_storage_entry_aborts_when_allied_port_map_invariant_is_lost(monkeypatch
 
     assert not task._data_logger_storage_enter()
     assert task.shots == 1
+
+
+def test_storage_entry_keeps_transition_grace_until_storage_appears(monkeypatch):
+    overall = FrameTimer(frame_limit=8)
+    transition = FrameTimer(frame_limit=4)
+
+    def timer_factory(seconds):
+        if seconds == DATA_LOGGER_STORAGE_ENTER_SECONDS:
+            return overall
+        return transition
+
+    monkeypatch.setattr(
+        'module.os.tasks.voucher.Timer.from_seconds',
+        timer_factory,
+    )
+    task = StorageTransitionHarness()
+
+    assert task._data_logger_storage_enter()
+    assert task.storage_clicks == 1
+    assert task.frame == 4
