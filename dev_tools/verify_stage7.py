@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ from dev_tools.stage7_log_audit import (
     ROOT,
     Stage7LogAudit,
 )
+from dev_tools.stage7_semantic_diagnostics import collect_semantic_findings
 from dev_tools.stage7_semantic_policy import apply_stage7_policy
 
 
@@ -49,6 +51,10 @@ def main(argv: list[str] | None = None) -> int:
 
     audit = Stage7LogAudit(ROOT, base_ref=args.base_ref)
     outputs, metrics = audit.build()
+    findings = collect_semantic_findings(audit)
+    outputs["semantic-findings.json"] = (
+        json.dumps(findings, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
     outputs, metrics, gui_policy_errors = apply_gui_stable_policy(outputs, metrics)
     outputs, metrics, semantic_policy_errors = apply_stage7_policy(outputs, metrics)
     _write_outputs(args.output_dir, outputs)
@@ -68,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         [sys.executable, "-m", "unittest", "-v", *_existing_test_modules()],
         cwd=ROOT,
         check=False,
-        env={**__import__("os").environ, "STAGE7_BASE_REF": audit.base_sha},
+        env={**os.environ, "STAGE7_BASE_REF": audit.base_sha},
     )
     if completed.returncode:
         return completed.returncode
