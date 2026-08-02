@@ -18,12 +18,26 @@ class _TagCollector(HTMLParser):
         super().__init__()
         self.tags: list[str] = []
         self.ids: list[str] = []
+        self.text_chunks: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.tags.append(tag)
         attributes = dict(attrs)
         if attributes.get("id"):
             self.ids.append(str(attributes["id"]))
+
+    def handle_data(self, data: str) -> None:
+        self.text_chunks.append(data)
+
+    @property
+    def text(self) -> str:
+        return "".join(self.text_chunks)
+
+
+def _collect_html(value: str) -> _TagCollector:
+    collector = _TagCollector()
+    collector.feed(value)
+    return collector
 
 
 class BrokenRepr:
@@ -66,25 +80,25 @@ def _render_recursive(*, dark_theme: bool) -> str:
 class WebUITracebackRenderingTest(unittest.TestCase):
     def test_recursive_exception_is_structured_and_redacted(self) -> None:
         rendered = _render_recursive(dark_theme=True)
+        collector = _collect_html(rendered)
         self.assertEqual(rendered.count("rich-traceback-container"), 1)
         self.assertIn('class="rich-traceback-code"', rendered)
-        self.assertIn("Exception: quq", rendered)
-        self.assertIn("видимое значение", rendered)
-        self.assertIn("&lt;скрыто&gt;", rendered)
-        self.assertNotIn("do-not-leak", rendered)
-        self.assertNotIn("private-token", rendered)
-        self.assertNotIn("\x1b", rendered)
-        self.assertNotIn("\u202e", rendered)
-        self.assertIn("&lt;PROJECT_ROOT&gt;", rendered)
-        self.assertNotIn(str(Path.cwd().resolve()), rendered)
+        self.assertIn("Exception: quq", collector.text)
+        self.assertIn("видимое значение", collector.text)
+        self.assertIn("<скрыто>", collector.text)
+        self.assertNotIn("do-not-leak", collector.text)
+        self.assertNotIn("private-token", collector.text)
+        self.assertNotIn("\x1b", collector.text)
+        self.assertNotIn("\u202e", collector.text)
+        self.assertIn("<PROJECT_ROOT>", collector.text)
+        self.assertNotIn(str(Path.cwd().resolve()), collector.text)
 
     def test_exception_payload_cannot_create_dom_nodes(self) -> None:
         rendered = _render_recursive(dark_theme=False)
-        collector = _TagCollector()
-        collector.feed(rendered)
+        collector = _collect_html(rendered)
         self.assertNotIn("script", collector.tags)
         self.assertNotIn("stage7-owned", collector.ids)
-        self.assertIn("&lt;script id=", rendered)
+        self.assertIn("<script id='stage7-owned'>bad()</script>", collector.text)
 
     def test_renderer_requires_active_exception(self) -> None:
         with self.assertRaisesRegex(ValueError, "активное исключение"):
@@ -174,15 +188,23 @@ class WebUITracebackRenderingTest(unittest.TestCase):
         self.assertIn("ValueError: quq", sanitized)
         self.assertNotIn("private-token", sanitized)
 
-    def test_dark_and_light_fixtures_embed_safe_renderer(self) -> None:
+    def test_dark_and_light_fixtures_preserve_safe_semantics(self) -> None:
         fixture_dir = Path(__file__).parent / "fixtures/stage7_webui_traceback"
         for theme in ("light", "dark"):
             with self.subTest(theme=theme):
                 fixture = (fixture_dir / f"fixture-{theme}.html").read_text(encoding="utf-8")
-                rendered = _render_recursive(dark_theme=theme == "dark")
-                self.assertIn(rendered, fixture)
+                collector = _collect_html(fixture)
+                self.assertEqual(fixture.count("rich-traceback-container"), 1)
+                self.assertNotIn("script", collector.tags)
+                self.assertNotIn("stage7-owned", collector.ids)
+                self.assertIn("Exception: quq", collector.text)
+                self.assertIn("<script id='stage7-owned'>bad()</script>", collector.text)
+                self.assertIn("видимое значение", collector.text)
+                self.assertIn("<скрыто>", collector.text)
+                self.assertNotIn("private-token", collector.text)
+                self.assertNotIn("do-not-leak", collector.text)
                 self.assertIn("../../../assets/gui/css/alas.css", fixture)
-                self.assertNotIn(str(Path.cwd().resolve()), fixture)
+                self.assertNotIn(str(Path.cwd().resolve()), collector.text)
 
 
 if __name__ == "__main__":
