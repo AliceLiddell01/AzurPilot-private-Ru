@@ -48,6 +48,25 @@ TECHNICAL_IDENTIFIERS = {
     "taskkill",
     "psutil",
 }
+ALLOWED_LATIN_TOKENS = TECHNICAL_IDENTIFIERS | {
+    "GUI",
+    "AzurPilot",
+    "KeyboardInterrupt",
+    "Python",
+    "config",
+    "dependency-sync",
+    "fork",
+    "frozen",
+    "gui.py",
+    "kill",
+    "macOS",
+    "spawn",
+    "stdout",
+    "sync",
+    "terminate",
+    "worker",
+}
+LATIN_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.-]*")
 GUI_BLOCKING_METRICS = (
     "stage7_gui_unresolved",
     "stage7_gui_cjk_first_party_remaining",
@@ -214,6 +233,27 @@ def _classification(template: str) -> tuple[str, bool, str]:
         False,
         "Структурный символ или нейтральный технический фрагмент.",
     )
+
+
+def _ordinary_english_tokens(template: str) -> tuple[str, ...]:
+    scrubbed = BRACE_PLACEHOLDER_RE.sub(" ", template)
+    scrubbed = PERCENT_PLACEHOLDER_RE.sub(" ", scrubbed)
+    remaining: list[str] = []
+    for token in LATIN_TOKEN_RE.findall(scrubbed):
+        normalized = token.rstrip(".")
+        if normalized not in ALLOWED_LATIN_TOKENS:
+            remaining.append(normalized)
+    return tuple(remaining)
+
+
+def _translation_state(template: str) -> str:
+    if CJK_RE.search(template):
+        return "cjk"
+    if not CYRILLIC_RE.search(template):
+        return "english" if LATIN_RE.search(template) else "untranslated"
+    if _ordinary_english_tokens(template):
+        return "english"
+    return "translated"
 
 
 def _raw_external(node: ast.AST) -> bool:
@@ -544,11 +584,12 @@ def analyze_gui_contract(base_source: str, head_source: str, *, base_sha: str) -
             )
         if old.translation_required:
             allowed_paths.add(old.ast_path)
-            if new.translation_required:
+            translation_state = _translation_state(new.template)
+            if translation_state != "translated":
                 unresolved += 1
-                if CJK_RE.search(new.template):
+                if translation_state == "cjk":
                     cjk_remaining += 1
-                elif LATIN_RE.search(new.template) and not CYRILLIC_RE.search(new.template):
+                elif translation_state == "english":
                     english_remaining += 1
             else:
                 translated += 1

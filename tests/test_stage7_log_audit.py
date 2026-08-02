@@ -182,6 +182,56 @@ def run(pid):
             result["metrics"]["stage7_gui_control_flow_mismatches"], 0
         )
 
+    def test_gui_contract_rejects_message_replaced_by_technical_token(self) -> None:
+        base = """
+def run(pid):
+    logger.warning(f"Stopping service (PID: {pid})")
+"""
+        head = """
+def run(pid):
+    logger.warning(f"SSL (PID: {pid})")
+"""
+        result = analyze_gui_contract(base, head, base_sha="0" * 40)
+        self.assertGreater(result["metrics"]["stage7_gui_unresolved"], 0)
+
+    def test_gui_contract_rejects_deleted_first_party_text(self) -> None:
+        base = """
+def run():
+    logger.warning("Dependency sync service is not running")
+"""
+        head = """
+def run():
+    logger.warning("")
+"""
+        result = analyze_gui_contract(base, head, base_sha="0" * 40)
+        self.assertGreater(result["metrics"]["stage7_gui_unresolved"], 0)
+
+    def test_gui_contract_rejects_mixed_ordinary_english(self) -> None:
+        base = """
+def run():
+    logger.warning("Dependency sync service is not running")
+"""
+        head = """
+def run():
+    logger.warning("Служба dependency sync service не запущена")
+"""
+        result = analyze_gui_contract(base, head, base_sha="0" * 40)
+        self.assertEqual(
+            result["metrics"]["stage7_gui_english_first_party_remaining"], 1
+        )
+
+    def test_gui_contract_allows_russian_with_technical_tokens(self) -> None:
+        base = """
+def run(pid):
+    logger.warning(f"[GUI] WebUI worker failed (PID: {pid})")
+"""
+        head = """
+def run(pid):
+    logger.warning(f"[GUI] Не удалось завершить worker WebUI (PID: {pid})")
+"""
+        result = analyze_gui_contract(base, head, base_sha="0" * 40)
+        self.assertEqual(result["errors"], [])
+
     def test_broad_gui_stable_policy_is_removed(self) -> None:
         policy = Path(__file__).resolve().parents[1] / "dev_tools/stage7_gui_stable_policy.py"
         self.assertFalse(policy.exists())
