@@ -16,6 +16,9 @@ def metrics(page: Page) -> dict[str, object]:
         """element => {
             const pre = element.querySelector('pre');
             const style = getComputedStyle(pre);
+            const containerStyle = getComputedStyle(element);
+            const modal = element.closest('.modal');
+            const modalStyle = modal ? getComputedStyle(modal) : null;
             const root = document.documentElement;
             return {
                 container_count: document.querySelectorAll('.rich-traceback-container').length,
@@ -25,6 +28,10 @@ def metrics(page: Page) -> dict[str, object]:
                 page_scroll_width: root.scrollWidth,
                 container_client_width: element.clientWidth,
                 container_scroll_width: element.scrollWidth,
+                container_client_height: element.clientHeight,
+                container_scroll_height: element.scrollHeight,
+                overscroll_y: containerStyle.overscrollBehaviorY,
+                modal_align_items: modalStyle ? modalStyle.alignItems : '',
                 white_space: style.whiteSpace,
                 ligatures: style.fontVariantLigatures,
                 text: element.textContent,
@@ -38,6 +45,8 @@ def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None
     assert data["script_count"] == 0, data
     assert data["injected_id_count"] == 0, data
     assert data["page_scroll_width"] <= data["page_client_width"], data
+    assert data["overscroll_y"] == "auto", data
+    assert data["modal_align_items"] == "flex-start", data
     assert data["white_space"] == "pre", data
     assert data["ligatures"] == "none", data
     text = str(data["text"])
@@ -46,6 +55,59 @@ def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None
     assert "do-not-leak" not in text, data
     if narrow:
         assert data["container_scroll_width"] > data["container_client_width"], data
+
+
+def assert_zoom_scroll_round_trip(page: Page) -> dict[str, object]:
+    return page.locator(".rich-traceback-container").evaluate(
+        """element => {
+            const root = document.scrollingElement || document.documentElement;
+            const modal = element.closest('.modal');
+            document.documentElement.style.zoom = '2';
+
+            element.scrollTop = element.scrollHeight;
+            const containerBottom = element.scrollTop;
+            element.scrollTop = 0;
+            const containerTop = element.scrollTop;
+
+            root.scrollTop = root.scrollHeight;
+            const pageBottom = root.scrollTop;
+            root.scrollTop = 0;
+            const pageTop = root.scrollTop;
+
+            if (modal) {
+                modal.scrollTop = modal.scrollHeight;
+            }
+            const modalBottom = modal ? modal.scrollTop : 0;
+            if (modal) {
+                modal.scrollTop = 0;
+            }
+            const modalTop = modal ? modal.scrollTop : 0;
+            const dialogTop = modal
+                ? modal.querySelector('.modal-dialog').getBoundingClientRect().top
+                : 0;
+
+            document.documentElement.style.zoom = '';
+            return {
+                container_bottom: containerBottom,
+                container_top: containerTop,
+                page_bottom: pageBottom,
+                page_top: pageTop,
+                modal_bottom: modalBottom,
+                modal_top: modalTop,
+                dialog_top: dialogTop,
+                overscroll_y: getComputedStyle(element).overscrollBehaviorY,
+            };
+        }"""
+    )
+
+
+def assert_zoom_layout(data: dict[str, object]) -> None:
+    assert data["container_bottom"] > 0, data
+    assert data["container_top"] == 0, data
+    assert data["page_top"] == 0, data
+    assert data["modal_top"] == 0, data
+    assert data["dialog_top"] >= 0, data
+    assert data["overscroll_y"] == "auto", data
 
 
 def run() -> list[dict[str, object]]:
@@ -71,6 +133,9 @@ def run() -> list[dict[str, object]]:
                         initial = metrics(page)
                         assert_safe_layout(initial)
 
+                        zoomed = assert_zoom_scroll_round_trip(page)
+                        assert_zoom_layout(zoomed)
+
                         modal_html = page.locator(".modal").evaluate(
                             "element => element.outerHTML"
                         )
@@ -92,6 +157,7 @@ def run() -> list[dict[str, object]]:
                                 "theme": theme,
                                 "viewport": [width, height],
                                 "initial": initial,
+                                "zoomed": zoomed,
                                 "narrow": narrow,
                                 "reopened": reopened,
                             }
