@@ -1,0 +1,56 @@
+name: Temporary WebUI test-list patch
+
+on:
+  push:
+    branches:
+      - fix/webui-no-reload-orphan-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-list:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Patch required Stage 6 test list
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/lint.yml')
+          source = path.read_text(encoding='utf-8')
+          old = '''          tests/test_stage6_ui_russianization.py
+                    tests/test_webui_worker_registry.py
+          '''
+          new = '''          tests/test_stage6_ui_russianization.py
+                    tests/test_webui_worker_registry.py
+                    tests/test_webui_no_reload_recovery.py
+          '''
+          if old in source:
+              path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          elif 'tests/test_webui_no_reload_recovery.py' not in source:
+              raise SystemExit('Stage 6 test list was not found')
+          PY
+
+      - name: Verify focused tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/lint.yml').read_text(encoding='utf-8')
+          assert text.count('tests/test_webui_no_reload_recovery.py') == 1
+          PY
+          git diff --check
+
+      - name: Commit test-list update
+        run: |
+          if git diff --quiet -- .github/workflows/lint.yml; then
+            echo 'Stage 6 test list is already updated.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/lint.yml
+          git commit -m 'ci: запускать no-reload recovery regression'
+          git push
