@@ -54,7 +54,7 @@ class AzurLaneAutoScript:
     stop_event: threading.Event = None
 
     def __init__(self, config_name=DEFAULT_CONFIG_NAME):
-        logger.hr('Start', level=0)
+        logger.hr('Запуск', level=0)
         self.config_name = config_name
         # 跳过启动后的第一次 Restart 任务
         self.is_first_task = True

@@ -97,7 +97,7 @@ def read_file(file):
     Returns:
         dict, list: 解析后的数据。
     """
-    print(f'read: {file}')
+    print(f'Чтение: {file}')
     if file.endswith('.json'):
         content = atomic_read_bytes(file)
         if not content:
@@ -112,7 +112,7 @@ def read_file(file):
             data = {}
         return data
     else:
-        print(f'Unsupported config file extension: {file}')
+        print(f'Неподдерживаемое расширение файла конфигурации: {file}')
         return {}
 
 
@@ -124,7 +124,7 @@ def write_file(file, data):
         file (str): 文件路径。
         data (dict, list): 要写入的数据。
     """
-    print(f'write: {file}')
+    print(f'Запись: {file}')
     if file.endswith('.json'):
         content = json.dumps(data, indent=2, ensure_ascii=False, sort_keys=False, default=str)
         atomic_write(file, content)
@@ -137,7 +137,7 @@ def write_file(file, data):
                 data, default_flow_style=False, encoding='utf-8', allow_unicode=True, sort_keys=False)
         atomic_write(file, content)
     else:
-        print(f'Unsupported config file extension: {file}')
+        print(f'Неподдерживаемое расширение файла конфигурации: {file}')
 
 
 def iter_folder(folder, is_dir=False, ext=None):

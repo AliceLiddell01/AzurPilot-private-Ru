@@ -139,4 +139,4 @@ def to_package(package_or_server: str) -> str:
         if value == package_or_server:
             return key
 
-    raise ValueError(f'Server invalid: {package_or_server}')
+    raise ValueError(f'Недопустимый сервер: {package_or_server}')

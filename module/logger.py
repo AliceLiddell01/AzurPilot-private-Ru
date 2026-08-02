@@ -25,6 +25,7 @@ import json
 import logging
 import multiprocessing
 import os
+import re
 import shutil
 import sys
 import tarfile
@@ -38,6 +39,7 @@ from typing import Callable, List
 from rich.console import Console, ConsoleOptions, ConsoleRenderable, NewLine
 from rich.highlighter import NullHighlighter, RegexHighlighter
 from rich.logging import RichHandler
+from rich.pretty import Node
 from rich.rule import Rule
 from rich.style import Style
 from rich.theme import Theme
@@ -58,6 +60,71 @@ logging.raiseExceptions = True  # 设为 True 可在控制台看到编码错误
 
 # 移除 HTTP 关键字（GET、POST 等）避免日志高亮误判
 RichHandler.KEYWORDS = []
+
+_SENSITIVE_NAME_RE = re.compile(
+    r"(?i)(?:authorization|credential|access[_-]?token|api[_-]?key|token|password|passwd|secret|cookie|session|private[_-]?key)"
+)
+_URL_USERINFO_RE = re.compile(
+    r"(?P<scheme>\b[a-z][a-z0-9+.-]*://)[^/\s@]+@", re.IGNORECASE
+)
+_SENSITIVE_QUERY_RE = re.compile(
+    r"(?i)([?&](?:access[_-]?token|api[_-]?key|token|password|passwd|secret)=)[^&#\s]+"
+)
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(authorization|access[_-]?token|api[_-]?key|token|password|passwd|secret)"
+    r"\s*([:=])\s*(?:bearer\s+)?[^\s,;]+"
+)
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+_UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def sanitize_traceback_text(value) -> str:
+    """Скрыть типовые секреты и управляющие последовательности в traceback."""
+    text = str(value or "")
+    text = _ANSI_ESCAPE_RE.sub("", text)
+    text = _UNSAFE_CONTROL_RE.sub("", text)
+    text = _BIDI_CONTROL_RE.sub("", text)
+    text = _URL_USERINFO_RE.sub(r"\g<scheme>***@", text)
+    text = _SENSITIVE_QUERY_RE.sub(r"\1***", text)
+    text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1\2***", text)
+    path_aliases = (
+        (str(Path.cwd().resolve()), "<PROJECT_ROOT>"),
+        (str(Path.home().resolve()), "<USER_HOME>"),
+    )
+    for local_path, alias in path_aliases:
+        if local_path:
+            text = re.sub(re.escape(local_path), alias, text, flags=re.IGNORECASE)
+    return text
+
+
+def _redact_rich_node(node: Node) -> None:
+    node.key_repr = sanitize_traceback_text(node.key_repr)
+    node.value_repr = sanitize_traceback_text(node.value_repr)
+    if node.children:
+        for child in node.children:
+            _redact_rich_node(child)
+
+
+def sanitize_rich_traceback(renderable: Traceback) -> Traceback:
+    """Очистить Rich traceback до передачи в WebUI или HTML exporter."""
+    for stack in renderable.trace.stacks:
+        stack.exc_value = sanitize_traceback_text(stack.exc_value)
+        for frame in stack.frames:
+            frame.filename = sanitize_traceback_text(frame.filename)
+            frame.name = sanitize_traceback_text(frame.name)
+            frame.line = sanitize_traceback_text(frame.line)
+            if not frame.locals:
+                continue
+            for name in list(frame.locals):
+                if name.startswith("_"):
+                    del frame.locals[name]
+                    continue
+                if _SENSITIVE_NAME_RE.search(name):
+                    frame.locals[name] = Node(value_repr="'<скрыто>'")
+                    continue
+                _redact_rich_node(frame.locals[name])
+    return renderable
 
 
 class RichFileHandler(RichHandler):
@@ -95,6 +162,7 @@ class RichRenderableHandler(RichHandler):
                 locals_max_length=self.locals_max_length,
                 locals_max_string=self.locals_max_string,
             )
+            sanitize_rich_traceback(traceback)
             message = record.getMessage()
             if self.formatter:
                 record.message = record.getMessage()
@@ -624,4 +692,4 @@ logger.print = print
 logger.log_file: str
 
 logger.set_file_logger()
-logger.hr('启动', level=0)
+logger.hr('Запуск', level=0)
