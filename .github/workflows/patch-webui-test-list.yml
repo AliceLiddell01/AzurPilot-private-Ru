@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - fix/webui-no-reload-orphan-recovery
-  pull_request:
-    branches:
-      - personal/stable
 
 permissions:
   contents: write
@@ -16,8 +13,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: fix/webui-no-reload-orphan-recovery
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -40,8 +35,8 @@ jobs:
           path = Path('tests/test_webui_worker_registry.py')
           source = path.read_text(encoding='utf-8')
           class_name = 'class TestWebUiNoReloadRecovery(unittest.TestCase):'
-          marker = '\n\nif __name__ == "__main__":\n    unittest.main()\n'
           block = '''
+
 
 class TestWebUiNoReloadRecovery(unittest.TestCase):
     def test_no_reload_starts_only_after_orphan_recovery(self):
@@ -78,10 +73,7 @@ class TestWebUiNoReloadRecovery(unittest.TestCase):
 '''
 
           if class_name not in source:
-              if marker not in source:
-                  raise SystemExit('unittest main marker was not found')
-              source = source.replace(marker, block + marker, 1)
-              path.write_text(source, encoding='utf-8')
+              path.write_text(source.rstrip() + block + '\n', encoding='utf-8')
 
           standalone = Path('tests/test_webui_no_reload_recovery.py')
           if standalone.exists():
@@ -106,4 +98,4 @@ class TestWebUiNoReloadRecovery(unittest.TestCase):
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add tests/test_webui_worker_registry.py tests/test_webui_no_reload_recovery.py
           git commit -m 'test(webui): закрепить no-reload orphan recovery'
-          git push origin HEAD:fix/webui-no-reload-orphan-recovery
+          git push
