@@ -113,17 +113,17 @@ class ProcessManager:
         # WebUI 重启事务持有 restart_lock；清理过程持有 cleanup_lock。
         # 请求线程不能在事务期间长期阻塞。
         if not State.restart_lock.acquire(blocking=False):
-            logger.info(f"[{self.config_name}] WebUI 重启事务进行中，拒绝启动 worker")
+            logger.info(f"[{self.config_name}] WebUI перезапускается; запуск рабочего процесса отклонён")
             return
         try:
             if not State.cleanup_lock.acquire(blocking=False):
-                logger.info(f"[{self.config_name}] WebUI 清理进行中，拒绝启动 worker")
+                logger.info(f"[{self.config_name}] WebUI очищается; запуск рабочего процесса отклонён")
                 return
             try:
                 with self._get_lifecycle_lock(self.config_name):
                     if State._restart_requested or State._clearup:
                         logger.warning(
-                            f"[{self.config_name}] WebUI 正在重启或已清理，拒绝启动 worker"
+                            f"[{self.config_name}] WebUI перезапускается или уже очищена; запуск рабочего процесса отклонён"
                         )
                         return
                     if self.alive:
@@ -133,7 +133,7 @@ class ProcessManager:
                     _pid, _, _verified = self._registered_worker()
                     if not _verified and _pid is not None:
                         logger.warning(
-                            f"[{self.config_name}] Worker 登记不一致，拒绝启动以避免重复"
+                            f"[{self.config_name}] Запись рабочего процесса не согласована; запуск отклонён во избежание дублирования"
                         )
                         return
                     if func is None:
@@ -194,12 +194,12 @@ class ProcessManager:
                 # 若句柄已被清理说明 worker 已确认退出，视为成功停止。
                 if self._is_process_alive(self._process):
                     logger.error(
-                        f"[{self.config_name}] worker PID {pid} 身份无法确认，拒绝终止未知进程"
+                        f"[{self.config_name}] Не удалось подтвердить рабочий процесс PID {pid}; завершение неизвестного процесса отклонено"
                     )
                     stopped = False
                 else:
                     logger.info(
-                        f"[{self.config_name}] worker PID {pid} 本地句柄已回收，确认已退出"
+                        f"[{self.config_name}] Локальный дескриптор рабочего процесса PID {pid} освобождён; процесс завершён"
                     )
                     stopped = True
             elif pid is not None:
@@ -226,18 +226,18 @@ class ProcessManager:
                         Text(f"[{self.config_name}] exited. Reason: Manual stop\n")
                     )
             if not stopped:
-                logger.error(f"[{self.config_name}] 停止工作进程失败 PID {pid}")
+                logger.error(f"[{self.config_name}] Не удалось остановить рабочий процесс PID {pid}")
             log_queue_handler = self.thd_log_queue_handler
             if log_queue_handler is not None:
                 log_queue_handler.join(timeout=1)
                 if log_queue_handler.is_alive():
                     logger.warning(
-                        "[WebUI-进程管理] 日志队列处理线程未在 1 秒内停止"
+                        "[WebUI-процессы] Поток обработки очереди журналов не остановился за 1 секунду"
                     )
         if stopped:
-            logger.info(f"[{self.config_name}] 已退出")
+            logger.info(f"[{self.config_name}] Рабочий процесс завершён")
         else:
-            logger.warning(f"[{self.config_name}] worker 未完全停止")
+            logger.warning(f"[{self.config_name}] Рабочий процесс остановлен не полностью")
         return stopped
 
     @staticmethod
@@ -306,22 +306,22 @@ class ProcessManager:
     def _kill_registered_process_tree(self, pid: int, record: dict | None) -> bool:
         """在 taskkill 前再次校验登记身份，缩小 PID 复用窗口。"""
         if record is None:
-            logger.error(f"[{self.config_name}] worker PID {pid} 缺少持久化身份记录")
+            logger.error(f"[{self.config_name}] Для рабочего процесса PID {pid} нет постоянной записи идентичности")
             return False
         try:
             matches = process_matches(record)
         except RuntimeError as exc:
-            logger.error(f"[{self.config_name}] 无法再次验证 worker PID {pid}: {exc}")
+            logger.error(f"[{self.config_name}] Не удалось повторно проверить рабочий процесс PID {pid}: {exc}")
             return False
 
         if matches is True:
             return self._kill_process_tree(pid)
         if matches is None:
-            logger.info(f"[{self.config_name}] worker PID {pid} 已在终止前退出")
+            logger.info(f"[{self.config_name}] Рабочий процесс PID {pid} завершился до принудительной остановки")
             return True
 
         logger.error(
-            f"[{self.config_name}] worker PID {pid} 已复用，拒绝终止未知进程"
+            f"[{self.config_name}] PID {pid} уже принадлежит другому процессу; завершение неизвестного процесса отклонено"
         )
         return False
 
@@ -342,10 +342,10 @@ class ProcessManager:
                     return ProcessManager._wait_pid_exit(pid, timeout=3)
                 if not ProcessManager._pid_exists(pid):
                     return True
-                logger.warning(f"[WebUI-进程管理] 停止工作进程失败 PID {pid}: taskkill 返回 {result.returncode}")
+                logger.warning(f"[WebUI-процессы] Не удалось остановить рабочий процесс PID {pid}: taskkill вернул код {result.returncode}")
                 return False
             except (OSError, subprocess.TimeoutExpired) as exc:
-                logger.warning(f"[WebUI-进程管理] 停止工作进程失败 PID {pid}: {exc}")
+                logger.warning(f"[WebUI-процессы] Не удалось остановить рабочий процесс PID {pid}: {exc}")
                 return False
         else:
             try:
@@ -395,21 +395,21 @@ class ProcessManager:
                 cached_pid = registry.get(self.config_name)
                 cached_pid = int(cached_pid) if cached_pid is not None else None
             except (TypeError, ValueError):
-                logger.error(f"[{self.config_name}] worker PID 登记无效")
+                logger.error(f"[{self.config_name}] Недопустимая запись PID рабочего процесса")
                 return expected_pid, None, False
             except Exception as exc:
-                logger.error(f"[{self.config_name}] 无法读取 worker PID 登记: {exc}")
+                logger.error(f"[{self.config_name}] Не удалось прочитать запись PID рабочего процесса: {exc}")
                 return expected_pid, None, False
 
         try:
             expected_pid = int(expected_pid) if expected_pid is not None else None
         except (TypeError, ValueError):
-            logger.error(f"[{self.config_name}] 本地 worker PID 无效")
+            logger.error(f"[{self.config_name}] Недопустимый локальный PID рабочего процесса")
             return None, None, False
 
         if expected_pid is not None and cached_pid not in (None, expected_pid):
             logger.error(
-                f"[{self.config_name}] 本地 worker PID {expected_pid} 与共享登记 {cached_pid} 不一致"
+                f"[{self.config_name}] Локальный PID рабочего процесса {expected_pid} не совпадает с общей записью {cached_pid}"
             )
             return expected_pid, None, False
 
@@ -420,7 +420,7 @@ class ProcessManager:
         try:
             if not is_current_owner(os.getpid()):
                 logger.error(
-                    f"[{self.config_name}] 当前 WebUI 不拥有 worker 登记，拒绝操作 PID {pid}"
+                    f"[{self.config_name}] Текущая WebUI не владеет записью рабочего процесса; операция с PID {pid} отклонена"
                 )
                 return pid, None, False
             record = get_workers(os.getpid()).get(self.config_name)
@@ -430,12 +430,12 @@ class ProcessManager:
                 record_pid = None
             if not isinstance(record, dict) or record_pid != pid:
                 logger.error(
-                    f"[{self.config_name}] worker PID {pid} 缺少匹配的持久化登记"
+                    f"[{self.config_name}] Для рабочего процесса PID {pid} нет соответствующей постоянной записи"
                 )
                 return pid, None, False
             matches = process_matches(record)
         except RuntimeError as exc:
-            logger.error(f"[{self.config_name}] 无法验证 worker PID {pid}: {exc}")
+            logger.error(f"[{self.config_name}] Не удалось проверить рабочий процесс PID {pid}: {exc}")
             return pid, None, False
 
         if matches is True:
@@ -443,10 +443,10 @@ class ProcessManager:
 
         if matches is False:
             logger.error(
-                f"[{self.config_name}] worker PID {pid} 已复用，清除过期登记但不终止该进程"
+                f"[{self.config_name}] PID {pid} уже принадлежит другому процессу; устаревшая запись удалена без завершения процесса"
             )
         else:
-            logger.info(f"[{self.config_name}] worker PID {pid} 已退出，清除过期登记")
+            logger.info(f"[{self.config_name}] Рабочий процесс PID {pid} завершён; устаревшая запись удалена")
 
         unregistered = self._unregister_process()
         if expected_pid is not None:
@@ -485,7 +485,7 @@ class ProcessManager:
         try:
             if not unregister_worker(os.getpid(), self.config_name):
                 logger.error(
-                    f"[{self.config_name}] 当前 WebUI 不拥有 worker 登记，拒绝清除"
+                    f"[{self.config_name}] Текущая WebUI не владеет записью рабочего процесса; очистка отклонена"
                 )
                 return False
         except Exception as exc:
@@ -510,7 +510,7 @@ class ProcessManager:
             self.renderables.append(log)
             if len(self.renderables) > self.renderables_max_length:
                 self.renderables = self.renderables[self.renderables_reduce_length :]
-        logger.info("日志队列处理循环结束")
+        logger.info("Цикл обработки очереди журналов завершён")
 
     @property
     def alive(self) -> bool:
@@ -545,11 +545,19 @@ class ProcessManager:
             s = rendered_tail[-1] if rendered_tail else ""
             if ("Reason: Manual stop" in s) or ("原因: 手动停止" in s):
                 return 2
-            if ("Reason: Stop request" in s) or ("原因: 停止请求" in s):
+            if (
+                "Reason: Stop request" in s
+                or "原因: 停止请求" in s
+                or "Причина: запрос остановки" in s
+            ):
                 return 2
-            if ("Reason: Finish" in s) or ("原因: 完成" in s):
+            if (
+                "Reason: Finish" in s
+                or "原因: 完成" in s
+                or "Причина: выполнение окончено" in s
+            ):
                 return 2
-            if "此版本为演示用途" in s:
+            if "此版本为演示用途" in s or "Эта версия предназначена для демонстрации" in s:
                 return 2
             return 3
 
@@ -616,20 +624,20 @@ class ProcessManager:
         set_file_logger(name=config_name)
         if State.electron:
             # 参考 https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2051
-            logger.info("[WebUI] 检测到 Electron 环境，移除标准输出日志处理器")
+            logger.info("[WebUI] Обнаружена среда Electron; обработчик стандартного вывода удалён")
             from module.logger import console_hdlr
 
             logger.removeHandler(console_hdlr)
         set_func_logger(func=q.put)
 
         if os.environ.get("DEMO") == "1":
-            logger.info("[WebUI-进程] 日志3")
+            logger.info("[WebUI-процесс] Тестовая запись 3")
             time.sleep(1)
-            logger.info("[WebUI-进程] 日志2")
+            logger.info("[WebUI-процесс] Тестовая запись 2")
             time.sleep(1)
-            logger.info("[WebUI-进程] 日志1")
+            logger.info("[WebUI-процесс] Тестовая запись 1")
             time.sleep(1)
-            logger.info("[WebUI] 此版本为演示用途")
+            logger.info("[WebUI] Эта версия предназначена для демонстрации")
             return
 
         from module.config.config import AzurLaneConfig
@@ -660,7 +668,7 @@ class ProcessManager:
                 mod = load_mod(func)
 
                 if mod is None:
-                    logger.critical(f"[WebUI] 无法加载功能模块：{func}")
+                    logger.critical(f"[WebUI] Не удалось загрузить функциональный модуль: {func}")
                     return
 
                 if e is not None:
@@ -672,14 +680,14 @@ class ProcessManager:
                 )
             else:
                 logger.critical(
-                    f"[WebUI] 杂鱼大叔，连功能模块都找不到吗？{func} 这种东西根本不存在啦~"
+                    f"[WebUI] Функциональный модуль не найден: {func}"
                 )
             if e is not None and e.is_set():
-                logger.info(f"[{config_name}] exited. Reason: Stop request\n")
+                logger.info(f"[{config_name}] завершён. Причина: запрос остановки\n")
             else:
-                logger.info(f"[{config_name}] exited. Reason: Finish\n")
+                logger.info(f"[{config_name}] завершён. Причина: выполнение окончено\n")
         except Exception as ex:
-            logger.exception(ex)
+            logger.exception(f"[{config_name}] Необработанная ошибка рабочего процесса: {ex}")
 
     @classmethod
     def running_instances(cls) -> List["ProcessManager"]:
@@ -701,7 +709,7 @@ class ProcessManager:
             instances: 需要重启的实例列表，元素为 ProcessManager 或配置名称字符串。
             ev: 可选的通用停止事件，传递给重新启动的子进程。
         """
-        logger.hr("[WebUI-进程管理] 重启 Alas")
+        logger.hr("[WebUI-процессы] Перезапуск AzurPilot")
 
         # 加载 MOD_CONFIG_DICT
         list_mod_instance()
@@ -726,11 +734,11 @@ class ProcessManager:
             pass
 
         for process in _instances:
-            logger.info(f"启动中 [{process.config_name}]")
+            logger.info(f"Запускается [{process.config_name}]")
             process.start(func=get_config_mod(process.config_name), ev=ev)
 
         try:
             os.remove("./config/reloadalas")
         except:
             pass
-        logger.info("[WebUI-进程管理] 启动 Alas 完成")
+        logger.info("[WebUI-процессы] Запуск AzurPilot завершён")

@@ -46,7 +46,7 @@ class Percentage:
         self.progress = progress
 
     def __call__(self, *args, **kwargs):
-        logger.info(f'Process: [ {self.progress}% ]')
+        logger.info(f'Подготовка: [ {self.progress}% ]')
 
 
 class Progress:

@@ -119,7 +119,7 @@ function Initialize-UpdateLog {
         }
 
         if ([string]::IsNullOrWhiteSpace($baseDirectory)) {
-            throw 'Не удалось определить каталог для лога updater.'
+            throw 'Не удалось определить каталог для журнала обновления.'
         }
 
         $resolvedLogDirectory = Join-Path -Path $baseDirectory -ChildPath 'AzurPilot\logs'
@@ -671,7 +671,7 @@ function Initialize-DependencyCandidate {
 
     if ($archiveResult.ExitCode -ne 0) {
         Write-NativeOutput -Result $archiveResult -Level 'ERROR'
-        throw 'Не удалось извлечь кандидатные файлы зависимостей из удалённого commit.'
+        throw 'Не удалось извлечь кандидатные файлы зависимостей из удалённого коммита.'
     }
 
     $extractResult = Invoke-NativeCommand -Executable $script:TarExecutable -Arguments @(
@@ -691,7 +691,7 @@ function Initialize-DependencyCandidate {
 
     foreach ($requiredPath in @($candidatePyprojectPath, $candidateLockPath)) {
         if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
-            throw "В удалённом commit отсутствует обязательный файл: $requiredPath"
+            throw "В удалённом коммите отсутствует обязательный файл: $requiredPath"
         }
     }
 
@@ -949,7 +949,7 @@ function Write-DependencyJournal {
     $Transaction |
         Add-Member -NotePropertyName Phase -NotePropertyValue $Phase -Force
 
-    Write-UpdateLog -Level 'INFO' -Message "Dependency journal: phase=$Phase, path=$($Transaction.JournalPath)"
+    Write-UpdateLog -Level 'INFO' -Message "Журнал транзакции зависимостей: фаза=$Phase, путь=$($Transaction.JournalPath)"
 }
 
 function Read-DependencyJournal {
@@ -960,7 +960,7 @@ function Read-DependencyJournal {
     )
 
     if (-not (Test-Path -LiteralPath $LiteralPath -PathType Leaf)) {
-        throw "Dependency journal не найден: $LiteralPath"
+        throw "Журнал транзакции зависимостей не найден: $LiteralPath"
     }
 
     try {
@@ -968,7 +968,7 @@ function Read-DependencyJournal {
         return ConvertFrom-Json -InputObject $journalText -Depth 8 -ErrorAction Stop
     }
     catch {
-        throw "Dependency journal повреждён: $LiteralPath. $($_.Exception.Message)"
+        throw "Журнал транзакции зависимостей повреждён: $LiteralPath. $($_.Exception.Message)"
     }
 }
 
@@ -1009,12 +1009,12 @@ function Assert-DependencyJournal {
 
     foreach ($requiredProperty in $requiredProperties) {
         if ($journalPropertyNames -notcontains $requiredProperty) {
-            throw "Dependency journal не содержит обязательное поле: $requiredProperty"
+            throw "Журнал транзакции зависимостей не содержит обязательное поле: $requiredProperty"
         }
     }
 
     if ([int]$Journal.SchemaVersion -ne 1) {
-        throw "Неподдерживаемая версия dependency journal: $($Journal.SchemaVersion)"
+        throw "Неподдерживаемая версия журнала транзакции зависимостей: $($Journal.SchemaVersion)"
     }
 
     [string[]]$allowedPhases = @(
@@ -1026,14 +1026,14 @@ function Assert-DependencyJournal {
     )
 
     if ($allowedPhases -notcontains [string]$Journal.Phase) {
-        throw "Dependency journal содержит неизвестную фазу: $($Journal.Phase)"
+        throw "Журнал транзакции зависимостей содержит неизвестную фазу: $($Journal.Phase)"
     }
 
     if (
         [string]$Journal.LocalSha -notmatch '^[0-9a-fA-F]{40}$' -or
         [string]$Journal.RemoteSha -notmatch '^[0-9a-fA-F]{40}$'
     ) {
-        throw 'Dependency journal содержит некорректный commit SHA.'
+        throw 'Журнал транзакции зависимостей содержит некорректный SHA коммита.'
     }
 
     $normalizedRepositoryPath = [System.IO.Path]::TrimEndingDirectorySeparator(
@@ -1050,24 +1050,24 @@ function Assert-DependencyJournal {
     )
 
     if (-not $repositoryMatches) {
-        throw "Dependency journal относится к другому репозиторию: $($Journal.RepositoryPath)"
+        throw "Журнал транзакции зависимостей относится к другому репозиторию: $($Journal.RepositoryPath)"
     }
 
     if ([string]$Journal.ExpectedBranch -ne $ExpectedBranch) {
-        throw "Dependency journal относится к другой ветке: $($Journal.ExpectedBranch)"
+        throw "Журнал транзакции зависимостей относится к другой ветке: $($Journal.ExpectedBranch)"
     }
 
     if (
         [string]$Journal.RemoteName -ne $RemoteName -or
         [string]$Journal.RemoteBranch -ne $RemoteBranch
     ) {
-        throw 'Dependency journal относится к другому удалённому источнику.'
+        throw 'Журнал транзакции зависимостей относится к другому удалённому источнику.'
     }
 
     $expectedRemoteTrackingRef = "refs/remotes/$RemoteName/$RemoteBranch"
 
     if ([string]$Journal.RemoteTrackingRef -ne $expectedRemoteTrackingRef) {
-        throw "Dependency journal содержит неожиданный remote tracking ref: $($Journal.RemoteTrackingRef)"
+        throw "Журнал транзакции зависимостей содержит неожиданную отслеживаемую удалённую ссылку Git: $($Journal.RemoteTrackingRef)"
     }
 
     $transactionPath = [System.IO.Path]::GetFullPath(
@@ -1087,7 +1087,7 @@ function Assert-DependencyJournal {
     )
 
     if (-not $transactionParentMatches) {
-        throw "Dependency journal указывает transaction вне work root: $transactionPath"
+        throw "Журнал транзакции зависимостей указывает транзакцию вне рабочего корневого каталога: $transactionPath"
     }
 
     $expectedJournalPath = Join-Path -Path $transactionPath -ChildPath 'journal.json'
@@ -1103,7 +1103,7 @@ function Assert-DependencyJournal {
     )
 
     if (-not $journalPathMatches) {
-        throw 'Путь dependency journal не соответствует transaction directory.'
+        throw 'Путь журнала транзакции зависимостей не соответствует каталогу транзакции.'
     }
 
     [string[]]$transactionPaths = @(
@@ -1116,7 +1116,7 @@ function Assert-DependencyJournal {
 
     foreach ($transactionChildPath in $transactionPaths) {
         if (-not (Test-PathInside -CandidatePath $transactionChildPath -ParentPath $transactionPath)) {
-            throw "Dependency journal содержит путь вне transaction directory: $transactionChildPath"
+            throw "Журнал транзакции зависимостей содержит путь вне каталога транзакции: $transactionChildPath"
         }
     }
 
@@ -1133,7 +1133,7 @@ function Assert-DependencyJournal {
     )
 
     if (-not $venvPathMatches) {
-        throw "Dependency journal указывает неожиданную .venv: $($Journal.VenvPath)"
+        throw "Журнал транзакции зависимостей указывает неожиданную .venv: $($Journal.VenvPath)"
     }
 
     [string[]]$requiredFiles = @(
@@ -1144,7 +1144,7 @@ function Assert-DependencyJournal {
 
     foreach ($requiredFile in $requiredFiles) {
         if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
-            throw "Dependency journal ссылается на отсутствующий файл: $requiredFile"
+            throw "Журнал транзакции зависимостей ссылается на отсутствующий файл: $requiredFile"
         }
     }
 
@@ -1152,7 +1152,7 @@ function Assert-DependencyJournal {
         [string]$Journal.Phase -ne 'CandidateValidated' -and
         -not (Test-Path -LiteralPath ([string]$Journal.BackupPath) -PathType Container)
     ) {
-        throw "Dependency journal не имеет резервной копии .venv: $($Journal.BackupPath)"
+        throw "Журнал транзакции зависимостей не имеет резервной копии .venv: $($Journal.BackupPath)"
     }
 }
 
@@ -1223,7 +1223,7 @@ function Test-DependencyEnvironmentState {
         [System.StringComparison]::OrdinalIgnoreCase
     )) {
         Write-NativeOutput -Result $verifyResult -Level 'ERROR'
-        throw 'Dry-run не подтвердил стабильное состояние .venv.'
+        throw 'Пробный запуск не подтвердил стабильное состояние .venv.'
     }
 
     Write-NativeOutput -Result $verifyResult
@@ -1300,15 +1300,15 @@ function Invoke-OrphanDependencyTransactionCleanup {
     $item = Get-Item -LiteralPath $LiteralPath -Force -ErrorAction Stop
 
     if (-not $item.PSIsContainer) {
-        throw "Неожиданный объект в dependency work root: $LiteralPath"
+        throw "Неожиданный объект в рабочем корневом каталоге транзакций зависимостей: $LiteralPath"
     }
 
     if ($item.Name -notmatch '^dependency-[0-9a-fA-F]{40}-[0-9a-fA-F]{32}$') {
-        throw "Неизвестный каталог в dependency work root: $LiteralPath"
+        throw "Неизвестный каталог в рабочем корневом каталоге транзакций зависимостей: $LiteralPath"
     }
 
     Remove-Item -LiteralPath $LiteralPath -Recurse -Force -ErrorAction Stop
-    Write-UpdateLog -Level 'INFO' -Message "Удалена orphan dependency transaction: $LiteralPath"
+    Write-UpdateLog -Level 'INFO' -Message "Удалена потерянная транзакция зависимостей: $LiteralPath"
 }
 
 function Invoke-DependencyRecovery {
@@ -1334,7 +1334,7 @@ function Invoke-DependencyRecovery {
     )
 
     if ($journalItems.Count -gt 1) {
-        throw "Обнаружено несколько незавершённых dependency transactions: $($journalItems.Count)"
+        throw "Обнаружено несколько незавершённых транзакций зависимостей: $($journalItems.Count)"
     }
 
     foreach ($transactionDirectory in $transactionDirectories) {
@@ -1355,36 +1355,36 @@ function Invoke-DependencyRecovery {
 
     $transaction = Get-DependencyTransactionFromJournal -Journal $journal -JournalPath $journalItem.FullName
 
-    $currentHead = Get-SingleGitValue -Operation 'проверка HEAD для recovery dependency transaction' -Arguments @(
+    $currentHead = Get-SingleGitValue -Operation 'проверка HEAD для восстановления транзакции зависимостей' -Arguments @(
         'rev-parse'
         'HEAD'
     )
 
-    Write-UpdateLog -Level 'WARN' -Message "Обнаружена незавершённая dependency transaction. phase=$($transaction.Phase), HEAD=$currentHead"
+    Write-UpdateLog -Level 'WARN' -Message "Обнаружена незавершённая транзакция зависимостей. Фаза=$($transaction.Phase), HEAD=$currentHead"
 
     switch ([string]$transaction.Phase) {
         'CandidateValidated' {
             if ($currentHead -ne $transaction.LocalSha) {
-                throw 'CandidateValidated journal имеет неожиданный HEAD. Автоматическое восстановление запрещено.'
+                throw 'Журнал с фазой CandidateValidated имеет неожиданный HEAD. Автоматическое восстановление запрещено.'
             }
 
             Clear-DependencyTransaction -Transaction $transaction
-            Write-UpdateLog -Level 'INFO' -Message 'Незавершённая transaction не изменяла .venv и была удалена.'
+            Write-UpdateLog -Level 'INFO' -Message 'Незавершённая транзакция не изменяла .venv и была удалена.'
         }
 
         'BackupReady' {
             if ($currentHead -eq $transaction.LocalSha) {
                 Restore-DependencyEnvironment -Transaction $transaction
                 Clear-DependencyTransaction -Transaction $transaction
-                Write-UpdateLog -Level 'INFO' -Message 'Recovery восстановил .venv до старого HEAD.'
+                Write-UpdateLog -Level 'INFO' -Message 'Восстановление вернуло .venv к старому HEAD.'
             }
             elseif ($currentHead -eq $transaction.RemoteSha) {
                 Test-DependencyEnvironmentState -Transaction $transaction
                 Clear-DependencyTransaction -Transaction $transaction
-                Write-UpdateLog -Level 'INFO' -Message 'Recovery подтвердил новый HEAD и сохранил синхронизированную .venv.'
+                Write-UpdateLog -Level 'INFO' -Message 'Восстановление подтвердило новый HEAD и сохранило синхронизированную .venv.'
             }
             else {
-                throw 'BackupReady journal имеет неоднозначный HEAD.'
+                throw 'Журнал с фазой BackupReady имеет неоднозначный HEAD.'
             }
         }
 
@@ -1392,15 +1392,15 @@ function Invoke-DependencyRecovery {
             if ($currentHead -eq $transaction.LocalSha) {
                 Restore-DependencyEnvironment -Transaction $transaction
                 Clear-DependencyTransaction -Transaction $transaction
-                Write-UpdateLog -Level 'INFO' -Message 'Recovery откатил .venv после прерывания до fast-forward.'
+                Write-UpdateLog -Level 'INFO' -Message 'Восстановление откатило .venv после прерывания перед fast-forward.'
             }
             elseif ($currentHead -eq $transaction.RemoteSha) {
                 Test-DependencyEnvironmentState -Transaction $transaction
                 Clear-DependencyTransaction -Transaction $transaction
-                Write-UpdateLog -Level 'INFO' -Message 'Recovery подтвердил новый HEAD после завершённого fast-forward.'
+                Write-UpdateLog -Level 'INFO' -Message 'Восстановление подтвердило новый HEAD после завершённого fast-forward.'
             }
             else {
-                throw 'EnvironmentSynchronized journal имеет неоднозначный HEAD.'
+                throw 'Журнал с фазой EnvironmentSynchronized имеет неоднозначный HEAD.'
             }
         }
 
@@ -1408,26 +1408,26 @@ function Invoke-DependencyRecovery {
             if ($currentHead -eq $transaction.LocalSha) {
                 Restore-DependencyEnvironment -Transaction $transaction
                 Clear-DependencyTransaction -Transaction $transaction
-                Write-UpdateLog -Level 'INFO' -Message 'Recovery откатил .venv после прерывания перед fast-forward.'
+                Write-UpdateLog -Level 'INFO' -Message 'Восстановление откатило .venv после прерывания перед fast-forward.'
             }
             elseif ($currentHead -eq $transaction.RemoteSha) {
                 Test-DependencyEnvironmentState -Transaction $transaction
                 Clear-DependencyTransaction -Transaction $transaction
-                Write-UpdateLog -Level 'INFO' -Message 'Recovery подтвердил завершённый fast-forward.'
+                Write-UpdateLog -Level 'INFO' -Message 'Восстановление подтвердило завершённый fast-forward.'
             }
             else {
-                throw 'MergePending journal имеет неоднозначный HEAD.'
+                throw 'Журнал с фазой MergePending имеет неоднозначный HEAD.'
             }
         }
 
         'MergeCompleted' {
             if ($currentHead -ne $transaction.RemoteSha) {
-                throw 'MergeCompleted journal не совпадает с текущим HEAD.'
+                throw 'Журнал с фазой MergeCompleted не совпадает с текущим HEAD.'
             }
 
             Test-DependencyEnvironmentState -Transaction $transaction
             Clear-DependencyTransaction -Transaction $transaction
-            Write-UpdateLog -Level 'INFO' -Message 'Recovery завершил очистку после подтверждённого fast-forward.'
+            Write-UpdateLog -Level 'INFO' -Message 'Восстановление завершило очистку после подтверждённого fast-forward.'
         }
     }
 }
@@ -1539,7 +1539,7 @@ function Initialize-DependencyEnvironment {
         Write-DependencyJournal -Transaction $transaction -Phase 'BackupReady'
         Invoke-TestFailPoint -Phase 'AfterBackup' -Transaction $transaction
 
-        Write-UpdateLog -Level 'INFO' -Message 'Синхронизация рабочей .venv по кандидатному lockfile.'
+        Write-UpdateLog -Level 'INFO' -Message 'Синхронизация рабочей .venv по кандидатному файлу блокировки.'
 
         $syncResult = Invoke-UvIsolated -ProjectEnvironment $venvPath -OverridePath $effectiveOverridePath -ExecutablePath $transaction.SyncUvExecutable -Arguments @(
             '--no-config'
@@ -1606,7 +1606,7 @@ function Initialize-DependencyEnvironment {
                 Clear-DependencyTransaction -Transaction $transaction
             }
             catch {
-                Write-UpdateLog -Level 'WARN' -Message "Не удалось удалить безопасно завершённую dependency transaction: $($_.Exception.Message)"
+                Write-UpdateLog -Level 'WARN' -Message "Не удалось удалить безопасно завершённую транзакцию зависимостей: $($_.Exception.Message)"
             }
         }
 
@@ -1762,7 +1762,7 @@ try {
         $TestFailPoint -ne 'None' -and
         -not [System.IO.Path]::IsPathFullyQualified($originUrl)
     ) {
-        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'TestFailPoint разрешён только для локального тестового origin.'
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'TestFailPoint разрешён только для локального тестового источника origin.'
     }
 
     if (
@@ -1780,10 +1780,10 @@ try {
     )
 
     if ($upstreamPushUrl -ne $RequiredUpstreamPushUrl) {
-        Complete-Update -Code $script:ExitCodePreconditionFailure -Message "Push URL upstream должен быть $RequiredUpstreamPushUrl. Получено: $upstreamPushUrl"
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message "URL отправки upstream должен быть $RequiredUpstreamPushUrl. Получено: $upstreamPushUrl"
     }
 
-    $trackingBranch = Get-SingleGitValue -Operation 'проверка tracking branch' -Arguments @(
+    $trackingBranch = Get-SingleGitValue -Operation 'проверка отслеживаемой ветки' -Arguments @(
         'rev-parse'
         '--abbrev-ref'
         '--symbolic-full-name'
@@ -1803,7 +1803,7 @@ try {
         Invoke-DependencyRecovery
     }
     catch {
-        Complete-Update -Code $script:ExitCodePreconditionFailure -Message "Dependency recovery заблокирован. $($_.Exception.Message)"
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message "Восстановление транзакции зависимостей заблокировано. $($_.Exception.Message)"
     }
 
     $statusResult = Invoke-Git -Arguments @(
@@ -1822,12 +1822,12 @@ try {
         Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Рабочее дерево содержит изменения. Обновление отменено.'
     }
 
-    $localSha = Get-SingleGitValue -Operation 'определение локального commit' -Arguments @(
+    $localSha = Get-SingleGitValue -Operation 'определение локального коммита' -Arguments @(
         'rev-parse'
         'HEAD'
     )
 
-    Write-UpdateLog -Level 'INFO' -Message "Локальный commit до fetch: $localSha"
+    Write-UpdateLog -Level 'INFO' -Message "Локальный коммит до получения изменений: $localSha"
 
     $remoteTrackingRef = "refs/remotes/$RemoteName/$RemoteBranch"
     $fetchRefspec = "refs/heads/${RemoteBranch}:$remoteTrackingRef"
@@ -1846,12 +1846,12 @@ try {
 
     Write-NativeOutput -Result $fetchResult
 
-    $remoteSha = Get-SingleGitValue -Operation 'определение удалённого commit' -Arguments @(
+    $remoteSha = Get-SingleGitValue -Operation 'определение удалённого коммита' -Arguments @(
         'rev-parse'
         $remoteTrackingRef
     )
 
-    Write-UpdateLog -Level 'INFO' -Message "Удалённый commit после fetch: $remoteSha"
+    Write-UpdateLog -Level 'INFO' -Message "Удалённый коммит после получения изменений: $remoteSha"
 
     if ($localSha -eq $remoteSha) {
         Write-UpdateLog -Level 'INFO' -Message 'Результат: установленная версия уже актуальна.'
@@ -1895,7 +1895,7 @@ try {
             Write-DependencyJournal -Transaction $dependencyTransaction -Phase 'MergePending'
         }
 
-        Write-UpdateLog -Level 'INFO' -Message 'Доступно безопасное fast-forward обновление.'
+        Write-UpdateLog -Level 'INFO' -Message 'Доступно безопасное обновление fast-forward.'
 
         $mergeResult = Invoke-Git -Arguments @(
             'merge'
@@ -1905,7 +1905,7 @@ try {
 
         if ($mergeResult.ExitCode -ne 0) {
             Write-NativeOutput -Result $mergeResult -Level 'ERROR'
-            $headAfterFailedMerge = Get-SingleGitValue -Operation 'проверка HEAD после неудачного fast-forward' -Arguments @(
+            $headAfterFailedMerge = Get-SingleGitValue -Operation 'проверка HEAD после неудачного обновления fast-forward' -Arguments @(
                 'rev-parse'
                 'HEAD'
             )
@@ -1919,22 +1919,22 @@ try {
                     Clear-DependencyTransaction -Transaction $dependencyTransaction
                 }
                 catch {
-                    Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message "Fast-forward не выполнен, но откат .venv также завершился ошибкой. $($_.Exception.Message)"
+                    Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message "Обновление fast-forward не выполнено, а откат .venv также завершился ошибкой. $($_.Exception.Message)"
                 }
             }
 
-            Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message 'Fast-forward обновление завершилось ошибкой.'
+            Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message 'Обновление fast-forward завершилось ошибкой.'
         }
 
         Write-NativeOutput -Result $mergeResult
 
-        $newHead = Get-SingleGitValue -Operation 'проверка HEAD после fast-forward' -Arguments @(
+        $newHead = Get-SingleGitValue -Operation 'проверка HEAD после обновления fast-forward' -Arguments @(
             'rev-parse'
             'HEAD'
         )
 
         if ($newHead -ne $remoteSha) {
-            Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message "После fast-forward HEAD не совпадает с $remoteTrackingRef."
+            Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message "После обновления fast-forward HEAD не совпадает с $remoteTrackingRef."
         }
 
         $statusAfterResult = Invoke-Git -Arguments @(
@@ -1950,7 +1950,7 @@ try {
 
         if ($statusAfterResult.Output.Count -gt 0) {
             Write-NativeOutput -Result $statusAfterResult -Level 'ERROR'
-            Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message 'После fast-forward рабочее дерево стало грязным.'
+            Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message 'После обновления fast-forward рабочее дерево стало содержать изменения.'
         }
 
         if ($null -ne $dependencyTransaction) {
@@ -1967,7 +1967,7 @@ try {
         Write-UpdateLog -Level 'INFO' -Message "Результат: обновлено с $localSha до $newHead."
 
         if ($dependenciesChanged) {
-            Write-UpdateLog -Level 'INFO' -Message 'Зависимости: рабочая .venv синхронизирована до fast-forward и проверена.'
+            Write-UpdateLog -Level 'INFO' -Message 'Зависимости: рабочая .venv синхронизирована до обновления fast-forward и проверена.'
         } else {
             Write-UpdateLog -Level 'INFO' -Message 'Зависимости: метаданные не изменялись, синхронизация не требовалась.'
         }
@@ -1987,9 +1987,9 @@ try {
     $message = $_.Exception.Message
 
     try {
-        Write-UpdateLog -Level 'ERROR' -Message "Непредвиденная ошибка updater: $message"
+        Write-UpdateLog -Level 'ERROR' -Message "Непредвиденная ошибка обновления: $message"
     } catch {
-        Write-ConsoleMessage -Message "Непредвиденная ошибка updater: $message"
+        Write-ConsoleMessage -Message "Непредвиденная ошибка обновления: $message"
     }
 
     if ($null -ne $script:LogPath) {

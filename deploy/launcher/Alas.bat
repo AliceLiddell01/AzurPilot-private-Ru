@@ -12,7 +12,7 @@ set "_pyBin=%_root%\.venv\Scripts"
 set "_GitBin=%_root%\.venv\Scripts\git\cmd"
 set "PATH=%_pyBin%;%_GitBin%;%PATH%"
 
-title AzurPilot Updater
+title Обновление AzurPilot
 "%_pyBin%\python.exe" -m deploy.installer
 if %errorlevel% neq 0 (
     pause >nul

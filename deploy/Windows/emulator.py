@@ -28,7 +28,7 @@ class EmulatorManager(AlasManager):
 
     def adb_kill(self):
         # 直接杀进程，因为部分 ADB 不遵守 kill-server 协议
-        logger.hr('Kill all known ADB', level=2)
+        logger.hr('Завершение всех известных процессов ADB', level=2)
         for proc in self.iter_process_by_names([
             'adb.exe',
             'nox_adb.exe',
@@ -44,7 +44,7 @@ class EmulatorManager(AlasManager):
         Returns:
             list[DataAdbDevice]: 已连接的设备列表。
         """
-        logger.hr('Adb deivces', level=2)
+        logger.hr('Устройства ADB', level=2)
         result = self.subprocess_execute([self.adb, 'devices'])
         devices = []
         for line in result.replace('\r\r\n', '\n').replace('\r\n', '\n').split('\n'):
@@ -71,7 +71,7 @@ class EmulatorManager(AlasManager):
         # 获取所有模拟器序列号
         list_serial = self.emulator_manager.all_emulator_serials
 
-        logger.hr('Brute force connect', level=2)
+        logger.hr('Подключение ко всем экземплярам', level=2)
 
         async def _connect(serial):
             try:
@@ -118,7 +118,7 @@ class EmulatorManager(AlasManager):
     def iter_adb_to_replace(self) -> t.Iterable[str]:
         for adb in self.emulator_manager.all_adb_binaries:
             if filecmp.cmp(adb, self.adb, shallow=True):
-                logger.info(f'{adb} is same as {self.adb}, skip')
+                logger.info(f'{adb} совпадает с {self.adb}, операция пропущена')
                 continue
             else:
                 yield adb
@@ -130,12 +130,12 @@ class EmulatorManager(AlasManager):
         """
         replace = list(self.iter_adb_to_replace())
         if not replace:
-            logger.info('No need to replace')
+            logger.info('Замена не требуется')
             return
 
         self.adb_kill()
         for adb in replace:
-            logger.info(f'Replacing {adb}')
+            logger.info(f'Замена {adb}')
             bak = self.adb_path_to_backup(adb, new_backup=True)
             try:
                 logger.info(f'{adb} -----> {bak}')
@@ -143,21 +143,21 @@ class EmulatorManager(AlasManager):
                 logger.info(f'{self.adb} -----> {adb}')
                 shutil.copy(self.adb, adb)
             except OSError as e:
-                logger.warning(f'Failed to replace {adb}, {e}')
+                logger.warning(f'Не удалось заменить {adb}: {e}')
 
     def adb_recover(self):
         """恢复 ADB 替换，将备份文件还原到原始位置。"""
         for adb in self.emulator_manager.all_adb_binaries:
-            logger.info(f'Recovering {adb}')
+            logger.info(f'Восстановление {adb}')
             bak = self.adb_path_to_backup(adb, new_backup=False)
             if os.path.exists(bak):
-                logger.info(f'Delete {adb}')
+                logger.info(f'Удаление {adb}')
                 if os.path.exists(adb):
                     os.remove(adb)
                 logger.info(f'{bak} -----> {adb}')
                 shutil.move(bak, adb)
             else:
-                logger.info('No backup available, skip')
+                logger.info('Резервная копия отсутствует, операция пропущена')
                 continue
 
 

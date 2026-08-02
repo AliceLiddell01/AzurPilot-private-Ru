@@ -105,7 +105,7 @@ class NetworkTimeSource:
 
         if last_error is not None:
             raise last_error
-        raise OSError(f'无效的 NTP 响应: {host}')
+        raise OSError(f'Недопустимый ответ NTP: {host}')
 
     def refresh(self, force=False):
         """刷新 NTP 偏移量，失败时保留已有偏移并退回本机时间。"""
@@ -135,13 +135,14 @@ class NetworkTimeSource:
                 self.last_sync_monotonic = time_.monotonic()
                 self.retry_after_monotonic = 0.0
                 self._warned = False
-                self._log_info(f'网络时间已校准: {server}, offset={offset:.3f}s')
+                self._log_info(f'Сетевое время синхронизировано: {server}, смещение={offset:.3f} с')
                 return True
 
             self.retry_after_monotonic = time_.monotonic() + self.retry_interval
             if not self._warned:
-                detail = '; '.join(errors) if errors else '没有可用服务器'
-                self._log_warning(f'NTP 校时失败，暂时使用本机时间: {detail}')
+                detail = '; '.join(errors) if errors else 'нет доступных серверов'
+                self._log_warning(f'Не удалось синхронизировать время по NTP; '
+                                  f'временно используется системное время: {detail}')
                 self._warned = True
             return self.synced
 

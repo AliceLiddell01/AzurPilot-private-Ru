@@ -347,11 +347,11 @@ function Enter-RepairMutex {
     }
     catch [System.Threading.AbandonedMutexException] {
         $owned = $true
-        Write-RepairLog -Level 'WARN' -Message 'Обнаружен abandoned Repair mutex. Владение восстановлено.'
+        Write-RepairLog -Level 'WARN' -Message 'Обнаружен заброшенный мьютекс Repair. Владение восстановлено.'
     }
     catch {
         $mutex.Dispose()
-        $message = 'Не удалось открыть Repair mutex: {0}' -f $_.Exception.Message
+        $message = 'Не удалось открыть мьютекс Repair: {0}' -f $_.Exception.Message
         Complete-RepairFailure -Code $script:ExitCodeUnexpectedFailure -Message $message -InnerException $_.Exception
     }
 
@@ -665,10 +665,10 @@ function Initialize-RepairPath {
     }
 
     if (Test-PathInside -CandidatePath $requestedRepairRoot -ParentPath $script:ResolvedRepositoryPath) {
-        Complete-RepairFailure -Code $script:ExitCodePreconditionFailure -Message 'Каталог Repair transactions должен находиться вне репозитория.'
+        Complete-RepairFailure -Code $script:ExitCodePreconditionFailure -Message 'Каталог транзакций Repair должен находиться вне репозитория.'
     }
 
-    $script:ResolvedRepairWorkRoot = Resolve-FileSystemDirectory -Path $requestedRepairRoot -DisplayName 'каталог Repair transactions' -Create
+    $script:ResolvedRepairWorkRoot = Resolve-FileSystemDirectory -Path $requestedRepairRoot -DisplayName 'каталог транзакций Repair' -Create
 
     $repositoryDrive = [System.IO.Path]::GetPathRoot($script:ResolvedRepositoryPath)
     $repairDrive = [System.IO.Path]::GetPathRoot($script:ResolvedRepairWorkRoot)
@@ -680,7 +680,7 @@ function Initialize-RepairPath {
             [System.StringComparison]::OrdinalIgnoreCase
         )
     ) {
-        Complete-RepairFailure -Code $script:ExitCodePreconditionFailure -Message 'Каталог Repair transactions должен находиться на том же диске, что и .venv.'
+        Complete-RepairFailure -Code $script:ExitCodePreconditionFailure -Message 'Каталог транзакций Repair должен находиться на том же диске, что и .venv.'
     }
 
     $script:ResolvedUpdateWorkRoot = Join-Path -Path $baseDirectory -ChildPath 'AzurPilot\dependency-transactions'
@@ -747,8 +747,8 @@ function Assert-NoUpdateTransaction {
 
     $journalPaths = $journalItems.FullName -join [Environment]::NewLine
     $message = @(
-        'Обнаружена незавершённая dependency transaction этапа обновления.'
-        'Repair не имеет права обходить recovery updater-а.'
+        'Обнаружена незавершённая транзакция зависимостей этапа обновления.'
+        'Repair не имеет права обходить восстановление скрипта обновления.'
         'Сначала запустите scripts\Update-AzurPilot.ps1 для штатного восстановления.'
         $journalPaths
     ) -join [Environment]::NewLine
@@ -855,7 +855,7 @@ function Assert-ConfigSnapshotEqual {
     $actualJson = $Actual | ConvertTo-Json -Compress -Depth 8
 
     if ($expectedJson -ne $actualJson) {
-        Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message 'Контрольные SHA-256 файлов config изменились во время Repair.'
+        Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message 'Контрольные суммы SHA-256 файлов конфигурации изменились во время Repair.'
     }
 }
 
@@ -904,7 +904,7 @@ function Read-RepairJournal {
         return $content | ConvertFrom-Json -DateKind String -ErrorAction Stop
     }
     catch {
-        $message = 'Не удалось прочитать Repair journal «{0}»: {1}' -f $JournalPath, $_.Exception.Message
+        $message = 'Не удалось прочитать журнал Repair «{0}»: {1}' -f $JournalPath, $_.Exception.Message
         Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message $message -InnerException $_.Exception
     }
 }
@@ -951,7 +951,7 @@ function Restore-OriginalVenv {
 
     if ($originalVenvExisted -and -not $backupExists) {
         if (-not $currentVenvExists) {
-            Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message ('Исходная .venv и её backup отсутствуют: {0}' -f $venvPath)
+            Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message ('Исходная .venv и её резервная копия отсутствуют: {0}' -f $venvPath)
         }
 
         $currentSnapshot = Get-DirectorySnapshot -LiteralPath $venvPath
@@ -959,11 +959,11 @@ function Restore-OriginalVenv {
         $currentSnapshotJson = $currentSnapshot | ConvertTo-Json -Compress -Depth 8
 
         if ($expectedSnapshotJson -ne $currentSnapshotJson) {
-            Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message 'Backup отсутствует, а текущая .venv уже отличается от исходного snapshot.'
+            Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message 'Резервная копия отсутствует, а текущая .venv уже отличается от исходного снимка.'
         }
 
         Write-RepairJournal -Transaction $Transaction -Phase 'RolledBack' -LastError ([string]$Transaction.LastError)
-        Write-RepairLog -Level 'INFO' -Message 'Backup не был создан, исходная .venv осталась неизменной.'
+        Write-RepairLog -Level 'INFO' -Message 'Резервная копия не была создана, исходная .venv осталась неизменной.'
         return
     }
 
@@ -983,7 +983,7 @@ function Restore-OriginalVenv {
         $restoredSnapshotJson = $restoredSnapshot | ConvertTo-Json -Compress -Depth 8
 
         if ($expectedSnapshotJson -ne $restoredSnapshotJson) {
-            Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message 'Восстановленная .venv не совпадает с исходным snapshot.'
+            Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message 'Восстановленная .venv не совпадает с исходным снимком.'
         }
     }
 
@@ -998,7 +998,7 @@ function Invoke-IncompleteRepairRecovery {
     $incompleteTransactions = @(Get-IncompleteRepairTransaction)
 
     if ($incompleteTransactions.Count -gt 1) {
-        Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message ('Обнаружено несколько незавершённых Repair transactions: {0}' -f $incompleteTransactions.Count)
+        Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message ('Обнаружено несколько незавершённых транзакций Repair: {0}' -f $incompleteTransactions.Count)
     }
 
     if ($incompleteTransactions.Count -eq 0) {
@@ -1015,10 +1015,10 @@ function Invoke-IncompleteRepairRecovery {
             [System.StringComparison]::OrdinalIgnoreCase
         )
     ) {
-        Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message 'Незавершённая Repair transaction относится к другому пути репозитория.'
+        Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message 'Незавершённая транзакция Repair относится к другому пути репозитория.'
     }
 
-    Write-RepairLog -Level 'WARN' -Message ('Обнаружена незавершённая Repair transaction. Фаза: {0}' -f $transaction.Phase)
+    Write-RepairLog -Level 'WARN' -Message ('Обнаружена незавершённая транзакция Repair. Фаза: {0}' -f $transaction.Phase)
 
     if ([string]$transaction.Phase -eq 'Initialized') {
         $backupPath = [string]$transaction.BackupPath
@@ -1026,7 +1026,7 @@ function Invoke-IncompleteRepairRecovery {
         if (-not (Test-Path -LiteralPath $backupPath)) {
             $transactionPath = [string]$transaction.TransactionPath
             Remove-Item -LiteralPath $transactionPath -Recurse -Force -ErrorAction Stop
-            Write-RepairLog -Level 'INFO' -Message 'Незавершённая transaction не успела изменить .venv и удалена.'
+            Write-RepairLog -Level 'INFO' -Message 'Незавершённая транзакция не успела изменить .venv и удалена.'
             return
         }
     }
@@ -1038,11 +1038,11 @@ function Import-AzurPilotShortcutModule {
     [CmdletBinding()]
     param()
 
-    [void](Resolve-RequiredFile -Path $script:ShortcutModulePath -DisplayName 'shortcut module')
-    [void](Resolve-RequiredFile -Path $script:ResolvedIconPath -DisplayName 'project-owned AzurPilot icon')
+    [void](Resolve-RequiredFile -Path $script:ShortcutModulePath -DisplayName 'модуль ярлыков')
+    [void](Resolve-RequiredFile -Path $script:ResolvedIconPath -DisplayName 'значок проекта AzurPilot')
     [void](Resolve-RequiredFile -Path (
         Join-Path -Path $script:ResolvedRepositoryPath -ChildPath 'scripts\Start-AzurPilot.ps1'
-    ) -DisplayName 'Stage 2 Start command')
+    ) -DisplayName 'команда Start этапа 2')
 
     Import-Module -Name $script:ShortcutModulePath -Force -ErrorAction Stop
 }
@@ -1071,7 +1071,7 @@ function Get-ShortcutDiagnostic {
             Exists = $exists
             Path = $script:ResolvedShortcutPath
             Healthy = $false
-            Details = 'Shortcut module, Start command или project-owned icon ещё не установлены.'
+            Details = 'Модуль ярлыков, команда Start или значок проекта ещё не установлены.'
             TargetPath = ''
             Arguments = ''
             WorkingDirectory = ''
@@ -1096,9 +1096,9 @@ function Get-ShortcutDiagnostic {
             Path = $script:ResolvedShortcutPath
             Healthy = $healthy
             Details = if ($healthy) {
-                'Shortcut соответствует Stage 2 specification.'
+                'Ярлык соответствует спецификации этапа 2.'
             } else {
-                'Shortcut не соответствует target, arguments, working directory, icon или description.'
+                'Ярлык не соответствует цели, аргументам, рабочему каталогу, значку или описанию.'
             }
             TargetPath = [string]$state.TargetPath
             Arguments = [string]$state.Arguments
@@ -1107,7 +1107,7 @@ function Get-ShortcutDiagnostic {
         }
     }
     catch {
-        Write-RepairLog -Level 'WARN' -Message ('Не удалось выполнить shortcut diagnostic: {0}' -f $_.Exception.Message)
+        Write-RepairLog -Level 'WARN' -Message ('Не удалось выполнить диагностику ярлыка: {0}' -f $_.Exception.Message)
 
         return [pscustomobject]@{
             Exists = Test-Path -LiteralPath $script:ResolvedShortcutPath -PathType Leaf
@@ -1127,7 +1127,7 @@ function Invoke-AzurPilotShortcutRepair {
     param()
 
     if ([string]::IsNullOrWhiteSpace($script:ResolvedShortcutPath)) {
-        Complete-RepairFailure -Code $script:ExitCodeShortcutFailure -Message 'Не удалось определить путь shortcut.'
+        Complete-RepairFailure -Code $script:ExitCodeShortcutFailure -Message 'Не удалось определить путь ярлыка.'
     }
 
     Import-AzurPilotShortcutModule
@@ -1177,18 +1177,18 @@ function Invoke-AzurPilotShortcutRepair {
         }
 
         Complete-RepairFailure -Code $script:ExitCodeShortcutFailure -Message (
-            'Не удалось восстановить shortcut: {0}' -f $_.Exception.Message
+            'Не удалось восстановить ярлык: {0}' -f $_.Exception.Message
         ) -InnerException $_.Exception
     }
 
     if ([bool]$result.Changed) {
-        Write-RepairLog -Level 'INFO' -Message ('Shortcut восстановлен: {0}' -f $script:ResolvedShortcutPath)
+        Write-RepairLog -Level 'INFO' -Message ('Ярлык восстановлен: {0}' -f $script:ResolvedShortcutPath)
 
         if (-not [string]::IsNullOrWhiteSpace([string]$result.BackupPath)) {
-            Write-RepairLog -Level 'INFO' -Message ('Backup предыдущего shortcut: {0}' -f $result.BackupPath)
+            Write-RepairLog -Level 'INFO' -Message ('Резервная копия предыдущего ярлыка: {0}' -f $result.BackupPath)
         }
     } else {
-        Write-RepairLog -Level 'INFO' -Message ('Shortcut уже исправен: {0}' -f $script:ResolvedShortcutPath)
+        Write-RepairLog -Level 'INFO' -Message ('Ярлык уже исправен: {0}' -f $script:ResolvedShortcutPath)
     }
 }
 
@@ -1212,7 +1212,7 @@ function Get-EnvironmentDiagnostic {
     $pythonHealth = Test-PythonHealth -PythonPath $pythonPath
 
     if (-not $pythonHealth.Success) {
-        $issues.Add(('Project Python неисправен: {0}' -f $pythonHealth.Details))
+        $issues.Add(('Python проекта неисправен: {0}' -f $pythonHealth.Details))
     }
 
     $uvHealthy = Test-Executable -Executable $uvPath -Arguments @(
@@ -1220,7 +1220,7 @@ function Get-EnvironmentDiagnostic {
     )
 
     if (-not $uvHealthy) {
-        $issues.Add('Project uv отсутствует или не запускается.')
+        $issues.Add('uv проекта отсутствует или не запускается.')
     }
 
     $managedPythonCandidates = @()
@@ -1232,7 +1232,7 @@ function Get-EnvironmentDiagnostic {
     }
 
     if ($managedPythonCandidates.Count -eq 0) {
-        $issues.Add('Managed Python внутри .venv отсутствует.')
+        $issues.Add('Управляемая среда Python внутри .venv отсутствует.')
     }
 
     if ($pythonHealth.Success) {
@@ -1248,7 +1248,7 @@ function Get-EnvironmentDiagnostic {
         )
 
         if (-not $importHealth.Success) {
-            $issues.Add(('Не пройдена проверка обязательных Python imports: {0}' -f $importHealth.Details))
+            $issues.Add(('Не пройдена проверка импорта обязательных модулей Python: {0}' -f $importHealth.Details))
         }
     }
 
@@ -1266,7 +1266,7 @@ function Get-EnvironmentDiagnostic {
         ) -WorkingDirectory $script:ResolvedRepositoryPath
 
         if ($syncCheck.ExitCode -ne 0) {
-            $issues.Add('uv dry-run не подтвердил согласованность .venv с uv.lock.')
+            $issues.Add('Пробный запуск uv не подтвердил согласованность .venv с uv.lock.')
             Write-NativeOutput -Result $syncCheck -Level 'WARN' -Prefix '[uv dry-run]'
         } else {
             $syncCheckText = $syncCheck.Output -join [Environment]::NewLine
@@ -1277,7 +1277,7 @@ function Get-EnvironmentDiagnostic {
                     [System.StringComparison]::OrdinalIgnoreCase
                 )
             ) {
-                $issues.Add('uv dry-run обнаружил изменения, необходимые для согласования .venv с uv.lock.')
+                $issues.Add('Пробный запуск uv обнаружил изменения, необходимые для согласования .venv с uv.lock.')
                 Write-NativeOutput -Result $syncCheck -Level 'WARN' -Prefix '[uv dry-run]'
             }
         }
@@ -1288,7 +1288,7 @@ function Get-EnvironmentDiagnostic {
     )
 
     if (-not $adbHealthy) {
-        $warnings.Add('ADB отсутствует или не запускается. Внешний bootstrap ADB будет определён на этапе 2E.')
+        $warnings.Add('ADB отсутствует или не запускается. Внешний вспомогательный ADB будет определён на этапе 2E.')
     }
 
     $shortcutDiagnostic = Get-ShortcutDiagnostic
@@ -1296,8 +1296,8 @@ function Get-EnvironmentDiagnostic {
     if ($null -ne $shortcutDiagnostic -and -not [bool]$shortcutDiagnostic.Healthy) {
         $warnings.Add(
             (
-                'Shortcut требует восстановления: {0}. ' +
-                'Запустите Repair с -RepairShortcut в elevated PowerShell 7.'
+                'Ярлык требует восстановления: {0}. ' +
+                'Запустите Repair с -RepairShortcut в PowerShell 7 от имени администратора.'
             ) -f $shortcutDiagnostic.Details
         )
     }
@@ -1354,7 +1354,7 @@ function Resolve-BootstrapUv {
     $uvExecutable = Resolve-ExecutableCandidate @resolveParameters
 
     if ($null -eq $uvExecutable) {
-        Complete-RepairFailure -Code $script:ExitCodeBootstrapUnavailable -Message 'Не найден исправный uv. Укажите -UvExecutablePath или выполните будущий Build-AzurPilot.ps1.'
+        Complete-RepairFailure -Code $script:ExitCodeBootstrapUnavailable -Message 'Не найден исправный uv. Укажите -UvExecutablePath или выполните Build-AzurPilot.ps1.'
     }
 
     return $uvExecutable
@@ -1371,7 +1371,7 @@ function Resolve-BootstrapPython {
 
     if (-not [string]::IsNullOrWhiteSpace($BootstrapPythonPath)) {
         if (-not (Test-Path -LiteralPath $BootstrapPythonPath -PathType Leaf)) {
-            Complete-RepairFailure -Code $script:ExitCodeBootstrapUnavailable -Message ('Указанный Bootstrap Python не найден: {0}' -f $BootstrapPythonPath)
+            Complete-RepairFailure -Code $script:ExitCodeBootstrapUnavailable -Message ('Указанный вспомогательный Python не найден: {0}' -f $BootstrapPythonPath)
         }
 
         $candidates.Add(
@@ -1517,7 +1517,7 @@ function Backup-CurrentVenv {
 
     if (-not [bool]$Transaction.OriginalVenvExisted) {
         Write-RepairJournal -Transaction $Transaction -Phase 'BackupReady'
-        Write-RepairLog -Level 'INFO' -Message 'Исходная .venv отсутствует. Backup не требуется.'
+        Write-RepairLog -Level 'INFO' -Message 'Исходная .venv отсутствует. Резервная копия не требуется.'
         return
     }
 
@@ -1525,14 +1525,14 @@ function Backup-CurrentVenv {
     $backupPath = [string]$Transaction.BackupPath
 
     if (-not (Test-Path -LiteralPath $venvPath -PathType Container)) {
-        Complete-RepairFailure -Code $script:ExitCodeRepairFailedRollbackSucceeded -Message ('Исходная .venv исчезла до создания backup: {0}' -f $venvPath)
+        Complete-RepairFailure -Code $script:ExitCodeRepairFailedRollbackSucceeded -Message ('Исходная .venv исчезла до создания резервной копии: {0}' -f $venvPath)
     }
 
     if (Test-Path -LiteralPath $backupPath) {
-        Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message ('Backup path уже существует: {0}' -f $backupPath)
+        Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message ('Путь резервной копии уже существует: {0}' -f $backupPath)
     }
 
-    Write-RepairLog -Level 'INFO' -Message ('Перемещение исходной .venv в backup: {0}' -f $backupPath)
+    Write-RepairLog -Level 'INFO' -Message ('Перемещение исходной .venv в резервную копию: {0}' -f $backupPath)
     Move-Item -LiteralPath $venvPath -Destination $backupPath -ErrorAction Stop
 
     $backupSnapshot = Get-DirectorySnapshot -LiteralPath $backupPath
@@ -1540,7 +1540,7 @@ function Backup-CurrentVenv {
     $actualJson = $backupSnapshot | ConvertTo-Json -Compress -Depth 8
 
     if ($expectedJson -ne $actualJson) {
-        Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message 'Backup .venv не совпадает с исходным snapshot.'
+        Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message 'Резервная копия .venv не совпадает с исходным снимком.'
     }
 
     Write-RepairJournal -Transaction $Transaction -Phase 'BackupReady'
@@ -1786,7 +1786,7 @@ function Complete-RepairTransaction {
     )
 
     Write-RepairJournal -Transaction $Transaction -Phase 'Completed'
-    Write-RepairLog -Level 'INFO' -Message ('Repair transaction завершена: {0}' -f $Transaction.TransactionPath)
+    Write-RepairLog -Level 'INFO' -Message ('Транзакция Repair завершена: {0}' -f $Transaction.TransactionPath)
 }
 
 function Clear-ExpiredRepairTransaction {
@@ -1836,7 +1836,7 @@ function Clear-ExpiredRepairTransaction {
             (Test-Path -LiteralPath $transactionPath -PathType Container)
         ) {
             Remove-Item -LiteralPath $transactionPath -Recurse -Force -ErrorAction Stop
-            Write-RepairLog -Level 'INFO' -Message ('Удалён устаревший Repair backup: {0}' -f $transactionPath)
+            Write-RepairLog -Level 'INFO' -Message ('Удалена устаревшая резервная копия Repair: {0}' -f $transactionPath)
         }
     }
 }
@@ -1847,7 +1847,7 @@ function Invoke-AzurPilotRepair {
 
     try {
         Initialize-RepairLog
-        Write-RepairLog -Level 'INFO' -Message 'Запуск AzurPilot Stage 2D Repair.'
+        Write-RepairLog -Level 'INFO' -Message 'Запуск AzurPilot Repair, этап 2D.'
         Write-RepairLog -Level 'INFO' -Message ('PowerShell: {0}' -f $PSVersionTable.PSVersion)
         Write-RepairLog -Level 'INFO' -Message ('RepositoryPath: {0}' -f $RepositoryPath)
 
@@ -1861,7 +1861,7 @@ function Invoke-AzurPilotRepair {
         $script:RepairMutex = $mutexData.Mutex
         $script:RepairMutexOwned = $mutexData.Owned
 
-        Write-RepairLog -Level 'INFO' -Message ('Repair mutex: {0}' -f $mutexData.Name)
+        Write-RepairLog -Level 'INFO' -Message ('Мьютекс Repair: {0}' -f $mutexData.Name)
 
         if ($script:ShortcutOnlyParameter) {
             if (-not $script:RepairShortcutParameter) {
@@ -1869,7 +1869,7 @@ function Invoke-AzurPilotRepair {
             }
 
             Invoke-AzurPilotShortcutRepair
-            Write-RepairLog -Level 'INFO' -Message 'Shortcut-only Repair завершён успешно.'
+            Write-RepairLog -Level 'INFO' -Message 'Операция Repair только для ярлыка завершена успешно.'
             return $script:ExitCodeSuccess
         }
 
@@ -1881,7 +1881,7 @@ function Invoke-AzurPilotRepair {
             $incompleteTransactions = @(Get-IncompleteRepairTransaction)
 
             if ($incompleteTransactions.Count -gt 0) {
-                Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message 'DiagnosticOnly обнаружил незавершённую Repair transaction. Запустите Repair без -DiagnosticOnly для безопасного rollback.'
+                Complete-RepairFailure -Code $script:ExitCodeTransactionConflict -Message 'DiagnosticOnly обнаружил незавершённую транзакцию Repair. Запустите Repair без -DiagnosticOnly для безопасного отката.'
             }
         } else {
             Invoke-IncompleteRepairRecovery
@@ -1912,8 +1912,8 @@ function Invoke-AzurPilotRepair {
         $bootstrapUv = Resolve-BootstrapUv -Diagnostic $diagnostic
         $bootstrapPython = Resolve-BootstrapPython -Diagnostic $diagnostic
 
-        Write-RepairLog -Level 'INFO' -Message ('Bootstrap uv: {0}' -f $bootstrapUv)
-        Write-RepairLog -Level 'INFO' -Message ('Bootstrap Python: {0}' -f $bootstrapPython)
+        Write-RepairLog -Level 'INFO' -Message ('Вспомогательный uv: {0}' -f $bootstrapUv)
+        Write-RepairLog -Level 'INFO' -Message ('Вспомогательный Python: {0}' -f $bootstrapPython)
 
         $transactionParameters = @{
             Diagnostic = $diagnostic
@@ -1940,7 +1940,7 @@ function Invoke-AzurPilotRepair {
             }
             catch {
                 Write-RepairLog -Level 'WARN' -Message (
-                    'Не удалось выполнить best-effort очистку старых Repair backups: {0}' -f
+                    'Не удалось выполнить необязательную очистку старых резервных копий Repair: {0}' -f
                     $_.Exception.Message
                 )
             }
@@ -1949,7 +1949,7 @@ function Invoke-AzurPilotRepair {
                 Invoke-AzurPilotShortcutRepair
             }
 
-            Write-RepairLog -Level 'INFO' -Message 'AzurPilot environment успешно восстановлено.'
+            Write-RepairLog -Level 'INFO' -Message 'Окружение AzurPilot успешно восстановлено.'
             return $script:ExitCodeSuccess
         }
         catch {
@@ -1962,7 +1962,7 @@ function Invoke-AzurPilotRepair {
             }
             catch {
                 $rollbackException = $_.Exception
-                $message = 'Repair завершился ошибкой, затем не удался rollback: {0}' -f $rollbackException.Message
+                $message = 'Repair завершился ошибкой, затем не удался откат: {0}' -f $rollbackException.Message
                 Complete-RepairFailure -Code $script:ExitCodeRollbackFailed -Message $message -InnerException $repairException
             }
 
@@ -1996,7 +1996,7 @@ function Invoke-AzurPilotRepair {
                 }
                 catch {
                     if ($null -ne $script:LogPath) {
-                        Write-RepairLog -Level 'WARN' -Message ('Не удалось освободить Repair mutex: {0}' -f $_.Exception.Message)
+                        Write-RepairLog -Level 'WARN' -Message ('Не удалось освободить мьютекс Repair: {0}' -f $_.Exception.Message)
                     }
                 }
             }

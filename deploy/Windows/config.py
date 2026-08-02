@@ -92,7 +92,7 @@ class DeployConfig(ConfigModel):
         self.show_config()
 
     def show_config(self):
-        logger.hr("Show deploy config", 1)
+        logger.hr("Конфигурация запуска", 1)
         hidden = {"Password", "SSHUser"} | LEGACY_IGNORED_KEYS
         for key, value in self.config.items():
             if key in hidden:
@@ -101,7 +101,7 @@ class DeployConfig(ConfigModel):
                 continue
             logger.info(f"{key}: {value}")
 
-        logger.info("Rest of the configs are the same as default")
+        logger.info("Остальные параметры совпадают со значениями по умолчанию")
 
     def read(self):
         """Load defaults and user values without network or file writes."""
@@ -152,7 +152,7 @@ class DeployConfig(ConfigModel):
         if os.path.exists(exe):
             return exe
 
-        logger.warning(f'AdbExecutable: {exe} does not exist, use `adb` instead')
+        logger.warning(f'AdbExecutable: {exe} не существует, вместо него используется `adb`')
         return 'adb'
 
     @cached_property
@@ -163,8 +163,8 @@ class DeployConfig(ConfigModel):
 
         current = sys.executable.replace("\\", "/")
         logger.warning(
-            f'PythonExecutable: {exe} does not exist, '
-            f'use current python instead: {current}'
+            f'PythonExecutable: {exe} не существует, '
+            f'вместо него используется текущий Python: {current}'
         )
         return current
 
@@ -176,12 +176,12 @@ class DeployConfig(ConfigModel):
         error_code = os.system(command)
         if error_code:
             if allow_failure:
-                logger.info(f"[ allowed failure ], error_code: {error_code}")
+                logger.info(f"[ допустимый сбой ], код завершения: {error_code}")
                 return False
-            logger.info(f"[ failure ], error_code: {error_code}")
+            logger.info(f"[ сбой ], код завершения: {error_code}")
             self.show_error(command)
             raise ExecutionError
-        logger.info("[ success ]")
+        logger.info("[ успешно ]")
         return True
 
     def subprocess_execute(self, cmd, timeout=10):
@@ -193,16 +193,16 @@ class DeployConfig(ConfigModel):
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
-            logger.info(f'TimeoutExpired, stdout={stdout}, stderr={stderr}')
+            logger.info(f'Превышено время ожидания, stdout={stdout}, stderr={stderr}')
         return stdout.decode()
 
     def show_error(self, command=None):
-        logger.hr("Operation failed", 0)
+        logger.hr("Операция завершилась с ошибкой", 0)
         self.show_config()
         logger.info("")
-        logger.info(f"Last command: {command}")
+        logger.info(f"Последняя команда: {command}")
         logger.info(
-            "Please check your deploy settings in config/deploy.yaml "
-            "and re-open AzurPilot.exe"
+            "Проверьте параметры запуска в config/deploy.yaml "
+            "и снова откройте AzurPilot.exe"
         )
-        logger.info("Take the screenshot of entire window if you need help")
+        logger.info("Если нужна помощь, сделайте снимок всего окна")

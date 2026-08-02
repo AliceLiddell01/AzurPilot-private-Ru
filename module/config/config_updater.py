@@ -247,7 +247,7 @@ class ConfigGenerator:
             groups.append('Storage')
             for group in groups:
                 if group not in self.argument:
-                    print(f'`{task}.{group}` is not related to any argument group')
+                    print(f'`{task}.{group}` не связан ни с одной группой аргументов')
                     continue
                 deep_set(data, keys=[task, group], value=deepcopy(self.argument[group]))
 
@@ -255,7 +255,7 @@ class ConfigGenerator:
             # 检查参数是否存在（若不存在则跳过）
             old = deep_get(data, keys=path, default=None)
             if old is None:
-                print(f'`{".".join(path)}` is not a existing argument')
+                print(f'Аргумент `{".".join(path)}` не существует')
                 return False
             # 检查类型是否匹配（但允许 `Interval` 类型不同）
             old_value = old.get('value', None) if isinstance(old, dict) else old
@@ -264,12 +264,12 @@ class ConfigGenerator:
                     and old_value is not None \
                     and path[2] not in ['SuccessInterval', 'FailureInterval']:
                 print(
-                    f'`{value}` ({type(value)}) and `{".".join(path)}` ({type(old_value)}) are in different types')
+                    f'Тип `{value}` ({type(value)}) не совпадает с типом `{".".join(path)}` ({type(old_value)})')
                 return False
             # 检查选项值是否在允许列表中
             if isinstance(old, dict) and 'option' in old:
                 if value not in old['option']:
-                    print(f'`{value}` is not an option of argument `{".".join(path)}`')
+                    print(f'`{value}` не является допустимым значением аргумента `{".".join(path)}`')
                     return False
             return True
 

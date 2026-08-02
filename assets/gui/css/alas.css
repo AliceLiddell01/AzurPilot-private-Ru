@@ -42,7 +42,7 @@ summary {
     line-height: var(--alas-menu-line-height);
 }
 
-body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.CodeMirror-line):not(pre.rich-traceback-code) {
+body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.CodeMirror-line):not(.rich-traceback-container):not(.rich-traceback-container *) {
     font-family: 'MiSans', "Microsoft YaHei", sans-serif !important;
 }
 
@@ -287,16 +287,58 @@ button.btn.dropdown-toggle {
     padding: 1rem !important;
 }
 
-code.rich-traceback {
-    padding: 0;
+.rich-traceback-container {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: visible;
+    overscroll-behavior-x: contain;
+}
+
+.modal:has(.rich-traceback-container) {
+    display: block !important;
+    align-items: initial !important;
+    box-sizing: border-box;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    padding: 1rem;
+}
+
+.modal:has(.rich-traceback-container) > .modal-dialog {
+    margin: 0 auto !important;
+}
+
+.rich-traceback-container,
+.rich-traceback-container * {
+    font-family: 'JetBrains Mono NL', SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace !important;
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0, "calt" 0 !important;
+    letter-spacing: normal !important;
 }
 
 pre.rich-traceback-code {
-    padding-top: 0;
-    padding-bottom: 0;
-    font-family: 'JetBrains Mono NL', Menlo, consolas, DejaVu Sans Mono, Courier New, monospace !important;
+    box-sizing: border-box;
+    display: block;
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
     font-size: 0.85rem;
     line-height: 1.2;
+    white-space: pre;
+    overflow: visible;
+    overflow-wrap: normal;
+    word-break: normal;
+    tab-size: 2;
+}
+
+pre.rich-traceback-code code {
+    display: inline;
+    padding: 0;
+    white-space: inherit;
 }
 
 #pywebio-scope-ROOT {

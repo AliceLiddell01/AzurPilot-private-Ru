@@ -20,9 +20,9 @@ class AlasManager(DeployConfig):
         return os.getpid()
 
     def list_process(self) -> t.List[DataProcessInfo]:
-        logger.info('List process')
+        logger.info('Получение списка процессов')
         process = list(iter_process())
-        logger.info(f'Found {len(process)} processes')
+        logger.info(f'Найдено процессов: {len(process)}')
         return process
 
     def iter_process_by_names(self, names, in_alas=False) -> t.Iterable[DataProcessInfo]:
@@ -60,7 +60,7 @@ class AlasManager(DeployConfig):
 
     def alas_kill(self):
         for _ in range(10):
-            logger.hr(f'Kill existing AzurPilot', 0)
+            logger.hr('Завершение запущенного AzurPilot', 0)
             proc_list = list(self.iter_process_by_names(['python.exe'], in_alas=True))
             if not len(proc_list):
                 Progress.KillExisting()
@@ -69,7 +69,7 @@ class AlasManager(DeployConfig):
                 logger.info(proc)
                 self.kill_process(proc)
 
-        logger.warning('Unable to kill existing AzurPilot, skip')
+        logger.warning('Не удалось завершить запущенный AzurPilot, операция пропущена')
         Progress.KillExisting()
         return False
 

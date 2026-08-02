@@ -115,7 +115,7 @@ def poor_yaml_write(
         )
         matches = list(pattern.finditer(text))
         if len(matches) > 1:
-            raise ValueError(f'Duplicate deploy config key: {key}')
+            raise ValueError(f'Дублирующийся ключ конфигурации запуска: {key}')
         if matches:
             text = pattern.sub(
                 lambda match: f"{match.group('prefix')} {value}",

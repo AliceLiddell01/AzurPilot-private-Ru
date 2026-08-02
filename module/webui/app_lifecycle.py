@@ -60,13 +60,13 @@ def clearup() -> bool:
         if State._clearup:
             return True
 
-        logger.info("[WebUI-生命周期] 开始清理")
-        success = _clearup_step("任务处理器", task_handler.stop)
+        logger.info("[WebUI-жизненный цикл] Начата очистка")
+        success = _clearup_step("обработчик фоновых задач", task_handler.stop)
 
         for name, handler in (
-            ("远程访问", RemoteAccess.kill_ssh_process),
+            ("удалённый доступ", RemoteAccess.kill_ssh_process),
             ("Discord RPC", close_discord_rpc),
-            ("OCR 服务", stop_ocr_server_process),
+            ("служба OCR", stop_ocr_server_process),
         ):
             success = _clearup_step(name, handler) and success
 
@@ -84,7 +84,7 @@ def clearup() -> bool:
             success = False
 
         for alas in instances:
-            success = _clearup_step(f"AzurPilot 实例 {alas.config_name}", alas.stop) and success
+            success = _clearup_step(f"профиль AzurPilot {alas.config_name}", alas.stop) and success
 
         if success:
             try:
@@ -99,6 +99,8 @@ def clearup() -> bool:
                 )
                 success = False
         else:
-            logger.error("WebUI 清理未完成，保留 Manager 直到父进程终止进程树")
-        logger.info("[WebUI-生命周期] Alas 已关闭")
+            logger.error(
+                "Очистка WebUI не завершена; служба Manager сохранена до завершения дерева процессов родительским процессом"
+            )
+        logger.info("[WebUI-жизненный цикл] AzurPilot остановлен")
         return success

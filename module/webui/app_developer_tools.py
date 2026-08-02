@@ -23,7 +23,6 @@ from module.webui.app_dependencies import (
     put_scope,
     put_text,
     put_warning,
-    raise_exception,
     t,
     toast,
     use_scope,
@@ -58,7 +57,7 @@ def request_webui_restart() -> bool:
     if State.restart_event is None:
         return False
     if not State.restart_lock.acquire(blocking=False):
-        logger.info("WebUI 重启事务正在进行，忽略重复请求")
+        logger.info("Перезапуск WebUI уже выполняется; повторный запрос пропущен")
         return False
 
     try:
@@ -70,7 +69,9 @@ def request_webui_restart() -> bool:
         State._restart_requested = True
         try:
             if not clearup():
-                logger.warning("WebUI 清理未完成，将由父进程终止完整进程树")
+                logger.warning(
+                    "Очистка WebUI не завершена; родительский процесс завершит всё дерево процессов"
+                )
         except Exception as exc:
             logger.exception_context(
                 title='Ошибка очистки при ручном перезапуске WebUI',
@@ -105,12 +106,6 @@ class DeveloperToolsMixin(WebUIMixinBase):
         self.init_menu(name="Utils")
         self.set_title(t("Gui.MenuDevelop.Utils"))
         put_scope("develop_detail")
-        put_button(
-            label="Тест GUI: вызвать исключение",
-            onclick=raise_exception,
-            scope="develop_detail",
-        )
-
         def _get_debug_target_instance() -> Optional[str]:
             if getattr(self, "alas_name", ""):
                 return self.alas_name

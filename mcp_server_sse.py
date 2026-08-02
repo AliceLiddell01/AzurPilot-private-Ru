@@ -471,26 +471,26 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> ToolResponse:
     try:
         handler = TOOL_HANDLERS.get(name)
         if handler is None:
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+            return [TextContent(type="text", text=f"Неизвестный инструмент: {name}")]
         return await handler(arguments)
     except Exception as e:
-        logger.exception(f"Tool {name} error")
-        return [TextContent(type="text", text=f"Error: {str(e)}")]
+        logger.exception(f"Ошибка инструмента {name}")
+        return [TextContent(type="text", text=f"Ошибка: {str(e)}")]
 
 # SSE 传输层初始化 - 固定端点（与 /mcp 挂载点匹配）
 transport = SseServerTransport("/mcp/messages")
 
 
 async def _run_sse(scope, receive, send):
-    logger.info("Matched endpoint: /sse. Opening SSE connection...")
+    logger.info("Найден endpoint /sse. Открывается SSE-соединение...")
     async with transport.connect_sse(scope, receive, send) as (read_stream, write_stream):
-        logger.info("SSE Stream connected. Running MCP server loop...")
+        logger.info("SSE-поток подключён. Запускается цикл MCP-сервера...")
         try:
             options = mcp_server.create_initialization_options()
             await mcp_server.run(read_stream, write_stream, options)
         except Exception as e:
-            logger.error(f"MCP Server Loop Error: {e}", exc_info=True)
-        logger.info("MCP Server Loop exited.")
+            logger.error(f"Ошибка цикла MCP-сервера: {e}", exc_info=True)
+        logger.info("Цикл MCP-сервера завершён.")
 
 
 def _is_mcp_client_disconnected(error: Exception) -> bool:
@@ -498,16 +498,16 @@ def _is_mcp_client_disconnected(error: Exception) -> bool:
 
 
 async def _handle_mcp_post(scope, receive, send, method):
-    logger.info(f"Matched endpoint: /messages. Method: {method}")
+    logger.info(f"Найден endpoint /messages. Метод: {method}")
     try:
         await transport.handle_post_message(scope, receive, send)
-        logger.info("MCP Message POST handled.")
+        logger.info("POST-сообщение MCP обработано.")
     except Exception as e:
         # 捕获常见的断开连接错误，避免服务器崩溃
         if _is_mcp_client_disconnected(e):
-            logger.warning("MCP client disconnected during POST message.")
+            logger.warning("Клиент MCP отключился во время обработки POST-сообщения.")
         else:
-            logger.error(f"Error handling MCP message: {e}", exc_info=True)
+            logger.error(f"Не удалось обработать сообщение MCP: {e}", exc_info=True)
 
 
 async def _send_not_found(send):
@@ -529,7 +529,7 @@ async def mcp_asgi_app(scope, receive, send):
     method = scope.get("method", "")
 
     if scope["type"] == "http":
-        logger.info(f"Incoming ASGI HTTP: {method} {path}")
+        logger.info(f"Входящий запрос ASGI HTTP: {method} {path}")
 
         # 路由逻辑 - 使用末尾匹配以兼容各种挂载路径和斜线组合
         if path.endswith("/sse"):
@@ -551,5 +551,5 @@ app.mount("/", mcp_asgi_app)
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info("[MCP] 启动 AzurPilot MCP 服务 (Port: 22268)")
+    logger.info("[MCP] Запуск MCP-сервиса AzurPilot (порт: 22268)")
     uvicorn.run(app, host="0.0.0.0", port=22268)

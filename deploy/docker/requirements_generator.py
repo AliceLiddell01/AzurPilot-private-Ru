@@ -1,4 +1,4 @@
 raise SystemExit(
-    "Docker requirements generation has been retired. "
-    "Docker builds now sync pyproject.toml and uv.lock with uv."
+    "Генерация requirements для Docker больше не поддерживается. "
+    "Сборки Docker теперь синхронизируют pyproject.toml и uv.lock с помощью uv."
 )

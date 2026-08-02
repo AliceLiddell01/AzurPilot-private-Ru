@@ -1,4 +1,4 @@
 raise SystemExit(
-    "AidLux requirements generation has been retired. "
-    "Use pyproject.toml platform markers and uv.lock instead."
+    "Генерация requirements для AidLux больше не поддерживается. "
+    "Вместо неё используйте маркеры платформ в pyproject.toml и файл uv.lock."
 )

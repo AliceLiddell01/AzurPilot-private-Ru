@@ -1,0 +1,97 @@
+html:has(.modal .rich-traceback-container),
+body:has(.modal .rich-traceback-container) {
+    min-height: 100%;
+    height: auto !important;
+    overflow-y: auto !important;
+}
+
+body.modal-open:has(.modal .rich-traceback-container) {
+    padding-right: 0 !important;
+}
+
+.modal:has(.rich-traceback-container) {
+    position: absolute !important;
+    top: 0 !important;
+    right: 0 !important;
+    bottom: auto !important;
+    left: 0 !important;
+    display: flex !important;
+    align-items: safe center !important;
+    justify-content: center !important;
+    box-sizing: border-box;
+    width: 100% !important;
+    min-height: 100vh !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 1rem !important;
+}
+
+.modal:has(.rich-traceback-container) > .modal-dialog {
+    box-sizing: border-box;
+    width: min(94vw, 70rem);
+    min-width: 0;
+    margin: 0 auto !important;
+}
+
+.modal:has(.rich-traceback-container) .modal-content {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+.modal:has(.rich-traceback-container) .modal-body {
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow: visible !important;
+    padding: 0 !important;
+}
+
+.rich-traceback-container {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    max-height: none !important;
+    overflow-x: auto !important;
+    overflow-y: clip !important;
+    overscroll-behavior-x: contain;
+}
+
+/*
+ * Rich exports terminal colors as inline styles. The light terminal palette
+ * contains several bright/dim variants that fall below WCAG AA on the WebUI
+ * light background. Match only those exact light-palette values so the dark
+ * theme remains untouched.
+ */
+.rich-traceback-container [style*="color: #e69898"] {
+    color: #9c3f3f !important;
+    text-decoration-color: #9c3f3f !important;
+}
+
+.rich-traceback-container [style*="color: #949800"] {
+    color: #656900 !important;
+    text-decoration-color: #656900 !important;
+}
+
+.rich-traceback-container [style*="color: #00bc00"],
+.rich-traceback-container [style*="color: #14ce14"] {
+    color: #006a2b !important;
+    text-decoration-color: #006a2b !important;
+}
+
+.rich-traceback-container [style*="color: #b5ba00"] {
+    color: #6b6f00 !important;
+    text-decoration-color: #6b6f00 !important;
+}
+
+.rich-traceback-container [style*="color: #0598bc"] {
+    color: #00697e !important;
+    text-decoration-color: #00697e !important;
+}
+
+.rich-traceback-container [style*="color: #a5a5a5"],
+.rich-traceback-container [style*="color: #b0b0b0"] {
+    color: #686868 !important;
+    text-decoration-color: #686868 !important;
+}
