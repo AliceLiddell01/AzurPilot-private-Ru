@@ -414,25 +414,45 @@ class OpsiVoucher(OSMap):
 
     @staticmethod
     def _data_logger_should_probe_storage(shop_result, retry_only):
-        """Use strict Storage inspection when the shop cannot prove ownership.
+        """Probe Storage when ownership cannot be settled in the shop.
 
-        A completed purchase may remove the target from the recognized shop
-        items instead of leaving a reliably detectable dimmed SOLD_OUT card.
-        On a retry, a full scan with no target is therefore resolved by the
-        item-specific Storage lifecycle. That lifecycle only matches the
-        unlock logger and never treats simple absence as successful activation.
+        A completed purchase can remove the target from the recognized shop
+        items instead of leaving a reliably detectable SOLD_OUT card. A full
+        shop scan with no target therefore needs a read-only Storage probe even
+        on a fresh run whose internal retry state was manually cleared.
         """
         if shop_result.state is DataLoggerShopState.SOLD_OUT:
             return True
         if shop_result.purchased:
             return True
         return (
-            retry_only
-            and shop_result.state is DataLoggerShopState.UNKNOWN
+            shop_result.state is DataLoggerShopState.UNKNOWN
             and shop_result.reason in {
                 'full_scan_inconclusive',
                 'target_not_observed',
             }
+        )
+
+    @staticmethod
+    def _data_logger_full_absence_confirms_activation(
+        shop_result,
+        storage_state,
+    ):
+        """Recover active state from two completed, independent scans.
+
+        ``full_scan_inconclusive`` means the voucher shop was traversed without
+        finding an available target or a readable SOLD_OUT card. If the exact
+        unlock logger is also absent after Storage was scrolled and observed on
+        three stable frames, the monthly item has already left both lifecycle
+        locations and is treated as activated.
+        """
+        if storage_state is not DataLoggerStorageState.ABSENT:
+            return False
+        if shop_result.purchased:
+            return True
+        return (
+            shop_result.state is DataLoggerShopState.UNKNOWN
+            and shop_result.reason == 'full_scan_inconclusive'
         )
 
     def os_voucher(self):
@@ -496,7 +516,22 @@ class OpsiVoucher(OSMap):
                     logger.exception(f'[{DATA_LOGGER_NAME}] Storage lifecycle failed: {exc}')
                     storage_state = DataLoggerStorageState.UNKNOWN
 
-                if storage_state is DataLoggerStorageState.ACTIVATED:
+                recovered_from_absence = (
+                    self._data_logger_full_absence_confirms_activation(
+                        shop_result,
+                        storage_state,
+                    )
+                )
+                if recovered_from_absence:
+                    logger.info(
+                        f'[{DATA_LOGGER_NAME}] activation recovered from complete '
+                        'shop scan and confirmed Storage absence'
+                    )
+
+                if (
+                    storage_state is DataLoggerStorageState.ACTIVATED
+                    or recovered_from_absence
+                ):
                     cycle_key = data_logger_mark_active(self.config)
                     logger.info(
                         f'[{DATA_LOGGER_NAME}] monthly success saved for server cycle '
