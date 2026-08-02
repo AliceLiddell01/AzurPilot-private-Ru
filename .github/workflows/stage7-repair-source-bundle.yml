@@ -16,9 +16,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Collect exact-head sources
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           out='artifacts/stage7-repair-source'
@@ -52,8 +56,9 @@ jobs:
             mkdir -p "$out/$(dirname "$file")"
             cp "$file" "$out/$file"
           done
-          git rev-parse HEAD > "$out/HEAD"
-          git rev-parse origin/personal/stable > "$out/BASE"
+          printf '%s\n' "$PR_HEAD_SHA" > "$out/HEAD"
+          printf '%s\n' "$PR_BASE_SHA" > "$out/BASE"
+          git show "$PR_BASE_SHA:gui.py" > "$out/gui.base.py"
 
       - name: Upload source bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
