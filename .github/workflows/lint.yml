@@ -72,9 +72,11 @@ jobs:
         run: uv run python -m dev_tools.verify_stage6
 
       - name: Run Stage 7 semantic verifier
+        env:
+          STAGE7_BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/personal/stable' }}
         run: >-
           uv run python -m dev_tools.verify_stage7
-          --base-ref origin/personal/stable
+          --base-ref "$STAGE7_BASE_REF"
           --output-dir artifacts/stage7
 
       - name: Publish Stage 7 summary
