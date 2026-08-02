@@ -56,7 +56,7 @@ def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None
     assert data["script_count"] == 0, data
     assert data["injected_id_count"] == 0, data
     assert data["page_scroll_width"] <= data["page_client_width"], data
-    assert data["container_overflow_y"] == "visible", data
+    assert data["container_scroll_height"] <= data["container_client_height"] + 1, data
     assert data["modal_display"] == "block", data
     assert data["modal_overflow_y"] == "auto", data
     assert data["container_scroll_top"] == 0, data
