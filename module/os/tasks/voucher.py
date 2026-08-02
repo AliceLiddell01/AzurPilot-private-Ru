@@ -141,12 +141,13 @@ class OpsiVoucher(OSMap):
         return False
 
     def _data_logger_storage_enter(self):
-        """Enter real Storage with a local timeout and strict button matching."""
+        """Enter real Storage with a local timeout and tolerant button matching."""
         if not self._data_logger_ensure_port_map():
             return False
 
         logger.info(f'[{DATA_LOGGER_NAME}] entering Storage')
         timeout = Timer.from_seconds(DATA_LOGGER_STORAGE_ENTER_SECONDS).start()
+        self.interval_clear(STORAGE_ENTER)
         while not timeout.reached():
             self.device.screenshot()
             if self.is_in_storage():
@@ -161,16 +162,22 @@ class OpsiVoucher(OSMap):
                 self.device.click(MISSION_QUIT)
                 continue
 
-            if not self.is_in_map() or not self.zone.is_azur_port:
-                logger.warning(
-                    f'[{DATA_LOGGER_NAME}] lost allied-port local-map prerequisite'
-                )
-                return False
-
-            if self.appear(STORAGE_ENTER, offset=(20, 20), interval=2):
-                self.device.click(STORAGE_ENTER)
+            # EN port layouts can shift the Storage button by roughly one menu
+            # slot. Use the same horizontal tolerance as the inherited Storage
+            # handler while keeping this lifecycle bounded by a local timeout.
+            if self.appear_then_click(
+                STORAGE_ENTER,
+                offset=(200, 5),
+                interval=3,
+            ):
                 continue
-            if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50), interval=2):
+            if self.appear_then_click(
+                AUTO_SEARCH_REWARD,
+                offset=(50, 50),
+                interval=3,
+            ):
+                continue
+            if self.handle_map_event():
                 continue
 
         logger.warning(
