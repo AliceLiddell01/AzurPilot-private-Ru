@@ -4,11 +4,21 @@
 通过模板匹配定位代币图标，动态计算商品网格布局，
 识别并过滤代币商店中的商品，按配置购买优先级执行购买。
 支持单次购买日志档案商品的 run_once() 方法。
+支持 Operation Siren Data Logger 的独立购买和售罄确认。
 """
+
+import cv2
+import numpy as np
 
 from module.base.button import ButtonGrid
 from module.base.decorator import cached_property, del_cached_property
 from module.base.timer import Timer
+from module.config.opsi_data_logger import (
+    DATA_LOGGER_ITEM_NAME,
+    DATA_LOGGER_NAME,
+    DataLoggerShopResult,
+    DataLoggerShopState,
+)
 from module.config.redirect_utils.shop_filter import voucher_redirect
 from module.handler.assets import POPUP_CANCEL, POPUP_CONFIRM
 from module.logger import logger
@@ -24,6 +34,8 @@ from module.ui.scroll import Scroll
 PRICE_OCR = DigitYuv([], letter=(255, 223, 57), threshold=128, name='Price_ocr')
 VOUCHER_SHOP_SCROLL = Scroll(VOUCHER_SHOP_SCROLL_AREA, color=(255, 255, 255))
 TEMPLATE_VOUCHER_ICON = Template('./assets/shop/cost/Voucher.png')
+DATA_LOGGER_TEMPLATE_SIMILARITY = 0.82
+DATA_LOGGER_PURCHASE_SECONDS = 45
 
 
 class VoucherShop(ShopClerk, ShopStatus):
@@ -219,20 +231,35 @@ class VoucherShop(ShopClerk, ShopStatus):
 
         return False
 
-    def shop_buy_execute(self, item, skip_first_screenshot=True):
+    def shop_buy_execute(
+        self,
+        item,
+        skip_first_screenshot=True,
+        timeout_seconds=None,
+    ):
         """执行凭证商店购买操作。
 
         通过状态循环完成从点击商品到购买确认的完整流程。
         处理退役、遮挡、信息栏等意外情况。
 
+        普通购买不传 ``timeout_seconds``，保持原有行为。Data Logger
+        流程传入有限超时，避免无法识别的弹窗或 UI 状态永久卡住任务。
+
         Args:
             item: 待购买的商品对象
             skip_first_screenshot: 是否跳过首次截图
+            timeout_seconds: 可选的状态机总超时秒数
+
+        Returns:
+            bool: 是否观察到购买完成并返回商店页面
         """
         success = False
+        timeout = None
+        if timeout_seconds is not None:
+            timeout = Timer.from_seconds(timeout_seconds).start()
         self.shop_interval_clear()
 
-        while 1:
+        while timeout is None or not timeout.reached():
             if skip_first_screenshot:
                 skip_first_screenshot = False
             else:
@@ -261,7 +288,152 @@ class VoucherShop(ShopClerk, ShopStatus):
 
             # 结束条件
             if success and self.appear(BACK_ARROW, offset=(30, 30)):
+                return True
+
+        logger.warning(
+            f'[{DATA_LOGGER_NAME}] purchase state machine timed out after '
+            f'{timeout_seconds} seconds'
+        )
+        return False
+
+    def _reset_page_cache(self):
+        del_cached_property(self, 'shop_grid')
+        del_cached_property(self, 'shop_voucher_items')
+
+    def _data_logger_page_inspection(self, items):
+        for item in items:
+            if item.name != DATA_LOGGER_ITEM_NAME:
+                continue
+            item_image = getattr(item, 'image', None)
+            if item_image is not None:
+                is_available = bool(
+                    np.mean(np.max(item_image, axis=2) > 139) > 0.3
+                )
+                if not is_available:
+                    return (
+                        DataLoggerShopState.SOLD_OUT,
+                        None,
+                        'recognized_dimmed_target',
+                    )
+            if item.price > 0:
+                return (
+                    DataLoggerShopState.AVAILABLE,
+                    item,
+                    'recognized_with_positive_price',
+                )
+            return DataLoggerShopState.UNKNOWN, None, 'recognized_without_price'
+
+        shop_items = self.shop_items()
+        target_template = shop_items.templates.get(DATA_LOGGER_ITEM_NAME)
+        if target_template is None:
+            logger.warning(f'[{DATA_LOGGER_NAME}] 缺少商品模板 {DATA_LOGGER_ITEM_NAME}')
+            return DataLoggerShopState.UNKNOWN, None, 'target_template_missing'
+
+        best_similarity = 0.0
+        best_available_brightness = None
+        for button in shop_items.grids.buttons:
+            raw_item = shop_items.item_class(self.device.image, button)
+            result = cv2.matchTemplate(
+                raw_item.image,
+                target_template,
+                cv2.TM_CCOEFF_NORMED,
+            )
+            _, similarity, _, _ = cv2.minMaxLoc(result)
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_available_brightness = bool(
+                    np.mean(np.max(raw_item.image, axis=2) > 139) > 0.3
+                )
+
+        if best_similarity < DATA_LOGGER_TEMPLATE_SIMILARITY:
+            return DataLoggerShopState.UNKNOWN, None, 'target_not_observed'
+        if best_available_brightness is False:
+            return DataLoggerShopState.SOLD_OUT, None, f'dimmed_target:{best_similarity:.3f}'
+        return DataLoggerShopState.UNKNOWN, None, f'target_unreadable:{best_similarity:.3f}'
+
+    def inspect_data_logger(self):
+        """Inspect every voucher-shop page for Operation Siren Data Logger."""
+        self.wait_until_voucher_appear()
+        VOUCHER_SHOP_SCROLL.set_top(main=self)
+        saw_sold_out = False
+        sold_out_reason = ''
+
+        for _ in range(12):
+            items = self.shop_get_items()
+            state, item, reason = self._data_logger_page_inspection(items)
+            logger.info(f'[{DATA_LOGGER_NAME}] shop state={state.value}, reason={reason}')
+            if state is DataLoggerShopState.AVAILABLE:
+                return state, item, reason
+            if state is DataLoggerShopState.SOLD_OUT:
+                self.device.screenshot()
+                self._reset_page_cache()
+                confirm_items = self.shop_get_items()
+                confirm_state, confirm_item, confirm_reason = (
+                    self._data_logger_page_inspection(confirm_items)
+                )
+                logger.info(
+                    f'[{DATA_LOGGER_NAME}] repeated shop state='
+                    f'{confirm_state.value}, reason={confirm_reason}'
+                )
+                if confirm_state is DataLoggerShopState.AVAILABLE:
+                    return confirm_state, confirm_item, confirm_reason
+                if confirm_state is DataLoggerShopState.SOLD_OUT:
+                    saw_sold_out = True
+                    sold_out_reason = confirm_reason
+
+            if VOUCHER_SHOP_SCROLL.at_bottom(main=self):
                 break
+            VOUCHER_SHOP_SCROLL.next_page(main=self)
+            self._reset_page_cache()
+
+        if saw_sold_out:
+            return DataLoggerShopState.SOLD_OUT, None, sold_out_reason
+        return DataLoggerShopState.UNKNOWN, None, 'full_scan_inconclusive'
+
+    def ensure_data_logger(self) -> DataLoggerShopResult:
+        """Buy and confirm only Operation Siren Data Logger."""
+        logger.hr(DATA_LOGGER_NAME, level=2)
+        state, item, reason = self.inspect_data_logger()
+        if state is DataLoggerShopState.SOLD_OUT:
+            return DataLoggerShopResult(state=state, reason=reason)
+        if state is DataLoggerShopState.UNKNOWN or item is None:
+            return DataLoggerShopResult(
+                state=DataLoggerShopState.UNKNOWN,
+                reason=reason,
+            )
+
+        logger.info(
+            f'[{DATA_LOGGER_NAME}] покупка подтверждённо доступного предмета: '
+            f'cost={getattr(item, "cost", None)}, price={item.price}'
+        )
+        purchase_finished = self.shop_buy_execute(
+            item,
+            timeout_seconds=DATA_LOGGER_PURCHASE_SECONDS,
+        )
+        if not purchase_finished:
+            return DataLoggerShopResult(
+                state=DataLoggerShopState.UNKNOWN,
+                reason='purchase_timeout',
+                purchased=True,
+            )
+
+        self.device.screenshot()
+        confirmed_state, _, confirmed_reason = self.inspect_data_logger()
+        if confirmed_state is not DataLoggerShopState.SOLD_OUT:
+            logger.warning(
+                f'[{DATA_LOGGER_NAME}] покупка не подтверждена состоянием SOLD_OUT; '
+                'возможна нехватка Oil или неопределённое состояние магазина'
+            )
+            return DataLoggerShopResult(
+                state=DataLoggerShopState.UNKNOWN,
+                reason=f'purchase_not_confirmed:{confirmed_reason}',
+                purchased=True,
+            )
+        return DataLoggerShopResult(
+            state=DataLoggerShopState.SOLD_OUT,
+            reason=confirmed_reason,
+            purchased=True,
+        )
 
     def run(self):
         """运行凭证商店购买流程。

@@ -20,6 +20,7 @@ from module.config.config_generated import GeneratedConfig
 from module.config.config_manual import ManualConfig, OutputConfig
 from module.config.config_updater import ConfigUpdater, ensure_time, get_server_next_update, nearest_future
 from module.config.deep import deep_get, deep_set
+from module.config.opsi_data_logger import data_logger_is_active_from_data
 from module.config.time_source import now as current_time
 from module.config.utils import DEFAULT_TIME, dict_to_kv, filepath_config, get_os_reset_remain, path_to_arg, is_good_gpu
 from module.config.watcher import ConfigWatcher
@@ -608,6 +609,8 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             )
 
         def is_special_radar(task):
+            if task == "OpsiExplore":
+                return data_logger_is_active_from_data(self.data)
             return deep_get(
                 self.data, keys=f"{task}.OpsiExplore.SpecialRadar", default=False
             )

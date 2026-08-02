@@ -9,6 +9,7 @@ Classes:
     OpsiExplore: 每月开荒处理器，继承 OSMap。
 """
 
+from module.config.opsi_data_logger import DATA_LOGGER_NAME, data_logger_is_active
 from module.config.utils import get_os_next_reset, DEFAULT_TIME
 from module.exception import GameStuckError, ScriptError
 from module.logger import logger
@@ -62,13 +63,17 @@ class OpsiExplore(OSMap):
             with self.config.multi_set():
                 self.config.OpsiExplore_LastZone = 0
                 self.config.OpsiExplore_ExploreProgress = '已完成百分之100.00'
-                self.config.OpsiExplore_SpecialRadar = False
                 self.config.task_delay(target=next_reset)
                 self.config.task_call('OpsiDaily', force_call=False)
                 self.config.task_call('OpsiShop', force_call=False)
             self.config.task_stop()
 
         logger.hr('大世界-每月开荒+', level=1)
+        special_radar_active = data_logger_is_active(self.config)
+        logger.info(
+            f'[{DATA_LOGGER_NAME}] monthly active state for exploration: '
+            f'{special_radar_active}'
+        )
         full_order = [int(f.strip(' \t\r\n')) for f in self.config.OS_EXPLORE_FILTER.split('>')]
         total_zones = len(full_order)
         # 转换用户输入
@@ -112,12 +117,12 @@ class OpsiExplore(OSMap):
 
             # 运行区域
             logger.hr(f'大世界-每月开荒+ {zone}', level=1)
-            if not self.config.OpsiExplore_SpecialRadar:
+            if not special_radar_active:
                 # 特殊雷达提供 90 个调谐样本，没有特殊雷达时使用仓库中的调谐样本强化舰队
                 self.tuning_sample_use()
             self.fleet_set(self.config.OpsiFleet_Fleet)
             self.os_order_execute(
-                recon_scan=not self.config.OpsiExplore_SpecialRadar,
+                recon_scan=not special_radar_active,
                 submarine_call=self.config.OpsiFleet_Submarine)
             self._os_explore_task_delay()
 
