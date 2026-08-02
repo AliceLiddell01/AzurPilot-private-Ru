@@ -43,6 +43,7 @@ DATA_LOGGER_RETRY_MINUTES = 360
 DATA_LOGGER_STORAGE_ENTER_SECONDS = 15
 DATA_LOGGER_STORAGE_USE_SECONDS = 25
 DATA_LOGGER_ACTIVATION_ABSENT_FRAMES = 3
+DATA_LOGGER_REWARD_GRACE_SECONDS = 4
 
 
 class OpsiVoucher(OSMap):
@@ -187,14 +188,34 @@ class OpsiVoucher(OSMap):
         return False
 
     def _data_logger_storage_quit(self):
+        """Drain reward popups and leave Storage without click-spam."""
         timeout = Timer.from_seconds(8).start()
+        map_stable_frames = 0
+        self.interval_clear(BACK_ARROW)
         while not timeout.reached():
             self.device.screenshot()
-            if self.is_in_map():
-                return True
-            if self.is_in_storage():
-                self.device.click(BACK_ARROW)
+
+            # Data Logger activation can enqueue several adaptability rewards.
+            # They must be dismissed before the Storage back button is used.
+            if self.handle_map_event():
+                map_stable_frames = 0
                 continue
+
+            if self.is_in_map():
+                map_stable_frames += 1
+                if map_stable_frames >= 3:
+                    return True
+                self.device.sleep(0.2)
+                continue
+
+            map_stable_frames = 0
+            if self.is_in_storage() and self.appear_then_click(
+                BACK_ARROW,
+                offset=(20, 20),
+                interval=2,
+            ):
+                continue
+
         logger.warning(f'[{DATA_LOGGER_NAME}] failed to confirm Storage exit')
         return False
 
@@ -272,6 +293,7 @@ class OpsiVoucher(OSMap):
         use_clicked = False
         success_observed = False
         absent_after_use_frames = 0
+        reward_grace = None
         timeout = Timer.from_seconds(DATA_LOGGER_STORAGE_USE_SECONDS).start()
         self.interval_clear(STORAGE_CHECK)
         self.interval_clear(STORAGE_USE)
@@ -289,10 +311,16 @@ class OpsiVoucher(OSMap):
             if self.appear_then_click(STORAGE_USE, offset=(180, 30), interval=2):
                 use_clicked = True
                 absent_after_use_frames = 0
+                reward_grace = Timer.from_seconds(
+                    DATA_LOGGER_REWARD_GRACE_SECONDS
+                ).start()
                 continue
             if self.appear_then_click(BOX_USE, offset=(180, 30), interval=2):
                 use_clicked = True
                 absent_after_use_frames = 0
+                reward_grace = Timer.from_seconds(
+                    DATA_LOGGER_REWARD_GRACE_SECONDS
+                ).start()
                 continue
             if self.appear_then_click(GET_ITEMS_1, interval=2):
                 success_observed = True
@@ -324,13 +352,18 @@ class OpsiVoucher(OSMap):
 
                 if use_clicked:
                     absent_after_use_frames += 1
+                    # The item disappears immediately, while the three
+                    # adaptability reward popups arrive after a short animation.
+                    # Keep observing until that transition had time to appear.
+                    if reward_grace is None or not reward_grace.reached():
+                        continue
                     if (
                         absent_after_use_frames
                         >= DATA_LOGGER_ACTIVATION_ABSENT_FRAMES
                     ):
                         logger.info(
-                            f'[{DATA_LOGGER_NAME}] activation confirmed after Use '
-                            'and stable item disappearance'
+                            f'[{DATA_LOGGER_NAME}] activation confirmed after Use, '
+                            'reward grace, and stable item disappearance'
                         )
                         return DataLoggerStorageState.ACTIVATED
                     continue
@@ -359,7 +392,15 @@ class OpsiVoucher(OSMap):
                 return DataLoggerStorageState.ABSENT
             return self._data_logger_storage_activate_item()
         finally:
-            self._data_logger_storage_quit()
+            # Cleanup must never overwrite a confirmed activation. A delayed
+            # reward popup can make Storage exit fail even though Use succeeded.
+            try:
+                self._data_logger_storage_quit()
+            except Exception as exc:
+                logger.exception(
+                    f'[{DATA_LOGGER_NAME}] Storage cleanup failed after lifecycle '
+                    f'result was determined: {exc}'
+                )
 
     def _data_logger_shop_lifecycle(self, shop):
         try:
