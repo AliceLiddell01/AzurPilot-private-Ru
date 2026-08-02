@@ -321,3 +321,6 @@ RTK.md
 .cursor/
 .claude/
 .agent/
+
+# Временные CI-диагностики и generated-diff artifacts
+/artifacts/

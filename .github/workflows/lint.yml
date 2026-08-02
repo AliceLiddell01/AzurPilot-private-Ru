@@ -13,25 +13,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  python-validation:
-    name: Python, generators and regression tests
-    runs-on: ubuntu-latest
+  functional-tests:
+    name: Python functional and regression tests
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.14'
 
-      - name: Install dependencies
+      - name: Synchronize locked dependencies
         run: uv sync --frozen
 
       - name: Run Ruff
@@ -49,20 +49,6 @@ jobs:
 
       - name: Run Stage 4 audit tests
         run: uv run python -m unittest -v tests/test_russianization_audit.py
-
-      - name: Check Russianization audit baseline
-        run: uv run python -m dev_tools.russianization_audit --check
-
-      - name: Verify deterministic generators
-        run: |
-          uv run -m dev_tools.button_extract
-          uv run -m module.config.config_updater
-          git diff --binary > /tmp/generator-first.diff
-          uv run -m dev_tools.button_extract
-          uv run -m module.config.config_updater
-          git diff --binary > /tmp/generator-second.diff
-          cmp /tmp/generator-first.diff /tmp/generator-second.diff
-          git diff --exit-code --ignore-space-at-eol
 
       - name: Run Stage 5 regression tests
         run: >-
@@ -84,11 +70,129 @@ jobs:
       - name: Run Stage 6 verifier
         run: uv run python -m dev_tools.verify_stage6
 
+      - name: Collect functional failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts/functional
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "uv=$(uv --version 2>&1)"
+            echo "python=$(uv run python --version 2>&1)"
+            echo
+            echo '--- git status --short ---'
+            git status --short
+            echo
+            echo '--- uv packages ---'
+            uv pip list
+          } > artifacts/functional/diagnostics.txt 2>&1
+          git diff --binary > artifacts/functional/working-tree.diff
+          git diff --check > artifacts/functional/diff-check.txt 2>&1
+
+      - name: Upload functional failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: functional-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/functional
+          if-no-files-found: error
+          retention-days: 14
+
+  generated-checks:
+    name: Generated baselines and idempotence
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+
+      - name: Synchronize locked dependencies
+        run: uv sync --frozen
+
+      - name: Prepare generated diagnostics directory
+        run: mkdir -p artifacts/generated
+
+      - name: Check Russianization audit baseline
+        run: uv run python -m dev_tools.russianization_audit --check
+
       - name: Check Stage 6 audit baseline
         run: uv run python -m dev_tools.stage6_ui_audit --check
 
+      - name: Verify deterministic and idempotent generators
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m dev_tools.button_extract
+          uv run python -m module.config.config_updater
+          git diff --binary > artifacts/generated/first.diff
+          git status --short > artifacts/generated/first-status.txt
+
+          uv run python -m dev_tools.button_extract
+          uv run python -m module.config.config_updater
+          git diff --binary > artifacts/generated/second.diff
+          git status --short > artifacts/generated/second-status.txt
+
+          cmp artifacts/generated/first.diff artifacts/generated/second.diff
+          cmp artifacts/generated/first-status.txt artifacts/generated/second-status.txt
+          git diff --exit-code --ignore-space-at-eol
+
       - name: Check diff formatting
         run: git diff --check
+
+      - name: Collect generated failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo
+            echo '--- git status --short ---'
+            git status --short
+          } > artifacts/generated/diagnostics.txt 2>&1
+          git diff --binary > artifacts/generated/failure-working-tree.diff
+          git diff --check > artifacts/generated/failure-diff-check.txt 2>&1
+
+      - name: Upload generated diff artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: generated-diff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/generated
+          if-no-files-found: error
+          retention-days: 14
+
+  repository-audit:
+    name: Repository and secret audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+
+      - name: Synchronize locked dependencies
+        run: uv sync --frozen
 
       - name: Check forbidden deletions, archives and secret patterns
         shell: bash
@@ -116,7 +220,7 @@ jobs:
             exit 1
           fi
 
-          DIFF_RANGE="$diff_range" python - <<'PY'
+          DIFF_RANGE="$diff_range" uv run python - <<'PY'
           import os
           import re
           import subprocess
@@ -179,23 +283,46 @@ jobs:
 
           ./gitleaks git --redact --no-banner --verbose --log-opts="$diff_range" .
 
+      - name: Collect repository audit failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts/repository-audit
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo
+            echo '--- git status --short ---'
+            git status --short
+          } > artifacts/repository-audit/diagnostics.txt 2>&1
+          git diff --binary > artifacts/repository-audit/working-tree.diff
+
+      - name: Upload repository audit failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: repository-audit-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/repository-audit
+          if-no-files-found: error
+          retention-days: 14
+
   powershell-validation:
     name: PowerShell parser and PSScriptAnalyzer
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.14'
 
-      - name: Install dependencies
+      - name: Synchronize locked dependencies
         run: uv sync --frozen
 
       - name: Parse all PowerShell scripts
@@ -247,3 +374,30 @@ jobs:
 
       - name: Run Windows WebUI smoke and verify process shutdown
         run: uv run python -m dev_tools.stage6_webui_smoke
+
+      - name: Collect PowerShell failure diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $artifactDirectory = Join-Path -Path $PWD -ChildPath 'artifacts/powershell'
+          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+          @(
+            "commit=$(git rev-parse HEAD)"
+            "pwsh=$($PSVersionTable.PSVersion)"
+            "uv=$(uv --version)"
+            "python=$(uv run python --version)"
+            ''
+            '--- git status --short ---'
+            (git status --short | Out-String)
+          ) | Set-Content -Path (Join-Path $artifactDirectory 'diagnostics.txt') -Encoding utf8
+          git diff --binary | Set-Content -Path (Join-Path $artifactDirectory 'working-tree.diff') -Encoding utf8
+
+      - name: Upload PowerShell failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: powershell-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/powershell
+          if-no-files-found: error
+          retention-days: 14
