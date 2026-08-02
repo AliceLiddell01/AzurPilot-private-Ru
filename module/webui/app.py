@@ -74,6 +74,7 @@ from module.webui.app_stat_resource import ResourceStatisticsMixin
 from module.webui.app_stat_ship import ShipExperienceStatisticsMixin
 from module.webui.app_statistics_page import StatisticsPageMixin
 from module.webui.app_task_config import TaskConfigMixin
+from module.webui.utils import add_css, filepath_css
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -218,6 +219,7 @@ def app():
             is_mobile=info.user_agent.is_mobile,
             preloaded_styles=("alas",),
         )
+        add_css(filepath_css("traceback-alas"))
         if _block_restricted_device() or _block_public_webui_password_error():
             return
         localstorage = None
