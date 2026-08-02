@@ -44,7 +44,7 @@ function Get-AzurPilotShortcutSpecification {
     }
 
     if (-not (Test-Path -LiteralPath $resolvedPwshPath -PathType Leaf)) {
-        throw ('PowerShell 7 executable не найден: {0}' -f $resolvedPwshPath)
+        throw ('Исполняемый файл PowerShell 7 не найден: {0}' -f $resolvedPwshPath)
     }
 
     if (-not (Test-Path -LiteralPath $startScriptPath -PathType Leaf)) {
@@ -52,7 +52,7 @@ function Get-AzurPilotShortcutSpecification {
     }
 
     if (-not (Test-Path -LiteralPath $resolvedIconPath -PathType Leaf)) {
-        throw ('Project-owned icon не найден: {0}' -f $resolvedIconPath)
+        throw ('Значок проекта не найден: {0}' -f $resolvedIconPath)
     }
 
     $arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File "{0}" -FromShortcut' -f $startScriptPath
@@ -62,7 +62,7 @@ function Get-AzurPilotShortcutSpecification {
         Arguments = $arguments
         WorkingDirectory = $resolvedRepositoryPath
         IconLocation = '{0},0' -f $resolvedIconPath
-        Description = 'Запуск AzurPilot через прозрачный Stage 2 launcher'
+        Description = 'Запуск AzurPilot через прозрачный модуль запуска этапа 2'
         StartScriptPath = $startScriptPath
         IconPath = $resolvedIconPath
     }
@@ -225,7 +225,7 @@ function Copy-AzurPilotShortcutBackup {
     ).Hash
 
     if ($sourceHash -ne $backupHash) {
-        throw 'Backup shortcut не совпадает с исходным файлом.'
+        throw 'Резервная копия ярлыка не совпадает с исходным файлом.'
     }
 
     return $backupPath
@@ -252,7 +252,7 @@ function Restore-AzurPilotShortcutBackup {
     }
 
     if (-not (Test-Path -LiteralPath $BackupPath -PathType Leaf)) {
-        throw ('Backup shortcut отсутствует: {0}' -f $BackupPath)
+        throw ('Резервная копия ярлыка отсутствует: {0}' -f $BackupPath)
     }
 
     $restorePath = '{0}.restore-{1}.lnk' -f (
@@ -339,12 +339,12 @@ function Set-AzurPilotShortcut {
     $shortcutParent = [System.IO.Path]::GetDirectoryName($resolvedShortcutPath)
 
     if ([string]::IsNullOrWhiteSpace($shortcutParent)) {
-        throw ('Не удалось определить parent directory shortcut: {0}' -f $resolvedShortcutPath)
+        throw ('Не удалось определить родительский каталог ярлыка: {0}' -f $resolvedShortcutPath)
     }
 
     if ($RequireAdministrator -and -not (Test-AzurPilotAdministrator)) {
         $exception = [System.UnauthorizedAccessException]::new(
-            'Для изменения all-users shortcut требуется явно запущенный elevated PowerShell 7.'
+            'Для изменения общего ярлыка требуется явно запущенный PowerShell 7 от имени администратора.'
         )
         $exception.Data['AzurPilotShortcutReason'] = 'ElevationRequired'
         throw $exception
@@ -404,7 +404,7 @@ function Set-AzurPilotShortcut {
         $temporaryState = Get-AzurPilotShortcutState -ShortcutPath $temporaryPath
 
         if (-not (Test-AzurPilotShortcutState -State $temporaryState -Specification $specification)) {
-            throw 'Временный shortcut не прошёл validation.'
+            throw 'Временный ярлык не прошёл проверку.'
         }
 
         if ($TestFailPoint -eq 'AfterTemporaryShortcut') {
@@ -434,7 +434,7 @@ function Set-AzurPilotShortcut {
         $createdState = Get-AzurPilotShortcutState -ShortcutPath $resolvedShortcutPath
 
         if (-not (Test-AzurPilotShortcutState -State $createdState -Specification $specification)) {
-            throw 'Итоговый shortcut не прошёл validation.'
+            throw 'Итоговый ярлык не прошёл проверку.'
         }
 
         return [pscustomobject]@{
@@ -457,7 +457,7 @@ function Set-AzurPilotShortcut {
         }
         catch {
             $rollbackMessage = (
-                'Shortcut migration завершилась ошибкой, а rollback также не удался. ' +
+                'Перенос ярлыка завершился ошибкой, а откат также не удался. ' +
                 'Migration error: {0}. Rollback error: {1}'
             ) -f $originalException.Message, $_.Exception.Message
 
@@ -468,7 +468,7 @@ function Set-AzurPilotShortcut {
         }
 
         throw [System.InvalidOperationException]::new(
-            ('Shortcut migration завершилась ошибкой. Исходный shortcut восстановлен: {0}' -f $originalException.Message),
+            ('Перенос ярлыка завершился ошибкой. Исходный ярлык восстановлен: {0}' -f $originalException.Message),
             $originalException
         )
     }

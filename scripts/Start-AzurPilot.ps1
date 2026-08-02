@@ -476,7 +476,7 @@ function Get-WebUiConfiguration {
         )
 
         if (-not $portParsed -or $parsedPort -lt 1 -or $parsedPort -gt 65535) {
-            Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message "Некорректный WebuiPort в config\deploy.yaml: $portValue"
+            Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message "Некорректное значение WebuiPort в config\deploy.yaml: $portValue"
         }
 
         $port = $parsedPort
@@ -567,7 +567,7 @@ function Invoke-PythonHealthCheck {
 
     try {
         if (-not $process.Start()) {
-            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Project Python не запустился.'
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Python проекта не запустился.'
         }
 
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
@@ -580,7 +580,7 @@ function Invoke-PythonHealthCheck {
                 Write-StartLog -Level 'WARN' -Message "Не удалось остановить зависшую проверку Python: $($_.Exception.Message)"
             }
 
-            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Проверка project Python превысила 15 секунд.'
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Проверка Python проекта превысила 15 секунд.'
         }
 
         $stdout = $stdoutTask.GetAwaiter().GetResult()
@@ -593,14 +593,14 @@ function Invoke-PythonHealthCheck {
                 $details = "Код завершения: $($process.ExitCode)"
             }
 
-            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message "Project Python неисправен. $details"
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message "Python проекта неисправен. $details"
         }
     } catch {
         if ($_.Exception.Data.Contains('ExitCode')) {
             throw
         }
 
-        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message "Не удалось проверить project Python: $($_.Exception.Message)"
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message "Не удалось проверить Python проекта: $($_.Exception.Message)"
     } finally {
         $process.Dispose()
     }
@@ -622,10 +622,10 @@ function Enter-RepositoryMutex {
         $owned = $mutex.WaitOne(0, $false)
     } catch [System.Threading.AbandonedMutexException] {
         $owned = $true
-        Write-StartLog -Level 'WARN' -Message 'Обнаружен abandoned Start mutex. Владение восстановлено.'
+        Write-StartLog -Level 'WARN' -Message 'Обнаружен заброшенный мьютекс Start. Владение восстановлено.'
     } catch {
         $mutex.Dispose()
-        Complete-StartFailure -Code $script:ExitCodeUnexpectedFailure -Message "Не удалось открыть Start mutex: $($_.Exception.Message)"
+        Complete-StartFailure -Code $script:ExitCodeUnexpectedFailure -Message "Не удалось открыть мьютекс Start: $($_.Exception.Message)"
     }
 
     return [pscustomobject]@{
@@ -1198,7 +1198,7 @@ function Invoke-StartedBackendStop {
     param(
         [Parameter()]
         [ValidateNotNullOrEmpty()]
-        [string]$Reason = 'завершение Start supervisor'
+        [string]$Reason = 'завершение управляющего процесса Start'
     )
 
     if ($null -eq $script:StartedProcess) {
@@ -1212,7 +1212,7 @@ function Invoke-StartedBackendStop {
 
         $backendProcessId = $script:StartedProcess.Id
         Write-StartLog -Level 'WARN' -Message (
-            'Останавливается backend PID {0}. Причина: {1}.' -f
+            'Останавливается серверный процесс с PID {0}. Причина: {1}.' -f
             $backendProcessId,
             $Reason
         )
@@ -1222,7 +1222,7 @@ function Invoke-StartedBackendStop {
 
         if (-not $script:StartedProcess.HasExited) {
             throw (
-                'Backend PID {0} не завершился за 10 секунд после Kill(entireProcessTree).' -f
+                'Серверный процесс с PID {0} не завершился за 10 секунд после Kill(entireProcessTree).' -f
                 $backendProcessId
             )
         }
@@ -1232,12 +1232,12 @@ function Invoke-StartedBackendStop {
         }
 
         Write-StartLog -Level 'INFO' -Message (
-            'Backend PID {0} и его process tree остановлены.' -f
+            'Серверный процесс с PID {0} и его дерево процессов остановлены.' -f
             $backendProcessId
         )
     } catch {
         Write-StartLog -Level 'WARN' -Message (
-            'Не удалось остановить backend PID {0}: {1}' -f
+            'Не удалось остановить серверный процесс с PID {0}: {1}' -f
             $script:StartedProcess.Id,
             $_.Exception.Message
         )
@@ -1359,7 +1359,7 @@ function Wait-ForStartedBackend {
 
     Read-ProcessOutputToEnd -ProcessData $ProcessData
     Write-BufferedProcessOutput -ProcessData $ProcessData
-    Invoke-StartedBackendStop -Reason 'readiness timeout'
+    Invoke-StartedBackendStop -Reason 'истекло время ожидания готовности'
     Complete-StartFailure -Code $script:ExitCodeReadinessTimeout -Message "WebUI не стал готов за $TimeoutSeconds секунд: $BrowserUri"
 }
 
@@ -1380,7 +1380,7 @@ function Open-WebUiBrowser {
         Write-StartLog -Level 'INFO' -Message "Открыт системный браузер: $BrowserUri"
         return $true
     } catch {
-        Write-StartLog -Level 'ERROR' -Message "Backend работает, но браузер открыть не удалось: $($_.Exception.Message)"
+        Write-StartLog -Level 'ERROR' -Message "Серверный процесс работает, но браузер открыть не удалось: $($_.Exception.Message)"
         Write-ConsoleMessage -Message "Откройте вручную: $BrowserUri"
 
         if ($FromShortcut) {
@@ -1418,12 +1418,12 @@ function Invoke-AzurPilotStart {
 
     try {
         Initialize-StartLog
-        Write-StartLog -Level 'INFO' -Message 'Запуск AzurPilot Stage 2C.'
+        Write-StartLog -Level 'INFO' -Message 'Запуск AzurPilot, этап 2C.'
         Write-StartLog -Level 'INFO' -Message "PowerShell: $($PSVersionTable.PSVersion)"
-        Write-StartLog -Level 'INFO' -Message "RepositoryPath: $RepositoryPath"
+        Write-StartLog -Level 'INFO' -Message "Путь к репозиторию: $RepositoryPath"
 
         if (-not $IsWindows) {
-            Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message 'Текущий Start MVP поддерживает только Windows.'
+            Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message 'Команда Start поддерживает только Windows.'
         }
 
         $repositoryPathParameters = @{
@@ -1453,7 +1453,7 @@ function Invoke-AzurPilotStart {
         $projectPythonPathParameters = @{
             Path = Join-Path -Path $resolvedRepositoryPath -ChildPath '.venv\Scripts\python.exe'
             PathType = 'Leaf'
-            Label = 'Project Python'
+            Label = 'Python проекта'
             FailureCode = $script:ExitCodeEnvironmentFailure
         }
 
@@ -1466,14 +1466,14 @@ function Invoke-AzurPilotStart {
 
         Invoke-PythonHealthCheck @pythonHealthParameters
 
-        Write-StartLog -Level 'INFO' -Message "Project Python исправен: $projectPythonPath"
+        Write-StartLog -Level 'INFO' -Message "Python проекта исправен: $projectPythonPath"
 
         $webUiConfiguration = Get-WebUiConfiguration -DeployConfigPath $deployConfigPath
         $browserUri = $webUiConfiguration.BrowserUri
 
-        Write-StartLog -Level 'INFO' -Message "WebUI bind: $($webUiConfiguration.BindHost):$($webUiConfiguration.Port)"
+        Write-StartLog -Level 'INFO' -Message "Адрес привязки WebUI: $($webUiConfiguration.BindHost):$($webUiConfiguration.Port)"
         Write-StartLog -Level 'INFO' -Message "WebUI URL: $browserUri"
-        Write-StartLog -Level 'INFO' -Message "SSL: $($webUiConfiguration.SslEnabled)"
+        Write-StartLog -Level 'INFO' -Message "SSL включён: $($webUiConfiguration.SslEnabled)"
 
         $readinessClient = Get-ReadinessClient -SslEnabled $webUiConfiguration.SslEnabled
 
@@ -1481,8 +1481,8 @@ function Invoke-AzurPilotStart {
         $script:StartMutex = $mutexData.Mutex
         $script:StartMutexOwned = $mutexData.Owned
 
-        Write-StartLog -Level 'INFO' -Message "Start mutex: $($mutexData.Name)"
-        Write-StartLog -Level 'INFO' -Message "Start mutex acquired: $($mutexData.Owned)"
+        Write-StartLog -Level 'INFO' -Message "Мьютекс Start: $($mutexData.Name)"
+        Write-StartLog -Level 'INFO' -Message "Мьютекс Start захвачен: $($mutexData.Owned)"
 
         if (-not $mutexData.Owned) {
             Write-StartLog -Level 'INFO' -Message 'Другой Start уже управляет этим репозиторием. Ожидание существующего WebUI.'
@@ -1553,7 +1553,7 @@ function Invoke-AzurPilotStart {
             return $script:ExitCodeSuccess
         }
 
-        Write-StartLog -Level 'INFO' -Message 'Запуск gui.py без Git update и без dependency sync.'
+        Write-StartLog -Level 'INFO' -Message 'Запуск gui.py без обновления Git и без синхронизации зависимостей.'
 
         $backendStartParameters = @{
             PythonPath = $projectPythonPath
@@ -1588,7 +1588,7 @@ function Invoke-AzurPilotStart {
             $browserOpenFailed = $true
         }
 
-        Write-StartLog -Level 'INFO' -Message "Ожидание завершения backend PID $($script:StartedProcess.Id)."
+        Write-StartLog -Level 'INFO' -Message "Ожидание завершения серверного процесса с PID $($script:StartedProcess.Id)."
 
         while (-not $script:StartedProcess.HasExited) {
             Read-AvailableProcessOutput -ProcessData $script:StartedProcessData
@@ -1598,7 +1598,7 @@ function Invoke-AzurPilotStart {
         Read-ProcessOutputToEnd -ProcessData $script:StartedProcessData
 
         $backendExitCode = $script:StartedProcess.ExitCode
-        Write-StartLog -Level 'INFO' -Message "Backend завершился с кодом $backendExitCode."
+        Write-StartLog -Level 'INFO' -Message "Серверный процесс завершился с кодом $backendExitCode."
 
         if ($backendExitCode -ne 0) {
             Write-BufferedProcessOutput -ProcessData $script:StartedProcessData
@@ -1621,7 +1621,7 @@ function Invoke-AzurPilotStart {
             $null -ne $script:StartedProcess -and
             -not $script:StartedProcess.HasExited
         ) {
-            Invoke-StartedBackendStop -Reason 'ошибка или прерывание Start supervisor'
+            Invoke-StartedBackendStop -Reason 'ошибка или прерывание управляющего процесса Start'
         }
 
         $errorMessage = $_.Exception.Message
@@ -1646,7 +1646,7 @@ function Invoke-AzurPilotStart {
                     $script:StartMutex.ReleaseMutex()
                 } catch {
                     if ($null -ne $script:LogPath) {
-                        Write-StartLog -Level 'WARN' -Message "Не удалось освободить Start mutex: $($_.Exception.Message)"
+                        Write-StartLog -Level 'WARN' -Message "Не удалось освободить мьютекс Start: $($_.Exception.Message)"
                     }
                 }
             }
@@ -1656,7 +1656,7 @@ function Invoke-AzurPilotStart {
 
         if ($null -ne $script:StartedProcess) {
             if (-not $script:StartedProcess.HasExited) {
-                Invoke-StartedBackendStop -Reason 'выход Start supervisor'
+                Invoke-StartedBackendStop -Reason 'выход управляющего процесса Start'
             }
 
             $script:StartedProcess.Dispose()

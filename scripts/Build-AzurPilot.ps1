@@ -349,15 +349,15 @@ function Enter-BuildMutex {
         )
     }
     catch {
-        Complete-BuildFailure -Code $script:ExitCodeConcurrentBuild -Message ('Не удалось создать Build mutex: {0}' -f $_.Exception.Message) -InnerException $_.Exception
+        Complete-BuildFailure -Code $script:ExitCodeConcurrentBuild -Message ('Не удалось создать мьютекс Build: {0}' -f $_.Exception.Message) -InnerException $_.Exception
     }
 
     $script:BuildMutexOwned = $createdNew
 
-    Write-BuildLog -Level 'INFO' -Message ('Build mutex: {0}' -f $mutexName)
+    Write-BuildLog -Level 'INFO' -Message ('Мьютекс Build: {0}' -f $mutexName)
 
     if (-not $createdNew) {
-        Complete-BuildFailure -Code $script:ExitCodeConcurrentBuild -Message 'Для этого checkout уже выполняется Build.'
+        Complete-BuildFailure -Code $script:ExitCodeConcurrentBuild -Message 'Для этой рабочей копии уже выполняется Build.'
     }
 }
 
@@ -570,7 +570,7 @@ function Initialize-BuildPath {
     [CmdletBinding()]
     param()
 
-    $script:ResolvedRepositoryPath = Resolve-FileSystemDirectory -Path $script:RepositoryPathParameter -DisplayName 'checkout AzurPilot'
+    $script:ResolvedRepositoryPath = Resolve-FileSystemDirectory -Path $script:RepositoryPathParameter -DisplayName 'рабочая копия AzurPilot'
 
     $baseDirectory = $env:LOCALAPPDATA
 
@@ -579,7 +579,7 @@ function Initialize-BuildPath {
     }
 
     if ([string]::IsNullOrWhiteSpace($baseDirectory)) {
-        Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message 'Не удалось определить локальный bootstrap cache.'
+        Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message 'Не удалось определить локальный кэш вспомогательных инструментов.'
     }
 
     $requestedCacheRoot = if ([string]::IsNullOrWhiteSpace($script:BootstrapCacheRootParameter)) {
@@ -589,17 +589,17 @@ function Initialize-BuildPath {
     }
 
     if (Test-PathInside -CandidatePath $requestedCacheRoot -ParentPath $script:ResolvedRepositoryPath) {
-        Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message 'Bootstrap cache должен находиться вне checkout.'
+        Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message 'Кэш вспомогательных инструментов должен находиться вне рабочей копии.'
     }
 
-    $script:ResolvedCacheRoot = Resolve-FileSystemDirectory -Path $requestedCacheRoot -DisplayName 'bootstrap cache' -Create
+    $script:ResolvedCacheRoot = Resolve-FileSystemDirectory -Path $requestedCacheRoot -DisplayName 'кэш вспомогательных инструментов' -Create
 
     if ($script:NoShortcutParameter) {
         $script:ResolvedShortcutPath = $null
     } else {
         $requestedShortcutPath = if ([string]::IsNullOrWhiteSpace($script:ShortcutPathParameter)) {
             if ([string]::IsNullOrWhiteSpace($env:APPDATA)) {
-                Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message 'Не удалось определить пользовательский Start Menu.'
+                Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message 'Не удалось определить пользовательское меню «Пуск».'
             }
 
             Join-Path -Path $env:APPDATA -ChildPath 'Microsoft\Windows\Start Menu\Programs\AzurPilot.lnk'
@@ -608,7 +608,7 @@ function Initialize-BuildPath {
         }
 
         $shortcutParent = Split-Path -Path $requestedShortcutPath -Parent
-        [void](Resolve-FileSystemDirectory -Path $shortcutParent -DisplayName 'каталог локального shortcut' -Create)
+        [void](Resolve-FileSystemDirectory -Path $shortcutParent -DisplayName 'каталог локального ярлыка' -Create)
         $script:ResolvedShortcutPath = $requestedShortcutPath
     }
 
@@ -625,10 +625,10 @@ function Initialize-BuildPath {
             [System.IO.Path]::GetFullPath($script:IconPathParameter)
         }
 
-        $script:ResolvedIconPath = Resolve-RequiredFile -Path $requestedIconPath -DisplayName 'project-owned AzurPilot icon'
+        $script:ResolvedIconPath = Resolve-RequiredFile -Path $requestedIconPath -DisplayName 'значок проекта AzurPilot'
         $script:ShortcutModulePath = Resolve-RequiredFile -Path (
             Join-Path -Path $script:ResolvedRepositoryPath -ChildPath 'scripts\lib\AzurPilot.Shortcut.psm1'
-        ) -DisplayName 'shortcut module'
+        ) -DisplayName 'модуль ярлыков'
 
         $requestedBackupRoot = if ([string]::IsNullOrWhiteSpace($script:ShortcutBackupRootParameter)) {
             Join-Path -Path $baseDirectory -ChildPath 'AzurPilot\backups\shortcuts'
@@ -638,7 +638,7 @@ function Initialize-BuildPath {
 
         $backupRootParameters = @{
             Path = $requestedBackupRoot
-            DisplayName = 'shortcut backup root'
+            DisplayName = 'корневой каталог резервных копий ярлыков'
             Create = $true
         }
         $script:ResolvedShortcutBackupRoot = Resolve-FileSystemDirectory @backupRootParameters
@@ -647,7 +647,7 @@ function Initialize-BuildPath {
     if ($script:MigrateAllUsersShortcutParameter) {
         if ([string]::IsNullOrWhiteSpace($script:AllUsersShortcutPathParameter)) {
             if ([string]::IsNullOrWhiteSpace($env:ProgramData)) {
-                Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message 'Не удалось определить ProgramData для all-users shortcut.'
+                Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message 'Не удалось определить ProgramData для общего ярлыка.'
             }
 
             $script:ResolvedAllUsersShortcutPath = Join-Path -Path $env:ProgramData -ChildPath 'Microsoft\Windows\Start Menu\Programs\AzurPilot.lnk'
@@ -656,7 +656,7 @@ function Initialize-BuildPath {
         }
 
         $allUsersParent = Split-Path -Path $script:ResolvedAllUsersShortcutPath -Parent
-        [void](Resolve-FileSystemDirectory -Path $allUsersParent -DisplayName 'каталог all-users shortcut' -Create)
+        [void](Resolve-FileSystemDirectory -Path $allUsersParent -DisplayName 'каталог общего ярлыка' -Create)
     }
 
     $venvPath = Join-Path -Path $script:ResolvedRepositoryPath -ChildPath '.venv'
@@ -668,12 +668,12 @@ function Assert-RequiredProjectFile {
     param()
 
     $requiredFileMap = [ordered]@{
-        'gui.py' = 'Python entrypoint'
-        'deploy\uv.py' = 'uv orchestration'
+        'gui.py' = 'точка входа Python'
+        'deploy\uv.py' = 'управление uv'
         'pyproject.toml' = 'описание Python-проекта'
-        'uv.lock' = 'dependency lockfile'
-        'config\deploy.template.yaml' = 'Windows deploy template'
-        'scripts\Start-AzurPilot.ps1' = 'Stage 2 Start command'
+        'uv.lock' = 'файл блокировки зависимостей'
+        'config\deploy.template.yaml' = 'шаблон развёртывания Windows'
+        'scripts\Start-AzurPilot.ps1' = 'команда Start этапа 2'
     }
 
     foreach ($relativePath in $requiredFileMap.Keys) {
@@ -686,14 +686,14 @@ function Assert-RequiredProjectFile {
 
     if ($pyprojectText -notmatch [regex]::Escape($script:ExpectedPythonVersion)) {
         Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message (
-            'Build pin Python {0} не найден в pyproject.toml. Обновите Build pin осознанно.' -f
+            'Закреплённая для Build версия Python {0} не найдена в pyproject.toml. Обновите её осознанно.' -f
             $script:ExpectedPythonVersion
         )
     }
 
     if ($pyprojectText -notmatch ('uv=={0}' -f [regex]::Escape($script:ExpectedUvVersion))) {
         Complete-BuildFailure -Code $script:ExitCodePreconditionFailure -Message (
-            'Build pin uv {0} не найден в pyproject.toml. Обновите Build pin осознанно.' -f
+            'Закреплённая для Build версия uv {0} не найдена в pyproject.toml. Обновите её осознанно.' -f
             $script:ExpectedUvVersion
         )
     }
@@ -767,7 +767,7 @@ function Write-Stage2Config {
         }
     }
 
-    Write-BuildLog -Level 'INFO' -Message 'Создан config\deploy.yaml со Stage 2 defaults.'
+    Write-BuildLog -Level 'INFO' -Message 'Создан config\deploy.yaml со значениями по умолчанию этапа 2.'
 }
 
 function Get-VerifiedArchive {
@@ -786,7 +786,7 @@ function Get-VerifiedArchive {
         [string]$CacheDirectory
     )
 
-    [void](Resolve-FileSystemDirectory -Path $CacheDirectory -DisplayName ('cache {0}' -f $Name) -Create)
+    [void](Resolve-FileSystemDirectory -Path $CacheDirectory -DisplayName ('кэш {0}' -f $Name) -Create)
 
     $archivePath = Join-Path -Path $CacheDirectory -ChildPath $Name
 
@@ -796,18 +796,18 @@ function Get-VerifiedArchive {
         ).Hash.ToUpperInvariant()
 
         if ($cachedHash -eq $ExpectedSha256.ToUpperInvariant()) {
-            Write-BuildLog -Level 'INFO' -Message ('Используется verified cache: {0}' -f $archivePath)
+            Write-BuildLog -Level 'INFO' -Message ('Используется проверенный кэш: {0}' -f $archivePath)
             return $archivePath
         }
 
-        Write-BuildLog -Level 'WARN' -Message ('Удалён cache с неверным SHA-256: {0}' -f $archivePath)
+        Write-BuildLog -Level 'WARN' -Message ('Удалён кэш с неверной контрольной суммой SHA-256: {0}' -f $archivePath)
         Remove-Item -LiteralPath $archivePath -Force -ErrorAction Stop
     }
 
     $temporaryPath = '{0}.download-{1}.tmp' -f $archivePath, ([guid]::NewGuid().ToString('N'))
 
     try {
-        Write-BuildLog -Level 'INFO' -Message ('Загрузка официального artifact: {0}' -f $Uri.AbsoluteUri)
+        Write-BuildLog -Level 'INFO' -Message ('Загрузка официального архива: {0}' -f $Uri.AbsoluteUri)
 
         $requestParameters = @{
             Uri = $Uri
@@ -824,7 +824,7 @@ function Get-VerifiedArchive {
 
         if ($actualHash -ne $ExpectedSha256.ToUpperInvariant()) {
             Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message (
-                'SHA-256 официального artifact не совпал. Ожидался {0}, получен {1}.' -f
+                'Контрольная сумма SHA-256 официального архива не совпала. Ожидалась {0}, получена {1}.' -f
                 $ExpectedSha256,
                 $actualHash
             )
@@ -838,7 +838,7 @@ function Get-VerifiedArchive {
         }
 
         Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message (
-            'Не удалось загрузить или проверить artifact {0}: {1}' -f
+            'Не удалось загрузить или проверить архив {0}: {1}' -f
             $Name,
             $_.Exception.Message
         ) -InnerException $_.Exception
@@ -849,7 +849,7 @@ function Get-VerifiedArchive {
         }
     }
 
-    Write-BuildLog -Level 'INFO' -Message ('Artifact verified: {0}' -f $archivePath)
+    Write-BuildLog -Level 'INFO' -Message ('Архив проверен: {0}' -f $archivePath)
 
     return $archivePath
 }
@@ -886,7 +886,7 @@ function Expand-VerifiedArchive {
 
         if (-not (Test-Path -LiteralPath $temporaryRequiredPath -PathType Leaf)) {
             Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message (
-                'В archive отсутствует обязательный файл: {0}' -f
+                'В архиве отсутствует обязательный файл: {0}' -f
                 $RequiredRelativeFile
             )
         }
@@ -903,7 +903,7 @@ function Expand-VerifiedArchive {
         }
 
         Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message (
-            'Не удалось распаковать artifact {0}: {1}' -f
+            'Не удалось распаковать архив {0}: {1}' -f
             $ArchivePath,
             $_.Exception.Message
         ) -InnerException $_.Exception
@@ -914,7 +914,7 @@ function Expand-VerifiedArchive {
         }
     }
 
-    return Resolve-RequiredFile -Path $requiredPath -DisplayName 'распакованный bootstrap executable'
+    return Resolve-RequiredFile -Path $requiredPath -DisplayName 'распакованный вспомогательный исполняемый файл'
 }
 
 function Test-UvVersion {
@@ -942,7 +942,7 @@ function Resolve-UvBootstrap {
         $candidateCollection.Add(
             [pscustomobject]@{
                 Path = [System.IO.Path]::GetFullPath($script:UvExecutablePathParameter)
-                Source = 'explicit'
+                Source = 'явно указанный путь'
                 Required = $true
             }
         )
@@ -952,7 +952,7 @@ function Resolve-UvBootstrap {
         $candidateCollection.Add(
             [pscustomobject]@{
                 Path = $projectUvPath
-                Source = 'project'
+                Source = 'проект'
                 Required = $false
             }
         )
@@ -982,7 +982,7 @@ function Resolve-UvBootstrap {
         if (Test-UvVersion -UvPath ([string]$candidate.Path)) {
             $resolvedPath = Convert-Path -LiteralPath ([string]$candidate.Path) -ErrorAction Stop
             Write-BuildLog -Level 'INFO' -Message (
-                'uv bootstrap ({0}): {1}' -f
+                'Вспомогательный uv ({0}): {1}' -f
                 $candidate.Source,
                 $resolvedPath
             )
@@ -998,7 +998,7 @@ function Resolve-UvBootstrap {
         }
 
         Write-BuildLog -Level 'WARN' -Message (
-            'uv candidate пропущен: требуется версия {0}, путь {1}' -f
+            'Кандидат uv пропущен: требуется версия {0}, путь {1}' -f
             $script:ExpectedUvVersion,
             $candidate.Path
         )
@@ -1024,10 +1024,10 @@ function Resolve-UvBootstrap {
     $uvPath = Expand-VerifiedArchive @expandParameters
 
     if (-not (Test-UvVersion -UvPath $uvPath)) {
-        Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message 'Распакованный официальный uv не прошёл version check.'
+        Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message 'Распакованный официальный uv не прошёл проверку версии.'
     }
 
-    Write-BuildLog -Level 'INFO' -Message ('uv bootstrap (official pinned): {0}' -f $uvPath)
+    Write-BuildLog -Level 'INFO' -Message ('Вспомогательный uv (официальная закреплённая версия): {0}' -f $uvPath)
 
     return $uvPath
 }
@@ -1077,7 +1077,7 @@ function Resolve-BootstrapPython {
         $candidateCollection.Add(
             [pscustomobject]@{
                 Path = [System.IO.Path]::GetFullPath($script:BootstrapPythonPathParameter)
-                Source = 'explicit'
+                Source = 'явно указанный путь'
                 Required = $true
             }
         )
@@ -1099,7 +1099,7 @@ function Resolve-BootstrapPython {
         if (Test-PythonBootstrap -PythonPath ([string]$candidate.Path)) {
             $resolvedPath = Convert-Path -LiteralPath ([string]$candidate.Path) -ErrorAction Stop
             Write-BuildLog -Level 'INFO' -Message (
-                'Bootstrap Python ({0}): {1}' -f
+                'Вспомогательный Python ({0}): {1}' -f
                 $candidate.Source,
                 $resolvedPath
             )
@@ -1108,7 +1108,7 @@ function Resolve-BootstrapPython {
 
         if ([bool]$candidate.Required) {
             Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message (
-                'Явный Bootstrap Python должен быть ровно {0}: {1}' -f
+                'Явно указанный вспомогательный Python должен иметь версию ровно {0}: {1}' -f
                 $script:ExpectedPythonVersion,
                 $candidate.Path
             )
@@ -1116,7 +1116,7 @@ function Resolve-BootstrapPython {
     }
 
     $pythonCacheRoot = Join-Path -Path $script:ResolvedCacheRoot -ChildPath ('python\{0}' -f $script:ExpectedPythonVersion)
-    [void](Resolve-FileSystemDirectory -Path $pythonCacheRoot -DisplayName 'bootstrap Python cache' -Create)
+    [void](Resolve-FileSystemDirectory -Path $pythonCacheRoot -DisplayName 'кэш вспомогательного Python' -Create)
 
     $existingPythonCollection = @(
         Get-ChildItem -LiteralPath $pythonCacheRoot -Filter 'python.exe' -File -Recurse -Force -ErrorAction SilentlyContinue |
@@ -1125,7 +1125,7 @@ function Resolve-BootstrapPython {
 
     foreach ($existingPython in $existingPythonCollection) {
         if (Test-PythonBootstrap -PythonPath $existingPython.FullName) {
-            Write-BuildLog -Level 'INFO' -Message ('Bootstrap Python (verified cache): {0}' -f $existingPython.FullName)
+            Write-BuildLog -Level 'INFO' -Message ('Вспомогательный Python (проверенный кэш): {0}' -f $existingPython.FullName)
             return $existingPython.FullName
         }
     }
@@ -1140,7 +1140,7 @@ function Resolve-BootstrapPython {
         '--managed-python'
     )
 
-    Write-BuildLog -Level 'INFO' -Message ('Подготовка bootstrap Python {0} через pinned uv.' -f $script:ExpectedPythonVersion)
+    Write-BuildLog -Level 'INFO' -Message ('Подготовка вспомогательного Python {0} через закреплённую версию uv.' -f $script:ExpectedPythonVersion)
     $installResult = Invoke-NativeCommand -Executable $UvPath -Arguments $uvArguments -WorkingDirectory $script:ResolvedCacheRoot
     Write-NativeOutput -Result $installResult -Prefix '[uv python]'
 
@@ -1158,12 +1158,12 @@ function Resolve-BootstrapPython {
 
     foreach ($installedPython in $installedPythonCollection) {
         if (Test-PythonBootstrap -PythonPath $installedPython.FullName) {
-            Write-BuildLog -Level 'INFO' -Message ('Bootstrap Python (uv managed): {0}' -f $installedPython.FullName)
+            Write-BuildLog -Level 'INFO' -Message ('Вспомогательный Python (управляется uv): {0}' -f $installedPython.FullName)
             return $installedPython.FullName
         }
     }
 
-    Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message 'uv установил Python, но executable 3.14.6 не найден или не запускается.'
+    Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message 'uv установил Python, но исполняемый файл версии 3.14.6 не найден или не запускается.'
 }
 
 function Write-DeployUvHelper {
@@ -1367,7 +1367,7 @@ function Copy-UvTool {
         Copy-Item -LiteralPath $SourceUvPath -Destination $temporaryPath -Force -ErrorAction Stop
 
         if (-not (Test-UvVersion -UvPath $temporaryPath)) {
-            Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message 'Копия uv.exe не прошла version check.'
+            Complete-BuildFailure -Code $script:ExitCodeBootstrapUnavailable -Message 'Копия uv.exe не прошла проверку версии.'
         }
 
         Move-Item -LiteralPath $temporaryPath -Destination $destinationPath -Force -ErrorAction Stop
@@ -1378,7 +1378,7 @@ function Copy-UvTool {
         }
     }
 
-    Write-BuildLog -Level 'INFO' -Message ('Pinned uv.exe сохранён: {0}' -f $destinationPath)
+    Write-BuildLog -Level 'INFO' -Message ('Закреплённый uv.exe сохранён: {0}' -f $destinationPath)
 }
 
 function Test-AdbExecutable {
@@ -1434,7 +1434,7 @@ function Resolve-AdbSource {
         $candidateCollection.Add(
             [pscustomobject]@{
                 Path = [System.IO.Path]::GetFullPath($script:AdbExecutablePathParameter)
-                Source = 'explicit'
+                Source = 'явно указанный путь'
                 Required = $true
             }
         )
@@ -1444,7 +1444,7 @@ function Resolve-AdbSource {
         $candidateCollection.Add(
             [pscustomobject]@{
                 Path = $projectAdbPath
-                Source = 'project'
+                Source = 'проект'
                 Required = $false
             }
         )
@@ -1474,7 +1474,7 @@ function Resolve-AdbSource {
         if (Test-AdbExecutable -AdbPath ([string]$candidate.Path)) {
             $resolvedPath = Convert-Path -LiteralPath ([string]$candidate.Path) -ErrorAction Stop
             Write-BuildLog -Level 'INFO' -Message (
-                'ADB source ({0}): {1}' -f
+                'Источник ADB ({0}): {1}' -f
                 $candidate.Source,
                 $resolvedPath
             )
@@ -1483,7 +1483,7 @@ function Resolve-AdbSource {
 
         if ([bool]$candidate.Required) {
             Complete-BuildFailure -Code $script:ExitCodeAdbFailure -Message (
-                'Явный ADB отсутствует, не запускается или не имеет companion DLL: {0}' -f
+                'Явный ADB отсутствует, не запускается или не имеет сопутствующей DLL: {0}' -f
                 $candidate.Path
             )
         }
@@ -1509,20 +1509,20 @@ function Resolve-AdbSource {
     $adbPath = Expand-VerifiedArchive @expandParameters
 
     if (-not (Test-AdbExecutable -AdbPath $adbPath)) {
-        Complete-BuildFailure -Code $script:ExitCodeAdbFailure -Message 'Официальный ADB не прошёл health check.'
+        Complete-BuildFailure -Code $script:ExitCodeAdbFailure -Message 'Официальный ADB не прошёл проверку исправности.'
     }
 
     $versionText = Get-AdbVersionText -AdbPath $adbPath
 
     if ($versionText -notmatch ('(?m)^Version\s+{0}(?:[-\s]|$)' -f [regex]::Escape($script:ExpectedAdbVersion))) {
         Complete-BuildFailure -Code $script:ExitCodeAdbFailure -Message (
-            'Официальный ADB не соответствует pinned версии {0}: {1}' -f
+            'Официальный ADB не соответствует закреплённой версии {0}: {1}' -f
             $script:ExpectedAdbVersion,
             $versionText
         )
     }
 
-    Write-BuildLog -Level 'INFO' -Message ('ADB source (official pinned): {0}' -f $adbPath)
+    Write-BuildLog -Level 'INFO' -Message ('Источник ADB (официальная закреплённая версия): {0}' -f $adbPath)
 
     return $adbPath
 }
@@ -1575,7 +1575,7 @@ function Copy-AdbTool {
     }
 
     if ($destinationAlreadyCurrent) {
-        Write-BuildLog -Level 'INFO' -Message ('Project ADB уже соответствует выбранному source: {0}' -f $projectAdbPath)
+        Write-BuildLog -Level 'INFO' -Message ('ADB проекта уже соответствует выбранному источнику: {0}' -f $projectAdbPath)
         return
     }
 
@@ -1590,14 +1590,14 @@ function Copy-AdbTool {
             $sourcePath = Join-Path -Path $sourceDirectory -ChildPath $fileName
             $stagingPath = Join-Path -Path $stagingDirectory -ChildPath $fileName
 
-            [void](Resolve-RequiredFile -Path $sourcePath -DisplayName ('ADB component {0}' -f $fileName))
+            [void](Resolve-RequiredFile -Path $sourcePath -DisplayName ('компонент ADB {0}' -f $fileName))
             Copy-Item -LiteralPath $sourcePath -Destination $stagingPath -Force -ErrorAction Stop
         }
 
         $stagingAdbPath = Join-Path -Path $stagingDirectory -ChildPath 'adb.exe'
 
         if (-not (Test-AdbExecutable -AdbPath $stagingAdbPath)) {
-            Complete-BuildFailure -Code $script:ExitCodeAdbFailure -Message 'Staged ADB не прошёл health check.'
+            Complete-BuildFailure -Code $script:ExitCodeAdbFailure -Message 'Подготовленный ADB не прошёл проверку исправности.'
         }
 
         foreach ($fileName in $adbFileNameCollection) {
@@ -1624,7 +1624,7 @@ function Copy-AdbTool {
     }
 
     if (-not (Test-AdbExecutable -AdbPath $projectAdbPath)) {
-        Complete-BuildFailure -Code $script:ExitCodeAdbFailure -Message 'Project ADB не прошёл итоговый health check.'
+        Complete-BuildFailure -Code $script:ExitCodeAdbFailure -Message 'ADB проекта не прошёл итоговую проверку исправности.'
     }
 
     Write-BuildLog -Level 'INFO' -Message ('ADB сохранён: {0}' -f $projectAdbPath)
@@ -1640,14 +1640,14 @@ function Test-CoreProjectEnvironment {
     if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
         return [pscustomobject]@{
             Healthy = $false
-            Details = 'Project python.exe отсутствует.'
+            Details = 'python.exe проекта отсутствует.'
         }
     }
 
     if (-not (Test-Path -LiteralPath $managedPythonRoot -PathType Container)) {
         return [pscustomobject]@{
             Healthy = $false
-            Details = 'Managed Python root отсутствует.'
+            Details = 'Корневой каталог управляемой среды Python отсутствует.'
         }
     }
 
@@ -1673,13 +1673,13 @@ print(sys.version)
     if ($pythonResult.ExitCode -ne 0) {
         return [pscustomobject]@{
             Healthy = $false
-            Details = 'Required Python imports не прошли: {0}' -f ($pythonResult.Output -join [Environment]::NewLine)
+            Details = 'Не выполнен импорт обязательных модулей Python: {0}' -f ($pythonResult.Output -join [Environment]::NewLine)
         }
     }
 
     return [pscustomobject]@{
         Healthy = $true
-        Details = 'Project Python и managed runtime исправны.'
+        Details = 'Python проекта и управляемая среда выполнения исправны.'
     }
 }
 
@@ -1716,13 +1716,13 @@ function Test-FrozenProjectEnvironment {
     if ($dryRunResult.ExitCode -ne 0) {
         return [pscustomobject]@{
             Healthy = $false
-            Details = 'Frozen dry-run не прошёл: {0}' -f ($dryRunResult.Output -join [Environment]::NewLine)
+            Details = 'Пробный запуск с зафиксированными зависимостями не прошёл: {0}' -f ($dryRunResult.Output -join [Environment]::NewLine)
         }
     }
 
     return [pscustomobject]@{
         Healthy = $true
-        Details = 'Frozen dependency state исправно.'
+        Details = 'Состояние зафиксированных зависимостей исправно.'
     }
 }
 
@@ -1748,13 +1748,13 @@ function Test-ProjectEnvironment {
     if (-not (Test-AdbExecutable -AdbPath $adbPath)) {
         return [pscustomobject]@{
             Healthy = $false
-            Details = 'Project ADB отсутствует или не запускается.'
+            Details = 'ADB проекта отсутствует или не запускается.'
         }
     }
 
     return [pscustomobject]@{
         Healthy = $true
-        Details = 'Project environment исправно.'
+        Details = 'Окружение проекта исправно.'
     }
 }
 
@@ -1763,7 +1763,7 @@ function Import-AzurPilotShortcutModule {
     param()
 
     if ($null -eq $script:ShortcutModulePath) {
-        Complete-BuildFailure -Code $script:ExitCodeShortcutFailure -Message 'Shortcut module path не инициализирован.'
+        Complete-BuildFailure -Code $script:ExitCodeShortcutFailure -Message 'Путь к модулю ярлыков не инициализирован.'
     }
 
     Import-Module -Name $script:ShortcutModulePath -Force -ErrorAction Stop
@@ -1815,20 +1815,20 @@ function Invoke-AzurPilotShortcutWrite {
         }
 
         Complete-BuildFailure -Code $script:ExitCodeShortcutFailure -Message (
-            'Не удалось обновить {0} shortcut: {1}' -f
+            'Не удалось обновить {0} ярлык: {1}' -f
             $Scope,
             $_.Exception.Message
         ) -InnerException $_.Exception
     }
 
     if ([bool]$result.Changed) {
-        Write-BuildLog -Level 'INFO' -Message ('{0} shortcut обновлён: {1}' -f $Scope, $Path)
+        Write-BuildLog -Level 'INFO' -Message ('{0} ярлык обновлён: {1}' -f $Scope, $Path)
 
         if (-not [string]::IsNullOrWhiteSpace([string]$result.BackupPath)) {
-            Write-BuildLog -Level 'INFO' -Message ('Backup предыдущего shortcut: {0}' -f $result.BackupPath)
+            Write-BuildLog -Level 'INFO' -Message ('Резервная копия предыдущего ярлыка: {0}' -f $result.BackupPath)
         }
     } else {
-        Write-BuildLog -Level 'INFO' -Message ('{0} shortcut уже исправен: {1}' -f $Scope, $Path)
+        Write-BuildLog -Level 'INFO' -Message ('{0} ярлык уже исправен: {1}' -f $Scope, $Path)
     }
 }
 
@@ -1837,12 +1837,12 @@ function Write-LocalShortcut {
     param()
 
     if ($script:NoShortcutParameter) {
-        Write-BuildLog -Level 'INFO' -Message 'Создание локального shortcut отключено параметром -NoShortcut.'
+        Write-BuildLog -Level 'INFO' -Message 'Создание локального ярлыка отключено параметром -NoShortcut.'
         return
     }
 
     if ($script:MigrateAllUsersShortcutParameter) {
-        Write-BuildLog -Level 'INFO' -Message 'Локальный duplicate shortcut не создаётся во время all-users migration.'
+        Write-BuildLog -Level 'INFO' -Message 'Дублирующий локальный ярлык не создаётся во время переноса общего ярлыка.'
         return
     }
 
@@ -1874,7 +1874,7 @@ function Write-SharedShortcut {
 
     $parameters = @{
         Path = $script:ResolvedAllUsersShortcutPath
-        Scope = 'All-users'
+        Scope = 'Общий'
         RequireAdministrator = $requireAdministrator
     }
     Invoke-AzurPilotShortcutWrite @parameters
@@ -1887,23 +1887,23 @@ function Invoke-AzurPilotBuild {
     Initialize-BuildPath
     Enter-BuildMutex
 
-    Write-BuildLog -Level 'INFO' -Message 'Запуск AzurPilot Stage 2F shortcut orchestration.'
+    Write-BuildLog -Level 'INFO' -Message 'Запуск управления ярлыками AzurPilot, этап 2F.'
     Write-BuildLog -Level 'INFO' -Message ('PowerShell: {0}' -f $PSVersionTable.PSVersion)
-    Write-BuildLog -Level 'INFO' -Message ('RepositoryPath: {0}' -f $script:ResolvedRepositoryPath)
+    Write-BuildLog -Level 'INFO' -Message ('Путь к репозиторию: {0}' -f $script:ResolvedRepositoryPath)
 
     if ($script:ShortcutOnlyParameter) {
         Write-LocalShortcut
         Write-SharedShortcut
-        Write-BuildLog -Level 'INFO' -Message 'Shortcut-only операция завершена успешно.'
+        Write-BuildLog -Level 'INFO' -Message 'Операция только для ярлыков завершена успешно.'
         return $script:ExitCodeSuccess
     }
 
     Assert-AzurPilotStopped
     Assert-RequiredProjectFile
 
-    Write-BuildLog -Level 'INFO' -Message 'Запуск AzurPilot Stage 2E Build.'
+    Write-BuildLog -Level 'INFO' -Message 'Запуск AzurPilot Build, этап 2E.'
     Write-BuildLog -Level 'INFO' -Message ('PowerShell: {0}' -f $PSVersionTable.PSVersion)
-    Write-BuildLog -Level 'INFO' -Message ('RepositoryPath: {0}' -f $script:ResolvedRepositoryPath)
+    Write-BuildLog -Level 'INFO' -Message ('Путь к репозиторию: {0}' -f $script:ResolvedRepositoryPath)
 
     $lockPath = Join-Path -Path $script:ResolvedRepositoryPath -ChildPath 'uv.lock'
     $templatePath = Join-Path -Path $script:ResolvedRepositoryPath -ChildPath 'config\deploy.template.yaml'
@@ -1930,7 +1930,7 @@ function Invoke-AzurPilotBuild {
 
         if (-not $coreState.Healthy) {
             Complete-BuildFailure -Code $script:ExitCodeExistingEnvironmentBroken -Message (
-                'Существующая .venv не прошла core health check: {0}{1}Используйте Repair-AzurPilot.ps1.' -f
+                'Существующая .venv не прошла основную проверку исправности: {0}{1}Используйте Repair-AzurPilot.ps1.' -f
                 $coreState.Details,
                 [Environment]::NewLine
             )
@@ -1940,7 +1940,7 @@ function Invoke-AzurPilotBuild {
     $uvBootstrapPath = Resolve-UvBootstrap
 
     if ($fullBuildRequired) {
-        Write-BuildLog -Level 'INFO' -Message 'Полный Build требуется: .venv отсутствует или содержит Build ownership marker.'
+        Write-BuildLog -Level 'INFO' -Message 'Требуется полный Build: .venv отсутствует или содержит маркер владения Build.'
 
         $bootstrapPythonExecutable = Resolve-BootstrapPython -UvPath $uvBootstrapPath
         Invoke-DeployUvBuild -BootstrapUvPath $uvBootstrapPath -BootstrapPythonExecutable $bootstrapPythonExecutable
@@ -1955,7 +1955,7 @@ function Invoke-AzurPilotBuild {
             )
         }
 
-        Write-BuildLog -Level 'INFO' -Message 'Существующая .venv прошла core и frozen checks. Dependency rebuild не требуется.'
+        Write-BuildLog -Level 'INFO' -Message 'Существующая .venv прошла основную проверку и проверку зафиксированных зависимостей. Пересборка зависимостей не требуется.'
     }
 
     Copy-UvTool -SourceUvPath $uvBootstrapPath
@@ -1967,7 +1967,7 @@ function Invoke-AzurPilotBuild {
 
     if (-not $finalEnvironmentState.Healthy) {
         Complete-BuildFailure -Code $script:ExitCodeDependencyBuildFailure -Message (
-            'Итоговая Build validation не прошла: {0}' -f
+            'Итоговая проверка Build не прошла: {0}' -f
             $finalEnvironmentState.Details
         )
     }
@@ -2038,11 +2038,11 @@ catch {
         ) {
             try {
                 Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction Stop
-                Write-BuildLog -Level 'INFO' -Message 'Partial .venv, созданная Build, удалена.'
+                Write-BuildLog -Level 'INFO' -Message 'Среда .venv, частично созданная Build, удалена.'
             }
             catch {
                 Write-BuildLog -Level 'WARN' -Message (
-                    'Не удалось удалить partial .venv: {0}' -f
+                    'Не удалось удалить частично созданную .venv: {0}' -f
                     $_.Exception.Message
                 )
             }
@@ -2059,11 +2059,11 @@ catch {
         if (Test-Path -LiteralPath $configPath -PathType Leaf) {
             try {
                 Remove-Item -LiteralPath $configPath -Force -ErrorAction Stop
-                Write-BuildLog -Level 'INFO' -Message 'Созданный текущим Build config\deploy.yaml удалён после ошибки.'
+                Write-BuildLog -Level 'INFO' -Message 'Созданный текущим Build файл config\deploy.yaml удалён после ошибки.'
             }
             catch {
                 Write-BuildLog -Level 'WARN' -Message (
-                    'Не удалось удалить созданный Build config: {0}' -f
+                    'Не удалось удалить созданный Build файл конфигурации: {0}' -f
                     $_.Exception.Message
                 )
             }
@@ -2078,7 +2078,7 @@ finally {
             $script:BuildMutex.ReleaseMutex()
         }
         catch {
-            Write-BuildLog -Level 'WARN' -Message ('Не удалось освободить Build mutex: {0}' -f $_.Exception.Message)
+            Write-BuildLog -Level 'WARN' -Message ('Не удалось освободить мьютекс Build: {0}' -f $_.Exception.Message)
         }
     }
 
