@@ -364,6 +364,29 @@ class OpsiVoucher(OSMap):
                 reason=f'exception:{type(exc).__name__}',
             )
 
+    @staticmethod
+    def _data_logger_should_probe_storage(shop_result, retry_only):
+        """Use strict Storage inspection when the shop cannot prove ownership.
+
+        A completed purchase may remove the target from the recognized shop
+        items instead of leaving a reliably detectable dimmed SOLD_OUT card.
+        On a retry, a full scan with no target is therefore resolved by the
+        item-specific Storage lifecycle. That lifecycle only matches the
+        unlock logger and never treats simple absence as successful activation.
+        """
+        if shop_result.state is DataLoggerShopState.SOLD_OUT:
+            return True
+        if shop_result.purchased:
+            return True
+        return (
+            retry_only
+            and shop_result.state is DataLoggerShopState.UNKNOWN
+            and shop_result.reason in {
+                'full_scan_inconclusive',
+                'target_not_observed',
+            }
+        )
+
     def os_voucher(self):
         logger.hr('大世界-白票商店', level=1)
         intent = data_logger_intent_enabled(self.config)
@@ -411,7 +434,14 @@ class OpsiVoucher(OSMap):
         self._os_voucher_exit()
 
         if shop_result is not None:
-            if shop_result.state is DataLoggerShopState.SOLD_OUT:
+            if self._data_logger_should_probe_storage(shop_result, retry_only):
+                logger.info(
+                    f'[{DATA_LOGGER_NAME}] continuing with Storage probe: '
+                    f'shop state={shop_result.state.value}, '
+                    f'reason={shop_result.reason}, '
+                    f'purchase-progress={shop_result.purchased}, '
+                    f'retry-only={retry_only}'
+                )
                 try:
                     storage_state = self._data_logger_storage_lifecycle()
                 except Exception as exc:
