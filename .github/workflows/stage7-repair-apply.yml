@@ -26,19 +26,36 @@ jobs:
       - name: Verify exact PR head and payload parts
         shell: bash
         env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+          test "$(git rev-parse origin/personal/stable)" = "$PR_BASE_SHA"
           remote_head="$(git ls-remote --heads origin "$PR_HEAD_REF" | awk '{print $1}')"
           test "$remote_head" = "$PR_HEAD_SHA"
-          test "$(find .codex/tmp/stage7-repair -maxdepth 1 -type f -name 'payload.part*' | wc -l)" -eq 7
+          parts=(
+            .codex/tmp/stage7-repair/payload.part00
+            .codex/tmp/stage7-repair/payload.part01a
+            .codex/tmp/stage7-repair/payload.part01b
+            .codex/tmp/stage7-repair/payload.part02
+            .codex/tmp/stage7-repair/payload.part03a
+            .codex/tmp/stage7-repair/payload.part03b
+            .codex/tmp/stage7-repair/payload.part04
+            .codex/tmp/stage7-repair/payload.part05
+            .codex/tmp/stage7-repair/payload.part06
+          )
+          for part in "${parts[@]}"; do
+            test -f "$part"
+          done
           sha256sum -c <<'EOF'
           8125a4b8d5758129bc010e3d390f633110efd5a0c0ad9c1ee196f4d01dda1e68  .codex/tmp/stage7-repair/payload.part00
-          536210c875a23824de682dc688fd663909256ac784aec1600d4f3508ac56d61c  .codex/tmp/stage7-repair/payload.part01
+          126db5619a32e8b097568efe0f5968eb8618083cf8b2cf815ad7fbc47d712dc9  .codex/tmp/stage7-repair/payload.part01a
+          4501296aa1e2b17bf2c110098a1860a393f5c268806cb1521e627c0d3781a763  .codex/tmp/stage7-repair/payload.part01b
           63b7d84329a37923243913f317f6ffd7eb02b777c4d65ead5a702a59884a57e6  .codex/tmp/stage7-repair/payload.part02
-          f44e1d9b3d6904f81a1d4ba6130a8cf972d70c138175bf6304dfdae9ba663167  .codex/tmp/stage7-repair/payload.part03
+          1b90197e1b304d6325321b1bc86479933e0857b5e9914e471e8e85f33443f431  .codex/tmp/stage7-repair/payload.part03a
+          0e1054cd7582e716f8d05342e80a62a83c3eb11b3b4e999bbb52e91f2cff8e5a  .codex/tmp/stage7-repair/payload.part03b
           512231e74cde54b1ef13009707cbd823a751d738036415344becd70d12c1858f  .codex/tmp/stage7-repair/payload.part04
           8bda0b028bd29cbade02cd3872c874fd2bb238cb555e11acf1ec8a7a06adc9c0  .codex/tmp/stage7-repair/payload.part05
           bcd370f305c728b7f6d337ddbf25eddba0e1b12c99203b7bc1ffe03d07376e9c  .codex/tmp/stage7-repair/payload.part06
@@ -50,7 +67,17 @@ jobs:
           set -euo pipefail
           work="$RUNNER_TEMP/stage7-gui-repair"
           mkdir -p "$work/extracted"
-          cat .codex/tmp/stage7-repair/payload.part* > "$work/payload.b64"
+          cat \
+            .codex/tmp/stage7-repair/payload.part00 \
+            .codex/tmp/stage7-repair/payload.part01a \
+            .codex/tmp/stage7-repair/payload.part01b \
+            .codex/tmp/stage7-repair/payload.part02 \
+            .codex/tmp/stage7-repair/payload.part03a \
+            .codex/tmp/stage7-repair/payload.part03b \
+            .codex/tmp/stage7-repair/payload.part04 \
+            .codex/tmp/stage7-repair/payload.part05 \
+            .codex/tmp/stage7-repair/payload.part06 \
+            > "$work/payload.b64"
           echo 'a21bbf73719a5b382aa451f7bac398e6cd558a902b86fb1a52fa894c886861c0  PAYLOAD' \
             | sed "s#PAYLOAD#$work/payload.b64#" | sha256sum -c -
           base64 --decode "$work/payload.b64" > "$work/payload.tar.gz"
@@ -58,6 +85,7 @@ jobs:
             | sed "s#PAYLOAD#$work/payload.tar.gz#" | sha256sum -c -
           python - "$work/payload.tar.gz" "$work/extracted" <<'PY'
           from __future__ import annotations
+
           import pathlib
           import sys
           import tarfile
@@ -84,7 +112,7 @@ jobs:
           tests/test_stage7_process_lifecycle_logs.py
           tests/test_stage7_stable_contracts.py
           EOF
-          find "$work/extracted" -type f -printf '%P\n' | sed 's#^\./##' | sort > "$work/actual.txt"
+          find "$work/extracted" -type f -printf '%P\n' | sort > "$work/actual.txt"
           diff -u "$expected" "$work/actual.txt"
           sha256sum -c <<EOF
           859fad72d02ae55667fd5c84a5094b867a105ad196c883f295b7fff3ad922037  $work/extracted/DELETE.txt
@@ -140,9 +168,8 @@ jobs:
 
           cp "$work/docs/stage7-recovery-migration-map.md" docs/stage7-recovery-migration-map.md
           rm -rf .codex/tmp/stage7-repair
-          rm .github/workflows/stage7-repair-source-bundle.yml
-          rm .github/workflows/stage7-repair-apply.yml
-          git add -A
+          git add docs/stage7-recovery-migration-map.md
+          git add -u .codex/tmp/stage7-repair
           git diff --cached --check
           git commit -m 'docs(stage7): актуализировать контракт восстановления gui.py'
 
@@ -186,10 +213,13 @@ jobs:
       - name: Push repair commits without rewriting history
         shell: bash
         env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           remote_head="$(git ls-remote --heads origin "$PR_HEAD_REF" | awk '{print $1}')"
+          remote_base="$(git ls-remote --heads origin personal/stable | awk '{print $1}')"
           test "$remote_head" = "$PR_HEAD_SHA"
+          test "$remote_base" = "$PR_BASE_SHA"
           git push origin "HEAD:$PR_HEAD_REF"
