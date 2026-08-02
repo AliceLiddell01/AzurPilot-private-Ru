@@ -20,6 +20,8 @@ from dev_tools.stage7_semantic_diagnostics import collect_semantic_findings
 from dev_tools.stage7_semantic_policy import apply_stage7_policy
 
 
+IMMUTABLE_STAGE7_BASE_SHA = "ceff650194afcfd7c7f9f61e155c3af4918193b1"
+
 TEST_MODULES = (
     "tests.test_stage7_log_audit",
     "tests.test_stage7_deploy_logs",
@@ -45,13 +47,25 @@ def _write_outputs(output_dir: Path, outputs: dict[str, bytes]) -> None:
         (output_dir / name).write_bytes(content)
 
 
+def _effective_base_ref(requested_base_ref: str | None) -> str | None:
+    """Use the immutable Stage 7 migration baseline in GitHub Actions.
+
+    Event-relative refs are unsuitable for the persistent migration verifier:
+    after merge, pull-request bases and push refs already contain Stage 7 and
+    can collapse the semantic comparison to an empty or self diff.
+    """
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return IMMUTABLE_STAGE7_BASE_SHA
+    return requested_base_ref
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Проверка Definition of Done Stage 7")
     parser.add_argument("--base-ref")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args(argv)
 
-    audit = Stage7LogAudit(ROOT, base_ref=args.base_ref)
+    audit = Stage7LogAudit(ROOT, base_ref=_effective_base_ref(args.base_ref))
     outputs, metrics = audit.build()
     findings = collect_semantic_findings(audit)
     outputs["semantic-findings.json"] = (
