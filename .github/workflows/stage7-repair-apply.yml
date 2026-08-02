@@ -71,26 +71,26 @@ jobs:
           archive = pathlib.Path(sys.argv[1])
           destination = pathlib.Path(sys.argv[2])
           expected = {
-              'DELETE.txt',
-              'dev_tools/stage7_gui_contract.py',
-              'dev_tools/stage7_log_audit.py',
-              'dev_tools/verify_stage7.py',
-              'docs/stage7-recovery-migration-map.md',
-              'gui.py',
-              'tests/test_stage7_log_audit.py',
-              'tests/test_stage7_process_lifecycle_logs.py',
-              'tests/test_stage7_stable_contracts.py',
+              "DELETE.txt",
+              "dev_tools/stage7_gui_contract.py",
+              "dev_tools/stage7_log_audit.py",
+              "dev_tools/verify_stage7.py",
+              "docs/stage7-recovery-migration-map.md",
+              "gui.py",
+              "tests/test_stage7_log_audit.py",
+              "tests/test_stage7_process_lifecycle_logs.py",
+              "tests/test_stage7_stable_contracts.py",
           }
-          with tarfile.open(archive, 'r:gz') as bundle:
+          with tarfile.open(archive, "r:gz") as bundle:
               members = bundle.getmembers()
               names = {member.name for member in members if member.isfile()}
               if names != expected:
-                  raise SystemExit(f'unexpected repair payload files: {sorted(names ^ expected)}')
+                  raise SystemExit(f"unexpected repair payload files: {sorted(names ^ expected)}")
               for member in members:
                   path = pathlib.PurePosixPath(member.name)
-                  if path.is_absolute() or '..' in path.parts or member.issym() or member.islnk():
-                      raise SystemExit(f'unsafe payload member: {member.name}')
-              bundle.extractall(destination, filter='data')
+                  if path.is_absolute() or ".." in path.parts or member.issym() or member.islnk():
+                      raise SystemExit(f"unsafe payload member: {member.name}")
+              bundle.extractall(destination, filter="data")
           PY
 
       - name: Add exact developer fixture regression
@@ -103,34 +103,32 @@ jobs:
           import sys
 
           root = Path(sys.argv[1])
-          audit = root / 'dev_tools/stage7_log_audit.py'
-          text = audit.read_text(encoding='utf-8')
+          audit = root / "dev_tools/stage7_log_audit.py"
+          text = audit.read_text(encoding="utf-8")
           marker = '    "E:/path\\\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",'
           addition = marker + '\n    r"E:/path\\\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",'
           if text.count(marker) != 1:
-              raise SystemExit('developer path fixture marker changed')
-          audit.write_text(text.replace(marker, addition, 1), encoding='utf-8')
+              raise SystemExit("developer path fixture marker changed")
+          audit.write_text(text.replace(marker, addition, 1), encoding="utf-8")
 
-          tests = root / 'tests/test_stage7_log_audit.py'
-          test_text = tests.read_text(encoding='utf-8')
+          tests = root / "tests/test_stage7_log_audit.py"
+          test_text = tests.read_text(encoding="utf-8")
           anchor = '\n\nif __name__ == "__main__":\n'
-          regression = r'''
-
-class Stage7DeveloperFixtureRegressionTests(unittest.TestCase):
-    def test_escaped_path_example_is_developer_output(self) -> None:
-        from dev_tools.stage7_log_audit import _owner
-
-        self.assertEqual(
-            _owner(
-                "module/logger.py",
-                r"E:/path\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",
-            ),
-            "developer",
-        )
-'''
+          regression = (
+              "\n\nclass Stage7DeveloperFixtureRegressionTests(unittest.TestCase):\n"
+              "    def test_escaped_path_example_is_developer_output(self) -> None:\n"
+              "        from dev_tools.stage7_log_audit import _owner\n\n"
+              "        self.assertEqual(\n"
+              "            _owner(\n"
+              "                \"module/logger.py\",\n"
+              "                r\"E:/path\\\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt\",\n"
+              "            ),\n"
+              "            \"developer\",\n"
+              "        )\n"
+          )
           if test_text.count(anchor) != 1:
-              raise SystemExit('test module anchor changed')
-          tests.write_text(test_text.replace(anchor, regression + anchor, 1), encoding='utf-8')
+              raise SystemExit("test module anchor changed")
+          tests.write_text(test_text.replace(anchor, regression + anchor, 1), encoding="utf-8")
           PY
 
       - name: Verify expected pre-repair sources
