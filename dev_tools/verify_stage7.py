@@ -14,6 +14,7 @@ from dev_tools.stage7_log_audit import (
     ROOT,
     Stage7LogAudit,
 )
+from dev_tools.stage7_semantic_delta_policy import apply_semantic_delta_policy
 from dev_tools.stage7_semantic_diagnostics import collect_semantic_findings
 from dev_tools.stage7_semantic_policy import apply_stage7_policy
 
@@ -56,10 +57,15 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(findings, ensure_ascii=False, indent=2) + "\n"
     ).encode("utf-8")
     outputs, metrics, gui_policy_errors = apply_gui_stable_policy(outputs, metrics)
+    metrics, delta_policy_errors = apply_semantic_delta_policy(metrics, findings)
     outputs, metrics, semantic_policy_errors = apply_stage7_policy(outputs, metrics)
     _write_outputs(args.output_dir, outputs)
 
-    failures = [*gui_policy_errors, *semantic_policy_errors]
+    failures = [
+        *gui_policy_errors,
+        *delta_policy_errors,
+        *semantic_policy_errors,
+    ]
     failures.extend(
         f"{key}: {metrics[key]}"
         for key in BLOCKING_METRICS
