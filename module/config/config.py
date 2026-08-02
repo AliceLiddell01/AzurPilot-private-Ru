@@ -131,7 +131,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             super().__setattr__(key, value)
 
     def __init__(self, config_name, task=None):
-        logger.attr("服务器", self.SERVER)
+        logger.attr("Сервер", self.SERVER)
         # 读取 ./config/<config_name>.json
         self.config_name = config_name
         # YAML 文件中的原始 JSON 数据
@@ -159,15 +159,15 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
         if self.is_template_config:
             # 供开发工具使用
-            logger.info("[配置] 使用模板配置，只读模式")
+            logger.info("[Конфигурация] Используется шаблон в режиме только для чтения")
             self.auto_update = False
             self.task = name_to_function("template")
         elif not os.path.exists(filepath_config(config_name)):
             from module.config.utils import is_oobe_needed
             if is_oobe_needed():
                 logger.warning(
-                    "[配置] 未找到配置文件。"
-                    "请运行 'python gui.py' 完成初始设置。"
+                    "[Конфигурация] Файл конфигурации не найден. "
+                    "Запустите 'python gui.py', чтобы завершить первоначальную настройку."
                 )
         self._disable_task_switch = False
         self.init_task(task)
@@ -225,7 +225,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             func_list.insert(0, "Alas")
         if "General" not in func_list:
             func_list.insert(0, "General")
-        logger.info(f"[配置] 绑定任务 {func_list}")
+        logger.info(f"[Конфигурация] Привязка задач: {func_list}")
 
         # 绑定参数
         visited = set()
@@ -381,7 +381,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             deep_set(self.data, keys=path, value=value)
 
         logger.info(
-            f"[配置] 保存配置 {filepath_config(self.config_name, mod_name)}, {dict_to_kv(self.modified)}"
+            f"[Конфигурация] Сохранение {filepath_config(self.config_name, mod_name)}, {dict_to_kv(self.modified)}"
         )
         # 不要使用 self.modified = {}，那会创建新对象。
         self.modified.clear()
@@ -748,7 +748,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         if getattr(self, '_disable_task_switch', False):
             logger.info('[配置] 任务切换检查已临时禁用')
             return
-        
+
         if self.task_switched():
             self.task_stop(message=message)
 
