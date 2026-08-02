@@ -5,6 +5,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from dev_tools.stage7_gui_contract import GUI_BLOCKING_METRICS, build_gui_contract
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,11 +29,24 @@ class Stage7StableContractTests(unittest.TestCase):
             filter(None, _git("diff", "--name-only", f"{cls.base_ref}..HEAD").splitlines())
         )
 
-    def test_post_divergence_webui_supervisor_is_not_replaced(self) -> None:
-        self.assertNotIn("gui.py", self.changed)
+    def test_post_divergence_webui_supervisor_allows_translation_only_delta(self) -> None:
+        self.assertIn("gui.py", self.changed)
+        base_sha = _git("rev-parse", "--verify", self.base_ref).strip()
+        _, metrics, errors = build_gui_contract(ROOT, base_sha)
+        self.assertEqual(errors, [])
+        for key in GUI_BLOCKING_METRICS:
+            with self.subTest(metric=key):
+                self.assertEqual(metrics[key], 0)
+
         source = (ROOT / "gui.py").read_text(encoding="utf-8")
         self.assertIn("recover_orphaned_workers", source)
         self.assertIn("EnableReload", source)
+        self.assertIn("DEPENDENCY_SYNC_RESPONSE_TIMEOUT", source)
+        self.assertIn("worker_registry.process_matches", source)
+
+    def test_broad_gui_stable_policy_is_not_tracked(self) -> None:
+        tracked = set(_git("ls-files").splitlines())
+        self.assertNotIn("dev_tools/stage7_gui_stable_policy.py", tracked)
 
     def test_operation_siren_data_logger_implementation_is_unchanged(self) -> None:
         forbidden_prefixes = (

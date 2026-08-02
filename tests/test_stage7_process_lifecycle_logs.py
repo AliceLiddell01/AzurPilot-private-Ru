@@ -1,7 +1,12 @@
 import ast
+import json
+import os
 import re
+import subprocess
 import unittest
 from pathlib import Path
+
+from dev_tools.stage7_gui_contract import GUI_BLOCKING_METRICS, build_gui_contract
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,6 +83,51 @@ class ProcessLifecycleLogsTest(unittest.TestCase):
                 with self.subTest(path=path, line=line, method=method):
                     self.assertIsNone(cjk.search(message), message)
                     self.assertIsNone(forbidden_english.search(message), message)
+
+
+    def test_gui_supervisor_translation_only_contract(self):
+        base_ref = os.environ.get("STAGE7_BASE_REF", "origin/personal/stable")
+        base_sha = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--verify", base_ref],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout.strip()
+        outputs, metrics, errors = build_gui_contract(ROOT, base_sha)
+        self.assertEqual(errors, [])
+        for key in GUI_BLOCKING_METRICS:
+            with self.subTest(metric=key):
+                self.assertEqual(metrics[key], 0)
+
+        inventory = json.loads(outputs["gui-inventory.json"])["entries"]
+        cjk = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]")
+        plain_english = re.compile(r"[A-Za-z]{2,}")
+        for entry in inventory:
+            template = entry["template"]
+            with self.subTest(identifier=entry["semantic_identifier"]):
+                if entry["classification"] == "stage7_first_party_message":
+                    self.assertIsNone(cjk.search(template), template)
+                    if not re.search(r"[А-Яа-яЁё]", template):
+                        self.assertIsNone(plain_english.search(template), template)
+
+    def test_gui_contract_keeps_exact_technical_tokens(self):
+        base_ref = os.environ.get("STAGE7_BASE_REF", "origin/personal/stable")
+        base_sha = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--verify", base_ref],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout.strip()
+        outputs, _, _ = build_gui_contract(ROOT, base_sha)
+        inventory = json.loads(outputs["gui-inventory.json"])["entries"]
+        technical = {
+            entry["template"]
+            for entry in inventory
+            if entry["classification"] == "technical_identifier"
+        }
+        self.assertEqual(technical, {"SSL", "Electron"})
 
     def test_process_state_keeps_legacy_markers_and_adds_russian_markers(self):
         source = (ROOT / "module/webui/process_manager.py").read_text(encoding="utf-8")

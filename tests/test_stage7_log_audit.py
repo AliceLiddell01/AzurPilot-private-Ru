@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from dev_tools.stage7_gui_contract import analyze_gui_contract, extract_gui_inventory
 from dev_tools.stage7_log_audit import (
     COLUMNS,
     Stage7LogAudit,
@@ -84,6 +85,107 @@ class Stage7LogAuditTests(unittest.TestCase):
                 self.assertTrue(entry["runtime_owner"].startswith("Stage 8"))
                 self.assertTrue(entry["evidence"].strip())
 
+
+    def test_cjk_sentence_with_pid_is_unresolved(self) -> None:
+        row = {
+            "path": "gui.py",
+            "message_or_template": "[GUI] 正在停止服务进程 (PID: {pid})...",
+            "first_party_or_external": "first_party",
+            "source_kind": "python_call",
+            "translation_required": True,
+        }
+        classification, required, _ = _classify(row, "stage7")
+        self.assertEqual(classification, "stage7_first_party_message")
+        self.assertTrue(required)
+
+    def test_mixed_cjk_network_sentence_is_unresolved(self) -> None:
+        row = {
+            "path": "gui.py",
+            "message_or_template": "[GUI] WebUI 同时监听 IPv4 {v4} 与 IPv6 {v6}",
+            "first_party_or_external": "first_party",
+            "source_kind": "python_call",
+            "translation_required": True,
+        }
+        classification, required, _ = _classify(row, "stage7")
+        self.assertEqual(classification, "stage7_first_party_message")
+        self.assertTrue(required)
+
+    def test_plain_technical_identifiers_remain_technical(self) -> None:
+        for text in ("SSL", "PID"):
+            with self.subTest(text=text):
+                row = {
+                    "path": "gui.py",
+                    "message_or_template": text,
+                    "first_party_or_external": "first_party",
+                    "source_kind": "python_call",
+                    "translation_required": False,
+                }
+                classification, required, _ = _classify(row, "stage7")
+                self.assertEqual(classification, "technical_identifier")
+                self.assertFalse(required)
+
+    def test_gui_contract_detects_old_untranslated_message(self) -> None:
+        source = """
+def run(pid):
+    logger.info(f"[GUI] 正在停止服务进程 (PID: {pid})...")
+"""
+        result = analyze_gui_contract(source, source, base_sha="0" * 40)
+        self.assertEqual(result["metrics"]["stage7_gui_unresolved"], 1)
+        self.assertEqual(
+            result["metrics"]["stage7_gui_cjk_first_party_remaining"], 1
+        )
+
+    def test_gui_identifiers_ignore_unrelated_statement_insertion(self) -> None:
+        before = """
+def run(pid):
+    logger.info(f"Запуск (PID: {pid})")
+    logger.warning("Повтор")
+"""
+        after = """
+def run(pid):
+    unrelated = 1
+    logger.info(f"Запуск (PID: {pid})")
+    logger.warning("Повтор")
+"""
+        before_rows, _ = extract_gui_inventory(before)
+        after_rows, _ = extract_gui_inventory(after)
+        self.assertEqual(
+            [row.semantic_identifier for row in before_rows],
+            [row.semantic_identifier for row in after_rows],
+        )
+
+    def test_gui_contract_allows_only_translated_literals(self) -> None:
+        base = """
+def run(pid):
+    logger.warning(f"Stopping service (PID: {pid})")
+"""
+        head = """
+def run(pid):
+    logger.warning(f"Остановка службы (PID: {pid})")
+"""
+        result = analyze_gui_contract(base, head, base_sha="0" * 40)
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["metrics"]["stage7_gui_translated"], 1)
+
+    def test_gui_contract_rejects_control_flow_change(self) -> None:
+        base = """
+def run(pid):
+    logger.info(f"Запуск (PID: {pid})")
+"""
+        head = """
+def run(pid):
+    if pid:
+        logger.info(f"Запуск (PID: {pid})")
+"""
+        result = analyze_gui_contract(base, head, base_sha="0" * 40)
+        self.assertGreater(
+            result["metrics"]["stage7_gui_control_flow_mismatches"], 0
+        )
+
+    def test_broad_gui_stable_policy_is_removed(self) -> None:
+        policy = Path(__file__).resolve().parents[1] / "dev_tools/stage7_gui_stable_policy.py"
+        self.assertFalse(policy.exists())
+
     def test_metrics_include_semantic_invariants(self) -> None:
         expected = {
             "stage7_unresolved",
@@ -97,6 +199,19 @@ class Stage7LogAuditTests(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(self.metrics))
         self.assertEqual(len(self.metrics["base_sha"]), 40)
+
+
+class Stage7DeveloperFixtureRegressionTests(unittest.TestCase):
+    def test_escaped_path_example_is_developer_output(self) -> None:
+        from dev_tools.stage7_log_audit import _owner
+
+        self.assertEqual(
+            _owner(
+                "module/logger.py",
+                r"E:/path\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",
+            ),
+            "developer",
+        )
 
 
 if __name__ == "__main__":
