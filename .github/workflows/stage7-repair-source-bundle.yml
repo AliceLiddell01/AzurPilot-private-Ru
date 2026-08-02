@@ -62,6 +62,7 @@ jobs:
           done
           printf '%s\n' "$PR_HEAD_SHA" > "$out/HEAD"
           printf '%s\n' "$PR_BASE_SHA" > "$out/BASE"
+          git rev-parse 'HEAD^{tree}' > "$out/TREE"
           git show "$PR_BASE_SHA:gui.py" > "$out/gui.base.py"
 
       - name: Upload source bundle
