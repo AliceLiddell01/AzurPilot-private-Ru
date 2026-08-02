@@ -181,7 +181,8 @@ class OpsiVoucher(OSMap):
             if self.handle_map_event():
                 continue
 
-            if not self.is_in_map() or not self.zone.is_azur_port:
+            in_allied_port_map = self.is_in_map() and self.zone.is_azur_port
+            if not in_allied_port_map:
                 if transition is not None and not transition.reached():
                     continue
                 logger.warning(
@@ -189,7 +190,10 @@ class OpsiVoucher(OSMap):
                     'during Storage entry'
                 )
                 return False
-            transition = None
+            if transition is not None:
+                if not transition.reached():
+                    continue
+                transition = None
 
             # EN port layouts can shift the Storage button by roughly one menu
             # slot. Use the same horizontal tolerance as the inherited Storage
