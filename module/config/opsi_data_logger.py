@@ -25,6 +25,8 @@ DATA_LOGGER_RETRY_PENDING_KEY = "OperationSirenDataLoggerRetryPending"
 DATA_LOGGER_RETRY_REASON_KEY = "OperationSirenDataLoggerRetryReason"
 DATA_LOGGER_RETRY_CYCLE_KEY = "OperationSirenDataLoggerRetryCycle"
 DATA_LOGGER_RETRY_COUNT_KEY = "OperationSirenDataLoggerRetryCount"
+DATA_LOGGER_EVIDENCE_KEY = "OperationSirenDataLoggerEvidence"
+DATA_LOGGER_EVIDENCE_CYCLE_KEY = "OperationSirenDataLoggerEvidenceCycle"
 
 # The fifth unresolved attempt is persisted and paused until the next
 # Operation Siren monthly reset instead of retrying for the rest of the month.
@@ -37,6 +39,22 @@ class DataLoggerShopState(Enum):
     UNKNOWN = "unknown"
 
 
+class DataLoggerPurchaseEvidence(Enum):
+    """Strength of evidence produced by the dedicated shop lifecycle."""
+
+    NONE = "none"
+    ATTEMPTED = "attempted"
+    CONFIRMED = "confirmed"
+
+
+class DataLoggerLifecycleEvidence(Enum):
+    """Persisted same-cycle evidence from the exact Storage item lifecycle."""
+
+    NONE = "none"
+    STORAGE_OBSERVED = "storage_observed"
+    USE_CLICKED = "use_clicked"
+
+
 class DataLoggerStorageState(Enum):
     ACTIVATED = "activated"
     ABSENT = "absent"
@@ -47,11 +65,46 @@ class DataLoggerStorageState(Enum):
     ENTER_TIMEOUT = "enter_timeout"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class DataLoggerShopResult:
+    """Result of the shop lifecycle with graded purchase evidence.
+
+    ``purchased`` remains a read-only compatibility view for existing callers
+    and tests. New lifecycle decisions must use ``purchase_evidence`` so an
+    attempted purchase cannot be confused with a confirmed one.
+    """
+
     state: DataLoggerShopState
-    reason: str = ""
-    purchased: bool = False
+    reason: str
+    purchase_evidence: DataLoggerPurchaseEvidence
+
+    def __init__(
+        self,
+        state: DataLoggerShopState,
+        reason: str = "",
+        purchased: bool = False,
+        *,
+        purchase_evidence: DataLoggerPurchaseEvidence | str | None = None,
+    ) -> None:
+        if purchase_evidence is None:
+            if purchased and state is DataLoggerShopState.SOLD_OUT:
+                resolved_evidence = DataLoggerPurchaseEvidence.CONFIRMED
+            elif purchased:
+                resolved_evidence = DataLoggerPurchaseEvidence.ATTEMPTED
+            else:
+                resolved_evidence = DataLoggerPurchaseEvidence.NONE
+        elif isinstance(purchase_evidence, DataLoggerPurchaseEvidence):
+            resolved_evidence = purchase_evidence
+        else:
+            resolved_evidence = DataLoggerPurchaseEvidence(str(purchase_evidence))
+
+        object.__setattr__(self, "state", state)
+        object.__setattr__(self, "reason", str(reason))
+        object.__setattr__(self, "purchase_evidence", resolved_evidence)
+
+    @property
+    def purchased(self) -> bool:
+        return self.purchase_evidence is not DataLoggerPurchaseEvidence.NONE
 
 
 def _server_now(value: datetime | None = None) -> datetime:
@@ -169,8 +222,79 @@ def data_logger_retry_count(
     return max(count, 0)
 
 
+def data_logger_lifecycle_evidence(
+    config,
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> DataLoggerLifecycleEvidence:
+    """Return persisted exact-item evidence for the current server cycle."""
+    storage = data_logger_storage_from_data(config.data)
+    cycle_key = data_logger_cycle_key(next_reset, server_now=server_now)
+    if storage.get(DATA_LOGGER_EVIDENCE_CYCLE_KEY) != cycle_key:
+        return DataLoggerLifecycleEvidence.NONE
+    try:
+        return DataLoggerLifecycleEvidence(
+            storage.get(DATA_LOGGER_EVIDENCE_KEY, DataLoggerLifecycleEvidence.NONE.value)
+        )
+    except (TypeError, ValueError):
+        return DataLoggerLifecycleEvidence.NONE
+
+
 def _updated_storage(config) -> dict[str, Any]:
     return deepcopy(data_logger_storage_from_data(config.data))
+
+
+def data_logger_mark_evidence(
+    config,
+    evidence: DataLoggerLifecycleEvidence,
+    next_reset: datetime | None = None,
+    *,
+    server_now: datetime | None = None,
+) -> DataLoggerLifecycleEvidence:
+    """Persist monotonic exact-item evidence for the current server cycle."""
+    if not isinstance(evidence, DataLoggerLifecycleEvidence):
+        evidence = DataLoggerLifecycleEvidence(evidence)
+    if evidence is DataLoggerLifecycleEvidence.NONE:
+        return data_logger_lifecycle_evidence(
+            config,
+            next_reset=next_reset,
+            server_now=server_now,
+        )
+
+    ranks = {
+        DataLoggerLifecycleEvidence.NONE: 0,
+        DataLoggerLifecycleEvidence.STORAGE_OBSERVED: 1,
+        DataLoggerLifecycleEvidence.USE_CLICKED: 2,
+    }
+    current = data_logger_lifecycle_evidence(
+        config,
+        next_reset=next_reset,
+        server_now=server_now,
+    )
+    if ranks[current] >= ranks[evidence]:
+        return current
+
+    cycle_key = data_logger_cycle_key(next_reset, server_now=server_now)
+    storage = _updated_storage(config)
+    storage[DATA_LOGGER_EVIDENCE_KEY] = evidence.value
+    storage[DATA_LOGGER_EVIDENCE_CYCLE_KEY] = cycle_key
+    config.cross_set(keys=DATA_LOGGER_STORAGE_PATH, value=storage)
+    return evidence
+
+
+def data_logger_clear_evidence(config) -> None:
+    storage = _updated_storage(config)
+    changed = False
+    for key in (
+        DATA_LOGGER_EVIDENCE_KEY,
+        DATA_LOGGER_EVIDENCE_CYCLE_KEY,
+    ):
+        if key in storage:
+            storage.pop(key)
+            changed = True
+    if changed:
+        config.cross_set(keys=DATA_LOGGER_STORAGE_PATH, value=storage)
 
 
 def data_logger_mark_active(
@@ -187,6 +311,8 @@ def data_logger_mark_active(
     storage.pop(DATA_LOGGER_RETRY_REASON_KEY, None)
     storage.pop(DATA_LOGGER_RETRY_CYCLE_KEY, None)
     storage.pop(DATA_LOGGER_RETRY_COUNT_KEY, None)
+    storage.pop(DATA_LOGGER_EVIDENCE_KEY, None)
+    storage.pop(DATA_LOGGER_EVIDENCE_CYCLE_KEY, None)
     config.cross_set(keys=DATA_LOGGER_STORAGE_PATH, value=storage)
     return cycle_key
 
