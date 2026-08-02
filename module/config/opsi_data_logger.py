@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
-import module.config.server as server
 from module.config.deep import deep_get
 from module.config.time_source import now as current_time
 from module.config.utils import get_os_next_reset, server_timezone
@@ -30,14 +29,6 @@ DATA_LOGGER_RETRY_COUNT_KEY = "OperationSirenDataLoggerRetryCount"
 # The fifth unresolved attempt is persisted and paused until the next
 # Operation Siren monthly reset instead of retrying for the rest of the month.
 DATA_LOGGER_MAX_FAILURES_PER_CYCLE = 5
-
-# The current EN Storage card reaches about 0.67 against the historical exact
-# unlock-logger template. Keep the normal 0.75 match first, then allow a
-# narrowly scoped EN-only fallback after three stable observations.
-DATA_LOGGER_STORAGE_STRICT_SIMILARITY = 0.75
-DATA_LOGGER_STORAGE_EN_FALLBACK_SIMILARITY = 0.60
-DATA_LOGGER_STORAGE_FALLBACK_STABLE_FRAMES = 3
-DATA_LOGGER_STORAGE_FALLBACK_MAX_SHIFT = 8
 
 
 class DataLoggerShopState(Enum):
@@ -244,94 +235,3 @@ def data_logger_clear_retry(config) -> None:
             changed = True
     if changed:
         config.cross_set(keys=DATA_LOGGER_STORAGE_PATH, value=storage)
-
-
-class _DataLoggerUnlockTemplateProxy:
-    """EN-only stable fallback for the exact unlock-logger template.
-
-    The wrapper never uses the generic coordinate-logger template. Strict
-    matches remain immediate. A relaxed match is exposed only after the same
-    position has been observed on three consecutive frames.
-    """
-
-    def __init__(self, template):
-        self._template = template
-        self._fallback_point: tuple[int, int] | None = None
-        self._fallback_frames = 0
-
-    def __getattr__(self, name):
-        return getattr(self._template, name)
-
-    @staticmethod
-    def _button_center(button) -> tuple[int, int]:
-        area = button.area
-        return (
-            round((area[0] + area[2]) / 2),
-            round((area[1] + area[3]) / 2),
-        )
-
-    def _reset_fallback(self) -> None:
-        self._fallback_point = None
-        self._fallback_frames = 0
-
-    def _is_stable(self, point: tuple[int, int]) -> bool:
-        previous = self._fallback_point
-        if previous is None or (
-            abs(point[0] - previous[0]) > DATA_LOGGER_STORAGE_FALLBACK_MAX_SHIFT
-            or abs(point[1] - previous[1]) > DATA_LOGGER_STORAGE_FALLBACK_MAX_SHIFT
-        ):
-            self._fallback_point = point
-            self._fallback_frames = 1
-        else:
-            self._fallback_point = point
-            self._fallback_frames += 1
-        return self._fallback_frames >= DATA_LOGGER_STORAGE_FALLBACK_STABLE_FRAMES
-
-    def match_multi(
-        self,
-        image,
-        scaling=1.0,
-        similarity=0.85,
-        threshold=3,
-        name=None,
-    ):
-        kwargs = {
-            "scaling": scaling,
-            "similarity": similarity,
-            "threshold": threshold,
-            "name": name,
-        }
-        matches = self._template.match_multi(image, **kwargs)
-        if matches:
-            self._reset_fallback()
-            return matches
-
-        if (
-            server.server != "en"
-            or similarity != DATA_LOGGER_STORAGE_STRICT_SIMILARITY
-        ):
-            self._reset_fallback()
-            return []
-
-        kwargs["similarity"] = DATA_LOGGER_STORAGE_EN_FALLBACK_SIMILARITY
-        matches = self._template.match_multi(image, **kwargs)
-        if not matches:
-            self._reset_fallback()
-            return []
-
-        return matches if self._is_stable(self._button_center(matches[0])) else []
-
-
-def _install_data_logger_storage_template_fallback() -> None:
-    """Wrap only the singleton unlock-logger template used by OpsiVoucher."""
-    from module.os_handler import assets as os_handler_assets
-
-    template = os_handler_assets.TEMPLATE_STORAGE_LOGGER_UNLOCK
-    if isinstance(template, _DataLoggerUnlockTemplateProxy):
-        return
-    os_handler_assets.TEMPLATE_STORAGE_LOGGER_UNLOCK = (
-        _DataLoggerUnlockTemplateProxy(template)
-    )
-
-
-_install_data_logger_storage_template_fallback()
