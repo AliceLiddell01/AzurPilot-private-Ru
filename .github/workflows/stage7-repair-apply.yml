@@ -1,0 +1,195 @@
+name: Stage 7 GUI repair apply
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage7-gui-repair-apply-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Apply validated gui.py repair payload
+    if: github.event.pull_request.head.ref == 'codex/stage7-log-russianization-recovery'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify exact PR head and payload parts
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+          remote_head="$(git ls-remote --heads origin "$PR_HEAD_REF" | awk '{print $1}')"
+          test "$remote_head" = "$PR_HEAD_SHA"
+          test "$(find .codex/tmp/stage7-repair -maxdepth 1 -type f -name 'payload.part*' | wc -l)" -eq 7
+          sha256sum -c <<'EOF'
+          8125a4b8d5758129bc010e3d390f633110efd5a0c0ad9c1ee196f4d01dda1e68  .codex/tmp/stage7-repair/payload.part00
+          536210c875a23824de682dc688fd663909256ac784aec1600d4f3508ac56d61c  .codex/tmp/stage7-repair/payload.part01
+          63b7d84329a37923243913f317f6ffd7eb02b777c4d65ead5a702a59884a57e6  .codex/tmp/stage7-repair/payload.part02
+          f44e1d9b3d6904f81a1d4ba6130a8cf972d70c138175bf6304dfdae9ba663167  .codex/tmp/stage7-repair/payload.part03
+          512231e74cde54b1ef13009707cbd823a751d738036415344becd70d12c1858f  .codex/tmp/stage7-repair/payload.part04
+          8bda0b028bd29cbade02cd3872c874fd2bb238cb555e11acf1ec8a7a06adc9c0  .codex/tmp/stage7-repair/payload.part05
+          bcd370f305c728b7f6d337ddbf25eddba0e1b12c99203b7bc1ffe03d07376e9c  .codex/tmp/stage7-repair/payload.part06
+          EOF
+
+      - name: Decode and validate repair payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/stage7-gui-repair"
+          mkdir -p "$work/extracted"
+          cat .codex/tmp/stage7-repair/payload.part* > "$work/payload.b64"
+          echo 'a21bbf73719a5b382aa451f7bac398e6cd558a902b86fb1a52fa894c886861c0  PAYLOAD' \
+            | sed "s#PAYLOAD#$work/payload.b64#" | sha256sum -c -
+          base64 --decode "$work/payload.b64" > "$work/payload.tar.gz"
+          echo 'fcbca93bb65bdedb8d1fb80bb1ae506d5d276490274ad97dd0c40ed352c6fd3e  PAYLOAD' \
+            | sed "s#PAYLOAD#$work/payload.tar.gz#" | sha256sum -c -
+          python - "$work/payload.tar.gz" "$work/extracted" <<'PY'
+          from __future__ import annotations
+          import pathlib
+          import sys
+          import tarfile
+
+          archive = pathlib.Path(sys.argv[1])
+          destination = pathlib.Path(sys.argv[2])
+          with tarfile.open(archive, "r:gz") as bundle:
+              members = bundle.getmembers()
+              for member in members:
+                  path = pathlib.PurePosixPath(member.name)
+                  if path.is_absolute() or ".." in path.parts or member.issym() or member.islnk():
+                      raise SystemExit(f"unsafe payload member: {member.name}")
+              bundle.extractall(destination, filter="data")
+          PY
+          expected="$work/expected.txt"
+          cat > "$expected" <<'EOF'
+          DELETE.txt
+          dev_tools/stage7_gui_contract.py
+          dev_tools/stage7_log_audit.py
+          dev_tools/verify_stage7.py
+          docs/stage7-recovery-migration-map.md
+          gui.py
+          tests/test_stage7_log_audit.py
+          tests/test_stage7_process_lifecycle_logs.py
+          tests/test_stage7_stable_contracts.py
+          EOF
+          find "$work/extracted" -type f -printf '%P\n' | sed 's#^\./##' | sort > "$work/actual.txt"
+          diff -u "$expected" "$work/actual.txt"
+          sha256sum -c <<EOF
+          859fad72d02ae55667fd5c84a5094b867a105ad196c883f295b7fff3ad922037  $work/extracted/DELETE.txt
+          3d12cacf44152470eabd67b67684aec56836ee71d5e605627e56edb6373ac79b  $work/extracted/dev_tools/stage7_gui_contract.py
+          84c11a5641d57610a97329125ab1de265d483d215caa6e23306cb283452c7306  $work/extracted/dev_tools/stage7_log_audit.py
+          0342a37d9eaef7b7af7b1e59e7c8499b73ca485697a30c589982a1b130a656eb  $work/extracted/dev_tools/verify_stage7.py
+          0f0bdfedb146cca32f90f7978cbc7def793c88043b6b4644360ce573222fbe7c  $work/extracted/docs/stage7-recovery-migration-map.md
+          01564e40843278c0da59ccf2561ee3bc512972826e84e50fd30d90c724bcd390  $work/extracted/gui.py
+          baf6359b2107f2208544af08ec26a92155eb348e335ede8caeaf16c6c260f8f3  $work/extracted/tests/test_stage7_log_audit.py
+          09057a15ed256b3bf08621f0280dbf3a5e049c3a72a6f29111a31929e4d22cc8  $work/extracted/tests/test_stage7_process_lifecycle_logs.py
+          138223d8383e4dc6b9f0f517d30b711266eb5c800f7ecedd088350832240b815  $work/extracted/tests/test_stage7_stable_contracts.py
+          EOF
+
+      - name: Verify expected pre-repair sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c <<'EOF'
+          a7de027231db5d63dca736197430a7bae1854fa0af87146bc2b4df1aad41823f  gui.py
+          026a87c9e2af03be8f211fdf9617c2763a7b7a873be9ffd85f4efef8dc70ad32  dev_tools/stage7_log_audit.py
+          55a92b3851dc8f5a2ca93347166dbcf8126459e4b25246dfbf2106ed895b0dcd  dev_tools/verify_stage7.py
+          3c9024b246edf4bf9d5f30a625caf0af33477232259df6525908ce5a6718e034  tests/test_stage7_log_audit.py
+          15af35f1bb1f02eb1f98fd5d0e777441ab862a61e0ccc0a251c4e8c05a0539e0  tests/test_stage7_process_lifecycle_logs.py
+          4a71cbfdd9a075c60273bb51426cdbe2e5b2ce860d6ff31adf862940287a55be  tests/test_stage7_stable_contracts.py
+          8c24db470d13303981bb28ffc1975fd7de99bc67a27d01e948adffafa98c3959  docs/stage7-recovery-migration-map.md
+          EOF
+          test -f dev_tools/stage7_gui_stable_policy.py
+
+      - name: Apply repair and create logical commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/stage7-gui-repair/extracted"
+          cp "$work/gui.py" gui.py
+          cp "$work/dev_tools/stage7_gui_contract.py" dev_tools/stage7_gui_contract.py
+          cp "$work/dev_tools/stage7_log_audit.py" dev_tools/stage7_log_audit.py
+          cp "$work/dev_tools/verify_stage7.py" dev_tools/verify_stage7.py
+          rm dev_tools/stage7_gui_stable_policy.py
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gui.py dev_tools/stage7_gui_contract.py dev_tools/stage7_log_audit.py dev_tools/verify_stage7.py
+          git add -u dev_tools/stage7_gui_stable_policy.py
+          git diff --cached --check
+          git commit -m 'fix(stage7): включить gui.py в область русификации журналов'
+
+          cp "$work/tests/test_stage7_log_audit.py" tests/test_stage7_log_audit.py
+          cp "$work/tests/test_stage7_process_lifecycle_logs.py" tests/test_stage7_process_lifecycle_logs.py
+          cp "$work/tests/test_stage7_stable_contracts.py" tests/test_stage7_stable_contracts.py
+          git add tests/test_stage7_log_audit.py tests/test_stage7_process_lifecycle_logs.py tests/test_stage7_stable_contracts.py
+          git diff --cached --check
+          git commit -m 'test(stage7): защитить семантику WebUI supervisor'
+
+          cp "$work/docs/stage7-recovery-migration-map.md" docs/stage7-recovery-migration-map.md
+          rm -rf .codex/tmp/stage7-repair
+          rm .github/workflows/stage7-repair-source-bundle.yml
+          rm .github/workflows/stage7-repair-apply.yml
+          git add -A
+          git diff --cached --check
+          git commit -m 'docs(stage7): актуализировать контракт восстановления gui.py'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+
+      - name: Run repair pre-push checks
+        shell: bash
+        env:
+          STAGE7_BASE_REF: origin/personal/stable
+        run: |
+          set -euo pipefail
+          uv sync --frozen
+          uv run ruff check \
+            gui.py \
+            dev_tools/stage7_gui_contract.py \
+            dev_tools/stage7_log_audit.py \
+            dev_tools/verify_stage7.py \
+            tests/test_stage7_log_audit.py \
+            tests/test_stage7_process_lifecycle_logs.py \
+            tests/test_stage7_stable_contracts.py
+          uv run python -m unittest -v \
+            tests/test_stage7_log_audit.py \
+            tests/test_stage7_process_lifecycle_logs.py \
+            tests/test_stage7_stable_contracts.py \
+            tests/test_webui_worker_registry.py \
+            tests/test_webui_no_reload_recovery.py
+          uv run python -m dev_tools.verify_stage7 \
+            --base-ref origin/personal/stable \
+            --output-dir artifacts/stage7-repair-prepush
+          git diff --check origin/personal/stable...HEAD
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Push repair commits without rewriting history
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          remote_head="$(git ls-remote --heads origin "$PR_HEAD_REF" | awk '{print $1}')"
+          test "$remote_head" = "$PR_HEAD_SHA"
+          git push origin "HEAD:$PR_HEAD_REF"
