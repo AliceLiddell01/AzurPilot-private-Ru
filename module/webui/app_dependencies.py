@@ -108,7 +108,6 @@ from module.webui.utils import (
     get_window_visibility_state,
     login,
     parse_pin_value,
-    raise_exception,
     re_fullmatch,
     to_pin_value,
 )

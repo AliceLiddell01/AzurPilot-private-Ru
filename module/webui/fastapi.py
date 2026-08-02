@@ -87,11 +87,11 @@ class SafeWebSocketConnection(pywebio_fastapi.WebSocketConnection):
             try:
                 await self.ws.send_json(message)
             except TypeError:
-                logger.exception("PyWebIO 消息序列化失败，消息内容: %s", message)
+                logger.exception("Не удалось сериализовать сообщение PyWebIO; содержимое: %s", message)
             except AssertionError, RuntimeError, WebSocketDisconnect:
-                logger.debug("WebSocket 已断开，跳过 PyWebIO 消息发送")
+                logger.debug("WebSocket уже отключён; отправка сообщения PyWebIO пропущена")
             except Exception as e:
-                logger.debug("PyWebIO WebSocket 消息发送失败: %s", e)
+                logger.debug("Не удалось отправить сообщение PyWebIO через WebSocket: %s", e)
 
     async def _safe_close(self):
         async with self._send_lock:
@@ -100,9 +100,9 @@ class SafeWebSocketConnection(pywebio_fastapi.WebSocketConnection):
             try:
                 await self.ws.close()
             except AssertionError, RuntimeError, WebSocketDisconnect:
-                logger.debug("WebSocket 已断开，跳过 PyWebIO 连接关闭")
+                logger.debug("WebSocket уже отключён; повторное закрытие соединения PyWebIO пропущено")
             except Exception as e:
-                logger.debug("PyWebIO WebSocket 连接关闭失败: %s", e)
+                logger.debug("Не удалось закрыть соединение PyWebIO WebSocket: %s", e)
 
     def write_message(self, message: dict):
         self.ioloop.create_task(self._safe_send_json(message))
@@ -161,7 +161,7 @@ def asgi_app(
     except Exception as e:
         import logging
 
-        logging.getLogger(__name__).error(f"Failed to load api routes: {e}")
+        logging.getLogger(__name__).error(f"Не удалось загрузить маршруты API: {e}")
 
     middleware = [
         # 仅处理 HTTP 响应；WebSocket 不经过该中间件，Starlette 也会跳过 SSE。

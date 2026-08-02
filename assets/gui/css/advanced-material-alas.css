@@ -134,7 +134,7 @@ body {
 	letter-spacing: -0.01em;
 }
 
-body *:not(#pywebio-scope-log):not(#pywebio-scope-log *) {
+body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-container):not(.rich-traceback-container *) {
 	font-family: var(--alas-font-stack) !important;
 }
 

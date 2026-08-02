@@ -172,12 +172,12 @@ def app():
     # 未传入 --run 时保持 None，由进程管理器跳过启动实例。
     instances: List[str] | None = runs
 
-    logger.hr("[WebUI] WebUI 配置")
-    logger.attr("主题", State.deploy_config.Theme)
-    logger.attr("语言", lang.LANG)
-    logger.attr("密码", is_webui_password_set(key))
+    logger.hr("[WebUI] Конфигурация WebUI")
+    logger.attr("Тема", State.deploy_config.Theme)
+    logger.attr("Язык", lang.LANG)
+    logger.attr("Пароль задан", is_webui_password_set(key))
     logger.attr("CDN", cdn)
-    logger.attr("云手机", IS_ON_PHONE_CLOUD)
+    logger.attr("Облачное устройство", IS_ON_PHONE_CLOUD)
 
     from deploy.atomic import atomic_failure_cleanup
 
@@ -228,7 +228,7 @@ def app():
         if is_webui_password_set(key) and not login(
             key, stored_password=localstorage.get("password")
         ):
-            logger.warning(f"[WebUI] {info.user_ip} 登录失败")
+            logger.warning(f"[WebUI] Неудачная попытка входа с адреса {info.user_ip}")
             time.sleep(1.5)
             run_js("location.reload();")
             return

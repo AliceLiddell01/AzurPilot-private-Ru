@@ -99,11 +99,11 @@ def ensure_public_webui_password(key):
         atomic_write(WEBUI_AUTO_PASSWORD_FILE, f"{password}\n")
         State.deploy_config.Password = password
         logger.warning(
-            f"[WebUI] WebUI 已自动生成密码，请在根目录 {WEBUI_AUTO_PASSWORD_FILE} 查看。"
+            f"[WebUI] Пароль создан автоматически и сохранён в файле {WEBUI_AUTO_PASSWORD_FILE} в корне проекта"
         )
         return password, None
     except Exception as e:
-        logger.exception(f"WebUI 自动生成密码失败: {e}")
+        logger.exception(f"[WebUI] Не удалось создать пароль автоматически: {e}")
         return None, str(e)
 
 

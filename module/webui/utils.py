@@ -24,9 +24,10 @@ from pywebio.output import PopupSize, popup, put_html, put_text, toast
 from pywebio.session import eval_js, info as session_info, local, register_thread, run_js
 from rich.console import Console
 from rich.terminal_theme import TerminalTheme
+from rich.traceback import Traceback
 
 from module.config.deep import deep_iter
-from module.logger import logger
+from module.logger import logger, sanitize_rich_traceback, sanitize_traceback_text
 from module.webui.setting import State
 
 RE_DATETIME = (
@@ -35,11 +36,18 @@ RE_DATETIME = (
 )
 
 
-TRACEBACK_CODE_FORMAT = """\
-<code class="rich-traceback">
-    <pre class="rich-traceback-code">{code}</pre>
-</code>
-"""
+TRACEBACK_CODE_FORMAT = (
+    '<div class="rich-traceback-container" role="region" '
+    'aria-label="Диагностическая трассировка">'
+    '<pre class="rich-traceback-code"><code>{code}</code></pre>'
+    '</div>'
+)
+
+WEBUI_TRACEBACK_WIDTH = 100
+WEBUI_TRACEBACK_MAX_FRAMES = 100
+WEBUI_TRACEBACK_LOCALS_MAX_LENGTH = 10
+WEBUI_TRACEBACK_LOCALS_MAX_STRING = 80
+
 
 LOG_CODE_FORMAT = "{code}"
 
@@ -92,6 +100,43 @@ LIGHT_TERMINAL_THEME = TerminalTheme(
         (165, 165, 165),  # 白
     ],
 )
+
+
+def render_webui_traceback(exc_info, *, dark_theme: bool) -> str:
+    """Сформировать безопасный Rich traceback для штатного WebUI error modal."""
+    exc_type, exc_value, exc_tb = exc_info
+    if exc_type is None or exc_value is None:
+        raise ValueError("Для отображения traceback требуется активное исключение")
+
+    renderable = Traceback.from_exception(
+        exc_type,
+        exc_value,
+        exc_tb,
+        width=WEBUI_TRACEBACK_WIDTH,
+        extra_lines=1,
+        word_wrap=False,
+        show_locals=True,
+        locals_max_length=WEBUI_TRACEBACK_LOCALS_MAX_LENGTH,
+        locals_max_string=WEBUI_TRACEBACK_LOCALS_MAX_STRING,
+        max_frames=WEBUI_TRACEBACK_MAX_FRAMES,
+    )
+    sanitize_rich_traceback(renderable)
+
+    traceback_console = Console(
+        color_system="truecolor",
+        tab_size=2,
+        record=True,
+        width=WEBUI_TRACEBACK_WIDTH,
+    )
+    with traceback_console.capture():
+        traceback_console.print(renderable)
+
+    theme = DARK_TERMINAL_THEME if dark_theme else LIGHT_TERMINAL_THEME
+    return traceback_console.export_html(
+        theme=theme,
+        code_format=TRACEBACK_CODE_FORMAT,
+        inline_styles=True,
+    )
 
 WEBUI_LOGIN_MAX_FAILURES = 5
 _webui_login_failure_count = 0
@@ -165,9 +210,9 @@ class TaskHandler:
         添加后台运行的任务。
         """
         if task in self.tasks:
-            logger.warning(f"[WebUI-工具] 任务 {task} 已在任务列表中")
+            logger.warning(f"[WebUI-фоновые задачи] Задача {task} уже находится в списке")
             return
-        logger.info(f"添加任务 {task}")
+        logger.info(f"Добавлена фоновая задача {task}")
         with self._lock:
             self.tasks.append(task)
         if pending_delete:
@@ -176,10 +221,10 @@ class TaskHandler:
     def _remove_task(self, task: Task) -> None:
         if task in self.tasks:
             self.tasks.remove(task)
-            logger.info(f"[WebUI-工具] 任务 {task} 已移除")
+            logger.info(f"[WebUI-фоновые задачи] Задача {task} удалена")
         else:
             logger.warning(
-                f"[WebUI-工具] 移除任务 {task} 失败。当前任务列表: {self.tasks}"
+                f"[WebUI-фоновые задачи] Не удалось удалить задачу {task}. Текущий список: {self.tasks}"
             )
 
     def remove_task(self, task: Task, nowait: bool = False) -> None:
@@ -235,7 +280,7 @@ class TaskHandler:
                         task.send(self)
                         # logger.debug(f'End task {task.g.__name__}')
                     except SessionClosedException:
-                        logger.debug(f"WebIO 会话已关闭，停止任务 {task.name}")
+                        logger.debug(f"Сеанс WebIO закрыт; задача {task.name} останавливается")
                         self.remove_task(task, nowait=True)
                     except Exception as e:
                         logger.exception(e)
@@ -251,7 +296,7 @@ class TaskHandler:
                     time.sleep(0.05)
             else:
                 time.sleep(0.5)
-        logger.info("任务处理循环结束")
+        logger.info("Цикл обработки фоновых задач завершён")
 
     def _get_thread(self) -> threading.Thread:
         thread = threading.Thread(target=self.loop, daemon=True)
@@ -261,9 +306,9 @@ class TaskHandler:
         """
         启动任务处理器。
         """
-        logger.info("启动任务处理")
+        logger.info("Обработка фоновых задач запущена")
         if self._thread is not None and self._thread.is_alive():
-            logger.warning("[WebUI-工具] 任务处理器已在运行！")
+            logger.warning("[WebUI-фоновые задачи] Обработчик уже запущен")
             return
         self._thread = self._get_thread()
         self._thread.start()
@@ -273,18 +318,18 @@ class TaskHandler:
         self.remove_pending_task()
         self._alive = False
         if self._thread is None:
-            logger.info("[WebUI] 任务处理器未启动，跳过停止")
+            logger.info("[WebUI] Обработчик фоновых задач не запущен; остановка пропущена")
             return True
         if threading.current_thread() is not self._thread:
             self._thread.join(timeout=2)
             if not self._thread.is_alive():
-                logger.info("完成任务处理")
+                logger.info("Обработка фоновых задач завершена")
                 return True
             else:
-                logger.warning("[WebUI] 任务处理器未在 2 秒内停止")
+                logger.warning("[WebUI] Обработчик фоновых задач не остановился за 2 секунды")
                 return False
         else:
-            logger.info("[WebUI] 任务处理器在其自身线程内调用了停止，跳过 join")
+            logger.info("[WebUI] Обработчик фоновых задач вызвал остановку из собственного потока; join пропущен")
             return True
 
 
@@ -750,31 +795,22 @@ def get_next_time(t: datetime.time):
 
 
 def on_task_exception(self):
-    logger.exception("[WebUI-工具] 应用发生内部错误")
+    logger.exception("[WebUI] В приложении произошла внутренняя ошибка")
     toast_msg = "В приложении произошла внутренняя ошибка"
 
-    e_type, e_value, e_tb = sys.exc_info()
-    lines = traceback.format_exception(e_type, e_value, e_tb)
-    traceback_msg = "".join(lines)
-
-    traceback_console = Console(
-        color_system="truecolor", tab_size=2, record=True, width=90
-    )
-    with traceback_console.capture():  # prevent logging to stdout again
-        traceback_console.print_exception(
-            word_wrap=True, extra_lines=1, show_locals=True
-        )
-
-    if State.theme in ("dark", "dark_advanced_material"):
-        theme = DARK_TERMINAL_THEME
-    else:
-        theme = LIGHT_TERMINAL_THEME
-
-    html = traceback_console.export_html(
-        theme=theme, code_format=TRACEBACK_CODE_FORMAT, inline_styles=True
+    exc_info = sys.exc_info()
+    lines = traceback.format_exception(*exc_info)
+    traceback_msg = sanitize_traceback_text("".join(lines))
+    traceback_html = render_webui_traceback(
+        exc_info,
+        dark_theme=State.theme in ("dark", "dark_advanced_material"),
     )
     try:
-        popup(title=toast_msg, content=put_html(html), size=PopupSize.LARGE)
+        popup(
+            title=toast_msg,
+            content=put_html(traceback_html),
+            size=PopupSize.LARGE,
+        )
         run_js(
             "console.error(traceback_msg)",
             traceback_msg="Internal Server Error\n" + traceback_msg,
@@ -785,16 +821,6 @@ def on_task_exception(self):
 
 # 猴子补丁：替换 PyWebIO 默认的异常处理器
 pywebio.session.base.Session.on_task_exception = on_task_exception
-
-
-def raise_exception(x=3):
-    """
-    用于测试目的的异常抛出函数。
-    """
-    if x > 0:
-        raise_exception(x - 1)
-    else:
-        raise Exception("quq")
 
 
 def get_alas_config_listen_path(args):
