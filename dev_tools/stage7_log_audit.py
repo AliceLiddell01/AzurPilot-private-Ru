@@ -17,7 +17,6 @@ from dev_tools.russianization_audit import (
     compact_json_bytes,
     json_bytes,
     language_guess,
-    technical_only,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +60,7 @@ LOGGER_DEVELOPER_MESSAGES = {
     "True, False, None",
     "Exception",
     "E:/path\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",
+    r"E:/path\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",
 }
 CONFIG_STAGE8_MARKERS = (
     "待处理任务",
@@ -77,6 +77,17 @@ CONFIG_STAGE8_MARKERS = (
 )
 ALLOWED_INSERTIONS = {
     "Для отображения traceback требуется активное исключение",
+}
+TECHNICAL_IDENTIFIERS = {
+    "SSL",
+    "PID",
+    "IPv4",
+    "IPv6",
+    "Electron",
+    "WebUI",
+    "uv",
+    "taskkill",
+    "psutil",
 }
 
 
@@ -196,6 +207,18 @@ def _machine(text: str) -> bool:
     )
 
 
+def _technical_identifier(text: str) -> bool:
+    value = text.strip().strip("'\"")
+    if value in TECHNICAL_IDENTIFIERS:
+        return True
+    return bool(
+        re.fullmatch(
+            r"(?:[A-Z][A-Z0-9_]{1,31}|--?[a-z0-9-]+|[a-zA-Z_][A-Za-z0-9_.]*\.(?:py|json|yaml|yml|exe|dll))",
+            value,
+        )
+    )
+
+
 def _classify(row: dict[str, Any], owner: str) -> tuple[str, bool, str]:
     text = str(row["message_or_template"])
     if owner == "test":
@@ -217,12 +240,22 @@ def _classify(row: dict[str, Any], owner: str) -> tuple[str, bool, str]:
         )
     if row["first_party_or_external"] == "external_raw" or _machine(text):
         return "raw_external_payload", False, "Машинное значение сохраняется без перевода."
-    if technical_only(text) or language_guess(text) == "neutral":
-        return "technical_identifier", False, "Точечный технический идентификатор."
+    if CJK_RE.search(text):
+        return (
+            "stage7_first_party_message",
+            True,
+            "First-party CJK-сообщение требует русификации; технические токены внутри не освобождают всё предложение.",
+        )
     if CYRILLIC_RE.search(text):
         return "stage7_first_party_message", False, "First-party контекст на русском языке."
-    if CJK_RE.search(text) or LATIN_RE.search(text):
-        return "stage7_first_party_message", True, "First-party сообщение требует русификации."
+    if _technical_identifier(text) or language_guess(text) == "neutral":
+        return "technical_identifier", False, "Точный технический идентификатор или нейтральный структурный фрагмент."
+    if LATIN_RE.search(text):
+        return (
+            "stage7_first_party_message",
+            True,
+            "Обычное английское first-party сообщение требует русификации.",
+        )
     return "unknown", True, "Классификация не доказана."
 
 

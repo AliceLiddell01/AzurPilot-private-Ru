@@ -7,7 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dev_tools.stage7_gui_stable_policy import apply_gui_stable_policy
+from dev_tools.russianization_audit import json_bytes
+from dev_tools.stage7_gui_contract import GUI_BLOCKING_METRICS, build_gui_contract
 from dev_tools.stage7_log_audit import (
     BLOCKING_METRICS,
     DEFAULT_OUTPUT_DIR,
@@ -56,21 +57,39 @@ def main(argv: list[str] | None = None) -> int:
     outputs["semantic-findings.json"] = (
         json.dumps(findings, ensure_ascii=False, indent=2) + "\n"
     ).encode("utf-8")
-    outputs, metrics, gui_policy_errors = apply_gui_stable_policy(outputs, metrics)
     metrics, delta_policy_errors = apply_semantic_delta_policy(metrics, findings)
     outputs, metrics, semantic_policy_errors = apply_stage7_policy(outputs, metrics)
-    _write_outputs(args.output_dir, outputs)
+    gui_outputs, gui_metrics, gui_contract_errors = build_gui_contract(
+        ROOT, audit.base_sha
+    )
+    outputs.update(gui_outputs)
+    metrics.update(gui_metrics)
 
     failures = [
-        *gui_policy_errors,
         *delta_policy_errors,
         *semantic_policy_errors,
+        *gui_contract_errors,
     ]
     failures.extend(
         f"{key}: {metrics[key]}"
-        for key in BLOCKING_METRICS
+        for key in (*BLOCKING_METRICS, *GUI_BLOCKING_METRICS)
         if metrics[key]
     )
+    outputs["metrics.json"] = json_bytes(metrics)
+    final_status = "FAIL" if failures else "PASS"
+    report = outputs["report.md"].decode("utf-8")
+    report = report.replace(
+        "Статус: **PASS**", f"Статус: **{final_status}**", 1
+    ).replace(
+        "Статус: **FAIL**", f"Статус: **{final_status}**", 1
+    )
+    report += (
+        "\n## Контракт gui.py\n\n"
+        + "\n".join(f"- {key}: {value}" for key, value in gui_metrics.items())
+        + "\n"
+    )
+    outputs["report.md"] = report.encode("utf-8")
+    _write_outputs(args.output_dir, outputs)
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)

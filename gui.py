@@ -197,25 +197,25 @@ def func(
     State.webui_host = host
 
     # 记录启动器配置
-    logger.hr("Launcher config")
-    logger.attr("Host", host)
-    logger.attr("Port", port)
+    logger.hr("КОНФИГУРАЦИЯ ЗАПУСКА")
+    logger.attr("Адрес", host)
+    logger.attr("Порт", port)
     logger.attr("SSL", ssl)
     logger.attr("Electron", args.electron)
-    logger.attr("Reload", ev is not None)
+    logger.attr("Перезапуск", ev is not None)
 
     # Electron客户端特定处理
     if State.electron:
         # https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2051
-        logger.info("[GUI] 检测到 Electron，移除标准输出日志处理器")
+        logger.info("[GUI] Обнаружен Electron; обработчик вывода в stdout удалён")
         from module.logger import console_hdlr
         logger.removeHandler(console_hdlr)
 
     # 验证SSL配置
     if ssl_cert is None and ssl_key is not None:
-        logger.error("[GUI] 提供了SSL密钥但未提供证书。请同时提供SSL密钥和证书。")
+        logger.error("[GUI] Указан ключ SSL, но не указан сертификат. Укажите одновременно ключ и сертификат SSL.")
     elif ssl_key is None and ssl_cert is not None:
-        logger.error("[GUI] 提供了SSL证书但未提供密钥。请同时提供SSL密钥和证书。")
+        logger.error("[GUI] Указан сертификат SSL, но не указан ключ. Укажите одновременно ключ и сертификат SSL.")
 
     # 通配地址显式创建两个 socket，避免 Windows 将 IPv6 wildcard 作为仅 IPv6 监听。
     try:
@@ -242,11 +242,11 @@ def func(
             try:
                 if len(sockets) == 2:
                     logger.info(
-                        f"[GUI] WebUI 同时监听 IPv4 0.0.0.0:{port} 与 IPv6 [::]:{port}"
+                        f"[GUI] WebUI прослушивает IPv4 0.0.0.0:{port} и IPv6 [::]:{port}"
                     )
                 else:
                     logger.warning(
-                        f"[GUI] 系统未启用 IPv6，WebUI 仅监听 IPv4 0.0.0.0:{port}"
+                        f"[GUI] IPv6 недоступен в системе; WebUI прослушивает только IPv4 0.0.0.0:{port}"
                     )
                 _run_uvicorn_server(config, ready_event=ready_event, sockets=sockets)
             finally:
@@ -292,24 +292,24 @@ def _stop_process(process, timeout=5) -> bool:
             pass
         return True
 
-    logger.info(f"[GUI] 正在停止服务进程 (PID: {process.pid})...")
+    logger.info(f"[GUI] Остановка процесса службы (PID: {process.pid})...")
     try:
         process.terminate()
     except (OSError, ValueError, AssertionError) as exc:
-        logger.warning(f"[GUI] 无法终止服务进程 (PID: {process.pid}): {exc}")
+        logger.warning(f"[GUI] Не удалось завершить процесс службы (PID: {process.pid}): {exc}")
     process.join(timeout=timeout)
 
     if process.is_alive():
-        logger.warning(f"[GUI] 服务进程 (PID: {process.pid}) 超时未退出，强制终止...")
+        logger.warning(f"[GUI] Процесс службы (PID: {process.pid}) не завершился за отведённое время; выполняется принудительная остановка...")
         try:
             process.kill()
         except (OSError, ValueError, AssertionError) as exc:
-            logger.warning(f"[GUI] 无法强制终止服务进程 (PID: {process.pid}): {exc}")
+            logger.warning(f"[GUI] Не удалось принудительно завершить процесс службы (PID: {process.pid}): {exc}")
         process.join(timeout=3)
 
     stopped = not process.is_alive()
     if not stopped:
-        logger.error(f"[GUI] 服务进程 (PID: {process.pid}) 仍在运行，取消重启以避免端口冲突")
+        logger.error(f"[GUI] Процесс службы (PID: {process.pid}) всё ещё выполняется; перезапуск отменён во избежание конфликта порта")
     return stopped
 
 
@@ -342,7 +342,7 @@ def _stop_process_tree(process, name: str) -> bool:
         return True
 
     pid = process.pid
-    logger.warning(f"[GUI] 强制终止{name}进程树 (PID: {pid})...")
+    logger.warning(f"[GUI] Принудительное завершение дерева процессов «{name}» (PID: {pid})...")
     tree_terminated = True
     child_processes = []
     psutil_module = None
@@ -358,13 +358,13 @@ def _stop_process_tree(process, name: str) -> bool:
             )
             tree_terminated = result.returncode == 0
             if not tree_terminated and process.is_alive():
-                logger.warning(f"[GUI] taskkill 未能终止{name} (PID: {pid})")
+                logger.warning(f"[GUI] taskkill не завершил процесс «{name}» (PID: {pid})")
                 try:
                     process.kill()
                 except (OSError, ValueError, AssertionError) as exc:
-                    logger.warning(f"[GUI] 无法强制终止{name} (PID: {pid}): {exc}")
+                    logger.warning(f"[GUI] Не удалось принудительно завершить процесс «{name}» (PID: {pid}): {exc}")
         except (OSError, subprocess.TimeoutExpired) as exc:
-            logger.warning(f"[GUI] 终止{name}进程树失败: {exc}")
+            logger.warning(f"[GUI] Не удалось завершить дерево процессов «{name}»: {exc}")
             tree_terminated = False
     else:
         try:
@@ -379,18 +379,18 @@ def _stop_process_tree(process, name: str) -> bool:
                 except psutil.NoSuchProcess:
                     pass
         except ImportError:
-            logger.warning(f"[GUI] 缺少 psutil，无法确认{name}子进程是否已结束")
+            logger.warning(f"[GUI] psutil недоступен; невозможно подтвердить завершение дочерних процессов «{name}»")
             tree_terminated = False
         except psutil.NoSuchProcess:
             # 根进程可能在 is_alive() 检查后自然退出；此时与前置已退出分支等价。
-            logger.info(f"[GUI] {name}根进程已在枚举子进程前退出 (PID: {pid})")
+            logger.info(f"[GUI] Корневой процесс «{name}» завершился до перечисления дочерних процессов (PID: {pid})")
         except Exception as exc:
-            logger.warning(f"[GUI] 枚举{name}子进程失败: {exc}")
+            logger.warning(f"[GUI] Не удалось перечислить дочерние процессы «{name}»: {exc}")
             tree_terminated = False
         try:
             process.kill()
         except (OSError, ValueError, AssertionError) as exc:
-            logger.warning(f"[GUI] 无法强制终止{name} (PID: {pid}): {exc}")
+            logger.warning(f"[GUI] Не удалось принудительно завершить процесс «{name}» (PID: {pid}): {exc}")
             tree_terminated = False
 
     process.join(timeout=3)
@@ -399,23 +399,23 @@ def _stop_process_tree(process, name: str) -> bool:
         try:
             _, alive_children = psutil_module.wait_procs(child_processes, timeout=3)
         except Exception as exc:
-            logger.warning(f"[GUI] 等待{name}子进程退出失败: {exc}")
+            logger.warning(f"[GUI] Не удалось дождаться завершения дочерних процессов «{name}»: {exc}")
             tree_terminated = False
         else:
             if alive_children:
                 child_pids = ", ".join(
-                    str(getattr(child, "pid", "未知")) for child in alive_children
+                    str(getattr(child, "pid", "неизвестно")) for child in alive_children
                 )
-                logger.error(f"[GUI] {name}子进程仍在运行 (PID: {child_pids})")
+                logger.error(f"[GUI] Дочерние процессы «{name}» всё ещё выполняются (PID: {child_pids})")
                 tree_terminated = False
     if os.name == "nt" and stopped and not tree_terminated:
         # taskkill 可能与子进程自然退出交错；根进程已确认退出时不应阻断重启。
         logger.warning(
-            f"[GUI] taskkill 未返回成功，但{name}根进程已退出 (PID: {pid})"
+            f"[GUI] taskkill не сообщил об успешном завершении, но корневой процесс «{name}» уже остановлен (PID: {pid})"
         )
         tree_terminated = True
     if not stopped or not tree_terminated:
-        logger.error(f"[GUI] {name}进程树仍在运行 (PID: {pid})")
+        logger.error(f"[GUI] Дерево процессов «{name}» всё ещё выполняется (PID: {pid})")
     return stopped and tree_terminated
 
 
@@ -431,18 +431,18 @@ def _wait_for_registered_worker_exit(
         try:
             matches = worker_registry.process_matches(record)
         except RuntimeError as exc:
-            logger.error(f"[GUI] 无法确认 worker {name} (PID: {pid}) 已退出: {exc}")
+            logger.error(f"[GUI] Не удалось подтвердить завершение worker «{name}» (PID: {pid}): {exc}")
             return False
         if matches is None:
             return True
         if not matches:
             logger.error(
-                f"[GUI] worker PID 已复用，拒绝终止未知进程: {name} (PID: {pid})"
+                f"[GUI] PID worker был повторно использован; завершение неизвестного процесса отклонено: {name} (PID: {pid})"
             )
             return False
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            logger.error(f"[GUI] worker {name} (PID: {pid}) 终止超时")
+            logger.error(f"[GUI] Превышено время ожидания завершения worker «{name}» (PID: {pid})")
             return False
         time.sleep(min(0.1, remaining))
 
@@ -452,13 +452,13 @@ def _stop_registered_worker(pid: int, name: str, record: dict) -> bool:
     try:
         matches = worker_registry.process_matches(record)
     except RuntimeError as exc:
-        logger.error(f"[GUI] 无法确认 worker {name} (PID: {pid}) 身份: {exc}")
+        logger.error(f"[GUI] Не удалось подтвердить идентичность worker «{name}» (PID: {pid}): {exc}")
         return False
     if matches is None:
         return True
     if not matches:
         logger.error(
-            f"[GUI] worker PID 已复用，拒绝终止未知进程: {name} (PID: {pid})"
+            f"[GUI] PID worker был повторно использован; завершение неизвестного процесса отклонено: {name} (PID: {pid})"
         )
         return False
 
@@ -473,17 +473,17 @@ def _stop_registered_worker(pid: int, name: str, record: dict) -> bool:
                 timeout=5,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            logger.warning(f"[GUI] 终止 worker {name} (PID: {pid}) 失败: {exc}")
+            logger.warning(f"[GUI] Не удалось завершить worker «{name}» (PID: {pid}): {exc}")
             return False
         if result.returncode != 0:
             logger.warning(
-                f"[GUI] taskkill 终止 worker {name} (PID: {pid}) 返回 {result.returncode}"
+                f"[GUI] taskkill при завершении worker «{name}» (PID: {pid}) вернул код {result.returncode}"
             )
     else:
         try:
             import psutil
         except ImportError:
-            logger.warning(f"[GUI] 缺少 psutil，无法终止 worker {name} (PID: {pid})")
+            logger.warning(f"[GUI] psutil недоступен; невозможно завершить worker «{name}» (PID: {pid})")
             return False
 
         try:
@@ -507,12 +507,12 @@ def _stop_registered_worker(pid: int, name: str, record: dict) -> bool:
                     break
                 time.sleep(0.05)
             if alive:
-                logger.error(f"[GUI] worker {name} (PID: {pid}) 仍在运行")
+                logger.error(f"[GUI] worker «{name}» (PID: {pid}) всё ещё выполняется")
                 return False
         except psutil.NoSuchProcess:
             return True
         except Exception as exc:
-            logger.warning(f"[GUI] 终止 worker {name} (PID: {pid}) 失败: {exc}")
+            logger.warning(f"[GUI] Не удалось завершить worker «{name}» (PID: {pid}): {exc}")
             return False
 
     return _wait_for_registered_worker_exit(pid, name, record)
@@ -528,7 +528,7 @@ def _stop_registered_workers(
     try:
         workers = worker_registry.get_workers(owner_pid)
     except RuntimeError as exc:
-        logger.error(f"[GUI] 无法读取 WebUI worker 登记: {exc}")
+        logger.error(f"[GUI] Не удалось прочитать реестр worker WebUI: {exc}")
         return False
 
     stopped = True
@@ -537,7 +537,7 @@ def _stop_registered_workers(
             pid = int(record["pid"])
             matches = worker_registry.process_matches(record)
         except (KeyError, TypeError, ValueError, RuntimeError) as exc:
-            logger.error(f"[GUI] worker 登记无效 ({name}): {exc}")
+            logger.error(f"[GUI] Недопустимая запись worker ({name}): {exc}")
             stopped = False
             continue
         if matches is None:
@@ -545,11 +545,11 @@ def _stop_registered_workers(
         if not matches:
             if discard_reused:
                 logger.warning(
-                    f"[GUI] worker PID 已复用，丢弃旧 owner 的陈旧登记: {name} (PID: {pid})"
+                    f"[GUI] PID worker был повторно использован; устаревшая запись прежнего владельца отброшена: {name} (PID: {pid})"
                 )
             else:
                 logger.error(
-                    f"[GUI] worker PID 已复用，拒绝终止未知进程: {name} (PID: {pid})"
+                    f"[GUI] PID worker был повторно использован; завершение неизвестного процесса отклонено: {name} (PID: {pid})"
                 )
                 stopped = False
             continue
@@ -559,7 +559,7 @@ def _stop_registered_workers(
         try:
             worker_registry.clear_owner(owner_pid)
         except RuntimeError as exc:
-            logger.error(f"[GUI] 无法清除 WebUI worker 登记: {exc}")
+            logger.error(f"[GUI] Не удалось очистить реестр worker WebUI: {exc}")
             return False
     return stopped
 
@@ -581,7 +581,7 @@ def _recover_orphaned_workers() -> bool:
     try:
         owner_record = worker_registry.get_owner_record()
     except RuntimeError as exc:
-        logger.error(f"[GUI] 无法读取旧 WebUI worker 登记: {exc}")
+        logger.error(f"[GUI] Не удалось прочитать прежний реестр worker WebUI: {exc}")
         return False
     if owner_record is None:
         return True
@@ -593,31 +593,31 @@ def _recover_orphaned_workers() -> bool:
         # 兼容旧登记文件：没有创建时间时，只有确认 PID 已消失才能安全回收。
         if not _pid_exists(owner_pid):
             logger.warning(
-                f"[GUI] 旧 WebUI 所有者登记缺少身份信息，回收已退出实例 (PID: {owner_pid})"
+                f"[GUI] В записи прежнего владельца WebUI отсутствуют данные идентификации; выполняется очистка завершённого экземпляра (PID: {owner_pid})"
             )
             return _stop_registered_workers(owner_pid, discard_reused=True)
         logger.error(
-            f"[GUI] 无法验证旧 WebUI 所有者 (PID: {owner_pid}): {exc}，拒绝启动第二个 WebUI"
+            f"[GUI] Не удалось проверить прежнего владельца WebUI (PID: {owner_pid}): {exc}; запуск второго WebUI отклонён"
         )
         return False
 
     if owner_matches is True:
         logger.error(
-            f"[GUI] 检测到仍在运行的 WebUI 所有者 (PID: {owner_pid})，拒绝启动第二个 WebUI"
+            f"[GUI] Обнаружен работающий владелец WebUI (PID: {owner_pid}); запуск второго WebUI отклонён"
         )
         return False
     if owner_matches is False:
         logger.warning(
-            f"[GUI] 旧 WebUI 所有者 PID 已复用，回收其登记的 worker (PID: {owner_pid})"
+            f"[GUI] PID прежнего владельца WebUI был повторно использован; выполняется очистка зарегистрированных worker (PID: {owner_pid})"
         )
     else:
-        logger.warning(f"[GUI] 回收上次异常退出 WebUI 的 worker (PID: {owner_pid})")
+        logger.warning(f"[GUI] Очистка worker после аварийного завершения предыдущего WebUI (PID: {owner_pid})")
     return _stop_registered_workers(owner_pid, discard_reused=True)
 
 
 def _stop_dependency_sync_service_tree(process) -> bool:
     """终止卡住的依赖同步服务及其 uv 子进程。"""
-    return _stop_process_tree(process, "依赖同步服务")
+    return _stop_process_tree(process, "служба синхронизации зависимостей")
 
 
 def _stop_webui_process_tree(process) -> bool:
@@ -642,7 +642,7 @@ def _start_dependency_sync_service():
         name="dependency-sync",
     )
     process.start()
-    logger.info(f"[GUI] 依赖同步服务已启动 (PID: {process.pid})")
+    logger.info(f"[GUI] Служба синхронизации зависимостей запущена (PID: {process.pid})")
     return process, request_queue, response_queue
 
 
@@ -661,8 +661,7 @@ def _start_dependency_sync_service_with_retry():
             )
             if attempt < DEPENDENCY_SYNC_START_RETRY_LIMIT:
                 logger.warning(
-                    f"[GUI] 依赖同步服务启动失败，将在 {attempt} 秒后重试 "
-                    f"({attempt}/{DEPENDENCY_SYNC_START_RETRY_LIMIT})"
+                    f"[GUI] Не удалось запустить службу синхронизации зависимостей; повтор через {attempt} с ({attempt}/{DEPENDENCY_SYNC_START_RETRY_LIMIT})"
                 )
                 time.sleep(attempt)
     return None
@@ -683,7 +682,7 @@ def _stop_dependency_sync_service(process, request_queue) -> bool:
         request_queue.put("shutdown")
         process.join(timeout=5)
     except Exception as exc:
-        logger.warning(f"[GUI] 停止依赖同步服务失败: {exc}")
+        logger.warning(f"[GUI] Не удалось остановить службу синхронизации зависимостей: {exc}")
 
     if process.is_alive():
         return _stop_dependency_sync_service_tree(process)
@@ -697,43 +696,43 @@ def _sync_dependencies(
     timeout=DEPENDENCY_SYNC_RESPONSE_TIMEOUT,
 ) -> bool:
     """向独立服务请求同步，并将完整 uv 输出写入 GUI 日志。"""
-    logger.hr("Update Dependencies", 0)
+    logger.hr("ОБНОВЛЕНИЕ ЗАВИСИМОСТЕЙ", 0)
     if not process or not process.is_alive():
-        logger.critical("Dependency sync service is not running")
+        logger.critical("Служба синхронизации зависимостей не запущена")
         return False
 
     try:
         request_queue.put("sync")
     except (OSError, EOFError, ValueError, queue.Full) as exc:
-        logger.critical(f"依赖同步请求发送失败，WebUI 不会重启: {exc}")
+        logger.critical(f"Не удалось отправить запрос синхронизации зависимостей; WebUI не будет перезапущена: {exc}")
         return False
     deadline = time.monotonic() + timeout
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            logger.critical(f"依赖同步在 {timeout} 秒后超时，WebUI 不会重启")
+            logger.critical(f"Синхронизация зависимостей не завершилась за {timeout} с; WebUI не будет перезапущена")
             return False
         try:
             result = response_queue.get(timeout=min(1, remaining))
         except queue.Empty:
             if not process.is_alive():
-                logger.critical("Dependency sync service exited unexpectedly")
+                logger.critical("Служба синхронизации зависимостей неожиданно завершилась")
                 return False
             continue
         except (OSError, EOFError, ValueError) as exc:
-            logger.critical(f"依赖同步服务通信失败，WebUI 不会重启: {exc}")
+            logger.critical(f"Ошибка связи со службой синхронизации зависимостей; WebUI не будет перезапущена: {exc}")
             return False
 
         command = result.get("command") or []
         if command:
-            logger.info(f"Execute: {redact_sensitive_text(command)}")
+            logger.info(f"Команда: {redact_sensitive_text(command)}")
         log_command_output(logger, result.get("output", ""))
         if result.get("success"):
-            logger.info("Dependency sync success")
+            logger.info("Синхронизация зависимостей завершена успешно")
             return True
 
-        error = redact_sensitive_text(result.get("error", "unknown error"))
-        logger.critical(f"uv sync failed: {error}")
+        error = redact_sensitive_text(result.get("error", "неизвестная ошибка"))
+        logger.critical(f"Команда uv sync завершилась с ошибкой: {error}")
         return False
 
 
@@ -748,14 +747,14 @@ def _complete_pending_dependency_sync(
     try:
         pending = is_dependency_sync_pending()
     except OSError as exc:
-        logger.critical(f"无法读取依赖同步待处理状态，WebUI 不会启动: {exc}")
+        logger.critical(f"Не удалось прочитать состояние ожидающей синхронизации зависимостей; WebUI не будет запущена: {exc}")
         return False
 
     if not pending and not force:
         return True
 
     if pending:
-        logger.warning("检测到未完成的依赖同步，将在启动 WebUI 前恢复")
+        logger.warning("Обнаружена незавершённая синхронизация зависимостей; она будет продолжена до запуска WebUI")
     if not _sync_dependencies(process, request_queue, response_queue):
         return False
 
@@ -763,7 +762,7 @@ def _complete_pending_dependency_sync(
         try:
             clear_dependency_sync_pending()
         except OSError as exc:
-            logger.critical(f"无法清除依赖同步待处理状态，WebUI 不会启动: {exc}")
+            logger.critical(f"Не удалось очистить состояние ожидающей синхронизации зависимостей; WebUI не будет запущена: {exc}")
             return False
     return True
 
@@ -780,10 +779,10 @@ def _prepare_dependency_sync_before_webui_start(
         pending = is_dependency_sync_pending()
     except OSError as exc:
         logger.error_context(
-            title='无法读取启动前依赖同步状态',
+            title="Не удалось прочитать состояние синхронизации зависимостей перед запуском",
             exc=exc,
-            impact='无法确认 Python 环境是否与已更新代码匹配，WebUI 不会启动。',
-            action='检查 config 目录读写权限后重新启动。',
+            impact="Невозможно подтвердить соответствие окружения Python обновлённому коду; WebUI не будет запущена.",
+            action="Проверьте права чтения и записи каталога config, затем перезапустите приложение.",
             level=50,
         )
         return False, service, request_queue, response_queue
@@ -796,10 +795,10 @@ def _prepare_dependency_sync_before_webui_start(
         # 更新后必须使用新源码创建同步服务，不能复用旧环境中的服务进程。
         if not _stop_dependency_sync_service(service, request_queue):
             logger.error_context(
-                title='依赖同步服务未能停止',
-                reason='旧依赖同步服务或其 uv 子进程仍在运行。',
-                impact='继续同步可能并发修改 Python 环境，WebUI 不会启动。',
-                action='结束残留 dependency-sync/uv 进程后重新启动。',
+                title="Не удалось остановить службу синхронизации зависимостей",
+                reason="Прежняя служба синхронизации зависимостей или её дочерний процесс uv всё ещё выполняется.",
+                impact="Продолжение синхронизации может привести к одновременному изменению окружения Python; WebUI не будет запущена.",
+                action="Завершите оставшиеся процессы dependency-sync и uv, затем перезапустите приложение.",
                 level=50,
             )
             return False, service, request_queue, response_queue
@@ -810,10 +809,10 @@ def _prepare_dependency_sync_before_webui_start(
     service_data = _start_dependency_sync_service_with_retry()
     if service_data is None:
         logger.error_context(
-            title='依赖同步服务无法启动',
-            reason='连续多次创建依赖同步子进程失败。',
-            impact='当前环境需要同步，WebUI 未启动以避免运行在不匹配的依赖中。',
-            action='检查系统进程权限和 Python 环境后重新启动。',
+            title="Не удалось запустить службу синхронизации зависимостей",
+            reason="Несколько последовательных попыток создать дочерний процесс синхронизации зависимостей завершились ошибкой.",
+            impact="Окружение необходимо синхронизировать; WebUI не запущена во избежание работы с несовместимыми зависимостями.",
+            action="Проверьте права управления системными процессами и окружение Python, затем перезапустите приложение.",
             level=50,
         )
         return False, None, None, None
@@ -826,10 +825,10 @@ def _prepare_dependency_sync_before_webui_start(
         force=sync_required,
     ):
         logger.error_context(
-            title='创建 WebUI 前依赖同步失败',
-            reason='检测到更新或待处理的依赖同步状态，但同步未能完成。',
-            impact='为避免以不匹配的 Python 环境启动 WebUI，父进程将退出。',
-            action='检查 uv sync 输出、磁盘权限和 Python 环境后重新启动。',
+            title="Синхронизация зависимостей перед созданием WebUI завершилась ошибкой",
+            reason="Обнаружено обновление или ожидающее состояние синхронизации, но синхронизация не завершилась.",
+            impact="Во избежание запуска WebUI в несовместимом окружении Python родительский процесс завершится.",
+            action="Проверьте вывод uv sync, права доступа к диску и окружение Python, затем перезапустите приложение.",
             level=50,
         )
         return False, service, request_queue, response_queue
@@ -892,12 +891,12 @@ def run_webui_supervisor() -> None:
                 else:
                     time.sleep(startup_failures)
                 continue
-            logger.info(f"[GUI] 启动AzurPilot Web服务 (PID: {process.pid})")
+            logger.info(f"[GUI] Запуск службы WebUI AzurPilot (PID: {process.pid})")
 
             try:
                 ready = _wait_for_webui_ready(process, ready_event)
             except KeyboardInterrupt:
-                logger.info("[GUI] 收到KeyboardInterrupt，退出中...")
+                logger.info("[GUI] Получен KeyboardInterrupt; выполняется завершение...")
                 should_exit = True
                 _stop_webui_process_tree(process)
                 break
@@ -907,40 +906,39 @@ def run_webui_supervisor() -> None:
                 startup_failures += 1
                 if not stopped:
                     logger.error_context(
-                        title='WebUI 子进程启动失败且无法停止',
-                        reason='子进程未在就绪期限内监听，且终止后仍存活。',
-                        impact='继续启动新 WebUI 会产生端口冲突。',
-                        action='手动结束残留 gui.py 子进程后重新启动。',
+                        title="Дочерний процесс WebUI не запустился и не был завершён",
+                        reason="Дочерний процесс не начал прослушивание за отведённое время и остался активен после попытки завершения.",
+                        impact="Запуск нового WebUI приведёт к конфликту порта.",
+                        action="Завершите оставшийся дочерний процесс gui.py, затем перезапустите приложение.",
                         level=50,
                     )
                     should_exit = True
                 elif startup_failures >= WEBUI_START_RETRY_LIMIT:
                     logger.error_context(
-                        title='WebUI 子进程未能完成启动',
-                        reason=f'连续 {startup_failures} 次未在 {WEBUI_READY_TIMEOUT} 秒内完成监听。',
-                        impact='WebUI 未启动，父进程将退出。',
-                        action='检查端口占用、WebUI 日志和 Python 环境后重新启动。',
+                        title="Дочерний процесс WebUI не завершил запуск",
+                        reason=f"После {startup_failures} последовательных попыток прослушивание не началось за {WEBUI_READY_TIMEOUT} с.",
+                        impact="WebUI не запущена; родительский процесс завершится.",
+                        action="Проверьте занятость порта, журналы WebUI и окружение Python, затем перезапустите приложение.",
                         level=50,
                     )
                     should_exit = True
                 else:
                     logger.warning(
-                        f"[GUI] WebUI 未就绪，将在 {startup_failures} 秒后重试 "
-                        f"({startup_failures}/{WEBUI_START_RETRY_LIMIT})"
+                        f"[GUI] WebUI не готова; повтор через {startup_failures} с ({startup_failures}/{WEBUI_START_RETRY_LIMIT})"
                     )
                     time.sleep(startup_failures)
                 continue
 
             startup_failures = 0
             ready_at = time.monotonic()
-            logger.info(f"[GUI] WebUI 服务已就绪 (PID: {process.pid})")
+            logger.info(f"[GUI] Служба WebUI готова (PID: {process.pid})")
 
             while not should_exit:
                 try:
                     # 等待重启事件，超时1秒
                     restart_triggered = event.wait(1)
                 except KeyboardInterrupt:
-                    logger.info("[GUI] 收到KeyboardInterrupt，退出中...")
+                    logger.info("[GUI] Получен KeyboardInterrupt; выполняется завершение...")
                     should_exit = True
                     break
                 except Exception as e:
@@ -955,13 +953,13 @@ def run_webui_supervisor() -> None:
                     break
 
                 if restart_triggered:
-                    logger.info("[GUI] 重启事件触发，终止当前服务...")
+                    logger.info("[GUI] Получено событие перезапуска; текущая служба завершается...")
                     if not _stop_webui_process_tree(process):
                         logger.error_context(
-                            title='WebUI 子进程未能停止',
-                            reason='已发送 terminate 和 kill，但旧 WebUI 子进程仍然存活。',
-                            impact='继续拉起新 WebUI 会与旧进程争抢监听端口。',
-                            action='检查系统进程权限，手动结束残留的 gui.py 子进程后重新启动。',
+                            title="Не удалось остановить дочерний процесс WebUI",
+                            reason="Команды terminate и kill отправлены, но прежний дочерний процесс WebUI всё ещё активен.",
+                            impact="Запуск нового WebUI приведёт к конкуренции за порт прослушивания.",
+                            action="Проверьте права управления процессами, завершите оставшийся процесс gui.py и перезапустите приложение.",
                             level=50,
                         )
                         should_exit = True
@@ -970,16 +968,16 @@ def run_webui_supervisor() -> None:
                         force_dependency_sync = dependency_sync_event.is_set()
                     except OSError as exc:
                         logger.error_context(
-                            title='无法读取依赖同步状态',
+                            title="Не удалось прочитать состояние синхронизации зависимостей",
                             exc=exc,
-                            impact='无法确认更新后的环境是否已同步，WebUI 不会重启。',
-                            action='检查 config 目录读写权限后重新启动。',
+                            impact="Невозможно подтвердить синхронизацию обновлённого окружения; WebUI не будет перезапущена.",
+                            action="Проверьте права чтения и записи каталога config, затем перезапустите приложение.",
                             level=50,
                         )
                         should_exit = True
                         break
                     if force_dependency_sync:
-                        logger.info("[GUI] 检测到更新请求，创建替代 WebUI 前将同步依赖")
+                        logger.info("[GUI] Обнаружен запрос обновления; зависимости будут синхронизированы до создания замещающего WebUI")
                     break
                 elif not process.is_alive():
                     if time.monotonic() - ready_at >= WEBUI_STABLE_RUNTIME:
@@ -987,20 +985,18 @@ def run_webui_supervisor() -> None:
                     runtime_failures += 1
                     if runtime_failures >= WEBUI_RUNTIME_RETRY_LIMIT:
                         logger.error_context(
-                            title='AzurPilot Web 服务反复意外退出',
+                            title="Служба WebUI AzurPilot неоднократно аварийно завершается",
                             reason=(
-                                f'已连续 {runtime_failures} 次在稳定运行前退出，'
-                                '且没有收到正常重启事件。'
+                                f"Служба завершилась {runtime_failures} раз до достижения стабильного времени работы без штатного события перезапуска."
                             ),
-                            impact='WebUI 不再提供服务，父进程将退出以避免无限崩溃循环。',
-                            action='查看对应的 GUI 日志和子进程错误现场后重新启动。',
+                            impact="WebUI больше не обслуживается; родительский процесс завершится во избежание бесконечного цикла сбоев.",
+                            action="Изучите журнал GUI и ошибку дочернего процесса, затем перезапустите приложение.",
                             level=50,
                         )
                         should_exit = True
                     else:
                         logger.warning(
-                            f"[GUI] WebUI 意外退出，将在 {runtime_failures} 秒后重试 "
-                            f"({runtime_failures}/{WEBUI_RUNTIME_RETRY_LIMIT})"
+                            f"[GUI] WebUI неожиданно завершилась; повтор через {runtime_failures} с ({runtime_failures}/{WEBUI_RUNTIME_RETRY_LIMIT})"
                         )
                         time.sleep(runtime_failures)
                     break
@@ -1009,17 +1005,17 @@ def run_webui_supervisor() -> None:
             if not _stop_webui_process_tree(process):
                 if not should_exit:
                     logger.error_context(
-                        title='WebUI 子进程清理失败',
-                        reason='子进程已退出或需要重启，但关联 worker 未能确认回收。',
-                        impact='继续启动新 WebUI 可能保留重复的设备控制任务。',
-                        action='检查残留 gui.py/worker 进程后重新启动。',
+                        title="Не удалось очистить дочерний процесс WebUI",
+                        reason="Дочерний процесс завершился или требует перезапуска, но связанные worker не удалось подтвердить как остановленные.",
+                        impact="Запуск нового WebUI может оставить дублирующиеся задачи управления устройствами.",
+                        action="Проверьте оставшиеся процессы gui.py и worker, затем перезапустите приложение.",
                         level=50,
                     )
                 should_exit = True
     finally:
         _stop_webui_process_tree(process)
         _stop_dependency_sync_service(service, service_request_queue)
-        logger.info("[GUI] AzurPilot Web服务已成功退出")
+        logger.info("[GUI] Служба WebUI AzurPilot успешно завершена")
 
 
 def _run_webui_without_reload() -> bool:
@@ -1038,7 +1034,7 @@ if __name__ == "__main__":
         if os.name == "posix" and sys.platform == "darwin":
             os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
     except RuntimeError:
-        logger.warning("[GUI] 无法设置spawn启动方式，可能使用fork（macOS上不推荐）")
+        logger.warning("[GUI] Не удалось установить метод запуска spawn; возможно использование fork, что не рекомендуется в macOS")
 
     if State.deploy_config.EnableReload:
         run_webui_supervisor()
