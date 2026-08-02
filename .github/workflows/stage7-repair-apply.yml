@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Apply fail-closed hardening
+      - name: Apply fail-closed Python hardening
         shell: bash
         run: |
           set -euo pipefail
@@ -240,43 +240,10 @@ jobs:
 
           '''
           replace_once('tests/test_stage7_log_audit.py', control_flow_test, hardening_tests)
-
-          replace_once(
-              '.github/workflows/lint.yml',
-              '''      - name: Run Stage 7 semantic verifier
-                  run: >-
-                    uv run python -m dev_tools.verify_stage7
-                    --base-ref origin/personal/stable
-                    --output-dir artifacts/stage7
-          ''',
-              '''      - name: Run Stage 7 semantic verifier
-                  env:
-                    STAGE7_BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/personal/stable' }}
-                  run: >-
-                    uv run python -m dev_tools.verify_stage7
-                    --base-ref "$STAGE7_BASE_REF"
-                    --output-dir artifacts/stage7
-          ''',
-          )
-
-          replace_once(
-              'tests/test_stage7_stable_contracts.py',
-              '''        self.assertIn("Run Stage 7 semantic verifier", workflow)
-                  self.assertNotIn("continue-on-error: true\\n        run: uv run python -m dev_tools.verify_stage7", workflow)
-          ''',
-              '''        self.assertIn("Run Stage 7 semantic verifier", workflow)
-                  self.assertIn(
-                      "STAGE7_BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/personal/stable' }}",
-                      workflow,
-                  )
-                  self.assertIn('--base-ref "$STAGE7_BASE_REF"', workflow)
-                  self.assertNotIn("continue-on-error: true\\n        run: uv run python -m dev_tools.verify_stage7", workflow)
-          ''',
-          )
           PY
 
       - name: Validate patched Python syntax
-        run: python -m py_compile dev_tools/stage7_gui_contract.py tests/test_stage7_log_audit.py tests/test_stage7_stable_contracts.py
+        run: python -m py_compile dev_tools/stage7_gui_contract.py tests/test_stage7_log_audit.py
 
       - name: Commit and push hardening
         shell: bash
@@ -284,13 +251,13 @@ jobs:
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          if git diff --quiet; then
-            echo 'Hardening is already applied.'
+          if git diff --quiet -- dev_tools/stage7_gui_contract.py tests/test_stage7_log_audit.py; then
+            echo 'Python hardening is already applied.'
             exit 0
           fi
-          git diff --check
+          git diff --check -- dev_tools/stage7_gui_contract.py tests/test_stage7_log_audit.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- dev_tools/stage7_gui_contract.py tests/test_stage7_log_audit.py tests/test_stage7_stable_contracts.py .github/workflows/lint.yml
+          git add -- dev_tools/stage7_gui_contract.py tests/test_stage7_log_audit.py
           git commit -m 'fix(stage7): усилить fail-closed контракт gui.py'
           git push origin "HEAD:$HEAD_BRANCH"
