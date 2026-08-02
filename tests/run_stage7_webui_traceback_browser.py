@@ -12,6 +12,7 @@ TRACEBACK_CSS = ROOT / "assets/gui/css/traceback-alas.css"
 WEBUI_APP = ROOT / "module/webui/app.py"
 VIEWPORTS = ((1280, 720), (1366, 768), (1920, 1080))
 REFLOW_VIEWPORT = (874, 486)
+MIN_TEXT_CONTRAST = 4.5
 
 
 def apply_runtime_styles(page: Page) -> None:
@@ -32,6 +33,62 @@ def metrics(page: Page) -> dict[str, object]:
             const root = document.scrollingElement || document.documentElement;
             const modalRect = modal ? modal.getBoundingClientRect() : null;
             const dialogRect = dialog ? dialog.getBoundingClientRect() : null;
+
+            const parseRgb = value => {
+                const match = value.match(
+                    /rgba?\\(\\s*([0-9.]+)\\s*,\\s*([0-9.]+)\\s*,\\s*([0-9.]+)/
+                );
+                if (!match) return null;
+                return [Number(match[1]), Number(match[2]), Number(match[3])];
+            };
+            const luminance = rgb => {
+                const channels = rgb.map(channel => {
+                    const normalized = channel / 255;
+                    return normalized <= 0.04045
+                        ? normalized / 12.92
+                        : Math.pow((normalized + 0.055) / 1.055, 2.4);
+                });
+                return (
+                    0.2126 * channels[0]
+                    + 0.7152 * channels[1]
+                    + 0.0722 * channels[2]
+                );
+            };
+            const contrastRatio = (foreground, background) => {
+                const foregroundLuminance = luminance(foreground);
+                const backgroundLuminance = luminance(background);
+                const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+                const darker = Math.min(foregroundLuminance, backgroundLuminance);
+                return (lighter + 0.05) / (darker + 0.05);
+            };
+
+            const backgroundColor = getComputedStyle(document.body).backgroundColor;
+            const backgroundRgb = parseRgb(backgroundColor);
+            const contrastByColor = new Map();
+            const textNodes = [pre, ...pre.querySelectorAll('span')];
+            for (const node of textNodes) {
+                const text = (node.textContent || '').trim();
+                if (!text || !backgroundRgb) continue;
+                const color = getComputedStyle(node).color;
+                const foregroundRgb = parseRgb(color);
+                if (!foregroundRgb) continue;
+                const ratio = contrastRatio(foregroundRgb, backgroundRgb);
+                const previous = contrastByColor.get(color);
+                if (!previous || ratio < previous.ratio) {
+                    contrastByColor.set(color, {
+                        color,
+                        ratio: Number(ratio.toFixed(3)),
+                        sample: text.slice(0, 80),
+                    });
+                }
+            }
+            const contrastSamples = [...contrastByColor.values()].sort(
+                (left, right) => left.ratio - right.ratio
+            );
+            const lowContrastSamples = contrastSamples.filter(
+                sample => sample.ratio < 4.5
+            );
+
             return {
                 container_count: document.querySelectorAll('.rich-traceback-container').length,
                 script_count: document.querySelectorAll('script').length,
@@ -61,13 +118,23 @@ def metrics(page: Page) -> dict[str, object]:
                 content_box_shadow: contentStyle ? contentStyle.boxShadow : '',
                 white_space: preStyle.whiteSpace,
                 ligatures: preStyle.fontVariantLigatures,
+                background_color: backgroundColor,
+                min_text_contrast: contrastSamples.length
+                    ? contrastSamples[0].ratio
+                    : null,
+                low_contrast_samples: lowContrastSamples,
                 text: element.textContent,
             };
         }"""
     )
 
 
-def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None:
+def assert_safe_layout(
+    data: dict[str, object],
+    *,
+    theme: str,
+    narrow: bool = False,
+) -> None:
     assert data["container_count"] == 1, data
     assert data["script_count"] == 0, data
     assert data["injected_id_count"] == 0, data
@@ -91,6 +158,10 @@ def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None
     assert "Exception: quq" in text, data
     assert "private-token" not in text, data
     assert "do-not-leak" not in text, data
+    if theme == "light":
+        assert data["min_text_contrast"] is not None, data
+        assert float(data["min_text_contrast"]) >= MIN_TEXT_CONTRAST, data
+        assert data["low_contrast_samples"] == [], data
     if narrow:
         assert data["container_scroll_width"] > data["container_client_width"], data
 
@@ -163,7 +234,7 @@ def run() -> list[dict[str, object]]:
                             "!document.fonts || document.fonts.status === 'loaded'"
                         )
                         initial = metrics(page)
-                        assert_safe_layout(initial)
+                        assert_safe_layout(initial, theme=theme)
 
                         modal_html = page.locator(".modal").evaluate(
                             "element => element.outerHTML"
@@ -172,7 +243,7 @@ def run() -> list[dict[str, object]]:
                             "element => element.style.width = '520px'"
                         )
                         narrow = metrics(page)
-                        assert_safe_layout(narrow, narrow=True)
+                        assert_safe_layout(narrow, theme=theme, narrow=True)
 
                         page.locator(".modal").evaluate("element => element.remove()")
                         page.locator("body").evaluate(
@@ -180,7 +251,7 @@ def run() -> list[dict[str, object]]:
                             modal_html,
                         )
                         reopened = metrics(page)
-                        assert_safe_layout(reopened)
+                        assert_safe_layout(reopened, theme=theme)
                         results.append(
                             {
                                 "theme": theme,
@@ -206,7 +277,7 @@ def run() -> list[dict[str, object]]:
                         "!document.fonts || document.fonts.status === 'loaded'"
                     )
                     reflow_initial = metrics(page)
-                    assert_safe_layout(reflow_initial)
+                    assert_safe_layout(reflow_initial, theme=theme)
                     assert (
                         reflow_initial["page_scroll_height"]
                         > reflow_initial["page_client_height"]
