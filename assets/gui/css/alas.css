@@ -291,22 +291,23 @@ button.btn.dropdown-toggle {
     box-sizing: border-box;
     max-width: 100%;
     min-width: 0;
-    max-height: min(70vh, 48rem);
+    max-height: none;
     overflow-x: auto;
-    overflow-y: auto;
+    overflow-y: visible;
     overscroll-behavior-x: contain;
-    overscroll-behavior-y: auto;
 }
 
 .modal:has(.rich-traceback-container) {
-    align-items: flex-start !important;
+    display: block !important;
+    align-items: initial !important;
     box-sizing: border-box;
+    overflow-x: hidden !important;
     overflow-y: auto !important;
-    padding-block: 1rem;
+    padding: 1rem;
 }
 
 .modal:has(.rich-traceback-container) > .modal-dialog {
-    margin-block: auto;
+    margin: 0 auto !important;
 }
 
 .rich-traceback-container,

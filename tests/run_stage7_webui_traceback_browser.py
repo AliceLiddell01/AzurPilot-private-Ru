@@ -9,6 +9,7 @@ from playwright.sync_api import Page, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = ROOT / "tests/fixtures/stage7_webui_traceback"
 VIEWPORTS = ((1280, 720), (1366, 768), (1920, 1080))
+REFLOW_VIEWPORT = (874, 486)
 
 
 def metrics(page: Page) -> dict[str, object]:
@@ -18,8 +19,11 @@ def metrics(page: Page) -> dict[str, object]:
             const style = getComputedStyle(pre);
             const containerStyle = getComputedStyle(element);
             const modal = element.closest('.modal');
+            const dialog = modal ? modal.querySelector('.modal-dialog') : null;
             const modalStyle = modal ? getComputedStyle(modal) : null;
             const root = document.documentElement;
+            const modalRect = modal ? modal.getBoundingClientRect() : null;
+            const dialogRect = dialog ? dialog.getBoundingClientRect() : null;
             return {
                 container_count: document.querySelectorAll('.rich-traceback-container').length,
                 script_count: document.querySelectorAll('script').length,
@@ -30,8 +34,15 @@ def metrics(page: Page) -> dict[str, object]:
                 container_scroll_width: element.scrollWidth,
                 container_client_height: element.clientHeight,
                 container_scroll_height: element.scrollHeight,
-                overscroll_y: containerStyle.overscrollBehaviorY,
-                modal_align_items: modalStyle ? modalStyle.alignItems : '',
+                container_scroll_top: element.scrollTop,
+                container_overflow_y: containerStyle.overflowY,
+                modal_display: modalStyle ? modalStyle.display : '',
+                modal_overflow_y: modalStyle ? modalStyle.overflowY : '',
+                modal_scroll_top: modal ? modal.scrollTop : 0,
+                modal_client_height: modal ? modal.clientHeight : 0,
+                modal_scroll_height: modal ? modal.scrollHeight : 0,
+                modal_top: modalRect ? modalRect.top : 0,
+                dialog_top: dialogRect ? dialogRect.top : 0,
                 white_space: style.whiteSpace,
                 ligatures: style.fontVariantLigatures,
                 text: element.textContent,
@@ -45,8 +56,11 @@ def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None
     assert data["script_count"] == 0, data
     assert data["injected_id_count"] == 0, data
     assert data["page_scroll_width"] <= data["page_client_width"], data
-    assert data["overscroll_y"] == "auto", data
-    assert data["modal_align_items"] == "flex-start", data
+    assert data["container_overflow_y"] == "visible", data
+    assert data["modal_display"] == "block", data
+    assert data["modal_overflow_y"] == "auto", data
+    assert data["container_scroll_top"] == 0, data
+    assert data["dialog_top"] >= data["modal_top"], data
     assert data["white_space"] == "pre", data
     assert data["ligatures"] == "none", data
     text = str(data["text"])
@@ -57,57 +71,28 @@ def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None
         assert data["container_scroll_width"] > data["container_client_width"], data
 
 
-def assert_zoom_scroll_round_trip(page: Page) -> dict[str, object]:
-    return page.locator(".rich-traceback-container").evaluate(
-        """element => {
-            const root = document.scrollingElement || document.documentElement;
-            const modal = element.closest('.modal');
-            document.documentElement.style.zoom = '2';
+def wheel_scroll_round_trip(page: Page) -> dict[str, object]:
+    modal = page.locator(".modal")
+    traceback = page.locator(".rich-traceback-container")
+    modal.evaluate("element => { element.scrollTop = 0; }")
+    traceback.hover()
 
-            element.scrollTop = element.scrollHeight;
-            const containerBottom = element.scrollTop;
-            element.scrollTop = 0;
-            const containerTop = element.scrollTop;
+    for _ in range(12):
+        page.mouse.wheel(0, 1600)
+    page.wait_for_timeout(100)
+    bottom = metrics(page)
 
-            root.scrollTop = root.scrollHeight;
-            const pageBottom = root.scrollTop;
-            root.scrollTop = 0;
-            const pageTop = root.scrollTop;
+    for _ in range(12):
+        page.mouse.wheel(0, -1600)
+    page.wait_for_timeout(100)
+    top = metrics(page)
 
-            if (modal) {
-                modal.scrollTop = modal.scrollHeight;
-            }
-            const modalBottom = modal ? modal.scrollTop : 0;
-            if (modal) {
-                modal.scrollTop = 0;
-            }
-            const modalTop = modal ? modal.scrollTop : 0;
-            const dialogTop = modal
-                ? modal.querySelector('.modal-dialog').getBoundingClientRect().top
-                : 0;
-
-            document.documentElement.style.zoom = '';
-            return {
-                container_bottom: containerBottom,
-                container_top: containerTop,
-                page_bottom: pageBottom,
-                page_top: pageTop,
-                modal_bottom: modalBottom,
-                modal_top: modalTop,
-                dialog_top: dialogTop,
-                overscroll_y: getComputedStyle(element).overscrollBehaviorY,
-            };
-        }"""
-    )
-
-
-def assert_zoom_layout(data: dict[str, object]) -> None:
-    assert data["container_bottom"] > 0, data
-    assert data["container_top"] == 0, data
-    assert data["page_top"] == 0, data
-    assert data["modal_top"] == 0, data
-    assert data["dialog_top"] >= 0, data
-    assert data["overscroll_y"] == "auto", data
+    assert bottom["modal_scroll_top"] > 0, bottom
+    assert top["modal_scroll_top"] == 0, top
+    assert top["container_scroll_top"] == 0, top
+    assert top["dialog_top"] >= top["modal_top"], top
+    assert top["page_scroll_width"] <= top["page_client_width"], top
+    return {"bottom": bottom, "top": top}
 
 
 def run() -> list[dict[str, object]]:
@@ -119,6 +104,7 @@ def run() -> list[dict[str, object]]:
                 fixture = FIXTURE_DIR / f"fixture-{theme}.html"
                 if not fixture.is_file():
                     raise AssertionError(f"Отсутствует fixture: {fixture}")
+
                 for width, height in VIEWPORTS:
                     page = browser.new_page(
                         viewport={"width": width, "height": height},
@@ -132,9 +118,6 @@ def run() -> list[dict[str, object]]:
                         )
                         initial = metrics(page)
                         assert_safe_layout(initial)
-
-                        zoomed = assert_zoom_scroll_round_trip(page)
-                        assert_zoom_layout(zoomed)
 
                         modal_html = page.locator(".modal").evaluate(
                             "element => element.outerHTML"
@@ -157,13 +140,39 @@ def run() -> list[dict[str, object]]:
                                 "theme": theme,
                                 "viewport": [width, height],
                                 "initial": initial,
-                                "zoomed": zoomed,
                                 "narrow": narrow,
                                 "reopened": reopened,
                             }
                         )
                     finally:
                         page.close()
+
+                width, height = REFLOW_VIEWPORT
+                page = browser.new_page(
+                    viewport={"width": width, "height": height},
+                    device_scale_factor=1,
+                    locale="ru-RU",
+                )
+                try:
+                    page.goto(fixture.as_uri(), wait_until="load")
+                    page.wait_for_function(
+                        "!document.fonts || document.fonts.status === 'loaded'"
+                    )
+                    reflow_initial = metrics(page)
+                    assert_safe_layout(reflow_initial)
+                    assert reflow_initial["modal_scroll_height"] > reflow_initial["modal_client_height"], reflow_initial
+                    round_trip = wheel_scroll_round_trip(page)
+                    results.append(
+                        {
+                            "theme": theme,
+                            "viewport": [width, height],
+                            "browser_zoom_equivalent": "200% of 1748x972",
+                            "initial": reflow_initial,
+                            "wheel_round_trip": round_trip,
+                        }
+                    )
+                finally:
+                    page.close()
         finally:
             browser.close()
     return results
