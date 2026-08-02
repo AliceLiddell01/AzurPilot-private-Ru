@@ -1,4 +1,4 @@
-name: Stage 6 validation
+name: Stage 7 validation
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: stage6-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: stage7-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -66,9 +66,35 @@ jobs:
           uv run python -m unittest -v
           tests/test_stage6_ui_russianization.py
           tests/test_webui_worker_registry.py
+          tests/test_webui_no_reload_recovery.py
 
       - name: Run Stage 6 verifier
         run: uv run python -m dev_tools.verify_stage6
+
+      - name: Run Stage 7 semantic verifier
+        run: >-
+          uv run python -m dev_tools.verify_stage7
+          --base-ref origin/personal/stable
+          --output-dir artifacts/stage7
+
+      - name: Publish Stage 7 summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/stage7/report.md ]]; then
+            cat artifacts/stage7/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Stage 7 report was not generated.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload Stage 7 semantic diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage7-semantic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/stage7
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Collect functional failure diagnostics
         if: failure()
@@ -96,6 +122,59 @@ jobs:
         with:
           name: functional-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/functional
+          if-no-files-found: error
+          retention-days: 14
+
+  browser-validation:
+    name: Stage 7 Playwright DOM and security checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+
+      - name: Synchronize locked dependencies
+        run: uv sync --frozen
+
+      - name: Install Playwright runner
+        run: |
+          uv pip install playwright==1.55.0
+          uv run playwright install --with-deps chromium
+
+      - name: Run browser traceback checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/stage7-browser
+          uv run python tests/run_stage7_webui_traceback_browser.py \
+            > artifacts/stage7-browser/report.json
+
+      - name: Verify Chromium process cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          if pgrep -af 'playwright.*chromium|chromium.*playwright' > artifacts/stage7-browser/processes.txt; then
+            cat artifacts/stage7-browser/processes.txt
+            exit 1
+          fi
+          echo 'No orphaned Playwright Chromium processes.' > artifacts/stage7-browser/processes.txt
+
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage7-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/stage7-browser
           if-no-files-found: error
           retention-days: 14
 
@@ -217,7 +296,7 @@ jobs:
 
           forbidden_deletions="$(git diff --name-status --diff-filter=D "$diff_range" | awk '$2 ~ /^assets\// || $2 ~ /^module\/config\/i18n\/(en-US|ja-JP|zh-CN|zh-MIAO|zh-TW)\.json$/ { print }')"
           if [[ -n "$forbidden_deletions" ]]; then
-            echo 'Stage 6 attempted forbidden locale or asset deletions.'
+            echo 'Stage 7 attempted forbidden locale or asset deletions.'
             echo "$forbidden_deletions"
             exit 1
           fi
@@ -376,6 +455,9 @@ jobs:
 
       - name: Run Windows WebUI smoke and verify process shutdown
         run: uv run python -m dev_tools.stage6_webui_smoke
+
+      - name: Run no-reload orphan recovery regression
+        run: uv run python -m unittest -v tests/test_webui_no_reload_recovery.py
 
       - name: Collect PowerShell failure diagnostics
         if: failure()
