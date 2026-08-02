@@ -1,4 +1,3 @@
-# Temporary standalone copy; CI migrates these tests into the required Stage 6 module.
 import unittest
 from unittest.mock import Mock, patch
 
