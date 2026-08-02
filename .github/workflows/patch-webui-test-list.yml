@@ -20,21 +20,24 @@ jobs:
           from pathlib import Path
 
           path = Path('.github/workflows/lint.yml')
-          source = path.read_text(encoding='utf-8')
-          old = '''          tests/test_stage6_ui_russianization.py
-                    tests/test_webui_worker_registry.py
-          '''
-          new = '''          tests/test_stage6_ui_russianization.py
-                    tests/test_webui_worker_registry.py
-                    tests/test_webui_no_reload_recovery.py
-          '''
-          if old in source:
-              path.write_text(source.replace(old, new, 1), encoding='utf-8')
-          elif 'tests/test_webui_no_reload_recovery.py' not in source:
-              raise SystemExit('Stage 6 test list was not found')
+          lines = path.read_text(encoding='utf-8').splitlines(keepends=True)
+          target = 'tests/test_webui_worker_registry.py'
+          added = 'tests/test_webui_no_reload_recovery.py'
+
+          if any(line.strip() == added for line in lines):
+              raise SystemExit(0)
+
+          for index, line in enumerate(lines):
+              if line.strip() == target:
+                  indentation = line[: len(line) - len(line.lstrip())]
+                  lines.insert(index + 1, f'{indentation}{added}\n')
+                  path.write_text(''.join(lines), encoding='utf-8')
+                  break
+          else:
+              raise SystemExit('Stage 6 worker-registry test entry was not found')
           PY
 
-      - name: Verify focused tests
+      - name: Verify test-list update
         run: |
           python - <<'PY'
           from pathlib import Path
