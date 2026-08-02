@@ -80,8 +80,21 @@ def main(argv: list[str] | None = None) -> int:
         [sys.executable, "-m", "unittest", "-v", *_existing_test_modules()],
         cwd=ROOT,
         check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
         env={**os.environ, "STAGE7_BASE_REF": audit.base_sha},
     )
+    unittest_output = completed.stdout + completed.stderr
+    (args.output_dir / "unittest.log").write_text(
+        unittest_output,
+        encoding="utf-8",
+    )
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
     if completed.returncode:
         return completed.returncode
 
