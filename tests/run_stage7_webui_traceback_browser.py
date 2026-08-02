@@ -8,20 +8,28 @@ from playwright.sync_api import Page, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = ROOT / "tests/fixtures/stage7_webui_traceback"
+TRACEBACK_CSS = ROOT / "assets/gui/css/traceback-alas.css"
+WEBUI_APP = ROOT / "module/webui/app.py"
 VIEWPORTS = ((1280, 720), (1366, 768), (1920, 1080))
 REFLOW_VIEWPORT = (874, 486)
+
+
+def apply_runtime_styles(page: Page) -> None:
+    page.add_style_tag(path=str(TRACEBACK_CSS))
 
 
 def metrics(page: Page) -> dict[str, object]:
     return page.locator(".rich-traceback-container").evaluate(
         """element => {
             const pre = element.querySelector('pre');
-            const style = getComputedStyle(pre);
+            const preStyle = getComputedStyle(pre);
             const containerStyle = getComputedStyle(element);
             const modal = element.closest('.modal');
             const dialog = modal ? modal.querySelector('.modal-dialog') : null;
+            const content = modal ? modal.querySelector('.modal-content') : null;
             const modalStyle = modal ? getComputedStyle(modal) : null;
-            const root = document.documentElement;
+            const contentStyle = content ? getComputedStyle(content) : null;
+            const root = document.scrollingElement || document.documentElement;
             const modalRect = modal ? modal.getBoundingClientRect() : null;
             const dialogRect = dialog ? dialog.getBoundingClientRect() : null;
             return {
@@ -30,12 +38,17 @@ def metrics(page: Page) -> dict[str, object]:
                 injected_id_count: document.querySelectorAll('#stage7-owned').length,
                 page_client_width: root.clientWidth,
                 page_scroll_width: root.scrollWidth,
+                page_client_height: root.clientHeight,
+                page_scroll_height: root.scrollHeight,
+                page_scroll_top: root.scrollTop,
                 container_client_width: element.clientWidth,
                 container_scroll_width: element.scrollWidth,
                 container_client_height: element.clientHeight,
                 container_scroll_height: element.scrollHeight,
                 container_scroll_top: element.scrollTop,
+                container_overflow_x: containerStyle.overflowX,
                 container_overflow_y: containerStyle.overflowY,
+                modal_position: modalStyle ? modalStyle.position : '',
                 modal_display: modalStyle ? modalStyle.display : '',
                 modal_overflow_y: modalStyle ? modalStyle.overflowY : '',
                 modal_scroll_top: modal ? modal.scrollTop : 0,
@@ -43,8 +56,11 @@ def metrics(page: Page) -> dict[str, object]:
                 modal_scroll_height: modal ? modal.scrollHeight : 0,
                 modal_top: modalRect ? modalRect.top : 0,
                 dialog_top: dialogRect ? dialogRect.top : 0,
-                white_space: style.whiteSpace,
-                ligatures: style.fontVariantLigatures,
+                content_background: contentStyle ? contentStyle.backgroundColor : '',
+                content_border_radius: contentStyle ? contentStyle.borderRadius : '',
+                content_box_shadow: contentStyle ? contentStyle.boxShadow : '',
+                white_space: preStyle.whiteSpace,
+                ligatures: preStyle.fontVariantLigatures,
                 text: element.textContent,
             };
         }"""
@@ -57,10 +73,18 @@ def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None
     assert data["injected_id_count"] == 0, data
     assert data["page_scroll_width"] <= data["page_client_width"], data
     assert data["container_scroll_height"] <= data["container_client_height"] + 1, data
-    assert data["modal_display"] == "block", data
-    assert data["modal_overflow_y"] == "auto", data
+    assert data["modal_scroll_height"] <= data["modal_client_height"] + 1, data
+    assert data["container_overflow_x"] == "auto", data
+    assert data["container_overflow_y"] in {"clip", "hidden"}, data
+    assert data["modal_position"] == "absolute", data
+    assert data["modal_display"] == "flex", data
+    assert data["modal_overflow_y"] == "visible", data
     assert data["container_scroll_top"] == 0, data
+    assert data["modal_scroll_top"] == 0, data
     assert data["dialog_top"] >= data["modal_top"], data
+    assert data["content_background"] == "rgba(0, 0, 0, 0)", data
+    assert data["content_border_radius"] == "0px", data
+    assert data["content_box_shadow"] == "none", data
     assert data["white_space"] == "pre", data
     assert data["ligatures"] == "none", data
     text = str(data["text"])
@@ -72,9 +96,17 @@ def assert_safe_layout(data: dict[str, object], *, narrow: bool = False) -> None
 
 
 def wheel_scroll_round_trip(page: Page) -> dict[str, object]:
-    modal = page.locator(".modal")
     traceback = page.locator(".rich-traceback-container")
-    modal.evaluate("element => { element.scrollTop = 0; }")
+    page.evaluate(
+        """() => {
+            const root = document.scrollingElement || document.documentElement;
+            const modal = document.querySelector('.modal');
+            const traceback = document.querySelector('.rich-traceback-container');
+            root.scrollTop = 0;
+            if (modal) modal.scrollTop = 0;
+            if (traceback) traceback.scrollTop = 0;
+        }"""
+    )
     traceback.hover()
 
     for _ in range(12):
@@ -87,7 +119,10 @@ def wheel_scroll_round_trip(page: Page) -> dict[str, object]:
     page.wait_for_timeout(100)
     top = metrics(page)
 
-    assert bottom["modal_scroll_top"] > 0, bottom
+    assert bottom["page_scroll_top"] > 0, bottom
+    assert bottom["modal_scroll_top"] == 0, bottom
+    assert bottom["container_scroll_top"] == 0, bottom
+    assert top["page_scroll_top"] == 0, top
     assert top["modal_scroll_top"] == 0, top
     assert top["container_scroll_top"] == 0, top
     assert top["dialog_top"] >= top["modal_top"], top
@@ -95,7 +130,17 @@ def wheel_scroll_round_trip(page: Page) -> dict[str, object]:
     return {"bottom": bottom, "top": top}
 
 
+def verify_runtime_wiring() -> None:
+    if not TRACEBACK_CSS.is_file():
+        raise AssertionError(f"Отсутствует stylesheet: {TRACEBACK_CSS}")
+    app_source = WEBUI_APP.read_text(encoding="utf-8")
+    expected = 'add_css(filepath_css("traceback-alas"))'
+    if expected not in app_source:
+        raise AssertionError("WebUI не загружает traceback-alas.css после theme styles")
+
+
 def run() -> list[dict[str, object]]:
+    verify_runtime_wiring()
     results: list[dict[str, object]] = []
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
@@ -113,6 +158,7 @@ def run() -> list[dict[str, object]]:
                     )
                     try:
                         page.goto(fixture.as_uri(), wait_until="load")
+                        apply_runtime_styles(page)
                         page.wait_for_function(
                             "!document.fonts || document.fonts.status === 'loaded'"
                         )
@@ -155,12 +201,16 @@ def run() -> list[dict[str, object]]:
                 )
                 try:
                     page.goto(fixture.as_uri(), wait_until="load")
+                    apply_runtime_styles(page)
                     page.wait_for_function(
                         "!document.fonts || document.fonts.status === 'loaded'"
                     )
                     reflow_initial = metrics(page)
                     assert_safe_layout(reflow_initial)
-                    assert reflow_initial["modal_scroll_height"] > reflow_initial["modal_client_height"], reflow_initial
+                    assert (
+                        reflow_initial["page_scroll_height"]
+                        > reflow_initial["page_client_height"]
+                    ), reflow_initial
                     round_trip = wheel_scroll_round_trip(page)
                     results.append(
                         {
