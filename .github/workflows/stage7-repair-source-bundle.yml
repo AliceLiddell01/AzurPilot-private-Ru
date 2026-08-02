@@ -52,13 +52,14 @@ jobs:
             tests/test_stage7_stable_contracts.py
             tests/test_stage7_webui_traceback_rendering.py
             docs/stage7-recovery-migration-map.md
-            .github/workflows/lint.yml
           )
           for file in "${files[@]}"; do
             test -f "$file"
             mkdir -p "$out/$(dirname "$file")"
             cp "$file" "$out/$file"
           done
+          cp .github/workflows/lint.yml "$out/lint.yml"
+          cp .github/workflows/stage7-repair-source-bundle.yml "$out/stage7-repair-source-bundle.yml"
           printf '%s\n' "$PR_HEAD_SHA" > "$out/HEAD"
           printf '%s\n' "$PR_BASE_SHA" > "$out/BASE"
           git show "$PR_BASE_SHA:gui.py" > "$out/gui.base.py"
