@@ -1,3 +1,5 @@
+"""Regression tests for orphaned worker recovery without hot reload."""
+
 import unittest
 from unittest.mock import Mock, patch
 
