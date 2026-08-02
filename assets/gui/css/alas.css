@@ -294,7 +294,19 @@ button.btn.dropdown-toggle {
     max-height: min(70vh, 48rem);
     overflow-x: auto;
     overflow-y: auto;
-    overscroll-behavior: contain;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
+}
+
+.modal:has(.rich-traceback-container) {
+    align-items: flex-start !important;
+    box-sizing: border-box;
+    overflow-y: auto !important;
+    padding-block: 1rem;
+}
+
+.modal:has(.rich-traceback-container) > .modal-dialog {
+    margin-block: auto;
 }
 
 .rich-traceback-container,
