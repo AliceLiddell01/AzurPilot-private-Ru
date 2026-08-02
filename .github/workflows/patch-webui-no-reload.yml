@@ -1,0 +1,104 @@
+name: Temporary WebUI no-reload patch
+
+on:
+  push:
+    branches:
+      - fix/webui-no-reload-orphan-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+
+      - name: Synchronize dependencies
+        run: uv sync --frozen
+
+      - name: Patch no-reload entrypoint
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path('gui.py')
+          source = path.read_text(encoding='utf-8')
+          old = '''if __name__ == "__main__":
+              # 设置multiprocessing启动方式为spawn（macOS兼容性要求）
+              try:
+                  set_start_method("spawn", force=True)
+                  # 额外的macOS环境配置
+                  if os.name == "posix" and sys.platform == "darwin":
+                      os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+              except RuntimeError:
+                  logger.warning("[GUI] 无法设置spawn启动方式，可能使用fork（macOS上不推荐）")
+
+              if State.deploy_config.EnableReload:
+                  run_webui_supervisor()
+              else:
+                  # 非重载模式：直接运行
+                  func(None, None)
+          '''
+          new = '''def _run_webui_without_reload() -> bool:
+              """Восстановить orphaned worker-процессы перед прямым запуском WebUI."""
+              if not _recover_orphaned_workers():
+                  return False
+              func(None, None)
+              return True
+
+
+          if __name__ == "__main__":
+              # 设置multiprocessing启动方式为spawn（macOS兼容性要求）
+              try:
+                  set_start_method("spawn", force=True)
+                  # 额外的macOS环境配置
+                  if os.name == "posix" and sys.platform == "darwin":
+                      os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+              except RuntimeError:
+                  logger.warning("[GUI] 无法设置spawn启动方式，可能使用fork（macOS上不推荐）")
+
+              if State.deploy_config.EnableReload:
+                  run_webui_supervisor()
+              else:
+                  _run_webui_without_reload()
+          '''
+
+          if old in source:
+              path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          elif 'def _run_webui_without_reload() -> bool:' not in source:
+              raise SystemExit('Expected gui.py entrypoint block was not found')
+          PY
+
+      - name: Run focused regression tests
+        run: >-
+          uv run python -m unittest -v
+          tests/test_webui_no_reload_recovery.py
+          tests/test_webui_worker_registry.py
+
+      - name: Run Ruff and diff checks
+        run: |
+          uv run ruff check gui.py tests/test_webui_no_reload_recovery.py --select E9,F63,F7,F82 --ignore F821,F722
+          git diff --check
+
+      - name: Commit patch
+        run: |
+          if git diff --quiet -- gui.py; then
+            echo 'gui.py is already patched.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gui.py tests/test_webui_no_reload_recovery.py
+          git commit -m 'fix(webui): recover orphaned workers without reload'
+          git push
