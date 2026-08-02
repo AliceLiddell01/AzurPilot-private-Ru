@@ -19,32 +19,32 @@ class AppManager(DeployConfig):
             bool: 是否已更新。
         """
         source = os.path.abspath(os.path.join(folder, path))
-        logger.info(f'Old file: {source}')
+        logger.info(f'Текущий файл: {source}')
 
         try:
             import alas_webapp
         except ImportError:
-            logger.info(f'Dependency alas_webapp not exists, skip updating')
+            logger.info('Зависимость alas_webapp отсутствует, обновление пропущено')
             return False
 
         update = alas_webapp.app_file()
-        logger.info(f'New version: {alas_webapp.__version__}')
-        logger.info(f'New file: {update}')
+        logger.info(f'Новая версия: {alas_webapp.__version__}')
+        logger.info(f'Новый файл: {update}')
 
         if os.path.exists(source):
             if filecmp.cmp(source, update, shallow=True):
-                logger.info('app.asar is already up to date')
+                logger.info('app.asar уже обновлён')
                 return False
             else:
-                logger.info(f'Copy {update} -----> {source}')
+                logger.info(f'Копирование {update} -----> {source}')
                 os.remove(source)
                 shutil.copy(update, source)
                 return True
         else:
-            logger.info(f'{source} not exists, skip updating')
+            logger.info(f'{source} не существует, обновление пропущено')
             return False
 
     def app_update(self):
-        logger.hr(f'Update app.asar', 0)
+        logger.hr('Обновление app.asar', 0)
 
         return self.app_asar_replace(os.getcwd())

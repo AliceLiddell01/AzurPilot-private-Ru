@@ -18,11 +18,11 @@ def show_fix_tip(module):
 
     uv = venv_uv()
     logger.info(f"""
-    To fix this:
-    1. Re-run the launcher so uv can refresh the local .venv
-    2. If the problem persists, run:
+    Чтобы исправить ошибку:
+    1. Повторно запустите программу запуска, чтобы uv обновил локальную .venv
+    2. Если проблема сохраняется, выполните:
         "{uv}" sync --frozen --no-dev --no-install-project --reinstall-package {module}
-    3. Re-open AzurPilot
+    3. Снова откройте AzurPilot
     """)
 
 
@@ -33,22 +33,22 @@ class AdbManager(DeployConfig):
         if os.path.exists(exe):
             return exe
 
-        logger.warning(f'AdbExecutable: {exe} does not exist, use `adb` instead')
+        logger.warning(f'AdbExecutable: {exe} не существует, вместо него используется `adb`')
         return 'adb'
 
     def adb_install(self):
-        logger.hr('Start ADB service', 0)
+        logger.hr('Запуск службы ADB', 0)
 
         emulator = EmulatorConnect(adb=self.adb)
         if self.ReplaceAdb:
-            logger.hr('Replace ADB', 1)
+            logger.hr('Замена ADB', 1)
             emulator.adb_replace()
         elif self.AutoConnect:
-            logger.hr('ADB Connect', 1)
+            logger.hr('Подключение ADB', 1)
             emulator.brute_force_connect()
 
         if False:
-            logger.hr('Uiautomator2 Init', 1)
+            logger.hr('Инициализация uiautomator2', 1)
             try:
                 import adbutils
                 from uiautomator2 import init
@@ -69,14 +69,14 @@ class AdbManager(DeployConfig):
             for device in adbutils.adb.iter_device():
                 if device.serial in IGNORE_SERIAL:
                     continue
-                logger.info(f'Init device {device}')
+                logger.info(f'Инициализация устройства {device}')
                 initer = init.Initer(device, loglevel=logging.DEBUG)
                 # MuMu X 没有 ro.product.cpu.abi，从 ro.product.cpu.abilist 中取第一个
                 if initer.abi not in ['x86_64', 'x86', 'arm64-v8a', 'armeabi-v7a', 'armeabi']:
                     initer.abi = initer.abis[0]
                 # getprop 命令不存在时跳过
                 if 'getprop' in initer.abi:
-                    logger.warning(f'Cannot getprop from device {device}, result: {initer.abi}')
+                    logger.warning(f'Не удалось выполнить getprop на устройстве {device}, результат: {initer.abi}')
                     continue
                 initer.set_atx_agent_addr('127.0.0.1:7912')
 
@@ -85,9 +85,9 @@ class AdbManager(DeployConfig):
                         initer.install()
                         break
                     except AssertionError:
-                        logger.info(f'AssertionError when installing uiautomator2 on device {device.serial}')
-                        logger.info('If you are using BlueStacks or LD player or WSA, '
-                                    'please enable ADB in the settings of your emulator')
+                        logger.info(f'AssertionError при установке uiautomator2 на устройство {device.serial}')
+                        logger.info('Если вы используете BlueStacks, LDPlayer или WSA, '
+                                    'включите ADB в настройках эмулятора')
                         exit(1)
                     except ConnectionError:
                         if _ == 1:

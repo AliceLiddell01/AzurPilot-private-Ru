@@ -33,11 +33,11 @@ class AlasManager(DeployConfig):
                 from win32com.client import GetObject
             except ModuleNotFoundError:
                 # pywin32 未安装
-                logger.info('pywin32 not installed, skip')
+                logger.info('pywin32 не установлен, проверка пропущена')
                 return False
             except (pickle.UnpicklingError, EOFError) as e:
                 # win32com 缓存损坏，尝试删除 dicts.dat 后重试
-                logger.error(f'{type(e).__name__}: {e}')
+                logger.error(f'Ошибка кэша win32com — {type(e).__name__}: {e}')
                 import sys
                 import win32api
                 gen_path = os.path.join(win32api.GetTempPath(), "gen_py",
@@ -45,17 +45,17 @@ class AlasManager(DeployConfig):
                 file = os.path.join(gen_path, "dicts.dat")
                 file = os.path.abspath(file).replace('\\', '/')
                 if os.path.exists(file):
-                    logger.info(f'win32com dicts.dat exists, removing: {file}')
+                    logger.info(f'Файл win32com dicts.dat существует, удаление: {file}')
                     os.remove(file)
                     continue
                 else:
-                    logger.warning(f'Cannot find win32com dicts.dat')
+                    logger.warning('Не удалось найти win32com dicts.dat')
                     continue
         try:
             _ = GetObject
         except UnboundLocalError:
-            logger.warning('Unable to import win32com.client, please fix it manually, '
-                           'see https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2382')
+            logger.warning('Не удалось импортировать win32com.client. Исправьте установку вручную: '
+                           'https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2382')
             exit(1)
 
         try:
@@ -82,12 +82,12 @@ class AlasManager(DeployConfig):
         Args:
             name (str): 进程名。
         """
-        logger.hr(f'Kill {name}', 1)
+        logger.hr(f'Завершение {name}', 1)
         for row in self.iter_process_by_name(name):
             logger.info(' '.join(map(str, row)))
             self.execute(f'taskkill /f /pid {row[2]}', allow_failure=True, output=False)
 
     def alas_kill(self):
-        logger.hr(f'Kill existing AzurPilot', 0)
+        logger.hr('Завершение запущенного AzurPilot', 0)
         self.kill_by_name('alas.exe')
         self.kill_by_name('python.exe')

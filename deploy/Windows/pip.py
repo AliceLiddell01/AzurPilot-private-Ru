@@ -14,15 +14,15 @@ class PipManager(DeployConfig):
         return ""
 
     def pip_install(self):
-        logger.hr('Update Dependencies', 0)
+        logger.hr('Обновление зависимостей', 0)
         if not self.InstallDependencies:
-            logger.info('InstallDependencies is disabled, skip')
+            logger.info('InstallDependencies отключён, обновление пропущено')
             Progress.UpdateDependency()
             return
         try:
             result = sync_project_venv(capture_output=True)
         except Exception as exc:
-            logger.critical(f'uv sync failed: {exc}')
+            logger.critical(f'Не удалось выполнить uv sync: {exc}')
             log_command_output(logger, command_output(exc))
             raise ExecutionError from exc
         else:

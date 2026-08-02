@@ -20,7 +20,7 @@ def site_packages_path():
             text=True,
         ).strip()
     except Exception as exc:
-        logger.info(f'Unable to query .venv site-packages: {exc}')
+        logger.info(f'Не удалось определить каталог site-packages в .venv: {exc}')
         return None
     return output.replace("\\", "/")
 
@@ -49,13 +49,13 @@ def patch_trust_env(file):
             content = re.sub('self.trust_env = True', 'self.trust_env = False', content)
             with open(file, 'w', encoding='utf-8') as f:
                 f.write(content)
-            logger.info(f'{file} trust_env patched')
+            logger.info(f'{file}: trust_env исправлен')
         elif re.search('self.trust_env = False', content):
-            logger.info(f'{file} trust_env already patched')
+            logger.info(f'{file}: trust_env уже исправлен')
         else:
-            logger.info(f'{file} trust_env not found')
+            logger.info(f'{file}: trust_env не найден')
     else:
-        logger.info(f'{file} trust_env no need to patch')
+        logger.info(f'{file}: исправление trust_env не требуется')
 
 
 def check_running_directory():
@@ -66,11 +66,11 @@ def check_running_directory():
     file = __file__.replace(r"\\", "/").replace("\\", "/")
     # C:/Users/<user>/AppData/Local/Temp/360zip$temp/360$3/AzurLaneAutoScript
     if 'Temp/360zip' in file:
-        logger.critical('请先解压AzurPilot的压缩包，再安装AzurPilot')
+        logger.critical('Сначала распакуйте архив AzurPilot, затем установите AzurPilot')
         exit(1)
     # C:/Users/<user>/AppData/Local/Temp/Rar$EXa9248.23428/AzurLaneAutoScript
     if 'Temp/Rar' in file or 'Local/Temp' in file:
-        logger.critical('Please unzip AzurPilot installer first')
+        logger.critical('Сначала распакуйте установщик AzurPilot')
         exit(1)
 
 
@@ -87,7 +87,7 @@ def patch_uiautomator2():
     appdir = "os.path.abspath(os.path.join(__file__, '../../uiautomator2cache'))"
 
     if not init_file or not os.path.exists(init_file):
-        logger.info('uiautomator2 is not installed skip patching')
+        logger.info('uiautomator2 не установлен, исправление пропущено')
         return
 
     modified = False
@@ -99,9 +99,9 @@ def patch_uiautomator2():
     if res:
         content = re.sub(r'self.minicap_urls', '[]', content)
         modified = True
-        logger.info(f'{init_file} minicap_urls patched')
+        logger.info(f'{init_file}: minicap_urls исправлен')
     else:
-        logger.info(f'{init_file} minicap_urls no need to patch')
+        logger.info(f'{init_file}: исправление minicap_urls не требуется')
 
     # 修补 appdir
     if cache_dir and os.path.exists(cache_dir):
@@ -109,21 +109,21 @@ def patch_uiautomator2():
         if res:
             prev = res.group(1).strip()
             if prev == appdir:
-                logger.info(f'{init_file} appdir already patched')
+                logger.info(f'{init_file}: appdir уже исправлен')
             else:
                 content = re.sub(r'appdir ?=.*\n', f'appdir = {appdir}\n', content)
                 modified = True
-                logger.info(f'{init_file} appdir patched')
+                logger.info(f'{init_file}: appdir исправлен')
         else:
-            logger.info(f'{init_file} appdir not found')
+            logger.info(f'{init_file}: appdir не найден')
     else:
-        logger.info('uiautomator2cache is not installed skip patching')
+        logger.info('uiautomator2cache не установлен, исправление пропущено')
 
     # 保存文件
     if modified:
         with open(init_file, 'w', encoding='utf-8') as f:
             f.write(content)
-        logger.info(f'{init_file} content saved')
+        logger.info(f'{init_file}: содержимое сохранено')
 
 
 def patch_apkutils2():
@@ -134,14 +134,14 @@ def patch_apkutils2():
     """
     mixin = site_package_file('adbutils', 'mixin.py')
     if not mixin:
-        logger.info('adbutils is not installed skip patching')
+        logger.info('adbutils не установлен, исправление пропущено')
         return
 
     try:
         with open(mixin, 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
-        logger.info(f'{mixin} not exist')
+        logger.info(f'{mixin} не существует')
         return
 
     res = re.search(r'import apkutils2', content)
@@ -149,9 +149,9 @@ def patch_apkutils2():
         content = re.sub(r'import apkutils2', '', content)
         with open(mixin, 'w', encoding='utf-8') as f:
             f.write(content)
-        logger.info(f'{mixin} apkutils2 patched')
+        logger.info(f'{mixin}: apkutils2 исправлен')
     else:
-        logger.info(f'{mixin} apkutils2 no need to patch')
+        logger.info(f'{mixin}: исправление apkutils2 не требуется')
 
 
 def pre_checks():

@@ -166,8 +166,8 @@ def _resolve_uv(root: Path, bootstrap_uv: Optional[PathLikeArg] = None) -> Path:
             return Path(str(candidate))
 
     raise RuntimeError(
-        "uv is required to prepare AzurPilot's Python environment. "
-        "Use the launcher package or install uv first."
+        "Для подготовки среды Python AzurPilot требуется uv. "
+        "Используйте пакет программы запуска или сначала установите uv."
     )
 
 
@@ -426,7 +426,7 @@ def sync_project_venv(
     """在单一总时限内准备解释器、虚拟环境并同步项目依赖。"""
     root = root or project_root()
     if not _deploy_bool(root, "InstallDependencies", default=True):
-        output = "InstallDependencies is disabled, skip uv sync"
+        output = "InstallDependencies отключён, синхронизация uv пропущена"
         print(output)
         if capture_output:
             return UvCommandResult(command=[], output=output)
@@ -495,7 +495,7 @@ def dependency_sync_service(
                     "success": False,
                     "command": [],
                     "output": "",
-                    "error": f"Unknown dependency sync request: {request}",
+                    "error": f"Неизвестный запрос синхронизации зависимостей: {request}",
                 }
             )
             continue
@@ -537,7 +537,7 @@ def ensure_uv_environment():
     try:
         sync_project_venv(root=root)
     except Exception as exc:
-        print(f"Failed to prepare uv environment: {exc}", file=sys.stderr)
+        print(f"Не удалось подготовить среду uv: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
     os.environ[BOOTSTRAPPED_ENV] = "1"

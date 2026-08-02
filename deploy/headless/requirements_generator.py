@@ -1,4 +1,4 @@
 raise SystemExit(
-    "Headless requirements generation has been retired. "
-    "Use pyproject.toml platform markers and uv.lock instead."
+    "Генерация requirements для безголового режима больше не поддерживается. "
+    "Вместо неё используйте маркеры платформ в pyproject.toml и файл uv.lock."
 )

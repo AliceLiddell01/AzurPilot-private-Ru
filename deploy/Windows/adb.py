@@ -7,29 +7,29 @@ from deploy.Windows.logger import Progress, logger
 
 def show_fix_tip(module):
     logger.info(f"""
-    To fix this:
-    1. Re-run the launcher so uv can refresh the local .venv
-    2. If the problem persists, run:
+    Чтобы исправить ошибку:
+    1. Повторно запустите программу запуска, чтобы uv обновил локальную .venv
+    2. Если проблема сохраняется, выполните:
         ./.venv/Scripts/uv.exe sync --frozen --no-dev --no-install-project --reinstall-package {module}
-    3. Re-open AzurPilot.exe
+    3. Снова откройте AzurPilot.exe
     """)
 
 
 class AdbManager(EmulatorManager):
     def adb_install(self):
-        logger.hr('Start ADB service', 0)
+        logger.hr('Запуск службы ADB', 0)
 
         if self.ReplaceAdb:
-            logger.hr('Replace ADB', 1)
+            logger.hr('Замена ADB', 1)
             self.adb_replace()
             Progress.AdbReplace()
         if self.AutoConnect:
-            logger.hr('ADB Connect', 1)
+            logger.hr('Подключение ADB', 1)
             self.brute_force_connect()
             Progress.AdbConnect()
 
         if False:
-            logger.hr('Uiautomator2 Init', 1)
+            logger.hr('Инициализация uiautomator2', 1)
             try:
                 import adbutils
                 from uiautomator2 import init
@@ -59,9 +59,9 @@ class AdbManager(EmulatorManager):
                         initer.install()
                         break
                     except AssertionError:
-                        logger.info(f'AssertionError when installing uiautomator2 on device {device.serial}')
-                        logger.info('If you are using BlueStacks or LD player or WSA, '
-                                    'please enable ADB in the settings of your emulator')
+                        logger.info(f'AssertionError при установке uiautomator2 на устройство {device.serial}')
+                        logger.info('Если вы используете BlueStacks, LDPlayer или WSA, '
+                                    'включите ADB в настройках эмулятора')
                         exit(1)
                     except ConnectionError:
                         if _ == 1:

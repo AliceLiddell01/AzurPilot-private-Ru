@@ -27,10 +27,10 @@ def config_set(output='./config/deploy.yaml'):
 
     for key, value in updates.items():
         if key in data:
-            print(f'{key} set')
+            print(f'{key}: значение задано')
             data[key] = value
         else:
-            print(f'{key} not exist')
+            print(f'{key}: ключ не существует')
 
     poor_yaml_write(
         data,

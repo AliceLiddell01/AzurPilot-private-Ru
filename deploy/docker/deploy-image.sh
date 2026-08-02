@@ -49,82 +49,82 @@ RESET='\033[0m'
 t() {
     local key="$1"
     case "${LANGUAGE}:${key}" in
-        en:title) printf 'AzurPilot Docker Deployment\n' ;;
-        en:subtitle) printf 'Automated installer for AzurPilot WebUI\n' ;;
-        en:language_title) printf 'Select language / 选择语言\n' ;;
-        en:language_hint) printf '1) 简体中文  2) English\n' ;;
-        en:language_prompt) printf 'Please choose [1-2], default 1: ' ;;
-        en:invalid_choice) printf 'Invalid choice, using default.\n' ;;
-        en:port_title) printf 'WebUI port\n' ;;
-        en:port_prompt) printf 'External port, default %s: ' "${DEFAULT_WEBUI_PORT}" ;;
-        en:port_invalid) printf 'Invalid port, using default %s.\n' "${DEFAULT_WEBUI_PORT}" ;;
-        en:working) printf 'Working' ;;
-        en:base_tools) printf 'Preparing base tools\n' ;;
-        en:docker_check) printf 'Checking Docker\n' ;;
-        en:docker_config) printf 'Preparing Docker client config\n' ;;
-        en:docker_missing) printf 'Docker is not installed. Install it from China mirror now? [Y/n]: ' ;;
-        en:docker_rejected) printf 'Docker installation cancelled. Please install Docker and rerun this script.\n' ;;
-        en:docker_install) printf 'Installing Docker from China mirror\n' ;;
-        en:docker_start) printf 'Starting Docker service\n' ;;
-        en:source) printf 'Preparing source code\n' ;;
-        en:source_update) printf 'Updating source: %s\n' "${APP_DIR}" ;;
-        en:source_clone) printf 'Cloning source: %s\n' "${REPOSITORY}" ;;
-        en:image_pull) printf 'Pulling Docker image\n' ;;
-        en:container_cleanup) printf 'Removing previous container\n' ;;
-        en:container_start) printf 'Starting container\n' ;;
-        en:container_failed) printf 'Container exited unexpectedly. Recent logs:\n' ;;
-        en:network) printf 'Collecting access addresses\n' ;;
-        en:done) printf 'Deployment completed\n' ;;
-        en:container) printf 'Container\n' ;;
-        en:source_dir) printf 'Source\n' ;;
-        en:public_url) printf 'Public URL\n' ;;
-        en:private_url) printf 'Private URL\n' ;;
-        en:webui_password) printf 'WebUI password\n' ;;
-        en:no_password) printf 'Not set\n' ;;
-        en:wait_webui) printf 'Waiting for WebUI startup\n' ;;
-        en:webui_timeout) printf 'WebUI startup timed out. Recent logs:\n' ;;
-        en:unsupported_docker) printf 'Unsupported system. Please install Docker manually and rerun this script.\n' ;;
-        en:unsupported_tools) printf 'Unsupported system. Please install git and curl manually and rerun this script.\n' ;;
-        en:missing_command) printf 'Missing command: %s\n' "${2:-}" ;;
-        en:ip_failed) printf 'Unavailable\n' ;;
-        zh:title) printf 'AzurPilot Docker 部署向导\n' ;;
-        zh:subtitle) printf '为 AzurPilot WebUI 准备运行环境\n' ;;
-        zh:language_title) printf 'Select language / 选择语言\n' ;;
-        zh:language_hint) printf '1) 简体中文  2) English\n' ;;
-        zh:language_prompt) printf '请选择 [1-2]，默认 1：' ;;
-        zh:invalid_choice) printf '输入无效，使用默认选项。\n' ;;
-        zh:port_title) printf 'WebUI 端口\n' ;;
-        zh:port_prompt) printf '对外端口，默认 %s：' "${DEFAULT_WEBUI_PORT}" ;;
-        zh:port_invalid) printf '端口无效，使用默认 %s。\n' "${DEFAULT_WEBUI_PORT}" ;;
-        zh:working) printf '正在处理' ;;
-        zh:base_tools) printf '准备基础工具\n' ;;
-        zh:docker_check) printf '检查 Docker\n' ;;
-        zh:docker_config) printf '准备 Docker 客户端配置\n' ;;
-        zh:docker_missing) printf '检测到未安装 Docker，是否使用国内镜像源自动安装？[Y/n]：' ;;
-        zh:docker_rejected) printf '已取消安装 Docker，请手动安装后重新运行脚本。\n' ;;
-        zh:docker_install) printf '使用国内镜像源安装 Docker\n' ;;
-        zh:docker_start) printf '启动 Docker 服务\n' ;;
-        zh:source) printf '准备源码\n' ;;
-        zh:source_update) printf '更新源码：%s\n' "${APP_DIR}" ;;
-        zh:source_clone) printf '克隆源码：%s\n' "${REPOSITORY}" ;;
-        zh:image_pull) printf '拉取 Docker 镜像\n' ;;
-        zh:container_cleanup) printf '清理旧容器\n' ;;
-        zh:container_start) printf '启动容器\n' ;;
-        zh:container_failed) printf '容器启动后异常退出，最近日志如下：\n' ;;
-        zh:network) printf '获取访问地址\n' ;;
-        zh:done) printf '部署完成\n' ;;
-        zh:container) printf '容器名\n' ;;
-        zh:source_dir) printf '源码目录\n' ;;
-        zh:public_url) printf '公网访问\n' ;;
-        zh:private_url) printf '内网访问\n' ;;
-        zh:webui_password) printf 'WebUI 密码\n' ;;
-        zh:no_password) printf '未设置\n' ;;
-        zh:wait_webui) printf '等待 WebUI 完全启动\n' ;;
-        zh:webui_timeout) printf '等待 WebUI 启动超时，最近日志如下：\n' ;;
-        zh:unsupported_docker) printf '当前系统暂不支持自动安装 Docker，请手动安装后重试。\n' ;;
-        zh:unsupported_tools) printf '当前系统暂不支持自动安装基础工具，请手动安装 git 和 curl 后重试。\n' ;;
-        zh:missing_command) printf '缺少命令：%s\n' "${2:-}" ;;
-        zh:ip_failed) printf '获取失败\n' ;;
+        en:title) printf 'Развёртывание AzurPilot в Docker\n' ;;
+        en:subtitle) printf 'Автоматическая подготовка среды для AzurPilot WebUI\n' ;;
+        en:language_title) printf 'Выберите язык сообщений\n' ;;
+        en:language_hint) printf '1) Русский  2) Русский\n' ;;
+        en:language_prompt) printf 'Выберите [1-2], по умолчанию 1: ' ;;
+        en:invalid_choice) printf 'Выбор недопустим, используется вариант по умолчанию.\n' ;;
+        en:port_title) printf 'Порт WebUI\n' ;;
+        en:port_prompt) printf 'Внешний порт, по умолчанию %s: ' "${DEFAULT_WEBUI_PORT}" ;;
+        en:port_invalid) printf 'Недопустимый порт, используется %s.\n' "${DEFAULT_WEBUI_PORT}" ;;
+        en:working) printf 'Выполняется' ;;
+        en:base_tools) printf 'Подготовка базовых инструментов\n' ;;
+        en:docker_check) printf 'Проверка Docker\n' ;;
+        en:docker_config) printf 'Подготовка конфигурации клиента Docker\n' ;;
+        en:docker_missing) printf 'Docker не установлен. Установить его из китайского зеркала? [Y/n]: ' ;;
+        en:docker_rejected) printf 'Установка Docker отменена. Установите Docker и снова запустите этот скрипт.\n' ;;
+        en:docker_install) printf 'Установка Docker из китайского зеркала\n' ;;
+        en:docker_start) printf 'Запуск службы Docker\n' ;;
+        en:source) printf 'Подготовка исходного кода\n' ;;
+        en:source_update) printf 'Обновление исходного кода: %s\n' "${APP_DIR}" ;;
+        en:source_clone) printf 'Клонирование исходного кода: %s\n' "${REPOSITORY}" ;;
+        en:image_pull) printf 'Загрузка образа Docker\n' ;;
+        en:container_cleanup) printf 'Удаление предыдущего контейнера\n' ;;
+        en:container_start) printf 'Запуск контейнера\n' ;;
+        en:container_failed) printf 'Контейнер неожиданно завершился. Последние записи журнала:\n' ;;
+        en:network) printf 'Получение адресов доступа\n' ;;
+        en:done) printf 'Развёртывание завершено\n' ;;
+        en:container) printf 'Контейнер\n' ;;
+        en:source_dir) printf 'Исходный код\n' ;;
+        en:public_url) printf 'Публичный URL\n' ;;
+        en:private_url) printf 'Локальный URL\n' ;;
+        en:webui_password) printf 'Пароль WebUI\n' ;;
+        en:no_password) printf 'Не задан\n' ;;
+        en:wait_webui) printf 'Ожидание запуска WebUI\n' ;;
+        en:webui_timeout) printf 'Превышено время ожидания запуска WebUI. Последние записи журнала:\n' ;;
+        en:unsupported_docker) printf 'Система не поддерживается. Установите Docker вручную и снова запустите этот скрипт.\n' ;;
+        en:unsupported_tools) printf 'Система не поддерживается. Установите git и curl вручную и снова запустите этот скрипт.\n' ;;
+        en:missing_command) printf 'Отсутствует команда: %s\n' "${2:-}" ;;
+        en:ip_failed) printf 'Недоступно\n' ;;
+        zh:title) printf 'Развёртывание AzurPilot в Docker\n' ;;
+        zh:subtitle) printf 'Автоматическая подготовка среды для AzurPilot WebUI\n' ;;
+        zh:language_title) printf 'Выберите язык сообщений\n' ;;
+        zh:language_hint) printf '1) Русский  2) Русский\n' ;;
+        zh:language_prompt) printf 'Выберите [1-2], по умолчанию 1: ' ;;
+        zh:invalid_choice) printf 'Выбор недопустим, используется вариант по умолчанию.\n' ;;
+        zh:port_title) printf 'Порт WebUI\n' ;;
+        zh:port_prompt) printf 'Внешний порт, по умолчанию %s: ' "${DEFAULT_WEBUI_PORT}" ;;
+        zh:port_invalid) printf 'Недопустимый порт, используется %s.\n' "${DEFAULT_WEBUI_PORT}" ;;
+        zh:working) printf 'Выполняется' ;;
+        zh:base_tools) printf 'Подготовка базовых инструментов\n' ;;
+        zh:docker_check) printf 'Проверка Docker\n' ;;
+        zh:docker_config) printf 'Подготовка конфигурации клиента Docker\n' ;;
+        zh:docker_missing) printf 'Docker не установлен. Установить его из китайского зеркала? [Y/n]: ' ;;
+        zh:docker_rejected) printf 'Установка Docker отменена. Установите Docker и снова запустите этот скрипт.\n' ;;
+        zh:docker_install) printf 'Установка Docker из китайского зеркала\n' ;;
+        zh:docker_start) printf 'Запуск службы Docker\n' ;;
+        zh:source) printf 'Подготовка исходного кода\n' ;;
+        zh:source_update) printf 'Обновление исходного кода: %s\n' "${APP_DIR}" ;;
+        zh:source_clone) printf 'Клонирование исходного кода: %s\n' "${REPOSITORY}" ;;
+        zh:image_pull) printf 'Загрузка образа Docker\n' ;;
+        zh:container_cleanup) printf 'Удаление предыдущего контейнера\n' ;;
+        zh:container_start) printf 'Запуск контейнера\n' ;;
+        zh:container_failed) printf 'Контейнер неожиданно завершился. Последние записи журнала:\n' ;;
+        zh:network) printf 'Получение адресов доступа\n' ;;
+        zh:done) printf 'Развёртывание завершено\n' ;;
+        zh:container) printf 'Контейнер\n' ;;
+        zh:source_dir) printf 'Исходный код\n' ;;
+        zh:public_url) printf 'Публичный URL\n' ;;
+        zh:private_url) printf 'Локальный URL\n' ;;
+        zh:webui_password) printf 'Пароль WebUI\n' ;;
+        zh:no_password) printf 'Не задан\n' ;;
+        zh:wait_webui) printf 'Ожидание запуска WebUI\n' ;;
+        zh:webui_timeout) printf 'Превышено время ожидания запуска WebUI. Последние записи журнала:\n' ;;
+        zh:unsupported_docker) printf 'Система не поддерживается. Установите Docker вручную и снова запустите этот скрипт.\n' ;;
+        zh:unsupported_tools) printf 'Система не поддерживается. Установите git и curl вручную и снова запустите этот скрипт.\n' ;;
+        zh:missing_command) printf 'Отсутствует команда: %s\n' "${2:-}" ;;
+        zh:ip_failed) printf 'Недоступно\n' ;;
         *) printf '%s\n' "$key" ;;
     esac
 }
@@ -158,11 +158,11 @@ print_header() {
     printf '%b\n' "${BOLD}$(t title)${RESET}"
     printf '%b\n' "${DIM}$(t subtitle)${RESET}"
     printf '%b\n' "${BLUE}============================================================${RESET}"
-    printf 'Repository : %s\n' "${REPOSITORY}"
-    printf 'Image      : %s\n' "${IMAGE}"
-    printf 'Source     : %s\n' "${APP_DIR}"
-    printf 'Container  : %s\n' "${CONTAINER}"
-    printf 'Port       : %s\n' "${WEBUI_PORT}"
+    printf 'Репозиторий: %s\n' "${REPOSITORY}"
+    printf 'Образ      : %s\n' "${IMAGE}"
+    printf 'Исходники  : %s\n' "${APP_DIR}"
+    printf 'Контейнер  : %s\n' "${CONTAINER}"
+    printf 'Порт       : %s\n' "${WEBUI_PORT}"
     printf '%b\n\n' "${BLUE}------------------------------------------------------------${RESET}"
 }
 
@@ -227,15 +227,15 @@ info() {
 }
 
 success() {
-    printf '%bOK%b %s\n' "${GREEN}" "${RESET}" "$*"
+    printf '%bГОТОВО%b %s\n' "${GREEN}" "${RESET}" "$*"
 }
 
 warn() {
-    printf '%bWARN%b %s\n' "${YELLOW}" "${RESET}" "$*"
+    printf '%bВНИМАНИЕ%b %s\n' "${YELLOW}" "${RESET}" "$*"
 }
 
 fail() {
-    printf '%bERROR%b %s\n' "${RED}" "${RESET}" "$*" >&2
+    printf '%bОШИБКА%b %s\n' "${RED}" "${RESET}" "$*" >&2
     exit 1
 }
 
