@@ -33,7 +33,7 @@ def retry(func):
                 break
             # adb server 被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -50,18 +50,18 @@ def retry(func):
                     break
             # 包未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
             # 未知异常，可能是损坏的图像
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
 
-        logger.critical(f'[设备-WSA] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство — WSA] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -91,7 +91,7 @@ class WSA(Connection):
                 return ret
         if ret:  # get last result
             return ret
-        raise OSError("Couldn't get focused app")
+        raise OSError('[Устройство] Не удалось определить активное приложение')
 
     @retry
     def app_start_wsa(self, package_name=None, display=0):
@@ -153,5 +153,5 @@ class WSA(Connection):
 
     @retry
     def display_resize_wsa(self, display):
-        logger.warning('display ' + str(display) + ' should be resized')
+        logger.warning('display ' + str(display) + ' следует изменить размер')
         self.adb_shell(['wm', 'size', '1280x720', '-d', str(display)])

@@ -77,7 +77,7 @@ def check_mumu_error_dialog():
                 )
                 if child_found[0]:
                     found = True
-                    logger.warning(f'[设备-Windows] 检测到MuMu错误对话框: "{text}"')
+                    logger.warning(f'[Устройство — Windows] Обнаружено окно ошибки MuMu: «{text}»')
         return True
 
     try:
@@ -86,7 +86,7 @@ def check_mumu_error_dialog():
             0
         )
     except Exception as e:
-        logger.warning(f'[设备-Windows] 检查MuMu错误对话框失败: {e}')
+        logger.warning(f'[Устройство — Windows] Не удалось проверить окна ошибок MuMu: {e}')
     return found
 
 
@@ -154,7 +154,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             subprocess.CompletedProcess: 同步执行时返回完成结果
         """
         command = command.replace(r"\\", "/").replace("\\", "/").replace('"', '"')
-        logger.info(f'[设备-Windows] 执行: {command}')
+        logger.info(f'[Устройство — Windows] Выполнение команды: {command}')
 
         if wait:
             # 同步执行，等待命令完成
@@ -167,10 +167,10 @@ class PlatformWindows(PlatformBase, EmulatorManager):
                     close_fds=True,
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
-                logger.info(f'[设备-Windows] 命令完成，返回码: {result.returncode}')
+                logger.info(f'[Устройство — Windows] Команда завершилась с кодом {result.returncode}')
                 return result
             except subprocess.TimeoutExpired:
-                logger.warning(f'[设备-Windows] 命令超时 {timeout} 秒')
+                logger.warning(f'[Устройство — Windows] Истёк тайм-аут команды: {timeout} с')
                 return None
         else:
             # 异步执行，不等待完成（原有行为）
@@ -194,7 +194,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
         for proc in psutil.process_iter():
             cmdline = DataProcessInfo(proc=proc, pid=proc.pid).cmdline
             if re.search(regex, cmdline):
-                logger.info(f'[设备-Windows] 终止模拟器: {cmdline}')
+                logger.info(f'[Устройство — Windows] Завершение эмулятора: {cmdline}')
                 proc.kill()
                 count += 1
 
@@ -221,7 +221,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             # the second launch request is handed over to a MuMuNxMain.exe that is still initializing
             # and gets silently dropped, while MuMuManager queues requests in backend service.
             if instance.MuMuPlayer12_id is None:
-                logger.warning(f'[设备-Windows] 无法从名称 {instance.name} 获取MuMu实例索引')
+                logger.warning(f'[Устройство — Windows] Не удалось получить индекс экземпляра MuMu из имени {instance.name}')
             self.execute(f'"{Emulator.single_to_console(exe)}" api -v {instance.MuMuPlayer12_id} launch_player')
         elif instance == Emulator.LDPlayerFamily:
             # ldconsole.exe launch --index 0
@@ -239,7 +239,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             # MEmu.exe MEmu_0
             self.execute(f'"{exe}" {instance.name}')
         elif instance.type == 'SSH':
-            logger.info('[设备-Windows] 通过远程命令启动SSH模拟器')
+            logger.info('[Устройство — Windows] Запуск эмулятора по удалённой команде SSH')
             self.run_remote_ssh_command(getattr(self.config, 'EmulatorInfo_RemoteStartCommand', ''))
         else:
             raise EmulatorUnknown(f'Cannot start an unknown emulator instance: {instance}')
@@ -284,8 +284,8 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             # MuMuManager.exe api -v 1 shutdown_player
             # 使用同步执行等待关闭完成，避免异步执行导致的实例查找失败
             if instance.MuMuPlayer12_id is None:
-                logger.warning(f'[设备-Windows] 无法从名称 {instance.name} 获取MuMu实例索引')
-            logger.info('[设备-Windows] MuMuPlayer12 关闭: 使用同步执行')
+                logger.warning(f'[Устройство — Windows] Не удалось получить индекс экземпляра MuMu из имени {instance.name}')
+            logger.info('[Устройство — Windows] Остановка MuMuPlayer12: используется синхронное выполнение')
             self.execute(
                 f'"{Emulator.single_to_console(exe)}" api -v {instance.MuMuPlayer12_id} shutdown_player',
                 wait=True,
@@ -313,7 +313,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             # F:\Program Files\Microvirt\MEmu\memuc.exe stop -n MEmu_0
             self.execute(f'"{Emulator.single_to_console(exe)}" stop -n {instance.name}')
         elif instance.type == 'SSH':
-            logger.info('[设备-Windows] 通过远程命令停止SSH模拟器')
+            logger.info('[Устройство — Windows] Остановка эмулятора по удалённой команде SSH')
             self.run_remote_ssh_command(getattr(self.config, 'EmulatorInfo_RemoteStopCommand', ''))
         else:
             raise EmulatorUnknown(f'Cannot stop an unknown emulator instance: {instance}')
@@ -335,13 +335,13 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             msg = str(e)
             # OSError: [WinError 740] 请求的操作需要提升。
             if 'WinError 740' in msg:
-                logger.error('[设备-Windows] 启动/停止MuMu需要以管理员身份运行')
+                logger.error('[Устройство — Windows] Для запуска или остановки MuMu требуются права администратора')
         except EmulatorUnknown as e:
-            logger.error(e)
+            logger.error(str(f'[Устройство — платформа Windows] Ошибка операции эмулятора: {e}'))
         except Exception as e:
-            logger.exception(e)
+            logger.exception(str(f'[Устройство — платформа Windows] Ошибка операции эмулятора: {e}'))
 
-        logger.error(f'[设备-Windows] 模拟器函数 {func.__name__}() 失败')
+        logger.error(f'[Устройство — Windows] Не удалось выполнить функцию эмулятора {func.__name__}()')
         return False
 
     def emulator_start_watch(self):
@@ -351,10 +351,10 @@ class PlatformWindows(PlatformBase, EmulatorManager):
         Returns:
             bool: True 表示启动完成，False 表示超时
         """
-        logger.hr('模拟器启动', level=2)
+        logger.hr('Запуск эмулятора', level=2)
         current_window = get_focused_window()
         serial = self.emulator_instance.serial
-        logger.info(f'[设备-Windows] 当前窗口: {current_window}')
+        logger.info(f'[Устройство — Windows] Текущее окно: {current_window}')
 
         def adb_connect():
             m = self.adb_client.connect(self.serial)
@@ -371,15 +371,15 @@ class PlatformWindows(PlatformBase, EmulatorManager):
 
         @run_once
         def show_online(m):
-            logger.info(f'[设备-Windows] 模拟器在线: {m}')
+            logger.info(f'[Устройство — Windows] Эмулятор доступен: {m}')
 
         @run_once
         def show_ping(m):
-            logger.info(f'[设备-Windows] 命令ping: {m}')
+            logger.info(f'[Устройство — Windows] Команда ping: {m}')
 
         @run_once
         def show_package(m):
-            logger.info(f'[设备-Windows] 找到碧蓝航线应用包: {m}')
+            logger.info(f'[Устройство — Windows] Найден пакет Azur Lane: {m}')
 
         interval = Timer(0.5).start()
         timeout = Timer(180).start()
@@ -388,7 +388,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             interval.wait()
             interval.reset()
             if timeout.reached():
-                logger.warning(f'[设备-Windows] 模拟器启动超时')
+                logger.warning(f'[Устройство — Windows] Истёк тайм-аут запуска эмулятора')
                 return False
 
             try:
@@ -396,7 +396,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
                 if current_window != 0 and new_window == 0:
                     new_window = get_focused_window()
                     if current_window != new_window:
-                        logger.info(f'[设备-Windows] 新窗口出现: {new_window}，焦点返回')
+                        logger.info(f'[Устройство — Windows] Появилось новое окно: {new_window}; фокус возвращён')
                         set_focus_window(current_window)
                     else:
                         new_window = 0
@@ -422,7 +422,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
                 try:
                     pong = self.adb_shell(['echo', 'pong'])
                 except Exception as e:
-                    logger.info(e)
+                    logger.info(str(f'[Устройство — платформа Windows] Ошибка ожидания запуска эмулятора: {e}'))
                     continue
                 show_ping(pong)
 
@@ -439,28 +439,28 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             except (ConnectionResetError, ConnectionAbortedError) as e:
                 # [WinError 10054] 远程主机强迫关闭了一个现有的连接。
                 # 模拟器启动期间经常出现
-                logger.info(e)
+                logger.info(str(f'[Устройство — платформа Windows] Ошибка ожидания запуска эмулятора: {e}'))
                 continue
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — платформа Windows] Ошибка ожидания запуска эмулятора: {e}'))
                 continue
 
             # MuMu 权限冲突等错误对话框检测
             # 检测到错误对话框时立即终止等待，返回 False 触发重试
             if check_mumu_error_dialog():
-                logger.warning('[设备-Windows] 检测到MuMu错误对话框，中止启动监视')
+                logger.warning('[Устройство — Windows] Обнаружено окно ошибки MuMu; наблюдение за запуском прервано')
                 return False
 
         if new_window != 0 and new_window != current_window:
-            logger.info(f'[设备-Windows] 最小化新窗口: {new_window}')
+            logger.info(f'[Устройство — Windows] Сворачивание нового окна: {new_window}')
             minimize_window(new_window)
         if current_window:
-            logger.info(f'[设备-Windows] 取消闪烁当前窗口: {current_window}')
+            logger.info(f'[Устройство — Windows] Отключение мигания текущего окна: {current_window}')
             flash_window(current_window, flash=False)
         if new_window:
-            logger.info(f'[设备-Windows] 闪烁新窗口: {new_window}')
+            logger.info(f'[Устройство — Windows] Мигание нового окна: {new_window}')
             flash_window(new_window, flash=True)
-        logger.info('[设备-Windows] 模拟器启动完成')
+        logger.info('[Устройство — Windows] Запуск эмулятора завершён')
         return True
 
     def emulator_start(self):
@@ -469,7 +469,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
         针对 MuMu12 等模拟器添加实例查找失败后的等待重试机制，
         以及权限冲突时的强制进程清理。
         """
-        logger.hr('模拟器启动', level=1)
+        logger.hr('Запуск эмулятора', level=1)
 
         # 检查是否为 MuMuPlayer12，添加实例查找失败的处理逻辑
         emulator_type = getattr(self.config, 'EmulatorInfo_Emulator', '')
@@ -496,15 +496,15 @@ class PlatformWindows(PlatformBase, EmulatorManager):
                         if name.lower() in ('mumuplayer.exe', 'mumumanager.exe',
                                             'nemuplayer.exe', 'nemuheadless.exe'):
                             has_mumu_process = True
-                            logger.warning(f'[设备-Windows] 检测到MuMu残留进程: {name} (PID={proc.pid})')
+                            logger.warning(f'[Устройство — Windows] Обнаружен оставшийся процесс MuMu: {name} (PID={proc.pid})')
                             proc.kill()
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
                 if has_mumu_process:
-                    logger.info('[设备-Windows] MuMuPlayer12: 已终止残留进程，等待5秒')
+                    logger.info('[Устройство — Windows] MuMuPlayer12: оставшиеся процессы завершены; ожидание 5 с')
                     time.sleep(5)
                 else:
-                    logger.info('[设备-Windows] MuMuPlayer12: 等待2秒让进程状态稳定')
+                    logger.info('[Устройство — Windows] MuMuPlayer12: ожидание стабилизации процессов 2 с')
                     time.sleep(2)
 
             # 再启动
@@ -512,7 +512,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
                 # 成功
                 if self.emulator_start_watch():
                     return True
-                logger.warning('[设备-Windows] 模拟器启动监视失败，重试中')
+                logger.warning('[Устройство — Windows] Ошибка наблюдения за запуском эмулятора; повторная попытка')
                 if self._emulator_function_wrapper(self._emulator_stop):
                     continue
                 else:
@@ -524,12 +524,12 @@ class PlatformWindows(PlatformBase, EmulatorManager):
                 else:
                     return False
 
-        logger.error('[设备-Windows] 尝试3次启动模拟器失败，已停止')
+        logger.error('[Устройство — Windows] Не удалось запустить эмулятор после 3 попыток; дальнейшие попытки прекращены')
         return False
 
     def emulator_stop(self):
         """停止模拟器，最多重试 3 次。"""
-        logger.hr('模拟器停止', level=1)
+        logger.hr('Остановка эмулятора', level=1)
         for _ in range(3):
             # 停止
             if self._emulator_function_wrapper(self._emulator_stop):
@@ -542,7 +542,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
                 else:
                     return False
 
-        logger.error('[设备-Windows] 尝试3次停止模拟器失败，已停止')
+        logger.error('[Устройство — Windows] Не удалось остановить эмулятор после 3 попыток; дальнейшие попытки прекращены')
         return False
 
 

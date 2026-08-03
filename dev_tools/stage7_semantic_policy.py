@@ -9,7 +9,7 @@ from dev_tools.russianization_audit import compact_json_bytes, json_bytes
 from dev_tools.stage7_log_audit import BLOCKING_METRICS, COLUMNS
 
 
-POLICY_SCOPE_SHA256 = "da95c21dd585811391c402aa716a43c1fb6590d4e3dad01deafc778b6a7b9b55"
+POLICY_SCOPE_SHA256 = "1d4b8713213dc595885a66a5f1c8104c199d5ad621917a760d85d31c0d1d8dba"
 
 
 def _ids(*values: int) -> tuple[str, ...]:

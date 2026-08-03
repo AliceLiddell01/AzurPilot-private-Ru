@@ -165,7 +165,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
         elif self.orientation == 3:
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         else:
-            raise ScriptError(f'Invalid device orientation: {self.orientation}')
+            raise ScriptError(f'Недопустимая ориентация устройства: {self.orientation}')
 
         return image
 
@@ -181,7 +181,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
         try:
             length = int(self.config.Error_ScreenshotLength)
         except ValueError:
-            logger.error(f'[设备-截图] Error_ScreenshotLength={self.config.Error_ScreenshotLength} 不是整数')
+            logger.error(f'[Устройство — снимок] Error_ScreenshotLength={self.config.Error_ScreenshotLength} не является целым числом')
             raise RequestHumanTakeover
         # 限制在 1~400 范围内
         length = max(1, min(length, 400))
@@ -239,7 +239,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             origin = self.config.Optimization_ScreenshotInterval
             interval = limit_in(origin, 0.001, 0.3)
             if interval != origin:
-                logger.warning(f'[设备-截图] Optimization.ScreenshotInterval {origin} 修正为 {interval}')
+                logger.warning(f'[Устройство — снимок] Optimization.ScreenshotInterval скорректирован: {origin} → {interval}')
                 self.config.Optimization_ScreenshotInterval = interval
             # 允许 nemu_ipc 使用更低的默认值
             if self.config.Emulator_ScreenshotMethod in ['nemu_ipc', 'ldopengl']:
@@ -248,20 +248,20 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             origin = self.config.Optimization_CombatScreenshotInterval
             interval = limit_in(origin, 0.001, 1.0)
             if interval != origin:
-                logger.warning(f'[设备-截图] Optimization.CombatScreenshotInterval {origin} 修正为 {interval}')
+                logger.warning(f'[Устройство — снимок] Optimization.CombatScreenshotInterval скорректирован: {origin} → {interval}')
                 self.config.Optimization_CombatScreenshotInterval = interval
         elif isinstance(interval, (int, float)):
             # 代码中手动设置无限制
             pass
         else:
-            logger.warning(f'[设备-截图] 未知的截图间隔: {interval}')
-            raise ScriptError(f'[设备-截图] 未知的截图间隔: {interval}')
+            logger.warning(f'[Устройство — снимок] Неизвестный интервал снимков экрана: {interval}')
+            raise ScriptError(f'[Устройство — снимок] Неизвестный интервал снимков экрана: {interval}')
         # scrcpy 的截图间隔无意义，视频流会持续接收，无论是否使用。
         if self.config.Emulator_ScreenshotMethod == 'scrcpy':
             interval = 0.1
 
         if interval != self._screenshot_interval.limit:
-            logger.info(f'[设备-截图] 截图间隔设置为 {interval}s')
+            logger.info(f'[Устройство — снимок] Интервал снимков экрана установлен на {interval} с')
             self._screenshot_interval.limit = interval
 
     def image_show(self, image=None):
@@ -296,18 +296,18 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
         for _ in range(2):
             # 检查屏幕分辨率
             width, height = image_size(self.image)
-            logger.attr('屏幕分辨率', f'{width}x{height}')
+            logger.attr('Разрешение экрана', f'{width}x{height}')
             if width == 1280 and height == 720:
                 self._screen_size_checked = True
                 return True
             elif not orientated and (width == 720 and height == 1280):
-                logger.info('[设备-截图] 收到方向截图，处理中')
+                logger.info('[Устройство — снимок] Получен снимок с изменённой ориентацией; выполняется обработка')
                 self.get_orientation()
                 self.image = self._handle_orientated_image(self.image)
                 orientated = True
                 width, height = image_size(self.image)
                 if width == 720 and height == 1280:
-                    logger.info('[设备-截图] 无法处理方向截图，暂时继续')
+                    logger.info('[Устройство — снимок] Не удалось обработать снимок с изменённой ориентацией; выполнение временно продолжается')
                     return True
                 else:
                     continue
@@ -315,7 +315,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 self.display_resize_wsa(0)
                 return False
             elif hasattr(self, 'app_is_running') and not self.app_is_running():
-                logger.warning('[设备-截图] 收到方向截图，游戏未运行')
+                logger.warning('[Устройство — снимок] Получен снимок с изменённой ориентацией, но игра не запущена')
                 return True
             else:
                 logger.error_context(
@@ -346,26 +346,25 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                     display = self.get_display_id()
                     if display == 0:
                         return True
-                logger.info(f'[设备-截图] 游戏运行在显示器 {display}')
-                logger.warning('[设备-截图] 游戏未运行在显示器0，将重启')
+                logger.info(f'[Устройство — снимок] Игра запущена на дисплее {display}')
+                logger.warning('[Устройство — снимок] Игра запущена не на дисплее 0; выполняется перезапуск')
                 self.app_stop_uiautomator2()
                 return False
             elif self.config.Emulator_ScreenshotMethod == 'uiautomator2':
-                logger.warning(f'[设备-截图] 收到模拟器纯黑截图, color: {color}')
-                logger.warning('[设备-截图] 卸载minicap并重试')
-                logger.warning('[设备-截图] 截图为纯黑色。通常是设备处于锁屏状态，或者当前模拟器不支持当前截图方式。')
+                logger.warning(f'[Устройство — снимок] Получен полностью чёрный снимок эмулятора, цвет: {color}')
+                logger.warning('[Устройство — снимок] Удаление minicap и повторная попытка')
+                logger.warning('[Устройство — снимок] Получен полностью чёрный снимок. Обычно устройство заблокировано либо текущий метод снимка экрана не поддерживается эмулятором')
                 self.uninstall_minicap()
                 self._screen_black_checked = False
                 return False
             else:
-                logger.warning(f'[设备-截图] 收到模拟器纯黑截图, color: {color}')
-                logger.warning(f'[设备-截图] 截图方式 `{self.config.Emulator_ScreenshotMethod}` '
-                               f'在模拟器 `{self.serial}` 上可能无法正常工作，或模拟器未完全启动')
+                logger.warning(f'[Устройство — снимок] Получен полностью чёрный снимок эмулятора, цвет: {color}')
+                logger.warning(f'[Устройство — снимок] Метод `{self.config.Emulator_ScreenshotMethod}` может не работать с эмулятором `{self.serial}` либо эмулятор ещё не полностью запущен')
                 if self.is_mumu_family:
                     if self.config.Emulator_ScreenshotMethod == 'DroidCast':
                         self.droidcast_stop()
                     else:
-                        logger.warning('[设备-截图] 如果使用的是 MuMu X，请升级到版本 >= 12.1.5.0')
+                        logger.warning('[Устройство — снимок] При использовании MuMu X обновитесь до версии >= 12.1.5.0')
                 self._screen_black_checked = False
                 return False
         else:

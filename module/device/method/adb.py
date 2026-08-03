@@ -48,7 +48,7 @@ def retry(func):
                 raise
             # ADB 服务被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -65,7 +65,7 @@ def retry(func):
                     break
             # 应用未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
@@ -78,7 +78,7 @@ def retry(func):
                     pass
             # 未知异常
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -87,9 +87,9 @@ def retry(func):
             'screenshot_adb', 'screenshot_adb_nc',
             '_app_start_adb_am', '_app_start_adb_monkey',
         ]:
-            logger.critical(f'[设备-ADB] 重试 {func.__name__}() 失败')
+            logger.critical(f'[Устройство — ADB] Не удалось выполнить {func.__name__}() после повторных попыток')
             raise EmulatorNotRunningError
-        logger.critical(f'[设备-ADB] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство — ADB] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -146,7 +146,7 @@ class Adb(Connection):
         elif method == 2:
             screenshot = screenshot.replace(b'\r\r\n', b'\n')
         else:
-            raise ScriptError(f'Unknown method to load screenshots: {method}')
+            raise ScriptError(f'Неизвестный метод загрузки снимка экрана: {method}')
 
         screenshot = remove_screenshot_warning(screenshot)
 
@@ -178,15 +178,15 @@ class Adb(Connection):
 
         self.__screenshot_method_fixed = self.__screenshot_method
         if len(screenshot) < 500:
-            logger.warning(f'[设备-ADB] 异常截图: {screenshot}')
-        raise OSError(f'cannot load screenshot')
+            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана; получено {len(screenshot)} байт')
+        raise OSError(f'Не удалось загрузить снимок экрана')
 
     @retry
     @Config.when(DEVICE_OVER_HTTP=False)
     def screenshot_adb(self):
         data = self.adb_shell(['screencap', '-p'], stream=True)
         if len(data) < 500:
-            logger.warning(f'[设备-ADB] 异常截图: {data}')
+            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана; получено {len(data)} байт')
 
         return self.__process_screenshot(data)
 
@@ -196,7 +196,7 @@ class Adb(Connection):
         data = self.adb_shell(['screencap'], stream=True)
         data = remove_screenshot_warning(data)
         if len(data) < 500:
-            logger.warning(f'[设备-ADB] 异常截图: {data}')
+            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана; получено {len(data)} байт')
 
         return load_screencap(data)
 
@@ -205,7 +205,7 @@ class Adb(Connection):
         data = self.adb_shell_nc(['screencap'])
         data = remove_screenshot_warning(data)
         if len(data) < 500:
-            logger.warning(f'[设备-ADB] 异常截图: {data}')
+            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана; получено {len(data)} байт')
 
         return load_screencap(data)
 
@@ -261,7 +261,7 @@ class Adb(Connection):
             ret = m.group('package')
         if ret:  # 取最后一个结果
             return ret
-        raise OSError("Couldn't get focused app")
+        raise OSError('[Устройство] Не удалось определить активное приложение')
 
     @retry
     def _app_start_adb_monkey(self, package_name=None, allow_failure=False):
@@ -328,7 +328,7 @@ class Adb(Connection):
                 try:
                     activity_name = activity_name.split('/')[-1]
                 except IndexError:
-                    logger.error(f'无Activity名称 {activity_name}')
+                    logger.error(f'Не указано имя Activity: {activity_name}')
                     return False
             else:
                 if allow_failure:
@@ -355,7 +355,7 @@ class Adb(Connection):
         # 已在运行
         # Warning: Activity not started, intent has been delivered to currently running top-most instance.
         if 'Warning: Activity not started' in ret:
-            logger.info('应用Activity已启动')
+            logger.info('Activity приложения запущена')
             return True
         # 权限拒绝
         # Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=com.YoStarEN.AzurLane/com.manjuu.azurlane.MainActivity }
@@ -365,7 +365,7 @@ class Adb(Connection):
                 return False
             else:
                 logger.error(ret)
-                logger.error('[设备-ADB] Permission Denial while starting app, probably because activity invalid')
+                logger.error('[Устройство — ADB] Отказ в разрешении при запуске приложения; вероятно, указана недопустимая Activity')
                 return False
         # 启动成功
         # Starting: Intent...
@@ -402,7 +402,7 @@ class Adb(Connection):
         if self._app_start_adb_am(package_name, activity_name, allow_failure):
             return True
 
-        logger.error('所有尝试失败')
+        logger.error('Все попытки завершились неудачно')
         return False
 
     @retry

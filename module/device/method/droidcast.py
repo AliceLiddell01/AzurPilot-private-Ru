@@ -47,7 +47,7 @@ def retry(func):
                 break
             # ADB 服务被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -64,7 +64,7 @@ def retry(func):
                     break
             # 应用未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
@@ -72,13 +72,13 @@ def retry(func):
             # requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
             # ReadTimeout: HTTPConnectionPool(host='127.0.0.1', port=20482): Read timed out. (read timeout=3)
             except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.droidcast_init()
             # DroidCast 版本不兼容
             except DroidCastVersionIncompatible as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.droidcast_init()
@@ -94,15 +94,15 @@ def retry(func):
                 raise
             # 未知异常
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
 
         if func.__name__ in ['screenshot_droidcast', 'screenshot_droidcast_raw']:
-            logger.critical(f'[设备-DroidCast] 重试 {func.__name__}() 失败')
+            logger.critical(f'[Устройство — DroidCast] Не удалось выполнить {func.__name__}() после повторных попыток')
             raise EmulatorNotRunningError
-        logger.critical(f'[设备-DroidCast] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство — DroidCast] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -162,14 +162,14 @@ class DroidCast(Uiautomator2):
         return f'http://127.0.0.1:{self._droidcast_port}{url}'
 
     def droidcast_init(self):
-        logger.hr('[设备-DroidCast] DroidCast初始化')
+        logger.hr('[Устройство — DroidCast] Инициализация DroidCast')
         self.droidcast_stop()
         self._droidcast_update_resolution()
 
-        logger.info('[设备-DroidCast] 推送DroidCast APK')
+        logger.info('[Устройство — DroidCast] Отправка APK DroidCast')
         self.adb_push(self.config.DROIDCAST_FILEPATH_LOCAL, self.config.DROIDCAST_FILEPATH_REMOTE)
 
-        logger.info('[设备-DroidCast] 启动DroidCast APK')
+        logger.info('[Устройство — DroidCast] Запуск APK DroidCast')
         # DroidCast_raw-release-1.1.apk
         # CLASSPATH=/data/local/tmp/DroidCast_raw.apk app_process / ink.mol.droidcast_raw.Main > /dev/null
         # adb shell CLASSPATH=/data/local/tmp/DroidCast_raw.apk app_process / ink.mol.droidcast_raw.Main
@@ -186,23 +186,23 @@ class DroidCast(Uiautomator2):
         _ = self.droidcast_session
 
         if self.config.DROIDCAST_VERSION == 'DroidCast':
-            logger.attr('DroidCast地址', self.droidcast_url())
+            logger.attr('Адрес DroidCast', self.droidcast_url())
             self.droidcast_wait_startup()
         elif self.config.DROIDCAST_VERSION == 'DroidCast_raw':
-            logger.attr('DroidCast原始地址', self.droidcast_raw_url())
+            logger.attr('Исходный адрес DroidCast', self.droidcast_raw_url())
             self.droidcast_wait_startup()
         else:
-            logger.error(f'未知的DROIDCAST版本: {self.config.DROIDCAST_VERSION}')
+            logger.error(f'Неизвестная версия DROIDCAST: {self.config.DROIDCAST_VERSION}')
 
     def _droidcast_update_resolution(self):
         if self.is_mumu_over_version_356:
-            logger.info('[设备-DroidCast] 更新DroidCast分辨率')
+            logger.info('[Устройство — DroidCast] Обновление разрешения DroidCast')
             w, h = self.resolution_uiautomator2(cal_rotation=False)
             self.get_orientation()
             # 720, 1280
             # mumu12 > 3.5.6 始终为竖屏设备
             self.droidcast_width, self.droidcast_height = w, h
-            logger.info(f'DroidCast分辨率: {(w, h)}')
+            logger.info(f'Разрешение DroidCast: {(w, h)}')
 
     @retry
     def screenshot_droidcast(self):
@@ -222,7 +222,7 @@ class DroidCast(Uiautomator2):
         if image.shape == (1843200,):
             raise DroidCastVersionIncompatible('Requesting screenshots from `DroidCast` but server is `DroidCast_raw`')
         if image.size < 500:
-            logger.warning(f'[设备-DroidCast] 异常截图: {resp.content}')
+            logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана; получено {len(resp.content)} байт')
 
         image = cv2.imdecode(image, cv2.IMREAD_COLOR)
         if image is None:
@@ -262,8 +262,8 @@ class DroidCast(Uiautomator2):
         # 例如 b':(  Failed to generate the screenshot on device / emulator: ...'
         # 抛出 ConnectionError 以在重试处理器中立即触发 droidcast_init
         if len(image) < 500:
-            logger.warning(f'[设备-DroidCast] 异常截图: {image}')
-            raise requests.exceptions.ConnectionError(f'DroidCast service error: {image!r}')
+            logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана; получено {len(image)} байт')
+            raise requests.exceptions.ConnectionError(f'[Устройство — DroidCast] Ошибка службы; получено {len(image)} байт')
 
         try:
             arr = np.frombuffer(image, dtype=np.uint16)
@@ -327,12 +327,12 @@ class DroidCast(Uiautomator2):
                 resp = self.droidcast_session.get(self.droidcast_url('/'), timeout=3)
                 # 路由 `/` 不可用，但 404 表示启动已完成
                 if resp.status_code == 404:
-                    logger.attr('DroidCast状态', '在线')
+                    logger.attr('Состояние DroidCast', 'в сети')
                     return True
             except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
-                logger.attr('DroidCast状态', '离线')
+                logger.attr('Состояние DroidCast', 'не в сети')
 
-        logger.warning('[设备-DroidCast] DroidCast启动超时，假定已启动')
+        logger.warning('[Устройство — DroidCast] Истёк тайм-аут запуска DroidCast; служба считается запущенной')
         return False
 
     def droidcast_uninstall(self):
@@ -341,7 +341,7 @@ class DroidCast(Uiautomator2):
         DroidCast 并非真正安装，而是通过 JAVA 类调用，卸载即删除文件。
         """
         self.droidcast_stop()
-        logger.info('[设备-DroidCast] 移除DroidCast')
+        logger.info('[Устройство — DroidCast] Удаление DroidCast')
         self.adb_shell(["rm", self.config.DROIDCAST_FILEPATH_REMOTE])
 
     def _iter_droidcast_proc(self) -> t.Iterable[ProcessInfo]:
@@ -357,7 +357,7 @@ class DroidCast(Uiautomator2):
 
     def droidcast_stop(self):
         """停止 DroidCast 进程。"""
-        logger.info('[设备-DroidCast] 停止DroidCast')
+        logger.info('[Устройство — DroidCast] Остановка DroidCast')
         for proc in self._iter_droidcast_proc():
-            logger.info(f'[设备-DroidCast] 终止进程PID={proc.pid}')
+            logger.info(f'[Устройство — DroidCast] Завершение процесса PID={proc.pid}')
             self.adb_shell(['kill', '-s', 9, proc.pid])

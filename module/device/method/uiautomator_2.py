@@ -40,14 +40,14 @@ def retry(func):
                 break
             # adb server 被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
             # 在 `device.set_new_command_timeout(604800)` 时
             # json.decoder.JSONDecodeError: Expecting value: line 1 column 2 (char 1)
             except JSONDecodeError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.install_uiautomator2()
@@ -72,15 +72,14 @@ def retry(func):
             # 在 `assert c.read string(4) == _OKAY` 时
             # 模拟器未启用 ADB
             except AssertionError as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
                 possible_reasons(
-                    '如果你使用的是 BlueStacks、雷电模拟器或 WSA，'
-                    '请在模拟器设置中启用 ADB'
+                    '[Устройство — ADB] Если используется BlueStacks, LDPlayer или WSA, включите ADB в настройках эмулятора'
                 )
                 break
             # 包未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
@@ -96,7 +95,7 @@ def retry(func):
                 raise
             # 未知异常
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -105,10 +104,10 @@ def retry(func):
             '_app_start_u2_am', '_app_start_u2_monkey',
             'screenshot_uiautomator2',
         ]:
-            logger.critical(f'[设备-U2] 重试 {func.__name__}() 失败')
+            logger.critical(f'[Устройство — uiautomator2] Не удалось выполнить {func.__name__}() после повторных попыток')
             raise EmulatorNotRunningError
 
-        logger.critical(f'[设备-U2] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство — uiautomator2] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -195,13 +194,13 @@ class Uiautomator2(Connection):
             x, y, second = data
             if index == 0:
                 self.u2.touch.down(x, y)
-                logger.info(point2str(x, y) + ' 按下')
+                logger.info(point2str(x, y) + ' нажатие')
             elif index - length == -1:
                 self.u2.touch.up(x, y)
-                logger.info(point2str(x, y) + ' 抬起')
+                logger.info(point2str(x, y) + ' отпускание')
             else:
                 self.u2.touch.move(x, y)
-                logger.info(point2str(x, y) + ' 移动')
+                logger.info(point2str(x, y) + ' перемещение')
             self.sleep(second)
 
     def drag_uiautomator2(self, p1, p2, segments=1, shake=(0, 15), point_random=(-10, -10, 10, 10),
@@ -301,7 +300,7 @@ class Uiautomator2(Connection):
                     return False
                 # BaseError('package "111" not found')
                 elif 'not found' in str(e):
-                    logger.error(e)
+                    logger.error(str(f'[Устройство — uiautomator2] Ошибка запуска приложения через uiautomator2: {e}'))
                     raise PackageNotInstalled(package_name)
                 # 未知错误
                 else:
@@ -326,7 +325,7 @@ class Uiautomator2(Connection):
         # 已在运行
         # Warning: Activity not started, intent has been delivered to currently running top-most instance.
         if 'Warning: Activity not started' in ret.output:
-            logger.info('应用Activity已启动')
+            logger.info('Activity приложения запущена')
             return True
         # Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=com.YoStarEN.AzurLane/com.manjuu.azurlane.MainActivity }
         # java.lang.SecurityException: Permission Denial: starting Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10000000 cmp=com.YoStarEN.AzurLane/com.manjuu.azurlane.MainActivity } from null (pid=5140, uid=2000) not exported from uid 10064
@@ -344,7 +343,7 @@ class Uiautomator2(Connection):
                 return False
             else:
                 logger.error(ret)
-                logger.error('启动应用时权限拒绝，可能Activity无效')
+                logger.error('Отказ в разрешении при запуске приложения; вероятно, указана недопустимая Activity')
                 return False
         # 成功
         # Starting: Intent...
@@ -383,7 +382,7 @@ class Uiautomator2(Connection):
         if self._app_start_u2_am(package_name, activity_name, allow_failure):
             return True
 
-        logger.error('[设备-U2] 所有尝试失败')
+        logger.error('[Устройство — uiautomator2] Все попытки завершились неудачно')
         return False
 
     @retry
@@ -400,7 +399,7 @@ class Uiautomator2(Connection):
         return hierarchy
 
     def uninstall_uiautomator2(self):
-        logger.info('[设备-U2] 移除uiautomator2')
+        logger.info('[Устройство — uiautomator2] Удаление uiautomator2')
         for file in [
             'app-uiautomator.apk',
             'app-uiautomator-test.apk',
@@ -430,7 +429,7 @@ class Uiautomator2(Connection):
             result = self.adb_shell(['wm', 'size'])
             lines = result.strip().split('\n')
         except Exception:
-            logger.warning('[设备-U2] 执行adb shell wm size失败，回退到u2 /info')
+            logger.warning('[Устройство — uiautomator2] Не удалось выполнить `adb shell wm size`; используется `/info` uiautomator2')
 
         if lines:
             w, h = None, None
@@ -478,8 +477,7 @@ class Uiautomator2(Connection):
                 return w, h
 
             logger.warning(
-                'Failed to parse resolution from ADB wm size, fallback to u2 /info. '
-                f'Raw output: {result!r}'
+                f'Не удалось определить разрешение из вывода `ADB wm size`; используется `/info` uiautomator2. Исходный вывод: {result!r}'
             )
 
         # 回退到 uiautomator2 /info 接口
@@ -503,14 +501,14 @@ class Uiautomator2(Connection):
             RequestHumanTakeover: 分辨率不是 1280x720 时抛出
         """
         width, height = self.resolution_uiautomator2()
-        logger.attr('屏幕尺寸', f'{width}x{height}')
+        logger.attr('Размер экрана', f'{width}x{height}')
         if width == 1280 and height == 720:
             return (width, height)
         if width == 720 and height == 1280:
             return (width, height)
 
-        logger.critical(f"[设备-U2] 大叔，你看着分辨率对吗: {width}x{height}。真是个连分辨率都不会设的杂鱼呢❤")
-        logger.critical("[设备-U2] 乖乖给我改成 1280x720 哦，不然我可不理你了❤")
+        logger.critical(f'[Устройство — uiautomator2] Обнаружено разрешение {width}x{height}; требуется 1280x720')
+        logger.critical('[Устройство — uiautomator2] Установите разрешение 1280x720')
         raise RequestHumanTakeover
 
     @retry
@@ -544,7 +542,7 @@ class Uiautomator2(Connection):
         elif isinstance(cmdline, str):
             cmdline = cmdline
         else:
-            raise TypeError("cmdargs type invalid", type(cmdline))
+            raise TypeError('Недопустимый тип cmdargs', type(cmdline))
 
         data = dict(command=cmdline, timeout=str(timeout))
         ret = self.u2.http.post("/shell/background", data=data, timeout=timeout + 10)

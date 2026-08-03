@@ -89,19 +89,19 @@ class LDConsole:
             bytes:
         """
         cmd = [self.ld_console] + cmd
-        logger.info(f'执行: {cmd}')
+        logger.info(f'[Устройство — LDOpenGL] Выполнение команды: {cmd}')
 
         try:
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=False)
         except FileNotFoundError as e:
-            logger.warning(f'调用时警告 {cmd}, {str(e)}')
+            logger.warning(f'[Устройство — LDOpenGL] Предупреждение при выполнении {cmd}: {str(e)}')
             raise LDOpenGLIncompatible(f'ld_folder does not have ldconsole.exe')
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
-            logger.warning(f'调用超时 {cmd}, stdout={stdout}, stderr={stderr}')
+            logger.warning(f'[Устройство — LDOpenGL] Истёк тайм-аут команды {cmd}, stdout={stdout}, stderr={stderr}')
         return stdout
 
     def list2(self):
@@ -122,13 +122,13 @@ class LDConsole:
             info = row.split(b',')
             # 检查字段数
             if len(info) != 10:
-                logger.warning(f'雷电模拟器信息不足10部分: "{row}"')
+                logger.warning(f'Сведения об экземпляре LDPlayer содержат менее 10 частей: «{row}»')
                 continue
             # 构建信息
             try:
                 info = DataLDPlayerInfo(*info)
             except Exception as e:
-                logger.warning(f'无法构建雷电模拟器信息 "{row}", {e}')
+                logger.warning(f'Не удалось сформировать сведения об экземпляре LDPlayer «{row}»: {e}')
             out.append(info)
         return out
 
@@ -170,22 +170,22 @@ def retry(func):
                 break
             # 不可处理
             except LDOpenGLIncompatible as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — LDOpenGL] Ошибка повторной попытки: {e}'))
                 break
             # LDOpenGLError
             except LDOpenGLError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — LDOpenGL] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
             # 未知异常，可能是损坏的图像
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — LDOpenGL] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
 
-        logger.critical(f'[设备-ldopengl] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство — LDOpenGL] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -200,16 +200,13 @@ class LDOpenGLImpl:
         """
         ldopengl_dll = os.path.abspath(os.path.join(ld_folder, './ldopengl64.dll'))
         logger.info(
-            f'[设备-ldopengl] LDOpenGL init, '
-            f'ld_folder={ld_folder}, '
-            f'ldopengl_dll={ldopengl_dll}, '
-            f'instance_id={instance_id}'
+            f'[Устройство — LDOpenGL] Инициализация: каталог LDPlayer={ld_folder}, библиотека LDOpenGL={ldopengl_dll}, ID экземпляра={instance_id}'
         )
         # 加载 DLL
         try:
             self.lib = ctypes.WinDLL(ldopengl_dll)
         except OSError as e:
-            logger.error(e)
+            logger.error(str(f'[Устройство — LDOpenGL] Ошибка инициализации backend: {e}'))
             if not os.path.exists(ldopengl_dll):
                 raise LDOpenGLIncompatible(
                     f'ldopengl_dll={ldopengl_dll} does not exist, '
@@ -243,11 +240,11 @@ class LDOpenGLImpl:
         """
         for info in self.console.list2():
             if info.index == instance_id:
-                logger.info(f'[设备-ldopengl] 匹配雷电模拟器实例: {info}')
+                logger.info(f'[Устройство — LDOpenGL] Найден экземпляр LDPlayer: {info}')
                 if not info.sysboot:
-                    raise LDOpenGLError('尝试连接雷电模拟器实例，但模拟器未运行')
+                    raise LDOpenGLError('[Устройство — LDPlayer] Попытка подключения к экземпляру LDPlayer, но эмулятор не запущен')
                 return info
-        raise LDOpenGLError(f'No LDPlayer instance with index {instance_id}')
+        raise LDOpenGLError(f'[Устройство — LDPlayer] Не найден экземпляр с индексом {instance_id}')
 
     @retry
     def screenshot(self):
@@ -261,7 +258,7 @@ class LDOpenGLImpl:
         img_ptr = self.screenshot_instance.cap()
         # ValueError: 空指针访问
         if img_ptr is None:
-            raise LDOpenGLError('图像指针为空')
+            raise LDOpenGLError('[Устройство — LDOpenGL] Указатель изображения равен null')
 
         img = ctypes.cast(img_ptr, ctypes.POINTER(ctypes.c_ubyte * (height * width * 3))).contents
 
@@ -309,14 +306,14 @@ class LDOpenGL(Platform):
                         instance_id=index,
                     )
                 except (LDOpenGLIncompatible, LDOpenGLError) as e:
-                    logger.error(e)
-                    logger.error('[设备-ldopengl] 模拟器信息不正确')
+                    logger.error(str(f'[Устройство — LDOpenGL] Ошибка получения снимка экрана: {e}'))
+                    logger.error('[Устройство — LDOpenGL] Некорректные сведения об эмуляторе')
 
         # 搜索模拟器实例
         # 例如 E:/ProgramFiles/LDPlayer9/dnplayer.exe
         # 安装路径为 E:/ProgramFiles/LDPlayer9
         if self.emulator_instance is None:
-            logger.error('[设备-ldopengl] 无法使用 LDOpenGL，因为未找到模拟器实例')
+            logger.error('[Устройство — LDOpenGL] LDOpenGL недоступен: экземпляр эмулятора не найден')
             raise RequestHumanTakeover
         try:
             return LDOpenGLImpl(
@@ -324,8 +321,8 @@ class LDOpenGL(Platform):
                 instance_id=self.emulator_instance.LDPlayer_id,
             )
         except (LDOpenGLIncompatible, LDOpenGLError) as e:
-            logger.error(e)
-            logger.error('[设备-ldopengl] 无法初始化 LDOpenGL')
+            logger.error(str(f'[Устройство — LDOpenGL] Ошибка получения снимка экрана: {e}'))
+            logger.error('[Устройство — LDOpenGL] Не удалось инициализировать LDOpenGL')
             raise RequestHumanTakeover
 
     def ldopengl_available(self) -> bool:
@@ -333,7 +330,7 @@ class LDOpenGL(Platform):
             return False
         if not self.is_ldplayer_bluestacks_family:
             return False
-        logger.attr('模拟器信息', self.config.EmulatorInfo_Emulator)
+        logger.attr('Сведения об эмуляторе', self.config.EmulatorInfo_Emulator)
         if self.config.EmulatorInfo_Emulator not in ['LDPlayer9', 'LDPlayer14']:
             return False
 

@@ -448,7 +448,7 @@ def _ws_scrcpy_parse_initial(data):
             "client_id": client_id,
         }
     except Exception as e:
-        logger.warning(f"[WebUI] 解析 ws-scrcpy 初始信息失败: {e}")
+        logger.warning(f'[WebUI] Не удалось разобрать начальные данные ws-scrcpy: {e}')
         return None
 
 
@@ -564,11 +564,11 @@ class LiveWsScrcpySession:
         if not os.path.exists(WS_SCRCPY_FILEPATH_LOCAL):
             raise RuntimeError(f"Сервер ws-scrcpy не найден: {WS_SCRCPY_FILEPATH_LOCAL}")
 
-        logger.hr("[WebUI] 实时 ws-scrcpy 预览启动")
+        logger.hr('[WebUI] Запуск предпросмотра ws-scrcpy')
         self.connection.adb_push(WS_SCRCPY_FILEPATH_LOCAL, WS_SCRCPY_FILEPATH_REMOTE)
         self.local_port = self.connection.adb_forward(f"tcp:{WS_SCRCPY_PORT}")
         if self._server_running():
-            logger.info("[WebUI] ws-scrcpy server 已在运行，复用设备端服务")
+            logger.info('[WebUI] Сервер ws-scrcpy уже запущен; используется существующая служба устройства')
             return
         output = self.connection.adb_shell(self._server_command(), timeout=2)
         if output:
@@ -604,9 +604,9 @@ class LiveWsScrcpySession:
             code = getattr(e, "code", None)
             reason = getattr(e, "reason", "")
             if code is not None:
-                logger.warning(f"[WebUI] ws-scrcpy 设备端连接关闭: code={code}, reason={reason}")
+                logger.warning(f'[WebUI] Соединение ws-scrcpy с устройством закрыто: code={code}, reason={reason}')
             else:
-                logger.warning(f"[WebUI] ws-scrcpy 设备端接收失败: {_live_preview_error_message(e)}")
+                logger.warning(f'[WebUI] Ошибка получения данных ws-scrcpy от устройства: {_live_preview_error_message(e)}')
             return None
         if isinstance(data, str):
             return data.encode("utf-8", errors="replace")
@@ -625,7 +625,7 @@ class LiveWsScrcpySession:
             future = asyncio.run_coroutine_threadsafe(self.send_binary(data), self.loop)
             future.result(timeout=2)
         except Exception as e:
-            logger.warning(f"[WebUI] 发送 ws-scrcpy 控制消息失败: {e}")
+            logger.warning(f'[WebUI] Не удалось отправить управляющее сообщение ws-scrcpy: {e}')
 
     def _scale_point(self, x, y):
         width, height = self.resolution
@@ -686,7 +686,7 @@ class LiveWsScrcpySession:
             self._send_control(self._text_message(text))
 
     async def stop_async(self):
-        logger.hr("[WebUI] 实时 ws-scrcpy 预览停止")
+        logger.hr('[WebUI] Остановка предпросмотра ws-scrcpy')
         self.alive = False
         if self.remote_ws is not None:
             try:
@@ -716,7 +716,7 @@ class LiveWsScrcpySession:
             try:
                 self.server_stream.close()
             except Exception as e:
-                logger.warning(f"[WebUI] 关闭 ws-scrcpy server stream 失败: {e}")
+                logger.warning(f'[WebUI] Не удалось закрыть server stream ws-scrcpy: {e}')
         self.server_stream = None
 
 
@@ -813,7 +813,7 @@ class LiveScrcpySession:
 
     def start(self):
         try:
-            logger.hr("[WebUI] 实时 scrcpy 预览启动")
+            logger.hr('[WebUI] Запуск предпросмотра scrcpy')
             self.connection.adb_push(self.config.SCRCPY_FILEPATH_LOCAL, self.config.SCRCPY_FILEPATH_REMOTE)
             self.server_stream = self.connection.adb.shell(self._scrcpy_command(), stream=True)
             self.server_stream.conn.settimeout(3)
@@ -835,12 +835,12 @@ class LiveScrcpySession:
             self.control_socket = self._connect_scrcpy_socket()
             device_name = self.video_socket.recv(64).decode("utf-8", errors="replace").rstrip("\x00")
             if device_name:
-                logger.attr("Scrcpy直播设备", device_name)
+                logger.attr('Устройство предпросмотра scrcpy', device_name)
             resolution = self.video_socket.recv(4)
             if len(resolution) != 4:
                 raise RuntimeError("scrcpy не вернул разрешение видео")
             self.resolution = struct.unpack(">HH", resolution)
-            logger.attr("Scrcpy直播分辨率", self.resolution)
+            logger.attr('Разрешение предпросмотра scrcpy', self.resolution)
             self.video_socket.settimeout(1)
             self.alive = True
         except Exception:
@@ -918,7 +918,7 @@ class LiveScrcpySession:
             self.control_sender.text(text)
 
     def stop(self):
-        logger.hr("[WebUI] 实时 scrcpy 预览停止")
+        logger.hr('[WebUI] Остановка предпросмотра scrcpy')
         self.alive = False
         for obj in (self.control_socket, self.video_socket, self.server_stream):
             if obj is None:
@@ -926,7 +926,7 @@ class LiveScrcpySession:
             try:
                 obj.close()
             except Exception as e:
-                logger.warning(f"[WebUI] 关闭 scrcpy 资源失败: {e}")
+                logger.warning(f'[WebUI] Не удалось закрыть ресурсы scrcpy: {e}')
         self.control_socket = None
         self.video_socket = None
         self.server_stream = None
@@ -1050,13 +1050,13 @@ async def ws_live_screenshot(websocket):
         except Exception as e:
             if mode == "scrcpy":
                 message = _live_preview_error_message(e)
-                logger.error(f"ws_live_scrcpy error: {message}")
+                logger.error(f'[WebUI] Ошибка ws_live_scrcpy: {message}')
                 try:
                     await websocket.send_text(json.dumps({"type": "error", "message": message}))
                 except Exception:
                     pass
                 return
-            logger.warning(f"[WebUI] scrcpy 预览不可用，回退截图模式: {_live_preview_error_message(e)}")
+            logger.warning(f'[WebUI] Предпросмотр scrcpy недоступен; используется режим снимков экрана: {_live_preview_error_message(e)}')
 
     ffmpeg = _get_ffmpeg_path()
     if not ffmpeg:
@@ -1077,7 +1077,7 @@ async def _ws_live_scrcpy(websocket, instance, fps, target_width, bitrate_scale)
     except WebSocketDisconnect:
         raise
     except Exception as e:
-        logger.warning(f"[WebUI] ws-scrcpy 预览不可用，回退原版 scrcpy: {_live_preview_error_message(e)}")
+        logger.warning(f'[WebUI] Предпросмотр ws-scrcpy недоступен; используется исходный scrcpy: {_live_preview_error_message(e)}')
 
     await _ws_live_raw_scrcpy(websocket, instance, fps, target_width, bitrate_scale)
 
@@ -1107,13 +1107,13 @@ async def _ws_live_ws_scrcpy(websocket, instance, fps, target_width, bitrate_sca
         session.resolution = (max(1, width), max(1, height))
         session.device_name = info.get("device_name") or ""
         if session.device_name:
-            logger.attr("WsScrcpy直播设备", session.device_name)
-        logger.attr("WsScrcpy直播分辨率", session.resolution)
+            logger.attr('Устройство предпросмотра ws-scrcpy', session.device_name)
+        logger.attr('Разрешение предпросмотра ws-scrcpy', session.resolution)
 
         await session.send_binary(_build_ws_scrcpy_video_settings(target_width, fps, session.bitrate))
         preroll = await _collect_ws_scrcpy_preroll(session)
         codec_string = _h264_avc1_codec_from_chunks(preroll)
-        logger.attr("WsScrcpy预缓冲", f"{sum(len(item) for item in preroll)} bytes, {codec_string}")
+        logger.attr('Предварительный буфер ws-scrcpy', f'{sum((len(item) for item in preroll))} байт, {codec_string}')
         await websocket.send_text(json.dumps({
             "type": "ready",
             "mode": "ws-scrcpy",
@@ -1172,7 +1172,7 @@ async def _ws_live_raw_scrcpy(websocket, instance, fps, target_width, bitrate_sc
             raise RuntimeError("scrcpy не передал видеоданные H.264")
         codec_string = _h264_avc1_codec(preroll)
         description = _h264_avcc_description(preroll)
-        logger.attr("Scrcpy预缓冲", f"{len(preroll)} bytes, {codec_string}")
+        logger.attr('Предварительный буфер scrcpy', f'{len(preroll)} байт, {codec_string}')
         await websocket.send_text(json.dumps({
             "type": "ready",
             "mode": "scrcpy",
@@ -1310,7 +1310,7 @@ async def _ws_live_screenshot_fallback(websocket, instance, codec, ffmpeg, fps, 
         pass
     except Exception as e:
         message = _live_preview_error_message(e)
-        logger.error(f"ws_live_screenshot error: {message}")
+        logger.error(f'[WebUI] Ошибка ws_live_screenshot: {message}')
         try:
             await websocket.send_text(json.dumps({"type": "error", "message": message}))
         except Exception:
@@ -1362,31 +1362,31 @@ async def ws_live_control(websocket):
             if action == "tap":
                 x = int(data.get("x", 0))
                 y = int(data.get("y", 0))
-                logger.info(f"[WebUI] 实时预览控制：点击 ({x}, {y})")
+                logger.info(f'[WebUI] Управление предпросмотром: нажатие ({x}, {y})')
                 await asyncio.to_thread(target.tap, x, y)
             elif action == "drag":
                 start = data.get("start") or {}
                 end = data.get("end") or {}
                 duration_ms = data.get("duration_ms", 220)
-                logger.info(f"[WebUI] 实时预览控制：拖拽 {start} -> {end}")
+                logger.info(f'[WebUI] Управление предпросмотром: перетаскивание {start} → {end}')
                 await asyncio.to_thread(target.drag, start, end, duration_ms)
             elif action == "key":
                 keycode = data.get("keycode")
                 if keycode is None:
                     keycode = _key_to_android_keycode(data.get("key"))
                 if keycode is not None:
-                    logger.info(f"[WebUI] 实时预览控制：按键 {keycode}")
+                    logger.info(f'[WebUI] Управление предпросмотром: клавиша {keycode}')
                     await asyncio.to_thread(target.keycode, keycode)
             elif action == "text":
                 text = data.get("text", "")
-                logger.info("[WebUI] 实时预览控制：文本输入")
+                logger.info('[WebUI] Управление предпросмотром: ввод текста')
                 await asyncio.to_thread(target.text, text)
             elif action == "back":
-                logger.info("[WebUI] 实时预览控制：返回")
+                logger.info('[WebUI] Управление предпросмотром: назад')
                 await asyncio.to_thread(target.keycode, scrcpy_const.KEYCODE_BACK)
             elif action in CONTROL_ACTION_KEYCODES:
                 keycode = CONTROL_ACTION_KEYCODES[action]
-                logger.info(f"[WebUI] 实时预览控制：系统按键 {action} ({keycode})")
+                logger.info(f'[WebUI] Управление предпросмотром: системная клавиша {action} ({keycode})')
                 await asyncio.to_thread(target.keycode, keycode)
             else:
                 await websocket.send_text(json.dumps({"type": "error", "message": f"Неизвестное действие управления: {action}"}))
@@ -1394,7 +1394,7 @@ async def ws_live_control(websocket):
         pass
     except Exception as e:
         message = _live_preview_error_message(e)
-        logger.error(f"ws_live_control error: {message}")
+        logger.error(f'[WebUI] Ошибка ws_live_control: {message}')
         try:
             await websocket.send_text(json.dumps({"type": "error", "message": message}))
         except Exception:
@@ -1676,6 +1676,62 @@ async def api_import_legacy_upload(request):
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
+def _websocket_client_host(websocket) -> str:
+    client = getattr(websocket, "client", None)
+    host = getattr(client, "host", "") if client is not None else ""
+    return str(host or "").strip()
+
+
+def _is_local_live_websocket(websocket) -> bool:
+    host = _websocket_client_host(websocket)
+    if not host:
+        return False
+    normalized = host.strip("[]").split("%", 1)[0]
+    if normalized.lower() == "localhost":
+        return True
+    try:
+        packed = socket.inet_pton(socket.AF_INET, normalized)
+    except OSError:
+        packed = None
+    if packed is not None:
+        return packed[0] == 127
+    try:
+        packed = socket.inet_pton(socket.AF_INET6, normalized)
+    except OSError:
+        return False
+    return packed == (b"\x00" * 15 + b"\x01") or (
+        packed[:12] == (b"\x00" * 10 + b"\xff\xff")
+        and packed[12] == 127
+    )
+
+
+async def _reject_nonlocal_live_websocket(websocket) -> bool:
+    if _is_local_live_websocket(websocket):
+        return False
+    await websocket.accept()
+    await websocket.send_text(json.dumps({
+        "type": "error",
+        "message": (
+            "Предпросмотр и управление устройством доступны только из локальной WebUI. "
+            "Удалённый доступ требует отдельного аутентифицированного transport-контракта."
+        ),
+    }, ensure_ascii=False))
+    await websocket.close(code=4403)
+    return True
+
+
+async def _ws_live_screenshot_guarded(websocket):
+    if await _reject_nonlocal_live_websocket(websocket):
+        return
+    await ws_live_screenshot(websocket)
+
+
+async def _ws_live_control_guarded(websocket):
+    if await _reject_nonlocal_live_websocket(websocket):
+        return
+    await ws_live_control(websocket)
+
+
 api_routes = [
     Route("/api/cl1_stats", api_cl1_stats),
     Route("/api/ap_timeline", api_ap_timeline),
@@ -1691,6 +1747,6 @@ api_routes = [
     Route("/api/deploy/startup-run", api_deploy_startup_run_save, methods=["POST"]),
     Route("/api/import_legacy_upload", api_import_legacy_upload, methods=["POST"]),
     Route("/obs", serve_obs_overlay),
-    WebSocketRoute("/ws/live_screenshot", ws_live_screenshot),
-    WebSocketRoute("/ws/live_control", ws_live_control),
+    WebSocketRoute("/ws/live_screenshot", _ws_live_screenshot_guarded),
+    WebSocketRoute("/ws/live_control", _ws_live_control_guarded),
 ]
