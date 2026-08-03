@@ -59,7 +59,7 @@ class AppControl(Adb, WSA, Uiautomator2):
             bool: 应用在前台运行返回 True。
         """
         package = self.app_current()
-        logger.attr('应用包名', package)
+        logger.attr('Пакет приложения', package)
         return package == self.package
 
     def app_start(self):
@@ -70,7 +70,7 @@ class AppControl(Adb, WSA, Uiautomator2):
         其他使用 ADB am start。
         """
         method = self.config.Emulator_ControlMethod
-        logger.info(f'应用启动: {self.package}')
+        logger.info(f'[Устройство — приложение] Запуск приложения: {self.package}')
         if self.config.Emulator_Serial == 'wsa-0':
             self.app_start_wsa(display=0)
         elif method in AppControl._app_u2_family:
@@ -84,7 +84,7 @@ class AppControl(Adb, WSA, Uiautomator2):
         根据控制方法选择 uiautomator2 或 ADB am force-stop 方式。
         """
         method = self.config.Emulator_ControlMethod
-        logger.info(f'应用停止: {self.package}')
+        logger.info(f'[Устройство — приложение] Остановка приложения: {self.package}')
         if method in AppControl._app_u2_family:
             self.app_stop_uiautomator2()
         else:
@@ -96,10 +96,10 @@ class AppControl(Adb, WSA, Uiautomator2):
         通过 ADB 删除 /sdcard/Android/data/{package}/cache/ 下的文件。
         """
         cache_path = f'/sdcard/Android/data/{self.package}/cache/*'
-        logger.info(f'应用清除缓存: {cache_path}')
+        logger.info(f'[Устройство — приложение] Очистка кэша приложения: {cache_path}')
         result = self.adb_shell(['rm', '-rf', cache_path], timeout=30)
         if result:
-            logger.info(f'[设备-应用] 应用清除缓存结果: {result}')
+            logger.info(f'[Устройство — приложение] Результат очистки кэша приложения: {result}')
 
     def hierarchy_timer_set(self, interval=None):
         """设置 UI 层级获取的最小间隔时间。
@@ -116,11 +116,11 @@ class AppControl(Adb, WSA, Uiautomator2):
             # 代码中手动设置时不限制
             pass
         else:
-            logger.warning(f'[设备-应用] 未知的层级获取间隔: {interval}')
-            raise ScriptError(f'[设备-应用] 未知的层级获取间隔: {interval}')
+            logger.warning(f'[Устройство — приложение] Неизвестный интервал получения иерархии: {interval}')
+            raise ScriptError(f'[Устройство — приложение] Неизвестный интервал получения иерархии: {interval}')
 
         if interval != self._hierarchy_interval.limit:
-            logger.info(f'[设备-应用] 层级获取间隔设置为 {interval}s')
+            logger.info(f'[Устройство — приложение] Интервал получения иерархии установлен на {interval} с')
             self._hierarchy_interval.limit = interval
 
     def dump_hierarchy(self) -> etree._Element:

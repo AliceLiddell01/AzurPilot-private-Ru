@@ -275,7 +275,7 @@ class WorkerThread:
                 job = self.job
             except AttributeError:
                 job = None
-            logger.error(f'[Device] 终止线程 {self.thread.ident} 失败，来自任务 {job}')
+            logger.error(f'[Устройство] Не удалось завершить поток {self.thread.ident} из задачи {job}')
             # 发送 SystemExit 失败，重置它
             ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, 0)
             return False
@@ -406,7 +406,7 @@ class WorkerPool:
         Returns:
             bytes:
         """
-        logger.info(f'[设备-进程池] 执行: {cmd}')
+        logger.info(f'[Устройство — пул процессов] Выполнение команды: {cmd}')
 
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=False)
 
@@ -415,7 +415,7 @@ class WorkerPool:
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
-            logger.warning(f'[设备-进程池] 调用超时: {cmd}，标准输出={stdout}，标准错误={stderr}')
+            logger.warning(f'[Устройство — пул процессов] Истёк тайм-аут команды {cmd}, stdout={stdout}, stderr={stderr}')
         return stdout
 
     def start_cmd_soon(self, cmd, timeout=10):

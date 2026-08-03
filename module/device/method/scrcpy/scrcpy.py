@@ -82,9 +82,9 @@ def retry(func):
                     pass
 
         if func.__name__ in ['screenshot_scrcpy']:
-            logger.critical(f'[设备-Scrcpy] 重试 {func.__name__}() 失败')
+            logger.critical(f'[Устройство — scrcpy] Не удалось выполнить {func.__name__}() после повторных попыток')
             raise EmulatorNotRunningError
-        logger.critical(f'[设备-Scrcpy] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство — scrcpy] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -108,7 +108,7 @@ class Scrcpy(ScrcpyCore, Uiautomator2):
                 time.sleep(0.001)
                 thread = self._scrcpy_stream_loop_thread
                 if thread is None or not thread.is_alive():
-                    raise ScrcpyError('_scrcpy_stream_loop_thread died')
+                    raise ScrcpyError('[Устройство — Scrcpy] Поток _scrcpy_stream_loop_thread завершил работу')
                 if self._scrcpy_last_frame_time > now:
                     # no copy
                     screenshot = self._scrcpy_last_frame

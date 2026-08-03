@@ -67,7 +67,7 @@ def show_function_call():
         return f'{file} {line} {func}'
 
     func_list = [f'\n{format_(*row)}' for row in func_list]
-    logger.info('函数调用:' + ''.join(func_list))
+    logger.info('Стек вызовов:' + ''.join(func_list))
 
 
 class Device(Screenshot, Control, AppControl, Input):
@@ -96,15 +96,14 @@ class Device(Screenshot, Control, AppControl, Input):
                 break
             except EmulatorNotRunningError:
                 if trial >= 3:
-                    logger.critical('[Device] 错误 3 次尝试后未能启动模拟器')
+                    logger.critical('[Устройство] Не удалось запустить эмулятор после 3 попыток')
                     raise RequestHumanTakeover
                 # 尝试启动模拟器
                 if self.emulator_instance is not None:
                     self.emulator_start()
                 else:
                     logger.critical(
-                        f'错误 未找到序列号为 "{self.config.Emulator_Serial}" 的模拟器，'
-                        f'请设置一个正确的序列号'
+                        f'[Устройство] Эмулятор с serial «{self.config.Emulator_Serial}» не найден. Задайте правильный serial'
                     )
                     raise RequestHumanTakeover
 
@@ -123,7 +122,7 @@ class Device(Screenshot, Control, AppControl, Input):
             try:
                 self.platform.boost_running_emulator_priority()
             except Exception as e:
-                logger.warning(f'[设备-模拟器] 提升模拟器优先级失败: {e}')
+                logger.warning(f'[Устройство — эмулятор] Не удалось повысить приоритет эмулятора: {e}')
 
         self.screenshot_interval_set()
         self.method_check()
@@ -187,7 +186,7 @@ class Device(Screenshot, Control, AppControl, Input):
         """
         运行截图方式基准测试，每种方式测试 3 次，选择最快的写入配置。
         """
-        logger.info('[设备-基准测试] 运行截图方式基准测试')
+        logger.info('[Устройство — тест] Запуск теста методов снимка экрана')
         # 先检查分辨率
         self.resolution_check_uiautomator2()
         # 执行基准测试
@@ -232,25 +231,24 @@ class Device(Screenshot, Control, AppControl, Input):
         #     self.config.Emulator_ControlMethod = 'minitouch'
         # Hermit 仅允许在 VMOS 上使用
         if self.config.Emulator_ControlMethod == 'Hermit' and not self.is_vmos:
-            logger.warning('[设备-方法] 控制方式Hermit仅允许在VMOS上使用')
+            logger.warning('[Устройство — методы] Метод управления Hermit разрешён только в VMOS')
             self.config.Emulator_ControlMethod = 'MaaTouch'
         if self.config.Emulator_ScreenshotMethod == 'ldopengl' \
                 and self.config.Emulator_ControlMethod == 'minitouch':
-            logger.warning('[设备-方法] 雷电模拟器请使用MaaTouch')
+            logger.warning('[Устройство — методы] Для LDPlayer следует использовать MaaTouch')
             self.config.Emulator_ControlMethod = 'MaaTouch'
 
         # nemu_ipc 和 ldopengl 在非对应模拟器上回退到 auto
         if self.config.Emulator_ScreenshotMethod == 'nemu_ipc':
             if not (self.is_emulator and self.is_mumu_family):
-                logger.warning('[设备-方法] 截图方式nemu_ipc仅支持MuMu模拟器12，回退到auto')
+                logger.warning('[Устройство — методы] Метод снимка экрана nemu_ipc поддерживается только MuMu 12; выполняется возврат к auto')
                 self.config.Emulator_ScreenshotMethod = 'auto'
         if self.config.Emulator_ScreenshotMethod == 'ldopengl':
             if not (self.is_emulator and self.is_ldplayer_bluestacks_family):
-                logger.warning('[设备-方法] 截图方式ldopengl仅支持雷电模拟器，回退到auto')
+                logger.warning('[Устройство — методы] Метод снимка экрана ldopengl поддерживается только LDPlayer; выполняется возврат к auto')
                 self.config.Emulator_ScreenshotMethod = 'auto'
         if not IS_WINDOWS and self.config.Emulator_ScreenshotMethod in ['nemu_ipc', 'ldopengl']:
-            logger.warning(f'[设备-方法] 截图方式{self.config.Emulator_ScreenshotMethod}仅支持Windows，'
-                           f'回退到auto')
+            logger.warning(f'[Устройство — методы] Метод снимка экрана {self.config.Emulator_ScreenshotMethod} поддерживается только в Windows; выполняется возврат к auto')
             self.config.Emulator_ScreenshotMethod = 'auto'
 
     def handle_night_commission(self, daily_trigger='21:00', threshold=30):
@@ -290,7 +288,7 @@ class Device(Screenshot, Control, AppControl, Input):
             super().screenshot()
         except RequestHumanTakeover:
             if not self.ascreencap_available:
-                logger.error('[设备-截图] 当前设备aScreenCap不可用，回退到auto')
+                logger.error('[Устройство — снимок] aScreenCap недоступен на текущем устройстве; выполняется возврат к auto')
                 self.run_simple_screenshot_benchmark()
                 super().screenshot()
             else:
@@ -346,12 +344,12 @@ class Device(Screenshot, Control, AppControl, Input):
             self._stuck_image_timer.start()
             if self._stuck_image_timer.reached():
                 show_function_call()
-                logger.warning(f'[设备-卡死] 截图超过 {self._stuck_image_timer.limit}s 未变化')
+                logger.warning(f'[Устройство — зависание] Снимок экрана не изменялся более {self._stuck_image_timer.limit} с')
                 self.stuck_record_clear()
                 if self.app_is_running():
-                    raise GameStuckError('[设备-卡死] 截图未变化')
+                    raise GameStuckError('[Устройство — зависание] Снимок экрана не изменяется')
                 else:
-                    raise GameNotRunningError('[设备-卡死] 游戏已退出')
+                    raise GameNotRunningError('[Устройство — зависание] Игра завершила работу')
         else:
             self._prev_fingerprint = fp
             self._stuck_image_timer.clear()
@@ -375,14 +373,14 @@ class Device(Screenshot, Control, AppControl, Input):
                     return False
 
         show_function_call()
-        logger.warning('[设备-卡死] 等待时间过长')
-        logger.warning(f'[设备-卡死] 等待中: {self.detect_record}')
+        logger.warning('[Устройство — зависание] Превышено время ожидания')
+        logger.warning(f'[Устройство — зависание] Ожидаемые элементы: {self.detect_record}')
         self.stuck_record_clear()
 
         if self.app_is_running():
-            raise GameStuckError('[设备-卡死] 等待时间过长')
+            raise GameStuckError('[Устройство — зависание] Превышено время ожидания')
         else:
-            raise GameNotRunningError('[设备-卡死] 游戏已退出')
+            raise GameNotRunningError('[Устройство — зависание] Игра завершила работу')
 
     def handle_control_check(self, button):
         self.stuck_record_clear()
@@ -426,22 +424,22 @@ class Device(Screenshot, Control, AppControl, Input):
         count = collections.Counter(self.click_record).most_common(2)
         if count[0][1] >= 12:
             show_function_call()
-            logger.warning(f'[设备-点击] 按钮点击次数过多: {count[0][0]}')
-            logger.warning(f'[设备-点击] 点击历史: {[str(prev) for prev in self.click_record]}')
+            logger.warning(f'[Устройство — нажатия] Слишком много нажатий на кнопку: {count[0][0]}')
+            logger.warning(f'[Устройство — нажатия] История нажатий: {[str(prev) for prev in self.click_record]}')
             self.click_record_clear()
-            raise GameTooManyClickError(f'[设备-点击] 按钮点击次数过多: {count[0][0]}')
+            raise GameTooManyClickError(f'[Устройство — нажатия] Слишком много нажатий на кнопку: {count[0][0]}')
         if len(count) >= 2 and count[0][1] >= 6 and count[1][1] >= 6:
             show_function_call()
-            logger.warning(f'[设备-点击] 两个按钮交替点击次数过多: {count[0][0]}, {count[1][0]}')
-            logger.warning(f'[设备-点击] 点击历史: {[str(prev) for prev in self.click_record]}')
+            logger.warning(f'[Устройство — нажатия] Слишком много попеременных нажатий на две кнопки: {count[0][0]}, {count[1][0]}')
+            logger.warning(f'[Устройство — нажатия] История нажатий: {[str(prev) for prev in self.click_record]}')
             self.click_record_clear()
-            raise GameTooManyClickError(f'[设备-点击] 两个按钮交替点击次数过多: {count[0][0]}, {count[1][0]}')
+            raise GameTooManyClickError(f'[Устройство — нажатия] Слишком много попеременных нажатий на две кнопки: {count[0][0]}, {count[1][0]}')
 
     def disable_stuck_detection(self):
         """
         禁用卡死检测，用于半自动模式和调试场景。
         """
-        logger.info('[设备-检测] 禁用卡死检测')
+        logger.info('[Устройство — контроль] Обнаружение зависания отключено')
 
         def empty_function(*arg, **kwargs):
             return False
@@ -451,8 +449,8 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def app_start(self):
         if not self.config.Error_HandleError:
-            logger.critical('[Device] 错误 没有启动/停止应用，因为 HandleError 已禁用')
-            logger.critical('[Device] 请启用 Alas.Error.HandleError 或手动登录碧蓝航线')
+            logger.critical('[Устройство] Приложение не запускается и не останавливается, потому что HandleError отключён')
+            logger.critical('[Устройство] Включите Alas.Error.HandleError или войдите в Azur Lane вручную')
             raise RequestHumanTakeover
         if getattr(self.config, 'Emulator_GameSettings', False):
             from module.game_setting.player_prefs import apply_recommended_game_settings
@@ -466,8 +464,8 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def app_stop(self):
         if not self.config.Error_HandleError:
-            logger.critical('[Device] 错误 没有启动/停止应用，因为 HandleError 已禁用')
-            logger.critical('[Device] 请启用 Alas.Error.HandleError 或手动登录碧蓝航线')
+            logger.critical('[Устройство] Приложение не запускается и не останавливается, потому что HandleError отключён')
+            logger.critical('[Устройство] Включите Alas.Error.HandleError или войдите в Azur Lane вручную')
             raise RequestHumanTakeover
         super().app_stop()
         if getattr(self.config, 'Emulator_GameSettings', False):

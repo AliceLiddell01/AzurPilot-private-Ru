@@ -220,7 +220,7 @@ class EmulatorMac(EmulatorBase):
                             except json.JSONDecodeError:
                                 pass
                     except (subprocess.TimeoutExpired, Exception) as e:
-                        logger.debug(f'mumutool info all 命令执行失败: {e}')
+                        logger.debug(f'Не удалось выполнить команду `mumutool info all`: {e}')
 
                 # 回退：默认实例
                 yield EmulatorInstanceMac(

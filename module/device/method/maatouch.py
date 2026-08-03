@@ -104,9 +104,9 @@ def retry(func):
                     pass
 
         if func.__name__ in ['_maatouch_builder']:
-            logger.critical(f'[Device] 重试 {func.__name__}() 失败')
+            logger.critical(f'[Устройство] Не удалось выполнить {func.__name__}() после повторных попыток')
             raise EmulatorNotRunningError
-        logger.critical(f'[Device] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -199,12 +199,12 @@ class MaaTouch(Connection):
         if self.orientation == self._maatouch_orientation:
             return
 
-        logger.info(f'方向已变更 {self._maatouch_orientation} => {self.orientation}, re-init MaaTouch')
+        logger.info(f'[Устройство — MaaTouch] Ориентация изменена: {self._maatouch_orientation} → {self.orientation}; повторная инициализация MaaTouch')
         del_cached_property(self, '_maatouch_builder')
         self.early_maatouch_init()
 
     def maatouch_init(self):
-        logger.hr('[设备-MaaTouch] 初始化')
+        logger.hr('[Устройство — MaaTouch] Инициализация')
         max_x, max_y = 1280, 720
         max_contacts = 2
         max_pressure = 50
@@ -248,8 +248,7 @@ class MaaTouch(Connection):
             if out.strip() == 'Aborted':
                 stream.close()
                 raise MaaTouchNotInstalledError(
-                    'Received "Aborted" MaaTouch, '
-                    'probably because MaaTouch is not installed'
+                    '[Устройство — MaaTouch] Получено сообщение «Aborted»; вероятно, MaaTouch не установлен'
                 )
             try:
                 _, max_contacts, max_x, max_y, max_pressure = out.split(" ")
@@ -258,8 +257,7 @@ class MaaTouch(Connection):
                 stream.close()
                 if retry_timeout.reached():
                     raise MaaTouchNotInstalledError(
-                        'Received empty data from MaaTouch, '
-                        'probably because MaaTouch is not installed'
+                        '[Устройство — MaaTouch] Получены пустые данные; вероятно, MaaTouch не установлен'
                     )
                 else:
                     # maatouch 可能启动没那么快
@@ -280,12 +278,10 @@ class MaaTouch(Connection):
         # 同步超时 2 秒
         stream.settimeout(2)
         logger.info(
-            "MaaTouch stream connected"
+            '[Устройство — MaaTouch] Поток подключён'
         )
         logger.info(
-            "max_contact: {}; max_x: {}; max_y: {}; max_pressure: {}".format(
-                max_contacts, max_x, max_y, max_pressure
-            )
+            '[Устройство — MaaTouch] max_contact: {}; max_x: {}; max_y: {}; max_pressure: {}'.format(max_contacts, max_x, max_y, max_pressure)
         )
 
     def maatouch_send(self, builder: MaatouchBuilder):
@@ -332,7 +328,7 @@ class MaaTouch(Connection):
             if out == timestamp:
                 break
             if out == 'Killed':
-                raise MaaTouchNotInstalledError('MaaTouch died, probably because version incompatible')
+                raise MaaTouchNotInstalledError('[Устройство — MaaTouch] MaaTouch завершил работу; вероятно, версия несовместима')
             if n == max_trial - 1:
                 raise MaaTouchSyncTimeout('Too many incorrect sync response')
             time.sleep(0.001)
@@ -343,11 +339,11 @@ class MaaTouch(Connection):
         builder.clear()
 
     def maatouch_install(self):
-        logger.hr('[设备-MaaTouch] 安装')
+        logger.hr('[Устройство — MaaTouch] Установка')
         self.adb_push(self.config.MAATOUCH_FILEPATH_LOCAL, self.config.MAATOUCH_FILEPATH_REMOTE)
 
     def maatouch_uninstall(self):
-        logger.hr('[设备-MaaTouch] 卸载')
+        logger.hr('[Устройство — MaaTouch] Удаление')
         self.adb_shell(["rm", self.config.MAATOUCH_FILEPATH_REMOTE])
 
     @retry

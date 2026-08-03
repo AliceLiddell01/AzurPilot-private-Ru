@@ -267,7 +267,7 @@ class CommandBuilder:
             x, y = y, 1280 - x
             max_x, max_y = max_y, max_x
         else:
-            raise ScriptError(f'Invalid device orientation: {orientation}')
+            raise ScriptError(f'Недопустимая ориентация устройства: {orientation}')
 
         self.max_x, self.max_y = max_x, max_y
         if not self.device.config.DEVICE_OVER_HTTP:
@@ -360,7 +360,7 @@ class CommandBuilder:
                 empty = False
                 break
         if empty:
-            logger.warning(f'命令列表为空，发送可能导致异常行为: {text}')
+            logger.warning(f'Список команд пуст; отправка может привести к неожиданному поведению: {text}')
         return empty
 
 
@@ -465,10 +465,10 @@ def retry(func):
                     pass
 
         if func.__name__ in ['_minitouch_builder']:
-            logger.critical(f'[设备-MiniTouch] 重试 {func.__name__}() 失败')
+            logger.critical(f'[Устройство — minitouch] Не удалось выполнить {func.__name__}() после повторных попыток')
             raise EmulatorNotRunningError
 
-        logger.critical(f'[设备-MiniTouch] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство — minitouch] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -516,7 +516,7 @@ class Minitouch(Connection):
 
     @Config.when(DEVICE_OVER_HTTP=False)
     def minitouch_init(self):
-        logger.hr('[设备-MiniTouch] MiniTouch初始化')
+        logger.hr('[Устройство — minitouch] Инициализация')
         max_x, max_y = 1280, 720
         max_contacts = 2
         max_pressure = 50
@@ -553,8 +553,7 @@ class Minitouch(Connection):
             except socket.timeout:
                 client.close()
                 raise MinitouchOccupiedError(
-                    'Timeout when connecting to minitouch, '
-                    'probably because another connection has been established'
+                    '[Устройство — minitouch] Истекло время подключения; вероятно, уже установлено другое соединение'
                 )
             logger.info(out)
 
@@ -568,8 +567,7 @@ class Minitouch(Connection):
                 client.close()
                 if retry_timeout.reached():
                     raise MinitouchNotInstalledError(
-                        'Received empty data from minitouch, '
-                        'probably because minitouch is not installed'
+                        '[Устройство — minitouch] Получены пустые данные; вероятно, minitouch не установлен'
                     )
                 else:
                     # minitouch 可能启动没那么快
@@ -588,12 +586,10 @@ class Minitouch(Connection):
         self._minitouch_pid = pid
 
         logger.info(
-            "[设备-MiniTouch] minitouch 运行端口: {}, pid: {}".format(self._minitouch_port, self._minitouch_pid)
+            '[Устройство — minitouch] Порт: {}, PID: {}'.format(self._minitouch_port, self._minitouch_pid)
         )
         logger.info(
-            "[设备-MiniTouch] max_contact: {}; max_x: {}; max_y: {}; max_pressure: {}".format(
-                max_contacts, max_x, max_y, max_pressure
-            )
+            '[Устройство — minitouch] max_contact: {}; max_x: {}; max_y: {}; max_pressure: {}'.format(max_contacts, max_x, max_y, max_pressure)
         )
 
     @Config.when(DEVICE_OVER_HTTP=False)
@@ -627,17 +623,16 @@ class Minitouch(Connection):
             # ConnectionClosedError: sent 1011 (unexpected error) keepalive ping timeout; no close frame received
             logger.error(e)
             raise MinitouchOccupiedError(
-                'ConnectionClosedError, '
-                'probably because another connection has been established'
+                '[Устройство — minitouch] Соединение закрыто; вероятно, уже установлено другое соединение'
             )
 
     @Config.when(DEVICE_OVER_HTTP=True)
     def minitouch_init(self):
-        logger.hr('[设备-MiniTouch] MiniTouch初始化')
+        logger.hr('[Устройство — minitouch] Инициализация')
         self.max_x, self.max_y = 1280, 720
         self.get_orientation()
 
-        logger.info('[设备-MiniTouch] 停止minitouch服务')
+        logger.info('[Устройство — minitouch] Остановка службы minitouch')
         s = U2Service('minitouch', self.u2)
         s.stop()
         while 1:
@@ -645,7 +640,7 @@ class Minitouch(Connection):
                 break
             self.sleep(0.05)
 
-        logger.info('[设备-MiniTouch] 启动minitouch服务')
+        logger.info('[Устройство — minitouch] Запуск службы minitouch')
         s.start()
         while 1:
             if s.running():
@@ -654,7 +649,7 @@ class Minitouch(Connection):
 
         # 'ws://127.0.0.1:7912/minitouch'
         url = re.sub(r"^https?://", 'ws://', self.serial) + '/minitouch'
-        logger.attr('MiniTouch地址', url)
+        logger.attr('Адрес minitouch', url)
 
         async def connect():
             ws = await websockets.connect(url)

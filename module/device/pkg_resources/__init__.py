@@ -24,7 +24,7 @@ _ = get_distribution
 try:
     sys.modules['pkg_resources'] = sys.modules['module.device.pkg_resources']
 except KeyError:
-    logger.error('[设备-补丁] 修补pkg_resources失败，补丁模块不存在')
+    logger.error('[Устройство — совместимость] Не удалось применить исправление pkg_resources: модуль исправления отсутствует')
 
 
 def removesuffix(s, suffix):

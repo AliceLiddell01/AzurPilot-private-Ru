@@ -56,11 +56,11 @@ class ConnectionAttr:
         """
         url = platform_tools_url()
         if url is None:
-            logger.warning(f'[设备] 当前平台不支持自动下载 ADB: {sys.platform}')
+            logger.warning(f'[Устройство] Автоматическая загрузка ADB не поддерживается на текущей платформе: {sys.platform}')
             return None
 
         if not target:
-            logger.warning('[设备] ADB 下载失败，目标路径为空')
+            logger.warning('[Устройство] Не удалось загрузить ADB: целевой путь пуст')
             return None
 
         target = Path(target).resolve()
@@ -72,14 +72,14 @@ class ConnectionAttr:
         executable = 'adb.exe' if os.name == 'nt' else 'adb'
         source = tools_dir / executable
 
-        logger.hr('下载ADB', level=2)
-        logger.warning(f'[设备] 未找到 ADB，正在下载 Android platform-tools: {url}')
+        logger.hr('Загрузка ADB', level=2)
+        logger.warning(f'[Устройство] ADB не найден; загружаются Android platform-tools: {url}')
         tools_dir.parent.mkdir(parents=True, exist_ok=True)
         try:
             urllib.request.urlretrieve(url, archive)
         except Exception as e:
             archive.unlink(missing_ok=True)
-            logger.warning(f'[设备] ADB 下载失败: {e}')
+            logger.warning(f'[Устройство] Не удалось загрузить ADB: {e}')
             return None
 
         if tools_dir.exists():
@@ -91,7 +91,7 @@ class ConnectionAttr:
             archive.unlink(missing_ok=True)
 
         if not source.exists():
-            logger.warning(f'[设备] ADB 下载失败，未找到 {source}')
+            logger.warning(f'[Устройство] Не удалось загрузить ADB: файл {source} не найден')
             return None
 
         if os.name != 'nt':
@@ -107,7 +107,7 @@ class ConnectionAttr:
         else:
             target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-        logger.info(f'[设备] ADB 已安装: {target}')
+        logger.info(f'[Устройство] ADB установлен: {target}')
         return str(target).replace('\\\\', '/').replace('\\', '/')
 
     def __init__(self, config):
@@ -115,16 +115,16 @@ class ConnectionAttr:
         Args:
             config (AzurLaneConfig, str): Name of the user config under ./config
         """
-        logger.hr('设备', level=1)
+        logger.hr('Устройство', level=1)
         if isinstance(config, str):
             self.config = AzurLaneConfig(config, task=None)
         else:
             self.config = config
 
-        logger.attr('是否云手机', IS_ON_PHONE_CLOUD)
+        logger.attr('Облачное устройство', IS_ON_PHONE_CLOUD)
 
         # Init adb client
-        logger.attr('ADB路径', self.adb_binary)
+        logger.attr('Путь к ADB', self.adb_binary)
         # Monkey patch to custom adb
         adbutils.adb_path = lambda: self.adb_binary
         # Remove global proxies, or uiautomator2 will go through it
@@ -191,7 +191,7 @@ class ConnectionAttr:
         # fool-proof
         new = self.revise_serial(self.serial)
         if new != self.serial:
-            logger.warning(f'[设备-属性] 序列号 "{self.config.Emulator_Serial}" 已修正为 "{new}"')
+            logger.warning(f'[Устройство — параметры] Serial «{self.config.Emulator_Serial}» исправлен на «{new}»')
             self.config.Emulator_Serial = new
             self.serial = new
         if self.is_bluestacks4_hyperv:
@@ -199,8 +199,7 @@ class ConnectionAttr:
         if self.is_bluestacks5_hyperv:
             self.serial = self.find_bluestacks5_hyperv(self.serial)
         if "127.0.0.1:58526" in self.serial:
-            logger.warning('[设备-属性] 序列号 127.0.0.1:58526 疑似 WSA 设备，'
-                           '请改用 "wsa-0" 或其他格式')
+            logger.warning('[Устройство — параметры] Serial 127.0.0.1:58526 похож на устройство WSA. Используйте «wsa-0» или другой поддерживаемый формат')
             raise RequestHumanTakeover
         if self.is_wsa:
             self.serial = '127.0.0.1:58526'
@@ -213,9 +212,7 @@ class ConnectionAttr:
             if self.config.Emulator_ScreenshotMethod not in ["ADB", "uiautomator2", "aScreenCap"] \
                     or self.config.Emulator_ControlMethod not in ["ADB", "uiautomator2", "minitouch"]:
                 logger.warning(
-                    f'When connecting to a device over http: {self.serial} '
-                    f'ScreenshotMethod can only use ["ADB", "uiautomator2", "aScreenCap"], '
-                    f'ControlMethod can only use ["ADB", "uiautomator2", "minitouch"]'
+                    f'При HTTP-подключении к устройству {self.serial} ScreenshotMethod может использовать только ["ADB", "uiautomator2", "aScreenCap"], а ControlMethod — только ["ADB", "uiautomator2", "minitouch"]'
                 )
                 raise RequestHumanTakeover
 
@@ -305,8 +302,8 @@ class ConnectionAttr:
         """
         from winreg import HKEY_LOCAL_MACHINE, OpenKey, QueryValueEx
 
-        logger.info("使用蓝叠4 Hyper-V测试版")
-        logger.info("读取实时ADB端口")
+        logger.info('Используется BlueStacks 4 Hyper-V Beta')
+        logger.info('Чтение текущего порта ADB')
 
         if serial == "bluestacks4-hyperv":
             folder_name = "Android"
@@ -319,11 +316,11 @@ class ConnectionAttr:
                 port = QueryValueEx(key, "BstAdbPort")[0]
         except FileNotFoundError:
             logger.error(
-                rf'[设备-蓝叠] 无法找到注册表 HKEY_LOCAL_MACHINE\SOFTWARE\BlueStacks_bgp64_hyperv\Guests\{folder_name}\Config')
-            logger.error('[设备-蓝叠] 请确认您使用的是BlueStack 4 hyper-v而不是普通BlueStacks 4')
-            logger.error(r'[设备-蓝叠] 请检查注册表 HKEY_LOCAL_MACHINE\SOFTWARE\BlueStacks_bgp64_hyperv\Guests 下是否有其他模拟器实例')
+                f'[Устройство — BlueStacks] Не найден раздел реестра HKEY_LOCAL_MACHINE\\SOFTWARE\\BlueStacks_bgp64_hyperv\\Guests\\{folder_name}\\Config')
+            logger.error('[Устройство — BlueStacks] Убедитесь, что используется BlueStacks 4 Hyper-V, а не обычный BlueStacks 4')
+            logger.error('[Устройство — BlueStacks] Проверьте наличие других экземпляров эмулятора в HKEY_LOCAL_MACHINE\\SOFTWARE\\BlueStacks_bgp64_hyperv\\Guests')
             raise RequestHumanTakeover
-        logger.info(f"新ADB端口: {port}")
+        logger.info(f'Новый порт ADB: {port}')
         return f"127.0.0.1:{port}"
 
     @staticmethod
@@ -339,8 +336,8 @@ class ConnectionAttr:
         """
         from winreg import HKEY_LOCAL_MACHINE, OpenKey, QueryValueEx
 
-        logger.info("使用蓝叠5 Hyper-V")
-        logger.info("读取实时ADB端口")
+        logger.info('Используется BlueStacks 5 Hyper-V')
+        logger.info('Чтение текущего порта ADB')
 
         if serial == "bluestacks5-hyperv":
             parameter_name = r"bst\.instance\.(Nougat64|Pie64|Rvc64)\.status\.adb_port"
@@ -355,20 +352,19 @@ class ConnectionAttr:
                 with OpenKey(HKEY_LOCAL_MACHINE, r"SOFTWARE\BlueStacks_nxt_cn") as key:
                     directory = QueryValueEx(key, 'UserDefinedDir')[0]
             except FileNotFoundError:
-                logger.error('[设备-属性] 未找到注册表 HKEY_LOCAL_MACHINE\SOFTWARE\BlueStacks_nxt '
-                             '或 HKEY_LOCAL_MACHINE\SOFTWARE\BlueStacks_nxt_cn')
-                logger.error('[设备-属性] 请确认使用的是蓝叠 5 Hyper-V 版本，而非普通蓝叠 5')
+                logger.error('[Устройство — параметры] Не найден раздел реестра HKEY_LOCAL_MACHINE\\SOFTWARE\\BlueStacks_nxt или HKEY_LOCAL_MACHINE\\SOFTWARE\\BlueStacks_nxt_cn')
+                logger.error('[Устройство — параметры] Убедитесь, что используется BlueStacks 5 Hyper-V, а не обычный BlueStacks 5')
                 raise RequestHumanTakeover
-        logger.info(f"配置文件目录: {directory}")
+        logger.info(f'Каталог конфигурации: {directory}')
 
         with open(os.path.join(directory, 'bluestacks.conf'), encoding='utf-8') as f:
             content = f.read()
         port = re.search(rf'{parameter_name}="(\d+)"', content)
         if port is None:
-            logger.warning(f"未匹配结果: {serial}.")
+            logger.warning(f'Совпадения не найдены: {serial}.')
             raise RequestHumanTakeover
         port = port.group(2)
-        logger.info(f"匹配到动态端口: {port}")
+        logger.info(f'Найден динамический порт: {port}')
         return f"127.0.0.1:{port}"
 
     @cached_property
@@ -435,9 +431,9 @@ class ConnectionAttr:
             try:
                 port = int(env)
             except ValueError:
-                logger.warning(f'无效的环境变量 ANDROID_ADB_SERVER_PORT={port}, 使用默认端口')
+                logger.warning(f'Недопустимое значение переменной окружения ANDROID_ADB_SERVER_PORT={port}; используется порт по умолчанию')
 
-        logger.attr('ADB客户端', f'AdbClient({host}, {port})')
+        logger.attr('Клиент ADB', f'AdbClient({host}, {port})')
         return AdbClient(host, port)
 
     @cached_property
