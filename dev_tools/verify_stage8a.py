@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,6 +37,34 @@ def _write_outputs(output_dir: Path, outputs: dict[str, bytes]) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for name, content in outputs.items():
         (output_dir / name).write_bytes(content)
+
+
+def _copy_review_file(output_dir: Path, source: Path) -> None:
+    relative = source.relative_to(ROOT)
+    target = output_dir / "review-source" / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+
+
+def _write_review_source_snapshot(output_dir: Path) -> None:
+    device_root = ROOT / "module" / "device"
+    for source in sorted(device_root.rglob("*.py")):
+        _copy_review_file(output_dir, source)
+
+    explicit = (
+        ROOT / "module" / "webui" / "api.py",
+        ROOT / "uv.lock",
+        ROOT / "pyproject.toml",
+    )
+    for source in explicit:
+        if source.is_file():
+            _copy_review_file(output_dir, source)
+
+    for pattern in ("stage8a_*.py", "verify_stage8a.py"):
+        for source in sorted((ROOT / "dev_tools").glob(pattern)):
+            _copy_review_file(output_dir, source)
+    for source in sorted((ROOT / "tests").glob("test_stage8a_*.py")):
+        _copy_review_file(output_dir, source)
 
 
 def _existing_test_modules() -> list[str]:
@@ -122,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+        _write_review_source_snapshot(args.output_dir)
         print(f"FAIL: {error}", file=sys.stderr)
         return 1
 
@@ -136,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     _write_outputs(args.output_dir, outputs)
+    _write_review_source_snapshot(args.output_dir)
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)
