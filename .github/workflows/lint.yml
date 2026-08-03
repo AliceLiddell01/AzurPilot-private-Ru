@@ -17,44 +17,96 @@ jobs:
     name: Python functional and regression tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 1
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            AGENTS.md
-            .codex/context
-            .github/workflows/lint.yml
-            module/device
-            module/webui/api.py
-            module/logger.py
-            dev_tools/stage7_log_audit.py
-            dev_tools/stage7_semantic_policy.py
-            dev_tools/verify_stage7.py
-            tests/test_stage7_log_audit.py
-            tests/test_stage7_semantic_diagnostics.py
-            pyproject.toml
-            uv.lock
-
-      - name: Create temporary Stage 8A source bundle
+      - name: Download temporary Stage 8A source scope
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p artifacts/stage8a-bootstrap
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import pathlib
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          commit_sha = os.environ['GITHUB_SHA']
+          token = os.environ['GH_TOKEN']
+          output = pathlib.Path('artifacts/stage8a-bootstrap/source')
+
+          def github_api(path: str) -> dict:
+              request = urllib.request.Request(
+                  f'https://api.github.com/repos/{repository}/{path}',
+                  headers={
+                      'Accept': 'application/vnd.github+json',
+                      'Authorization': f'Bearer {token}',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'User-Agent': 'AzurPilot-Stage8A-bootstrap',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.load(response)
+
+          commit = github_api(f'git/commits/{commit_sha}')
+          tree_sha = commit['tree']['sha']
+          tree = github_api(f'git/trees/{tree_sha}?recursive=1')['tree']
+
+          exact_paths = {
+              'AGENTS.md',
+              '.github/workflows/lint.yml',
+              'module/webui/api.py',
+              'module/logger.py',
+              'dev_tools/stage7_log_audit.py',
+              'dev_tools/stage7_semantic_policy.py',
+              'dev_tools/verify_stage7.py',
+              'tests/test_stage7_log_audit.py',
+              'tests/test_stage7_semantic_diagnostics.py',
+              'pyproject.toml',
+              'uv.lock',
+          }
+
+          def selected(path: str) -> bool:
+              if path in exact_paths:
+                  return True
+              if path.startswith('.codex/context/') and path.endswith('.md'):
+                  return True
+              if path.startswith('module/device/') and path.endswith('.py'):
+                  return True
+              return False
+
+          selected_entries = [
+              entry
+              for entry in tree
+              if entry.get('type') == 'blob' and selected(entry['path'])
+          ]
+          if not selected_entries:
+              raise SystemExit('Stage 8A source scope is empty.')
+
+          for entry in selected_entries:
+              blob = github_api(f"git/blobs/{entry['sha']}")
+              if blob.get('encoding') != 'base64':
+                  raise SystemExit(f"Unsupported blob encoding: {entry['path']}")
+              destination = output / entry['path']
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_bytes(base64.b64decode(blob['content']))
+
+          manifest = {
+              'repository': repository,
+              'commit_sha': commit_sha,
+              'tree_sha': tree_sha,
+              'files': sorted(entry['path'] for entry in selected_entries),
+          }
+          output.parent.mkdir(parents=True, exist_ok=True)
+          (output.parent / 'manifest.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
           tar -czf artifacts/stage8a-bootstrap/stage8a-source-scope.tar.gz \
-            AGENTS.md \
-            .codex/context \
-            .github/workflows/lint.yml \
-            module/device \
-            module/webui/api.py \
-            module/logger.py \
-            dev_tools/stage7_log_audit.py \
-            dev_tools/stage7_semantic_policy.py \
-            dev_tools/verify_stage7.py \
-            tests/test_stage7_log_audit.py \
-            tests/test_stage7_semantic_diagnostics.py \
-            pyproject.toml \
-            uv.lock
+            -C artifacts/stage8a-bootstrap/source .
+          rm -rf artifacts/stage8a-bootstrap/source
           sha256sum artifacts/stage8a-bootstrap/stage8a-source-scope.tar.gz \
             > artifacts/stage8a-bootstrap/SHA256SUMS
 
@@ -66,12 +118,9 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Restore complete checkout for validation
-        shell: bash
-        run: |
-          set -euo pipefail
-          git sparse-checkout disable
-          git fetch --unshallow --tags
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
