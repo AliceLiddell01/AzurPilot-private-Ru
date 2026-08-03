@@ -28,6 +28,11 @@
 4. Runtime log changes must preserve severity, traceback, retry, timeout, fallback, protocol and call order.
 5. Final remediation requires a fresh exact-head CI cycle and a new relevant user acceptance on the same head.
 
+## Remediation attempts
+
+- Run `30841001060`: fail-closed validation stopped before commit because the new bundled scrcpy contract test inspected `module/config/argument/args.json`, which is not the source of the bundled JAR path.
+- The retry verifies the bundled path through the dedicated external-contract artifact, the actual binary when present, `ScrcpyOptions.command_v120` and the WebUI 1.20 integration.
+
 ## Remediation verdict
 
 **PENDING — keep PR BLOCKED.**
