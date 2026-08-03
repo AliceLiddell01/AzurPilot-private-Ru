@@ -66,6 +66,28 @@ jobs:
           git apply --check --whitespace=nowarn /tmp/stage8a-scenario-truth.patch
           git apply --whitespace=nowarn /tmp/stage8a-scenario-truth.patch
           uv sync --frozen
+          uv run python - <<'PY' > artifacts/stage8a-scenario-truth/uiautomator2-xpath-api.txt
+          import importlib.metadata
+          import inspect
+          from uiautomator2 import xpath
+
+          print('version=', importlib.metadata.version('uiautomator2'))
+          print('module=', xpath.__file__)
+          for name in sorted(dir(xpath)):
+              if 'xpath' not in name.lower() and name not in {'XMLElement'}:
+                  continue
+              value = getattr(xpath, name)
+              print('\n###', name, type(value))
+              if inspect.isclass(value) or inspect.isfunction(value):
+                  try:
+                      print('signature=', inspect.signature(value))
+                  except (TypeError, ValueError):
+                      pass
+                  try:
+                      print(inspect.getsource(value))
+                  except (OSError, TypeError):
+                      pass
+          PY
           uv run python -m unittest \
             tests.test_stage8a_runtime_scenario_matrix.Stage8ARuntimeScenarioMatrixTests.test_device_readiness__adb_state_device \
             tests.test_stage8a_runtime_scenario_matrix.Stage8ARuntimeScenarioMatrixTests.test_uiautomator2__implicit_wait \
