@@ -266,17 +266,17 @@ def handle_adb_error(e):
         # When you call `adb disconnect <serial>`
         # Or when adb server was killed (low possibility)
         # AdbError(device '127.0.0.1:59865' not found)
-        logger.error(e)
+        logger.error(str(f'[Устройство — ADB] Ошибка обработки ADB: {e}'))
         return True
     elif 'timeout' in text:
         # AdbTimeout(adb read timeout)
-        logger.error(e)
+        logger.error(str(f'[Устройство — ADB] Ошибка обработки ADB: {e}'))
         return True
     elif 'closed' in text:
         # AdbError(closed)
         # Usually after AdbTimeout(adb read timeout)
         # Disconnect and re-connect should fix this.
-        logger.error(e)
+        logger.error(str(f'[Устройство — ADB] Ошибка обработки ADB: {e}'))
         return True
     elif 'device offline' in text:
         # AdbError(device offline)
@@ -286,21 +286,21 @@ def handle_adb_error(e):
         # In many cases, such as disconnection and recovery caused by network fluctuations,
         # or after VMOS reboot when running Alas on a phone,
         # the device is still available, but it needs to be disconnected and re-connected.
-        logger.error(e)
+        logger.error(str(f'[Устройство — ADB] Ошибка обработки ADB: {e}'))
         return True
     elif 'is offline' in text:
         # RuntimeError: USB device 127.0.0.1:7555 is offline
         # Raised by uiautomator2 when current adb service is killed by another version of adb service.
-        logger.error(e)
+        logger.error(str(f'[Устройство — ADB] Ошибка обработки ADB: {e}'))
         return True
     elif text == 'rest':
         # AdbError(rest)
         # Response telling adbd service has reset, client should reconnect
-        logger.error(e)
+        logger.error(str(f'[Устройство — ADB] Ошибка обработки ADB: {e}'))
         return True
     else:
         # AdbError()
-        logger.exception(e)
+        logger.exception(str(f'[Устройство — ADB] Ошибка обработки ADB: {e}'))
         possible_reasons(
             '[Устройство — ADB] Если используется BlueStacks, LDPlayer или WSA, включите ADB в настройках эмулятора',
             '[Устройство — эмулятор] Эмулятор завершил работу; перезапустите его',
@@ -322,7 +322,7 @@ def handle_unknown_host_service(e):
         # AdbError(unknown host service)
         # Another version of ADB service started, current ADB service has been killed.
         # Usually because user opened a Chinese emulator, which uses ADB from the Stone Age.
-        logger.error(e)
+        logger.error(str(f'[Устройство — ADB] Ошибка unknown host service: {e}'))
         return True
     else:
         return False

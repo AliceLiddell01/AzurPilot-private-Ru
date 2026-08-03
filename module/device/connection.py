@@ -58,7 +58,7 @@ def retry(func):
                 raise
             # ADB 服务被杀死时触发
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — соединение] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -75,13 +75,13 @@ def retry(func):
                     break
             # 包未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — соединение] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
             # 未知异常，可能是损坏的图像数据
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — соединение] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -457,7 +457,7 @@ class Connection(ConnectionAttr):
             try:
                 host = socket.gethostbyname(socket.gethostname())
             except socket.gaierror as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — соединение] Ошибка определения адреса nc-сервера: {e}'))
                 logger.error(f'[Устройство — соединение] Неизвестное имя хоста: {socket.gethostname()}')
                 host = '127.0.0.1'
             # 修复 Linux AVD 主机地址
@@ -1072,7 +1072,7 @@ class Connection(ConnectionAttr):
         except ConnectionResetError as e:
             # 仅在国内用户中出现
             # ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
-            logger.error(e)
+            logger.error(str(f'[Устройство — соединение] Ошибка получения списка ADB-устройств: {e}'))
             if '强迫关闭' in str(e):
                 logger.critical('[Устройство] Не удалось подключиться к службе ADB. Закройте UU Accelerator, частные серверы Genshin Impact и прокси-программы, перехватывающие локальные соединения между Alas и эмулятором')
         return SelectedGrids(devices)

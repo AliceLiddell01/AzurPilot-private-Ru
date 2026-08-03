@@ -20,6 +20,12 @@ from dev_tools.stage8a_device_log_audit import (
 from dev_tools.stage8a_exception_context_audit import (
     find_bare_exception_context_findings,
 )
+from dev_tools.stage8a_evidence_policy import (
+    BACKEND_CI_COVERAGE,
+    EXTERNAL_CONTRACTS,
+    SECURITY_REQUIREMENTS,
+    scenario_evidence,
+)
 from dev_tools.stage8a_semantic_policy import IMMUTABLE_STAGE8A_BASE_SHA
 
 EXCEPTION_CONTEXT_METRIC = "stage8a_bare_exception_context_findings"
@@ -34,6 +40,10 @@ TEST_MODULES = (
     "tests.test_stage8a_semantic_contract",
     "tests.test_stage8a_stage7_policy_bridge",
     "tests.test_stage8a_device_acceptance",
+    "tests.test_stage8a_scenario_contracts",
+    "tests.test_stage8a_evidence_policy",
+    "tests.test_stage8a_security_review",
+    "tests.test_stage8a_external_contracts",
 )
 
 
@@ -61,6 +71,9 @@ def _write_review_source_snapshot(output_dir: Path) -> None:
 
     explicit = (
         ROOT / "module" / "webui" / "api.py",
+        ROOT / "module" / "webui" / "app.py",
+        ROOT / "module" / "webui" / "fastapi.py",
+        ROOT / "gui.py",
         ROOT / "uv.lock",
         ROOT / "pyproject.toml",
     )
@@ -73,6 +86,10 @@ def _write_review_source_snapshot(output_dir: Path) -> None:
             _copy_review_file(output_dir, source)
     for source in sorted((ROOT / "tests").glob("test_stage8a_*.py")):
         _copy_review_file(output_dir, source)
+    review_root = ROOT / ".codex" / "reviews"
+    if review_root.is_dir():
+        for source in sorted(review_root.glob("PR20_STAGE8A_*.md")):
+            _copy_review_file(output_dir, source)
 
 
 def _existing_test_modules() -> list[str]:
@@ -128,6 +145,95 @@ def _apply_findings_metric(
     return outputs, metrics
 
 
+
+def _apply_evidence_outputs(
+    outputs: dict[str, bytes],
+    metrics: dict[str, Any],
+) -> dict[str, bytes]:
+    outputs = dict(outputs)
+    rows = scenario_evidence()
+    outputs["scenario-evidence.json"] = _json_bytes(
+        {
+            "status": "PENDING_TEST_EXECUTION",
+            "requirements": len(rows),
+            "evidence": rows,
+        }
+    )
+    outputs["backend-coverage.json"] = _json_bytes(
+        {
+            "status": "CI_EVIDENCE_ONLY",
+            "ci_coverage": BACKEND_CI_COVERAGE,
+            "external_acceptance": {
+                "channel": "artifacts/stage8a/device-acceptance.json",
+                "required_on_exact_head": True,
+                "included_in_ci_artifact": False,
+                "reason": "GitHub-hosted CI has no user emulator or local backend configuration.",
+            },
+        }
+    )
+    outputs["security-review.json"] = _json_bytes(
+        {
+            "status": "PENDING_TEST_EXECUTION",
+            "checklist": SECURITY_REQUIREMENTS,
+            "blocking_metrics": {
+                "binary_payload_logs": metrics.get(
+                    "stage8a_binary_payload_log_findings", 0
+                ),
+                "bare_exception_context": metrics.get(
+                    EXCEPTION_CONTEXT_METRIC, 0
+                ),
+                "secret_findings": metrics.get("stage8a_secret_findings", 0),
+            },
+            "residual_limitations": [
+                "Remote live preview/control is denied until a separate authenticated transport is designed.",
+                "Legacy macOS emulator shell execution is unchanged by Stage 8A and remains a documented pre-existing boundary.",
+            ],
+        }
+    )
+    outputs["external-contracts.json"] = _json_bytes(
+        {
+            "status": "PENDING_TEST_EXECUTION",
+            "contracts": EXTERNAL_CONTRACTS,
+            "review": ".codex/reviews/PR20_STAGE8A_EXTERNAL_CONTRACTS.md",
+        }
+    )
+    contract = json.loads(outputs["contract.json"])
+    contract["backend_coverage"] = list(BACKEND_CI_COVERAGE)
+    contract["external_acceptance_evidence"] = {
+        "status": "SEPARATE_SANITIZED_REPORT_REQUIRED",
+        "path": "artifacts/stage8a/device-acceptance.json",
+        "exact_head_required": True,
+    }
+    contract["scenario_evidence_count"] = len(rows)
+    contract["security_review_status"] = "PENDING_TEST_EXECUTION"
+    outputs["contract.json"] = _json_bytes(contract)
+    return outputs
+
+
+def _mark_evidence_tests_passed(output_dir: Path) -> None:
+    for name in (
+        "scenario-evidence.json",
+        "security-review.json",
+        "external-contracts.json",
+    ):
+        path = output_dir / name
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["status"] = "PASS"
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    contract_path = output_dir / "contract.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["security_review_status"] = "PASS"
+    contract["scenario_evidence_status"] = "PASS"
+    contract["external_contract_review_status"] = "PASS"
+    contract_path.write_text(
+        json.dumps(contract, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Проверка Definition of Done Stage 8A")
     parser.add_argument("--base-ref")
@@ -158,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
             metric_name=EXCEPTION_CONTEXT_METRIC,
             contract_key="exception_first_party_context_preserved",
         )
+        outputs = _apply_evidence_outputs(outputs, metrics)
     except Exception as error:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         failure = {
@@ -208,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
         print(completed.stderr, end="", file=sys.stderr)
     if completed.returncode:
         return completed.returncode
+
+    _mark_evidence_tests_passed(args.output_dir)
 
     print(
         "Stage 8A verifier: PASS "

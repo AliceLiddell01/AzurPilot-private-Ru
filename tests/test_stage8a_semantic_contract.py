@@ -6,7 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from dev_tools.stage8a_control_flow_policy import apply_stage8a_control_flow_policy
 from dev_tools.stage8a_device_log_audit import Stage8ADeviceLogAudit
+from dev_tools.stage8a_exception_context_audit import find_bare_exception_context_findings
 from dev_tools.stage8a_semantic_policy import IMMUTABLE_STAGE8A_BASE_SHA
 from dev_tools.verify_stage8a import _effective_base_ref
 
@@ -76,6 +78,82 @@ class Stage8ASemanticContractTests(unittest.TestCase):
         self.assertEqual(_effective_base_ref(None), IMMUTABLE_STAGE8A_BASE_SHA)
         with self.assertRaisesRegex(RuntimeError, "baseline immutable"):
             _effective_base_ref("0" * 40)
+
+
+    def test_exception_context_wrapper_preserves_dynamic_payload_and_control_flow(self):
+        fixture = self.root / "module/device/sample.py"
+        fixture.write_text(
+            "def run():\n"
+            "    try:\n"
+            "        work()\n"
+            "    except RuntimeError as e:\n"
+            "        logger.error(e)\n",
+            encoding="utf-8",
+        )
+        _git(self.root, "add", ".")
+        _git(self.root, "commit", "-m", "bare exception base")
+        base_sha = _git(self.root, "rev-parse", "HEAD")
+        fixture.write_text(
+            "def run():\n"
+            "    try:\n"
+            "        work()\n"
+            "    except RuntimeError as e:\n"
+            "        logger.error(str(f'[Устройство — ADB] Ошибка соединения: {e}'))\n",
+            encoding="utf-8",
+        )
+        _git(self.root, "add", ".")
+        _git(self.root, "commit", "-m", "context wrapper")
+        audit = Stage8ADeviceLogAudit(self.root, base_sha)
+        outputs, metrics = audit.build()
+        outputs, metrics, errors = apply_stage8a_control_flow_policy(
+            outputs,
+            metrics,
+            root=self.root,
+            base_sha=audit.base_sha,
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(metrics["stage8a_raw_payload_violations"], 0)
+        self.assertEqual(metrics["stage8a_sequence_mismatches"], 0)
+        self.assertEqual(metrics["stage8a_control_flow_mismatches"], 0)
+        self.assertEqual(find_bare_exception_context_findings(self.root), [])
+        self.assertIn(b"approved_exception_context_wrapper", outputs["semantic-findings.json"])
+
+    def test_exception_context_wrapper_with_extra_expression_fails_closed(self):
+        fixture = self.root / "module/device/sample.py"
+        fixture.write_text(
+            "def run():\n"
+            "    try:\n"
+            "        work()\n"
+            "    except RuntimeError as e:\n"
+            "        logger.error(e)\n",
+            encoding="utf-8",
+        )
+        _git(self.root, "add", ".")
+        _git(self.root, "commit", "-m", "bare exception base")
+        base_sha = _git(self.root, "rev-parse", "HEAD")
+        fixture.write_text(
+            "def run():\n"
+            "    try:\n"
+            "        work()\n"
+            "    except RuntimeError as e:\n"
+            "        logger.error(str(f'[Устройство — ADB] Ошибка {type(e)}: {e}'))\n",
+            encoding="utf-8",
+        )
+        _git(self.root, "add", ".")
+        _git(self.root, "commit", "-m", "invalid context wrapper")
+        audit = Stage8ADeviceLogAudit(self.root, base_sha)
+        outputs, metrics = audit.build()
+        _, metrics, _ = apply_stage8a_control_flow_policy(
+            outputs,
+            metrics,
+            root=self.root,
+            base_sha=audit.base_sha,
+        )
+        self.assertGreater(
+            metrics["stage8a_raw_payload_violations"]
+            + metrics["stage8a_control_flow_mismatches"],
+            0,
+        )
 
 
 if __name__ == "__main__":

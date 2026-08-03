@@ -48,7 +48,7 @@ def retry(func):
                 raise
             # ADB 服务被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -65,7 +65,7 @@ def retry(func):
                     break
             # 应用未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
@@ -78,7 +78,7 @@ def retry(func):
                     pass
             # 未知异常
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass

@@ -170,17 +170,17 @@ def retry(func):
                 break
             # 不可处理
             except LDOpenGLIncompatible as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — LDOpenGL] Ошибка повторной попытки: {e}'))
                 break
             # LDOpenGLError
             except LDOpenGLError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — LDOpenGL] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
             # 未知异常，可能是损坏的图像
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — LDOpenGL] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -206,7 +206,7 @@ class LDOpenGLImpl:
         try:
             self.lib = ctypes.WinDLL(ldopengl_dll)
         except OSError as e:
-            logger.error(e)
+            logger.error(str(f'[Устройство — LDOpenGL] Ошибка инициализации backend: {e}'))
             if not os.path.exists(ldopengl_dll):
                 raise LDOpenGLIncompatible(
                     f'ldopengl_dll={ldopengl_dll} does not exist, '
@@ -306,7 +306,7 @@ class LDOpenGL(Platform):
                         instance_id=index,
                     )
                 except (LDOpenGLIncompatible, LDOpenGLError) as e:
-                    logger.error(e)
+                    logger.error(str(f'[Устройство — LDOpenGL] Ошибка получения снимка экрана: {e}'))
                     logger.error('[Устройство — LDOpenGL] Некорректные сведения об эмуляторе')
 
         # 搜索模拟器实例
@@ -321,7 +321,7 @@ class LDOpenGL(Platform):
                 instance_id=self.emulator_instance.LDPlayer_id,
             )
         except (LDOpenGLIncompatible, LDOpenGLError) as e:
-            logger.error(e)
+            logger.error(str(f'[Устройство — LDOpenGL] Ошибка получения снимка экрана: {e}'))
             logger.error('[Устройство — LDOpenGL] Не удалось инициализировать LDOpenGL')
             raise RequestHumanTakeover
 

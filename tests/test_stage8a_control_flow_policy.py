@@ -6,8 +6,10 @@ import unittest
 from dev_tools.stage8a_control_flow_policy import (
     APPROVED_METADATA_EXPRESSION_POLICY,
     _find_fstring,
+    WEBUI_LIVE_SECURITY_HELPER_SOURCE,
     _normalized_ast,
     _validate_metadata_expression_change,
+    _validate_webui_live_security_guard,
 )
 from dev_tools.stage8a_device_log_audit import RuntimeScanner
 
@@ -86,6 +88,64 @@ class Stage8AControlFlowPolicyTests(unittest.TestCase):
             _normalized_ast(before, {base_key}, {base_key}),
             _normalized_ast(after, {head_key}, {head_key}),
         )
+
+    def test_exact_webui_live_security_wrapper_is_allowed(self):
+        base = (
+            "async def ws_live_screenshot(websocket):\n"
+            "    await websocket.accept()\n\n"
+            "async def ws_live_control(websocket):\n"
+            "    await websocket.accept()\n\n"
+            "api_routes = [\n"
+            "    WebSocketRoute('/ws/live_screenshot', ws_live_screenshot),\n"
+            "    WebSocketRoute('/ws/live_control', ws_live_control),\n"
+            "]\n"
+        )
+        head = base.replace(
+            "api_routes = [",
+            WEBUI_LIVE_SECURITY_HELPER_SOURCE + "\napi_routes = [",
+        ).replace(
+            "WebSocketRoute('/ws/live_screenshot', ws_live_screenshot)",
+            "WebSocketRoute('/ws/live_screenshot', _ws_live_screenshot_guarded)",
+        ).replace(
+            "WebSocketRoute('/ws/live_control', ws_live_control)",
+            "WebSocketRoute('/ws/live_control', _ws_live_control_guarded)",
+        )
+        self.assertEqual(_validate_webui_live_security_guard(base, head), [])
+        self.assertEqual(
+            _normalized_ast(base, set(), set()),
+            _normalized_ast(
+                head,
+                set(),
+                set(),
+                normalize_webui_security=True,
+            ),
+        )
+
+    def test_webui_live_security_normalizer_rejects_unreviewed_delta(self):
+        base = (
+            "async def ws_live_screenshot(websocket):\n"
+            "    await websocket.accept()\n\n"
+            "async def ws_live_control(websocket):\n"
+            "    await websocket.accept()\n\n"
+            "api_routes = [\n"
+            "    WebSocketRoute('/ws/live_screenshot', ws_live_screenshot),\n"
+            "    WebSocketRoute('/ws/live_control', ws_live_control),\n"
+            "]\n"
+        )
+        head = base.replace(
+            "api_routes = [",
+            WEBUI_LIVE_SECURITY_HELPER_SOURCE.replace(
+                "return False\n    await websocket.accept()",
+                "return False\n    log_remote_client()\n    await websocket.accept()",
+            ) + "\napi_routes = [",
+        ).replace(
+            "WebSocketRoute('/ws/live_screenshot', ws_live_screenshot)",
+            "WebSocketRoute('/ws/live_screenshot', _ws_live_screenshot_guarded)",
+        ).replace(
+            "WebSocketRoute('/ws/live_control', ws_live_control)",
+            "WebSocketRoute('/ws/live_control', _ws_live_control_guarded)",
+        )
+        self.assertTrue(_validate_webui_live_security_guard(base, head))
 
     def test_normalizer_does_not_hide_other_control_flow_change(self):
         path = "module/device/sample.py"

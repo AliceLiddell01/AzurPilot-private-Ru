@@ -44,6 +44,7 @@ SAFE_METADATA_ATTRIBUTES = {
     "width",
 }
 SAFE_METADATA_CALLS = {"len", "type"}
+SAFE_TECHNICAL_NAMES = {"adb_binary"}
 LENGTH_GUARDED_BINARY_NAMES = {"array", "blob", "body", "content", "data", "response", "stream"}
 SAFE_METADATA_NAME_SUFFIXES = {
     "backend",
@@ -106,6 +107,8 @@ def _name_parts(value: str) -> set[str]:
 
 def _is_binary_name(value: str) -> bool:
     normalized = _normalized_name(value)
+    if normalized in SAFE_TECHNICAL_NAMES:
+        return False
     if any(normalized.endswith(f"_{suffix}") for suffix in SAFE_METADATA_NAME_SUFFIXES):
         return False
     parts = _name_parts(value)

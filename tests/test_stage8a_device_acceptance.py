@@ -17,6 +17,8 @@ from dev_tools.stage8a_device_acceptance import (
     _check_preview,
     _check_reconnect,
     _command_evidence,
+    _external_backend_evidence,
+    _git_head_sha,
     _is_network_serial,
     _resolve_serial,
     _run_adb,
@@ -295,6 +297,53 @@ class Stage8ADeviceAcceptanceTests(unittest.TestCase):
         self.assertEqual(result["status"], "SERIALIZATION_ONLY")
         self.assertIn("<serial>", result["serialized_command"])
         run_adb.assert_not_called()
+
+
+    @mock.patch("dev_tools.stage8a_device_acceptance.subprocess.run")
+    def test_git_head_sha_is_exact_and_shell_free(self, run):
+        run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="a" * 40 + "\n",
+            stderr="",
+        )
+        self.assertEqual(_git_head_sha(), "a" * 40)
+        command = run.call_args.args[0]
+        self.assertEqual(command, ["git", "rev-parse", "HEAD"])
+        self.assertNotIn("shell", run.call_args.kwargs)
+
+    @mock.patch("dev_tools.stage8a_device_acceptance.subprocess.run")
+    def test_git_head_sha_fails_closed(self, run):
+        run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="not-a-sha\n",
+            stderr="",
+        )
+        with self.assertRaises(AcceptanceFailure):
+            _git_head_sha()
+
+    def test_external_backend_evidence_separates_real_and_handshake_levels(self):
+        report = {
+            "screenshot_backend": "nemu_ipc",
+            "control_backend": "minitouch",
+            "live_preview": {
+                "mode": "screenshot_fallback",
+                "scrcpy": {"reason": "no_frame_after_handshake"},
+            },
+            "control": {
+                "configured_backend": {
+                    "backend": "minitouch",
+                    "probe": "handshake_without_touch",
+                }
+            },
+        }
+        evidence = {row["backend"]: row for row in _external_backend_evidence(report)}
+        self.assertEqual(evidence["ADB"]["level"], "REAL_ACCEPTANCE")
+        self.assertEqual(evidence["nemu_ipc"]["level"], "REAL_ACCEPTANCE")
+        self.assertEqual(evidence["minitouch"]["level"], "REAL_ACCEPTANCE_HANDSHAKE")
+        self.assertEqual(evidence["scrcpy"]["level"], "HANDSHAKE_ONLY")
+        self.assertIn("no_frame_after_handshake", evidence["scrcpy"]["limitations"])
 
     def test_sanitized_text_removes_serial(self):
         sanitized = _safe_text("target emulator-5554 failed", "emulator-5554")

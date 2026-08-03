@@ -43,13 +43,13 @@ def retry(func):
                 break
             # ADB 服务被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — aScreenCap] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
             # ascreencap 未安装时
             except AscreencapError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — aScreenCap] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.ascreencap_init()
@@ -76,7 +76,7 @@ def retry(func):
                 raise
             # 未知异常
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — aScreenCap] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass

@@ -37,26 +37,26 @@ def retry(func):
                 break
             # When adb server was killed
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — scrcpy] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
             # Emulator closed
             except ConnectionAbortedError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — scrcpy] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
             # ScrcpyError
             except ScrcpyError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — scrcpy] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.scrcpy_init()
             # AdbTimeout
             # socket.timeout
             except (AdbTimeout, socket.timeout) as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — scrcpy] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.scrcpy_init()
@@ -76,7 +76,7 @@ def retry(func):
                 raise
             # Unknown, probably a trucked image
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — scrcpy] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass

@@ -398,7 +398,7 @@ def retry(func):
                 break
             # ADB 服务被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -407,7 +407,7 @@ def retry(func):
                     del_cached_property(self, '_minitouch_builder')
             # 模拟器关闭
             except ConnectionAbortedError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -416,7 +416,7 @@ def retry(func):
                     del_cached_property(self, '_minitouch_builder')
             # MinitouchNotInstalledError: 从 minitouch 收到空数据
             except MinitouchNotInstalledError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.install_uiautomator2()
@@ -425,7 +425,7 @@ def retry(func):
                     del_cached_property(self, '_minitouch_builder')
             # MinitouchOccupiedError: 连接 minitouch 超时
             except MinitouchOccupiedError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.restart_atx()
@@ -450,7 +450,7 @@ def retry(func):
                 else:
                     break
             except BrokenPipeError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     del_cached_property(self, '_minitouch_builder')
@@ -459,7 +459,7 @@ def retry(func):
                 raise
             # 未知异常，可能是图像损坏
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -526,7 +526,7 @@ class Minitouch(Connection):
             try:
                 self._minitouch_client.close()
             except Exception as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — minitouch] Ошибка инициализации управления: {e}'))
             del self._minitouch_client
 
         self.get_orientation()
@@ -621,7 +621,7 @@ class Minitouch(Connection):
         except websockets.ConnectionClosedError as e:
             # ConnectionClosedError: no close frame received or sent
             # ConnectionClosedError: sent 1011 (unexpected error) keepalive ping timeout; no close frame received
-            logger.error(e)
+            logger.error(str(f'[Устройство — minitouch] Ошибка цикла управления: {e}'))
             raise MinitouchOccupiedError(
                 '[Устройство — minitouch] Соединение закрыто; вероятно, уже установлено другое соединение'
             )

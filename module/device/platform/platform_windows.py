@@ -337,9 +337,9 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             if 'WinError 740' in msg:
                 logger.error('[Устройство — Windows] Для запуска или остановки MuMu требуются права администратора')
         except EmulatorUnknown as e:
-            logger.error(e)
+            logger.error(str(f'[Устройство — платформа Windows] Ошибка операции эмулятора: {e}'))
         except Exception as e:
-            logger.exception(e)
+            logger.exception(str(f'[Устройство — платформа Windows] Ошибка операции эмулятора: {e}'))
 
         logger.error(f'[Устройство — Windows] Не удалось выполнить функцию эмулятора {func.__name__}()')
         return False
@@ -422,7 +422,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
                 try:
                     pong = self.adb_shell(['echo', 'pong'])
                 except Exception as e:
-                    logger.info(e)
+                    logger.info(str(f'[Устройство — платформа Windows] Ошибка ожидания запуска эмулятора: {e}'))
                     continue
                 show_ping(pong)
 
@@ -439,10 +439,10 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             except (ConnectionResetError, ConnectionAbortedError) as e:
                 # [WinError 10054] 远程主机强迫关闭了一个现有的连接。
                 # 模拟器启动期间经常出现
-                logger.info(e)
+                logger.info(str(f'[Устройство — платформа Windows] Ошибка ожидания запуска эмулятора: {e}'))
                 continue
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — платформа Windows] Ошибка ожидания запуска эмулятора: {e}'))
                 continue
 
             # MuMu 权限冲突等错误对话框检测

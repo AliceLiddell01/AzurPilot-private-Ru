@@ -41,13 +41,13 @@ def retry(func):
                 break
             # ADB 服务被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — Hermit] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
             # 无法发送请求时
             except requests.exceptions.ConnectionError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — Hermit] Ошибка повторной попытки: {e}'))
                 text = str(e)
                 if 'Connection aborted' in text:
                     # Hermit 未安装或未运行
@@ -74,14 +74,14 @@ def retry(func):
                     break
             # HermitError: {"code":-1,"msg":"error"}
             except HermitError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — Hermit] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
                     self.hermit_init()
             # 未知异常，可能是图像损坏
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — Hermit] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -221,7 +221,7 @@ class Hermit(Adb):
         except (json.decoder.JSONDecodeError, KeyError):
             e = HermitError(result)
             if 'GestureDescription$Builder' in result:
-                logger.error(e)
+                logger.error(str(f'[Устройство — Hermit] Ошибка ответа backend: {e}'))
                 logger.critical('[Устройство — Hermit] Hermit не поддерживается на текущем устройстве: требуется Android >= 7.0')
                 raise RequestHumanTakeover
             if 'accessibilityservice' in result:

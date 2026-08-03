@@ -33,7 +33,7 @@ def retry(func):
                 break
             # adb server 被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -50,13 +50,13 @@ def retry(func):
                     break
             # 包未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
             # 未知异常，可能是损坏的图像
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass

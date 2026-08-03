@@ -47,7 +47,7 @@ def retry(func):
                 break
             # ADB 服务被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -64,7 +64,7 @@ def retry(func):
                     break
             # 应用未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
@@ -72,13 +72,13 @@ def retry(func):
             # requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
             # ReadTimeout: HTTPConnectionPool(host='127.0.0.1', port=20482): Read timed out. (read timeout=3)
             except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.droidcast_init()
             # DroidCast 版本不兼容
             except DroidCastVersionIncompatible as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.droidcast_init()
@@ -94,7 +94,7 @@ def retry(func):
                 raise
             # 未知异常
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass

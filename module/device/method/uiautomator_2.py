@@ -40,14 +40,14 @@ def retry(func):
                 break
             # adb server 被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
             # 在 `device.set_new_command_timeout(604800)` 时
             # json.decoder.JSONDecodeError: Expecting value: line 1 column 2 (char 1)
             except JSONDecodeError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.install_uiautomator2()
@@ -72,14 +72,14 @@ def retry(func):
             # 在 `assert c.read string(4) == _OKAY` 时
             # 模拟器未启用 ADB
             except AssertionError as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
                 possible_reasons(
                     '[Устройство — ADB] Если используется BlueStacks, LDPlayer или WSA, включите ADB в настройках эмулятора'
                 )
                 break
             # 包未安装
             except PackageNotInstalled as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
@@ -95,7 +95,7 @@ def retry(func):
                 raise
             # 未知异常
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -300,7 +300,7 @@ class Uiautomator2(Connection):
                     return False
                 # BaseError('package "111" not found')
                 elif 'not found' in str(e):
-                    logger.error(e)
+                    logger.error(str(f'[Устройство — uiautomator2] Ошибка запуска приложения через uiautomator2: {e}'))
                     raise PackageNotInstalled(package_name)
                 # 未知错误
                 else:

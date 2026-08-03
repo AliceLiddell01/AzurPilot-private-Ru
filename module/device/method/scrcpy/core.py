@@ -169,7 +169,7 @@ class ScrcpyCore(Connection):
             try:
                 self._scrcpy_control_socket.close()
             except Exception as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — scrcpy] Ошибка остановки scrcpy server: {e}'))
             del self._scrcpy_control_socket
             self._scrcpy_control_socket = None
 
@@ -177,7 +177,7 @@ class ScrcpyCore(Connection):
             try:
                 self._scrcpy_video_socket.close()
             except Exception as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — scrcpy] Ошибка остановки scrcpy server: {e}'))
             del self._scrcpy_video_socket
             self._scrcpy_video_socket = None
 
@@ -185,7 +185,7 @@ class ScrcpyCore(Connection):
             try:
                 self._scrcpy_server_stream.close()
             except Exception as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — scrcpy] Ошибка остановки scrcpy server: {e}'))
             del self._scrcpy_server_stream
             self._scrcpy_server_stream = None
 
@@ -206,7 +206,7 @@ class ScrcpyCore(Connection):
             from av.codec import CodecContext
             from av.error import InvalidDataError
         except ImportError as e:
-            logger.error(e)
+            logger.error(str(f'[Устройство — scrcpy] Ошибка видеопотока scrcpy: {e}'))
             logger.error('[Устройство — scrcpy] Для снимков экрана через scrcpy требуется пакет `av`. Обновите зависимости')
             raise RequestHumanTakeover
 

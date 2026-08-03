@@ -188,7 +188,7 @@ def retry(func):
                 break
             # 不可处理
             except NemuIpcIncompatible as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — NemuIpc] Ошибка повторной попытки: {e}'))
                 break
             # 函数调用超时
             except JobTimeout:
@@ -198,7 +198,7 @@ def retry(func):
                     pass
             # NemuIpcError
             except NemuIpcError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — NemuIpc] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.reconnect()
@@ -207,7 +207,7 @@ def retry(func):
                 raise
             # 未知异常，可能是损坏的图像
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — NemuIpc] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -251,7 +251,7 @@ class NemuIpcImpl:
                 self.lib = ctypes.CDLL(ipc_dll)
                 break
             except OSError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — NemuIpc] Ошибка инициализации backend: {e}'))
                 logger.error(f'Файл ipc_dll={ipc_dll} существует, но его не удалось загрузить')
                 continue
         if self.lib is None:
@@ -501,7 +501,7 @@ class NemuIpc(Platform):
                         display_id=0
                     ).__enter__()
                 except (NemuIpcIncompatible, NemuIpcError, JobTimeout) as e:
-                    logger.error(e)
+                    logger.error(str(f'[Устройство — NemuIpc] Ошибка получения снимка экрана: {e}'))
                     logger.error('[Устройство — NemuIpc] Некорректные сведения об эмуляторе')
 
         # 搜索模拟器实例
@@ -522,7 +522,7 @@ class NemuIpc(Platform):
             impl.connect_with_retry()
             return impl
         except (NemuIpcIncompatible, NemuIpcError, JobTimeout) as e:
-            logger.error(e)
+            logger.error(str(f'[Устройство — NemuIpc] Ошибка получения снимка экрана: {e}'))
             logger.error('[Устройство — NemuIpc] Не удалось инициализировать NemuIpc')
             raise RequestHumanTakeover
 

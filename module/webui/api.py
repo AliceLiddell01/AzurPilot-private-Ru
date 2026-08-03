@@ -1676,6 +1676,62 @@ async def api_import_legacy_upload(request):
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
+def _websocket_client_host(websocket) -> str:
+    client = getattr(websocket, "client", None)
+    host = getattr(client, "host", "") if client is not None else ""
+    return str(host or "").strip()
+
+
+def _is_local_live_websocket(websocket) -> bool:
+    host = _websocket_client_host(websocket)
+    if not host:
+        return False
+    normalized = host.strip("[]").split("%", 1)[0]
+    if normalized.lower() == "localhost":
+        return True
+    try:
+        packed = socket.inet_pton(socket.AF_INET, normalized)
+    except OSError:
+        packed = None
+    if packed is not None:
+        return packed[0] == 127
+    try:
+        packed = socket.inet_pton(socket.AF_INET6, normalized)
+    except OSError:
+        return False
+    return packed == (b"\x00" * 15 + b"\x01") or (
+        packed[:12] == (b"\x00" * 10 + b"\xff\xff")
+        and packed[12] == 127
+    )
+
+
+async def _reject_nonlocal_live_websocket(websocket) -> bool:
+    if _is_local_live_websocket(websocket):
+        return False
+    await websocket.accept()
+    await websocket.send_text(json.dumps({
+        "type": "error",
+        "message": (
+            "Предпросмотр и управление устройством доступны только из локальной WebUI. "
+            "Удалённый доступ требует отдельного аутентифицированного transport-контракта."
+        ),
+    }, ensure_ascii=False))
+    await websocket.close(code=4403)
+    return True
+
+
+async def _ws_live_screenshot_guarded(websocket):
+    if await _reject_nonlocal_live_websocket(websocket):
+        return
+    await ws_live_screenshot(websocket)
+
+
+async def _ws_live_control_guarded(websocket):
+    if await _reject_nonlocal_live_websocket(websocket):
+        return
+    await ws_live_control(websocket)
+
+
 api_routes = [
     Route("/api/cl1_stats", api_cl1_stats),
     Route("/api/ap_timeline", api_ap_timeline),
@@ -1691,6 +1747,6 @@ api_routes = [
     Route("/api/deploy/startup-run", api_deploy_startup_run_save, methods=["POST"]),
     Route("/api/import_legacy_upload", api_import_legacy_upload, methods=["POST"]),
     Route("/obs", serve_obs_overlay),
-    WebSocketRoute("/ws/live_screenshot", ws_live_screenshot),
-    WebSocketRoute("/ws/live_control", ws_live_control),
+    WebSocketRoute("/ws/live_screenshot", _ws_live_screenshot_guarded),
+    WebSocketRoute("/ws/live_control", _ws_live_control_guarded),
 ]

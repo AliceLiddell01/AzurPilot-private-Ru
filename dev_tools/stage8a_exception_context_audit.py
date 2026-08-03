@@ -5,9 +5,12 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from dev_tools.stage8a_semantic_policy import classify_message
+
 SCOPE_PREFIX = Path("module/device")
 SCOPE_FILES = (Path("module/webui/api.py"),)
 LOGGER_METHODS = {"debug", "info", "warning", "error", "critical", "exception"}
+EXCEPTION_NAMES = {"e", "err", "error", "exc", "exception"}
 CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 
 
@@ -59,48 +62,72 @@ def _logger_call(node: ast.Call) -> str | None:
 class _ExceptionContextVisitor(ast.NodeVisitor):
     def __init__(self, path: str):
         self.path = path
-        self.exception_stack: list[str] = []
+        self.owner_stack: list[str] = []
+        self.exception_stack: list[str | None] = []
         self.findings: list[dict[str, Any]] = []
 
-    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
-        if isinstance(node.name, str) and node.name:
-            self.exception_stack.append(node.name)
-            for statement in node.body:
-                self.visit(statement)
-            self.exception_stack.pop()
-        else:
-            for statement in node.body:
-                self.visit(statement)
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.owner_stack.append(node.name)
+        self.generic_visit(node)
+        self.owner_stack.pop()
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        if self.exception_stack:
-            return
+        self.owner_stack.append(node.name)
         self.generic_visit(node)
+        self.owner_stack.pop()
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        if self.exception_stack:
-            return
-        self.generic_visit(node)
+        self.visit_FunctionDef(node)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        self.exception_stack.append(node.name if isinstance(node.name, str) else None)
+        for statement in node.body:
+            self.visit(statement)
+        self.exception_stack.pop()
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         if not self.exception_stack:
             self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        if not self.exception_stack:
-            self.generic_visit(node)
-            return
-
         call_kind = _logger_call(node)
         if call_kind is None:
             self.generic_visit(node)
             return
 
-        exception_name = self.exception_stack[-1]
         values = [*node.args, *(keyword.value for keyword in node.keywords)]
-        references_exception = any(_references_name(value, exception_name) for value in values)
+        referenced_names = {
+            child.id
+            for value in values
+            for child in ast.walk(value)
+            if isinstance(child, ast.Name)
+        }
+        active_exception = self.exception_stack[-1] if self.exception_stack else None
+        exception_names = referenced_names & EXCEPTION_NAMES
+        if active_exception and active_exception in referenced_names:
+            exception_names.add(active_exception)
+        references_exception = bool(exception_names)
+        if not references_exception and not (
+            self.exception_stack and call_kind.endswith(".exception")
+        ):
+            self.generic_visit(node)
+            return
+        exception_name = sorted(exception_names)[0] if exception_names else "<active exception>"
         static_text = " ".join(_static_text(value) for value in values)
         has_russian_context = bool(CYRILLIC_RE.search(static_text))
+        owner = ".".join(self.owner_stack)
+
+        if static_text and not has_russian_context:
+            _, stage_owner, _, _ = classify_message(
+                path=self.path,
+                function_owner=owner,
+                call_kind=call_kind,
+                arg_role="message",
+                message=static_text,
+            )
+            if stage_owner != "stage8a":
+                self.generic_visit(node)
+                return
 
         method = call_kind.rsplit(".", 1)[-1]
         if references_exception and not has_russian_context:
@@ -109,6 +136,7 @@ class _ExceptionContextVisitor(ast.NodeVisitor):
                     "kind": "bare_external_exception",
                     "path": self.path,
                     "line": node.lineno,
+                    "function_owner": owner,
                     "call_kind": call_kind,
                     "exception_name": exception_name,
                     "evidence": (
@@ -123,6 +151,7 @@ class _ExceptionContextVisitor(ast.NodeVisitor):
                     "kind": "dynamic_message_without_first_party_context",
                     "path": self.path,
                     "line": node.lineno,
+                    "function_owner": owner,
                     "call_kind": call_kind,
                     "exception_name": exception_name,
                     "evidence": (

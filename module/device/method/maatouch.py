@@ -47,7 +47,7 @@ def retry(func):
                 break
             # ADB 服务被终止时
             except ConnectionResetError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -55,7 +55,7 @@ def retry(func):
             # MaaTouch 同步超时
             # 可能是因为 ADB 服务被终止
             except MaaTouchSyncTimeout as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -63,7 +63,7 @@ def retry(func):
                     self.reset_maatouch()
             # 模拟器关闭
             except ConnectionAbortedError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
@@ -83,13 +83,13 @@ def retry(func):
                     break
             # MaaTouchNotInstalledError: 从 MaaTouch 收到 "Aborted"
             except MaaTouchNotInstalledError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.maatouch_install()
                     del_cached_property(self, '_maatouch_builder')
             except BrokenPipeError as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     del_cached_property(self, '_maatouch_builder')
@@ -98,7 +98,7 @@ def retry(func):
                 raise
             # 未知异常，可能是图像损坏
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     pass
@@ -214,7 +214,7 @@ class MaaTouch(Connection):
             try:
                 self._maatouch_stream.close()
             except Exception as e:
-                logger.error(e)
+                logger.error(str(f'[Устройство — MaaTouch] Ошибка инициализации управления: {e}'))
             del self._maatouch_stream
         if self._maatouch_stream_storage is not None:
             del self._maatouch_stream_storage

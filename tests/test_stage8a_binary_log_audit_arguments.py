@@ -46,5 +46,14 @@ class Stage8ABinaryLogAuditArgumentsTests(unittest.TestCase):
         self.assertEqual(findings, [])
 
 
+    def test_adb_binary_executable_path_is_safe_technical_metadata(self):
+        findings = self._findings("logger.attr('AdbBinary', self.adb_binary)\n")
+        self.assertEqual(findings, [])
+
+    def test_other_binary_values_remain_blocked(self):
+        findings = self._findings("logger.info('Blob: %s', payload_binary)\n")
+        self.assertEqual(findings[0]["references"], ["payload_binary"])
+
+
 if __name__ == "__main__":
     unittest.main()

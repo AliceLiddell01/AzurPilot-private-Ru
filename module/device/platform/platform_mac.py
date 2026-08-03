@@ -245,7 +245,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
             func(self.emulator_instance)
             return True
         except Exception as e:
-            logger.exception(e)
+            logger.exception(str(f'[Устройство — платформа macOS] Ошибка операции эмулятора: {e}'))
 
         logger.error(f'[Устройство — эмулятор macOS] Не удалось выполнить функцию эмулятора {func.__name__}()')
         return False
@@ -303,7 +303,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 try:
                     pong = self.adb_shell(['echo', 'pong'])
                 except Exception as e:
-                    logger.info(e)
+                    logger.info(str(f'[Устройство — платформа macOS] Ошибка ожидания запуска эмулятора: {e}'))
                     continue
                 show_ping(pong)
 
@@ -318,10 +318,10 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 # 所有检查通过
                 break
             except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
-                logger.info(e)
+                logger.info(str(f'[Устройство — платформа macOS] Ошибка ожидания запуска эмулятора: {e}'))
                 continue
             except Exception as e:
-                logger.exception(e)
+                logger.exception(str(f'[Устройство — платформа macOS] Ошибка ожидания запуска эмулятора: {e}'))
                 continue
 
         logger.info('[Устройство — эмулятор macOS] Запуск эмулятора завершён')

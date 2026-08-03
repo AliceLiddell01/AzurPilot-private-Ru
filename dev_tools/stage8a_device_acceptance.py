@@ -169,6 +169,83 @@ def _command_evidence(
     }
 
 
+
+def _git_head_sha() -> str:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+    )
+    if completed.returncode != 0:
+        raise AcceptanceFailure("Не удалось определить exact head SHA для acceptance.")
+    sha = str(completed.stdout).strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise AcceptanceFailure("Git вернул недопустимый head SHA.")
+    return sha
+
+
+def _external_backend_evidence(report: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = [
+        {
+            "backend": "ADB",
+            "level": "REAL_ACCEPTANCE",
+            "evidence": [
+                "transport",
+                "package_readiness",
+                "png_screenshot_bgr",
+                "target_explicit_reconnect",
+            ],
+            "limitations": "One configured target and package on this exact head.",
+        }
+    ]
+    preview = report.get("live_preview", {})
+    screenshot_backend = str(report.get("screenshot_backend", ""))
+    if preview.get("mode") == "screenshot_fallback" and screenshot_backend:
+        evidence.append(
+            {
+                "backend": screenshot_backend,
+                "level": "REAL_ACCEPTANCE",
+                "evidence": ["two_consecutive_bgr_frames", "webui_fallback"],
+                "limitations": "Configured screenshot backend only.",
+            }
+        )
+        scrcpy = preview.get("scrcpy", {})
+        evidence.append(
+            {
+                "backend": "scrcpy",
+                "level": "HANDSHAKE_ONLY",
+                "evidence": ["server_start", "device_metadata", "resolution"],
+                "limitations": str(scrcpy.get("reason", "no_raw_frame")),
+            }
+        )
+    elif preview.get("mode") == "scrcpy":
+        evidence.append(
+            {
+                "backend": "scrcpy",
+                "level": "REAL_ACCEPTANCE",
+                "evidence": ["server_start", "device_metadata", "first_video_chunk"],
+                "limitations": "One configured device and one initial stream.",
+            }
+        )
+    control = report.get("control", {})
+    configured = control.get("configured_backend", {})
+    backend = str(configured.get("backend", report.get("control_backend", "")))
+    if backend:
+        evidence.append(
+            {
+                "backend": backend,
+                "level": "REAL_ACCEPTANCE_HANDSHAKE",
+                "evidence": [str(configured.get("probe", "configured_backend_probe"))],
+                "limitations": "Handshake only; no touch command was sent.",
+            }
+        )
+    return evidence
+
+
 def _load_profile(profile: str) -> dict[str, str]:
     from module.config.config import AzurLaneConfig
 
@@ -644,6 +721,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     report: dict[str, Any] = {
         "status": "RUNNING",
         "stage": "8A",
+        "head_sha": _git_head_sha(),
         "profile": args.profile,
         "target_serial": "<serial>",
         "package": package,
@@ -730,6 +808,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         if args.check_reconnect and report["reconnect"]["status"] != "PASS":
             raise AcceptanceFailure("Проверка reconnect не была полностью подтверждена.")
 
+        report["external_backend_evidence"] = _external_backend_evidence(report)
         report["status"] = "PASS"
         return report
     finally:
