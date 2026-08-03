@@ -1,23 +1,4 @@
-"""Windows ML ONNX Runtime 设备选择模块。
-
-在 Windows 平台上为 ONNX Runtime 推理会话选择最优的执行提供程序 (Execution Provider)。
-支持的 EP 优先级（从高到低）：
-
-1. DirectML (DmlExecutionProvider): 通用 GPU 加速，支持所有 Windows GPU
-2. QNN (QNNExecutionProvider): 高通 NPU 加速（特定硬件）
-3. OpenVINO (OpenVINOExecutionProvider): Intel 硬件加速
-4. CUDA (CUDAExecutionProvider): NVIDIA GPU 加速
-5. CPU (CPUExecutionProvider): 兜底方案
-
-设备选择逻辑：
-- 根据用户配置的设备偏好（'gpu'、'cpu'、'npu'）选择 EP
-- 自动检测 AMD 集成显卡并排除不兼容的 EP
-- 通过 GPU 显存大小区分独显和集显
-- 使用线程锁确保 EP 初始化的线程安全性
-
-核心函数 create_onnx_session() 被 al_ocr.py 调用，
-为 OCR 模型创建优化的推理会话。
-"""
+"""Выбор ONNX Runtime Execution Provider через Windows ML."""
 
 import os
 import re
@@ -25,8 +6,6 @@ import threading
 
 from module.logger import logger
 
-
-# 执行提供程序常量
 QNN_EP = "QNNExecutionProvider"
 OPENVINO_EP = "OpenVINOExecutionProvider"
 DML_EP = "DmlExecutionProvider"
@@ -38,32 +17,35 @@ OPENVINO_CPU_DEVICE = "openvino_cpu"
 
 _MIN_DISCRETE_VIDEO_MEMORY_MIB = 1024
 _AMD_INTEGRATED_HD_MODELS = {
-    "6250",
-    "6290",
-    "6310",
-    "6320",
-    "6410d",
-    "6530d",
-    "6550d",
-    "7560d",
-    "7660d",
+    "6250", "6290", "6310", "6320", "6410d", "6530d", "6550d", "7560d", "7660d",
 }
 _AMD_INTEGRATED_VEGA_MODELS = {"3", "5", "6", "7", "8", "10", "11"}
 _AMD_INTEGRATED_RDNA_MODELS = {
-    "610m",
-    "660m",
-    "680m",
-    "740m",
-    "760m",
-    "780m",
-    "840m",
-    "860m",
-    "880m",
-    "890m",
+    "610m", "660m", "680m", "740m", "760m", "780m", "840m", "860m", "880m", "890m",
 }
 
 _provider_lock = threading.Lock()
 _prepared_execution_providers = set()
+
+
+def _provider_download_allowed(explicit):
+    if explicit is not None:
+        return bool(explicit)
+    value = os.environ.get("AZURPILOT_OCR_ALLOW_PROVIDER_DOWNLOAD")
+    if value is None:
+        return True
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _available_provider_names(ort):
+    getter = getattr(ort, "get_available_providers", None)
+    if getter is None:
+        return ()
+    try:
+        return tuple(getter())
+    except Exception as exc:
+        logger.warning(f"[OCR] Не удалось получить registered ONNX Runtime providers: {exc}")
+        return ()
 
 
 def create_onnx_session(
@@ -73,25 +55,39 @@ def create_onnx_session(
     allow_acceleration=True,
     allow_vendor_execution_providers=True,
     device_preference="auto",
+    allow_provider_download=None,
 ):
-    """按固定优先级创建 Windows ML 或 CPU ONNX Runtime session。"""
+    """Создаёт ONNX Runtime session в сохранённом порядке provider priority."""
     create_options = session_options_factory or ort.SessionOptions
+    requested_vendor = _vendor_execution_provider_names(device_preference)
+    logger.info(
+        f"[OCR] Запрошено устройство '{device_preference}'; vendor providers: "
+        f"{requested_vendor or ('none',)}"
+    )
 
     if os.name != "nt" or not allow_acceleration:
-        return (
-            ort.InferenceSession(
-                str(model_path),
-                sess_options=create_options(),
-                providers=["CPUExecutionProvider"],
-            ),
-            "CPUExecutionProvider",
+        session = ort.InferenceSession(
+            str(model_path),
+            sess_options=create_options(),
+            providers=["CPUExecutionProvider"],
         )
+        logger.info(
+            f"[OCR] Создана CPU session ONNX Runtime; session providers: {session.get_providers()}"
+        )
+        return session, "CPUExecutionProvider"
 
-    vendor_execution_providers = _vendor_execution_provider_names(device_preference)
-    if allow_vendor_execution_providers and vendor_execution_providers:
-        _prepare_vendor_execution_providers(ort, vendor_execution_providers)
-    elif not allow_vendor_execution_providers and vendor_execution_providers:
-        logger.info("[OCR] Windows ML 厂商 EP 自动安装和使用已禁用")
+    download_allowed = _provider_download_allowed(allow_provider_download)
+    if allow_vendor_execution_providers and requested_vendor:
+        _prepare_vendor_execution_providers(
+            ort,
+            requested_vendor,
+            allow_provider_download=download_allowed,
+        )
+    elif not allow_vendor_execution_providers and requested_vendor:
+        logger.info("[OCR] Автоматическая подготовка и использование vendor EP Windows ML отключены")
+
+    registered = _available_provider_names(ort)
+    logger.info(f"[OCR] Registered ONNX Runtime providers: {registered}")
 
     for device in _iter_preferred_devices(
         ort,
@@ -99,8 +95,6 @@ def create_onnx_session(
         allow_vendor_execution_providers=allow_vendor_execution_providers,
     ):
         options = create_options()
-        # OrtEpDevice 已包含目标硬件的标识；重复传入 ep_options 会导致
-        # ONNX Runtime 重复设置 DirectML 的 device_id 并输出无意义警告。
         options.add_provider_for_devices([device], {})
         if device.ep_name == DML_EP:
             options.enable_mem_pattern = False
@@ -110,26 +104,46 @@ def create_onnx_session(
             session = ort.InferenceSession(str(model_path), sess_options=options)
         except Exception as exc:
             logger.warning(
-                f"[OCR] Windows ML 无法使用 {device.ep_name}，尝试下一个设备: {exc}"
+                f"[OCR] Windows ML не смог создать session через {device.ep_name}; "
+                f"проверяется следующее устройство: {exc}"
             )
             continue
 
-        logger.info(f"[OCR] Windows ML 选择 {_describe_device(device)}")
+        session_providers = tuple(session.get_providers())
+        try:
+            provider_options = session.get_provider_options()
+        except Exception:
+            provider_options = {}
+        if device.ep_name not in session_providers:
+            logger.warning(
+                f"[OCR] Provider {device.ep_name} не прикреплён к созданной session; "
+                f"session providers: {session_providers}. Проверяется fallback."
+            )
+            continue
+
+        logger.info(
+            f"[OCR] Windows ML выбрал {_describe_device(device)}; "
+            f"session providers: {session_providers}; options: {provider_options}"
+        )
         return session, device.ep_name
 
-    logger.info("[OCR] 未找到符合条件的 Windows ML 加速设备，使用 CPU")
-    return (
-        ort.InferenceSession(
-            str(model_path),
-            sess_options=create_options(),
-            providers=["CPUExecutionProvider"],
-        ),
-        "CPUExecutionProvider",
+    logger.info("[OCR] Подходящее устройство Windows ML не найдено; используется CPU fallback")
+    session = ort.InferenceSession(
+        str(model_path),
+        sess_options=create_options(),
+        providers=["CPUExecutionProvider"],
     )
+    logger.info(f"[OCR] CPU fallback session providers: {session.get_providers()}")
+    return session, "CPUExecutionProvider"
 
 
-def _prepare_vendor_execution_providers(ort, provider_names):
-    """通过 Windows Update 获取并注册本项目允许使用的厂商 EP。"""
+def _prepare_vendor_execution_providers(
+    ort,
+    provider_names,
+    *,
+    allow_provider_download=True,
+):
+    """Обнаруживает и при необходимости готовит разрешённые vendor EP Windows ML."""
     marker = id(ort)
     with _provider_lock:
         pending_provider_names = tuple(
@@ -143,50 +157,78 @@ def _prepare_vendor_execution_providers(ort, provider_names):
         try:
             import windowsml
         except Exception as exc:
-            logger.warning(f"[OCR] Windows ML Runtime 不可用，跳过 NPU/OpenVINO: {exc}")
+            logger.warning(f"[OCR] Windows ML Runtime недоступен; NPU/OpenVINO пропущены: {exc}")
             _prepared_execution_providers.update(
                 (marker, name) for name in pending_provider_names
             )
             return
 
         try:
-            # ExecutionProvider 句柄由 EpCatalog 所有，必须在目录关闭前完成注册。
             with windowsml.EpCatalog() as catalog:
                 providers = {
                     provider.name: provider
                     for provider in catalog.find_all_providers()
                 }
+                logger.info(
+                    f"[OCR] Обнаружены providers Windows ML: {tuple(providers)}"
+                )
                 for name in pending_provider_names:
                     provider = providers.get(name)
                     if provider is None:
+                        logger.info(f"[OCR] Provider Windows ML {name} не обнаружен")
                         continue
-                    _ensure_and_register_provider(ort, windowsml, provider)
+                    _ensure_and_register_provider(
+                        ort,
+                        windowsml,
+                        provider,
+                        allow_provider_download=allow_provider_download,
+                    )
         except Exception as exc:
-            logger.warning(f"[OCR] 无法枚举 Windows ML 执行提供程序: {exc}")
+            logger.warning(f"[OCR] Не удалось перечислить Execution Providers Windows ML: {exc}")
 
         _prepared_execution_providers.update(
             (marker, name) for name in pending_provider_names
         )
 
 
-def _ensure_and_register_provider(ort, windowsml, provider):
+def _ensure_and_register_provider(
+    ort,
+    windowsml,
+    provider,
+    *,
+    allow_provider_download=True,
+):
     try:
         ready = windowsml.EpReadyState.Ready
+        logger.info(
+            f"[OCR] Provider Windows ML {provider.name}; ready state: {provider.ready_state}"
+        )
         if provider.ready_state != ready:
-            logger.info(f"[OCR] 准备 Windows ML {provider.name}: {provider.ready_state}")
+            if not allow_provider_download:
+                logger.info(
+                    f"[OCR] Подготовка/download provider {provider.name} запрещена текущим режимом; "
+                    "provider пропущен без системных изменений"
+                )
+                return False
+            logger.info(f"[OCR] Подготовка provider Windows ML {provider.name}")
             with provider.ensure_ready_async() as operation:
                 operation.wait()
 
         registered_names = {device.ep_name for device in ort.get_ep_devices()}
         if provider.name not in registered_names:
-            ort.register_execution_provider_library(provider.name, provider.library_path)
-            logger.info(f"[OCR] 已注册 Windows ML {provider.name}")
+            ort.register_execution_provider_library(
+                provider.name,
+                provider.library_path,
+            )
+            logger.info(f"[OCR] Зарегистрирован provider Windows ML {provider.name}")
+        return True
     except Exception as exc:
         logger.warning(
-            f"[OCR] Windows ML {provider.name} 自动安装或更新失败: {exc}。"
-            "已跳过该 EP 并继续尝试后备设备；请检查 Windows Update 服务未被禁用、"
-            "Windows 更新策略没有被组织管理器关闭，以及网络可访问 Windows 更新服务。"
+            f"[OCR] Не удалось подготовить или зарегистрировать Windows ML {provider.name}: {exc}. "
+            "Provider пропущен; будет проверен следующий backend или CPU fallback. "
+            "Проверьте Windows Update policy и доступ к службе обновлений."
         )
+        return False
 
 
 def _iter_preferred_devices(
@@ -197,7 +239,7 @@ def _iter_preferred_devices(
     try:
         devices = ort.get_ep_devices()
     except Exception as exc:
-        logger.warning(f"[OCR] 无法枚举 ONNX Runtime 设备: {exc}")
+        logger.warning(f"[OCR] Не удалось перечислить устройства ONNX Runtime: {exc}")
         return ()
 
     device_types = ort.OrtHardwareDeviceType
@@ -216,7 +258,9 @@ def _iter_preferred_devices(
         OPENVINO_CPU_DEVICE: ((OPENVINO_EP, device_types.CPU, False),),
     }.get(device_preference, ())
     if not allow_vendor_execution_providers:
-        candidates = tuple(candidate for candidate in candidates if candidate[0] == DML_EP)
+        candidates = tuple(
+            candidate for candidate in candidates if candidate[0] == DML_EP
+        )
     return tuple(
         device
         for ep_name, device_type, require_discrete in candidates
@@ -248,9 +292,6 @@ def _is_discrete_gpu(device):
     if discrete is not None:
         return str(discrete).lower() in ("1", "true")
 
-    # Windows 10 的部分驱动不会填充 Discrete。先排除已知核显和软件适配器，
-    # 再用 DXGI 专用显存确认其余设备；缺少显存元数据时仍放行未知名称，
-    # 避免 GTX 1070 之类独显被漏掉。
     name = _normalize_gpu_name(metadata.get("Description", ""))
     if _is_known_integrated_gpu_name(name) or _is_software_gpu_name(name):
         return False
@@ -268,7 +309,6 @@ def _normalize_gpu_name(name):
 
 
 def _is_known_integrated_gpu_name(name):
-    """根据 Windows 设备名识别没有 Discrete 元数据的常见核显。"""
     if name.startswith(
         (
             "intel graphics media accelerator",
@@ -285,7 +325,6 @@ def _is_known_integrated_gpu_name(name):
             "intel arc 140v",
         )
     ):
-        # Intel Iris Xe MAX 是独显，名称不会落入上述 Iris Xe Graphics 前缀。
         return True
 
     for prefix in ("amd ", "advanced micro devices, inc. "):
@@ -303,17 +342,13 @@ def _is_known_integrated_gpu_name(name):
     ):
         return True
     if re.fullmatch(
-        r"radeon vega (?:"
-        + "|".join(_AMD_INTEGRATED_VEGA_MODELS)
-        + r")(?: graphics)?",
+        r"radeon vega (?:" + "|".join(_AMD_INTEGRATED_VEGA_MODELS) + r")(?: graphics)?",
         name,
     ):
         return True
     return bool(
         re.fullmatch(
-            r"radeon (?:"
-            + "|".join(_AMD_INTEGRATED_RDNA_MODELS)
-            + r")(?: graphics)?",
+            r"radeon (?:" + "|".join(_AMD_INTEGRATED_RDNA_MODELS) + r")(?: graphics)?",
             name,
         )
     )
@@ -332,11 +367,9 @@ def _is_software_gpu_name(name):
 def _video_memory_mib(value):
     if value is None:
         return None
-
     match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(MiB|MB|GiB|GB)?\s*", str(value))
     if match is None:
         return None
-
     amount = float(match.group(1))
     unit = (match.group(2) or "MiB").lower()
     if unit in {"gib", "gb"}:
