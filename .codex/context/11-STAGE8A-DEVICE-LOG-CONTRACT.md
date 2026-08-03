@@ -84,6 +84,12 @@ Runner:
 - не устанавливает APK, не очищает app data, не запускает task queue;
 - не читает clipboard и не вводит пользовательский текст;
 - удаляет временный screenshot;
+- маскирует resolved serial и путь ADB в failure-report, в том числе при
+  `--serial-from-config` и системных subprocess-ошибках;
 - записывает sanitized report в `artifacts/stage8a/device-acceptance.json`.
+
+Read-only определение target и package выполняется до подтверждения `START`,
+чтобы пользователь видел фактический выбор. Отказ от `START` гарантированно
+происходит до screenshot, preview, control и reconnect.
 
 PR остаётся Draft до точной команды пользователя `PASS — сливай`.
