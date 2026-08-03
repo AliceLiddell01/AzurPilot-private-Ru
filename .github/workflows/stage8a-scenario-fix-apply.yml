@@ -31,8 +31,7 @@ jobs:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          actual="$(git rev-parse HEAD)"
-          test "$actual" = "$EXPECTED_HEAD"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -49,60 +48,58 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p artifacts/stage8a-scenario-fix
+
           python - <<'PY' 2>&1 | tee artifacts/stage8a-scenario-fix/patch-decode.log
           import base64
           import hashlib
           import zlib
           from pathlib import Path
 
-          primary = zlib.decompress(base64.b64decode(Path('.stage8a-scenario-fix/patch.b64').read_text(encoding='ascii')))
-          primary_expected = 'cf155268f665178824aef2c617647aa1405ecbf16e461c1fdc631dd765e11ad4'
-          primary_actual = hashlib.sha256(primary).hexdigest()
-          if primary_actual != primary_expected:
-              raise SystemExit(f'Primary patch digest mismatch: {primary_actual}')
-          Path('/tmp/stage8a-scenario-fix.patch').write_bytes(primary)
-
-          hotfix = zlib.decompress(base64.b64decode(Path('.stage8a-scenario-fix/winreg-hotfix.b64').read_text(encoding='ascii')))
-          hotfix_expected = '355aeb2e0ebf88d110adc79779ccd5150c9e373d7f6d9cd7233fc09fb3eb9b2a'
-          hotfix_actual = hashlib.sha256(hotfix).hexdigest()
-          if hotfix_actual != hotfix_expected:
-              raise SystemExit(f'Hotfix patch digest mismatch: {hotfix_actual}')
-          Path('/tmp/stage8a-scenario-winreg.patch').write_bytes(hotfix)
-          print(f'primary_patch_sha256={primary_actual}')
-          print(f'hotfix_patch_sha256={hotfix_actual}')
+          specs = [
+              ('patch.b64', 'cf155268f665178824aef2c617647aa1405ecbf16e461c1fdc631dd765e11ad4', '/tmp/01-primary.patch'),
+              ('winreg-hotfix.b64', '355aeb2e0ebf88d110adc79779ccd5150c9e373d7f6d9cd7233fc09fb3eb9b2a', '/tmp/02-winreg.patch'),
+              ('contract-hotfix.b64', 'bc446e6787003c7619f07b90f1278e483818e179e5e640559db0a9ca13cb9aba', '/tmp/03-contract.patch'),
+          ]
+          for filename, expected, output in specs:
+              encoded = Path('.stage8a-scenario-fix', filename).read_text(encoding='ascii')
+              patch = zlib.decompress(base64.b64decode(encoded))
+              actual = hashlib.sha256(patch).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f'{filename}: digest mismatch: {actual}')
+              Path(output).write_bytes(patch)
+              print(f'{filename}={actual}')
           PY
           decode_status=${PIPESTATUS[0]}
 
-          git apply --check --whitespace=nowarn /tmp/stage8a-scenario-fix.patch 2>&1 | tee artifacts/stage8a-scenario-fix/git-apply-check.log
-          apply_check_status=${PIPESTATUS[0]}
-          if [ "$apply_check_status" -eq 0 ]; then
-            git apply --whitespace=nowarn /tmp/stage8a-scenario-fix.patch 2>&1 | tee artifacts/stage8a-scenario-fix/git-apply.log
-            apply_status=${PIPESTATUS[0]}
+          apply_status=0
+          if [ "$decode_status" -eq 0 ]; then
+            for patch_file in /tmp/01-primary.patch /tmp/02-winreg.patch /tmp/03-contract.patch; do
+              name="$(basename "$patch_file" .patch)"
+              git apply --check --whitespace=nowarn "$patch_file" 2>&1 | tee "artifacts/stage8a-scenario-fix/${name}-check.log"
+              check_status=${PIPESTATUS[0]}
+              if [ "$check_status" -ne 0 ]; then
+                apply_status=$check_status
+                break
+              fi
+              git apply --whitespace=nowarn "$patch_file" 2>&1 | tee "artifacts/stage8a-scenario-fix/${name}-apply.log"
+              current_status=${PIPESTATUS[0]}
+              if [ "$current_status" -ne 0 ]; then
+                apply_status=$current_status
+                break
+              fi
+            done
           else
-            apply_status=1
+            apply_status=$decode_status
           fi
 
+          sync_status=1
+          unittest_status=1
+          verifier_status=1
+          diff_status=1
           if [ "$apply_status" -eq 0 ]; then
-            git apply --check --whitespace=nowarn /tmp/stage8a-scenario-winreg.patch 2>&1 | tee artifacts/stage8a-scenario-fix/hotfix-apply-check.log
-            hotfix_check_status=${PIPESTATUS[0]}
-            if [ "$hotfix_check_status" -eq 0 ]; then
-              git apply --whitespace=nowarn /tmp/stage8a-scenario-winreg.patch 2>&1 | tee artifacts/stage8a-scenario-fix/hotfix-apply.log
-              hotfix_status=${PIPESTATUS[0]}
-            else
-              hotfix_status=1
-            fi
-          else
-            hotfix_check_status=1
-            hotfix_status=1
-          fi
-
-          if [ "$decode_status" -eq 0 ] && [ "$apply_check_status" -eq 0 ] && [ "$apply_status" -eq 0 ] && [ "$hotfix_check_status" -eq 0 ] && [ "$hotfix_status" -eq 0 ]; then
             uv sync --frozen 2>&1 | tee artifacts/stage8a-scenario-fix/uv-sync.log
             sync_status=${PIPESTATUS[0]}
-          else
-            sync_status=1
           fi
-
           if [ "$sync_status" -eq 0 ]; then
             uv run python -m unittest discover -s tests -p 'test_stage8a_*.py' -v 2>&1 | tee artifacts/stage8a-scenario-fix/unittest.log
             unittest_status=${PIPESTATUS[0]}
@@ -110,18 +107,11 @@ jobs:
             verifier_status=${PIPESTATUS[0]}
             git diff --check 2>&1 | tee artifacts/stage8a-scenario-fix/diff-check.log
             diff_status=${PIPESTATUS[0]}
-          else
-            unittest_status=1
-            verifier_status=1
-            diff_status=1
           fi
 
           cat > artifacts/stage8a-scenario-fix/status.txt <<EOF
           decode_status=$decode_status
-          apply_check_status=$apply_check_status
           apply_status=$apply_status
-          hotfix_check_status=$hotfix_check_status
-          hotfix_status=$hotfix_status
           sync_status=$sync_status
           unittest_status=$unittest_status
           verifier_status=$verifier_status
@@ -129,10 +119,7 @@ jobs:
           EOF
 
           test "$decode_status" -eq 0
-          test "$apply_check_status" -eq 0
           test "$apply_status" -eq 0
-          test "$hotfix_check_status" -eq 0
-          test "$hotfix_status" -eq 0
           test "$sync_status" -eq 0
           test "$unittest_status" -eq 0
           test "$verifier_status" -eq 0
