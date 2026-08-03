@@ -22,18 +22,23 @@ class Stage8AEvidencePolicyTests(unittest.TestCase):
         }
         actual = {(row["category"], row["scenario"]) for row in rows}
         self.assertEqual(actual, expected)
-        self.assertTrue(all(row["semantic_test"] for row in rows))
-        self.assertTrue(all(row["evidence_level"] in {"CI_FIXTURE", "SEMANTIC_CONTRACT"} for row in rows))
+        self.assertTrue(all(row["fixture_test"] for row in rows))
+        self.assertTrue(all(row["evidence_level"] == "CI_FIXTURE" for row in rows))
+        self.assertEqual(
+            len({row["fixture_test"] for row in rows}),
+            len(rows),
+            "Every scenario must point to a scenario-specific executable fixture test.",
+        )
         self.assertTrue(all(row["limitations"] for row in rows))
 
     def test_all_referenced_tests_exist(self):
         test_ids = {
             row["semantic_test"]
             for row in scenario_evidence()
+            if row["semantic_test"]
         } | {
             row["fixture_test"]
             for row in scenario_evidence()
-            if row["fixture_test"]
         } | {row["test"] for row in SECURITY_REQUIREMENTS} | {
             row["test"] for row in EXTERNAL_CONTRACTS
         }

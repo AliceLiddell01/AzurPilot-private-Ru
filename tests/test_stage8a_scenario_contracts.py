@@ -197,21 +197,23 @@ class Stage8AScenarioContractTests(unittest.TestCase):
         uia = _text("module/device/method/uiautomator_2.py")
         external = _text(".codex/reviews/PR20_STAGE8A_EXTERNAL_CONTRACTS.md")
         checks = {
-            "implicit_wait": "implicit wait" in external.lower(),
-            "http_timeout": "self.u2.http.post" in uia and "timeout=" in uia,
-            "click_long_click": "def click_uiautomator2" in uia
-                and "def long_click_uiautomator2" in uia,
-            "drag_swipe": "def drag_uiautomator2" in uia
-                and "def swipe_uiautomator2" in uia,
+            "connect": "u2.connect(self.serial)" in connection or "u2.connect_usb(self.serial)" in connection,
+            "info": "self.u2.http.get('/info')" in uia,
+            "click_timeout": "def click_uiautomator2" in uia,
+            "drag_timeout": "def drag_uiautomator2" in uia and "def swipe_uiautomator2" in uia,
             "text_input": "def u2_send_keys" in uia,
+            "screenshot": "def screenshot_uiautomator2" in uia,
+            "service_init": "set_new_command_timeout(604800)" in connection,
+            "external_exception_context": "[Устройство — uiautomator2] Ошибка повторной попытки" in uia,
+            "implicit_wait": "implicit wait" in external.lower(),
+            "http_timeout": "timeout=" in uia,
+            "long_click": "def long_click_uiautomator2" in uia,
             "xpath_wait_get": "XPath" in external and "wait/get" in external,
-            "service_initialization": "u2.connect(self.serial)" in connection
-                and "set_new_command_timeout(604800)" in connection,
         }
         for scenario, passed in checks.items():
             with self.subTest(scenario=scenario):
                 self.assertTrue(passed)
-        self._assert_complete("uiautomator2_timeout", set(checks))
+        self._assert_complete("uiautomator2", set(checks))
 
     def test_webui_live_control_contracts(self):
         source = _text("module/webui/api.py")

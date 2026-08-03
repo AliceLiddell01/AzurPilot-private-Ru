@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import unittest
@@ -145,17 +144,20 @@ class Stage8AStage7PolicyBridgeTests(unittest.TestCase):
         self.assertTrue(rows[0]["evidence"].strip())
 
     def test_policy_digest_review_is_limited_to_stage8a_runtime_owner(self) -> None:
-        base_ref = (
-            f"origin/{os.environ['GITHUB_BASE_REF']}"
-            if os.environ.get("GITHUB_BASE_REF")
-            else "origin/personal/stable"
-        )
-        try:
-            _git("rev-parse", "--verify", base_ref)
-        except subprocess.CalledProcessError:
-            base_ref = IMMUTABLE_STAGE8A_BASE_SHA
+        # This is a migration invariant, not a current-PR delta.  Comparing a push
+        # checkout with origin/personal/stable is a self-diff after the branch ref has
+        # advanced and therefore hides the reviewed Stage 7 → Stage 8A policy drift.
+        # Always compare the immutable Stage 8A baseline with the checked-out tree.
+        _git("rev-parse", "--verify", IMMUTABLE_STAGE8A_BASE_SHA)
         changed = set(
-            filter(None, _git("diff", "--name-only", f"{base_ref}..HEAD").splitlines())
+            filter(
+                None,
+                _git(
+                    "diff",
+                    "--name-only",
+                    f"{IMMUTABLE_STAGE8A_BASE_SHA}..HEAD",
+                ).splitlines(),
+            )
         )
         self.assertEqual(
             changed & _policy_point_paths(),

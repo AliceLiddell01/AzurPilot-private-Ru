@@ -5,116 +5,87 @@ from typing import Any
 
 SCENARIO_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "adb_state": (
-        "device",
-        "offline",
-        "no_device",
-        "unauthorized",
-        "unknown_host_service",
-        "connection_reset",
-        "read_timeout",
-        "closed",
-        "device_not_found",
-        "more_than_one_device",
-        "wrong_serial",
-        "server_unavailable",
-        "server_restart",
-        "tcp_reconnect",
+        "device", "offline", "no_device", "unauthorized",
+        "unknown_host_service", "connection_reset", "read_timeout", "closed",
+        "device_not_found", "more_than_one_device", "wrong_serial",
+        "server_unavailable", "server_restart", "tcp_reconnect",
+    ),
+    "device_readiness": (
+        "adb_state_device", "android_boot_incomplete", "package_unavailable",
+        "screenshot_unavailable", "input_unavailable",
     ),
     "package_detection": (
-        "configured_package",
-        "auto_detection",
-        "package_absent",
-        "multiple_known_packages",
-        "en_global_package",
-        "unsupported_package",
+        "configured_package", "auto_detection", "package_absent",
+        "multiple_known_packages", "en_global_package", "unsupported_package",
         "remote_http_mode",
     ),
     "emulator_lifecycle": (
-        "emulator_found",
-        "emulator_not_found",
-        "start_success",
-        "start_timeout",
-        "stop_success",
-        "stop_timeout",
-        "platform_unsupported",
-        "dead_process",
-        "command_nonzero",
-        "remote_ssh_disabled",
-        "windows",
-        "macos",
+        "emulator_found", "emulator_not_found", "start_success", "start_timeout",
+        "stop_success", "stop_timeout", "platform_unsupported", "dead_process",
+        "command_nonzero", "remote_ssh_disabled", "windows", "macos",
     ),
     "screenshot_backend": (
-        "init_success",
-        "init_failure",
-        "first_frame",
-        "timeout",
-        "truncated_frame",
-        "empty_frame",
-        "black_frame",
-        "invalid_size",
-        "rotated_frame",
-        "stream_close",
-        "fallback",
+        "init_success", "init_failure", "first_frame", "timeout",
+        "truncated_frame", "empty_frame", "black_frame", "invalid_size",
+        "rotated_frame", "stream_close", "fallback",
+    ),
+    "screenshot_backend_matrix": (
+        "adb", "adb_nc", "uiautomator2", "ascreencap", "ascreencap_nc",
+        "droidcast", "droidcast_raw", "scrcpy", "nemu_ipc", "ldopengl",
+    ),
+    "image_contract": (
+        "numpy_ndarray", "bgr", "width_height", "normalization_1280x720",
+        "orientation", "no_binary_log",
     ),
     "input_backend": (
-        "click",
-        "swipe",
-        "key",
-        "text",
-        "empty_command",
-        "invalid_orientation",
-        "socket_close",
-        "backend_unavailable",
-        "timeout",
-        "reconnect",
-        "fallback",
+        "click", "swipe", "key", "text", "empty_command",
+        "invalid_orientation", "socket_close", "backend_unavailable",
+        "timeout", "reconnect", "fallback",
+    ),
+    "input_backend_matrix": (
+        "adb", "uiautomator2", "minitouch", "hermit", "maatouch", "nemu_ipc",
     ),
     "scrcpy": (
-        "server_push",
-        "server_startup",
-        "video_stream",
-        "control_stream",
-        "initial_metadata",
-        "stream_close",
-        "version_mismatch",
-        "fallback",
-        "live_preview",
-        "control_error",
-        "device_messages",
+        "server_push", "server_startup", "video_stream", "control_stream",
+        "initial_metadata", "stream_close", "version_mismatch", "fallback",
+        "live_preview", "control_error", "device_messages",
     ),
-    "uiautomator2_timeout": (
-        "implicit_wait",
-        "http_timeout",
-        "click_long_click",
-        "drag_swipe",
-        "text_input",
-        "xpath_wait_get",
-        "service_initialization",
+    "uiautomator2": (
+        "connect", "info", "click_timeout", "drag_timeout", "text_input",
+        "screenshot", "service_init", "external_exception_context",
+        "implicit_wait", "http_timeout", "long_click", "xpath_wait_get",
+    ),
+    "nemu_ldopengl": (
+        "correct_emulator_family", "unsupported_emulator", "version_requirement",
+        "dead_instance", "native_library_error", "screenshot_failure",
+        "control_failure", "windows_only_fallback",
     ),
     "webui_live_control": (
-        "start",
-        "stop",
-        "fallback",
-        "resolution",
-        "prebuffer",
-        "click",
-        "drag",
-        "key",
-        "text",
-        "back",
-        "system_key",
-        "socket_close",
-        "resource_cleanup",
-        "no_user_text_leak",
+        "start", "stop", "fallback", "resolution", "prebuffer", "click",
+        "drag", "key", "text", "back", "system_key", "socket_close",
+        "resource_cleanup", "no_user_text_leak",
     ),
 }
 
 
-SEMANTIC_TESTS = {
+RUNTIME_MATRIX_CLASS = (
+    "tests.test_stage8a_runtime_scenario_matrix."
+    "Stage8ARuntimeScenarioMatrixTests"
+)
+
+
+def runtime_fixture_test_id(category: str, scenario: str) -> str:
+    return f"{RUNTIME_MATRIX_CLASS}.test_{category}__{scenario}"
+
+
+# Supplemental source/semantic guards remain useful, but they are no longer counted as
+# regression evidence. Every required scenario below has an executable fixture test.
+SEMANTIC_TESTS: dict[str, str | None] = {
     "adb_state": (
         "tests.test_stage8a_scenario_contracts."
         "Stage8AScenarioContractTests.test_adb_state_contracts"
     ),
+    "device_readiness": None,
     "package_detection": (
         "tests.test_stage8a_scenario_contracts."
         "Stage8AScenarioContractTests.test_package_detection_contracts"
@@ -127,18 +98,22 @@ SEMANTIC_TESTS = {
         "tests.test_stage8a_scenario_contracts."
         "Stage8AScenarioContractTests.test_screenshot_backend_contracts"
     ),
+    "screenshot_backend_matrix": None,
+    "image_contract": None,
     "input_backend": (
         "tests.test_stage8a_scenario_contracts."
         "Stage8AScenarioContractTests.test_input_backend_contracts"
     ),
+    "input_backend_matrix": None,
     "scrcpy": (
         "tests.test_stage8a_scenario_contracts."
         "Stage8AScenarioContractTests.test_scrcpy_contracts"
     ),
-    "uiautomator2_timeout": (
+    "uiautomator2": (
         "tests.test_stage8a_scenario_contracts."
         "Stage8AScenarioContractTests.test_uiautomator2_timeout_contracts"
     ),
+    "nemu_ldopengl": None,
     "webui_live_control": (
         "tests.test_stage8a_scenario_contracts."
         "Stage8AScenarioContractTests.test_webui_live_control_contracts"
@@ -147,44 +122,9 @@ SEMANTIC_TESTS = {
 
 
 FIXTURE_EVIDENCE: dict[tuple[str, str], str] = {
-    ("adb_state", "wrong_serial"): (
-        "tests.test_stage8a_device_acceptance."
-        "Stage8ADeviceAcceptanceTests.test_serial_from_config_must_be_explicit_not_auto"
-    ),
-    ("adb_state", "tcp_reconnect"): (
-        "tests.test_stage8a_device_acceptance."
-        "Stage8ADeviceAcceptanceTests.test_tcp_reconnect_runs_explicit_connect_for_same_target"
-    ),
-    ("screenshot_backend", "first_frame"): (
-        "tests.test_stage8a_device_acceptance."
-        "Stage8ADeviceAcceptanceTests.test_preview_accepts_raw_scrcpy_after_initial_timeout"
-    ),
-    ("screenshot_backend", "fallback"): (
-        "tests.test_stage8a_device_acceptance."
-        "Stage8ADeviceAcceptanceTests."
-        "test_preview_uses_configured_screenshot_fallback_when_scrcpy_has_no_frame"
-    ),
-    ("input_backend", "backend_unavailable"): (
-        "tests.test_stage8a_device_acceptance."
-        "Stage8ADeviceAcceptanceTests.test_minitouch_backend_probe_performs_handshake_without_touch"
-    ),
-    ("scrcpy", "fallback"): (
-        "tests.test_stage8a_device_acceptance."
-        "Stage8ADeviceAcceptanceTests."
-        "test_preview_uses_configured_screenshot_fallback_when_scrcpy_has_no_frame"
-    ),
-    ("webui_live_control", "start"): (
-        "tests.test_stage8a_security_review."
-        "Stage8ASecurityReviewTests.test_local_live_guard_accepts_ipv4_ipv6_and_localhost"
-    ),
-    ("webui_live_control", "resource_cleanup"): (
-        "tests.test_stage8a_device_acceptance."
-        "Stage8ADeviceAcceptanceTests.test_minitouch_backend_probe_performs_handshake_without_touch"
-    ),
-    ("webui_live_control", "no_user_text_leak"): (
-        "tests.test_stage8a_security_review."
-        "Stage8ASecurityReviewTests.test_acceptance_forbids_clipboard_and_user_text"
-    ),
+    (category, scenario): runtime_fixture_test_id(category, scenario)
+    for category, scenarios in SCENARIO_REQUIREMENTS.items()
+    for scenario in scenarios
 }
 
 
@@ -333,16 +273,21 @@ def scenario_evidence() -> list[dict[str, Any]]:
     for category, scenarios in SCENARIO_REQUIREMENTS.items():
         for scenario in scenarios:
             fixture = FIXTURE_EVIDENCE.get((category, scenario))
+            if not fixture:
+                raise ValueError(
+                    f"Missing executable fixture evidence for {category}/{scenario}"
+                )
             rows.append(
                 {
                     "category": category,
                     "scenario": scenario,
-                    "semantic_test": SEMANTIC_TESTS[category],
+                    "semantic_test": SEMANTIC_TESTS.get(category),
                     "fixture_test": fixture,
-                    "evidence_level": "CI_FIXTURE" if fixture else "SEMANTIC_CONTRACT",
+                    "evidence_level": "CI_FIXTURE",
                     "limitations": (
-                        "No physical backend in CI; real behavior is a separate exact-head "
-                        "acceptance artifact."
+                        "Synthetic/recorded fixture executes the production branch with "
+                        "mocked external transport or native dependency. Physical backend "
+                        "availability remains a separate exact-head acceptance channel."
                     ),
                 }
             )

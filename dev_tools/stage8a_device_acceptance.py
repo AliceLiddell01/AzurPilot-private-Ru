@@ -314,6 +314,23 @@ def _list_targets(adb: str) -> list[tuple[str, str]]:
     return targets
 
 
+def _check_android_boot_completed(adb: str, serial: str) -> dict[str, Any]:
+    result = _run_adb(adb, serial, "shell", "getprop", "sys.boot_completed")
+    evidence = _command_evidence(result, serial)
+    value = str(result.stdout).strip()
+    evidence["boot_completed"] = value == "1"
+    if result.returncode != 0:
+        raise AcceptanceFailure(
+            "Не удалось проверить готовность Android после ADB transport readiness."
+        )
+    if value != "1":
+        raise AcceptanceFailure(
+            "ADB transport имеет status=device, но загрузка Android ещё не завершена "
+            "(sys.boot_completed != 1)."
+        )
+    return evidence
+
+
 def _detect_package(adb: str, serial: str, configured: str) -> str:
     if configured and configured.lower() != "auto":
         _validate_package(configured)
@@ -693,6 +710,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
             "Target serial не совпадает с serial профиля; runner не подменяет конфигурацию."
         )
 
+    android_boot = _check_android_boot_completed(adb, serial)
     package = _detect_package(adb, serial, profile["package"])
     selected = {
         "profile": args.profile,
@@ -701,6 +719,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         "screenshot_backend": profile["screenshot_backend"],
         "control_backend": profile["control_backend"],
         "adb": adb,
+        "android_boot": "complete",
     }
     print("Выбран acceptance target:")
     for key, value in selected.items():
@@ -727,6 +746,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         "package": package,
         "screenshot_backend": profile["screenshot_backend"],
         "control_backend": profile["control_backend"],
+        "android_boot": android_boot,
         "forbidden_actions": [
             "install_apk",
             "clear_app_data",
