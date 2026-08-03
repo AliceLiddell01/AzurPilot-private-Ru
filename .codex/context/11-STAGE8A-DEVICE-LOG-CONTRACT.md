@@ -89,12 +89,21 @@ Runner:
 - всегда использует target-explicit `adb -s <serial>`;
 - проверяет ADB transport, package и один PNG screenshot;
 - декодирует screenshot в `numpy.ndarray` BGR;
-- при запросе проверяет scrcpy preview;
-- отправляет только один `KEYCODE_BACK` после отдельного подтверждения;
-- выполняет reconnect только после отдельного подтверждения;
+- при запросе проверяет пользовательский preview-контракт;
+- сначала ожидает raw scrcpy в ограниченном acceptance-окне;
+- отсутствие первого raw scrcpy кадра не считается самостоятельным отказом,
+  потому что кадр может не появиться без изменения поверхности;
+- при недоступности raw scrcpy проверяет фактический WebUI screenshot fallback:
+  наличие ffmpeg и два последовательных BGR-кадра через настроенный screenshot backend;
+- для настроенного `minitouch` выполняет только handshake и закрывает временный
+  ADB forward без отправки touch-команд;
+- отправляет один `KEYCODE_BACK` отдельной target-explicit ADB-командой только
+  после отдельного подтверждения `BACK`;
+- выполняет reconnect только после отдельного подтверждения `RECONNECT`;
 - не устанавливает APK, не очищает app data, не запускает task queue;
 - не читает clipboard и не вводит пользовательский текст;
 - удаляет временный screenshot;
+- сохраняет уже пройденные безопасные шаги в sanitized FAIL-report;
 - маскирует serial, IP/host, username/path, SSH location, URL credentials,
   authorization header, token-shaped значения, password/API-key/secret-shaped
   значения, private-key blocks и опасный HTML-shaped текст;
@@ -106,5 +115,9 @@ Runner:
 Read-only определение target и package выполняется до подтверждения `START`,
 чтобы пользователь видел фактический выбор. Отказ от `START` гарантированно
 происходит до screenshot, preview, control и reconnect.
+
+Указанные `--check-control` и `--check-reconnect` считаются успешно пройденными
+только при статусе `PASS`; отказ от `BACK` или `RECONNECT` не может сформировать
+итоговый PASS.
 
 PR остаётся Draft до точной команды пользователя `PASS — сливай`.
