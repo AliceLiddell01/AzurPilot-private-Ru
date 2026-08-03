@@ -18,10 +18,26 @@
 - Added `tests/test_stage8a_runtime_scenario_matrix.py` with scenario-specific executable fixtures.
 - Expanded `SCENARIO_REQUIREMENTS`; each row owns a unique `fixture_test`.
 - `scenario_evidence()` emits `CI_FIXTURE` only after fixture resolution succeeds.
-- Added Android boot-readiness verification through `sys.boot_completed` to the acceptance runner.
+- Added Android boot-readiness verification through target-explicit `adb -s <serial> shell getprop sys.boot_completed` to the acceptance runner.
 - Fixed the Stage 7 policy bridge to use the immutable Stage 8A baseline.
 - Cross-platform fixtures isolate Windows-only `winreg`, `CREATE_NO_WINDOW` and `ctypes.WinDLL` dependencies without changing production behavior.
 - One-shot remediation run `30852739690` executed the full `test_stage8a_*.py` scope, Stage 8A verifier and `git diff --check`, then removed its payload/workflow and published clean implementation commit `54e2a7c9e6793e7256f80b67f6ffab2d9a8b0d91`.
+
+## Self-review correction
+
+A manual post-CI review found three rows that still did not execute the represented behavior:
+
+- `device_readiness/adb_state_device` inspected a local tuple;
+- `uiautomator2/implicit_wait` inspected the external-contract Markdown;
+- `uiautomator2/xpath_wait_get` inspected the external-contract Markdown.
+
+They were replaced by direct runtime fixtures:
+
+- `_wait_for_target_device()` is called with a target-explicit mocked ADB transport and its result, attempts and argv are asserted;
+- the actual pinned `uiautomator2==2.16.17` `Device.implicitly_wait` implementation is called for setter and getter behavior;
+- the actual pinned 2.16.17 `XPath(device) → XPathSelector.wait/get` implementation parses a synthetic hierarchy and returns the matched element.
+
+The pinned XPath API was captured from the installed 2.16.17 distribution rather than inferred from current 3.x documentation. Focused and full validation run `30854531613` passed, then removed its temporary payload/workflow and published clean implementation commit `07ba788a2e609acce7d18b03c75b3324f6d9d774`.
 
 ## Final verdict rule
 
