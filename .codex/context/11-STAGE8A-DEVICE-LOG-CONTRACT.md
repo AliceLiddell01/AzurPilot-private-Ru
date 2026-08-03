@@ -51,6 +51,8 @@ Generated reports не коммитятся.
 Прямая передача binary-payload-shaped значений (`image`, `frame`, `payload`,
 `packet`, `video`, `screenshot`) является blocking finding. Разрешены только
 metadata: byte count, format, width/height, shape/dtype, backend и status.
+Имена metadata-переменных с суффиксами `_count`, `_size`, `_length`, `_shape`,
+`_dtype`, `_format`, `_width` и `_height` не считаются raw binary payload.
 
 Stage 8A изменяет часть сообщений, которые Stage 7 уже передал владельцу
 `stage8a`. Поэтому изменение digest точечных Stage 7 policy-шаблонов допустимо
