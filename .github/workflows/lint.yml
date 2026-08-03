@@ -1,15 +1,15 @@
 name: Stage 8A payload application
 
 on:
-  push:
+  pull_request:
     branches:
-      - codex/stage8a-device-adb-logs
+      - personal/stable
 
 permissions:
   contents: write
 
 concurrency:
-  group: stage8a-payload-apply-${{ github.sha }}
+  group: stage8a-payload-apply-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
@@ -24,6 +24,8 @@ jobs:
 
       - name: Verify payload and create commits
         shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
 
@@ -33,8 +35,8 @@ jobs:
             exit 1
           fi
 
-          if [[ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
-            echo 'Checkout head does not match the triggering commit.'
+          if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
+            echo 'Checkout head does not match the pull request head.'
             exit 1
           fi
 
