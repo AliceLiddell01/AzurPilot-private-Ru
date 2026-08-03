@@ -1,0 +1,99 @@
+name: Stage 8A truthful scenario fixtures apply
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+    paths:
+      - '.stage8a-scenario-truth/**'
+      - '.github/workflows/stage8a-scenario-truth-apply.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage8a-scenario-truth-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/stage8a-scenario-matrix-fix'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify exact trigger head
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+
+      - name: Apply and validate truthful fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/stage8a-scenario-truth
+          python - <<'PY'
+          import base64
+          import hashlib
+          import zlib
+          from pathlib import Path
+
+          encoded = Path('.stage8a-scenario-truth/patch.b64').read_text(encoding='ascii')
+          patch = zlib.decompress(base64.b64decode(encoded))
+          expected = '5839ecaff7eb24c664a8fdf7ca854dad63b854b2afcb2d3d6e42d9b856ffdf3c'
+          actual = hashlib.sha256(patch).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Patch digest mismatch: {actual}')
+          Path('/tmp/stage8a-scenario-truth.patch').write_bytes(patch)
+          print(f'patch_sha256={actual}')
+          PY
+          git apply --check --whitespace=nowarn /tmp/stage8a-scenario-truth.patch
+          git apply --whitespace=nowarn /tmp/stage8a-scenario-truth.patch
+          uv sync --frozen
+          uv run python -m unittest \
+            tests.test_stage8a_runtime_scenario_matrix.Stage8ARuntimeScenarioMatrixTests.test_device_readiness__adb_state_device \
+            tests.test_stage8a_runtime_scenario_matrix.Stage8ARuntimeScenarioMatrixTests.test_uiautomator2__implicit_wait \
+            tests.test_stage8a_runtime_scenario_matrix.Stage8ARuntimeScenarioMatrixTests.test_uiautomator2__xpath_wait_get \
+            -v 2>&1 | tee artifacts/stage8a-scenario-truth/focused-unittest.log
+          uv run python -m unittest discover -s tests -p 'test_stage8a_*.py' -v 2>&1 | tee artifacts/stage8a-scenario-truth/unittest.log
+          uv run python -m dev_tools.verify_stage8a --output-dir artifacts/stage8a-scenario-truth/verifier 2>&1 | tee artifacts/stage8a-scenario-truth/verifier.log
+          git diff --check 2>&1 | tee artifacts/stage8a-scenario-truth/diff-check.log
+
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage8a-scenario-truth-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/stage8a-scenario-truth
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish validated clean tree
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git rm -r .stage8a-scenario-truth .github/workflows/stage8a-scenario-truth-apply.yml
+          git add -A
+          git status --short
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test(stage8a): заменить три декларативных fixture реальным поведением'
+          git push origin "HEAD:${HEAD_BRANCH}"
