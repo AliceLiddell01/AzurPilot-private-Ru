@@ -1,0 +1,93 @@
+name: Stage 8A scenario matrix remediation apply
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+    paths:
+      - '.stage8a-scenario-fix/**'
+      - '.github/workflows/stage8a-scenario-fix-apply.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage8a-scenario-fix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/stage8a-scenario-matrix-fix'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify exact trigger head
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_HEAD"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+
+      - name: Decode, apply and validate executable scenario matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import zlib
+          from pathlib import Path
+
+          payload = Path('.stage8a-scenario-fix/patch.b64').read_text(encoding='ascii')
+          patch = zlib.decompress(base64.b64decode(payload))
+          expected = 'cf155268f665178824aef2c617647aa1405ecbf16e461c1fdc631dd765e11ad4'
+          actual = hashlib.sha256(patch).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Patch digest mismatch: {actual}')
+          Path('/tmp/stage8a-scenario-fix.patch').write_bytes(patch)
+          PY
+          git apply --check --whitespace=nowarn /tmp/stage8a-scenario-fix.patch
+          git apply --whitespace=nowarn /tmp/stage8a-scenario-fix.patch
+          uv sync --frozen
+          uv run python -m unittest discover -s tests -p 'test_stage8a_*.py' -v
+          uv run python -m dev_tools.verify_stage8a --output-dir artifacts/stage8a-scenario-fix
+          git diff --check
+
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage8a-scenario-fix-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/stage8a-scenario-fix
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish validated clean tree
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git rm -r .stage8a-scenario-fix .github/workflows/stage8a-scenario-fix-apply.yml
+          git add -A
+          git status --short
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test(stage8a): добавить исполняемую scenario matrix и исправить stable CI'
+          git push origin "HEAD:${HEAD_BRANCH}"
