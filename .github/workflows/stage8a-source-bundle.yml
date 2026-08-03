@@ -1,0 +1,47 @@
+name: Stage 8A temporary source bundle
+
+on:
+  push:
+    branches:
+      - codex/stage8a-device-adb-logs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: Package Stage 8A source scope
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Create source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/stage8a-bootstrap
+          tar -czf artifacts/stage8a-bootstrap/stage8a-source-scope.tar.gz \
+            AGENTS.md \
+            .codex/context \
+            .github/workflows/lint.yml \
+            module/device \
+            module/webui/api.py \
+            module/logger.py \
+            dev_tools/stage7_log_audit.py \
+            dev_tools/stage7_semantic_policy.py \
+            dev_tools/verify_stage7.py \
+            tests/test_stage7_log_audit.py \
+            tests/test_stage7_semantic_diagnostics.py \
+            pyproject.toml \
+            uv.lock
+          sha256sum artifacts/stage8a-bootstrap/stage8a-source-scope.tar.gz \
+            > artifacts/stage8a-bootstrap/SHA256SUMS
+
+      - name: Upload source bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage8a-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/stage8a-bootstrap
+          if-no-files-found: error
+          retention-days: 1
