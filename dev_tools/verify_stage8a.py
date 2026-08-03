@@ -6,7 +6,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
+from dev_tools.stage8a_binary_log_audit import find_binary_payload_log_findings
 from dev_tools.stage8a_device_log_audit import (
     BLOCKING_METRICS,
     DEFAULT_OUTPUT_DIR,
@@ -17,10 +19,15 @@ from dev_tools.stage8a_semantic_policy import IMMUTABLE_STAGE8A_BASE_SHA
 
 TEST_MODULES = (
     "tests.test_stage8a_device_log_audit",
+    "tests.test_stage8a_binary_log_audit",
     "tests.test_stage8a_semantic_contract",
     "tests.test_stage8a_stage7_policy_bridge",
     "tests.test_stage8a_device_acceptance",
 )
+
+
+def _json_bytes(value: Any) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
 def _write_outputs(output_dir: Path, outputs: dict[str, bytes]) -> None:
@@ -46,6 +53,40 @@ def _effective_base_ref(requested: str | None) -> str:
     return IMMUTABLE_STAGE8A_BASE_SHA
 
 
+def _apply_binary_payload_audit(
+    outputs: dict[str, bytes],
+    metrics: dict[str, Any],
+    findings: list[dict[str, Any]],
+) -> tuple[dict[str, bytes], dict[str, Any]]:
+    outputs = dict(outputs)
+    metrics = dict(metrics)
+    metric_name = "stage8a_binary_payload_log_findings"
+    metrics[metric_name] = len(findings)
+
+    semantic_findings = json.loads(outputs["semantic-findings.json"])
+    semantic_findings.extend(findings)
+    outputs["semantic-findings.json"] = _json_bytes(semantic_findings)
+    outputs["metrics.json"] = _json_bytes(metrics)
+
+    contract = json.loads(outputs["contract.json"])
+    contract["binary_payload_log_contract_preserved"] = not findings
+    outputs["contract.json"] = _json_bytes(contract)
+
+    status = "FAIL" if any(metrics.get(key) for key in BLOCKING_METRICS) else "PASS"
+    report_lines = outputs["report.md"].decode("utf-8").splitlines()
+    updated_metric = False
+    for index, line in enumerate(report_lines):
+        if line.startswith("Статус: **"):
+            report_lines[index] = f"Статус: **{status}**"
+        if line.startswith(f"- {metric_name}:"):
+            report_lines[index] = f"- {metric_name}: {len(findings)}"
+            updated_metric = True
+    if not updated_metric:
+        report_lines.extend(("", f"- {metric_name}: {len(findings)}"))
+    outputs["report.md"] = ("\n".join(report_lines) + "\n").encode("utf-8")
+    return outputs, metrics
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Проверка Definition of Done Stage 8A")
     parser.add_argument("--base-ref")
@@ -56,6 +97,12 @@ def main(argv: list[str] | None = None) -> int:
         base_ref = _effective_base_ref(args.base_ref)
         audit = Stage8ADeviceLogAudit(ROOT, base_ref=base_ref)
         outputs, metrics = audit.build()
+        binary_findings = find_binary_payload_log_findings(ROOT)
+        outputs, metrics = _apply_binary_payload_audit(
+            outputs,
+            metrics,
+            binary_findings,
+        )
     except Exception as error:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         failure = {
