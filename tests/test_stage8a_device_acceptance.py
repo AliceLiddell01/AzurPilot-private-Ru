@@ -11,6 +11,7 @@ from unittest import mock
 from dev_tools.stage8a_device_acceptance import (
     AcceptanceFailure,
     _check_control,
+    _command_evidence,
     _resolve_serial,
     _run_adb,
     _safe_text,
@@ -47,6 +48,71 @@ class Stage8ADeviceAcceptanceTests(unittest.TestCase):
         sanitized = _safe_text("target emulator-5554 failed", "emulator-5554")
         self.assertNotIn("emulator-5554", sanitized)
         self.assertIn("<serial>", sanitized)
+
+    def test_sanitized_text_redacts_credentials_hosts_paths_and_html(self):
+        sensitive = (
+            "\x1b[31mAuthorization: Bearer top-secret\x1b[0m\n"
+            "url=https://alice:pass123@example.invalid/path\n"
+            "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456\n"
+            "password=hunter2 token: abcdef api_key XYZ secret value\n"
+            "ssh alice@example.invalid:/home/alice/private\n"
+            "traceback C:\\Users\\Alice\\project\\main.py "
+            "/home/alice/project/main.py\n"
+            "target emulator-5554 host 10.0.0.5:5555 localhost:7912\n"
+            "<script>alert(1)</script>\n"
+            "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+            "private-key-material\n"
+            "-----END OPENSSH PRIVATE KEY-----\n"
+        )
+        sanitized = _safe_text(sensitive, "emulator-5554")
+
+        for forbidden in (
+            "top-secret",
+            "pass123",
+            "ghp_",
+            "hunter2",
+            "abcdef",
+            "XYZ",
+            "alice@example.invalid",
+            "Alice",
+            "10.0.0.5",
+            "localhost",
+            "<script>",
+            "</script>",
+            "private-key-material",
+            "\x1b",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, sanitized)
+        for marker in (
+            "<credential>",
+            "<token>",
+            "<ssh-location>",
+            "<path>",
+            "<serial>",
+            "<host>",
+            "<html-redacted>",
+            "<private-key>",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, sanitized)
+
+    def test_binary_command_evidence_records_only_byte_counts(self):
+        result = subprocess.CompletedProcess(
+            [],
+            1,
+            stdout=b"\x89PNG\r\n\x1a\nsecret-binary",
+            stderr=b"\x00\x01\x02",
+        )
+        evidence = _command_evidence(result, "emulator-5554")
+        self.assertEqual(evidence["stdout"], "<binary:21 bytes>")
+        self.assertEqual(evidence["stderr"], "<binary:3 bytes>")
+
+    def test_sanitized_text_bounds_external_output_and_removes_controls(self):
+        sanitized = _safe_text("prefix\x00" + ("x" * 20_000))
+        self.assertNotIn("\x00", sanitized)
+        self.assertLessEqual(len(sanitized), 16_384 + len("\n<truncated>"))
+        self.assertTrue(sanitized.endswith("\n<truncated>"))
 
     @mock.patch("dev_tools.stage8a_device_acceptance.run_acceptance")
     def test_failure_report_masks_config_serial_and_adb_path(self, run_acceptance):

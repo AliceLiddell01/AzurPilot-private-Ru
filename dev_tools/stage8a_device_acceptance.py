@@ -25,6 +25,37 @@ SERIAL_RE = re.compile(r"^[A-Za-z0-9._:\-\[\]%]+$")
 PROFILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9._]+$")
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?"
+    r"(?:-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|$)",
+    re.S,
+)
+AUTHORIZATION_RE = re.compile(r"\bAuthorization:\s*(?:Bearer|Basic)\s+\S+", re.I)
+CREDENTIAL_URL_RE = re.compile(
+    r"\b(?P<scheme>(?:https?|ssh)://)[^/\s:@]+:[^@\s/]+@",
+    re.I,
+)
+GITHUB_TOKEN_RE = re.compile(r"\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b")
+GENERIC_SECRET_RE = re.compile(
+    r"\b(?P<key>password|passwd|token|api[_-]?key|secret)"
+    r"(?P<separator>\s*(?:=|:)\s*|\s+)"
+    r"(?P<value>[^\s,;]+)",
+    re.I,
+)
+SSH_LOCATION_RE = re.compile(r"\b[^@\s:/]+@[^:\s]+:[^\s]+")
+DANGEROUS_HTML_TAG_RE = re.compile(
+    r"</?(?:script|iframe|object|embed|svg|style|link|meta|form|input)\b[^>]*>",
+    re.I,
+)
+IPV4_RE = re.compile(
+    r"(?<![\w.])(?:"
+    r"(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}"
+    r"(?:25[0-5]|2[0-4]\d|1?\d?\d)"
+    r"(?::\d{1,5})?(?![\w.])"
+)
+LOCALHOST_RE = re.compile(r"\blocalhost(?::\d{1,5})?\b", re.I)
+WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:\\[^\r\n\t]+")
+UNIX_PATH_RE = re.compile(r"(?<![:/A-Za-z0-9_])/(?:[^/\s]+/)+[^\s,;]*")
 MAX_DIAGNOSTIC_CHARS = 16_384
 
 
@@ -71,12 +102,26 @@ def _run_adb(
 
 def _safe_text(value: str, serial: str = "") -> str:
     result = ANSI_RE.sub("", value)
+    result = PRIVATE_KEY_RE.sub("<private-key>", result)
+    result = AUTHORIZATION_RE.sub("Authorization: <credential>", result)
+    result = CREDENTIAL_URL_RE.sub(r"\g<scheme><credential>@", result)
+    result = GITHUB_TOKEN_RE.sub("<token>", result)
+    result = GENERIC_SECRET_RE.sub(
+        lambda match: f"{match.group('key')}{match.group('separator')}<credential>",
+        result,
+    )
+    result = SSH_LOCATION_RE.sub("<ssh-location>", result)
+    result = DANGEROUS_HTML_TAG_RE.sub("<html-redacted>", result)
     if serial:
         result = result.replace(serial, "<serial>")
     home = str(Path.home())
     if home:
         result = result.replace(home, "<home>")
     result = result.replace(str(Path.cwd()), "<project>")
+    result = WINDOWS_PATH_RE.sub("<path>", result)
+    result = UNIX_PATH_RE.sub("<path>", result)
+    result = IPV4_RE.sub("<host>", result)
+    result = LOCALHOST_RE.sub("<host>", result)
     result = "".join(
         character
         for character in result
