@@ -39,6 +39,22 @@ SAFE_METADATA_ATTRIBUTES = {
     "width",
 }
 SAFE_METADATA_CALLS = {"len", "type"}
+SAFE_METADATA_NAME_SUFFIXES = {
+    "backend",
+    "channels",
+    "count",
+    "dtype",
+    "format",
+    "fps",
+    "height",
+    "length",
+    "nbytes",
+    "resolution",
+    "shape",
+    "size",
+    "status",
+    "width",
+}
 
 
 def _call_name(node: ast.AST) -> str:
@@ -75,6 +91,9 @@ def _name_parts(value: str) -> set[str]:
 
 
 def _is_binary_name(value: str) -> bool:
+    normalized = value.lower().replace("-", "_")
+    if any(normalized.endswith(f"_{suffix}") for suffix in SAFE_METADATA_NAME_SUFFIXES):
+        return False
     parts = _name_parts(value)
     if parts & BINARY_NAME_PARTS:
         return True

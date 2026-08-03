@@ -39,6 +39,13 @@ class Stage8ABinaryLogAuditTests(unittest.TestCase):
         )
         self.assertEqual(findings, [])
 
+    def test_metadata_variable_names_are_allowed(self):
+        findings = self._scan(
+            "def run(frame_count, payload_size, image_dtype):\n"
+            "    logger.info(f'count={frame_count}, bytes={payload_size}, dtype={image_dtype}')\n"
+        )
+        self.assertEqual(findings, [])
+
     def test_hex_or_decode_does_not_make_binary_payload_safe(self):
         findings = self._scan(
             "def run(packet):\n"
