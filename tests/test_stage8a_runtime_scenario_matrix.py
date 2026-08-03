@@ -292,8 +292,18 @@ def _test_adb_state(scenario: str) -> None:
 
 def _test_device_readiness(scenario: str) -> None:
     if scenario == "adb_state_device":
-        targets = [("serial", "device")]
-        assert [status for target, status in targets if target == "serial"] == ["device"]
+        with patch.object(
+            acceptance, "_run_adb", return_value=_completed("device\n")
+        ) as run_adb, patch.object(
+            acceptance.time, "monotonic", side_effect=[0.0, 0.0]
+        ):
+            evidence = acceptance._wait_for_target_device(
+                "adb", "serial", timeout=1.0
+            )
+        assert evidence["restored"] is True
+        assert evidence["attempts"] == 1
+        assert evidence["last_state"]["stdout"] == "device\n"
+        run_adb.assert_called_once_with("adb", "serial", "get-state", timeout=10)
         return
     if scenario == "android_boot_incomplete":
         with patch.object(
@@ -996,9 +1006,15 @@ def _test_uiautomator2(scenario: str) -> None:
         device.set_new_command_timeout.assert_called_once_with(604800)
         return
     if scenario == "implicit_wait":
-        from pathlib import Path
-        source = (Path(__file__).resolve().parents[1] / ".codex/reviews/PR20_STAGE8A_EXTERNAL_CONTRACTS.md").read_text(encoding="utf-8")
-        assert "implicit wait" in source.lower()
+        import importlib.metadata
+
+        import uiautomator2 as u2
+
+        assert importlib.metadata.version("uiautomator2") == "2.16.17"
+        device = SimpleNamespace(settings={"wait_timeout": 20.0})
+        assert u2.Device.implicitly_wait(device, 0.25) == 0.25
+        assert device.settings["wait_timeout"] == 0.25
+        assert u2.Device.implicitly_wait(device) == 0.25
         return
     if scenario == "http_timeout":
         response = MagicMock()
@@ -1011,9 +1027,38 @@ def _test_uiautomator2(scenario: str) -> None:
         obj.u2.long_click.assert_called_once_with(1, 2, duration=1.5)
         return
     if scenario == "xpath_wait_get":
-        from pathlib import Path
-        source = (Path(__file__).resolve().parents[1] / ".codex/reviews/PR20_STAGE8A_EXTERNAL_CONTRACTS.md").read_text(encoding="utf-8")
-        assert "XPath wait/get" in source
+        from uiautomator2 import xpath as u2_xpath
+
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<hierarchy rotation="0">'
+            '<node index="0" text="ready" resource-id="target" '
+            'class="android.widget.TextView" package="example" '
+            'content-desc="" checkable="false" checked="false" '
+            'clickable="true" enabled="true" focusable="false" '
+            'focused="false" scrollable="false" long-clickable="false" '
+            'password="false" selected="false" bounds="[0,0][10,10]" />'
+            '</hierarchy>'
+        )
+        watcher = SimpleNamespace(run=MagicMock(return_value=False))
+        device = SimpleNamespace(
+            click=MagicMock(),
+            swipe=MagicMock(),
+            window_size=MagicMock(return_value=(100, 100)),
+            dump_hierarchy=MagicMock(return_value=xml),
+            screenshot=MagicMock(),
+            wait_timeout=0.25,
+            settings={"xpath_debug": False},
+            watcher=watcher,
+        )
+        selector = u2_xpath.XPath(device)('//*[@text="ready"]')
+        waited = selector.wait(timeout=0.25)
+        assert waited is not None
+        element = selector.get(timeout=0.25)
+        assert element is not None
+        assert element.text == "ready"
+        assert device.dump_hierarchy.call_count >= 2
+        watcher.run.assert_called()
         return
     raise AssertionError(f"Unhandled uiautomator2 scenario: {scenario}")
 
