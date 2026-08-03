@@ -82,9 +82,9 @@ def retry(func):
                     pass
 
         if func.__name__ in ['screenshot_ascreencap', 'screenshot_ascreencap_nc']:
-            logger.critical(f'[设备-aScreenCap] 重试 {func.__name__}() 失败')
+            logger.critical(f'[Устройство — aScreenCap] Не удалось выполнить {func.__name__}() после повторных попыток')
             raise EmulatorNotRunningError
-        logger.critical(f'[设备-aScreenCap] 重试 {func.__name__}() 失败')
+        logger.critical(f'[Устройство — aScreenCap] Не удалось выполнить {func.__name__}() после повторных попыток')
         raise RequestHumanTakeover
 
     return retry_wrapper
@@ -97,13 +97,13 @@ class AScreenCap(Connection):
     ascreencap_available = True
 
     def ascreencap_init(self):
-        logger.hr('[设备-aScreenCap] aScreenCap初始化')
+        logger.hr('[Устройство — aScreenCap] Инициализация aScreenCap')
         self.__bytepointer = 0
         self.ascreencap_available = True
 
         arc = self.cpu_abi
         sdk = self.sdk_ver
-        logger.info(f'[设备-aScreenCap] cpu_arc: {arc}, sdk_ver: {sdk}')
+        logger.info(f'[Устройство — aScreenCap] Архитектура CPU: {arc}, версия SDK: {sdk}')
 
         if sdk in range(21, 26):
             ver = "Android_5.x-7.x"
@@ -116,17 +116,17 @@ class AScreenCap(Connection):
         filepath = os.path.join(self.config.ASCREENCAP_FILEPATH_LOCAL, ver, arc, 'ascreencap')
         if not os.path.exists(filepath):
             self.ascreencap_available = False
-            logger.error('[设备-aScreenCap] 该设备没有可用的 aScreenCap 库，请使用其他截图方案')
+            logger.error('[Устройство — aScreenCap] Для этого устройства нет подходящей библиотеки aScreenCap. Используйте другой метод снимка экрана')
             raise RequestHumanTakeover
 
-        logger.info(f'[设备-aScreenCap] 推送 {filepath}')
+        logger.info(f'[Устройство — aScreenCap] Отправка файла {filepath}')
         self.adb_push(filepath, self.config.ASCREENCAP_FILEPATH_REMOTE)
 
-        logger.info(f'[设备-aScreenCap] chmod 0777 {self.config.ASCREENCAP_FILEPATH_REMOTE}')
+        logger.info(f'[Устройство — aScreenCap] Установка прав chmod 0777 для {self.config.ASCREENCAP_FILEPATH_REMOTE}')
         self.adb_shell(['chmod', '0777', self.config.ASCREENCAP_FILEPATH_REMOTE])
 
     def uninstall_ascreencap(self):
-        logger.info('[设备-aScreenCap] 移除ascreencap')
+        logger.info('[Устройство — aScreenCap] Удаление aScreenCap')
         self.adb_shell(['rm', self.config.ASCREENCAP_FILEPATH_REMOTE])
 
     def _ascreencap_reposition_byte_pointer(self, byte_array):
@@ -140,7 +140,7 @@ class AScreenCap(Connection):
                 text = 'Repositioning byte pointer failed, corrupted aScreenCap data received'
                 logger.warning(text)
                 if len(byte_array) < 500:
-                    logger.warning(f'异常截图: {byte_array}')
+                    logger.warning(f'Некорректный снимок экрана: {byte_array}')
                 raise AscreencapError(text)
         return byte_array[self.__bytepointer:]
 
@@ -152,7 +152,7 @@ class AScreenCap(Connection):
         elif method == 2:
             return screenshot.replace(b'\r\r\n', b'\n')
         else:
-            raise ScriptError(f'Unknown method to load screenshots: {method}')
+            raise ScriptError(f'Неизвестный метод загрузки снимка экрана: {method}')
 
     def __uncompress(self, screenshot):
         raw_compressed_data = self._ascreencap_reposition_byte_pointer(screenshot)
@@ -162,7 +162,7 @@ class AScreenCap(Connection):
             text = 'aScreenCap returned incomplete data or empty payload'
             logger.warning(text)
             if raw_compressed_data is not None and len(raw_compressed_data) < 500:
-                logger.warning(f'异常截图: {raw_compressed_data}')
+                logger.warning(f'Некорректный снимок экрана: {raw_compressed_data}')
             raise AscreencapError(text)
 
         # 头部格式参考：
@@ -221,7 +221,7 @@ class AScreenCap(Connection):
 
         self.__screenshot_method_fixed = self.__screenshot_method
         if len(screenshot) < 500:
-            logger.warning(f'异常截图: {screenshot}')
+            logger.warning(f'Некорректный снимок экрана: {screenshot}')
         raise ImageTruncated(f'cannot load screenshot')
 
     @retry
@@ -234,6 +234,6 @@ class AScreenCap(Connection):
     def screenshot_ascreencap_nc(self):
         data = self.adb_shell_nc([self.config.ASCREENCAP_FILEPATH_REMOTE, '--pack', '2', '--stdout'])
         if len(data) < 500:
-            logger.warning(f'异常截图: {data}')
+            logger.warning(f'Некорректный снимок экрана: {data}')
 
         return self.__uncompress(data)

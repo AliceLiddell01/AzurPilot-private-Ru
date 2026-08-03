@@ -98,6 +98,37 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Run Stage 8A regression tests
+        run: >-
+          uv run python -m unittest -v
+          tests/test_stage8a_device_log_audit.py
+          tests/test_stage8a_semantic_contract.py
+          tests/test_stage8a_device_acceptance.py
+
+      - name: Run Stage 8A semantic verifier
+        run: >-
+          uv run python -m dev_tools.verify_stage8a
+          --output-dir artifacts/stage8a
+
+      - name: Publish Stage 8A summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/stage8a/report.md ]]; then
+            cat artifacts/stage8a/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Stage 8A report was not generated.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload Stage 8A semantic diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage8a-semantic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/stage8a
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Collect functional failure diagnostics
         if: failure()
         shell: bash
@@ -245,7 +276,7 @@ jobs:
             git status --short
           } > artifacts/generated/diagnostics.txt 2>&1
           git diff --binary > artifacts/generated/failure-working-tree.diff
-          git diff --check > artifacts/generated/failure-diff-check.txt 2>&1
+          git diff --check > artifacts/generated/diff-check.txt 2>&1
 
       - name: Upload generated diff artifact
         if: always()
@@ -460,6 +491,9 @@ jobs:
 
       - name: Run no-reload orphan recovery regression
         run: uv run python -m unittest -v tests/test_webui_no_reload_recovery.py
+
+      - name: Run Stage 8A target-selection contract on Windows
+        run: uv run python -m unittest -v tests/test_stage8a_device_acceptance.py
 
       - name: Collect PowerShell failure diagnostics
         if: failure()

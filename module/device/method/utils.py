@@ -82,30 +82,30 @@ def handle_image_truncated(obj, exc: Exception) -> None:
     """
     serial = getattr(obj, 'serial', None)
     cnt = report_image_truncated(serial)
-    logger.error(f'图像截断发生 ({cnt}) for device {serial}: {exc}')
+    logger.error(f'Обнаружено усечённое изображение ({cnt}) для устройства {serial}: {exc}')
 
     if cnt >= IMAGE_TRUNCATED_THRESHOLD:
-        logger.warning(f'[设备-工具] 图像截断达到阈值 ({IMAGE_TRUNCATED_THRESHOLD}) 对于 {serial}，尝试恢复')
+        logger.warning(f'[Устройство — инструменты] Достигнут порог усечённых изображений ({IMAGE_TRUNCATED_THRESHOLD}) для {serial}; выполняется восстановление')
         # Try specific recoveries in order of likelihood
         try:
             if hasattr(obj, 'droidcast_init'):
-                logger.info('尝试重启DroidCast服务')
+                logger.info('Попытка перезапуска службы DroidCast')
                 try:
                     obj.droidcast_init()
                 except Exception:
-                    logger.exception('Failed to restart DroidCast')
+                    logger.exception('Не удалось перезапустить DroidCast')
             # Try ascreencap init if available
             if hasattr(obj, 'ascreencap_init'):
                 try:
                     obj.ascreencap_init()
                 except Exception:
-                    logger.exception('Failed to init ascreencap')
+                    logger.exception('Не удалось инициализировать aScreenCap')
             # Reconnect adb as a final attempt
             if hasattr(obj, 'adb_reconnect'):
                 try:
                     obj.adb_reconnect()
                 except Exception:
-                    logger.exception('Failed to adb_reconnect')
+                    logger.exception('Не удалось выполнить adb_reconnect')
         finally:
             reset_image_truncated(serial)
 
@@ -148,8 +148,7 @@ class PatchedIniter(u2.init.Initer):
                 break
         if not name:
             raise Exception(
-                "arch(%s) need to be supported yet, please report an issue in github"
-                % self.abis)
+                'Архитектура (%s) пока не поддерживается; сообщите о проблеме на GitHub' % self.abis)
         return u2.init.GITHUB_BASEURL + '/atx-agent/releases/download/%s/%s' % (
             u2.version.__atx_agent_version__, name.format(v=u2.version.__atx_agent_version__))
 
@@ -228,7 +227,7 @@ def possible_reasons(*args):
     """
     for index, reason in enumerate(args):
         index += 1
-        logger.critical(f'[设备-工具] 可能原因 #{index}: {reason}')
+        logger.critical(f'[Устройство — инструменты] Возможная причина №{index}: {reason}')
 
 
 class PackageNotInstalled(Exception):
@@ -303,9 +302,9 @@ def handle_adb_error(e):
         # AdbError()
         logger.exception(e)
         possible_reasons(
-            'If you are using BlueStacks or LD player or WSA, please enable ADB in the settings of your emulator',
-            'Emulator died, please restart emulator',
-            'Serial incorrect, no such device exists or emulator is not running'
+            '[Устройство — ADB] Если используется BlueStacks, LDPlayer или WSA, включите ADB в настройках эмулятора',
+            '[Устройство — эмулятор] Эмулятор завершил работу; перезапустите его',
+            '[Устройство — ADB] Серийный идентификатор неверен, устройство отсутствует либо эмулятор не запущен'
         )
         return False
 

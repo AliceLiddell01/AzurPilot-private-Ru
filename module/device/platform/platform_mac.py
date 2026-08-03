@@ -39,7 +39,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
             subprocess.CompletedProcess 或 subprocess.Popen: 命令执行结果
         """
         # 在 Mac 上使用 shell=True 执行复杂命令
-        logger.info(f'[设备-模拟器Mac] 执行: {command}')
+        logger.info(f'[Устройство — эмулятор macOS] Выполнение команды: {command}')
         if wait:
             result = subprocess.run(
                 command,
@@ -67,7 +67,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
             try:
                 name = proc.name()
                 if re.search(regex, name, re.IGNORECASE):
-                    logger.info(f'[设备-模拟器Mac] 终止模拟器进程: {name}')
+                    logger.info(f'[Устройство — эмулятор macOS] Завершение процесса эмулятора: {name}')
                     proc.kill()
                     count += 1
             except (psutil.AccessDenied, psutil.NoSuchProcess):
@@ -100,10 +100,10 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                         text=True
                     )
                     if result.returncode == 0:
-                        logger.info(f'[设备-模拟器Mac] 已调整进程优先级 {name} (PID: {pid}) 到优先级 {priority}')
+                        logger.info(f'[Устройство — эмулятор macOS] Приоритет процесса {name} (PID: {pid}) изменён на {priority}')
                         count += 1
                     else:
-                        logger.warning(f'[设备-模拟器Mac] 调整优先级失败 {name}: {result.stderr.strip()}')
+                        logger.warning(f'[Устройство — эмулятор macOS] Не удалось изменить приоритет {name}: {result.stderr.strip()}')
             except (psutil.AccessDenied, psutil.NoSuchProcess):
                 continue
         return count
@@ -136,16 +136,16 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         # 尝试提升 MuMu 进程优先级
         count = self.renice_process_by_regex(r'MuMuEmulator|MuMuPlayer', -20)
         if count > 0:
-            logger.info(f'[设备-模拟器Mac] 已提升优先级 {count} 个 MuMu 进程')
+            logger.info(f'[Устройство — эмулятор macOS] Повышен приоритет процессов MuMu: {count}')
             return
 
         # 尝试提升 BlueStacks 进程优先级
         count = self.renice_process_by_regex(r'BlueStacks', -20)
         if count > 0:
-            logger.info(f'[设备-模拟器Mac] 已提升优先级 {count} 个 BlueStacks 进程')
+            logger.info(f'[Устройство — эмулятор macOS] Повышен приоритет процессов BlueStacks: {count}')
             return
 
-        logger.info('[设备-模拟器Mac] 未找到运行中的模拟器进程可提升')
+        logger.info('[Устройство — эмулятор macOS] Запущенные процессы эмулятора для повышения приоритета не найдены')
 
     def _emulator_start(self, instance: EmulatorInstanceMac):
         """
@@ -163,7 +163,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
             if app_path:
                 self.execute(f'open -a "{app_path}"', wait=False)
             else:
-                raise Exception('BlueStacks Air app not found')
+                raise Exception('[Устройство — эмулятор] Приложение BlueStacks Air не найдено')
 
         elif instance == EmulatorMac.MuMuPro:
             # macOS 上的 MuMu 正确启动流程:
@@ -181,20 +181,20 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                     instance_index = getattr(instance, 'index', 0)
                     self.execute(f'"{mumu_bin_path}" open {instance_index}', wait=False)
                 else:
-                    logger.warning(f'[设备-模拟器Mac] mumutool未找到于 {mumu_bin_path}，使用回退方式')
+                    logger.warning(f'[Устройство — эмулятор macOS] mumutool не найден по пути {mumu_bin_path}; используется резервный способ')
                     # 回退: 尝试 MuMuEmulator.app 结构
                     mumu_emulator_app = os.path.join(app_path, 'Contents/MacOS/MuMuEmulator.app')
                     if os.path.exists(mumu_emulator_app):
                         self.execute(f'open "{mumu_emulator_app}"', wait=False)
             else:
-                raise Exception('MuMu Pro app not found')
+                raise Exception('[Устройство — эмулятор] Приложение MuMu Pro не найдено')
 
         else:
             # 通用回退: 尝试通过路径打开
             if os.path.exists(exe):
                 self.execute(f'open "{exe}"', wait=False)
             else:
-                raise Exception(f'Cannot start unknown emulator: {instance}')
+                raise Exception(f'[Устройство — эмулятор] Невозможно запустить неизвестный эмулятор: {instance}')
 
     def _emulator_stop(self, instance: EmulatorInstanceMac):
         """
@@ -247,7 +247,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         except Exception as e:
             logger.exception(e)
 
-        logger.error(f'[设备-模拟器Mac] 模拟器函数 {func.__name__}() 执行失败')
+        logger.error(f'[Устройство — эмулятор macOS] Не удалось выполнить функцию эмулятора {func.__name__}()')
         return False
 
     def emulator_start_watch(self):
@@ -257,20 +257,20 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         Returns:
             bool: True 表示启动完成，False 表示超时
         """
-        logger.hr('[设备-模拟器Mac] 模拟器启动', level=2)
+        logger.hr('[Устройство — эмулятор macOS] Запуск эмулятора', level=2)
         serial = self.emulator_instance.serial
 
         @run_once
         def show_online(m):
-            logger.info(f'[设备-模拟器Mac] 模拟器在线: {m}')
+            logger.info(f'[Устройство — эмулятор macOS] Эмулятор доступен: {m}')
 
         @run_once
         def show_ping(m):
-            logger.info(f'[设备-模拟器Mac] 命令ping: {m}')
+            logger.info(f'[Устройство — эмулятор macOS] Команда ping: {m}')
 
         @run_once
         def show_package(m):
-            logger.info(f'[设备-模拟器Mac] 找到碧蓝航线应用包: {m}')
+            logger.info(f'[Устройство — эмулятор macOS] Найден пакет Azur Lane: {m}')
 
         interval = Timer(0.5).start()
         timeout = Timer(180).start()
@@ -279,7 +279,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
             interval.wait()
             interval.reset()
             if timeout.reached():
-                logger.warning('[设备-模拟器Mac] 模拟器启动超时')
+                logger.warning('[Устройство — эмулятор macOS] Истёк тайм-аут запуска эмулятора')
                 return False
 
             try:
@@ -324,12 +324,12 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 logger.exception(e)
                 continue
 
-        logger.info('[设备-模拟器Mac] 模拟器启动完成')
+        logger.info('[Устройство — эмулятор macOS] Запуск эмулятора завершён')
         return True
 
     def emulator_start(self):
         """启动模拟器，最多重试 3 次。"""
-        logger.hr('[设备-模拟器Mac] 模拟器启动', level=1)
+        logger.hr('[Устройство — эмулятор macOS] Запуск эмулятора', level=1)
         self.run_remote_ssh_command()
         for _ in range(3):
             # 先停止
@@ -342,7 +342,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 self.boost_emulator_priority(self.emulator_instance)
                 if self.emulator_start_watch():
                     return True
-                logger.warning('[设备-模拟器Mac] 模拟器启动监视失败，重试中')
+                logger.warning('[Устройство — эмулятор macOS] Ошибка наблюдения за запуском эмулятора; повторная попытка')
                 if self._emulator_function_wrapper(self._emulator_stop):
                     continue
                 else:
@@ -354,12 +354,12 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 else:
                     return False
 
-        logger.error('[设备-模拟器Mac] 尝试3次启动模拟器失败，已停止')
+        logger.error('[Устройство — эмулятор macOS] Не удалось запустить эмулятор после 3 попыток; дальнейшие попытки прекращены')
         return False
 
     def emulator_stop(self):
         """停止模拟器，最多重试 3 次。"""
-        logger.hr('[设备-模拟器Mac] 模拟器停止', level=1)
+        logger.hr('[Устройство — эмулятор macOS] Остановка эмулятора', level=1)
         for _ in range(3):
             # 停止
             if self._emulator_function_wrapper(self._emulator_stop):
@@ -372,7 +372,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 else:
                     return False
 
-        logger.error('[设备-模拟器Mac] 尝试3次停止模拟器失败，已停止')
+        logger.error('[Устройство — эмулятор macOS] Не удалось остановить эмулятор после 3 попыток; дальнейшие попытки прекращены')
         return False
 
 
