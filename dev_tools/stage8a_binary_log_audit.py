@@ -197,6 +197,31 @@ def _binary_references(
     return findings
 
 
+def _logger_binary_references(
+    node: ast.Call,
+    *,
+    forced_binary_names: set[str],
+) -> list[str]:
+    references: list[str] = []
+    for argument in node.args:
+        references.extend(
+            _binary_references(
+                argument,
+                forced_binary_names=forced_binary_names,
+            )
+        )
+    for keyword in node.keywords:
+        keyword_references = _binary_references(
+            keyword.value,
+            forced_binary_names=forced_binary_names,
+        )
+        if keyword.arg and _is_binary_name(keyword.arg) and not keyword_references:
+            value_name = _call_name(keyword.value)
+            keyword_references.append(value_name or f"<keyword:{keyword.arg}>")
+        references.extend(keyword_references)
+    return references
+
+
 class _BinaryLogVisitor(ast.NodeVisitor):
     def __init__(self, path: str):
         self.path = path
@@ -215,11 +240,11 @@ class _BinaryLogVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         call_kind = _call_name(node.func)
-        if call_kind.startswith("logger.") and node.args:
+        if call_kind.startswith("logger."):
             references = sorted(
                 set(
-                    _binary_references(
-                        node.args[0],
+                    _logger_binary_references(
+                        node,
                         forced_binary_names=self.forced_binary_names,
                     )
                 )
@@ -233,7 +258,7 @@ class _BinaryLogVisitor(ast.NodeVisitor):
                         "call_kind": call_kind,
                         "references": references,
                         "evidence": (
-                            "Logger message directly references a binary-payload-shaped value; "
+                            "Logger arguments directly reference a binary-payload-shaped value; "
                             "log only metadata such as byte count, format, dimensions or backend."
                         ),
                     }
