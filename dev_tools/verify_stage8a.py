@@ -17,11 +17,19 @@ from dev_tools.stage8a_device_log_audit import (
     ROOT,
     Stage8ADeviceLogAudit,
 )
+from dev_tools.stage8a_exception_context_audit import (
+    find_bare_exception_context_findings,
+)
 from dev_tools.stage8a_semantic_policy import IMMUTABLE_STAGE8A_BASE_SHA
+
+EXCEPTION_CONTEXT_METRIC = "stage8a_bare_exception_context_findings"
+FINAL_BLOCKING_METRICS = (*BLOCKING_METRICS, EXCEPTION_CONTEXT_METRIC)
 
 TEST_MODULES = (
     "tests.test_stage8a_device_log_audit",
     "tests.test_stage8a_binary_log_audit",
+    "tests.test_stage8a_binary_log_audit_arguments",
+    "tests.test_stage8a_exception_context_audit",
     "tests.test_stage8a_control_flow_policy",
     "tests.test_stage8a_semantic_contract",
     "tests.test_stage8a_stage7_policy_bridge",
@@ -84,14 +92,16 @@ def _effective_base_ref(requested: str | None) -> str:
     return IMMUTABLE_STAGE8A_BASE_SHA
 
 
-def _apply_binary_payload_audit(
+def _apply_findings_metric(
     outputs: dict[str, bytes],
     metrics: dict[str, Any],
     findings: list[dict[str, Any]],
+    *,
+    metric_name: str,
+    contract_key: str,
 ) -> tuple[dict[str, bytes], dict[str, Any]]:
     outputs = dict(outputs)
     metrics = dict(metrics)
-    metric_name = "stage8a_binary_payload_log_findings"
     metrics[metric_name] = len(findings)
 
     semantic_findings = json.loads(outputs["semantic-findings.json"])
@@ -100,10 +110,10 @@ def _apply_binary_payload_audit(
     outputs["metrics.json"] = _json_bytes(metrics)
 
     contract = json.loads(outputs["contract.json"])
-    contract["binary_payload_log_contract_preserved"] = not findings
+    contract[contract_key] = not findings
     outputs["contract.json"] = _json_bytes(contract)
 
-    status = "FAIL" if any(metrics.get(key) for key in BLOCKING_METRICS) else "PASS"
+    status = "FAIL" if any(metrics.get(key) for key in FINAL_BLOCKING_METRICS) else "PASS"
     report_lines = outputs["report.md"].decode("utf-8").splitlines()
     updated_metric = False
     for index, line in enumerate(report_lines):
@@ -134,11 +144,19 @@ def main(argv: list[str] | None = None) -> int:
             root=ROOT,
             base_sha=audit.base_sha,
         )
-        binary_findings = find_binary_payload_log_findings(ROOT)
-        outputs, metrics = _apply_binary_payload_audit(
+        outputs, metrics = _apply_findings_metric(
             outputs,
             metrics,
-            binary_findings,
+            find_binary_payload_log_findings(ROOT),
+            metric_name="stage8a_binary_payload_log_findings",
+            contract_key="binary_payload_log_contract_preserved",
+        )
+        outputs, metrics = _apply_findings_metric(
+            outputs,
+            metrics,
+            find_bare_exception_context_findings(ROOT),
+            metric_name=EXCEPTION_CONTEXT_METRIC,
+            contract_key="exception_first_party_context_preserved",
         )
     except Exception as error:
         args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -157,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
 
     failures = [
         f"{key}: {metrics[key]}"
-        for key in BLOCKING_METRICS
+        for key in FINAL_BLOCKING_METRICS
         if metrics.get(key)
     ]
     if metrics["remaining_log_translation_count"] <= 0:
