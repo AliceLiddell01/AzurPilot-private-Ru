@@ -7,7 +7,7 @@
 ## Required remediation
 
 1. Every Stage 8A scenario requirement must map to one unique executable `unittest` fixture ID.
-2. Evidence generation must fail closed when a fixture is missing, duplicated or not importable.
+2. Evidence generation must fail closed when a fixture is missing, duplicated, not importable or not actually executed.
 3. Static source assertions may remain supplemental, but must not be represented as regression evidence.
 4. The matrix must cover ADB state/retry/final exception, device readiness, package detection, emulator lifecycle, screenshot backends and image contract, input serialization, scrcpy v1.20 lifecycle/framing, uiautomator2 operations/timeouts, NemuIpc/LDOpenGL and WebUI live control/cleanup.
 5. The stable bridge test must compare against the immutable Stage 8A baseline rather than the current stable ref.
@@ -43,8 +43,18 @@ The pinned XPath API was captured from the installed 2.16.17 distribution rather
 
 Final inspection of required workflow run `30854780509` found that the one-shot remediation run had executed the runtime matrix, but the normal exact-head verifier did not include `tests.test_stage8a_runtime_scenario_matrix` in `TEST_MODULES`. Consequently, `scenario-evidence.json` could be marked PASS after fixture resolution without executing all 127 fixtures in the artifact-producing verifier run.
 
-The verifier now executes the runtime matrix directly before changing evidence status from `PENDING_TEST_EXECUTION` to `PASS`. A regression test requires the matrix module to remain in `TEST_MODULES`. The previous technical PASS on `2391da32b70adf17162f50f7f74d064ac01920ba` is withdrawn; a fresh exact-head run and artifact are required.
+The verifier now:
+
+- keeps `tests.test_stage8a_runtime_scenario_matrix` in `TEST_MODULES`;
+- executes the runtime matrix inside the artifact-producing verifier run;
+- parses its own `unittest.log` for every exact fixture ID;
+- writes `scenario-execution.json` with `requirements`, `executed`, `missing` and the reviewed fixture list;
+- refuses to change scenario evidence from `PENDING_TEST_EXECUTION` to `PASS` unless `executed == requirements` and `missing == []`.
+
+Regression tests prove both the positive `127/127` path and the negative empty-log path. One-shot exact-gate run `30856061686` passed and published clean implementation head `452cdb731d24022aac5cc0da81818354de16114a`; its temporary payload and workflow were removed before publication.
+
+The previous technical PASS on `2391da32b70adf17162f50f7f74d064ac01920ba` remains withdrawn. The next commit is evidence-only and must receive a fresh standard exact-head CI/artifact cycle.
 
 ## Final verdict rule
 
-This review becomes **PASS** only when all five required jobs complete successfully on the exact post-evidence head, the generated scenario evidence reports full executable coverage, no unresolved review thread remains, and the user repeats real MuMu acceptance on that same head.
+This review becomes **PASS** only when all five required jobs complete successfully on the exact post-evidence head, `scenario-evidence.json` and `scenario-execution.json` both report PASS, all 127 fixtures appear in the exact-head verifier `unittest.log`, no unresolved review thread remains, and the user repeats real MuMu acceptance on that same head.
