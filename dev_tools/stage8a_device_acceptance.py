@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import struct
 import subprocess
-import sys
 import tempfile
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +56,7 @@ LOCALHOST_RE = re.compile(r"\blocalhost(?::\d{1,5})?\b", re.I)
 WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:\\[^\r\n\t]+")
 UNIX_PATH_RE = re.compile(r"(?<![:/A-Za-z0-9_])/(?:[^/\s]+/)+[^\s,;]*")
 MAX_DIAGNOSTIC_CHARS = 16_384
+PREVIEW_WAIT_SECONDS = 5.0
 
 
 class AcceptanceFailure(RuntimeError):
@@ -244,6 +244,22 @@ def _detect_package(adb: str, serial: str, configured: str) -> str:
     return known[0]
 
 
+def _validate_bgr_image(image: Any) -> dict[str, Any]:
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise AcceptanceFailure(
+            "Для проверки BGR-контракта требуются установленные зависимости проекта."
+        ) from error
+    if not isinstance(image, np.ndarray) or image.ndim != 3 or image.shape[2] != 3:
+        raise AcceptanceFailure("Нарушен контракт numpy.ndarray BGR.")
+    return {
+        "array_shape": list(image.shape),
+        "array_dtype": str(image.dtype),
+        "color_contract": "BGR",
+    }
+
+
 def _decode_screenshot(payload: bytes) -> dict[str, Any]:
     if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
         raise AcceptanceFailure("ADB screencap не вернул корректный PNG stream.")
@@ -260,16 +276,13 @@ def _decode_screenshot(payload: bytes) -> dict[str, Any]:
     image = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise AcceptanceFailure("OpenCV не удалось декодировать PNG снимка экрана.")
-    if not isinstance(image, np.ndarray) or image.ndim != 3 or image.shape[2] != 3:
-        raise AcceptanceFailure("Нарушен контракт numpy.ndarray BGR.")
-    return {
+    metadata = _validate_bgr_image(image)
+    metadata.update({
         "png_bytes": len(payload),
         "png_width": width,
         "png_height": height,
-        "array_shape": list(image.shape),
-        "array_dtype": str(image.dtype),
-        "color_contract": "BGR",
-    }
+    })
+    return metadata
 
 
 def _confirm(expected: str, prompt: str, non_interactive: bool) -> bool:
@@ -279,32 +292,154 @@ def _confirm(expected: str, prompt: str, non_interactive: bool) -> bool:
     return entered == expected
 
 
-def _check_preview(profile: str) -> dict[str, Any]:
-    from module.webui.api import LiveScrcpySession
+def _preview_dependencies():
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*invalid escape sequence.*",
+            category=SyntaxWarning,
+            module=r"module\.device\.method\.uiautomator_2",
+        )
+        from module.webui.api import (
+            LiveScrcpySession,
+            _get_ffmpeg_path,
+            _init_live_screenshot_fallback,
+        )
+    return LiveScrcpySession, _get_ffmpeg_path, _init_live_screenshot_fallback
 
+
+def _new_device(profile: str):
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*invalid escape sequence.*",
+            category=SyntaxWarning,
+            module=r"module\.device\.method\.uiautomator_2",
+        )
+        from module.config.config import AzurLaneConfig
+        from module.device.device import Device
+    return Device(AzurLaneConfig(profile, task=None))
+
+
+def _wait_for_scrcpy_chunk(session: Any, timeout: float = PREVIEW_WAIT_SECONDS) -> bytes | None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        chunk = session.read_video()
+        if chunk is None:
+            continue
+        if chunk == b"":
+            return None
+        return bytes(chunk)
+    return None
+
+
+def _check_preview(profile: str, screenshot_backend: str) -> dict[str, Any]:
+    LiveScrcpySession, get_ffmpeg_path, init_screenshot_fallback = _preview_dependencies()
     session = None
+    scrcpy_reason = "not_started"
     try:
-        session = LiveScrcpySession.acquire(profile, fps=15, width=640, bitrate_scale=0.5)
-        if not session.alive:
-            raise AcceptanceFailure("Сеанс предпросмотра scrcpy не перешёл в состояние alive.")
-        first_chunk = session.read_video()
-        if first_chunk in (b"", None):
-            raise AcceptanceFailure("Предпросмотр scrcpy не передал первый видеоблок.")
-        return {
-            "status": "PASS",
-            "resolution": list(session.resolution),
-            "first_video_chunk_bytes": len(first_chunk),
-        }
-    except AcceptanceFailure:
-        raise
+        session = LiveScrcpySession.acquire(
+            profile,
+            fps=15,
+            width=640,
+            bitrate_scale=0.5,
+        )
+        if session.alive:
+            first_chunk = _wait_for_scrcpy_chunk(session)
+            if first_chunk:
+                return {
+                    "status": "PASS",
+                    "mode": "scrcpy",
+                    "resolution": list(session.resolution),
+                    "first_video_chunk_bytes": len(first_chunk),
+                }
+            scrcpy_reason = "no_frame_after_handshake"
+        else:
+            scrcpy_reason = "session_not_alive"
     except Exception as error:
-        raise AcceptanceFailure(
-            "Не удалось проверить предпросмотр scrcpy: "
-            f"{type(error).__name__}. Raw exception оставлен только в локальном журнале."
-        ) from error
+        scrcpy_reason = f"startup_{type(error).__name__}"
     finally:
         if session is not None:
             LiveScrcpySession.release(profile, session=session)
+
+    ffmpeg = get_ffmpeg_path()
+    if not ffmpeg:
+        raise AcceptanceFailure(
+            "Raw scrcpy не передал видеоблок, а ffmpeg для резервного preview не найден."
+        )
+
+    try:
+        device, first = init_screenshot_fallback(profile)
+        first_metadata = _validate_bgr_image(first)
+        second = device.screenshot()
+        second_metadata = _validate_bgr_image(second)
+    except Exception as error:
+        raise AcceptanceFailure(
+            "Не удалось подтвердить ни raw scrcpy, ни резервный preview через "
+            f"настроенный backend {screenshot_backend}: {type(error).__name__}."
+        ) from error
+
+    return {
+        "status": "PASS",
+        "mode": "screenshot_fallback",
+        "configured_screenshot_backend": screenshot_backend,
+        "ffmpeg_available": True,
+        "frames_verified": 2,
+        "first_frame": first_metadata,
+        "second_frame": second_metadata,
+        "scrcpy": {
+            "status": "UNAVAILABLE",
+            "reason": scrcpy_reason,
+        },
+    }
+
+
+def _close_minitouch_probe(device: Any) -> None:
+    client = getattr(device, "_minitouch_client", None)
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            pass
+    port = int(getattr(device, "_minitouch_port", 0) or 0)
+    if port:
+        try:
+            device.adb_forward_remove(f"tcp:{port}")
+        except Exception:
+            pass
+
+
+def _check_configured_control_backend(profile: str, backend: str) -> dict[str, Any]:
+    if backend == "ADB":
+        return {
+            "status": "PASS",
+            "backend": backend,
+            "probe": "target_explicit_adb_transport",
+        }
+    if backend != "minitouch":
+        raise AcceptanceFailure(
+            f"Acceptance-probe для настроенного control backend {backend} не реализован."
+        )
+
+    device = None
+    try:
+        device = _new_device(profile)
+        device.minitouch_init()
+        return {
+            "status": "PASS",
+            "backend": backend,
+            "probe": "handshake_without_touch",
+            "max_x": int(device.max_x),
+            "max_y": int(device.max_y),
+        }
+    except Exception as error:
+        raise AcceptanceFailure(
+            "Не удалось подтвердить handshake настроенного backend minitouch: "
+            f"{type(error).__name__}."
+        ) from error
+    finally:
+        if device is not None:
+            _close_minitouch_probe(device)
 
 
 def _check_reconnect(adb: str, serial: str, non_interactive: bool) -> dict[str, Any]:
@@ -324,27 +459,39 @@ def _check_reconnect(adb: str, serial: str, non_interactive: bool) -> dict[str, 
         state = _run_adb(adb, serial, "get-state", timeout=10)
         if state.returncode == 0 and str(state.stdout).strip() == "device":
             evidence["transport_restored"] = True
+            evidence["status"] = "PASS"
             return evidence
         time.sleep(1)
     raise AcceptanceFailure("ADB transport не восстановился после reconnect за 30 секунд.")
 
 
-def _check_control(adb: str, serial: str, non_interactive: bool) -> dict[str, Any]:
+def _check_control(
+    profile: str,
+    backend: str,
+    adb: str,
+    serial: str,
+    non_interactive: bool,
+) -> dict[str, Any]:
+    backend_probe = _check_configured_control_backend(profile, backend)
     action = "Android KEYCODE_BACK (однократно)"
     if not _confirm(
         "BACK",
+        f"Backend {backend} подтверждён без касания экрана. "
         f"Будет отправлено безопасное действие управления: {action}. "
         "Текст, покупки, бой и расход ресурсов не затрагиваются.",
         non_interactive,
     ):
         return {
             "status": "SERIALIZATION_ONLY",
+            "configured_backend": backend_probe,
             "action": action,
             "serialized_command": ["adb", "-s", "<serial>", "shell", "input", "keyevent", "4"],
         }
     result = _run_adb(adb, serial, "shell", "input", "keyevent", "4")
     evidence = _command_evidence(result, serial)
+    evidence["configured_backend"] = backend_probe
     evidence["action"] = action
+    evidence["action_transport"] = "target_explicit_adb_keyevent"
     if result.returncode != 0:
         raise AcceptanceFailure("Безопасное действие управления завершилось ошибкой.")
     evidence["status"] = "PASS"
@@ -409,6 +556,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
             "clipboard_read", "user_text_input", "adb_kill_server",
         ],
     }
+    args.partial_report = report
 
     temp_path: Path | None = None
     try:
@@ -434,20 +582,32 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         temp_path = None
 
         report["live_preview"] = (
-            _check_preview(args.profile)
+            _check_preview(args.profile, profile["screenshot_backend"])
             if args.check_preview
             else {"status": "SKIPPED", "reason": "Флаг --check-preview не задан."}
         )
         report["control"] = (
-            _check_control(adb, serial, args.non_interactive)
+            _check_control(
+                args.profile,
+                profile["control_backend"],
+                adb,
+                serial,
+                args.non_interactive,
+            )
             if args.check_control
             else {"status": "SKIPPED", "reason": "Флаг --check-control не задан."}
         )
+        if args.check_control and report["control"]["status"] != "PASS":
+            raise AcceptanceFailure("Проверка управления не была полностью подтверждена.")
+
         report["reconnect"] = (
             _check_reconnect(adb, serial, args.non_interactive)
             if args.check_reconnect
             else {"status": "SKIPPED", "reason": "Флаг --check-reconnect не задан."}
         )
+        if args.check_reconnect and report["reconnect"]["status"] != "PASS":
+            raise AcceptanceFailure("Проверка reconnect не была полностью подтверждена.")
+
         report["status"] = "PASS"
         return report
     finally:
@@ -479,12 +639,13 @@ def main(argv: list[str] | None = None) -> int:
         if resolved_adb:
             error_text = error_text.replace(resolved_adb, "<adb>")
         resolved_serial = str(getattr(args, "resolved_serial", args.serial or ""))
-        report = {
+        report = dict(getattr(args, "partial_report", {}))
+        report.update({
             "status": "FAIL",
             "stage": "8A",
             "error": _safe_text(error_text, resolved_serial),
             "target_serial": "<serial>",
-        }
+        })
 
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
