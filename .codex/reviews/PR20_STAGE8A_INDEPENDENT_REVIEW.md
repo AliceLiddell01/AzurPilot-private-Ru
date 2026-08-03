@@ -1,43 +1,58 @@
 # Independent review — PR #20 / Stage 8A
 
 - Review date: 2026-08-03
-- Reviewed head: `27940215645422c6bc2efaccc44ae8d02bf29332`
-- Source: independent reviewer report supplied for PR #20
+- Initial reviewed head: `27940215645422c6bc2efaccc44ae8d02bf29332`
+- Remediated implementation head: `a97d4e943f8424c4444f544625b8edfa7d1b82a2`
+- Source: independent reviewer report supplied for PR #20 plus remediation re-review
 - Initial verdict: **BLOCKED**
 - Merge authorization: **not granted**
 
 ## Findings
 
-| ID | Severity | Finding | Required exit criterion |
-|---|---|---|---|
-| IR-01 | BLOCKER | Bare exception logger calls have no Russian first-party context | Dedicated fail-closed AST audit reports zero findings; exception payload, severity, traceback and call order remain preserved |
-| IR-02 | BLOCKER | Dynamic logger expressions are classified too broadly as raw external payload | Bare exception expressions are independently classified and blocked; positive and negative fixtures pass |
-| IR-03 | BLOCKER | Required backend/scenario matrix is not machine-readable and complete | Every required scenario has explicit CI fixture, semantic or external real-acceptance evidence with limitations |
-| IR-04 | BLOCKER | Independent review was asserted without a review artifact | This artifact and PR review comment are present; remediation verdict is recorded on the final exact head |
-| IR-05 | BLOCKER | Security review was not recorded as a separate verdict | A separate machine-readable security checklist and PR verdict exist on the final exact head |
-| IR-06 | HIGH | Backend coverage matrix contradicts external real acceptance | CI evidence and external user-acceptance evidence are represented as separate channels; no hard-coded false `actual_user_backend` flag |
-| IR-07 | HIGH | Binary-log audit checks only the first positional logger argument | All positional and keyword arguments, lazy formatting, `logger.attr` and nested containers are audited |
-| IR-08 | MEDIUM | Pinned external dependency contracts are not evidenced | Pinned versions, checked source tags, relevant contracts and upstream differences are recorded and validated |
-| IR-09 | LOW | Superseded Stage 8A branch remains | Cleanup is deferred until after merge and only after unique-data verification |
+| ID | Severity | Finding | Remediation evidence | Status |
+|---|---|---|---|---|
+| IR-01 | BLOCKER | Bare exception logger calls have no Russian first-party context | Dedicated fail-closed AST audit; `stage8a_bare_exception_context_findings=0`; 83 reviewed wrappers preserve exception payload and logger method | REMEDIATED |
+| IR-02 | BLOCKER | Dynamic logger expressions are classified too broadly as raw external payload | Exception expressions have a separate classifier and negative fixtures; unrelated raw external expressions remain outside this allowance | REMEDIATED |
+| IR-03 | BLOCKER | Required backend/scenario matrix is not machine-readable and complete | `scenario-evidence.json`: 87/87 requirements with executable or explicitly external evidence, status `PASS` | REMEDIATED |
+| IR-04 | BLOCKER | Independent review was asserted without a review artifact | This versioned artifact records initial findings, failed attempts and remediation evidence | REMEDIATED |
+| IR-05 | BLOCKER | Security review was not recorded as a separate verdict | `.codex/reviews/PR20_STAGE8A_SECURITY_REVIEW.md` plus `security-review.json`, 19 checks, status `PASS` | REMEDIATED |
+| IR-06 | HIGH | Backend coverage matrix contradicts external real acceptance | `backend-coverage.json` separates `CI_EVIDENCE_ONLY` from external acceptance and does not assert a real backend from CI | REMEDIATED |
+| IR-07 | HIGH | Binary-log audit checks only the first positional logger argument | All positional and keyword arguments, lazy formatting, `logger.attr` and nested containers are audited; blocking metric is `0` | REMEDIATED |
+| IR-08 | MEDIUM | Pinned external dependency contracts are not evidenced | Exact `adbutils==0.11.0`, `uiautomator2==2.16.17` and bundled scrcpy-server 1.20 contracts are documented and tested; status `PASS` | REMEDIATED |
+| IR-09 | LOW | Superseded Stage 8A branch remains | Cleanup remains deferred until after merge and unique-data verification; no branch was deleted during remediation | DEFERRED |
 
-## Remediation rules
-
-1. PR remains Draft.
-2. Previous user acceptance cannot authorize a changed runtime head.
-3. No finding may be closed by broad allowlists, `continue-on-error`, skipped tests or prose-only assertions.
-4. Runtime log changes must preserve severity, traceback, retry, timeout, fallback, protocol and call order.
-5. Final remediation requires a fresh exact-head CI cycle and a new relevant user acceptance on the same head.
-
-## Remediation attempts
+## Remediation history
 
 - Run `30841001060`: fail-closed validation stopped before commit because the new bundled scrcpy contract test inspected `module/config/argument/args.json`, which is not the source of the bundled JAR path.
 - Retry configuration `0f68a807…`: no remediation run was created because the temporary workflow contained invalid YAML indentation inside an embedded multiline Python literal; no payload was applied.
 - Run `30843237705`: all 100 Stage 8A tests passed; the semantic verifier remained fail-closed with 100 unresolved candidates and one sequence/control-flow mismatch.
-- Run `30843676649`: diagnostic artifact `stage8a-remediation-30843676649-1` proved that all 100 unresolved candidates were 50 removed plus 50 added stable IDs in `module/webui/api.py`; the messages themselves were unchanged and the delta was caused by inserting security helpers before the existing runtime candidates.
-- The semantic/security remediation restores all 50 existing runtime candidate IDs, places the loopback guard after the message-bearing handlers and permits only five exact helper functions plus two exact guarded route bindings. An extra statement or an altered route target remains fail-closed.
+- Run `30843676649`: diagnostics proved that all unresolved candidates were 50 removed plus 50 added stable IDs in `module/webui/api.py`, caused by inserting security helpers before existing message-bearing runtime nodes.
+- Run `30844916018`: all patch digests, Stage 8A tests, semantic verifier, diagnostic upload, fail-closed enforcement and clean-tree publication passed. Temporary payload directories and the one-shot workflow were removed before commit.
 
-## Remediation verdict
+## Remediation evidence
 
-**PENDING — keep PR BLOCKED.**
+Artifact `stage8a-remediation-30844916018-1`:
 
-This section may be changed to PASS only after all finding-specific evidence is attached to the exact final head.
+- artifact digest: `sha256:a856df7e98ac5c73ed7b7d61a6d7cc39942204ceb8647984112ab20e237de747`;
+- verifier head: `c437aa66a74dc9aee9bc9c219c225d2b339e3fb7`;
+- candidates: `647`;
+- translation required: `501`;
+- translated: `501`;
+- unresolved: `0`;
+- CJK/English remaining: `0/0`;
+- placeholder, severity, sequence and control-flow mismatches: `0`;
+- raw/binary payload findings: `0/0`;
+- bare exception context findings: `0`;
+- secret and mojibake findings: `0/0`;
+- approved metadata expression changes: `11`;
+- approved exception context wrappers: `83`;
+- approved security control-flow changes: `1`;
+- scenario/security/external-contract statuses: `PASS/PASS/PASS`.
+
+The clean implementation head is `a97d4e943f8424c4444f544625b8edfa7d1b82a2`. It contains no `.stage8a-remediation-*` payload and no one-shot remediation workflow.
+
+## Re-review verdict
+
+**REMEDIATION PASS — exact-head CI and new real-device acceptance are still required.**
+
+PR remains Draft. This verdict does not authorize Ready or merge. A final PASS applies only to the exact post-evidence head after all five required CI jobs and a new relevant MuMu acceptance succeed on that same head.
