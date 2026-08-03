@@ -178,7 +178,7 @@ class Adb(Connection):
 
         self.__screenshot_method_fixed = self.__screenshot_method
         if len(screenshot) < 500:
-            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана: {screenshot}')
+            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана; получено {len(screenshot)} байт')
         raise OSError(f'Не удалось загрузить снимок экрана')
 
     @retry
@@ -186,7 +186,7 @@ class Adb(Connection):
     def screenshot_adb(self):
         data = self.adb_shell(['screencap', '-p'], stream=True)
         if len(data) < 500:
-            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана: {data}')
+            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана; получено {len(data)} байт')
 
         return self.__process_screenshot(data)
 
@@ -196,7 +196,7 @@ class Adb(Connection):
         data = self.adb_shell(['screencap'], stream=True)
         data = remove_screenshot_warning(data)
         if len(data) < 500:
-            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана: {data}')
+            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана; получено {len(data)} байт')
 
         return load_screencap(data)
 
@@ -205,7 +205,7 @@ class Adb(Connection):
         data = self.adb_shell_nc(['screencap'])
         data = remove_screenshot_warning(data)
         if len(data) < 500:
-            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана: {data}')
+            logger.warning(f'[Устройство — ADB] Некорректный снимок экрана; получено {len(data)} байт')
 
         return load_screencap(data)
 
