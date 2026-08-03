@@ -41,6 +41,7 @@ TEST_MODULES = (
     "tests.test_stage8a_stage7_policy_bridge",
     "tests.test_stage8a_device_acceptance",
     "tests.test_stage8a_scenario_contracts",
+    "tests.test_stage8a_runtime_scenario_matrix",
     "tests.test_stage8a_evidence_policy",
     "tests.test_stage8a_security_review",
     "tests.test_stage8a_external_contracts",
@@ -88,7 +89,7 @@ def _write_review_source_snapshot(output_dir: Path) -> None:
         _copy_review_file(output_dir, source)
     review_root = ROOT / ".codex" / "reviews"
     if review_root.is_dir():
-        for source in sorted(review_root.glob("PR20_STAGE8A_*.md")):
+        for source in sorted(review_root.glob("PR*_STAGE8A_*.md")):
             _copy_review_file(output_dir, source)
 
 
@@ -210,6 +211,33 @@ def _apply_evidence_outputs(
     return outputs
 
 
+def _verify_scenario_fixtures_executed(
+    output_dir: Path,
+    unittest_output: str,
+) -> None:
+    rows = scenario_evidence()
+    missing = [
+        row["fixture_test"]
+        for row in rows
+        if f"({row['fixture_test']})" not in unittest_output
+    ]
+    evidence = {
+        "status": "PASS" if not missing else "FAIL",
+        "requirements": len(rows),
+        "executed": len(rows) - len(missing),
+        "missing": missing,
+        "fixtures": [row["fixture_test"] for row in rows],
+    }
+    (output_dir / "scenario-execution.json").write_text(
+        json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    if missing:
+        raise RuntimeError(
+            "Stage 8A scenario fixtures were not executed: " + ", ".join(missing)
+        )
+
+
 def _mark_evidence_tests_passed(output_dir: Path) -> None:
     for name in (
         "scenario-evidence.json",
@@ -315,6 +343,12 @@ def main(argv: list[str] | None = None) -> int:
         print(completed.stderr, end="", file=sys.stderr)
     if completed.returncode:
         return completed.returncode
+
+    try:
+        _verify_scenario_fixtures_executed(args.output_dir, unittest_output)
+    except RuntimeError as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 1
 
     _mark_evidence_tests_passed(args.output_dir)
 

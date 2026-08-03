@@ -39,6 +39,12 @@ They were replaced by direct runtime fixtures:
 
 The pinned XPath API was captured from the installed 2.16.17 distribution rather than inferred from current 3.x documentation. Focused and full validation run `30854531613` passed, then removed its temporary payload/workflow and published clean implementation commit `07ba788a2e609acce7d18b03c75b3324f6d9d774`.
 
+## Exact-head enforcement correction
+
+Final inspection of required workflow run `30854780509` found that the one-shot remediation run had executed the runtime matrix, but the normal exact-head verifier did not include `tests.test_stage8a_runtime_scenario_matrix` in `TEST_MODULES`. Consequently, `scenario-evidence.json` could be marked PASS after fixture resolution without executing all 127 fixtures in the artifact-producing verifier run.
+
+The verifier now executes the runtime matrix directly before changing evidence status from `PENDING_TEST_EXECUTION` to `PASS`. A regression test requires the matrix module to remain in `TEST_MODULES`. The previous technical PASS on `2391da32b70adf17162f50f7f74d064ac01920ba` is withdrawn; a fresh exact-head run and artifact are required.
+
 ## Final verdict rule
 
 This review becomes **PASS** only when all five required jobs complete successfully on the exact post-evidence head, the generated scenario evidence reports full executable coverage, no unresolved review thread remains, and the user repeats real MuMu acceptance on that same head.
