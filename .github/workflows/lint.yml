@@ -44,7 +44,7 @@ jobs:
           cat .stage8a/infra-* > .stage8a/infra.tar.gz
 
           printf '%s  %s\n' \
-            '91b6a5698134b9187a58f0086b58382e91f160ba2d6e540bc8ecff2ea21c3bd3' \
+            '10f302352b503b01780241a49b9d662bc526147d47147cc12253c73c57222ad4' \
             '.stage8a/runtime.diff.gz' \
             | sha256sum --check --strict
           printf '%s  %s\n' \
