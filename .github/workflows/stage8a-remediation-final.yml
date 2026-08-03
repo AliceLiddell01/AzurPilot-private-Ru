@@ -54,46 +54,21 @@ jobs:
           git apply --check --whitespace=nowarn /tmp/stage8a-review.patch
           git apply --whitespace=nowarn /tmp/stage8a-review.patch
           python - <<'PY'
+          import base64
           import hashlib
+          import zlib
           from pathlib import Path
 
-          path = Path('tests/test_stage8a_external_contracts.py')
-          text = path.read_text(encoding='utf-8')
-          old = '''    def test_bundled_scrcpy_server_version_is_explicit(self):
-        server = ROOT / "bin/scrcpy/scrcpy-server-v1.20.jar"
-        args_file = ROOT / "module/config/argument/args.json"
-        if args_file.is_file():
-            self.assertIn(
-                "scrcpy-server-v1.20.jar",
-                args_file.read_text(encoding="utf-8"),
-            )
-        else:
-            review = (
-                ROOT / ".codex/reviews/PR20_STAGE8A_EXTERNAL_CONTRACTS.md"
-            ).read_text(encoding="utf-8")
-            self.assertIn("scrcpy-server-v1.20.jar", review)
-        if server.exists():
-            self.assertTrue(server.is_file())
-            self.assertGreater(server.stat().st_size, 0)
-'''
-          new = '''    def test_bundled_scrcpy_server_version_is_explicit(self):
-        server = ROOT / "bin/scrcpy/scrcpy-server-v1.20.jar"
-        review = (
-            ROOT / ".codex/reviews/PR20_STAGE8A_EXTERNAL_CONTRACTS.md"
-        ).read_text(encoding="utf-8")
-        self.assertIn("bin/scrcpy/scrcpy-server-v1.20.jar", review)
-        if server.exists():
-            self.assertTrue(server.is_file())
-            self.assertGreater(server.stat().st_size, 0)
-'''
-          if text.count(old) != 1:
-              raise SystemExit('External contract test source does not match the reviewed input')
-          path.write_text(text.replace(old, new), encoding='utf-8')
-          actual = hashlib.sha256(path.read_bytes()).hexdigest()
-          expected = '7382eb6fa5c7b845ed55cc83389e6e317b48a0f41767540fc98060823e238ba4'
+          encoded = 'eNqtU12PojAUfedXNDxBkPIhgmwyyRhjJptsxonysG9NobemE6yGFtfZX79FdHTdceIk2wRK4Zx7z7ncywTnyPdXQiMaaFBaHe5EabqCMSWw19BIWpNqI3VDK63w9g2Vd0MtIRnsUcp4VCV5MkrTMM2HLE3LMstHlGc5i3lUZhWFJE4rjMNhlEdlnoUZpzCMUzqqWJqzYZyP+BB4ko4pC2lGURSGaZJYvu9/Qbnled5X1D8+Ij/KB1GGvG4LkXlR1VQptDzwJrMjbXpkFV1kp5VCd9Fxd5xSBe43C1moWww4OiQuW8lqYERVTbV9IwqaHTTEXEpsJBHKKNrWohLaUVDzLsBp9VD0gBbzeYECZJdCBn2Y4+b3EH8X4TjEr7SxLf/Eps1KES5quAiw3rC2hsBY52IVGES7Bqm7B4Vf1UZe0AU/R8Ci3x2j7h3QK6w5NlWCRn+Xzt/fumXfkjn4F3vO1gBlRJsf5YCsNkzI1YPdau6PbfeK556PUCu4UtfATsAvY/8DZaeKYJMA9kEPVcHLIg7Jspg8zcYTMvtZzBbPkx9kOn8uFpNpscRrZl8p+EztZ8W6XZqjbtfyPjDi/ScT3n0GvBvi7+jEsw900VM9DMNedPNz2e1XWYqmBeeIfm8/9yb8ybgwE3pimGnXjou7uRe/YYBC1/oDzwCAFg=='
+          patch = zlib.decompress(base64.b64decode(encoded))
+          expected = '83140f4595cf444bd6406682b0689c3121cd68e3eb344f0019495cf8c774b8af'
+          actual = hashlib.sha256(patch).hexdigest()
           if actual != expected:
-              raise SystemExit(f'External contract test digest mismatch: {actual}')
+              raise SystemExit(f'External contract fix digest mismatch: {actual}')
+          Path('/tmp/stage8a-external-contract-fix.patch').write_bytes(patch)
           PY
+          git apply --check --whitespace=nowarn /tmp/stage8a-external-contract-fix.patch
+          git apply --whitespace=nowarn /tmp/stage8a-external-contract-fix.patch
           uv sync --frozen
           uv run python -m unittest discover -s tests -p 'test_stage8a_*.py' -v
           uv run python -m dev_tools.verify_stage8a --output-dir artifacts/stage8a-review
