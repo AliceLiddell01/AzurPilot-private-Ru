@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 import importlib
+import json
+import tempfile
 import unittest
+from pathlib import Path
+
+from dev_tools.verify_stage8a import (
+    TEST_MODULES,
+    _verify_scenario_fixtures_executed,
+)
 
 from dev_tools.stage8a_evidence_policy import (
     BACKEND_CI_COVERAGE,
@@ -22,18 +30,23 @@ class Stage8AEvidencePolicyTests(unittest.TestCase):
         }
         actual = {(row["category"], row["scenario"]) for row in rows}
         self.assertEqual(actual, expected)
-        self.assertTrue(all(row["semantic_test"] for row in rows))
-        self.assertTrue(all(row["evidence_level"] in {"CI_FIXTURE", "SEMANTIC_CONTRACT"} for row in rows))
+        self.assertTrue(all(row["fixture_test"] for row in rows))
+        self.assertTrue(all(row["evidence_level"] == "CI_FIXTURE" for row in rows))
+        self.assertEqual(
+            len({row["fixture_test"] for row in rows}),
+            len(rows),
+            "Every scenario must point to a scenario-specific executable fixture test.",
+        )
         self.assertTrue(all(row["limitations"] for row in rows))
 
     def test_all_referenced_tests_exist(self):
         test_ids = {
             row["semantic_test"]
             for row in scenario_evidence()
+            if row["semantic_test"]
         } | {
             row["fixture_test"]
             for row in scenario_evidence()
-            if row["fixture_test"]
         } | {row["test"] for row in SECURITY_REQUIREMENTS} | {
             row["test"] for row in EXTERNAL_CONTRACTS
         }
@@ -68,6 +81,39 @@ class Stage8AEvidencePolicyTests(unittest.TestCase):
             {row["dependency"] for row in EXTERNAL_CONTRACTS},
             {"adbutils", "uiautomator2", "scrcpy-server"},
         )
+
+    def test_verifier_executes_runtime_scenario_matrix(self):
+        self.assertIn(
+            "tests.test_stage8a_runtime_scenario_matrix",
+            TEST_MODULES,
+        )
+
+    def test_scenario_pass_requires_execution_evidence(self):
+        rows = scenario_evidence()
+        unittest_output = "\n".join(
+            f"test ({row['fixture_test']}) ... ok"
+            for row in rows
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            _verify_scenario_fixtures_executed(output_dir, unittest_output)
+            payload = json.loads(
+                (output_dir / "scenario-execution.json").read_text(encoding="utf-8")
+            )
+        self.assertEqual(payload["status"], "PASS")
+        self.assertEqual(payload["executed"], len(rows))
+        self.assertEqual(payload["missing"], [])
+
+    def test_scenario_pass_rejects_unexecuted_fixture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, "were not executed"):
+                _verify_scenario_fixtures_executed(output_dir, "")
+            payload = json.loads(
+                (output_dir / "scenario-execution.json").read_text(encoding="utf-8")
+            )
+        self.assertEqual(payload["status"], "FAIL")
+        self.assertGreater(len(payload["missing"]), 0)
 
 
 if __name__ == "__main__":
