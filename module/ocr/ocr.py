@@ -59,17 +59,14 @@ class Ocr:
 
     def ocr(self, image, direct_ocr=False):
         start_time = time.time()
-
         if direct_ocr:
             image_list = [self.pre_process(i) for i in image]
         else:
             image_list = [self.pre_process(crop(image, area)) for area in self.buttons]
-
         image_list = [crop_to_text(i) for i in image_list]
         result_list = self.cnocr.atomic_ocr_for_single_lines(image_list, self.alphabet)
         result_list = [''.join(result) for result in result_list]
         result_list = [self.after_process(result) for result in result_list]
-
         if len(self.buttons) == 1:
             result_list = result_list[0]
         if self.SHOW_LOG:
@@ -103,13 +100,12 @@ class Digit(Ocr):
         result = result.replace('I', '1').replace('D', '0').replace('S', '5')
         result = result.replace('B', '8')
 
-        previous = result
+        prev = result
         result = int(result) if result else 0
         if self.SHOW_REVISE_WARNING:
-            if str(result) != previous:
-                logger.warning(
-                    f'[OCR] {self.name}: результат "{previous}" исправлен на "{result}"'
-                )
+            if str(result) != prev:
+                logger.warning(f'[OCR] {self.name}: результат "{prev}" исправлен на "{result}"')
+
         return result
 
 
@@ -125,12 +121,12 @@ class DigitCounter(Ocr):
     def after_process(self, result):
         result = super().after_process(result)
         result = result.replace('I', '1').replace('D', '0').replace('S', '5')
-        return result.replace('B', '8')
+        result = result.replace('B', '8')
+        return result
 
     def ocr(self, image, direct_ocr=False):
         result_list = super().ocr(image, direct_ocr=direct_ocr)
         result = result_list[0] if isinstance(result_list, list) else result_list
-
         result = re.search(r'(\d+)/(\d+)', result)
         if result:
             result = [int(value) for value in result.groups()]
@@ -168,10 +164,11 @@ class Duration(Ocr):
     def parse_time(string):
         result = re.search(r'(\d{1,2}):?(\d{2}):?(\d{2})', string)
         if result:
-            result = [int(value) for value in result.groups()]
+            result = [int(s) for s in result.groups()]
             return timedelta(hours=result[0], minutes=result[1], seconds=result[2])
-        logger.warning(f'[OCR] Недопустимая длительность: {string}')
-        return timedelta(hours=0, minutes=0, seconds=0)
+        else:
+            logger.warning(f'[OCR] Недопустимая длительность: {string}')
+            return timedelta(hours=0, minutes=0, seconds=0)
 
 
 class DurationYuv(Duration, OcrYuv):
