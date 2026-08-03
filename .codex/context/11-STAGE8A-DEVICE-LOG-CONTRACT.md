@@ -47,6 +47,18 @@ unittest.log
 
 Generated reports не коммитятся.
 
+## Exact-head CI
+
+Stage 8A считается технически готовым только тогда, когда на фактическом head PR
+выполнены и завершились со статусом `success` существующие required jobs.
+
+Состояния `skipped`, `neutral`, `cancelled` и проверки с
+`continue-on-error` не засчитываются как прохождение Stage 8A gate.
+
+Изменение runtime-кода, semantic policy, verifier, acceptance runner, workflow
+или blocking tests аннулирует доказательство предыдущего head и требует нового
+exact-head запуска.
+
 ## Реальная приёмка
 
 Безопасный acceptance runner:
