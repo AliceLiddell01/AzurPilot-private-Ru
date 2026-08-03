@@ -84,8 +84,12 @@ Runner:
 - не устанавливает APK, не очищает app data, не запускает task queue;
 - не читает clipboard и не вводит пользовательский текст;
 - удаляет временный screenshot;
-- маскирует resolved serial и путь ADB в failure-report, в том числе при
-  `--serial-from-config` и системных subprocess-ошибках;
+- маскирует serial, IP/host, username/path, SSH location, URL credentials,
+  authorization header, token-shaped значения, password/API-key/secret-shaped
+  значения, private-key blocks и опасный HTML-shaped текст;
+- представляет бинарные stdout/stderr только как количество байтов, не помещая
+  screenshot, H.264, control packet или иной raw binary stream в artifact;
+- ограничивает размер внешней диагностики и удаляет управляющие символы;
 - записывает sanitized report в `artifacts/stage8a/device-acceptance.json`.
 
 Read-only определение target и package выполняется до подтверждения `START`,
