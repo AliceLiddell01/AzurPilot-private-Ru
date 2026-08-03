@@ -21,6 +21,9 @@ ADB_CANDIDATES = (
 )
 
 SERIAL_RE = re.compile(r"^[A-Za-z0-9._:\-\[\]%]+$")
+NETWORK_SERIAL_RE = re.compile(
+    r"^(?:\[[0-9A-Fa-f:.%]+\]|[A-Za-z0-9._-]+):(?P<port>\d{1,5})$"
+)
 PROFILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9._]+$")
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -57,6 +60,7 @@ WINDOWS_PATH_RE = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:\\[^\r\n\t]+")
 UNIX_PATH_RE = re.compile(r"(?<![:/A-Za-z0-9_])/(?:[^/\s]+/)+[^\s,;]*")
 MAX_DIAGNOSTIC_CHARS = 16_384
 PREVIEW_WAIT_SECONDS = 5.0
+RECONNECT_WAIT_SECONDS = 60.0
 
 
 class AcceptanceFailure(RuntimeError):
@@ -100,6 +104,22 @@ def _run_adb(
     )
 
 
+def _run_adb_connect(
+    adb: str,
+    serial: str,
+    timeout: float = 30,
+) -> subprocess.CompletedProcess[Any]:
+    return subprocess.run(
+        [adb, "connect", serial],
+        check=False,
+        capture_output=True,
+        timeout=timeout,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
 def _safe_text(value: str, serial: str = "") -> str:
     result = ANSI_RE.sub("", value)
     result = PRIVATE_KEY_RE.sub("<private-key>", result)
@@ -132,7 +152,10 @@ def _safe_text(value: str, serial: str = "") -> str:
     return result
 
 
-def _command_evidence(result: subprocess.CompletedProcess[Any], serial: str) -> dict[str, Any]:
+def _command_evidence(
+    result: subprocess.CompletedProcess[Any],
+    serial: str,
+) -> dict[str, Any]:
     stdout = result.stdout
     stderr = result.stderr
     if isinstance(stdout, bytes):
@@ -277,11 +300,13 @@ def _decode_screenshot(payload: bytes) -> dict[str, Any]:
     if image is None:
         raise AcceptanceFailure("OpenCV не удалось декодировать PNG снимка экрана.")
     metadata = _validate_bgr_image(image)
-    metadata.update({
-        "png_bytes": len(payload),
-        "png_width": width,
-        "png_height": height,
-    })
+    metadata.update(
+        {
+            "png_bytes": len(payload),
+            "png_width": width,
+            "png_height": height,
+        }
+    )
     return metadata
 
 
@@ -321,7 +346,10 @@ def _new_device(profile: str):
     return Device(AzurLaneConfig(profile, task=None))
 
 
-def _wait_for_scrcpy_chunk(session: Any, timeout: float = PREVIEW_WAIT_SECONDS) -> bytes | None:
+def _wait_for_scrcpy_chunk(
+    session: Any,
+    timeout: float = PREVIEW_WAIT_SECONDS,
+) -> bytes | None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         chunk = session.read_video()
@@ -442,27 +470,87 @@ def _check_configured_control_backend(profile: str, backend: str) -> dict[str, A
             _close_minitouch_probe(device)
 
 
-def _check_reconnect(adb: str, serial: str, non_interactive: bool) -> dict[str, Any]:
-    if not _confirm(
-        "RECONNECT",
-        "Будет выполнен target-explicit `adb -s <serial> reconnect`. "
-        "ADB server не перезапускается.",
-        non_interactive,
-    ):
-        return {"status": "SKIPPED", "reason": "Пользователь не подтвердил reconnect."}
-    result = _run_adb(adb, serial, "reconnect", timeout=30)
-    evidence = _command_evidence(result, serial)
-    if result.returncode != 0:
-        raise AcceptanceFailure("Команда безопасного reconnect завершилась ошибкой.")
-    deadline = time.monotonic() + 30
+def _is_network_serial(serial: str) -> bool:
+    match = NETWORK_SERIAL_RE.fullmatch(serial)
+    if match is None:
+        return False
+    port = int(match.group("port"))
+    return 0 < port <= 65_535
+
+
+def _wait_for_target_device(
+    adb: str,
+    serial: str,
+    timeout: float = RECONNECT_WAIT_SECONDS,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    attempts = 0
+    last_state: dict[str, Any] = {
+        "returncode": None,
+        "stdout": "",
+        "stderr": "Проверка состояния ещё не выполнялась.",
+    }
     while time.monotonic() < deadline:
         state = _run_adb(adb, serial, "get-state", timeout=10)
+        attempts += 1
+        last_state = _command_evidence(state, serial)
         if state.returncode == 0 and str(state.stdout).strip() == "device":
-            evidence["transport_restored"] = True
-            evidence["status"] = "PASS"
-            return evidence
+            return {
+                "restored": True,
+                "attempts": attempts,
+                "last_state": last_state,
+            }
         time.sleep(1)
-    raise AcceptanceFailure("ADB transport не восстановился после reconnect за 30 секунд.")
+    return {
+        "restored": False,
+        "attempts": attempts,
+        "last_state": last_state,
+    }
+
+
+def _check_reconnect(adb: str, serial: str, non_interactive: bool) -> dict[str, Any]:
+    network_target = _is_network_serial(serial)
+    prompt = (
+        "Будет выполнен target-explicit `adb -s <serial> reconnect`. "
+        "ADB server не перезапускается."
+    )
+    if network_target:
+        prompt += (
+            " Для TCP target затем будет выполнен explicit `adb connect <serial>`, "
+            "чтобы восстановить тот же сетевой transport."
+        )
+    if not _confirm("RECONNECT", prompt, non_interactive):
+        return {"status": "SKIPPED", "reason": "Пользователь не подтвердил reconnect."}
+
+    result = _run_adb(adb, serial, "reconnect", timeout=30)
+    evidence = _command_evidence(result, serial)
+    evidence["network_target"] = network_target
+    if result.returncode != 0:
+        raise AcceptanceFailure("Команда безопасного reconnect завершилась ошибкой.")
+
+    if network_target:
+        connect_result = _run_adb_connect(adb, serial, timeout=30)
+        evidence["explicit_connect"] = _command_evidence(connect_result, serial)
+        evidence["recovery_mode"] = "explicit_tcp_connect"
+    else:
+        evidence["recovery_mode"] = "target_reconnect"
+
+    restored = _wait_for_target_device(adb, serial)
+    evidence["state_checks"] = restored["attempts"]
+    evidence["last_state"] = restored["last_state"]
+    if restored["restored"]:
+        evidence["transport_restored"] = True
+        evidence["status"] = "PASS"
+        return evidence
+
+    if network_target:
+        raise AcceptanceFailure(
+            "ADB TCP transport не восстановился после target-explicit reconnect, "
+            "explicit connect и ожидания в течение 60 секунд."
+        )
+    raise AcceptanceFailure(
+        "ADB transport не восстановился после reconnect за 60 секунд."
+    )
 
 
 def _check_control(
@@ -485,7 +573,15 @@ def _check_control(
             "status": "SERIALIZATION_ONLY",
             "configured_backend": backend_probe,
             "action": action,
-            "serialized_command": ["adb", "-s", "<serial>", "shell", "input", "keyevent", "4"],
+            "serialized_command": [
+                "adb",
+                "-s",
+                "<serial>",
+                "shell",
+                "input",
+                "keyevent",
+                "4",
+            ],
         }
     result = _run_adb(adb, serial, "shell", "input", "keyevent", "4")
     evidence = _command_evidence(result, serial)
@@ -532,8 +628,10 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     print("Выбран acceptance target:")
     for key, value in selected.items():
         print(f"- {key}: {value}")
-    print("Гарантированно не выполняются: установка APK, очистка app data, запуск task queue, "
-          "покупки, бой, чтение clipboard и ввод пользовательского текста.")
+    print(
+        "Гарантированно не выполняются: установка APK, очистка app data, запуск task queue, "
+        "покупки, бой, чтение clipboard и ввод пользовательского текста."
+    )
     if not _confirm(
         "START",
         "Проверьте profile, serial, package и backend выше.",
@@ -552,8 +650,14 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         "screenshot_backend": profile["screenshot_backend"],
         "control_backend": profile["control_backend"],
         "forbidden_actions": [
-            "install_apk", "clear_app_data", "purchase", "combat", "task_queue",
-            "clipboard_read", "user_text_input", "adb_kill_server",
+            "install_apk",
+            "clear_app_data",
+            "purchase",
+            "combat",
+            "task_queue",
+            "clipboard_read",
+            "user_text_input",
+            "adb_kill_server",
         ],
     }
     args.partial_report = report
@@ -567,13 +671,31 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
         package_check = _run_adb(adb, serial, "shell", "pm", "path", package)
         report["package_readiness"] = _command_evidence(package_check, serial)
-        if package_check.returncode != 0 or not str(package_check.stdout).strip().startswith("package:"):
+        if package_check.returncode != 0 or not str(package_check.stdout).strip().startswith(
+            "package:"
+        ):
             raise AcceptanceFailure("Пакет приложения недоступен после transport readiness.")
 
-        screenshot = _run_adb(adb, serial, "exec-out", "screencap", "-p", binary=True, timeout=30)
+        screenshot = _run_adb(
+            adb,
+            serial,
+            "exec-out",
+            "screencap",
+            "-p",
+            binary=True,
+            timeout=30,
+        )
         if screenshot.returncode != 0:
-            raise AcceptanceFailure("Создание одного снимка экрана через ADB завершилось ошибкой.")
-        with tempfile.NamedTemporaryFile(prefix="stage8a-", suffix=".png", delete=False) as temporary:
+            raise AcceptanceFailure(
+                "Создание одного снимка экрана через ADB завершилось ошибкой."
+            )
+        if not isinstance(screenshot.stdout, bytes):
+            raise AcceptanceFailure("ADB screencap вернул неожиданный текстовый payload.")
+        with tempfile.NamedTemporaryFile(
+            prefix="stage8a-",
+            suffix=".png",
+            delete=False,
+        ) as temporary:
             temporary.write(screenshot.stdout)
             temp_path = Path(temporary.name)
         payload = temp_path.read_bytes()
@@ -640,12 +762,14 @@ def main(argv: list[str] | None = None) -> int:
             error_text = error_text.replace(resolved_adb, "<adb>")
         resolved_serial = str(getattr(args, "resolved_serial", args.serial or ""))
         report = dict(getattr(args, "partial_report", {}))
-        report.update({
-            "status": "FAIL",
-            "stage": "8A",
-            "error": _safe_text(error_text, resolved_serial),
-            "target_serial": "<serial>",
-        })
+        report.update(
+            {
+                "status": "FAIL",
+                "stage": "8A",
+                "error": _safe_text(error_text, resolved_serial),
+                "target_serial": "<serial>",
+            }
+        )
 
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
@@ -656,7 +780,10 @@ def main(argv: list[str] | None = None) -> int:
     if report["status"] == "PASS":
         print("Stage 8A device acceptance: PASS")
         return 0
-    print(f"Stage 8A device acceptance: FAIL — {report.get('error', 'неизвестная ошибка')}")
+    print(
+        "Stage 8A device acceptance: FAIL — "
+        f"{report.get('error', 'неизвестная ошибка')}"
+    )
     return 1
 
 
