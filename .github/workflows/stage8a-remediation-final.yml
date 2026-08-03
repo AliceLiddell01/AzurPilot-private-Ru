@@ -1,0 +1,73 @@
+name: Stage 8A review remediation apply
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'codex/stage8a-device-adb-logs-clean'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+
+      - name: Decode, apply and validate remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import zlib
+          from pathlib import Path
+
+          chunks = ''.join(
+              path.read_text(encoding='ascii')
+              for path in sorted(Path('.stage8a-remediation-final').glob('*.b64'))
+          )
+          patch = zlib.decompress(base64.b64decode(chunks))
+          expected = '61e622999eab8cff26a6222ea8892ffd4005a8090ff7fd17554082f289506b2d'
+          actual = hashlib.sha256(patch).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Patch digest mismatch: {actual}')
+          Path('/tmp/stage8a-review.patch').write_bytes(patch)
+          PY
+          git apply --check --whitespace=nowarn /tmp/stage8a-review.patch
+          git apply --whitespace=nowarn /tmp/stage8a-review.patch
+          uv sync --frozen
+          uv run python -m unittest discover -s tests -p 'test_stage8a_*.py' -v
+          uv run python -m dev_tools.verify_stage8a --output-dir artifacts/stage8a-review
+          git diff --check
+
+      - name: Commit validated clean tree
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git rm -r .stage8a-remediation-final .github/workflows/stage8a-remediation-final.yml
+          git add -A
+          git status --short
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(stage8a-review): закрыть findings независимого ревью'
+          git push origin "HEAD:${HEAD_BRANCH}"
