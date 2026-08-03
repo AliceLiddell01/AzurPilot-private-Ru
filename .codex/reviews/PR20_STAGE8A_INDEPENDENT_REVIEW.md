@@ -31,7 +31,8 @@
 ## Remediation attempts
 
 - Run `30841001060`: fail-closed validation stopped before commit because the new bundled scrcpy contract test inspected `module/config/argument/args.json`, which is not the source of the bundled JAR path.
-- The retry verifies the bundled path through the dedicated external-contract artifact, the actual binary when present, `ScrcpyOptions.command_v120` and the WebUI 1.20 integration.
+- Retry configuration `0f68a807…`: no remediation run was created because the temporary workflow contained invalid YAML indentation inside an embedded multiline Python literal; no payload was applied.
+- The corrected retry uses two SHA-256-verified patch payloads and validates the workflow syntax before synchronization.
 
 ## Remediation verdict
 
