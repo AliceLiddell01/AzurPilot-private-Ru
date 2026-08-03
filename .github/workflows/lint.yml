@@ -91,12 +91,16 @@ jobs:
           rm -rf .stage8a
           rm -f .github/workflows/stage8a-source-bundle.yml
 
-          if ! grep -qx 'name: Stage 7 validation' .github/workflows/lint.yml; then
-            echo 'Final validation workflow was not restored.'
+          git restore --source=HEAD --staged --worktree -- \
+            .github/workflows/lint.yml \
+            .github/workflows/stage8a-source-bundle.yml
+
+          if ! grep -qx 'name: Stage 8A payload application' .github/workflows/lint.yml; then
+            echo 'Temporary payload workflow was unexpectedly replaced.'
             exit 1
           fi
-          if grep -q 'temporary Stage 8A source bundle' .github/workflows/lint.yml; then
-            echo 'Bootstrap steps remain in the final validation workflow.'
+          if [[ ! -f .github/workflows/stage8a-source-bundle.yml ]]; then
+            echo 'Temporary source bundle workflow was unexpectedly deleted.'
             exit 1
           fi
 
@@ -108,6 +112,16 @@ jobs:
           if [[ -n "$payload_residue" ]]; then
             echo 'Payload files would remain in the final commit:'
             echo "$payload_residue"
+            exit 1
+          fi
+          workflow_delta="$(
+            git diff --cached --name-only \
+              | grep '^\.github/workflows/' \
+              || true
+          )"
+          if [[ -n "$workflow_delta" ]]; then
+            echo 'GitHub Actions token must not publish workflow changes:'
+            echo "$workflow_delta"
             exit 1
           fi
           git commit -m 'test(stage8a): добавить semantic verifier и acceptance'
