@@ -69,6 +69,25 @@ jobs:
           PY
           git apply --check --whitespace=nowarn /tmp/stage8a-external-contract-fix.patch
           git apply --whitespace=nowarn /tmp/stage8a-external-contract-fix.patch
+          python - <<'PY'
+          import base64
+          import hashlib
+          import zlib
+          from pathlib import Path
+
+          chunks = ''.join(
+              path.read_text(encoding='ascii')
+              for path in sorted(Path('.stage8a-remediation-security').glob('*.b64'))
+          )
+          patch = zlib.decompress(base64.b64decode(chunks))
+          expected = '0b451e18ebfe42980958e2d53da7d58912316783250d697ed251551094d36020'
+          actual = hashlib.sha256(patch).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Semantic/security fix digest mismatch: {actual}')
+          Path('/tmp/stage8a-semantic-security-fix.patch').write_bytes(patch)
+          PY
+          git apply --check --whitespace=nowarn /tmp/stage8a-semantic-security-fix.patch
+          git apply --whitespace=nowarn /tmp/stage8a-semantic-security-fix.patch
           uv sync --frozen
           uv run python -m unittest discover -s tests -p 'test_stage8a_*.py' -v
           git diff --check
@@ -112,7 +131,7 @@ jobs:
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          git rm -r .stage8a-remediation-final .github/workflows/stage8a-remediation-final.yml
+          git rm -r .stage8a-remediation-final .stage8a-remediation-security .github/workflows/stage8a-remediation-final.yml
           git add -A
           git status --short
           git config user.name 'github-actions[bot]'
