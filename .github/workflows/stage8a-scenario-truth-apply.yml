@@ -56,7 +56,7 @@ jobs:
 
           encoded = Path('.stage8a-scenario-truth/patch.b64').read_text(encoding='ascii')
           patch = zlib.decompress(base64.b64decode(encoded))
-          expected = '5839ecaff7eb24c664a8fdf7ca854dad63b854b2afcb2d3d6e42d9b856ffdf3c'
+          expected = '3538f5d59faeb443140deafc6a24a9f203b79f1cc5a127bcc3c511a2a938b09d'
           actual = hashlib.sha256(patch).hexdigest()
           if actual != expected:
               raise SystemExit(f'Patch digest mismatch: {actual}')
