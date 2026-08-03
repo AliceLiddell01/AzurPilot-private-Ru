@@ -310,7 +310,9 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     _validate_profile_name(args.profile)
     profile = _load_profile(args.profile)
     serial = _resolve_serial(args, profile)
+    args.resolved_serial = serial
     adb = _resolve_adb(args.adb)
+    args.resolved_adb = adb
     targets = _list_targets(adb)
     matches = [status for target, status in targets if target == serial]
     if len(matches) != 1:
@@ -345,7 +347,9 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         "Проверьте profile, serial, package и backend выше.",
         args.non_interactive,
     ):
-        raise AcceptanceFailure("Acceptance отменён до выполнения device-команд.")
+        raise AcceptanceFailure(
+            "Acceptance отменён до выполнения снимка экрана, preview, control и reconnect."
+        )
 
     report: dict[str, Any] = {
         "status": "RUNNING",
@@ -425,10 +429,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = run_acceptance(args)
     except Exception as error:
+        error_text = str(error)
+        resolved_adb = str(getattr(args, "resolved_adb", ""))
+        if resolved_adb:
+            error_text = error_text.replace(resolved_adb, "<adb>")
+        resolved_serial = str(getattr(args, "resolved_serial", args.serial or ""))
         report = {
             "status": "FAIL",
             "stage": "8A",
-            "error": _safe_text(str(error), str(args.serial or "")),
+            "error": _safe_text(error_text, resolved_serial),
             "target_serial": "<serial>",
         }
 

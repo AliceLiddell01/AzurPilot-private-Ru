@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from dev_tools.stage8a_device_acceptance import (
@@ -11,6 +14,7 @@ from dev_tools.stage8a_device_acceptance import (
     _resolve_serial,
     _run_adb,
     _safe_text,
+    main,
 )
 
 
@@ -43,6 +47,37 @@ class Stage8ADeviceAcceptanceTests(unittest.TestCase):
         sanitized = _safe_text("target emulator-5554 failed", "emulator-5554")
         self.assertNotIn("emulator-5554", sanitized)
         self.assertIn("<serial>", sanitized)
+
+    @mock.patch("dev_tools.stage8a_device_acceptance.run_acceptance")
+    def test_failure_report_masks_config_serial_and_adb_path(self, run_acceptance):
+        def fail(args):
+            args.resolved_serial = "emulator-5554"
+            args.resolved_adb = "/private/tools/adb"
+            raise subprocess.TimeoutExpired(
+                ["/private/tools/adb", "-s", "emulator-5554", "get-state"],
+                20,
+            )
+
+        run_acceptance.side_effect = fail
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "acceptance.json"
+            exit_code = main(
+                [
+                    "--profile",
+                    "alas",
+                    "--serial-from-config",
+                    "--report",
+                    str(report),
+                ]
+            )
+            payload = json.loads(report.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["status"], "FAIL")
+        self.assertNotIn("emulator-5554", payload["error"])
+        self.assertNotIn("/private/tools/adb", payload["error"])
+        self.assertIn("<serial>", payload["error"])
+        self.assertIn("<adb>", payload["error"])
 
 
 if __name__ == "__main__":
