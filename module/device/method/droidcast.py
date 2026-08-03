@@ -222,7 +222,7 @@ class DroidCast(Uiautomator2):
         if image.shape == (1843200,):
             raise DroidCastVersionIncompatible('Requesting screenshots from `DroidCast` but server is `DroidCast_raw`')
         if image.size < 500:
-            logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана: {resp.content}')
+            logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана; получено {len(resp.content)} байт')
 
         image = cv2.imdecode(image, cv2.IMREAD_COLOR)
         if image is None:
@@ -262,8 +262,8 @@ class DroidCast(Uiautomator2):
         # 例如 b':(  Failed to generate the screenshot on device / emulator: ...'
         # 抛出 ConnectionError 以在重试处理器中立即触发 droidcast_init
         if len(image) < 500:
-            logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана: {image}')
-            raise requests.exceptions.ConnectionError(f'[Устройство — DroidCast] Ошибка службы: {image!r}')
+            logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана; получено {len(image)} байт')
+            raise requests.exceptions.ConnectionError(f'[Устройство — DroidCast] Ошибка службы; получено {len(image)} байт')
 
         try:
             arr = np.frombuffer(image, dtype=np.uint16)
