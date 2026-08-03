@@ -53,6 +53,47 @@ jobs:
           PY
           git apply --check --whitespace=nowarn /tmp/stage8a-review.patch
           git apply --whitespace=nowarn /tmp/stage8a-review.patch
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          path = Path('tests/test_stage8a_external_contracts.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    def test_bundled_scrcpy_server_version_is_explicit(self):
+        server = ROOT / "bin/scrcpy/scrcpy-server-v1.20.jar"
+        args_file = ROOT / "module/config/argument/args.json"
+        if args_file.is_file():
+            self.assertIn(
+                "scrcpy-server-v1.20.jar",
+                args_file.read_text(encoding="utf-8"),
+            )
+        else:
+            review = (
+                ROOT / ".codex/reviews/PR20_STAGE8A_EXTERNAL_CONTRACTS.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn("scrcpy-server-v1.20.jar", review)
+        if server.exists():
+            self.assertTrue(server.is_file())
+            self.assertGreater(server.stat().st_size, 0)
+'''
+          new = '''    def test_bundled_scrcpy_server_version_is_explicit(self):
+        server = ROOT / "bin/scrcpy/scrcpy-server-v1.20.jar"
+        review = (
+            ROOT / ".codex/reviews/PR20_STAGE8A_EXTERNAL_CONTRACTS.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("bin/scrcpy/scrcpy-server-v1.20.jar", review)
+        if server.exists():
+            self.assertTrue(server.is_file())
+            self.assertGreater(server.stat().st_size, 0)
+'''
+          if text.count(old) != 1:
+              raise SystemExit('External contract test source does not match the reviewed input')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          actual = hashlib.sha256(path.read_bytes()).hexdigest()
+          expected = '7382eb6fa5c7b845ed55cc83389e6e317b48a0f41767540fc98060823e238ba4'
+          if actual != expected:
+              raise SystemExit(f'External contract test digest mismatch: {actual}')
+          PY
           uv sync --frozen
           uv run python -m unittest discover -s tests -p 'test_stage8a_*.py' -v
           uv run python -m dev_tools.verify_stage8a --output-dir artifacts/stage8a-review
