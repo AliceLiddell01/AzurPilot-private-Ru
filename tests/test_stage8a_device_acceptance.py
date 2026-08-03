@@ -8,15 +8,78 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
+
 from dev_tools.stage8a_device_acceptance import (
     AcceptanceFailure,
+    _check_configured_control_backend,
     _check_control,
+    _check_preview,
     _command_evidence,
     _resolve_serial,
     _run_adb,
     _safe_text,
     main,
 )
+
+
+class _FakeSession:
+    def __init__(self, chunks):
+        self.alive = True
+        self.resolution = (640, 360)
+        self._chunks = iter(chunks)
+
+    def read_video(self):
+        return next(self._chunks, b"")
+
+
+class _FakeLiveScrcpySession:
+    session = None
+    released = False
+
+    @classmethod
+    def acquire(cls, profile, fps, width, bitrate_scale):
+        del profile, fps, width, bitrate_scale
+        return cls.session
+
+    @classmethod
+    def release(cls, profile, session=None):
+        del profile, session
+        cls.released = True
+
+
+class _FakeScreenshotDevice:
+    def __init__(self, image):
+        self.image = image
+        self.calls = 0
+
+    def screenshot(self):
+        self.calls += 1
+        return self.image.copy()
+
+
+class _FakeMinitouchClient:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeMinitouchDevice:
+    def __init__(self):
+        self.max_x = 1080
+        self.max_y = 1920
+        self._minitouch_port = 12345
+        self._minitouch_client = _FakeMinitouchClient()
+        self.initialized = False
+        self.removed = []
+
+    def minitouch_init(self):
+        self.initialized = True
+
+    def adb_forward_remove(self, remote):
+        self.removed.append(remote)
 
 
 class Stage8ADeviceAcceptanceTests(unittest.TestCase):
@@ -39,10 +102,91 @@ class Stage8ADeviceAcceptanceTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertEqual(command[:3], ["adb", "-s", "emulator-5554"])
 
-    def test_noninteractive_control_never_sends_input(self):
-        result = _check_control("adb", "emulator-5554", non_interactive=True)
+    @mock.patch("dev_tools.stage8a_device_acceptance._preview_dependencies")
+    def test_preview_accepts_raw_scrcpy_after_initial_timeout(self, dependencies):
+        _FakeLiveScrcpySession.session = _FakeSession([None, b"\x00\x00\x00\x01frame"])
+        _FakeLiveScrcpySession.released = False
+        dependencies.return_value = (
+            _FakeLiveScrcpySession,
+            lambda: "ffmpeg",
+            mock.Mock(),
+        )
+
+        result = _check_preview("alas", "nemu_ipc")
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["mode"], "scrcpy")
+        self.assertGreater(result["first_video_chunk_bytes"], 0)
+        self.assertTrue(_FakeLiveScrcpySession.released)
+
+    @mock.patch("dev_tools.stage8a_device_acceptance._preview_dependencies")
+    def test_preview_uses_configured_screenshot_fallback_when_scrcpy_has_no_frame(
+        self,
+        dependencies,
+    ):
+        image = np.zeros((360, 640, 3), dtype=np.uint8)
+        device = _FakeScreenshotDevice(image)
+        _FakeLiveScrcpySession.session = _FakeSession([b""])
+        _FakeLiveScrcpySession.released = False
+        dependencies.return_value = (
+            _FakeLiveScrcpySession,
+            lambda: "ffmpeg",
+            lambda profile: (device, image.copy()),
+        )
+
+        result = _check_preview("alas", "nemu_ipc")
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["mode"], "screenshot_fallback")
+        self.assertEqual(result["configured_screenshot_backend"], "nemu_ipc")
+        self.assertEqual(result["frames_verified"], 2)
+        self.assertEqual(result["scrcpy"]["reason"], "no_frame_after_handshake")
+        self.assertEqual(device.calls, 1)
+        self.assertTrue(_FakeLiveScrcpySession.released)
+
+    @mock.patch("dev_tools.stage8a_device_acceptance._preview_dependencies")
+    def test_preview_fails_when_scrcpy_and_webui_fallback_are_unavailable(self, dependencies):
+        _FakeLiveScrcpySession.session = _FakeSession([b""])
+        dependencies.return_value = (
+            _FakeLiveScrcpySession,
+            lambda: None,
+            mock.Mock(),
+        )
+
+        with self.assertRaises(AcceptanceFailure):
+            _check_preview("alas", "nemu_ipc")
+
+    @mock.patch("dev_tools.stage8a_device_acceptance._new_device")
+    def test_minitouch_backend_probe_performs_handshake_without_touch(self, new_device):
+        device = _FakeMinitouchDevice()
+        new_device.return_value = device
+
+        result = _check_configured_control_backend("alas", "minitouch")
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["probe"], "handshake_without_touch")
+        self.assertTrue(device.initialized)
+        self.assertTrue(device._minitouch_client.closed)
+        self.assertEqual(device.removed, ["tcp:12345"])
+
+    @mock.patch("dev_tools.stage8a_device_acceptance._check_configured_control_backend")
+    @mock.patch("dev_tools.stage8a_device_acceptance._run_adb")
+    def test_noninteractive_control_never_sends_input(self, run_adb, backend_probe):
+        backend_probe.return_value = {
+            "status": "PASS",
+            "backend": "minitouch",
+            "probe": "handshake_without_touch",
+        }
+        result = _check_control(
+            "alas",
+            "minitouch",
+            "adb",
+            "emulator-5554",
+            non_interactive=True,
+        )
         self.assertEqual(result["status"], "SERIALIZATION_ONLY")
         self.assertIn("<serial>", result["serialized_command"])
+        run_adb.assert_not_called()
 
     def test_sanitized_text_removes_serial(self):
         sanitized = _safe_text("target emulator-5554 failed", "emulator-5554")
@@ -123,6 +267,10 @@ class Stage8ADeviceAcceptanceTests(unittest.TestCase):
         def fail(args):
             args.resolved_serial = "emulator-5554"
             args.resolved_adb = "/private/tools/adb"
+            args.partial_report = {
+                "status": "RUNNING",
+                "screenshot": {"color_contract": "BGR"},
+            }
             raise subprocess.TimeoutExpired(
                 ["/private/tools/adb", "-s", "emulator-5554", "get-state"],
                 20,
@@ -144,6 +292,7 @@ class Stage8ADeviceAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(payload["status"], "FAIL")
+        self.assertEqual(payload["screenshot"]["color_contract"], "BGR")
         self.assertNotIn("emulator-5554", payload["error"])
         self.assertNotIn("/private/tools/adb", payload["error"])
         self.assertIn("<serial>", payload["error"])
