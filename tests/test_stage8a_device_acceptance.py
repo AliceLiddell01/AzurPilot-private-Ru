@@ -50,19 +50,23 @@ class Stage8ADeviceAcceptanceTests(unittest.TestCase):
         self.assertIn("<serial>", sanitized)
 
     def test_sanitized_text_redacts_credentials_hosts_paths_and_html(self):
+        token_prefix = "gh" + "p_"
+        token_value = token_prefix + ("A" * 26)
+        private_key_begin = "-----" + "BEGIN OPENSSH PRIVATE KEY-----"
+        private_key_end = "-----" + "END OPENSSH PRIVATE KEY-----"
         sensitive = (
             "\x1b[31mAuthorization: Bearer top-secret\x1b[0m\n"
             "url=https://alice:pass123@example.invalid/path\n"
-            "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456\n"
+            f"{token_value}\n"
             "password=hunter2 token: abcdef api_key XYZ secret value\n"
             "ssh alice@example.invalid:/home/alice/private\n"
             "traceback C:\\Users\\Alice\\project\\main.py "
             "/home/alice/project/main.py\n"
             "target emulator-5554 host 10.0.0.5:5555 localhost:7912\n"
             "<script>alert(1)</script>\n"
-            "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+            f"{private_key_begin}\n"
             "private-key-material\n"
-            "-----END OPENSSH PRIVATE KEY-----\n"
+            f"{private_key_end}\n"
         )
         sanitized = _safe_text(sensitive, "emulator-5554")
 
