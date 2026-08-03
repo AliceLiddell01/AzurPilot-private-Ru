@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Decode, apply and validate remediation
+      - name: Decode and apply remediation
         shell: bash
         run: |
           set -euo pipefail
@@ -71,8 +71,40 @@ jobs:
           git apply --whitespace=nowarn /tmp/stage8a-external-contract-fix.patch
           uv sync --frozen
           uv run python -m unittest discover -s tests -p 'test_stage8a_*.py' -v
-          uv run python -m dev_tools.verify_stage8a --output-dir artifacts/stage8a-review
           git diff --check
+
+      - name: Run Stage 8A verifier and retain diagnostics
+        id: verifier
+        shell: bash
+        run: |
+          set +e
+          uv run python -m dev_tools.verify_stage8a --output-dir artifacts/stage8a-review
+          verifier_status=$?
+          set -e
+          echo "$verifier_status" > artifacts/stage8a-review/verifier-exit-code.txt
+          if [[ -f artifacts/stage8a-review/report.md ]]; then
+            cat artifacts/stage8a-review/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Upload remediation diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage8a-remediation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/stage8a-review
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce verifier result
+        shell: bash
+        run: |
+          set -euo pipefail
+          verifier_status="$(cat artifacts/stage8a-review/verifier-exit-code.txt)"
+          if [[ "$verifier_status" != '0' ]]; then
+            echo "Stage 8A verifier failed with exit code ${verifier_status}."
+            exit "$verifier_status"
+          fi
 
       - name: Commit validated clean tree
         shell: bash
