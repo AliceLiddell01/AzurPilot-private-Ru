@@ -55,14 +55,21 @@ jobs:
           import zlib
           from pathlib import Path
 
-          payload = Path('.stage8a-scenario-fix/patch.b64').read_text(encoding='ascii')
-          patch = zlib.decompress(base64.b64decode(payload))
-          expected = 'cf155268f665178824aef2c617647aa1405ecbf16e461c1fdc631dd765e11ad4'
-          actual = hashlib.sha256(patch).hexdigest()
-          if actual != expected:
-              raise SystemExit(f'Patch digest mismatch: {actual}')
-          Path('/tmp/stage8a-scenario-fix.patch').write_bytes(patch)
-          print(f'patch_sha256={actual}')
+          primary = zlib.decompress(base64.b64decode(Path('.stage8a-scenario-fix/patch.b64').read_text(encoding='ascii')))
+          primary_expected = 'cf155268f665178824aef2c617647aa1405ecbf16e461c1fdc631dd765e11ad4'
+          primary_actual = hashlib.sha256(primary).hexdigest()
+          if primary_actual != primary_expected:
+              raise SystemExit(f'Primary patch digest mismatch: {primary_actual}')
+          Path('/tmp/stage8a-scenario-fix.patch').write_bytes(primary)
+
+          hotfix = zlib.decompress(base64.b64decode(Path('.stage8a-scenario-fix/winreg-hotfix.b64').read_text(encoding='ascii')))
+          hotfix_expected = '355aeb2e0ebf88d110adc79779ccd5150c9e373d7f6d9cd7233fc09fb3eb9b2a'
+          hotfix_actual = hashlib.sha256(hotfix).hexdigest()
+          if hotfix_actual != hotfix_expected:
+              raise SystemExit(f'Hotfix patch digest mismatch: {hotfix_actual}')
+          Path('/tmp/stage8a-scenario-winreg.patch').write_bytes(hotfix)
+          print(f'primary_patch_sha256={primary_actual}')
+          print(f'hotfix_patch_sha256={hotfix_actual}')
           PY
           decode_status=${PIPESTATUS[0]}
 
@@ -75,7 +82,21 @@ jobs:
             apply_status=1
           fi
 
-          if [ "$decode_status" -eq 0 ] && [ "$apply_check_status" -eq 0 ] && [ "$apply_status" -eq 0 ]; then
+          if [ "$apply_status" -eq 0 ]; then
+            git apply --check --whitespace=nowarn /tmp/stage8a-scenario-winreg.patch 2>&1 | tee artifacts/stage8a-scenario-fix/hotfix-apply-check.log
+            hotfix_check_status=${PIPESTATUS[0]}
+            if [ "$hotfix_check_status" -eq 0 ]; then
+              git apply --whitespace=nowarn /tmp/stage8a-scenario-winreg.patch 2>&1 | tee artifacts/stage8a-scenario-fix/hotfix-apply.log
+              hotfix_status=${PIPESTATUS[0]}
+            else
+              hotfix_status=1
+            fi
+          else
+            hotfix_check_status=1
+            hotfix_status=1
+          fi
+
+          if [ "$decode_status" -eq 0 ] && [ "$apply_check_status" -eq 0 ] && [ "$apply_status" -eq 0 ] && [ "$hotfix_check_status" -eq 0 ] && [ "$hotfix_status" -eq 0 ]; then
             uv sync --frozen 2>&1 | tee artifacts/stage8a-scenario-fix/uv-sync.log
             sync_status=${PIPESTATUS[0]}
           else
@@ -99,6 +120,8 @@ jobs:
           decode_status=$decode_status
           apply_check_status=$apply_check_status
           apply_status=$apply_status
+          hotfix_check_status=$hotfix_check_status
+          hotfix_status=$hotfix_status
           sync_status=$sync_status
           unittest_status=$unittest_status
           verifier_status=$verifier_status
@@ -108,6 +131,8 @@ jobs:
           test "$decode_status" -eq 0
           test "$apply_check_status" -eq 0
           test "$apply_status" -eq 0
+          test "$hotfix_check_status" -eq 0
+          test "$hotfix_status" -eq 0
           test "$sync_status" -eq 0
           test "$unittest_status" -eq 0
           test "$verifier_status" -eq 0
