@@ -18,6 +18,7 @@ from dev_tools.stage8a_semantic_policy import IMMUTABLE_STAGE8A_BASE_SHA
 TEST_MODULES = (
     "tests.test_stage8a_device_log_audit",
     "tests.test_stage8a_semantic_contract",
+    "tests.test_stage8a_stage7_policy_bridge",
     "tests.test_stage8a_device_acceptance",
 )
 
