@@ -15,9 +15,12 @@ from dev_tools.stage8a_device_acceptance import (
     _check_configured_control_backend,
     _check_control,
     _check_preview,
+    _check_reconnect,
     _command_evidence,
+    _is_network_serial,
     _resolve_serial,
     _run_adb,
+    _run_adb_connect,
     _safe_text,
     main,
 )
@@ -101,6 +104,111 @@ class Stage8ADeviceAcceptanceTests(unittest.TestCase):
         _run_adb("adb", "emulator-5554", "get-state")
         command = run.call_args.args[0]
         self.assertEqual(command[:3], ["adb", "-s", "emulator-5554"])
+
+    @mock.patch("dev_tools.stage8a_device_acceptance.subprocess.run")
+    def test_adb_connect_is_endpoint_explicit(self, run):
+        run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        _run_adb_connect("adb", "127.0.0.1:16416")
+        self.assertEqual(run.call_args.args[0], ["adb", "connect", "127.0.0.1:16416"])
+
+    def test_network_serial_detection_requires_valid_host_port(self):
+        self.assertTrue(_is_network_serial("127.0.0.1:16416"))
+        self.assertTrue(_is_network_serial("[::1]:5555"))
+        self.assertFalse(_is_network_serial("emulator-5554"))
+        self.assertFalse(_is_network_serial("127.0.0.1:99999"))
+
+    @mock.patch("dev_tools.stage8a_device_acceptance._wait_for_target_device")
+    @mock.patch("dev_tools.stage8a_device_acceptance._run_adb_connect")
+    @mock.patch("dev_tools.stage8a_device_acceptance._run_adb")
+    @mock.patch("dev_tools.stage8a_device_acceptance._confirm", return_value=True)
+    def test_tcp_reconnect_runs_explicit_connect_for_same_target(
+        self,
+        confirm,
+        run_adb,
+        run_adb_connect,
+        wait_for_target,
+    ):
+        del confirm
+        run_adb.return_value = subprocess.CompletedProcess(
+            [], 0, stdout="reconnecting\n", stderr=""
+        )
+        run_adb_connect.return_value = subprocess.CompletedProcess(
+            [], 0, stdout="connected to 127.0.0.1:16416\n", stderr=""
+        )
+        wait_for_target.return_value = {
+            "restored": True,
+            "attempts": 2,
+            "last_state": {"returncode": 0, "stdout": "device\n", "stderr": ""},
+        }
+
+        result = _check_reconnect("adb", "127.0.0.1:16416", False)
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["recovery_mode"], "explicit_tcp_connect")
+        self.assertTrue(result["transport_restored"])
+        run_adb.assert_called_once_with(
+            "adb", "127.0.0.1:16416", "reconnect", timeout=30
+        )
+        run_adb_connect.assert_called_once_with(
+            "adb", "127.0.0.1:16416", timeout=30
+        )
+        wait_for_target.assert_called_once_with("adb", "127.0.0.1:16416")
+        self.assertNotIn("127.0.0.1:16416", result["explicit_connect"]["stdout"])
+        self.assertIn("<serial>", result["explicit_connect"]["stdout"])
+
+    @mock.patch("dev_tools.stage8a_device_acceptance._wait_for_target_device")
+    @mock.patch("dev_tools.stage8a_device_acceptance._run_adb_connect")
+    @mock.patch("dev_tools.stage8a_device_acceptance._run_adb")
+    @mock.patch("dev_tools.stage8a_device_acceptance._confirm", return_value=True)
+    def test_local_emulator_reconnect_does_not_run_adb_connect(
+        self,
+        confirm,
+        run_adb,
+        run_adb_connect,
+        wait_for_target,
+    ):
+        del confirm
+        run_adb.return_value = subprocess.CompletedProcess(
+            [], 0, stdout="reconnecting\n", stderr=""
+        )
+        wait_for_target.return_value = {
+            "restored": True,
+            "attempts": 1,
+            "last_state": {"returncode": 0, "stdout": "device\n", "stderr": ""},
+        }
+
+        result = _check_reconnect("adb", "emulator-5554", False)
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["recovery_mode"], "target_reconnect")
+        run_adb_connect.assert_not_called()
+
+    @mock.patch("dev_tools.stage8a_device_acceptance._wait_for_target_device")
+    @mock.patch("dev_tools.stage8a_device_acceptance._run_adb_connect")
+    @mock.patch("dev_tools.stage8a_device_acceptance._run_adb")
+    @mock.patch("dev_tools.stage8a_device_acceptance._confirm", return_value=True)
+    def test_tcp_reconnect_remains_fail_closed_when_target_never_returns(
+        self,
+        confirm,
+        run_adb,
+        run_adb_connect,
+        wait_for_target,
+    ):
+        del confirm
+        run_adb.return_value = subprocess.CompletedProcess(
+            [], 0, stdout="reconnecting\n", stderr=""
+        )
+        run_adb_connect.return_value = subprocess.CompletedProcess(
+            [], 1, stdout="failed to connect\n", stderr=""
+        )
+        wait_for_target.return_value = {
+            "restored": False,
+            "attempts": 60,
+            "last_state": {"returncode": 1, "stdout": "", "stderr": "offline"},
+        }
+
+        with self.assertRaises(AcceptanceFailure):
+            _check_reconnect("adb", "127.0.0.1:16416", False)
 
     @mock.patch("dev_tools.stage8a_device_acceptance._preview_dependencies")
     def test_preview_accepts_raw_scrcpy_after_initial_timeout(self, dependencies):
