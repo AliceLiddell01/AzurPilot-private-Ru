@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from dev_tools.stage8a_binary_log_audit import find_binary_payload_log_findings
+from dev_tools.stage8a_control_flow_policy import apply_stage8a_control_flow_policy
 from dev_tools.stage8a_device_log_audit import (
     BLOCKING_METRICS,
     DEFAULT_OUTPUT_DIR,
@@ -20,6 +21,7 @@ from dev_tools.stage8a_semantic_policy import IMMUTABLE_STAGE8A_BASE_SHA
 TEST_MODULES = (
     "tests.test_stage8a_device_log_audit",
     "tests.test_stage8a_binary_log_audit",
+    "tests.test_stage8a_control_flow_policy",
     "tests.test_stage8a_semantic_contract",
     "tests.test_stage8a_stage7_policy_bridge",
     "tests.test_stage8a_device_acceptance",
@@ -97,6 +99,12 @@ def main(argv: list[str] | None = None) -> int:
         base_ref = _effective_base_ref(args.base_ref)
         audit = Stage8ADeviceLogAudit(ROOT, base_ref=base_ref)
         outputs, metrics = audit.build()
+        outputs, metrics, _ = apply_stage8a_control_flow_policy(
+            outputs,
+            metrics,
+            root=ROOT,
+            base_sha=audit.base_sha,
+        )
         binary_findings = find_binary_payload_log_findings(ROOT)
         outputs, metrics = _apply_binary_payload_audit(
             outputs,
