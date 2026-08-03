@@ -86,7 +86,7 @@ uv run python -m dev_tools.stage8a_device_acceptance --profile alas --serial-fro
 Runner:
 
 - отказывается от `auto` и неоднозначного target;
-- всегда использует target-explicit `adb -s <serial>`;
+- все device-scoped ADB-команды выполняет target-explicit через `adb -s <serial>`;
 - проверяет ADB transport, package и один PNG screenshot;
 - декодирует screenshot в `numpy.ndarray` BGR;
 - при запросе проверяет пользовательский preview-контракт;
@@ -100,6 +100,10 @@ Runner:
 - отправляет один `KEYCODE_BACK` отдельной target-explicit ADB-командой только
   после отдельного подтверждения `BACK`;
 - выполняет reconnect только после отдельного подтверждения `RECONNECT`;
+- для валидного TCP serial после `adb -s <serial> reconnect` выполняет explicit
+  `adb connect <serial>` к тому же endpoint, не перезапуская ADB server;
+- после reconnect до 60 секунд проверяет восстановление именно выбранного target
+  через `adb -s <serial> get-state`;
 - не устанавливает APK, не очищает app data, не запускает task queue;
 - не читает clipboard и не вводит пользовательский текст;
 - удаляет временный screenshot;
