@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -31,14 +32,19 @@ SAFE_METADATA_ATTRIBUTES = {
     "format",
     "fps",
     "height",
+    "limit",
+    "method",
     "nbytes",
     "resolution",
     "shape",
     "size",
     "status",
+    "threshold",
+    "timer",
     "width",
 }
 SAFE_METADATA_CALLS = {"len", "type"}
+LENGTH_GUARDED_BINARY_NAMES = {"array", "blob", "body", "content", "data", "response", "stream"}
 SAFE_METADATA_NAME_SUFFIXES = {
     "backend",
     "channels",
@@ -48,13 +54,18 @@ SAFE_METADATA_NAME_SUFFIXES = {
     "fps",
     "height",
     "length",
+    "limit",
+    "method",
     "nbytes",
     "resolution",
     "shape",
     "size",
     "status",
+    "threshold",
+    "timer",
     "width",
 }
+CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
 def _call_name(node: ast.AST) -> str:
@@ -82,28 +93,59 @@ def _scope_files(root: Path) -> Iterable[Path]:
             yield path
 
 
+def _normalized_name(value: str) -> str:
+    leaf = value.rsplit(".", 1)[-1]
+    snake = CAMEL_BOUNDARY_RE.sub("_", leaf)
+    return snake.lower().replace("-", "_")
+
+
 def _name_parts(value: str) -> set[str]:
-    lowered = value.lower()
-    parts = {lowered}
-    normalized = lowered.replace("-", "_")
-    parts.update(part for part in normalized.split("_") if part)
-    return parts
+    normalized = _normalized_name(value)
+    return {normalized, *(part for part in normalized.split("_") if part)}
 
 
 def _is_binary_name(value: str) -> bool:
-    normalized = value.lower().replace("-", "_")
+    normalized = _normalized_name(value)
     if any(normalized.endswith(f"_{suffix}") for suffix in SAFE_METADATA_NAME_SUFFIXES):
         return False
     parts = _name_parts(value)
     if parts & BINARY_NAME_PARTS:
         return True
     return any(
-        marker in value.lower()
+        marker in normalized
         for marker in ("screenshot", "rawframe", "raw_image", "h264", "base64")
     )
 
 
-def _binary_references(node: ast.AST, *, protected: bool = False) -> list[str]:
+def _length_guard_names(test: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(test):
+        if not isinstance(node, ast.Call) or _call_name(node.func) != "len":
+            continue
+        if len(node.args) != 1:
+            continue
+        name = _call_name(node.args[0])
+        if name:
+            leaf = name.rsplit(".", 1)[-1]
+            if _is_binary_name(name) or leaf.lower() in LENGTH_GUARDED_BINARY_NAMES:
+                names.add(name)
+                names.add(leaf)
+    return names
+
+
+def _is_forced_binary(node: ast.AST, forced_binary_names: set[str]) -> bool:
+    name = _call_name(node)
+    if not name:
+        return False
+    return name in forced_binary_names or name.rsplit(".", 1)[-1] in forced_binary_names
+
+
+def _binary_references(
+    node: ast.AST,
+    *,
+    forced_binary_names: set[str],
+    protected: bool = False,
+) -> list[str]:
     findings: list[str] = []
 
     if isinstance(node, ast.Call):
@@ -111,25 +153,92 @@ def _binary_references(node: ast.AST, *, protected: bool = False) -> list[str]:
         leaf = call_name.rsplit(".", 1)[-1]
         if leaf in SAFE_METADATA_CALLS:
             for argument in node.args:
-                findings.extend(_binary_references(argument, protected=True))
+                findings.extend(
+                    _binary_references(
+                        argument,
+                        forced_binary_names=forced_binary_names,
+                        protected=True,
+                    )
+                )
             for keyword in node.keywords:
-                findings.extend(_binary_references(keyword.value, protected=True))
+                findings.extend(
+                    _binary_references(
+                        keyword.value,
+                        forced_binary_names=forced_binary_names,
+                        protected=True,
+                    )
+                )
             return findings
 
     if isinstance(node, ast.Attribute) and node.attr in SAFE_METADATA_ATTRIBUTES:
-        findings.extend(_binary_references(node.value, protected=True))
+        findings.extend(
+            _binary_references(
+                node.value,
+                forced_binary_names=forced_binary_names,
+                protected=True,
+            )
+        )
         return findings
 
-    if isinstance(node, ast.Name) and _is_binary_name(node.id) and not protected:
-        findings.append(node.id)
-    elif isinstance(node, ast.Attribute):
-        dotted = _call_name(node)
-        if _is_binary_name(node.attr) and not protected:
-            findings.append(dotted or node.attr)
+    if isinstance(node, (ast.Name, ast.Attribute)) and not protected:
+        name = _call_name(node)
+        if _is_forced_binary(node, forced_binary_names) or _is_binary_name(name):
+            findings.append(name)
+            return findings
 
     for child in ast.iter_child_nodes(node):
-        findings.extend(_binary_references(child, protected=protected))
+        findings.extend(
+            _binary_references(
+                child,
+                forced_binary_names=forced_binary_names,
+                protected=protected,
+            )
+        )
     return findings
+
+
+class _BinaryLogVisitor(ast.NodeVisitor):
+    def __init__(self, path: str):
+        self.path = path
+        self.forced_binary_names: set[str] = set()
+        self.findings: list[dict[str, Any]] = []
+
+    def visit_If(self, node: ast.If) -> None:
+        self.visit(node.test)
+        previous = self.forced_binary_names
+        self.forced_binary_names = previous | _length_guard_names(node.test)
+        for statement in node.body:
+            self.visit(statement)
+        self.forced_binary_names = previous
+        for statement in node.orelse:
+            self.visit(statement)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        call_kind = _call_name(node.func)
+        if call_kind.startswith("logger.") and node.args:
+            references = sorted(
+                set(
+                    _binary_references(
+                        node.args[0],
+                        forced_binary_names=self.forced_binary_names,
+                    )
+                )
+            )
+            if references:
+                self.findings.append(
+                    {
+                        "kind": "binary_payload_log",
+                        "path": self.path,
+                        "line": node.lineno,
+                        "call_kind": call_kind,
+                        "references": references,
+                        "evidence": (
+                            "Logger message directly references a binary-payload-shaped value; "
+                            "log only metadata such as byte count, format, dimensions or backend."
+                        ),
+                    }
+                )
+        self.generic_visit(node)
 
 
 def find_binary_payload_log_findings(root: Path) -> list[dict[str, Any]]:
@@ -138,26 +247,7 @@ def find_binary_payload_log_findings(root: Path) -> list[dict[str, Any]]:
         relative = file.relative_to(root).as_posix()
         source = file.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=relative)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            call_kind = _call_name(node.func)
-            if not call_kind.startswith("logger.") or not node.args:
-                continue
-            references = sorted(set(_binary_references(node.args[0])))
-            if not references:
-                continue
-            findings.append(
-                {
-                    "kind": "binary_payload_log",
-                    "path": relative,
-                    "line": node.lineno,
-                    "call_kind": call_kind,
-                    "references": references,
-                    "evidence": (
-                        "Logger message directly references a binary-payload-shaped value; "
-                        "log only metadata such as byte count, format, dimensions or backend."
-                    ),
-                }
-            )
+        visitor = _BinaryLogVisitor(relative)
+        visitor.visit(tree)
+        findings.extend(visitor.findings)
     return findings
