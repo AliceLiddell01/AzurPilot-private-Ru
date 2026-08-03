@@ -33,7 +33,8 @@
 - Run `30841001060`: fail-closed validation stopped before commit because the new bundled scrcpy contract test inspected `module/config/argument/args.json`, which is not the source of the bundled JAR path.
 - Retry configuration `0f68a807…`: no remediation run was created because the temporary workflow contained invalid YAML indentation inside an embedded multiline Python literal; no payload was applied.
 - Run `30843237705`: all 100 Stage 8A tests passed; the semantic verifier remained fail-closed with 100 unresolved candidates and one sequence/control-flow mismatch.
-- The next diagnostic run uploads the complete verifier output before enforcing its nonzero status, so remediation can be based on exact paths and candidate identities.
+- Run `30843676649`: diagnostic artifact `stage8a-remediation-30843676649-1` proved that all 100 unresolved candidates were 50 removed plus 50 added stable IDs in `module/webui/api.py`; the messages themselves were unchanged and the delta was caused by inserting security helpers before the existing runtime candidates.
+- The semantic/security remediation restores all 50 existing runtime candidate IDs, places the loopback guard after the message-bearing handlers and permits only five exact helper functions plus two exact guarded route bindings. An extra statement or an altered route target remains fail-closed.
 
 ## Remediation verdict
 
