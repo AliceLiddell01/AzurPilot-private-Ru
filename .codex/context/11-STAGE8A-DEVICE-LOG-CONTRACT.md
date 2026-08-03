@@ -47,6 +47,11 @@ unittest.log
 
 Generated reports не коммитятся.
 
+`dev_tools/stage8a_binary_log_audit.py` независимо проверяет AST logger-вызовов.
+Прямая передача binary-payload-shaped значений (`image`, `frame`, `payload`,
+`packet`, `video`, `screenshot`) является blocking finding. Разрешены только
+metadata: byte count, format, width/height, shape/dtype, backend и status.
+
 Stage 8A изменяет часть сообщений, которые Stage 7 уже передал владельцу
 `stage8a`. Поэтому изменение digest точечных Stage 7 policy-шаблонов допустимо
 только вместе с bridge-тестом, подтверждающим, что drift ограничен ожидаемыми
