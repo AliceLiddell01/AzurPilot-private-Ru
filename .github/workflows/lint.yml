@@ -101,8 +101,13 @@ jobs:
           fi
 
           git add -A
-          if git diff --cached --name-only | grep -q '^\.stage8a/'; then
-            echo 'Payload files would remain in the final commit.'
+          payload_residue="$(
+            git diff --cached --name-status \
+              | awk '$2 ~ /^\.stage8a\// && $1 != "D" { print }'
+          )"
+          if [[ -n "$payload_residue" ]]; then
+            echo 'Payload files would remain in the final commit:'
+            echo "$payload_residue"
             exit 1
           fi
           git commit -m 'test(stage8a): добавить semantic verifier и acceptance'
