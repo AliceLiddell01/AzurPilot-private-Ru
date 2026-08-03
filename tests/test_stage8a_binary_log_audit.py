@@ -32,6 +32,15 @@ class Stage8ABinaryLogAuditTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn("frame", findings[0]["references"])
 
+    def test_neutral_name_under_length_guard_is_rejected(self):
+        findings = self._scan(
+            "def run(data):\n"
+            "    if len(data) < 500:\n"
+            "        logger.warning(f'invalid={data}')\n"
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn("data", findings[0]["references"])
+
     def test_byte_count_and_image_metadata_are_allowed(self):
         findings = self._scan(
             "def run(payload, image):\n"
@@ -43,6 +52,15 @@ class Stage8ABinaryLogAuditTests(unittest.TestCase):
         findings = self._scan(
             "def run(frame_count, payload_size, image_dtype):\n"
             "    logger.info(f'count={frame_count}, bytes={payload_size}, dtype={image_dtype}')\n"
+        )
+        self.assertEqual(findings, [])
+
+    def test_camel_case_and_timer_metadata_are_allowed(self):
+        findings = self._scan(
+            "def run(config, stuck_image_timer, IMAGE_TRUNCATED_THRESHOLD):\n"
+            "    logger.info(config.Emulator_ScreenshotMethod)\n"
+            "    logger.info(stuck_image_timer.limit)\n"
+            "    logger.info(IMAGE_TRUNCATED_THRESHOLD)\n"
         )
         self.assertEqual(findings, [])
 
