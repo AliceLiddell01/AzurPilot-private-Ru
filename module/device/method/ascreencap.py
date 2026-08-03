@@ -140,7 +140,7 @@ class AScreenCap(Connection):
                 text = 'Repositioning byte pointer failed, corrupted aScreenCap data received'
                 logger.warning(text)
                 if len(byte_array) < 500:
-                    logger.warning(f'Некорректный снимок экрана: {byte_array}')
+                    logger.warning(f'[Устройство — aScreenCap] Некорректный снимок экрана; получено {len(byte_array)} байт')
                 raise AscreencapError(text)
         return byte_array[self.__bytepointer:]
 
@@ -162,7 +162,7 @@ class AScreenCap(Connection):
             text = 'aScreenCap returned incomplete data or empty payload'
             logger.warning(text)
             if raw_compressed_data is not None and len(raw_compressed_data) < 500:
-                logger.warning(f'Некорректный снимок экрана: {raw_compressed_data}')
+                logger.warning(f'[Устройство — aScreenCap] Некорректный снимок экрана; получено {len(raw_compressed_data)} байт')
             raise AscreencapError(text)
 
         # 头部格式参考：
@@ -221,7 +221,7 @@ class AScreenCap(Connection):
 
         self.__screenshot_method_fixed = self.__screenshot_method
         if len(screenshot) < 500:
-            logger.warning(f'Некорректный снимок экрана: {screenshot}')
+            logger.warning(f'[Устройство — aScreenCap] Некорректный снимок экрана; получено {len(screenshot)} байт')
         raise ImageTruncated(f'cannot load screenshot')
 
     @retry
@@ -234,6 +234,6 @@ class AScreenCap(Connection):
     def screenshot_ascreencap_nc(self):
         data = self.adb_shell_nc([self.config.ASCREENCAP_FILEPATH_REMOTE, '--pack', '2', '--stdout'])
         if len(data) < 500:
-            logger.warning(f'Некорректный снимок экрана: {data}')
+            logger.warning(f'[Устройство — aScreenCap] Некорректный снимок экрана; получено {len(data)} байт')
 
         return self.__uncompress(data)
