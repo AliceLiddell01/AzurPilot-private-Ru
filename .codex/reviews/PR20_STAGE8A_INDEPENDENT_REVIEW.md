@@ -32,7 +32,8 @@
 
 - Run `30841001060`: fail-closed validation stopped before commit because the new bundled scrcpy contract test inspected `module/config/argument/args.json`, which is not the source of the bundled JAR path.
 - Retry configuration `0f68a807…`: no remediation run was created because the temporary workflow contained invalid YAML indentation inside an embedded multiline Python literal; no payload was applied.
-- The corrected retry uses two SHA-256-verified patch payloads and validates the workflow syntax before synchronization.
+- Run `30843237705`: all 100 Stage 8A tests passed; the semantic verifier remained fail-closed with 100 unresolved candidates and one sequence/control-flow mismatch.
+- The next diagnostic run uploads the complete verifier output before enforcing its nonzero status, so remediation can be based on exact paths and candidate identities.
 
 ## Remediation verdict
 
