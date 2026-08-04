@@ -33,9 +33,12 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
                 ]
             )
         )
-        with patch("module.ocr.models.OCR_MODEL.ppocr_v6", ocr):
-            with self.assertRaises(ScreenshotIntervalBenchmarkError) as raised:
-                benchmark._find_simulation_button()
+        models = SimpleNamespace(ppocr_v6=ocr)
+        with (
+            patch("module.ocr.models.OCR_MODEL", models),
+            self.assertRaises(ScreenshotIntervalBenchmarkError) as raised,
+        ):
+            benchmark._find_simulation_button()
         self.assertIn("Обычная атака не запускалась", str(raised.exception))
 
     def test_simulation_button_uses_highest_scoring_safe_candidate(self) -> None:
@@ -64,7 +67,8 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
                 ]
             )
         )
-        with patch("module.ocr.models.OCR_MODEL.ppocr_v6", ocr):
+        models = SimpleNamespace(ppocr_v6=ocr)
+        with patch("module.ocr.models.OCR_MODEL", models):
             self.assertEqual(benchmark._find_simulation_button(), (1120, 610))
 
     def test_run_phase_resets_stuck_guard_before_each_candidate(self) -> None:
@@ -151,7 +155,9 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
             },
         ), patch(
             "module.daemon.screenshot_interval_benchmark.asdict",
-            side_effect=lambda result: {"phase": "normal" if result is normal_result else "combat"},
+            side_effect=lambda result: {
+                "phase": "normal" if result is normal_result else "combat"
+            },
         ), patch(
             "module.daemon.screenshot_interval_benchmark.DEFAULT_REPORT"
         ) as report_path, patch(
