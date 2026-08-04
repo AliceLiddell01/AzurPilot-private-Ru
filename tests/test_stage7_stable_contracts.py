@@ -28,9 +28,9 @@ OPSI_OCR_NAMESPACE_DELTAS = {
     ),
     "module/os_handler/action_point.py": (
         (
-            "] , letter=(231, 235, 239), lang=\"cnocr\", "
+            "], letter=(231, 235, 239), lang=\"cnocr\", "
             "name='OCR_OS_ADAPTABILITY')",
-            "] , letter=(231, 235, 239), lang=\"azur_lane\", "
+            "], letter=(231, 235, 239), lang=\"azur_lane\", "
             "name='OCR_OS_ADAPTABILITY')",
         ),
         (
