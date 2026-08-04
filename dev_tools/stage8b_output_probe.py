@@ -110,9 +110,8 @@ def build_probe(source_root: Path) -> dict[str, object]:
     sys.path.insert(0, str(source_root))
     os.chdir(source_root)
 
-    import module.ocr.al_ocr as al_ocr
-    import module.ocr.ocr as ocr_module
     from module.campaign.campaign_ocr import CampaignOcr
+    from module.ocr import al_ocr, ocr as ocr_module
     from module.ocr.ncnn_ocr import NcnnRecOCR
     from module.ocr.windows_ml import _vendor_execution_provider_names, _video_memory_mib
 
