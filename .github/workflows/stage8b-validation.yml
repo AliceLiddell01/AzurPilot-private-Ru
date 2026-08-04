@@ -66,16 +66,28 @@ jobs:
         shell: bash
         run: |
           uv run ruff check \
-            --extend-per-file-ignores "dev_tools/stage8b_ocr_acceptance.py:BLE001,PLC0415" \
-            --extend-per-file-ignores "dev_tools/stage8b_ocr_log_audit.py:FLY002,PIE810" \
-            --extend-per-file-ignores "dev_tools/stage8b_output_probe.py:I001,PLC0415" \
-            --extend-per-file-ignores "dev_tools/stage8b_real_output_probe.py:BLE001,I001,PLC0415" \
+            --extend-per-file-ignores "dev_tools/stage8b_ocr_acceptance.py:BLE001" \
+            --extend-per-file-ignores "dev_tools/stage8b_ocr_acceptance.py:PLC0415" \
+            --extend-per-file-ignores "dev_tools/stage8b_ocr_log_audit.py:FLY002" \
+            --extend-per-file-ignores "dev_tools/stage8b_ocr_log_audit.py:PIE810" \
+            --extend-per-file-ignores "dev_tools/stage8b_output_probe.py:I001" \
+            --extend-per-file-ignores "dev_tools/stage8b_output_probe.py:PLC0415" \
+            --extend-per-file-ignores "dev_tools/stage8b_real_output_probe.py:BLE001" \
+            --extend-per-file-ignores "dev_tools/stage8b_real_output_probe.py:I001" \
+            --extend-per-file-ignores "dev_tools/stage8b_real_output_probe.py:PLC0415" \
             --extend-per-file-ignores "dev_tools/stage8b_security_audit.py:RUF101" \
-            --extend-per-file-ignores "dev_tools/verify_stage8b.py:BLE001,I001" \
-            --extend-per-file-ignores "tests/test_stage8b_prompt_scenario_matrix.py:I001,PLC0415,PLR2004,SLF001" \
+            --extend-per-file-ignores "dev_tools/verify_stage8b.py:BLE001" \
+            --extend-per-file-ignores "dev_tools/verify_stage8b.py:I001" \
+            --extend-per-file-ignores "tests/test_stage8b_prompt_scenario_matrix.py:I001" \
+            --extend-per-file-ignores "tests/test_stage8b_prompt_scenario_matrix.py:PLC0415" \
+            --extend-per-file-ignores "tests/test_stage8b_prompt_scenario_matrix.py:PLR2004" \
+            --extend-per-file-ignores "tests/test_stage8b_prompt_scenario_matrix.py:SLF001" \
             --extend-per-file-ignores "tests/test_stage8b_reparse_privacy.py:SLF001" \
             --extend-per-file-ignores "tests/test_stage8b_rpc_runtime.py:SLF001" \
-            --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:I001,PLC0415,PLR2004,SIM117" \
+            --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:I001" \
+            --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:PLC0415" \
+            --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:PLR2004" \
+            --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:SIM117" \
             --extend-per-file-ignores "tests/test_stage8b_security_review.py:I001" \
             dev_tools/stage8b_acceptance_contract.py \
             dev_tools/stage8b_evidence_policy.py \
