@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -14,6 +17,7 @@ from dev_tools.stage8b_ocr_acceptance import (
     _provider_cache_snapshot,
     _registered_provider_evidence,
     _session_provider_evidence,
+    run_acceptance,
 )
 
 
@@ -63,6 +67,101 @@ class Stage8BOcrAcceptanceTests(unittest.TestCase):
     def test_provider_cache_snapshot_is_machine_readable(self) -> None:
         with patch("dev_tools.stage8b_ocr_acceptance._provider_cache_paths", return_value=[]):
             self.assertEqual(_provider_cache_snapshot(), {})
+
+    def test_cleanup_failure_still_restores_environment(self) -> None:
+        temporary_root = Path(tempfile.mkdtemp(prefix="stage8b-acceptance-test-"))
+        original_values = {
+            "AZURPILOT_OCR_DEBUG": "before-debug",
+            "AZURPILOT_OCR_DEBUG_DIR": "before-directory",
+            "AZURPILOT_OCR_ALLOW_PROVIDER_DOWNLOAD": "before-download",
+        }
+        args = argparse.Namespace(
+            profile="alas",
+            serial="127.0.0.1:5555",
+            serial_from_config=False,
+            adb=None,
+            expected_head=None,
+            non_interactive=True,
+            confirmed_value_ids="1,2",
+        )
+        details = {
+            "server": "en",
+            "backend": "onnxruntime",
+            "device_preference": "cpu",
+            "model_version": "auto",
+            "vendor_ep_enabled": False,
+        }
+        try:
+            with patch.dict(os.environ, original_values, clear=False):
+                with (
+                    patch("dev_tools.stage8b_ocr_acceptance._validate_profile_name"),
+                    patch("dev_tools.stage8b_ocr_acceptance._git_head_sha", return_value="head"),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._load_profile",
+                        return_value={"package": "com.YoStarEN.AzurLane"},
+                    ),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._resolve_serial",
+                        return_value="127.0.0.1:5555",
+                    ),
+                    patch("dev_tools.stage8b_ocr_acceptance._resolve_adb", return_value="adb"),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._check_android_boot_completed",
+                        return_value={"boot_completed": True},
+                    ),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._detect_package",
+                        return_value="com.YoStarEN.AzurLane",
+                    ),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._load_ocr_config",
+                        return_value=(object(), details),
+                    ),
+                    patch("dev_tools.stage8b_ocr_acceptance._print_plan"),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._config_path",
+                        return_value=Path("config/alas.json"),
+                    ),
+                    patch("dev_tools.stage8b_ocr_acceptance._sha256", return_value="hash"),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._provider_cache_snapshot",
+                        return_value={},
+                    ),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._child_process_snapshot",
+                        return_value={},
+                    ),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._environment_fingerprint",
+                        return_value={},
+                    ),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._registered_provider_evidence",
+                        return_value={},
+                    ),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance.tempfile.mkdtemp",
+                        return_value=str(temporary_root),
+                    ),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance._run_adb",
+                        side_effect=RuntimeError("body failure"),
+                    ),
+                    patch("dev_tools.stage8b_ocr_acceptance.cleanup_debug_directory"),
+                    patch(
+                        "dev_tools.stage8b_ocr_acceptance.shutil.rmtree",
+                        side_effect=OSError("cleanup failure"),
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        AcceptanceFailure,
+                        "Не удалось безопасно очистить временные OCR-данные",
+                    ):
+                        run_acceptance(args)
+                for name, value in original_values.items():
+                    self.assertEqual(os.environ.get(name), value)
+        finally:
+            shutil.rmtree(temporary_root, ignore_errors=True)
 
     def test_acceptance_does_not_enable_debug_or_provider_download_by_import(self) -> None:
         self.assertNotEqual(os.environ.get("AZURPILOT_OCR_DEBUG"), "1")
