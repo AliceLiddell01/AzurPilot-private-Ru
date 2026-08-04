@@ -9,6 +9,14 @@ from dev_tools.stage7_gui_contract import GUI_BLOCKING_METRICS, build_gui_contra
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SEA_MILES_OCR_PATH = "module/os/sea_miles_ocr.py"
+SEA_MILES_BASE_WARNING = (
+    'logger.warning(f"[大世界-里程] 异常的海域里程: {result}")'
+)
+SEA_MILES_HEAD_WARNING = (
+    'logger.warning(f"[Operation Siren — OCR] Недопустимое значение Sea Miles: {result}")'
+)
+SEA_MILES_WARNING_MARKER = 'logger.warning(f"<STAGE8B_OCR_MESSAGE>: {result}")'
 
 
 def _git(*args: str) -> str:
@@ -60,10 +68,23 @@ class Stage7StableContractTests(unittest.TestCase):
         changed_contract_files = sorted(
             path
             for path in self.changed
-            if path == forbidden_prefixes[0]
-            or any(path.startswith(prefix) for prefix in forbidden_prefixes[1:])
+            if path != SEA_MILES_OCR_PATH
+            and (
+                path == forbidden_prefixes[0]
+                or any(path.startswith(prefix) for prefix in forbidden_prefixes[1:])
+            )
         )
         self.assertEqual(changed_contract_files, [])
+
+        if SEA_MILES_OCR_PATH in self.changed:
+            base_source = _git("show", f"{self.base_ref}:{SEA_MILES_OCR_PATH}")
+            head_source = (ROOT / SEA_MILES_OCR_PATH).read_text(encoding="utf-8")
+            self.assertEqual(base_source.count(SEA_MILES_BASE_WARNING), 1)
+            self.assertEqual(head_source.count(SEA_MILES_HEAD_WARNING), 1)
+            self.assertEqual(
+                base_source.replace(SEA_MILES_BASE_WARNING, SEA_MILES_WARNING_MARKER),
+                head_source.replace(SEA_MILES_HEAD_WARNING, SEA_MILES_WARNING_MARKER),
+            )
 
         implementation = (ROOT / "module/config/opsi_data_logger.py").read_text(
             encoding="utf-8"
