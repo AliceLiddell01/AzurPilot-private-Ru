@@ -8,6 +8,7 @@ from pathlib import Path
 from dev_tools.stage7_gui_contract import analyze_gui_contract, extract_gui_inventory
 from dev_tools.stage7_log_audit import (
     COLUMNS,
+    STAGE8B_OCR_GUARD_IDENTIFIER,
     Stage7LogAudit,
     _classify,
 )
@@ -43,10 +44,15 @@ class Stage7LogAuditTests(unittest.TestCase):
                 self.assertEqual(set(entry), set(COLUMNS))
                 self.assertNotIn("*", entry["path"])
                 self.assertFalse(entry["path"].endswith("/"))
-                self.assertRegex(entry["stable_identifier"], r"^log-call:\d{4}$")
+                identifier = entry["stable_identifier"]
+                if identifier == STAGE8B_OCR_GUARD_IDENTIFIER:
+                    self.assertEqual(entry["path"], "module/config/config.py")
+                    self.assertEqual(entry["stage_owner"], "stage8b")
+                else:
+                    self.assertRegex(identifier, r"^log-call:\d{4}$")
                 self.assertTrue(entry["runtime_owner"].strip())
                 self.assertTrue(entry["evidence"].strip())
-                identity = (entry["path"], entry["stable_identifier"])
+                identity = (entry["path"], identifier)
                 self.assertNotIn(identity, identities)
                 identities.add(identity)
 
