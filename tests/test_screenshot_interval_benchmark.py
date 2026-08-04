@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from dev_tools.screenshot_interval_benchmark import (
     IntervalResult,
     _parse_intervals,
     _percentile,
     _recommend_profiles,
+    _run_phase,
     _summarize_interval,
 )
 from dev_tools.stage8a_device_acceptance import AcceptanceFailure
@@ -102,6 +104,44 @@ class ScreenshotIntervalBenchmarkTests(unittest.TestCase):
         forced = recommendation["profiles"]["backend_forced"]
         self.assertEqual(forced["normal_s"], 0.1)
         self.assertEqual(forced["combat_s"], 0.1)
+
+    def test_run_phase_resets_task_stuck_guard_before_each_candidate(self) -> None:
+        events: list[str] = []
+
+        class Device:
+            def stuck_record_clear(self) -> None:
+                events.append("reset")
+
+        def fake_benchmark(
+            _device,
+            *,
+            phase: str,
+            interval: float,
+            duration: float,
+            warmup_frames: int,
+        ) -> IntervalResult:
+            self.assertEqual(duration, 2.0)
+            self.assertEqual(warmup_frames, 2)
+            events.append(f"benchmark:{interval}")
+            return _result(phase, interval)
+
+        with patch(
+            "dev_tools.screenshot_interval_benchmark._benchmark_interval",
+            side_effect=fake_benchmark,
+        ):
+            results = _run_phase(
+                Device(),
+                phase="combat",
+                intervals=[0.1, 0.3],
+                duration=2.0,
+                warmup_frames=2,
+            )
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(
+            events,
+            ["reset", "benchmark:0.1", "reset", "benchmark:0.3"],
+        )
 
 
 if __name__ == "__main__":
