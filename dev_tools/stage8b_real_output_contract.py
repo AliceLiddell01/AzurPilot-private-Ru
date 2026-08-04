@@ -70,10 +70,17 @@ def _canonical_approved_spacing(value: str) -> str:
     return _NUMERIC_SEPARATOR_RE.sub(r"\1", value)
 
 
-def _float_lists_equal(left: list[float], right: list[float], tolerance: float = 1e-7) -> bool:
+def _float_lists_equal(
+    left: list[float],
+    right: list[float],
+    tolerance: float = 1e-7,
+) -> bool:
     if len(left) != len(right):
         return False
-    return all(math.isclose(a, b, rel_tol=tolerance, abs_tol=tolerance) for a, b in zip(left, right))
+    return all(
+        math.isclose(a, b, rel_tol=tolerance, abs_tol=tolerance)
+        for a, b in zip(left, right)
+    )
 
 
 def _boxes_equal(left: Any, right: Any, tolerance: float = 1e-6) -> bool:
@@ -82,11 +89,39 @@ def _boxes_equal(left: Any, right: Any, tolerance: float = 1e-6) -> bool:
             return False
         return all(_boxes_equal(a, b, tolerance) for a, b in zip(left, right))
     if isinstance(left, (int, float)) and isinstance(right, (int, float)):
-        return math.isclose(float(left), float(right), rel_tol=tolerance, abs_tol=tolerance)
+        return math.isclose(
+            float(left),
+            float(right),
+            rel_tol=tolerance,
+            abs_tol=tolerance,
+        )
     return left == right
 
 
-def _recognition_findings(base: dict[str, Any], head: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _elapsed_schema(value: Any) -> Any:
+    """Compare timing contracts without requiring identical wall-clock durations."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, (int, float)):
+        if not math.isfinite(float(value)) or float(value) < 0:
+            return "invalid-number"
+        return "nonnegative-number"
+    if isinstance(value, dict):
+        return {
+            str(key): _elapsed_schema(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, list):
+        return [_elapsed_schema(item) for item in value]
+    return type(value).__name__
+
+
+def _recognition_findings(
+    base: dict[str, Any],
+    head: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     text_findings: list[dict[str, Any]] = []
     score_findings: list[dict[str, Any]] = []
     base_rows = base["recognition"]
@@ -129,20 +164,35 @@ def _recognition_findings(base: dict[str, Any], head: dict[str, Any]) -> tuple[l
                     "head": head_row["scores"],
                 }
             )
-        for field in ("word_results", "elapse"):
-            if base_row[field] != head_row[field]:
-                score_findings.append(
-                    {
-                        "kind": field,
-                        "index": index,
-                        "base": base_row[field],
-                        "head": head_row[field],
-                    }
-                )
+        if base_row["word_results"] != head_row["word_results"]:
+            score_findings.append(
+                {
+                    "kind": "word_results",
+                    "index": index,
+                    "base": base_row["word_results"],
+                    "head": head_row["word_results"],
+                }
+            )
+        base_elapsed = _elapsed_schema(base_row["elapse"])
+        head_elapsed = _elapsed_schema(head_row["elapse"])
+        if base_elapsed != head_elapsed or "invalid-number" in repr(
+            (base_elapsed, head_elapsed)
+        ):
+            score_findings.append(
+                {
+                    "kind": "elapse_contract",
+                    "index": index,
+                    "base": base_elapsed,
+                    "head": head_elapsed,
+                }
+            )
     return text_findings, score_findings
 
 
-def _detection_findings(base: dict[str, Any], head: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def _detection_findings(
+    base: dict[str, Any],
+    head: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     text_findings: list[dict[str, Any]] = []
     score_findings: list[dict[str, Any]] = []
     box_findings: list[dict[str, Any]] = []
@@ -154,7 +204,9 @@ def _detection_findings(base: dict[str, Any], head: dict[str, Any]) -> tuple[lis
         )
         return text_findings, score_findings, box_findings
     for index, (base_row, head_row) in enumerate(zip(base_rows, head_rows)):
-        if _canonical_approved_spacing(base_row["text"]) != _canonical_approved_spacing(head_row["text"]):
+        if _canonical_approved_spacing(base_row["text"]) != _canonical_approved_spacing(
+            head_row["text"]
+        ):
             text_findings.append(
                 {
                     "kind": "detection_text",
@@ -189,7 +241,9 @@ def _detection_findings(base: dict[str, Any], head: dict[str, Any]) -> tuple[lis
     return text_findings, score_findings, box_findings
 
 
-def build_real_output_contract(output_dir: Path) -> tuple[dict[str, Any], dict[str, int]]:
+def build_real_output_contract(
+    output_dir: Path,
+) -> tuple[dict[str, Any], dict[str, int]]:
     base_sha = IMMUTABLE_STAGE8B_BASE_SHA
     head_sha = _git("rev-parse", "HEAD")
     if head_sha == base_sha:
@@ -241,7 +295,9 @@ def build_real_output_contract(output_dir: Path) -> tuple[dict[str, Any], dict[s
         "stage8b_real_output_order_mismatches": len(order_findings),
         "stage8b_real_fixture_hash_mismatches": int(fixture_hash_mismatch),
         "stage8b_real_model_hash_mismatches": int(model_hash_mismatch),
-        "stage8b_real_environment_mismatches": int(environment_mismatch or provider_mismatch),
+        "stage8b_real_environment_mismatches": int(
+            environment_mismatch or provider_mismatch
+        ),
     }
     status = "PASS" if not any(metrics.values()) else "FAIL"
     payload = {
