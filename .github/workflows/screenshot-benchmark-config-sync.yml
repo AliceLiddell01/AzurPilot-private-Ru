@@ -33,6 +33,13 @@ jobs:
       - name: Synchronize dependencies
         run: uv sync --frozen
 
+      - name: Apply mechanical Ruff fixes to feature files
+        run: >-
+          uv run ruff check --fix
+          module/daemon/screenshot_interval_benchmark.py
+          tests/test_screenshot_interval_benchmark_automation.py
+          tests/test_screenshot_interval_benchmark_webui.py
+
       - name: Register task and regenerate config
         shell: bash
         run: |
@@ -119,22 +126,25 @@ jobs:
           )
           PY
 
-      - name: Commit generated files
+      - name: Commit generated and mechanically fixed files
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             alas.py \
+            module/daemon/screenshot_interval_benchmark.py \
             module/config/argument/task.yaml \
             module/config/argument/args.json \
             module/config/argument/menu.json \
             module/config/config_generated.py \
             module/config/i18n/ru-RU.json \
-            config/template.json
+            config/template.json \
+            tests/test_screenshot_interval_benchmark_automation.py \
+            tests/test_screenshot_interval_benchmark_webui.py
           if git diff --cached --quiet; then
-            echo "No generated changes"
+            echo "No synchronized changes"
             exit 0
           fi
-          git commit -m "feat(webui): зарегистрировать screenshot benchmark"
+          git commit -m "feat(webui): зарегистрировать автоматический screenshot benchmark"
           git push origin HEAD:chatgpt/screenshot-interval-benchmark
