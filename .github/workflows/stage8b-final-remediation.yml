@@ -58,3 +58,5 @@ jobs:
           git add -A
           git commit -m "fix(stage8b): close remaining verifier findings"
           git push origin HEAD:codex/stage8b-ocr-recognition-logs
+
+# Trigger after workflow definition exists on the PR head.
