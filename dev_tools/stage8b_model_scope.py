@@ -5,7 +5,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from dev_tools.stage8b_semantic_policy import ENGLISH_ONLY_MODEL_NAMES, ROOT
+from dev_tools.stage8b_semantic_policy import (
+    ENGLISH_ONLY_MODEL_NAMES,
+    REMOVED_MODEL_NAMES,
+    ROOT,
+)
 
 REMOVED_ASSET_PATHS = (
     "bin/ocr_models/azur_lane_jp",
@@ -101,6 +105,154 @@ def _benchmark_rows(path: Path) -> list[tuple[Any, ...]]:
     raise ModelScopeError("OcrBenchmark.BENCHMARKS not found")
 
 
+def _config_server_values(decorators: list[ast.expr]) -> set[Any] | None:
+    values: set[Any] = set()
+    matched = False
+    for decorator in decorators:
+        if not (
+            isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Attribute)
+            and isinstance(decorator.func.value, ast.Name)
+            and decorator.func.value.id == "Config"
+            and decorator.func.attr == "when"
+        ):
+            continue
+        for keyword in decorator.keywords:
+            if keyword.arg != "SERVER":
+                continue
+            matched = True
+            try:
+                values.add(ast.literal_eval(keyword.value))
+            except (TypeError, ValueError):
+                return None
+    return values if matched else None
+
+
+class _RemovedRuntimeModelVisitor(ast.NodeVisitor):
+    def __init__(self, relative_path: str):
+        self.relative_path = relative_path
+        self.findings: list[dict[str, Any]] = []
+        self._active_stack = [True]
+        self._owner_stack = ["<module>"]
+
+    @property
+    def _active(self) -> bool:
+        return self._active_stack[-1]
+
+    @property
+    def _owner(self) -> str:
+        return ".".join(self._owner_stack[1:]) or "<module>"
+
+    def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        server_values = _config_server_values(node.decorator_list)
+        active = self._active and (server_values is None or "en" in server_values)
+        self._active_stack.append(active)
+        self._owner_stack.append(node.name)
+        self.generic_visit(node)
+        self._owner_stack.pop()
+        self._active_stack.pop()
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._owner_stack.append(node.name)
+        self.generic_visit(node)
+        self._owner_stack.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function(node)
+
+    def _add(self, node: ast.AST, model: str, reference: str) -> None:
+        self.findings.append(
+            {
+                "kind": "removed_runtime_model_reference",
+                "path": self.relative_path,
+                "line": getattr(node, "lineno", None),
+                "owner": self._owner,
+                "model": model,
+                "reference": reference,
+            }
+        )
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if self._active:
+            for keyword in node.keywords:
+                if keyword.arg != "lang":
+                    continue
+                if (
+                    isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                    and keyword.value.value in REMOVED_MODEL_NAMES
+                ):
+                    self._add(node, keyword.value.value, "lang_keyword")
+
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id == "OCR_MODEL"
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+                and node.args[1].value in REMOVED_MODEL_NAMES
+            ):
+                self._add(node, node.args[1].value, "getattr")
+
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "OCR_MODEL"
+                and node.func.attr == "__getattribute__"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and node.args[0].value in REMOVED_MODEL_NAMES
+            ):
+                self._add(node, node.args[0].value, "__getattribute__")
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if (
+            self._active
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "OCR_MODEL"
+            and node.attr in REMOVED_MODEL_NAMES
+        ):
+            self._add(node, node.attr, "attribute")
+        self.generic_visit(node)
+
+
+def find_removed_runtime_model_references(root: Path = ROOT) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    module_root = root / "module"
+    for path in sorted(module_root.rglob("*.py")):
+        relative_path = path.relative_to(root).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeError) as exc:
+            findings.append(
+                {
+                    "kind": "runtime_source_parse_error",
+                    "path": relative_path,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+        visitor = _RemovedRuntimeModelVisitor(relative_path)
+        visitor.visit(tree)
+        findings.extend(visitor.findings)
+    return sorted(
+        findings,
+        key=lambda item: (
+            item["path"],
+            item.get("line") or 0,
+            item.get("model", ""),
+            item["kind"],
+        ),
+    )
+
+
 def build_model_scope(output_dir: Path) -> tuple[dict[str, Any], dict[str, int]]:
     findings: list[dict[str, Any]] = []
     al_ocr_path = ROOT / "module/ocr/al_ocr.py"
@@ -145,6 +297,8 @@ def build_model_scope(output_dir: Path) -> tuple[dict[str, Any], dict[str, int]]
         if (ROOT / relative).exists():
             findings.append({"kind": "removed_asset_present", "path": relative})
 
+    findings.extend(find_removed_runtime_model_references())
+
     for row in benchmark_rows:
         if len(row) < 4:
             findings.append({"kind": "benchmark_row_missing_metadata", "row": row})
@@ -164,6 +318,8 @@ def build_model_scope(output_dir: Path) -> tuple[dict[str, Any], dict[str, int]]
         "benchmark_rows": benchmark_rows,
         "removed_asset_paths": list(REMOVED_ASSET_PATHS),
         "removed_config_keys": list(REMOVED_CONFIG_KEYS),
+        "removed_runtime_model_names": sorted(REMOVED_MODEL_NAMES),
+        "runtime_reference_scan_root": "module/**/*.py",
         "findings": findings,
     }
     metrics = {"stage8b_model_scope_findings": len(findings)}
