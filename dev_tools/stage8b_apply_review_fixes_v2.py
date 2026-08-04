@@ -39,5 +39,38 @@ def patch_manual_model_version() -> None:
     path.write_text(source.replace(old, new), encoding="utf-8")
 
 
+def patch_owned_translations() -> None:
+    replacements = {
+        "module/campaign/campaign_ocr.py": {
+            "logger.warning(f'[战役-OCR] 未知的关卡名称: {name}')": (
+                "logger.warning(f'[Кампания — OCR] Неизвестное имя этапа: {name}')"
+            ),
+            "logger.warning('[战役] 数字与文本之间未找到间隔。')": (
+                "logger.warning('[Кампания — OCR] Не найден интервал между номером этапа и текстом.')"
+            ),
+        },
+        "module/os/sea_miles_ocr.py": {
+            'logger.warning(f"[大世界-里程] 异常的海域里程: {result}")': (
+                'logger.warning(f"[Operation Siren — OCR] Недопустимое значение Sea Miles: {result}")'
+            ),
+        },
+        "module/device/device.py": {
+            "logger.info('[设备-基准测试] 运行OCR设备基准测试')": (
+                "logger.info('[Устройство — OCR benchmark] Проверка доступных OCR-устройств')"
+            ),
+        },
+    }
+    for relative, mapping in replacements.items():
+        path = ROOT / relative
+        source = path.read_text(encoding="utf-8")
+        for old, new in mapping.items():
+            count = source.count(old)
+            if count < 1:
+                raise RuntimeError(f"Translation owner string missing: {relative}: {old}")
+            source = source.replace(old, new)
+        path.write_text(source, encoding="utf-8")
+
+
 fixes.patch_manual_model_version = patch_manual_model_version
+fixes.patch_owned_translations = patch_owned_translations
 fixes.main()
