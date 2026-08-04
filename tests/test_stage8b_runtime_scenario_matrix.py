@@ -168,7 +168,8 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
             instance.model = SimpleNamespace(load_image=lambda image: image)
             det = self._rapid_output(al_ocr.TextDetOutput, boxes=None)
             instance._det_model = lambda *_args, **_kwargs: det
-            with patch.object(al_ocr.config, "ocr_backend", "ncnn"):
+            fixture_config = SimpleNamespace(ocr_backend="ncnn")
+            with patch.object(al_ocr, "config", fixture_config):
                 self.assertEqual(
                     instance._det_direct(np.zeros((16, 16, 3), dtype=np.uint8)),
                     [],
@@ -203,7 +204,8 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
             scores=scores,
         )
         instance._det_model = lambda *_args, **_kwargs: output
-        with patch.object(al_ocr.config, "ocr_backend", "onnx"):
+        fixture_config = SimpleNamespace(ocr_backend="onnx")
+        with patch.object(al_ocr, "config", fixture_config):
             self.assertEqual(
                 instance._det_direct(np.zeros((16, 16, 3), dtype=np.uint8)),
                 expected,
@@ -237,10 +239,13 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
 
         device = "gpu" if scenario == "cache_key_device" else "cpu"
         version = "v2" if scenario == "cache_key_model_version" else "v1"
-        with patch.object(al_ocr.config, "ocr_backend", "onnx"), \
-             patch.object(al_ocr.config, "ocr_device", device), \
-             patch.object(al_ocr.config, "Optimization_OcrWindowsMlVendorEp", False), \
-             patch.object(al_ocr.config, "ocr_model_version", return_value=version):
+        fixture_config = SimpleNamespace(
+            ocr_backend="onnx",
+            ocr_device=device,
+            Optimization_OcrWindowsMlVendorEp=False,
+            ocr_model_version=lambda _name: version,
+        )
+        with patch.object(al_ocr, "config", fixture_config):
             key = al_ocr._model_cache_key("azur_lane")
         self.assertEqual(key, ("azur_lane", "onnx", device, False, version))
 
