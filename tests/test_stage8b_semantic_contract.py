@@ -109,6 +109,33 @@ class Demo:
 
         self.assertEqual(findings, [])
 
+    def test_removed_runtime_model_scan_understands_module_server_branches(self) -> None:
+        source = """
+import module.config.server as server
+
+if server.server == "jp":
+    JP_ONLY = Ocr(None, lang="jp")
+else:
+    ACTIVE = Ocr(None, lang="ppocr_v6")
+
+if server.server != "jp":
+    COMMON_EN = OCR_MODEL.tw
+else:
+    FOREIGN = Ocr(None, lang="cnocr")
+"""
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            module_path = root / "module"
+            module_path.mkdir()
+            (module_path / "sample.py").write_text(source, encoding="utf-8")
+
+            findings = find_removed_runtime_model_references(root)
+
+        self.assertEqual(
+            [(item["model"], item["line"]) for item in findings],
+            [("ppocr_v6", 7), ("tw", 10)],
+        )
+
     def test_en_runtime_has_no_removed_model_references(self) -> None:
         self.assertEqual(find_removed_runtime_model_references(), [])
 

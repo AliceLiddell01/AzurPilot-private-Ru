@@ -31,7 +31,7 @@ OCR_OS_ADAPTABILITY = Digit([
     OS_ADAPTABILITY_ATTACK,
     OS_ADAPTABILITY_DURABILITY,
     OS_ADAPTABILITY_RECOVER
-], letter=(231, 235, 239), lang="cnocr", name='OCR_OS_ADAPTABILITY')
+], letter=(231, 235, 239), lang="azur_lane", name='OCR_OS_ADAPTABILITY')
 
 
 class ActionPointBuyCounter(DigitCounter):
@@ -48,11 +48,11 @@ class ActionPointBuyCounter(DigitCounter):
 if server.server != 'jp':
     # ACTION_POINT_BUY_REMAIN 中的字符不是碧蓝航线通常使用的数字字体
     OCR_ACTION_POINT_BUY_REMAIN = ActionPointBuyCounter(
-        ACTION_POINT_BUY_REMAIN, letter=(148, 247, 99), lang='cnocr', name='OCR_ACTION_POINT_BUY_REMAIN')
+        ACTION_POINT_BUY_REMAIN, letter=(148, 247, 99), lang='azur_lane', name='OCR_ACTION_POINT_BUY_REMAIN')
 else:
     # 日服中 ACTION_POINT_BUY_REMAIN 的数字颜色为白色，国服和国际服为浅绿色
     OCR_ACTION_POINT_BUY_REMAIN = ActionPointBuyCounter(
-        ACTION_POINT_BUY_REMAIN, letter=(255, 255, 255), lang='cnocr', name='OCR_ACTION_POINT_BUY_REMAIN')
+        ACTION_POINT_BUY_REMAIN, letter=(255, 255, 255), lang='azur_lane', name='OCR_ACTION_POINT_BUY_REMAIN')
 
 
 class ActionPointItem(Item):

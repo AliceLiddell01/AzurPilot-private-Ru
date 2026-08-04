@@ -69,7 +69,7 @@ elif server.server == 'en':
     EVENT_SHOP_DEADLINE_COLOR = (255, 207, 129)
 else:
     EVENT_SHOP_DEADLINE_COLOR = (96, 162, 62)
-OCR_EVENT_SHOP_DEADLINE = Ocr(SHOP_EVENT_DEADLINE, lang='cnocr', letter=EVENT_SHOP_DEADLINE_COLOR,
+OCR_EVENT_SHOP_DEADLINE = Ocr(SHOP_EVENT_DEADLINE, lang='azur_lane', letter=EVENT_SHOP_DEADLINE_COLOR,
                               alphabet='0123456789.:~-', name="OCR_EVENT_SHOP_DEADLINE")
 
 OCR_EVENT_SHOP_PT = Digit(SHOP_OCR_BALANCE, letter=(100, 100, 100), name='OCR_EVENT_SHOP_PT')

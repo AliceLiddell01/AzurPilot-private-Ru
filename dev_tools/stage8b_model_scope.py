@@ -128,6 +128,42 @@ def _config_server_values(decorators: list[ast.expr]) -> set[Any] | None:
     return values if matched else None
 
 
+def _server_condition_for_en(node: ast.AST) -> bool | None:
+    """Evaluate simple ``server.server ==/!= '<name>'`` conditions for EN."""
+    if not (isinstance(node, ast.Compare) and len(node.ops) == len(node.comparators) == 1):
+        return None
+
+    left = node.left
+    right = node.comparators[0]
+    if (
+        isinstance(left, ast.Attribute)
+        and isinstance(left.value, ast.Name)
+        and left.value.id == "server"
+        and left.attr == "server"
+        and isinstance(right, ast.Constant)
+        and isinstance(right.value, str)
+    ):
+        expected = right.value
+    elif (
+        isinstance(right, ast.Attribute)
+        and isinstance(right.value, ast.Name)
+        and right.value.id == "server"
+        and right.attr == "server"
+        and isinstance(left, ast.Constant)
+        and isinstance(left.value, str)
+    ):
+        expected = left.value
+    else:
+        return None
+
+    operator = node.ops[0]
+    if isinstance(operator, ast.Eq):
+        return "en" == expected
+    if isinstance(operator, ast.NotEq):
+        return "en" != expected
+    return None
+
+
 class _RemovedRuntimeModelVisitor(ast.NodeVisitor):
     def __init__(self, relative_path: str):
         self.relative_path = relative_path
@@ -162,6 +198,22 @@ class _RemovedRuntimeModelVisitor(ast.NodeVisitor):
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function(node)
+
+    def _visit_branch(self, nodes: list[ast.stmt], active: bool) -> None:
+        self._active_stack.append(self._active and active)
+        for child in nodes:
+            self.visit(child)
+        self._active_stack.pop()
+
+    def visit_If(self, node: ast.If) -> None:
+        condition = _server_condition_for_en(node.test)
+        if condition is None:
+            self.generic_visit(node)
+            return
+
+        self.visit(node.test)
+        self._visit_branch(node.body, condition)
+        self._visit_branch(node.orelse, not condition)
 
     def _add(self, node: ast.AST, model: str, reference: str) -> None:
         self.findings.append(

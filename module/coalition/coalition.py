@@ -106,13 +106,13 @@ class Coalition(CoalitionCombat, CampaignEvent):
             ocr = AcademyPtOcr(ACADEMY_PT_OCR, name='OCR_PT', letter=(255, 255, 255), threshold=128)
         elif event == 'coalition_20250626':
             # 使用通用 OCR 模型
-            ocr = Digit(NEONCITY_PT_OCR, name='OCR_PT', lang='cnocr', letter=(208, 208, 208), threshold=128)
+            ocr = Digit(NEONCITY_PT_OCR, name='OCR_PT', lang='azur_lane', letter=(208, 208, 208), threshold=128)
         elif event == 'coalition_20251120':
             ocr = DALPtOcr(DAL_PT_OCR, name='OCR_PT', letter=(255, 213, 69), threshold=128)
         elif event == 'coalition_20260122':
             ocr = Digit(FASHION_PT_OCR, name='OCR_PT', letter=(41, 40, 40), threshold=128)
         elif event == 'coalition_20260723':
-            ocr = Digit(HORROR_PT_OCR, name='OCR_PT', lang='cnocr', letter=(228, 230, 237), threshold=256)
+            ocr = Digit(HORROR_PT_OCR, name='OCR_PT', lang='azur_lane', letter=(228, 230, 237), threshold=256)
         else:
             logger.error(f'[联动] 活动 {event} 未定义OCR对象')
             raise ScriptError
@@ -132,7 +132,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
     def check_oil(self):
         """检查燃油是否低于限制值。
 
-        部分联动活动不显示燃油图标，此时跳过检查。
+        部分活动 UI 不显示燃油图标，此时跳过检查。
         首次检测到燃油不足时，等待画面稳定后二次确认。
 
         Returns:

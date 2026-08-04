@@ -206,7 +206,7 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
     def _find_simulation_button(self) -> tuple[int, int]:
         from module.ocr.models import OCR_MODEL
 
-        detections = OCR_MODEL.ppocr_v6.det(self.device.image)
+        detections = OCR_MODEL.azur_lane.det(self.device.image)
         candidates: list[tuple[float, int, int, str]] = []
         recognized: list[str] = []
         for text, box, score in detections:

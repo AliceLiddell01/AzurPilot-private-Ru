@@ -16,7 +16,7 @@ from module.os.globe_zone import ZoneManager
 from module.os_handler.assets import IN_MAP
 from module.statistics.utils import ImageError
 
-OCR_OPSI_ZONE = Ocr(MAP_NAME, lang='cnocr', letter=(214, 231, 255), threshold=127, name='OCR_OS_MAP_NAME')
+OCR_OPSI_ZONE = Ocr(MAP_NAME, lang='azur_lane', letter=(214, 231, 255), threshold=127, name='OCR_OS_MAP_NAME')
 
 
 @dataclass

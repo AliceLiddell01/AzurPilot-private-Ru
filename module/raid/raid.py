@@ -184,11 +184,11 @@ def raid_ocr(raid, mode):
         # 该字体不在 azur_lane 模型中，因此使用通用 OCR 模型
         if server.server == 'en':
             # EN 服务器使用粗体
-            return RaidCounter(button, letter=(148, 138, 123), threshold=80, lang='cnocr')
+            return RaidCounter(button, letter=(148, 138, 123), threshold=80, lang='azur_lane')
         if server.server == 'jp':
-            return RaidCounter(button, letter=(148, 138, 123), threshold=128, lang='cnocr')
+            return RaidCounter(button, letter=(148, 138, 123), threshold=128, lang='azur_lane')
         else:
-            return DigitCounter(button, letter=(148, 138, 123), threshold=128, lang='cnocr')
+            return DigitCounter(button, letter=(148, 138, 123), threshold=128, lang='azur_lane')
     elif raid == "ALBION":
         return DigitCounter(button, letter=(99, 73, 57), threshold=128)
     elif raid == 'KUYBYSHEY':
@@ -216,7 +216,7 @@ def raid_ocr(raid, mode):
         if mode == 'ex':
             return Digit(button, letter=(255, 239, 215), threshold=128)
         else:
-            return RaidCounterPostMixin(button, lang='cnocr', letter=(154, 148, 133), threshold=128)
+            return RaidCounterPostMixin(button, lang='azur_lane', letter=(154, 148, 133), threshold=128)
 
 
 def pt_ocr(raid):

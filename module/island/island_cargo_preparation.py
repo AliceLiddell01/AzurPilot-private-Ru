@@ -82,7 +82,7 @@ class CargoPreparationTransport:
             return
         if self.status == 'pending':
             button = OCR_TRANSPORT_TIME.move((0, self.offset[1] + 20))
-            ocr = Duration(button, lang='cnocr', letter=(207, 207, 207), name='OCR_TRANSPORT_TIME')
+            ocr = Duration(button, lang='azur_lane', letter=(207, 207, 207), name='OCR_TRANSPORT_TIME')
             self.duration = ocr.ocr(self.image)
             if not self.duration.total_seconds():
                 self.valid = False

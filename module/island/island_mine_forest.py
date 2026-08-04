@@ -130,7 +130,7 @@ class IslandMineForest(Island,LoginHandler):
             ty2 = self.OCR_TEXT_BASE[3]
             text_area = (tx1, ty1, tx2, ty2)
             text_btn = Button(area=text_area, color=(), button=text_area, name=f'TEXT_POS{idx}')
-            ocr = Ocr(text_btn, lang='ppocr_v6')
+            ocr = Ocr(text_btn, lang='azur_lane')
             text = ocr.ocr(image)
 
             if not text:
