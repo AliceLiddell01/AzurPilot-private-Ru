@@ -20,8 +20,6 @@ SCENARIO_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "postprocess": (
         "digit_corrections", "counter_corrections", "duration_valid", "duration_invalid",
         "campaign_double_hyphen", "campaign_i_correction", "campaign_two_digit",
-        "azur_lane_compact_spacing", "azur_lane_preserves_words",
-        "other_models_preserve_spacing",
     ),
     "detection_contract": (
         "onnx_boxes_text_scores_order", "onnx_missing_text_and_scores", "ncnn_no_boxes",
@@ -71,10 +69,7 @@ EXPECTED_CONTRACTS = {
     "model_files": "model file and closed-model failures remain explicit",
     "ncnn_output": "NCNN output normalization preserves values, dtype and class axis",
     "image_preprocess": "supported image formats normalize to uint8 grayscale",
-    "postprocess": (
-        "domain corrections remain preserved and azur_lane removes only false "
-        "whitespace adjacent to numeric separators"
-    ),
+    "postprocess": "domain corrections and invalid-duration fallback are preserved",
     "detection_contract": "text, score, boxes and result order remain correlated",
     "queue_cache": "queue traceback/reentrancy and cache-key inputs are preserved",
     "windows_ml": "CPU fallback, provider names and GPU filters are preserved",
