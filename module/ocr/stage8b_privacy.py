@@ -45,7 +45,7 @@ def _absolute_without_resolving(path: Path) -> Path:
 def _reject_existing_symlink_components(path: Path) -> None:
     current = path
     while current != current.parent:
-        if current.exists() and current.is_symlink():
+        if current.is_symlink():
             raise OcrDebugOutputError(
                 "Каталог отладочных OCR-изображений не должен проходить через символическую ссылку."
             )
