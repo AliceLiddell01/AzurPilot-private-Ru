@@ -16,7 +16,7 @@ from module.ocr.model_policy import (
 from module.webui.app_personal_ocr import PersonalOcrSettingsMixin
 
 
-REMOVED_MODEL_FILES = (
+REMOVED_NON_ENGLISH_ASSETS = (
     "bin/ocr_models/azur_lane_jp/ap_azurlane_jp-v6_small_rec_nvidia.onnx",
     "bin/ocr_models/azur_lane_jp/ppocrv6_azurlane_jp_dict.txt",
     "bin/ocr_models/zh-CN/ap_zh-cn-v6.1_small_rec_dcu.onnx",
@@ -33,6 +33,8 @@ REMOVED_MODEL_FILES = (
     "bin/ocr_models/ncnn/jp.bin",
     "bin/ocr_models/ncnn/tw.param",
     "bin/ocr_models/ncnn/tw.bin",
+    "module/daemon/sets_azur_lane_jp.tar",
+    "module/daemon/sets_zhcn.tar",
 )
 
 
@@ -84,8 +86,8 @@ class OcrGlobalModelBenchmarkTests(unittest.TestCase):
             self.assertIs(models.cnocr, sentinel)
         factory.assert_called_once_with(name="azur_lane")
 
-    def test_non_english_model_files_are_removed(self):
-        remaining = [path for path in REMOVED_MODEL_FILES if Path(path).exists()]
+    def test_non_english_assets_are_removed(self):
+        remaining = [path for path in REMOVED_NON_ENGLISH_ASSETS if Path(path).exists()]
         self.assertEqual(remaining, [])
 
     def test_only_obsolete_language_settings_are_hidden(self):
