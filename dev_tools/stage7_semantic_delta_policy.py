@@ -28,14 +28,6 @@ EXPECTED_DELTAS = {
         "",
         "",
     ),
-    (
-        "sequence_insert",
-        "module/config/config.py",
-        "",
-        "",
-        "raise",
-        "Неподдерживаемая OCR-модель: {…}",
-    ),
 }
 
 
@@ -61,11 +53,10 @@ def _descriptor(finding: dict[str, Any]) -> tuple[str, str, str, str, str, str]:
 def apply_semantic_delta_policy(
     metrics: dict[str, Any], findings: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], list[str]]:
-    """Разрешить только доказанные дельты scanner inventory.
+    """Разрешить только три доказанные дельты scanner inventory.
 
     Инварианты не отключаются. Любое новое, исчезнувшее или изменённое finding
-    снова блокирует Stage 7. OCR guard принадлежит Stage 8B и разрешён только
-    по точному path/call/template descriptor.
+    снова блокирует Stage 7.
     """
     actual = {_descriptor(finding) for finding in findings}
     errors = []

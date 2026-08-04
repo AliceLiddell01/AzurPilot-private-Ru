@@ -9,7 +9,7 @@ from dev_tools.russianization_audit import compact_json_bytes, json_bytes
 from dev_tools.stage7_log_audit import BLOCKING_METRICS, COLUMNS
 
 
-POLICY_SCOPE_SHA256 = "61daf92530b1b16080fdce1b7b424ae19cda12bdc5451c6e7adf1927c7873204"
+POLICY_SCOPE_SHA256 = "1d4b8713213dc595885a66a5f1c8104c199d5ad621917a760d85d31c0d1d8dba"
 
 
 def _ids(*values: int) -> tuple[str, ...]:
@@ -71,24 +71,12 @@ POLICY_GROUPS: tuple[dict[str, Any], ...] = (
         },
     },
     {
-        "classification": "stage8b_ocr",
-        "stage_owner": "stage8b",
-        "runtime_owner": "Stage 8B OCR model scope",
-        "evidence": (
-            "Точный guard запрещает выбор удалённых non-English OCR-моделей "
-            "и принадлежит Stage 8B."
-        ),
-        "points": {
-            "module/config/config.py": _ids(5),
-        },
-    },
-    {
         "classification": "stage8c_scheduler",
         "stage_owner": "stage8c",
         "runtime_owner": "Stage 8C scheduler/task runtime",
         "evidence": "Точечный scheduler/task лог передаётся в Stage 8C.",
         "points": {
-            "module/config/config.py": _ids(7, 9, 14, 20),
+            "module/config/config.py": _ids(6, 8, 13, 19),
         },
     },
     {
