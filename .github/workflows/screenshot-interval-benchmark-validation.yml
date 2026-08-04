@@ -55,10 +55,9 @@ jobs:
         shell: bash
         run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
 
-      - name: Run Ruff
+      - name: Run Ruff on feature-owned files
         run: >-
           uv run ruff check
-          alas.py
           dev_tools/screenshot_interval_benchmark.py
           module/daemon/screenshot_interval_benchmark.py
           tests/test_screenshot_interval_benchmark.py
