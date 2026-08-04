@@ -222,7 +222,7 @@ class OcrBenchmark:
                 r['model'].upper(),
                 r['dataset'],
                 Text(f"{acc:.2f}% ({r['correct']}/{r['total']})", style=r['acc_color']),
-                f"{r['avg_ms']:.3f} мс",
+                f"{r['avg_ms']:.3f} ms",
                 Text(r['rating'], style=r['rating_color']),
                 status
             )
