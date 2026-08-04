@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: stage7-validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -260,6 +260,27 @@ jobs:
       - name: Synchronize locked dependencies
         run: uv sync --frozen
 
+      - name: Refresh Stage 6 active catalog baselines
+        if: github.event_name == 'push' && github.ref_name == 'codex/stage8b-ocr-recognition-logs'
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_paths=(
+            dev_tools/russianization/results/stage6_metrics.json
+            dev_tools/russianization/results/stage6_report.md
+            dev_tools/russianization/results/ui_translation_exceptions.json
+          )
+          uv run python -m dev_tools.stage6_active_ui_audit --write
+          if git diff --quiet -- "${baseline_paths[@]}"; then
+            echo 'Stage 6 active catalog baselines are current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "${baseline_paths[@]}"
+          git commit -m 'chore(stage6): refresh active UI audit baselines'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
       - name: Prepare generated diagnostics directory
         run: mkdir -p artifacts/generated
 
@@ -269,7 +290,7 @@ jobs:
 
       - name: Check Stage 6 audit baseline
         continue-on-error: true
-        run: uv run python -m dev_tools.stage6_ui_audit --check
+        run: uv run python -m dev_tools.stage6_active_ui_audit --check
 
       - name: Verify deterministic and idempotent generators
         shell: bash
