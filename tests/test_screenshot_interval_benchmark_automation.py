@@ -71,6 +71,23 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
         with patch("module.ocr.models.OCR_MODEL", models):
             self.assertEqual(benchmark._find_simulation_button(), (1120, 610))
 
+    def test_simulation_button_wait_retries_after_loading_frame(self) -> None:
+        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
+            AutomatedScreenshotIntervalBenchmark
+        )
+        benchmark.device = SimpleNamespace(screenshot=Mock(), sleep=Mock())
+        benchmark.simulation_button_timeout_s = 1.0
+        benchmark._find_simulation_button = Mock(
+            side_effect=[
+                ScreenshotIntervalBenchmarkError("loading"),
+                (1120, 610),
+            ]
+        )
+
+        self.assertEqual(benchmark._wait_for_simulation_button(), (1120, 610))
+        self.assertEqual(benchmark.device.screenshot.call_count, 2)
+        benchmark.device.sleep.assert_called_once_with(0.5)
+
     def test_run_phase_resets_stuck_guard_before_each_candidate(self) -> None:
         benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
             AutomatedScreenshotIntervalBenchmark
