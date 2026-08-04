@@ -140,11 +140,12 @@ class ModelProxy:
         self.lang = _validate_model_name(lang)
 
     def _rpc_or_fallback(self, method, fallback, args_factory):
-        if type(self).online:
+        if self.online:
+            args = args_factory()
             try:
-                args = args_factory()
                 return self.client(method, self.lang, *args)
             except Exception as exc:
+                self.online = False
                 type(self).online = False
                 logger.warning(
                     f"Вызов OCR RPC {method} завершился ошибкой; "
