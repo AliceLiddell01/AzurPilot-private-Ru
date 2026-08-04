@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 IMMUTABLE_STAGE8B_BASE_SHA = "045162c35ae7583860c88d6d899640ef3a6a1abb"
 DEFAULT_OUTPUT_DIR = ROOT / "artifacts" / "stage8b"
 
+# Stage 8B owns only OCR engine/backend/RPC/benchmark diagnostics. Campaign,
+# Operation Siren, scheduler and device lifecycle remain owned by their stages.
 OCR_SCOPE_PATHS = (
     "module/ocr/al_ocr.py",
     "module/ocr/ocr.py",
@@ -15,12 +17,7 @@ OCR_SCOPE_PATHS = (
     "module/ocr/rpc.py",
     "module/ocr/stage8b_privacy.py",
     "module/ocr/stage8b_rpc_security.py",
-    "module/ocr/stage8b_runtime.py",
     "module/daemon/ocr_benchmark.py",
-    "module/device/__init__.py",
-    "module/device/device.py",
-    "module/campaign/campaign_ocr.py",
-    "module/os/sea_miles_ocr.py",
 )
 
 TRANSLATION_ONLY_RUNTIME_PATHS = (
@@ -28,9 +25,6 @@ TRANSLATION_ONLY_RUNTIME_PATHS = (
     "module/ocr/ncnn_ocr.py",
     "module/ocr/windows_ml.py",
     "module/daemon/ocr_benchmark.py",
-    "module/device/device.py",
-    "module/campaign/campaign_ocr.py",
-    "module/os/sea_miles_ocr.py",
 )
 
 SECURITY_RUNTIME_PATHS = (
@@ -38,8 +32,6 @@ SECURITY_RUNTIME_PATHS = (
     "module/ocr/rpc.py",
     "module/ocr/stage8b_privacy.py",
     "module/ocr/stage8b_rpc_security.py",
-    "module/ocr/stage8b_runtime.py",
-    "module/device/__init__.py",
 )
 
 PRESERVED_IDENTIFIERS = frozenset(
@@ -49,7 +41,7 @@ PRESERVED_IDENTIFIERS = frozenset(
         "QNNExecutionProvider", "OpenVINOExecutionProvider", "DmlExecutionProvider",
         "CPUExecutionProvider", "Execution Provider", "EP", "CTC", "CNN",
         "PP-OCRv6", "PID", "RPC", "ZeroRPC", "load_param", "load_model",
-        "in0", "out0",
+        "in0", "out0", "Backend", "benchmark",
     }
 )
 
