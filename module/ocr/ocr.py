@@ -29,12 +29,7 @@ _COMPACT_NUMERIC_SEPARATOR_RE = re.compile(r"(?<=\d)\s*([:/-])\s*(?=\d)")
 
 
 def normalize_ocr_text(model_name: str, text: str) -> str:
-    """Исправляет только доказанные ложные пробелы English OCR.
-
-    Нормализация ограничена меткой ``MAX`` и разделителями между цифрами.
-    Обычные фразы, произвольные подписи с двоеточием и другие модели не
-    изменяются.
-    """
+    """Исправляет только доказанные ложные пробелы English OCR."""
     if model_name != "azur_lane" or not text:
         return text
     text = _COMPACT_MAX_LABEL_RE.sub("MAX:", text)
@@ -69,7 +64,8 @@ class Ocr:
     def buttons(self):
         buttons = self._buttons
         buttons = buttons if isinstance(buttons, list) else [buttons]
-        return [button.area if isinstance(button, Button) else button for button in buttons]
+        buttons = [button.area if isinstance(button, Button) else button for button in buttons]
+        return buttons
 
     @buttons.setter
     def buttons(self, value):
@@ -77,21 +73,22 @@ class Ocr:
 
     def pre_process(self, image):
         image = extract_letters(image, letter=self.letter, threshold=self.threshold)
+
         return image.astype(np.uint8)
 
     def after_process(self, result):
-        model_name = getattr(self, "lang", "azur_lane")
-        return normalize_ocr_text(model_name, result)
+        return normalize_ocr_text(self.lang, result)
 
     def ocr(self, image, direct_ocr=False):
         start_time = time.time()
 
         if direct_ocr:
-            image_list = [self.pre_process(item) for item in image]
+            image_list = [self.pre_process(i) for i in image]
         else:
             image_list = [self.pre_process(crop(image, area)) for area in self.buttons]
 
-        image_list = [crop_to_text(item) for item in image_list]
+        image_list = [crop_to_text(i) for i in image_list]
+
         result_list = self.cnocr.atomic_ocr_for_single_lines(image_list, self.alphabet)
         result_list = ["".join(result) for result in result_list]
         result_list = [self.after_process(result) for result in result_list]
@@ -103,27 +100,26 @@ class Ocr:
                 name="%s %ss" % (self.name, float2str(time.time() - start_time)),
                 text=str(result_list),
             )
+
         return result_list
 
 
 class OcrYuv(Ocr):
-    """OCR по яркостному каналу YUV."""
-
     @cached_property
     def letter_y(self):
-        array = np.array([[self.letter]], dtype=np.uint8)
-        return rgb2luma(array)[0][0]
+        arr = np.array([[self.letter]], dtype=np.uint8)
+        y = rgb2luma(arr)[0][0]
+        return y
 
     def pre_process(self, image):
         y = rgb2luma(image)
         letter_y = (np.ones(y.shape) * self.letter_y).astype(np.uint8)
         diff = cv2.absdiff(y, letter_y)
-        return cv2.multiply(diff, 255.0 / self.threshold)
+        diff = cv2.multiply(diff, 255.0 / self.threshold)
+        return diff
 
 
 class Digit(Ocr):
-    """Распознаватель целых чисел."""
-
     def __init__(
         self,
         buttons,
@@ -147,12 +143,14 @@ class Digit(Ocr):
         result = result.replace("I", "1").replace("D", "0").replace("S", "5")
         result = result.replace("B", "8")
 
-        previous = result
+        prev = result
         result = int(result) if result else 0
-        if self.SHOW_REVISE_WARNING and str(result) != previous:
-            logger.warning(
-                f'[OCR] {self.name}: результат "{previous}" исправлен на "{result}"'
-            )
+        if self.SHOW_REVISE_WARNING:
+            if str(result) != prev:
+                logger.warning(
+                    f'[OCR] {self.name}: результат "{prev}" исправлен на "{result}"'
+                )
+
         return result
 
 
@@ -182,19 +180,22 @@ class DigitCounter(Ocr):
     def after_process(self, result):
         result = super().after_process(result)
         result = result.replace("I", "1").replace("D", "0").replace("S", "5")
-        return result.replace("B", "8")
+        result = result.replace("B", "8")
+        return result
 
     def ocr(self, image, direct_ocr=False):
         result_list = super().ocr(image, direct_ocr=direct_ocr)
         result = result_list[0] if isinstance(result_list, list) else result_list
 
-        match = re.search(r"(\d+)/(\d+)", result)
-        if match:
-            current, total = (int(value) for value in match.groups())
+        result = re.search(r"(\d+)/(\d+)", result)
+        if result:
+            result = [int(s) for s in result.groups()]
+            current, total = int(result[0]), int(result[1])
             current = min(current, total)
             return current, total - current, total
-        logger.warning(f"[OCR] Неожиданный результат счётчика: {result_list}")
-        return 0, 0, 0
+        else:
+            logger.warning(f"[OCR] Неожиданный результат счётчика: {result_list}")
+            return 0, 0, 0
 
 
 class DigitCounterYuv(DigitCounter, OcrYuv):
@@ -223,23 +224,27 @@ class Duration(Ocr):
     def after_process(self, result):
         result = super().after_process(result)
         result = result.replace("I", "1").replace("D", "0").replace("S", "5")
-        return result.replace("B", "8")
+        result = result.replace("B", "8")
+        return result
 
     def ocr(self, image, direct_ocr=False):
         result_list = super().ocr(image, direct_ocr=direct_ocr)
         if not isinstance(result_list, list):
             result_list = [result_list]
         result_list = [self.parse_time(result) for result in result_list]
-        return result_list[0] if len(self.buttons) == 1 else result_list
+        if len(self.buttons) == 1:
+            result_list = result_list[0]
+        return result_list
 
     @staticmethod
     def parse_time(string):
-        match = re.search(r"(\d{1,2}):?(\d{2}):?(\d{2})", string)
-        if match:
-            hours, minutes, seconds = (int(value) for value in match.groups())
-            return timedelta(hours=hours, minutes=minutes, seconds=seconds)
-        logger.warning(f"[OCR] Недопустимая длительность: {string}")
-        return timedelta(hours=0, minutes=0, seconds=0)
+        result = re.search(r"(\d{1,2}):?(\d{2}):?(\d{2})", string)
+        if result:
+            result = [int(s) for s in result.groups()]
+            return timedelta(hours=result[0], minutes=result[1], seconds=result[2])
+        else:
+            logger.warning(f"[OCR] Недопустимая длительность: {string}")
+            return timedelta(hours=0, minutes=0, seconds=0)
 
 
 class DurationYuv(Duration, OcrYuv):
