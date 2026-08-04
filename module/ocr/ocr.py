@@ -26,13 +26,13 @@ _COMPACT_COLON_BEFORE_DIGIT_RE = re.compile(r"\s*:\s*(?=\d)")
 _COMPACT_NUMERIC_SEPARATOR_RE = re.compile(r"(?<=\d)\s*([/-])\s*(?=\d)")
 
 
-def normalize_azur_lane_text(text: str) -> str:
-    """Убирает ложные пробелы внутри компактных значений английской OCR-модели.
+def normalize_ocr_text(model_name: str, text: str) -> str:
+    """Убирает ложные пробелы в компактных значениях английской OCR-модели.
 
-    Обычные пробелы в названиях и фразах сохраняются. Нормализуются только
-    двоеточия перед цифрой и цифровые разделители ``/`` и ``-``.
+    Для остальных моделей строка возвращается без изменений. Обычные пробелы
+    в названиях и фразах сохраняются.
     """
-    if not text:
+    if model_name != "azur_lane" or not text:
         return text
     text = _COMPACT_COLON_BEFORE_DIGIT_RE.sub(":", text)
     return _COMPACT_NUMERIC_SEPARATOR_RE.sub(r"\1", text)
@@ -99,9 +99,7 @@ class Ocr:
         Returns:
             处理后的结果字符串。
         """
-        if self.lang == "azur_lane":
-            return normalize_azur_lane_text(result)
-        return result
+        return normalize_ocr_text(self.lang, result)
 
     def ocr(self, image, direct_ocr=False):
         """执行 OCR 识别。
