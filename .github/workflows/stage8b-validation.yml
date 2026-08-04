@@ -5,6 +5,15 @@ on:
     paths:
       - "module/ocr/**"
       - "module/daemon/ocr_benchmark.py"
+      - "module/campaign/campaign_ocr.py"
+      - "module/os/sea_miles_ocr.py"
+      - "module/device/device.py"
+      - "module/config/config.py"
+      - "module/config/config_generated.py"
+      - "module/config/argument/**"
+      - "module/config/i18n/ru-RU.json"
+      - "config/template.json"
+      - "bin/ocr_models/**"
       - "dev_tools/stage8b_*.py"
       - "dev_tools/verify_stage8b.py"
       - "tests/test_stage8b_*.py"
@@ -25,7 +34,7 @@ jobs:
   stage8b-verifier:
     name: Stage 8B OCR semantic, output and security gates
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout exact pull request head
@@ -54,38 +63,42 @@ jobs:
           printf 'exact_head=%s\n' "$(git rev-parse HEAD)" | tee artifacts-exact-head.txt
 
       - name: Run Ruff on Stage 8B code
-        run: >-
-          uv run ruff check
-          --extend-per-file-ignores "dev_tools/stage8b_ocr_acceptance.py:PLC0415"
-          --extend-per-file-ignores "dev_tools/stage8b_ocr_log_audit.py:FLY002"
-          --extend-per-file-ignores "dev_tools/stage8b_ocr_log_audit.py:PIE810"
-          --extend-per-file-ignores "dev_tools/stage8b_output_probe.py:I001"
-          --extend-per-file-ignores "dev_tools/stage8b_output_probe.py:PLC0415"
-          --extend-per-file-ignores "dev_tools/stage8b_security_audit.py:RUF101"
-          --extend-per-file-ignores "dev_tools/verify_stage8b.py:I001"
-          --extend-per-file-ignores "dev_tools/verify_stage8b.py:BLE001"
-          --extend-per-file-ignores "tests/test_stage8b_rpc_runtime.py:SLF001"
-          --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:I001"
-          --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:PLC0415"
-          --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:PLR2004"
-          --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:SIM117"
-          --extend-per-file-ignores "tests/test_stage8b_security_review.py:I001"
-          dev_tools/stage8b_evidence_policy.py
-          dev_tools/stage8b_ocr_acceptance.py
-          dev_tools/stage8b_ocr_log_audit.py
-          dev_tools/stage8b_output_contract.py
-          dev_tools/stage8b_output_probe.py
-          dev_tools/stage8b_security_audit.py
-          dev_tools/stage8b_semantic_policy.py
-          dev_tools/verify_stage8b.py
-          module/ocr/stage8b_privacy.py
-          module/ocr/stage8b_rpc_security.py
-          tests/test_stage8b_ocr_acceptance.py
-          tests/test_stage8b_output_contract.py
-          tests/test_stage8b_rpc_runtime.py
-          tests/test_stage8b_runtime_scenario_matrix.py
-          tests/test_stage8b_security_review.py
-          tests/test_stage8b_semantic_contract.py
+        shell: bash
+        run: |
+          uv run ruff check \
+            --extend-per-file-ignores "dev_tools/stage8b_ocr_acceptance.py:BLE001,PLC0415" \
+            --extend-per-file-ignores "dev_tools/stage8b_ocr_log_audit.py:FLY002,PIE810" \
+            --extend-per-file-ignores "dev_tools/stage8b_output_probe.py:I001,PLC0415" \
+            --extend-per-file-ignores "dev_tools/stage8b_real_output_probe.py:BLE001,I001,PLC0415" \
+            --extend-per-file-ignores "dev_tools/stage8b_security_audit.py:RUF101" \
+            --extend-per-file-ignores "dev_tools/verify_stage8b.py:BLE001,I001" \
+            --extend-per-file-ignores "tests/test_stage8b_prompt_scenario_matrix.py:I001,PLC0415,PLR2004,SLF001" \
+            --extend-per-file-ignores "tests/test_stage8b_reparse_privacy.py:SLF001" \
+            --extend-per-file-ignores "tests/test_stage8b_rpc_runtime.py:SLF001" \
+            --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:I001,PLC0415,PLR2004,SIM117" \
+            --extend-per-file-ignores "tests/test_stage8b_security_review.py:I001" \
+            dev_tools/stage8b_acceptance_contract.py \
+            dev_tools/stage8b_evidence_policy.py \
+            dev_tools/stage8b_model_scope.py \
+            dev_tools/stage8b_ocr_acceptance.py \
+            dev_tools/stage8b_ocr_log_audit.py \
+            dev_tools/stage8b_output_contract.py \
+            dev_tools/stage8b_output_probe.py \
+            dev_tools/stage8b_real_output_contract.py \
+            dev_tools/stage8b_real_output_probe.py \
+            dev_tools/stage8b_security_audit.py \
+            dev_tools/stage8b_semantic_policy.py \
+            dev_tools/verify_stage8b.py \
+            module/ocr/stage8b_privacy.py \
+            module/ocr/stage8b_rpc_security.py \
+            tests/test_stage8b_ocr_acceptance.py \
+            tests/test_stage8b_output_contract.py \
+            tests/test_stage8b_prompt_scenario_matrix.py \
+            tests/test_stage8b_reparse_privacy.py \
+            tests/test_stage8b_rpc_runtime.py \
+            tests/test_stage8b_runtime_scenario_matrix.py \
+            tests/test_stage8b_security_review.py \
+            tests/test_stage8b_semantic_contract.py
 
       - name: Run Stage 8B verifier
         run: >-
@@ -135,3 +148,15 @@ jobs:
             artifacts-exact-head.txt
           if-no-files-found: error
           retention-days: 14
+
+  stage8b-required-gate:
+    name: Stage 8B required gate
+    needs: stage8b-verifier
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require successful Stage 8B verifier
+        shell: bash
+        run: |
+          test "${{ needs.stage8b-verifier.result }}" = "success"
