@@ -47,10 +47,10 @@ def normalize_loopback_address(address: str, *, default_port: int = 22268) -> st
         raise OcrRpcSecurityError(
             "OCR RPC разрешён только на loopback-адресе; wildcard и удалённые hosts запрещены."
         )
-    canonical_host = "::1" if host.strip("[]").lower() == "::1" else "127.0.0.1"
-    if canonical_host == "::1":
-        return f"[::1]:{port}"
-    return f"{canonical_host}:{port}"
+
+    # Сервер намеренно слушает одну IPv4 loopback-точку. Все допустимые
+    # loopback-алиасы канонизируются к ней, чтобы клиент и bind не расходились.
+    return f"127.0.0.1:{port}"
 
 
 def loopback_bind_uri(port: int) -> str:
@@ -134,7 +134,3 @@ def decode_image_payload(payload: bytes | bytearray | memoryview) -> np.ndarray:
 
     image = np.frombuffer(image_bytes, dtype=dtype).reshape(shape)
     return image.copy()
-
-
-# Backward-compatible helper name for Stage 8B callers; the format is no longer pickle.
-decode_trusted_local_image = decode_image_payload
