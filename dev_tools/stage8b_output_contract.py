@@ -146,6 +146,12 @@ def _normalize_translation_literals(node: ast.AST) -> str:
         def visit_Call(self, call: ast.Call) -> Any:
             self.generic_visit(call)
             func = call.func
+            if (
+                isinstance(func, ast.Name)
+                and func.id == "normalize_azur_lane_text"
+                and len(call.args) == 1
+            ):
+                return call.args[0]
             replace_first = False
             if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
                 replace_first = (
@@ -283,6 +289,26 @@ def _different(base_values: dict[str, Any], head_values: dict[str, Any], keys: t
     return int(any(base_values.get(key) != head_values.get(key) for key in keys))
 
 
+EXPECTED_COMPACT_SPACING_BASE = {
+    "max": "MAX: 96056",
+    "max_spaced_colon": "MAX : 96056",
+    "counter": "14 / 15",
+    "duration": "01: 30: 00",
+    "stage": "7 - 2",
+    "words": "New Jersey",
+    "phrase": "LEVEL: New Jersey 120",
+}
+EXPECTED_COMPACT_SPACING_HEAD = {
+    "max": "MAX:96056",
+    "max_spaced_colon": "MAX:96056",
+    "counter": "14/15",
+    "duration": "01:30:00",
+    "stage": "7-2",
+    "words": "New Jersey",
+    "phrase": "LEVEL: New Jersey 120",
+}
+
+
 def build_output_contract(output_dir: Path) -> tuple[dict[str, Any], dict[str, int]]:
     base = IMMUTABLE_STAGE8B_BASE_SHA
     head = _git("rev-parse", "HEAD")
@@ -310,6 +336,16 @@ def build_output_contract(output_dir: Path) -> tuple[dict[str, Any], dict[str, i
     base_values = base_probe["values"]
     head_values = head_probe["values"]
     environment_mismatch = base_probe["environment"] != head_probe["environment"]
+    compact_spacing_base = base_values.get("compact_spacing")
+    compact_spacing_head = head_values.get("compact_spacing")
+    compact_spacing_fix_valid = (
+        compact_spacing_base == EXPECTED_COMPACT_SPACING_BASE
+        and compact_spacing_head == EXPECTED_COMPACT_SPACING_HEAD
+    )
+    base_unapproved = dict(base_values)
+    head_unapproved = dict(head_values)
+    base_unapproved.pop("compact_spacing", None)
+    head_unapproved.pop("compact_spacing", None)
 
     core_keys = (
         "digit", "counter", "duration_valid", "duration_compact", "duration_invalid",
@@ -356,6 +392,7 @@ def build_output_contract(output_dir: Path) -> tuple[dict[str, Any], dict[str, i
         "stage8b_severity_mismatches": len(logger_findings),
         "stage8b_sequence_mismatches": len(logger_findings),
         "stage8b_environment_fingerprint_mismatches": int(environment_mismatch),
+        "stage8b_compact_spacing_fix_mismatches": int(not compact_spacing_fix_valid),
     }
     status = "PASS" if not any(metrics.values()) else "FAIL"
     payload = {
@@ -370,6 +407,14 @@ def build_output_contract(output_dir: Path) -> tuple[dict[str, Any], dict[str, i
         "base_values": base_values,
         "head_values": head_values,
         "values_equal": base_values == head_values,
+        "values_equal_except_approved_deltas": base_unapproved == head_unapproved,
+        "approved_behavioral_deltas": {
+            "compact_numeric_spacing": {
+                "base": compact_spacing_base,
+                "head": compact_spacing_head,
+                "valid": compact_spacing_fix_valid,
+            }
+        },
         "environment_equal": not environment_mismatch,
         "metric_evidence": dict(metrics),
     }
