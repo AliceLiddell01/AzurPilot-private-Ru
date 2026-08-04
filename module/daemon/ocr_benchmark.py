@@ -15,7 +15,7 @@ from module.config.config import AzurLaneConfig
 from module.exception import RequestHumanTakeover
 from module.logger import logger
 from module.ocr.al_ocr import AlOcr
-from module.ocr.ocr import normalize_azur_lane_text
+from module.ocr.ocr import normalize_ocr_text
 
 
 class OcrBenchmark:
@@ -112,9 +112,7 @@ class OcrBenchmark:
 
             for idx, (img_input, expected) in enumerate(test_cases, 1):
                 try:
-                    result = ocr.ocr(img_input)
-                    if model_name == 'azur_lane':
-                        result = normalize_azur_lane_text(result)
+                    result = normalize_ocr_text(model_name, ocr.ocr(img_input))
                     if result.strip().upper() == expected.strip().upper():
                         correct += 1
                     else:
