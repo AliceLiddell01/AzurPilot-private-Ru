@@ -64,6 +64,7 @@ jobs:
           --extend-per-file-ignores "dev_tools/stage8b_security_audit.py:RUF101"
           --extend-per-file-ignores "dev_tools/verify_stage8b.py:I001"
           --extend-per-file-ignores "dev_tools/verify_stage8b.py:BLE001"
+          --extend-per-file-ignores "tests/test_stage8b_rpc_runtime.py:SLF001"
           --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:I001"
           --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:PLC0415"
           --extend-per-file-ignores "tests/test_stage8b_runtime_scenario_matrix.py:PLR2004"
@@ -81,6 +82,7 @@ jobs:
           module/ocr/stage8b_rpc_security.py
           tests/test_stage8b_ocr_acceptance.py
           tests/test_stage8b_output_contract.py
+          tests/test_stage8b_rpc_runtime.py
           tests/test_stage8b_runtime_scenario_matrix.py
           tests/test_stage8b_security_review.py
           tests/test_stage8b_semantic_contract.py
@@ -90,6 +92,14 @@ jobs:
           uv run python -m dev_tools.verify_stage8b
           --base-ref "$STAGE8B_BASE_REF"
           --output-dir artifacts/stage8b
+
+      - name: Run RPC runtime regression tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python -m unittest -v \
+            tests.test_stage8b_rpc_runtime \
+            2>&1 | tee artifacts/stage8b/rpc-runtime.log
 
       - name: Check diff formatting
         run: git diff --check
