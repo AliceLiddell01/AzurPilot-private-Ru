@@ -97,10 +97,9 @@ def _run_fixture_benchmark(profile: str, device: str) -> dict[str, Any]:
 
 
 def _recognize_safe_values(image: np.ndarray) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    import module.ocr.al_ocr as al_ocr
-    from module.ocr.stage8b_runtime import install_stage8b_runtime_patches
-    install_stage8b_runtime_patches(al_ocr)
-    engine = al_ocr.AlOcr(name="azur_lane")
+    from module.ocr.al_ocr import AlOcr, release_ocr_models
+
+    engine = AlOcr(name="azur_lane")
     engine.init()
     try:
         detections = engine.det(image)
@@ -114,7 +113,6 @@ def _recognize_safe_values(image: np.ndarray) -> tuple[list[dict[str, Any]], dic
                 break
         return values, _provider_evidence(engine.model)
     finally:
-        from module.ocr.al_ocr import release_ocr_models
         release_ocr_models()
 
 
