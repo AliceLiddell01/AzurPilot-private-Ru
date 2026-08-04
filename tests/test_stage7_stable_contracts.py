@@ -17,6 +17,36 @@ SEA_MILES_HEAD_WARNING = (
     'logger.warning(f"[Operation Siren — OCR] Недопустимое значение Sea Miles: {result}")'
 )
 SEA_MILES_WARNING_MARKER = 'logger.warning(f"<STAGE8B_OCR_MESSAGE>: {result}")'
+OPSI_OCR_NAMESPACE_DELTAS = {
+    "module/os/map_operation.py": (
+        (
+            "ocr = Ocr(MAP_NAME, lang='ppocr_v6', letter=(206, 223, 247), "
+            "threshold=96, name='OCR_OS_MAP_NAME')",
+            "ocr = Ocr(MAP_NAME, lang='azur_lane', letter=(206, 223, 247), "
+            "threshold=96, name='OCR_OS_MAP_NAME')",
+        ),
+    ),
+    "module/os_handler/action_point.py": (
+        (
+            "] , letter=(231, 235, 239), lang=\"cnocr\", "
+            "name='OCR_OS_ADAPTABILITY')",
+            "] , letter=(231, 235, 239), lang=\"azur_lane\", "
+            "name='OCR_OS_ADAPTABILITY')",
+        ),
+        (
+            "ACTION_POINT_BUY_REMAIN, letter=(148, 247, 99), lang='cnocr', "
+            "name='OCR_ACTION_POINT_BUY_REMAIN')",
+            "ACTION_POINT_BUY_REMAIN, letter=(148, 247, 99), lang='azur_lane', "
+            "name='OCR_ACTION_POINT_BUY_REMAIN')",
+        ),
+        (
+            "ACTION_POINT_BUY_REMAIN, letter=(255, 255, 255), lang='cnocr', "
+            "name='OCR_ACTION_POINT_BUY_REMAIN')",
+            "ACTION_POINT_BUY_REMAIN, letter=(255, 255, 255), lang='azur_lane', "
+            "name='OCR_ACTION_POINT_BUY_REMAIN')",
+        ),
+    ),
+}
 
 
 def _git(*args: str) -> str:
@@ -65,16 +95,31 @@ class Stage7StableContractTests(unittest.TestCase):
             "module/os_tasks",
             "tests/test_opsi_data_logger",
         )
+        allowed_ocr_paths = set(OPSI_OCR_NAMESPACE_DELTAS)
         changed_contract_files = sorted(
             path
             for path in self.changed
             if path != SEA_MILES_OCR_PATH
+            and path not in allowed_ocr_paths
             and (
                 path == forbidden_prefixes[0]
                 or any(path.startswith(prefix) for prefix in forbidden_prefixes[1:])
             )
         )
         self.assertEqual(changed_contract_files, [])
+
+        for path in sorted(self.changed & allowed_ocr_paths):
+            base_source = _git("show", f"{self.base_ref}:{path}")
+            head_source = (ROOT / path).read_text(encoding="utf-8")
+            for index, (base_fragment, head_fragment) in enumerate(
+                OPSI_OCR_NAMESPACE_DELTAS[path]
+            ):
+                marker = f"<STAGE8B_OCR_NAMESPACE_{index}>"
+                self.assertEqual(base_source.count(base_fragment), 1, path)
+                self.assertEqual(head_source.count(head_fragment), 1, path)
+                base_source = base_source.replace(base_fragment, marker)
+                head_source = head_source.replace(head_fragment, marker)
+            self.assertEqual(base_source, head_source, path)
 
         if SEA_MILES_OCR_PATH in self.changed:
             base_source = _git("show", f"{self.base_ref}:{SEA_MILES_OCR_PATH}")
