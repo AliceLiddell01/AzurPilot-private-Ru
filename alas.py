@@ -1038,6 +1038,15 @@ class AzurLaneAutoScript:
         from module.daemon.ocr_benchmark import run_ocr_benchmark
         run_ocr_benchmark(config=self.config)
 
+    def screenshot_interval_benchmark(self):
+        from module.daemon.screenshot_interval_benchmark import (
+            run_screenshot_interval_benchmark,
+        )
+        run_screenshot_interval_benchmark(
+            config=self.config,
+            device=self.device,
+        )
+
     def game_manager(self):
         from module.daemon.game_manager import GameManager
         GameManager(config=self.config, device=self.device, task="GameManager").run()

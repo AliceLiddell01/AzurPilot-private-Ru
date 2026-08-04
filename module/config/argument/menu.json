@@ -139,6 +139,7 @@
       "AutoEquip",
       "Benchmark",
       "OcrBenchmark",
+      "ScreenshotIntervalBenchmark",
       "AzurLaneUncensored",
       "GameManager",
       "EmulatorManager"

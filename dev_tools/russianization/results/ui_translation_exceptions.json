@@ -9283,16 +9283,6 @@
     },
     {
       "path": "module/config/i18n/ru-RU.json",
-      "key_or_line": "Optimization.CombatScreenshotInterval.name",
-      "text": "Уменьшить скорость снимка экрана в бою до X секунд между кадрами",
-      "category": "technical_value",
-      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
-      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
-      "stage": 6,
-      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
-    },
-    {
-      "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Optimization.OcrBackend.auto",
       "text": "Auto (ONNX Runtime)",
       "category": "technical_value",
@@ -9655,16 +9645,6 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Optimization.OcrWindowsMlVendorEp.name",
       "text": "Автоматически установить и использовать EP производителя",
-      "category": "technical_value",
-      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
-      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
-      "stage": 6,
-      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
-    },
-    {
-      "path": "module/config/i18n/ru-RU.json",
-      "key_or_line": "Optimization.ScreenshotInterval.name",
-      "text": "Уменьшить скорость снимка экрана до X секунд между кадрами",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
@@ -10445,6 +10425,16 @@
       "path": "module/config/i18n/ru-RU.json",
       "key_or_line": "Task.OpsiSimulator.name",
       "text": "Симулятор OpSi — альфа",
+      "category": "technical_value",
+      "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
+      "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
+      "stage": 6,
+      "evidence": "Точечная классификация canonical_catalog; foreign_kind=technical_or_proper_latin."
+    },
+    {
+      "path": "module/config/i18n/ru-RU.json",
+      "key_or_line": "Task.ScreenshotIntervalBenchmark.help",
+      "text": "Автоматически измеряет частоту снимков на экране кампании и в бесплатной META Battle Simulation. Настройки профиля не изменяются автоматически.",
       "category": "technical_value",
       "reason": "Технический термин, идентификатор, единица измерения или машинное значение должно оставаться без перевода.",
       "runtime_context": "Активный ru-RU интерфейс; значение показано только в указанном ключе.",
