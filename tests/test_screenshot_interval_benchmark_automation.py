@@ -10,6 +10,7 @@ from module.daemon.screenshot_interval_benchmark import (
     _compact_ocr_text,
     run_screenshot_interval_benchmark,
 )
+from module.os_ash.assets import ASH_START
 from module.os_ash.meta import OpsiAshBeacon
 
 
@@ -88,6 +89,31 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
         self.assertEqual(benchmark._wait_for_simulation_button(), (1120, 610))
         self.assertEqual(benchmark.device.screenshot.call_count, 2)
         benchmark.device.sleep.assert_called_once_with(0.5)
+
+    def test_meta_simulation_click_uses_button_asset(self) -> None:
+        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
+            AutomatedScreenshotIntervalBenchmark
+        )
+        benchmark.config = SimpleNamespace(SERVER="en")
+        benchmark.device = SimpleNamespace(click=Mock(), screenshot=Mock())
+        benchmark._enter_current_target = Mock()
+        benchmark._wait_for_simulation_button = Mock(return_value=(1167, 668))
+        benchmark._wait_until = Mock()
+        benchmark._benchmark_combat = None
+        combat = SimpleNamespace(
+            combat_preparation=Mock(),
+            is_combat_executing=Mock(return_value=True),
+        )
+
+        with patch(
+            "module.daemon.screenshot_interval_benchmark.AshCombat",
+            return_value=combat,
+        ):
+            result = benchmark._enter_meta_simulation()
+
+        self.assertIs(result, combat)
+        benchmark.device.click.assert_called_once_with(ASH_START)
+        benchmark._wait_for_simulation_button.assert_called_once_with()
 
     def test_run_phase_resets_stuck_guard_before_each_candidate(self) -> None:
         benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
