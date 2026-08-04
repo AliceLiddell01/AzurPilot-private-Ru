@@ -9,6 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -52,6 +53,7 @@ def _decode_png(payload: bytes) -> np.ndarray:
 def _load_ocr_config(profile: str):
     from module.config.config import AzurLaneConfig
     from module.config.server import to_server
+
     config = AzurLaneConfig(profile, task=None)
     package = str(config.Emulator_PackageName)
     return config, {
@@ -81,39 +83,58 @@ def _provider_evidence(model: Any) -> dict[str, Any]:
     return {"registered": providers, "session": providers, "options": options}
 
 
-def _run_fixture_benchmark(profile: str, device: str) -> dict[str, Any]:
+def _run_fixture_benchmark(config: Any, device: str) -> dict[str, Any]:
+    import module.ocr.al_ocr as al_ocr
     from module.daemon.ocr_benchmark import OcrBenchmark
-    benchmark = OcrBenchmark(profile, task="OcrBenchmark")
-    result = benchmark._run_single(
-        "azur_lane", "sets_num", "sets_num", ocr_device=device,
+
+    config.override(
+        Optimization_OcrDevice=device,
+        Optimization_OcrWindowsMlVendorEp=False,
     )
+    benchmark = OcrBenchmark(config, task="OcrBenchmark")
+    with patch.object(al_ocr, "config", config):
+        al_ocr.reset_ocr_model()
+        try:
+            result = benchmark._run_single(
+                "azur_lane", "sets_num", "sets_num", ocr_device=device,
+            )
+        finally:
+            al_ocr.release_ocr_models()
     if result is None:
         raise AcceptanceFailure("Не найден bundled EN OCR fixture dataset sets_num.")
     return {
-        "device": device, "accuracy": result["accuracy"],
-        "correct": result["correct"], "total": result["total"],
+        "device": device,
+        "accuracy": result["accuracy"],
+        "correct": result["correct"],
+        "total": result["total"],
         "avg_ms": result["avg_ms"],
     }
 
 
-def _recognize_safe_values(image: np.ndarray) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    from module.ocr.al_ocr import AlOcr, release_ocr_models
+def _recognize_safe_values(
+    image: np.ndarray,
+    config: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    import module.ocr.al_ocr as al_ocr
 
-    engine = AlOcr(name="azur_lane")
-    engine.init()
-    try:
-        detections = engine.det(image)
-        values: list[dict[str, Any]] = []
-        for text, box, score in detections:
-            value = str(text).strip()
-            if not SAFE_VALUE_RE.fullmatch(value):
-                continue
-            values.append({"value": value, "score": float(score), "box": box})
-            if len(values) >= 3:
-                break
-        return values, _provider_evidence(engine.model)
-    finally:
-        release_ocr_models()
+    config.override(Optimization_OcrWindowsMlVendorEp=False)
+    with patch.object(al_ocr, "config", config):
+        al_ocr.reset_ocr_model()
+        engine = al_ocr.AlOcr(name="azur_lane")
+        engine.init()
+        try:
+            detections = engine.det(image)
+            values: list[dict[str, Any]] = []
+            for text, box, score in detections:
+                value = str(text).strip()
+                if not SAFE_VALUE_RE.fullmatch(value):
+                    continue
+                values.append({"value": value, "score": float(score), "box": box})
+                if len(values) >= 3:
+                    break
+            return values, _provider_evidence(engine.model)
+        finally:
+            al_ocr.release_ocr_models()
 
 
 def _print_plan(profile: str, package: str, details: dict[str, Any], head: str) -> None:
@@ -121,8 +142,11 @@ def _print_plan(profile: str, package: str, details: dict[str, Any], head: str) 
     print(f"Exact head: {head}")
     print(f"Profile: {profile}")
     print(f"Server/package: {details['server']} / {package}")
-    print(f"Backend/device/model: {details['backend']} / {details['device_preference']} / {details['model_version']}")
-    print("Provider download/update: запрещено")
+    print(
+        "Backend/device/model: "
+        f"{details['backend']} / {details['device_preference']} / {details['model_version']}"
+    )
+    print("Provider download/update: запрещено; vendor EP принудительно отключены in-memory")
     print("Действия: один read-only screenshot, bundled fixture benchmark, OCR in-memory.")
     print("Запрещено: input, battle, purchase, APK install, app-data clear, config write, wildcard RPC.")
     print("Откройте безопасный статический главный экран EN/Global без chat/profile/UID.")
@@ -140,7 +164,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     adb = _resolve_adb(args.adb)
     boot = _check_android_boot_completed(adb, serial)
     package = _detect_package(adb, serial, profile["package"])
-    _config, details = _load_ocr_config(args.profile)
+    config, details = _load_ocr_config(args.profile)
     if details["server"] != "en":
         raise AcceptanceFailure("Stage 8B real acceptance должен выполняться на EN/Global profile.")
 
@@ -164,12 +188,18 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
             if screenshot.returncode != 0:
                 raise AcceptanceFailure("ADB screencap завершился ошибкой.")
             image = _decode_png(bytes(screenshot.stdout))
-            configured_fixture = _run_fixture_benchmark(
-                args.profile,
-                details["device_preference"] if details["device_preference"] != "auto" else "cpu",
+            configured_device = (
+                details["device_preference"]
+                if details["device_preference"] != "auto"
+                else "cpu"
             )
-            cpu_fixture = _run_fixture_benchmark(args.profile, "cpu")
-            values, provider = _recognize_safe_values(image)
+            configured_fixture = _run_fixture_benchmark(config, configured_device)
+            cpu_fixture = _run_fixture_benchmark(config, "cpu")
+            config.override(
+                Optimization_OcrDevice=details["device_preference"],
+                Optimization_OcrWindowsMlVendorEp=False,
+            )
+            values, provider = _recognize_safe_values(image, config)
             if len(values) < 2:
                 raise AcceptanceFailure(
                     "На выбранном безопасном экране найдено меньше двух проверяемых OCR-значений."
@@ -212,6 +242,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         "provider_registered": provider["registered"],
         "provider_session": provider["session"],
         "provider_options": provider["options"],
+        "vendor_ep_enabled_during_acceptance": False,
         "provider_download_performed": False,
         "fixture_accuracy": configured_fixture,
         "cpu_reference": cpu_fixture,
@@ -240,18 +271,21 @@ def main(argv: list[str] | None = None) -> int:
         report = run_acceptance(args)
     except Exception as exc:
         failure = {
-            "status": "FAIL", "error": _safe_text(str(exc)),
+            "status": "FAIL",
+            "error": _safe_text(str(exc)),
             "head_sha": _git_head_sha() if Path(".git").exists() else None,
         }
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(
-            json.dumps(failure, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
         print(f"Stage 8B OCR acceptance: FAIL — {failure['error']}", file=sys.stderr)
         return 1
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
     print("Stage 8B OCR acceptance: PASS")
     print("Сравните 2–3 значения из real_values с открытым экраном.")
