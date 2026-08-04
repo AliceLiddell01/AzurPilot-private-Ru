@@ -75,8 +75,12 @@ CONFIG_STAGE8_MARKERS = (
     "任务切换检查",
     "要调用的任务",
 )
+STAGE8B_OCR_GUARD_PATH = "module/config/config.py"
+STAGE8B_OCR_GUARD_MESSAGE = "Неподдерживаемая OCR-модель: {…}"
+STAGE8B_OCR_GUARD_IDENTIFIER = "stage8b-insertion:ocr-model-guard"
 ALLOWED_INSERTIONS = {
     "Для отображения traceback требуется активное исключение",
+    STAGE8B_OCR_GUARD_MESSAGE,
 }
 TECHNICAL_IDENTIFIERS = {
     "SSL",
@@ -125,6 +129,8 @@ def _owner(path: str, message: str) -> str:
         return "stage7" if value in {"Start", "Запуск"} else "stage8c"
     if lower == "module/logger.py" and value in LOGGER_DEVELOPER_MESSAGES:
         return "developer"
+    if lower == STAGE8B_OCR_GUARD_PATH and value == STAGE8B_OCR_GUARD_MESSAGE:
+        return "stage8b"
     if lower == "module/config/config.py" and any(
         marker in value for marker in CONFIG_STAGE8_MARKERS
     ):
@@ -267,8 +273,13 @@ def _identify(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key=lambda item: (item["path"], item["line"], item["call_kind"]),
     ):
         item = dict(row)
-        counters[item["path"]] += 1
-        item["stable_identifier"] = f"log-call:{counters[item['path']]:04d}"
+        path = str(item["path"])
+        message = str(item["message_or_template"]).strip()
+        if path.lower() == STAGE8B_OCR_GUARD_PATH and message == STAGE8B_OCR_GUARD_MESSAGE:
+            item["stable_identifier"] = STAGE8B_OCR_GUARD_IDENTIFIER
+        else:
+            counters[path] += 1
+            item["stable_identifier"] = f"log-call:{counters[path]:04d}"
         result.append(item)
     return result
 
