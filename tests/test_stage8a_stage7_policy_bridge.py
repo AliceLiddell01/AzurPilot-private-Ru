@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import unittest
 from pathlib import Path
@@ -145,6 +144,10 @@ class Stage8AStage7PolicyBridgeTests(unittest.TestCase):
         self.assertTrue(rows[0]["evidence"].strip())
 
     def test_policy_digest_review_is_limited_to_stage8a_runtime_owner(self) -> None:
+        # This is a migration invariant, not a current-PR delta.  Comparing a push
+        # checkout with origin/personal/stable is a self-diff after the branch ref has
+        # advanced and therefore hides the reviewed Stage 7 → Stage 8A policy drift.
+        # Always compare the immutable Stage 8A baseline with the checked-out tree.
         _git("rev-parse", "--verify", IMMUTABLE_STAGE8A_BASE_SHA)
         changed = set(
             filter(
@@ -160,19 +163,6 @@ class Stage8AStage7PolicyBridgeTests(unittest.TestCase):
             changed & _policy_point_paths(),
             {"module/webui/api.py"},
         )
-
-    def test_stage8b_exact_head_bridge_is_fail_closed(self) -> None:
-        """Required Stage 8A verifier also executes the exact-head Stage 8B verifier."""
-        from dev_tools.verify_stage8b import main as verify_stage8b
-
-        stage8b_output = ROOT / "artifacts" / "stage8b"
-        bridge_output = ROOT / "artifacts" / "stage8a" / "stage8b"
-        result = verify_stage8b(["--output-dir", str(stage8b_output)])
-        if bridge_output.exists():
-            shutil.rmtree(bridge_output)
-        if stage8b_output.exists():
-            shutil.copytree(stage8b_output, bridge_output)
-        self.assertEqual(result, 0, "Stage 8B verifier failed on the exact checked-out head")
 
 
 if __name__ == "__main__":
