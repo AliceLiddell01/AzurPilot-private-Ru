@@ -157,17 +157,18 @@ def build_probe(source_root: Path) -> dict[str, object]:
     detection = _detection_values(al_ocr)
     normalize_text = getattr(
         ocr_module,
-        "normalize_azur_lane_text",
-        lambda text: text,
+        "normalize_ocr_text",
+        lambda _model_name, text: text,
     )
     compact_spacing = {
-        "max": normalize_text("MAX: 96056"),
-        "max_spaced_colon": normalize_text("MAX : 96056"),
-        "counter": normalize_text("14 / 15"),
-        "duration": normalize_text("01: 30: 00"),
-        "stage": normalize_text("7 - 2"),
-        "words": normalize_text("New Jersey"),
-        "phrase": normalize_text("LEVEL: New Jersey 120"),
+        "max": normalize_text("azur_lane", "MAX: 96056"),
+        "max_spaced_colon": normalize_text("azur_lane", "MAX : 96056"),
+        "counter": normalize_text("azur_lane", "14 / 15"),
+        "duration": normalize_text("azur_lane", "01: 30: 00"),
+        "stage": normalize_text("azur_lane", "7 - 2"),
+        "words": normalize_text("azur_lane", "New Jersey"),
+        "phrase": normalize_text("azur_lane", "LEVEL: New Jersey 120"),
+        "other_model": normalize_text("cn", "MAX: 96056"),
     }
     values: dict[str, object] = {
         "digit": digit.after_process("IDSB"),
