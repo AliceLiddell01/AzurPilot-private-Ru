@@ -446,6 +446,7 @@ def _run_phase(
     results: list[IntervalResult] = []
     console = Console()
     for index, interval in enumerate(intervals, 1):
+        device.stuck_record_clear()
         console.print(
             f"[{phase}] {index}/{len(intervals)}: интервал {interval:g} с",
             highlight=False,
@@ -496,6 +497,8 @@ def _write_markdown(report: dict[str, Any], path: Path) -> None:
         f"- Backend: `{report['screenshot_backend']}`",
         f"- Config unchanged: `{str(report['config_unchanged']).lower()}`",
         f"- Backend forced interval: `{report['backend_forced_interval_s']}`",
+        f"- Task stuck guard reset per candidate: `{str(report['task_stuck_guard_reset_per_candidate']).lower()}`",
+        f"- Resources released during interactive wait: `{str(report['resources_released_during_interactive_wait']).lower()}`",
         "",
         "## Рекомендация",
         "",
@@ -612,9 +615,13 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         warmup_frames=args.warmup_frames,
     )
 
+    resources_released_during_wait = False
     if args.same_screen:
         combat_context = "same_screen"
     else:
+        if not args.non_interactive:
+            device.release_during_wait()
+            resources_released_during_wait = True
         _confirm(
             "COMBAT",
             "Откройте типичный бой с активной анимацией и оставьте его запущенным.",
@@ -659,6 +666,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "duration_per_candidate_s": args.duration,
         "warmup_frames": args.warmup_frames,
         "combat_context": combat_context,
+        "task_stuck_guard_reset_per_candidate": True,
+        "resources_released_during_interactive_wait": resources_released_during_wait,
         "current": {
             "Optimization_ScreenshotInterval": current_normal,
             "Optimization_CombatScreenshotInterval": current_combat,
