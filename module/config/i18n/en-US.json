@@ -390,6 +390,10 @@
       "name": "OCR Performance Test",
       "help": ""
     },
+    "ScreenshotIntervalBenchmark": {
+      "name": "Screenshot Interval Benchmark",
+      "help": "Automatically measures screenshot frequency on the campaign screen and in free META Battle Simulation. Profile settings are not changed automatically."
+    },
     "AzurLaneUncensored": {
       "name": "Uncensor",
       "help": ""
