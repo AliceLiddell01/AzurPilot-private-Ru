@@ -64,6 +64,7 @@ from module.webui.app_instances import InstanceMixin
 from module.webui.app_lifecycle import clearup, startup
 from module.webui.app_manage import app_manage
 from module.webui.app_overview import OverviewMixin
+from module.webui.app_personal_ocr import PersonalOcrSettingsMixin
 from module.webui.app_shell import AppShellMixin
 from module.webui.app_stat_action_point import ActionPointStatisticsMixin
 from module.webui.app_stat_action_point_toolbar import ActionPointToolbarMixin
@@ -99,6 +100,7 @@ class AlasGUI(
     OpsiExportMixin,
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
+    PersonalOcrSettingsMixin,
     TaskConfigMixin,
     EventToolsMixin,
     OverviewMixin,
@@ -224,9 +226,7 @@ def app():
             return
         localstorage = None
         if is_webui_password_set(key):
-            localstorage = get_localstorage_values(
-                ("password", "aside")
-            )
+            localstorage = get_localstorage_values(("password", "aside"))
         if is_webui_password_set(key) and not login(
             key, stored_password=localstorage.get("password")
         ):
