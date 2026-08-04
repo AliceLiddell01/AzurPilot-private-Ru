@@ -10,6 +10,7 @@ from module.daemon.screenshot_interval_benchmark import (
     _compact_ocr_text,
     run_screenshot_interval_benchmark,
 )
+from module.os_ash.meta import OpsiAshBeacon
 
 
 class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
@@ -129,6 +130,16 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_meta_navigation_helpers_are_inherited_from_ash_task(self) -> None:
+        self.assertTrue(
+            issubclass(AutomatedScreenshotIntervalBenchmark, OpsiAshBeacon)
+        )
+        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
+            AutomatedScreenshotIntervalBenchmark
+        )
+        self.assertTrue(callable(benchmark._ensure_meta_page))
+        self.assertTrue(callable(benchmark._in_meta_page))
 
     def test_automated_route_runs_campaign_before_meta_simulation(self) -> None:
         benchmark = AutomatedScreenshotIntervalBenchmark.__new__(

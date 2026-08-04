@@ -35,7 +35,7 @@ from module.os_ash.assets import (
     DOSSIER_LIST,
     META_MAIN_BEACON_ENTRANCE,
 )
-from module.os_ash.meta import Meta
+from module.os_ash.meta import OpsiAshBeacon
 from module.ui.assets import BACK_ARROW
 from module.ui.page import page_campaign, page_reward
 
@@ -87,7 +87,7 @@ def _compact_ocr_text(value: str) -> str:
     return re.sub(r"[^A-Z]", "", str(value).upper())
 
 
-class AutomatedScreenshotIntervalBenchmark(Meta):
+class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
     """Автоматический benchmark обычного экрана и бесплатной META simulation."""
 
     duration_per_candidate_s = 2.0
