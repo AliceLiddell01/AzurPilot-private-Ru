@@ -65,9 +65,16 @@ def _validate_candidate_alphabet(cand_alphabet):
 
 
 def _encode_batch(images):
-    payloads = [encode_image_payload(image) for image in _validate_batch(images)]
-    if sum(len(payload) for payload in payloads) > MAX_RPC_BATCH_BYTES:
-        raise ValueError("Суммарный размер пакета OCR RPC превышает допустимый предел.")
+    payloads = []
+    total_bytes = 0
+    for image in _validate_batch(images):
+        payload = encode_image_payload(image)
+        total_bytes += len(payload)
+        if total_bytes > MAX_RPC_BATCH_BYTES:
+            raise ValueError(
+                "Суммарный размер пакета OCR RPC превышает допустимый предел."
+            )
+        payloads.append(payload)
     return payloads
 
 
