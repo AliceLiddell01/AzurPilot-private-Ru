@@ -77,7 +77,7 @@ class Ocr:
         return image.astype(np.uint8)
 
     def after_process(self, result):
-        return normalize_ocr_text(self.lang, result)
+        return normalize_ocr_text(getattr(self, "lang", "azur_lane"), result)
 
     def ocr(self, image, direct_ocr=False):
         start_time = time.time()
