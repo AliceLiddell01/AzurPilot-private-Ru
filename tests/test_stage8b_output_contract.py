@@ -5,6 +5,7 @@ import unittest
 
 from dev_tools.stage8b_output_contract import _normalize_translation_literals
 from dev_tools.stage8b_semantic_policy import IMMUTABLE_STAGE8B_BASE_SHA
+from module.ocr.ocr import normalize_ocr_text
 
 
 class Stage8BOutputContractTests(unittest.TestCase):
@@ -60,8 +61,6 @@ class Stage8BOutputContractTests(unittest.TestCase):
         )
 
     def test_azur_lane_compact_spacing_is_normalized(self) -> None:
-        from module.ocr.ocr import normalize_ocr_text
-
         cases = {
             "MAX: 96056": "MAX:96056",
             "MAX : 96056": "MAX:96056",
@@ -74,8 +73,6 @@ class Stage8BOutputContractTests(unittest.TestCase):
                 self.assertEqual(normalize_ocr_text("azur_lane", raw), expected)
 
     def test_spacing_normalization_preserves_words_and_other_models(self) -> None:
-        from module.ocr.ocr import normalize_ocr_text
-
         self.assertEqual(
             normalize_ocr_text("azur_lane", "New Jersey"),
             "New Jersey",
