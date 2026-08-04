@@ -3,8 +3,18 @@ name: Screenshot interval benchmark validation
 on:
   pull_request:
     paths:
+      - "alas.py"
       - "dev_tools/screenshot_interval_benchmark.py"
+      - "module/daemon/screenshot_interval_benchmark.py"
+      - "module/config/argument/task.yaml"
+      - "module/config/argument/args.json"
+      - "module/config/argument/menu.json"
+      - "module/config/config_generated.py"
+      - "module/config/i18n/ru-RU.json"
+      - "config/template.json"
       - "tests/test_screenshot_interval_benchmark.py"
+      - "tests/test_screenshot_interval_benchmark_automation.py"
+      - "tests/test_screenshot_interval_benchmark_webui.py"
       - "docs/benchmarks/screenshot-interval.md"
       - ".github/workflows/screenshot-interval-benchmark-validation.yml"
 
@@ -48,13 +58,30 @@ jobs:
       - name: Run Ruff
         run: >-
           uv run ruff check
+          alas.py
           dev_tools/screenshot_interval_benchmark.py
+          module/daemon/screenshot_interval_benchmark.py
           tests/test_screenshot_interval_benchmark.py
+          tests/test_screenshot_interval_benchmark_automation.py
+          tests/test_screenshot_interval_benchmark_webui.py
+
+      - name: Verify generated config is current
+        shell: bash
+        run: |
+          uv run -m module.config.config_updater
+          git diff --exit-code -- \
+            module/config/argument/args.json \
+            module/config/argument/menu.json \
+            module/config/config_generated.py \
+            module/config/i18n/ru-RU.json \
+            config/template.json
 
       - name: Run benchmark unit tests
         run: >-
           uv run python -m unittest -v
           tests.test_screenshot_interval_benchmark
+          tests.test_screenshot_interval_benchmark_automation
+          tests.test_screenshot_interval_benchmark_webui
 
       - name: Check diff formatting
         run: git diff --check
