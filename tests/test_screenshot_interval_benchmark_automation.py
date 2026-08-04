@@ -90,6 +90,29 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
         self.assertEqual(benchmark.device.screenshot.call_count, 2)
         benchmark.device.sleep.assert_called_once_with(0.5)
 
+    def test_wait_until_handles_popup_before_target_screen(self) -> None:
+        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
+            AutomatedScreenshotIntervalBenchmark
+        )
+        benchmark.transition_timeout_s = 1.0
+        benchmark.device = SimpleNamespace(screenshot=Mock(), sleep=Mock())
+        predicate = Mock(side_effect=[False, True])
+        additional = Mock(return_value=True)
+
+        with patch(
+            "module.daemon.screenshot_interval_benchmark.time.monotonic",
+            side_effect=[0.0, 0.1, 0.2],
+        ):
+            benchmark._wait_until(
+                predicate,
+                description="Formation fixture",
+                additional=additional,
+            )
+
+        self.assertEqual(benchmark.device.screenshot.call_count, 2)
+        additional.assert_called_once_with()
+        benchmark.device.sleep.assert_not_called()
+
     def test_meta_simulation_click_uses_button_asset(self) -> None:
         benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
             AutomatedScreenshotIntervalBenchmark
@@ -99,6 +122,7 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
         benchmark._enter_current_target = Mock()
         benchmark._wait_for_simulation_button = Mock(return_value=(1167, 668))
         benchmark._wait_until = Mock()
+        benchmark.handle_popup_confirm = Mock(return_value=True)
         benchmark._benchmark_combat = None
         combat = SimpleNamespace(
             combat_preparation=Mock(),
@@ -114,6 +138,12 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
         self.assertIs(result, combat)
         benchmark.device.click.assert_called_once_with(ASH_START)
         benchmark._wait_for_simulation_button.assert_called_once_with()
+        wait_kwargs = benchmark._wait_until.call_args.kwargs
+        self.assertTrue(wait_kwargs["additional"]())
+        benchmark.handle_popup_confirm.assert_called_once_with(
+            "BATTLE_SIMULATION",
+            interval=0,
+        )
 
     def test_run_phase_resets_stuck_guard_before_each_candidate(self) -> None:
         benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
