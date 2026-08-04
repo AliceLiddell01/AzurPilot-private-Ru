@@ -20,13 +20,6 @@ ENGLISH_ONNX_MODEL_VERSIONS = (
     "alocr_en_v1_0",
 )
 
-SUPPORTED_RUNTIME_MODEL_NAMES = frozenset(
-    {
-        ENGLISH_OCR_MODEL_NAME,
-        GENERIC_ENGLISH_MODEL_NAME,
-    }
-)
-
 HIDDEN_PERSONAL_OCR_ARGUMENTS = frozenset(
     {
         "OcrModelVersionChinese",
@@ -43,11 +36,6 @@ REMOVED_MODEL_NAMES = frozenset(
         "tw",
     }
 )
-
-
-def is_supported_runtime_model(name: str) -> bool:
-    """Возвращает ``True`` только для моделей EN/Global-контура."""
-    return name in SUPPORTED_RUNTIME_MODEL_NAMES
 
 
 def should_hide_personal_ocr_argument(
