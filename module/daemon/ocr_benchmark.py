@@ -1,12 +1,14 @@
-"""OCR 基准测试工具，用于评估不同 OCR 模型的识别精度和性能。
-支持 azur_lane、azur_lane_jp、cn 等模型的批量测试，
-通过 Rich 表格输出详细的准确率统计结果。"""
+"""Benchmark Global/English OCR models with explicit reproducibility metadata."""
+
+from __future__ import annotations
 
 import os
 import platform
 import shutil
 import sys
 import time
+from pathlib import Path
+
 import cv2
 from rich.table import Table
 from rich.text import Text
@@ -19,11 +21,17 @@ from module.ocr.ocr import normalize_ocr_text
 
 
 class OcrBenchmark:
-    # Each entry: (model_name, dataset_prefix, subfolder_name)
+    """Compare only English models supported by the personal EN/Global build."""
+
+    # model, version, fixture archive prefix, extracted subfolder
     BENCHMARKS = [
-        ('azur_lane', 'sets_num', 'sets_num'),
-        ('azur_lane_jp', 'sets_azur_lane_jp', 'azur_lane_jp'),
-        ('cn', 'sets_zhcn', 'sets_zhcn'),
+        ("azur_lane", "alocr_en_900k", "sets_num", "sets_num"),
+        ("azur_lane", "azur_lane_v6_6", "sets_num", "sets_num"),
+        ("azur_lane", "azur_lane_v6_5", "sets_num", "sets_num"),
+        ("azur_lane", "ppocr_v6", "sets_num", "sets_num"),
+        ("azur_lane", "alocr_en_v2_6", "sets_num", "sets_num"),
+        ("azur_lane", "alocr_en_v2_0", "sets_num", "sets_num"),
+        ("azur_lane", "alocr_en_v1_0", "sets_num", "sets_num"),
     ]
 
     def __init__(self, config, device=None, task=None):
@@ -33,244 +41,305 @@ class OcrBenchmark:
                 self.config.init_task(task)
         else:
             self.config = AzurLaneConfig(config, task=task)
+        self.device = device
 
-    def _find_archive(self, prefix):
-        for ext in ['.zip', '.tar', '.tar.xz', '.tar.gz']:
-            path = f'module/daemon/{prefix}{ext}'
-            if os.path.exists(path):
-                return path
+    @staticmethod
+    def _find_archive(prefix):
+        for extension in (".zip", ".tar", ".tar.xz", ".tar.gz"):
+            path = Path("module/daemon") / f"{prefix}{extension}"
+            if path.is_file():
+                return str(path)
         return None
 
-    def _load_test_cases(self, extract_dir, subfolder):
-        target_val_txt = os.path.join(extract_dir, 'val.txt')
-        if not os.path.exists(target_val_txt):
-            target_val_txt = os.path.join(extract_dir, subfolder, 'val.txt')
+    @staticmethod
+    def _load_test_cases(extract_dir, subfolder):
+        extract_root = Path(extract_dir)
+        validation = extract_root / "val.txt"
+        if not validation.is_file():
+            validation = extract_root / subfolder / "val.txt"
         test_cases = []
-        if os.path.exists(target_val_txt):
-            val_root = os.path.dirname(target_val_txt)
-            with open(target_val_txt, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    parts = line.split(None, 1)
-                    if len(parts) == 2:
-                        img_path = os.path.join(val_root, parts[0])
-                        if not os.path.exists(img_path):
-                            img_path = os.path.join(val_root, 'imgs', parts[0])
-                        test_cases.append((img_path, parts[1]))
+        if validation.is_file():
+            validation_root = validation.parent
+            for line in validation.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(None, 1)
+                if len(parts) != 2:
+                    continue
+                image_path = validation_root / parts[0]
+                if not image_path.is_file():
+                    image_path = validation_root / "imgs" / parts[0]
+                test_cases.append((str(image_path), parts[1]))
         return test_cases
 
     @staticmethod
     def _rate_speed(avg_ms):
-        if avg_ms < 5.0:    return 'Экстремально быстро', 'bold bright_green'
-        if avg_ms < 10.0:   return 'Очень быстро', 'bright_green'
-        if avg_ms < 20.0:   return 'Быстро', 'green1'
-        if avg_ms < 40.0:   return 'Достаточно быстро', 'yellow'
-        if avg_ms < 80.0:   return 'Средне', 'orange1'
-        if avg_ms < 150.0:  return 'Медленно', 'bright_red'
-        if avg_ms < 300.0:  return 'Очень медленно', 'red'
-        return 'Критически медленно', 'bold red'
+        if avg_ms < 5.0:
+            return "Экстремально быстро", "bold bright_green"
+        if avg_ms < 10.0:
+            return "Очень быстро", "bright_green"
+        if avg_ms < 20.0:
+            return "Быстро", "green1"
+        if avg_ms < 40.0:
+            return "Достаточно быстро", "yellow"
+        if avg_ms < 80.0:
+            return "Средне", "orange1"
+        if avg_ms < 150.0:
+            return "Медленно", "bright_red"
+        if avg_ms < 300.0:
+            return "Очень медленно", "red"
+        return "Критически медленно", "bold red"
 
-    def _run_single(self, model_name, dataset_prefix, subfolder, use_gpu=None, ocr_device=None):
-        logger.hr(f'Benchmark OCR: модель {model_name.upper()} | набор данных: {dataset_prefix}', level=2)
+    @staticmethod
+    def _model_metadata(model_name: str, model_version: str) -> dict[str, str]:
+        from module.ocr import al_ocr
 
-        # --- Dynamic OCR device config ---
+        custom_path = al_ocr.CUSTOM_CTC_MODEL_PARAMS.get(model_name, {}).get(model_version)
+        if custom_path is not None:
+            return {
+                "model_path": custom_path,
+                "dictionary_path": "<embedded:ALAS_CTC_CHARSET>",
+                "ocr_version": "CNN-CTC",
+            }
+        model_path, dictionary_path, ocr_version = al_ocr.ONNX_MODEL_PARAMS[model_name][model_version]
+        return {
+            "model_path": str(model_path),
+            "dictionary_path": str(dictionary_path),
+            "ocr_version": str(ocr_version),
+        }
+
+    def _run_single(
+        self,
+        model_name,
+        model_version,
+        dataset_prefix,
+        subfolder,
+        use_gpu=None,
+        ocr_device=None,
+        inference_count=100,
+    ):
+        from module.ocr import al_ocr
+
+        if model_name != "azur_lane":
+            raise ValueError(f"Benchmark поддерживает только Global/English model: {model_name}")
         if ocr_device is None and use_gpu is not None:
-            ocr_device = 'gpu' if use_gpu else 'cpu'
-        if ocr_device is not None:
-            self.config.override(Optimization_OcrDevice=ocr_device)
-            from module.ocr.al_ocr import reset_ocr_model
-            reset_ocr_model()
+            ocr_device = "gpu" if use_gpu else "cpu"
+        if ocr_device is None:
+            ocr_device = str(self.config.ocr_device)
+        if ocr_device == "auto":
+            ocr_device = "gpu"
+        if inference_count < 1:
+            raise ValueError("Количество benchmark inference должно быть положительным.")
 
-        # --- Init model ---
-        ocr = AlOcr(name=model_name)
-        ocr.init()
+        metadata = self._model_metadata(model_name, model_version)
+        backend = str(self.config.ocr_backend)
+        if backend == "auto":
+            backend = "onnx"
+        logger.hr(
+            "Benchmark OCR: "
+            f"{model_name} / {model_version} / {backend} / {ocr_device}",
+            level=2,
+        )
+        logger.info(
+            "[OCR benchmark] Модель: %s; файл: %s; словарь: %s; dataset: %s",
+            model_version,
+            metadata["model_path"],
+            metadata["dictionary_path"],
+            dataset_prefix,
+        )
 
-        # --- Extract dataset ---
+        self.config.override(
+            Optimization_OcrDevice=ocr_device,
+            Optimization_OcrModelVersionEnglish=model_version,
+            Optimization_OcrWindowsMlVendorEp=False,
+        )
         archive_path = self._find_archive(dataset_prefix)
-        extract_dir = f'module/daemon/{dataset_prefix}_temp'
-
+        extract_dir = Path("module/daemon") / f"{dataset_prefix}_{model_version}_temp"
+        original_config = al_ocr.config
+        al_ocr.config = self.config
         try:
+            al_ocr.reset_ocr_model()
+            ocr = AlOcr(name=model_name)
+            ocr.init()
             if archive_path:
-                logger.info(f'[OCR benchmark] Распаковка {archive_path}...')
-                if os.path.exists(extract_dir):
+                logger.info(f"[OCR benchmark] Распаковка {archive_path}...")
+                if extract_dir.exists():
                     shutil.rmtree(extract_dir)
                 shutil.unpack_archive(archive_path, extract_dir)
 
             test_cases = self._load_test_cases(extract_dir, subfolder)
             if not test_cases:
-                logger.error(f'[{model_name}] Не удалось загрузить тестовые примеры; набор пропущен')
+                logger.error(
+                    f"[{model_version}] Не удалось загрузить тестовые примеры; набор пропущен"
+                )
                 return None
 
-            logger.info(f'[{model_name}] Загружено тестовых примеров: {len(test_cases)}')
-
-            # --- Accuracy ---
+            logger.info(f"[{model_version}] Загружено примеров: {len(test_cases)}")
             correct = 0
+            errors = 0
             total = len(test_cases)
-            log_step = max(1, total // 20)  # 每 5% 打一次进度
-
-            for idx, (img_input, expected) in enumerate(test_cases, 1):
+            log_step = max(1, total // 20)
+            for index, (image_input, expected) in enumerate(test_cases, 1):
                 try:
-                    result = normalize_ocr_text(model_name, ocr.ocr(img_input))
+                    result = normalize_ocr_text(model_name, ocr.ocr(image_input))
                     if result.strip().upper() == expected.strip().upper():
                         correct += 1
                     else:
-                        name = os.path.basename(img_input)
-                        logger.warning(f'Ошибка [{name}]: ожидалось "{expected}", получено "{result}"')
-                except Exception as e:
-                    logger.error(f'[{model_name}] Ошибка OCR для {img_input}: {e}')
+                        logger.warning(
+                            "Ошибка [%s]: ожидалось \"%s\", получено \"%s\"",
+                            os.path.basename(image_input),
+                            expected,
+                            result,
+                        )
+                except Exception as exc:
+                    errors += 1
+                    logger.error(f"[{model_version}] Ошибка OCR для {image_input}: {exc}")
+                if index % log_step == 0 or index == total:
+                    logger.info(
+                        f"[{model_version}] Прогресс точности: "
+                        f"{index}/{total} ({index / total * 100:.0f}%)"
+                    )
 
-                if idx % log_step == 0 or idx == total:
-                    pct = idx / total * 100
-                    logger.info(f'[{model_name}] Прогресс точности: {idx}/{total} ({pct:.0f}%)')
-
-            accuracy = (correct / total) * 100 if total > 0 else 0
-
-            if accuracy >= 100.0:
-                acc_color = 'bright_green'
-            elif accuracy >= 90.0:
-                acc_color = 'yellow'
-            else:
-                acc_color = 'red'
-
-            logger.info(
-                f"[{model_name}] Точность: [{acc_color}]{accuracy:.2f}% ({correct}/{total})[/{acc_color}]",
-                extra={"markup": True}
-            )
-
-            # --- Speed ---
-            benchmark_img = cv2.imread(test_cases[0][0])
-            count = 100
-
-            logger.info(f'[{model_name}] Прогрев...')
+            accuracy = correct / total * 100 if total else 0.0
+            benchmark_image = cv2.imread(test_cases[0][0])
+            if benchmark_image is None:
+                raise RuntimeError("OpenCV не смог загрузить benchmark image.")
+            logger.info(f"[{model_version}] Прогрев...")
             for _ in range(3):
-                ocr.ocr(benchmark_img)
+                ocr.ocr(benchmark_image)
 
-            logger.info(f'[{model_name}] Запуск выводов модели: {count}')
-            start = time.time()
-            for i in range(1, count + 1):
+            logger.info(f"[{model_version}] Inference: {inference_count}")
+            completed_count = 0
+            started = time.perf_counter()
+            for index in range(1, inference_count + 1):
                 try:
-                    ocr.ocr(benchmark_img)
-                except Exception as e:
-                    logger.error(f'[{model_name}] Ошибка на итерации {i}: {e}')
+                    ocr.ocr(benchmark_image)
+                    completed_count += 1
+                except Exception as exc:
+                    logger.error(f"[{model_version}] Ошибка на итерации {index}: {exc}")
                     break
-                if i % 5 == 0 or i == count:
-                    logger.info(f'[{model_name}] Прогресс скорости: {i}/{count}')
-
-            cost = time.time() - start
-            avg_ms = cost * 1000 / count if cost > 0 else 0
+            elapsed = time.perf_counter() - started
+            avg_ms = elapsed * 1000 / completed_count if completed_count else float("inf")
             rating, rating_color = self._rate_speed(avg_ms)
-
             logger.info(
-                f"[{model_name}] Выводов: {count}; время: {cost:.3f} с | среднее: {avg_ms:.3f} мс | [{rating_color}]{rating}[/{rating_color}]",
-                extra={"markup": True}
+                f"[{model_version}] Точность: {accuracy:.2f}% ({correct}/{total}); "
+                f"ошибок выполнения: {errors}; среднее: {avg_ms:.3f} мс; {rating}"
             )
-
             return {
-                'model': model_name,
-                'dataset': dataset_prefix,
-                'accuracy': accuracy,
-                'correct': correct,
-                'total': total,
-                'cost': cost,
-                'avg_ms': avg_ms,
-                'rating': rating,
-                'rating_color': rating_color,
-                'acc_color': acc_color,
+                "model": model_name,
+                "model_version": model_version,
+                "model_path": metadata["model_path"],
+                "dictionary_path": metadata["dictionary_path"],
+                "ocr_version": metadata["ocr_version"],
+                "dataset": dataset_prefix,
+                "backend": backend,
+                "device": ocr_device,
+                "accuracy": accuracy,
+                "correct": correct,
+                "total": total,
+                "errors": errors,
+                "inference_count": completed_count,
+                "cost": elapsed,
+                "avg_ms": avg_ms,
+                "rating": rating,
+                "rating_color": rating_color,
             }
-
         finally:
-            if os.path.exists(extract_dir):
-                try:
-                    shutil.rmtree(extract_dir)
-                except Exception as e:
-                    logger.error(f'[OCR benchmark] Не удалось очистить {extract_dir}: {e}')
+            try:
+                al_ocr.release_ocr_models()
+            finally:
+                al_ocr.config = original_config
+            if extract_dir.exists():
+                shutil.rmtree(extract_dir)
 
     def run(self):
-        logger.hr('Benchmark OCR', level=1)
-
+        logger.hr("Benchmark Global/English OCR", level=1)
         results = []
-        for model_name, dataset_prefix, subfolder in self.BENCHMARKS:
-            r = self._run_single(model_name, dataset_prefix, subfolder)
-            if r:
-                results.append(r)
+        for model_name, model_version, dataset_prefix, subfolder in self.BENCHMARKS:
+            result = self._run_single(
+                model_name,
+                model_version,
+                dataset_prefix,
+                subfolder,
+            )
+            if result:
+                results.append(result)
 
-        # --- Summary ---
         if not results:
-            logger.hr('Сводка benchmark OCR', level=1)
-            logger.error('[OCR benchmark] Результаты benchmark не получены')
-            return
+            logger.error("[OCR benchmark] Результаты benchmark не получены")
+            return []
 
         table = Table(show_lines=True)
-        table.add_column("Модель", header_style="bright_cyan", style="cyan", no_wrap=True)
-        table.add_column("Набор данных", style="magenta")
+        table.add_column("Модель", style="cyan", no_wrap=True)
+        table.add_column("Версия", style="bright_cyan", no_wrap=True)
+        table.add_column("Файл")
+        table.add_column("Backend")
+        table.add_column("Устройство")
         table.add_column("Точность", justify="right")
-        table.add_column("Среднее время", justify="right")
-        table.add_column("Оценка скорости")
+        table.add_column("Среднее", justify="right")
         table.add_column("Статус", justify="center")
-
-        for r in results:
-            acc = r['accuracy']
-            if acc >= 100.0:
+        for result in results:
+            accuracy = result["accuracy"]
+            if accuracy >= 100.0:
                 status = Text("ПРОЙДЕНО", style="bold bright_green")
-            elif acc >= 90.0:
+            elif accuracy >= 90.0:
                 status = Text("ПРЕДУПРЕЖДЕНИЕ", style="bold yellow")
             else:
                 status = Text("ОШИБКА", style="bold red")
-
             table.add_row(
-                r['model'].upper(),
-                r['dataset'],
-                Text(f"{acc:.2f}% ({r['correct']}/{r['total']})", style=r['acc_color']),
-                f"{r['avg_ms']:.3f} ms",
-                Text(r['rating'], style=r['rating_color']),
-                status
+                result["model"],
+                result["model_version"],
+                Path(result["model_path"]).name,
+                result["backend"],
+                result["device"],
+                f"{accuracy:.2f}% ({result['correct']}/{result['total']})",
+                f"{result['avg_ms']:.3f} мс",
+                status,
             )
-
-        logger.hr('Сводка benchmark OCR', level=1)
-        logger.print(table, justify='center')
-        logger.info('[Daemon] Если статус содержит ОШИБКА или ПРЕДУПРЕЖДЕНИЕ, используйте CPU для OCR')
+        logger.hr("Сводка benchmark Global/English OCR", level=1)
+        logger.print(table, justify="center")
+        return results
 
     def run_simple_ocr_benchmark(self):
-        """
-        Returns:
-            str: Best OCR device for this machine.
-        """
-        logger.hr('Быстрый benchmark OCR', level=1)
-        backend = self.config.ocr_backend
-        logger.info(f'[OCR benchmark] Backend: {backend}')
+        backend = str(self.config.ocr_backend)
+        model_version = str(self.config.ocr_model_version("azur_lane"))
+        if model_version == "auto":
+            from module.ocr.al_ocr import DEFAULT_ONNX_MODEL_VERSION
 
-        if backend == 'ncnn':
+            model_version = DEFAULT_ONNX_MODEL_VERSION["azur_lane"]
+
+        if backend == "ncnn":
             from module.ocr.ncnn_ocr import has_ncnn_vulkan_gpu
-            if not has_ncnn_vulkan_gpu():
-                logger.info('[OCR benchmark] Vulkan GPU для ncnn не найден; используется CPU')
-                return 'cpu'
-            logger.info('[OCR benchmark] Проверка OCR через ncnn Vulkan GPU...')
-            device = 'gpu'
+
+            device = "gpu" if has_ncnn_vulkan_gpu() else "cpu"
+        elif sys.platform == "darwin" and platform.machine() == "arm64":
+            device = "ane"
         else:
-            # ONNX backend
-            if sys.platform == 'darwin' and platform.machine() == 'arm64':
-                logger.info('[OCR benchmark] Проверка OCR через ANE...')
-                device = 'ane'
-            else:
-                logger.info('[OCR benchmark] Проверка OCR через GPU DirectML...')
-                device = 'gpu'
+            device = "gpu"
 
-        res = self._run_single('azur_lane', 'sets_num', 'sets_num', ocr_device=device)
-
-        if res and res['accuracy'] >= 100.0:
-            logger.info(f'[OCR benchmark] Точность OCR через {device.upper()} равна 100%; выбрано {device.upper()}')
+        result = self._run_single(
+            "azur_lane",
+            model_version,
+            "sets_num",
+            "sets_num",
+            ocr_device=device,
+        )
+        if result and result["accuracy"] >= 100.0:
+            logger.info(
+                f"[OCR benchmark] {model_version} через {device.upper()} имеет точность 100%"
+            )
             return device
-        else:
-            logger.info(f'[OCR benchmark] Точность OCR через {device.upper()} ниже 100% или проверка завершилась ошибкой; используется CPU fallback')
-            return 'cpu'
+        logger.info(
+            f"[OCR benchmark] {model_version} через {device.upper()} не прошёл; используется CPU"
+        )
+        return "cpu"
 
 
 def run_ocr_benchmark(config):
     try:
-        OcrBenchmark(config, task='OcrBenchmark').run()
+        OcrBenchmark(config, task="OcrBenchmark").run()
         return True
     except RequestHumanTakeover:
-        logger.critical('[Daemon] Ошибка OCR требует ручного вмешательства')
+        logger.critical("[Daemon] Ошибка OCR требует ручного вмешательства")
         return False
