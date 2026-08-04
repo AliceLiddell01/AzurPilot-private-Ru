@@ -148,10 +148,10 @@ def _normalize_translation_literals(node: ast.AST) -> str:
             func = call.func
             if (
                 isinstance(func, ast.Name)
-                and func.id == "normalize_azur_lane_text"
-                and len(call.args) == 1
+                and func.id == "normalize_ocr_text"
+                and len(call.args) == 2
             ):
-                return call.args[0]
+                return call.args[1]
             replace_first = False
             if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
                 replace_first = (
@@ -297,6 +297,7 @@ EXPECTED_COMPACT_SPACING_BASE = {
     "stage": "7 - 2",
     "words": "New Jersey",
     "phrase": "LEVEL: New Jersey 120",
+    "other_model": "MAX: 96056",
 }
 EXPECTED_COMPACT_SPACING_HEAD = {
     "max": "MAX:96056",
@@ -306,6 +307,7 @@ EXPECTED_COMPACT_SPACING_HEAD = {
     "stage": "7-2",
     "words": "New Jersey",
     "phrase": "LEVEL: New Jersey 120",
+    "other_model": "MAX: 96056",
 }
 
 
