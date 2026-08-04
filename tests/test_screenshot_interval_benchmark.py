@@ -89,6 +89,20 @@ class ScreenshotIntervalBenchmarkTests(unittest.TestCase):
         )
         self.assertEqual(recommendation["recommended_profile"], "current")
 
+    def test_scrcpy_recommendation_uses_forced_backend_interval(self) -> None:
+        recommendation = _recommend_profiles(
+            [_result("normal", 0.1)],
+            [_result("combat", 0.1)],
+            current_normal=0.2,
+            current_combat=0.5,
+            forced_interval_s=0.1,
+        )
+        self.assertEqual(recommendation["status"], "FORCED_BY_BACKEND")
+        self.assertEqual(recommendation["recommended_profile"], "backend_forced")
+        forced = recommendation["profiles"]["backend_forced"]
+        self.assertEqual(forced["normal_s"], 0.1)
+        self.assertEqual(forced["combat_s"], 0.1)
+
 
 if __name__ == "__main__":
     unittest.main()
