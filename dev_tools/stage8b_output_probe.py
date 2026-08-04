@@ -155,6 +155,20 @@ def build_probe(source_root: Path) -> dict[str, object]:
         al_ocr._ocr_worker_ident = original_worker_ident
 
     detection = _detection_values(al_ocr)
+    normalize_text = getattr(
+        ocr_module,
+        "normalize_azur_lane_text",
+        lambda text: text,
+    )
+    compact_spacing = {
+        "max": normalize_text("MAX: 96056"),
+        "max_spaced_colon": normalize_text("MAX : 96056"),
+        "counter": normalize_text("14 / 15"),
+        "duration": normalize_text("01: 30: 00"),
+        "stage": normalize_text("7 - 2"),
+        "words": normalize_text("New Jersey"),
+        "phrase": normalize_text("LEVEL: New Jersey 120"),
+    }
     values: dict[str, object] = {
         "digit": digit.after_process("IDSB"),
         "counter": counter.after_process("I4/I5"),
@@ -188,6 +202,7 @@ def build_probe(source_root: Path) -> dict[str, object]:
         "ctc_max_width": al_ocr.ALAS_CTC_MAX_WIDTH,
         "cache_key": cache_key,
         "queue_value": queue_value,
+        "compact_spacing": compact_spacing,
     }
     return {
         "environment": {
