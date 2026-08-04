@@ -4,11 +4,20 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 
 from dev_tools.stage8b_security_audit import build_security_review
+from module.ocr.rpc import (
+    MAX_CANDIDATE_ALPHABET_LENGTH,
+    MAX_RPC_BATCH_IMAGES,
+    ModelProxy,
+    _get_server_model,
+    _validate_batch,
+    _validate_candidate_alphabet,
+)
 from module.ocr.stage8b_privacy import (
     OcrDebugOutputError,
     cleanup_debug_directory,
@@ -24,7 +33,25 @@ from module.ocr.stage8b_rpc_security import (
 )
 
 
+class _FallbackModel:
+    def __init__(self, result: str):
+        self.result = result
+        self.calls: list[object] = []
+
+    def ocr(self, image):
+        self.calls.append(image)
+        return self.result
+
+
 class Stage8BSecurityReviewTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._rpc_client = ModelProxy.client
+        self._rpc_online = ModelProxy.online
+
+    def tearDown(self) -> None:
+        ModelProxy.client = self._rpc_client
+        ModelProxy.online = self._rpc_online
+
     def test_rpc_is_loopback_only_and_uses_one_canonical_bind(self) -> None:
         self.assertEqual(
             normalize_loopback_address("localhost:22268"),
@@ -62,6 +89,65 @@ class Stage8BSecurityReviewTests(unittest.TestCase):
                 decode_image_payload(invalid)
         with self.assertRaises(OcrRpcSecurityError):
             encode_image_payload(np.array([object()], dtype=object))
+
+    def test_offline_rpc_fallback_does_not_serialize_input(self) -> None:
+        marker = object()
+        fallback = _FallbackModel("local")
+        proxy = ModelProxy("azur_lane")
+        ModelProxy.online = False
+        ModelProxy.client = None
+
+        with patch(
+            "module.ocr.rpc._get_local_model",
+            return_value=fallback,
+        ), patch(
+            "module.ocr.rpc.encode_image_payload",
+            side_effect=AssertionError("offline path serialized input"),
+        ):
+            self.assertEqual(proxy.ocr(marker), "local")
+
+        self.assertEqual(fallback.calls, [marker])
+
+    def test_rpc_transport_failure_switches_process_to_local_fallback(self) -> None:
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+        fallback = _FallbackModel("fallback")
+        proxy = ModelProxy("azur_lane")
+        ModelProxy.online = True
+
+        def fail(*_args):
+            raise RuntimeError("fixture transport failure")
+
+        proxy.client = fail
+        with patch("module.ocr.rpc._get_local_model", return_value=fallback):
+            self.assertEqual(proxy.ocr(image), "fallback")
+
+        self.assertFalse(ModelProxy.online)
+        np.testing.assert_array_equal(fallback.calls[0], image)
+
+    def test_rpc_model_allowlist_rejects_attribute_traversal(self) -> None:
+        for name in ("__class__", "hello", "close", "missing"):
+            with self.assertRaises(ValueError):
+                ModelProxy(name)
+            with self.assertRaises(ValueError):
+                _get_server_model(SimpleNamespace(), name)
+
+    def test_rpc_batch_and_alphabet_limits_are_enforced(self) -> None:
+        self.assertEqual(_validate_batch([1]), [1])
+        with self.assertRaises(ValueError):
+            _validate_batch([])
+        with self.assertRaises(ValueError):
+            _validate_batch([None] * (MAX_RPC_BATCH_IMAGES + 1))
+        with self.assertRaises(ValueError):
+            _validate_batch("not-a-batch")
+
+        self.assertIsNone(_validate_candidate_alphabet(None))
+        self.assertEqual(_validate_candidate_alphabet("ABC"), "ABC")
+        with self.assertRaises(ValueError):
+            _validate_candidate_alphabet(123)
+        with self.assertRaises(ValueError):
+            _validate_candidate_alphabet(
+                "A" * (MAX_CANDIDATE_ALPHABET_LENGTH + 1)
+            )
 
     def test_debug_output_is_opt_in_and_safe(self) -> None:
         image = np.zeros((8, 8, 3), dtype=np.uint8)
