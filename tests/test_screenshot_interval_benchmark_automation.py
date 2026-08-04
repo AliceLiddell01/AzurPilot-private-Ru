@@ -180,7 +180,36 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
             report["combat_context"],
             "meta_current_target_battle_simulation",
         )
+        self.assertTrue(report["automation"]["returned_to_main"])
         self.assertFalse(report["automatic_config_write"])
+
+    def test_partial_navigation_failure_still_returns_to_main(self) -> None:
+        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
+            AutomatedScreenshotIntervalBenchmark
+        )
+        benchmark.config = SimpleNamespace(
+            config_name="alas",
+            Optimization_ScreenshotInterval=0.1,
+            Optimization_CombatScreenshotInterval=0.3,
+            Emulator_ScreenshotMethod="nemu_ipc",
+            Emulator_PackageName="com.YoStarEN.AzurLane",
+        )
+        benchmark.device = SimpleNamespace(screenshot_interval_set=Mock())
+        benchmark._prepare_normal_scene = Mock()
+        benchmark._run_phase = Mock(return_value=[SimpleNamespace()])
+        benchmark._enter_meta_simulation = Mock(
+            side_effect=ScreenshotIntervalBenchmarkError("simulation fixture")
+        )
+        benchmark.ui_goto_main = Mock()
+
+        with patch(
+            "module.daemon.screenshot_interval_benchmark._sha256",
+            return_value="same",
+        ), self.assertRaises(ScreenshotIntervalBenchmarkError):
+            benchmark.run()
+
+        benchmark.ui_goto_main.assert_called_once_with()
+        benchmark.device.screenshot_interval_set.assert_called_once_with(0.1)
 
     def test_runner_reports_safe_failure(self) -> None:
         with patch(
