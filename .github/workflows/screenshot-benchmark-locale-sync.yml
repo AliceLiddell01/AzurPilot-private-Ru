@@ -18,11 +18,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Checkout writable head branch
+      - name: Checkout canonical locale only
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 1
           ref: ${{ github.event.pull_request.head.ref }}
+          sparse-checkout: |
+            module/config/i18n/en-US.json
+          sparse-checkout-cone-mode: false
 
       - name: Add canonical locale keys
         shell: bash
