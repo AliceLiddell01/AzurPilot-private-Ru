@@ -30,6 +30,7 @@ from module.os_ash.ash import AshCombat
 from module.os_ash.assets import (
     ASH_QUIT,
     ASH_SHOWDOWN,
+    ASH_START,
     BEACON_EMPTY,
     BEACON_LIST,
     DOSSIER_LIST,
@@ -256,9 +257,9 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
             )
 
         self._enter_current_target()
-        center_x, center_y = self._wait_for_simulation_button()
+        self._wait_for_simulation_button()
         logger.info("[Screenshot benchmark] Запуск бесплатной Battle Simulation")
-        self.device.click((center_x, center_y))
+        self.device.click(ASH_START)
 
         self._wait_until(
             lambda: self.appear(BATTLE_PREPARATION, offset=(30, 30)),
