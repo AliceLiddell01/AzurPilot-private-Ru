@@ -9,8 +9,14 @@ from typing import Any
 from dev_tools.stage8b_semantic_policy import ROOT
 
 WILDCARD_BIND_RE = re.compile(r"tcp://(?:\*|0\.0\.0\.0|\[::\])")
-SERIALIZED_LOG_RE = re.compile(r"logger\.[a-zA-Z_]+\([^\n]*(?:payload|image_bytes|tobytes)", re.I)
-RECOGNIZED_FILENAME_RE = re.compile(r"filename\s*=.*(?:result|text|txt|res_clean)", re.I)
+SERIALIZED_LOG_RE = re.compile(
+    r"logger\.[a-zA-Z_]+\([^\n]*(?:payload|image_bytes|tobytes)",
+    re.IGNORECASE,
+)
+RECOGNIZED_FILENAME_RE = re.compile(
+    r"filename\s*=.*(?:result|text|txt|res_clean)",
+    re.IGNORECASE,
+)
 
 RPC_PATHS = (
     "module/ocr/rpc.py",
