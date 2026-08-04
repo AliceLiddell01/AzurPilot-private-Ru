@@ -1,5 +1,6 @@
 name: Temporary screenshot benchmark config sync
 
+# One-shot branch synchronization; remove after generated files are committed.
 on:
   push:
     branches:
