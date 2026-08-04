@@ -49,7 +49,7 @@ class Stage8BSemanticContractTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIsNotNone(owners)
                 self.assertTrue(owners)
-                self.assertTrue(all("OCR" in owner or "ocr" in owner for owner in owners))
+                self.assertTrue(all("ocr" in owner.casefold() for owner in owners))
 
     def test_blocking_metric_names_are_unique(self) -> None:
         self.assertEqual(len(BLOCKING_METRICS), len(set(BLOCKING_METRICS)))
