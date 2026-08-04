@@ -1,0 +1,114 @@
+name: Stage 8B validation
+
+on:
+  pull_request:
+    paths:
+      - "module/ocr/**"
+      - "module/daemon/ocr_benchmark.py"
+      - "dev_tools/stage8b_*.py"
+      - "dev_tools/verify_stage8b.py"
+      - "tests/test_stage8b_*.py"
+      - ".github/workflows/stage8b-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage8b-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+  STAGE8B_BASE_REF: 045162c35ae7583860c88d6d899640ef3a6a1abb
+
+jobs:
+  stage8b-verifier:
+    name: Stage 8B OCR semantic, output and security gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+
+      - name: Synchronize locked dependencies
+        run: uv sync --frozen
+
+      - name: Verify exact head
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          printf 'exact_head=%s\n' "$(git rev-parse HEAD)" | tee artifacts-exact-head.txt
+
+      - name: Run Ruff on Stage 8B code
+        run: >-
+          uv run ruff check
+          dev_tools/stage8b_evidence_policy.py
+          dev_tools/stage8b_ocr_acceptance.py
+          dev_tools/stage8b_ocr_log_audit.py
+          dev_tools/stage8b_output_contract.py
+          dev_tools/stage8b_output_probe.py
+          dev_tools/stage8b_security_audit.py
+          dev_tools/stage8b_semantic_policy.py
+          dev_tools/verify_stage8b.py
+          module/ocr/stage8b_privacy.py
+          module/ocr/stage8b_rpc_security.py
+          tests/test_stage8b_ocr_acceptance.py
+          tests/test_stage8b_output_contract.py
+          tests/test_stage8b_runtime_scenario_matrix.py
+          tests/test_stage8b_security_review.py
+          tests/test_stage8b_semantic_contract.py
+
+      - name: Run Stage 8B verifier
+        run: >-
+          uv run python -m dev_tools.verify_stage8b
+          --base-ref "$STAGE8B_BASE_REF"
+          --output-dir artifacts/stage8b
+
+      - name: Check diff formatting
+        run: git diff --check
+
+      - name: Publish Stage 8B summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f artifacts/stage8b/report.md ]]; then
+            cat artifacts/stage8b/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Stage 8B report was not generated.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p artifacts/stage8b-failure
+          git status --short > artifacts/stage8b-failure/git-status.txt
+          git diff --check > artifacts/stage8b-failure/diff-check.txt 2>&1 || true
+          git diff --binary > artifacts/stage8b-failure/working-tree.diff
+          cp artifacts-exact-head.txt artifacts/stage8b-failure/exact-head.txt
+
+      - name: Upload Stage 8B evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: stage8b-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/stage8b
+            artifacts/stage8b-failure
+            artifacts-exact-head.txt
+          if-no-files-found: error
+          retention-days: 14
