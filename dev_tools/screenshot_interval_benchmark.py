@@ -7,9 +7,11 @@ import math
 import sys
 import time
 import warnings
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
+from itertools import pairwise
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import psutil
 from rich.console import Console
@@ -194,7 +196,7 @@ def _summarize_interval(
         )
 
     wall_s = max(ends[-1] - starts[0], 1e-9)
-    start_intervals = [later - earlier for earlier, later in zip(starts, starts[1:])]
+    start_intervals = [later - earlier for earlier, later in pairwise(starts)]
     if not start_intervals:
         start_intervals = [ends[0] - starts[0]]
     p50 = _percentile(start_intervals, 0.50)
