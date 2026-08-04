@@ -335,9 +335,10 @@ class OcrBenchmark:
             ) * 1000
             base_result["runtime"] = self._runtime_name(ocr, backend)
 
-            with tempfile.TemporaryDirectory(
+            extract_dir = tempfile.mkdtemp(
                 prefix=f"azurpilot-{dataset_prefix}-"
-            ) as extract_dir:
+            )
+            try:
                 if archive_path:
                     logger.info(f"[OCR benchmark] Распаковка {archive_path}...")
                     shutil.unpack_archive(archive_path, extract_dir)
@@ -422,6 +423,8 @@ class OcrBenchmark:
                     f"({correct}/{total}); среднее: {avg_ms:.3f} мс; "
                     f"p95: {p95_ms:.3f} мс"
                 )
+            finally:
+                shutil.rmtree(extract_dir, ignore_errors=True)
         except Exception as exc:
             base_result["status"] = "ОШИБКА"
             base_result["error"] = f"{type(exc).__name__}: {exc}"
