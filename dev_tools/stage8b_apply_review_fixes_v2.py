@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from dev_tools import stage8b_apply_review_fixes as fixes
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from dev_tools import stage8b_apply_review_fixes as fixes
 
 
 def patch_manual_model_version() -> None:
