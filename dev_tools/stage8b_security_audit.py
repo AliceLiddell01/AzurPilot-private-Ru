@@ -12,7 +12,6 @@ WILDCARD_BIND_RE = re.compile(r"tcp://(?:\*|0\.0\.0\.0|\[::\])")
 SERIALIZED_LOG_RE = re.compile(r"logger\.[a-zA-Z_]+\([^\n]*(?:payload|image_bytes|tobytes)", re.I)
 RECOGNIZED_FILENAME_RE = re.compile(r"filename\s*=.*(?:result|text|txt|res_clean)", re.I)
 
-
 RPC_PATHS = (
     "module/ocr/rpc.py",
     "module/ocr/stage8b_rpc_security.py",
@@ -55,7 +54,10 @@ def _forbidden_serialization_calls(relative: str) -> list[dict[str, Any]]:
                             "kind": f"pickle_{node.func.attr}",
                         }
                     )
-                if node.func.attr == "dumps":
+                if (
+                    node.func.attr == "dumps"
+                    and not (isinstance(owner, ast.Name) and owner.id == "json")
+                ):
                     findings.append(
                         {"path": relative, "line": node.lineno, "kind": "object_dumps"}
                     )
