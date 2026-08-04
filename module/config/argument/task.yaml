@@ -462,6 +462,8 @@ Tool:
       - Benchmark
     OcrBenchmark:
       - OcrBenchmark
+    ScreenshotIntervalBenchmark:
+      - OcrBenchmark
     AzurLaneUncensored:
       - AzurLaneUncensored
     GameManager:

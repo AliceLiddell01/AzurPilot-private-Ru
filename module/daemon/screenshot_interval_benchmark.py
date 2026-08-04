@@ -9,22 +9,6 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from module.base.timer import Timer
-from module.combat.combat import BATTLE_PREPARATION
-from module.logger import logger
-from module.os_ash.ash import AshCombat
-from module.os_ash.assets import (
-    ASH_QUIT,
-    ASH_SHOWDOWN,
-    BEACON_EMPTY,
-    BEACON_LIST,
-    DOSSIER_LIST,
-    META_MAIN_BEACON_ENTRANCE,
-)
-from module.os_ash.meta import Meta
-from module.ui.assets import BACK_ARROW
-from module.ui.page import page_campaign, page_reward
-
 from dev_tools.screenshot_interval_benchmark import (
     COMBAT_RANGE,
     DEFAULT_COMBAT_INTERVALS,
@@ -40,6 +24,20 @@ from dev_tools.screenshot_interval_benchmark import (
     _with_current,
     _write_markdown,
 )
+from module.combat.combat import BATTLE_PREPARATION
+from module.logger import logger
+from module.os_ash.ash import AshCombat
+from module.os_ash.assets import (
+    ASH_QUIT,
+    ASH_SHOWDOWN,
+    BEACON_EMPTY,
+    BEACON_LIST,
+    DOSSIER_LIST,
+    META_MAIN_BEACON_ENTRANCE,
+)
+from module.os_ash.meta import Meta
+from module.ui.assets import BACK_ARROW
+from module.ui.page import page_campaign, page_reward
 
 
 class ScreenshotIntervalBenchmarkError(RuntimeError):
