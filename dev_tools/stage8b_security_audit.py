@@ -95,16 +95,32 @@ def build_security_review(output_dir: Path) -> tuple[dict[str, Any], dict[str, i
 
     contract_findings: list[dict[str, str]] = []
     for token in (
-        "normalize_loopback_address", "loopback_bind_uri", "client_uri",
-        "encode_image_payload", "decode_image_payload",
+        "normalize_loopback_address",
+        "loopback_bind_uri",
+        "client_uri",
+        "encode_image_payload",
+        "decode_image_payload",
+        "SUPPORTED_OCR_MODELS",
+        "_validate_model_name",
+        "_get_server_model",
+        "MAX_RPC_BATCH_IMAGES",
+        "MAX_RPC_BATCH_BYTES",
+        "_validate_batch",
+        "MAX_CANDIDATE_ALPHABET_LENGTH",
+        "_validate_candidate_alphabet",
+        "args_factory",
     ):
         if token not in rpc_source:
             contract_findings.append(
                 {"path": "module/ocr/rpc.py", "kind": "missing_rpc_usage", "token": token}
             )
     for token in (
-        "_IMAGE_MAGIC", "MAX_SERIALIZED_IMAGE_BYTES", "MAX_IMAGE_ELEMENTS",
-        "MAX_HEADER_BYTES", "encode_image_payload", "decode_image_payload",
+        "_IMAGE_MAGIC",
+        "MAX_SERIALIZED_IMAGE_BYTES",
+        "MAX_IMAGE_ELEMENTS",
+        "MAX_HEADER_BYTES",
+        "encode_image_payload",
+        "decode_image_payload",
         "len(image_bytes) != expected_size",
     ):
         if token not in rpc_security_source:
@@ -118,9 +134,14 @@ def build_security_review(output_dir: Path) -> tuple[dict[str, Any], dict[str, i
 
     debug_findings: list[dict[str, str]] = []
     for token in (
-        "AZURPILOT_OCR_DEBUG", "debug_output_enabled", "resolve_debug_directory",
-        "image_fingerprint", "retention", "_reject_existing_symlink_components",
-        "tempfile.mkstemp", "os.replace",
+        "AZURPILOT_OCR_DEBUG",
+        "debug_output_enabled",
+        "resolve_debug_directory",
+        "image_fingerprint",
+        "retention",
+        "_reject_existing_symlink_components",
+        "tempfile.mkstemp",
+        "os.replace",
     ):
         if token not in privacy_source:
             debug_findings.append(
@@ -161,6 +182,10 @@ def build_security_review(output_dir: Path) -> tuple[dict[str, Any], dict[str, i
             "bind": "loopback-only",
             "authentication": "local-only transport; no remote endpoint supported",
             "serialization": "fixed ndarray binary wire format; pickle forbidden",
+            "model_allowlist": True,
+            "bounded_batch": True,
+            "bounded_candidate_alphabet": True,
+            "lazy_local_fallback": True,
             "remote_rpc_supported": False,
             "wildcard_findings": wildcard_findings,
             "forbidden_serialization_findings": serialization_findings,
