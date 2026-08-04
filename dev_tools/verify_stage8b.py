@@ -15,6 +15,7 @@ from dev_tools.stage8b_ocr_log_audit import Stage8BOcrLogAudit
 from dev_tools.stage8b_output_contract import build_output_contract
 from dev_tools.stage8b_security_audit import build_security_review
 from dev_tools.stage8b_semantic_policy import (
+    APPROVED_BEHAVIOR_RUNTIME_PATHS,
     BLOCKING_METRICS,
     DEFAULT_OUTPUT_DIR,
     IMMUTABLE_STAGE8B_BASE_SHA,
@@ -172,7 +173,7 @@ def _update_report(
         "",
         "## Контракты",
         "- Runtime strings: русский first-party context; recognized/raw values не переводятся.",
-        "- Output equivalence: два изолированных source roots и фактическое сравнение values.",
+        "- Output contract: два изолированных source roots; разрешён только проверенный фикс ложных пробелов в компактных EN OCR-значениях.",
         "- OCR RPC: loopback-only и фиксированный ndarray wire format без pickle.",
         "- Debug images: explicit opt-in, вне Git root, без recognized text в filename.",
         "- Real Windows/MuMu acceptance: отдельный exact-head user gate, пока не выполнен.",
@@ -228,20 +229,27 @@ def main(argv: list[str] | None = None) -> int:
             "status": approved_delta_status,
             "whole_change_is_translation_only": False,
             "translation_only_runtime_paths": list(TRANSLATION_ONLY_RUNTIME_PATHS),
+            "approved_behavior_runtime_paths": list(APPROVED_BEHAVIOR_RUNTIME_PATHS),
             "security_runtime_paths": list(SECURITY_RUNTIME_PATHS),
             "security_deltas": [
                 "OCR debug output is explicit opt-in and uses atomic safe filenames outside Git root.",
                 "OCR RPC is loopback-only and uses a bounded ndarray wire format without pickle.",
                 "Acceptance forces vendor EP download/update off in memory.",
             ],
-            "runtime_behavior_equivalent": output_contract["status"] == "PASS",
+            "runtime_behavior_equivalent_except_approved_deltas": (
+                output_contract["status"] == "PASS"
+            ),
+            "approved_behavioral_deltas": [
+                "azur_lane removes false whitespace around numeric separators (:, /, -)",
+            ],
             "security_contract_pass": security_review["status"] == "PASS",
             "behavioral_contract": {
                 "compared": [
                     "text", "scores", "boxes", "result_order", "model_versions",
                     "provider_order", "thresholds", "alphabets", "postprocess",
-                    "cache_key", "queue_result",
+                    "cache_key", "queue_result", "compact_numeric_spacing",
                 ],
+                "approved_behavior_exceptions": ["compact_numeric_spacing"],
                 "security_exceptions": ["debug_output", "rpc_transport"],
             },
         }
