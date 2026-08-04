@@ -12,6 +12,7 @@ from module.daemon.screenshot_interval_benchmark import (
 )
 from module.os_ash.assets import ASH_START
 from module.os_ash.meta import OpsiAshBeacon
+from module.ui.assets import BACK_ARROW
 
 
 class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
@@ -144,6 +145,61 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
             "BATTLE_SIMULATION",
             interval=0,
         )
+        self.assertIs(benchmark._benchmark_combat, combat)
+
+    def test_finish_meta_simulation_waits_for_natural_battle_result(self) -> None:
+        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
+            AutomatedScreenshotIntervalBenchmark
+        )
+        benchmark.device = SimpleNamespace(
+            screenshot_interval_set=Mock(),
+            screenshot=Mock(),
+            click=Mock(),
+        )
+        benchmark.appear = Mock(return_value=False)
+        benchmark._in_meta_page = Mock(return_value=True)
+        combat = SimpleNamespace(
+            combat_execute=Mock(),
+            combat_status=Mock(),
+        )
+
+        benchmark._finish_meta_simulation(combat)
+
+        benchmark.device.screenshot_interval_set.assert_called_once_with("combat")
+        combat.combat_execute.assert_called_once_with(
+            auto="combat_auto",
+            submarine="do_not_use",
+            drop=None,
+        )
+        combat.combat_status.assert_called_once()
+        self.assertIsNone(combat.combat_status.call_args.kwargs["drop"])
+        expected_end = combat.combat_status.call_args.kwargs["expected_end"]
+        self.assertTrue(expected_end())
+        benchmark.device.click.assert_not_called()
+
+    def test_natural_completion_callback_leaves_stray_formation(self) -> None:
+        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
+            AutomatedScreenshotIntervalBenchmark
+        )
+        benchmark.device = SimpleNamespace(
+            screenshot_interval_set=Mock(),
+            screenshot=Mock(),
+            click=Mock(),
+        )
+        benchmark.appear = Mock(return_value=False)
+        benchmark._in_meta_page = Mock(return_value=True)
+        combat = SimpleNamespace(
+            combat_execute=Mock(),
+            combat_status=Mock(),
+        )
+
+        benchmark._finish_meta_simulation(combat)
+        expected_end = combat.combat_status.call_args.kwargs["expected_end"]
+        benchmark.appear.return_value = True
+        benchmark._in_meta_page.return_value = False
+
+        self.assertFalse(expected_end())
+        benchmark.device.click.assert_called_once_with(BACK_ARROW)
 
     def test_run_phase_resets_stuck_guard_before_each_candidate(self) -> None:
         benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
@@ -231,7 +287,8 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
         benchmark._enter_meta_simulation = lambda: (
             events.append("combat_scene") or SimpleNamespace()
         )
-        benchmark._leave_meta_simulation = lambda _combat: events.append("cleanup")
+        benchmark._finish_meta_simulation = lambda _combat: events.append("finish")
+        benchmark.ui_goto_main = lambda: events.append("main")
         normal_result = SimpleNamespace()
         combat_result = SimpleNamespace()
 
@@ -272,12 +329,23 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
 
         self.assertEqual(
             events,
-            ["normal_scene", "normal", "combat_scene", "combat", "cleanup"],
+            [
+                "normal_scene",
+                "normal",
+                "combat_scene",
+                "combat",
+                "finish",
+                "main",
+            ],
         )
         self.assertEqual(report["normal_context"], "campaign_page")
         self.assertEqual(
             report["combat_context"],
             "meta_current_target_battle_simulation",
+        )
+        self.assertEqual(
+            report["automation"]["simulation_completion"],
+            "natural_combat_execute_and_status",
         )
         self.assertTrue(report["automation"]["returned_to_main"])
         self.assertFalse(report["automatic_config_write"])
@@ -308,7 +376,11 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
             benchmark.run()
 
         benchmark.ui_goto_main.assert_called_once_with()
-        benchmark.device.screenshot_interval_set.assert_called_once_with(0.1)
+        self.assertGreaterEqual(
+            benchmark.device.screenshot_interval_set.call_count,
+            1,
+        )
+        benchmark.device.screenshot_interval_set.assert_any_call(0.1)
 
     def test_runner_reports_safe_failure(self) -> None:
         with patch(
