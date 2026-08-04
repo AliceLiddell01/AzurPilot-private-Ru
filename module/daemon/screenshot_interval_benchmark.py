@@ -281,7 +281,6 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
         )
 
         combat = AshCombat(config=self.config, device=self.device)
-        self._benchmark_combat = combat
         combat.combat_preparation(
             balance_hp=False,
             emotion_reduce=False,
@@ -292,47 +291,44 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
             raise ScreenshotIntervalBenchmarkError(
                 "Battle Simulation не перешла в активный бой."
             )
+        self._benchmark_combat = combat
         logger.info("[Screenshot benchmark] Battle Simulation активна")
         return combat
 
-    def _leave_meta_simulation(self, combat: AshCombat) -> None:
-        logger.info("[Screenshot benchmark] Безопасный выход из Battle Simulation")
-        deadline = time.monotonic() + 35
-        pause_clicked = False
-        while time.monotonic() < deadline:
-            self.device.screenshot()
+    def _finish_meta_simulation(self, combat: AshCombat) -> None:
+        logger.info(
+            "[Screenshot benchmark] Ожидание естественного завершения "
+            "Battle Simulation"
+        )
+        self.device.screenshot_interval_set("combat")
 
-            pause = combat.is_combat_executing()
-            if pause and not pause_clicked:
-                self.device.click(pause)
-                pause_clicked = True
-                self.device.sleep(0.5)
-                continue
-            if combat.handle_combat_quit(interval=0):
-                continue
-            if combat.handle_combat_quit_reconfirm(interval=0):
-                continue
-            if self._in_meta_page():
-                break
-            if self.appear(BATTLE_PREPARATION, offset=(30, 30)):
+        def expected_end() -> bool:
+            if self.appear(BATTLE_PREPARATION, offset=(30, 30), interval=2):
+                logger.info(
+                    "[Screenshot benchmark] После боя открыт Formation; "
+                    "возврат на экран META"
+                )
                 self.device.click(BACK_ARROW)
-                self.device.sleep(0.5)
-                continue
-            if combat.handle_battle_status():
-                continue
-            if combat.handle_get_items():
-                continue
-            if combat.handle_exp_info():
-                continue
-            self.device.sleep(0.25)
-        else:
-            logger.warning(
-                "[Screenshot benchmark] Не удалось подтвердить выход из simulation "
-                "за 35 секунд; выполняется переход на главный экран"
-            )
+                return False
+            if self._in_meta_page():
+                logger.info(
+                    "[Screenshot benchmark] Battle Simulation завершена; "
+                    "экран META подтверждён"
+                )
+                return True
+            return False
 
-        self.device.screenshot_interval_set()
-        self.ui_goto_main()
+        combat.combat_execute(
+            auto="combat_auto",
+            submarine="do_not_use",
+            drop=None,
+        )
+        combat.combat_status(drop=None, expected_end=expected_end)
+        self.device.screenshot()
+        if not self._in_meta_page():
+            raise ScreenshotIntervalBenchmarkError(
+                "Battle Simulation завершилась, но возврат на экран META не подтверждён."
+            )
 
     def run(self) -> dict[str, Any]:
         profile = str(getattr(self.config, "config_name", "alas"))
@@ -386,20 +382,21 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
                 intervals=combat_intervals,
             )
         finally:
-            self.device.screenshot_interval_set(current_normal)
             cleanup_combat = combat or self._benchmark_combat
             try:
                 if cleanup_combat is not None:
-                    self._leave_meta_simulation(cleanup_combat)
-                else:
-                    self.ui_goto_main()
+                    self._finish_meta_simulation(cleanup_combat)
+                self.device.screenshot_interval_set(current_normal)
+                self.ui_goto_main()
                 returned_to_main = True
             except Exception as exc:  # noqa: BLE001 - cleanup must not hide result.
                 logger.warning(
-                    "[Screenshot benchmark] Ошибка возврата на главный экран: "
+                    "[Screenshot benchmark] Ошибка естественного завершения боя "
+                    "или возврата на главный экран: "
                     f"{_safe_text(exc)}"
                 )
             finally:
+                self.device.screenshot_interval_set(current_normal)
                 self._benchmark_combat = None
 
         config_hash_after = _sha256(config_path)
@@ -410,7 +407,8 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
             )
         if not returned_to_main:
             raise ScreenshotIntervalBenchmarkError(
-                "Benchmark завершил измерения, но не подтвердил возврат на главный экран."
+                "Benchmark завершил измерения, но не подтвердил естественное завершение "
+                "Battle Simulation и возврат на главный экран."
             )
         if not normal_results or not combat_results:
             raise ScreenshotIntervalBenchmarkError(
@@ -445,6 +443,7 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
                 ),
                 "simulation_button_requires_ocr_token": "SIMULATION",
                 "ordinary_meta_attack_allowed": False,
+                "simulation_completion": "natural_combat_execute_and_status",
                 "returned_to_main": returned_to_main,
             },
             "task_stuck_guard_reset_per_candidate": True,
