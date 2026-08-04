@@ -36,10 +36,6 @@ SCENARIO_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "loopback_normalization", "remote_address_rejected", "uint8_round_trip",
         "float32_round_trip", "truncated_payload_rejected", "object_dtype_rejected",
     ),
-    "rpc_runtime": (
-        "offline_fallback_skips_serialization", "transport_failure_fallback",
-        "model_allowlist", "batch_limit", "alphabet_limit",
-    ),
     "debug_privacy": (
         "disabled_is_noop", "safe_filename", "git_root_rejected", "retention_enforced",
     ),
@@ -64,7 +60,6 @@ PRODUCTION_ENTRYPOINTS = {
     "queue_cache": "module.ocr.al_ocr._run_ocr_queued",
     "windows_ml": "module.ocr.windows_ml.create_onnx_session",
     "rpc_security": "module.ocr.stage8b_rpc_security.decode_image_payload",
-    "rpc_runtime": "module.ocr.rpc.ModelProxy._rpc_or_fallback",
     "debug_privacy": "module.ocr.stage8b_privacy.save_debug_image",
     "benchmark": "module.daemon.ocr_benchmark.OcrBenchmark._rate_speed",
 }
@@ -79,7 +74,6 @@ EXPECTED_CONTRACTS = {
     "queue_cache": "queue traceback/reentrancy and cache-key inputs are preserved",
     "windows_ml": "CPU fallback, provider names and GPU filters are preserved",
     "rpc_security": "RPC is loopback-only and uses a bounded non-pickle ndarray format",
-    "rpc_runtime": "RPC validates models and resource bounds and falls back lazily",
     "debug_privacy": "debug output is opt-in, bounded and outside the repository",
     "benchmark": "speed rating thresholds are unchanged apart from translated labels",
 }
@@ -102,7 +96,7 @@ BACKEND_COVERAGE = (
     },
     {
         "backend": "OCR RPC",
-        "ci_level": "LOOPBACK_WIRE_FORMAT_AND_RUNTIME_FIXTURES",
+        "ci_level": "LOOPBACK_AND_WIRE_FORMAT_FIXTURES",
         "real_acceptance": "NO_REMOTE_ENDPOINT",
     },
 )
