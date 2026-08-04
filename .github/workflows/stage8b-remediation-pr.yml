@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - dev_tools/stage8b_apply_review_fixes.py
+      - dev_tools/stage8b_apply_review_fixes_v2.py
       - .github/workflows/stage8b-apply-review-fixes.yml
       - .github/workflows/stage8b-remediation-pr.yml
 
@@ -40,7 +41,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Apply review fixes
-        run: uv run python dev_tools/stage8b_apply_review_fixes.py
+        run: uv run python dev_tools/stage8b_apply_review_fixes_v2.py
 
       - name: Regenerate configuration artifacts
         run: uv run python -m module.config.config_updater
@@ -59,6 +60,7 @@ jobs:
       - name: Remove temporary remediation files
         run: |
           git rm dev_tools/stage8b_apply_review_fixes.py
+          git rm dev_tools/stage8b_apply_review_fixes_v2.py
           git rm .github/workflows/stage8b-apply-review-fixes.yml
           git rm .github/workflows/stage8b-remediation-pr.yml
 
