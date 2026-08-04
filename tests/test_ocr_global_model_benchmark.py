@@ -35,6 +35,8 @@ REMOVED_NON_ENGLISH_ASSETS = (
     "bin/ocr_models/ncnn/tw.bin",
     "module/daemon/sets_azur_lane_jp.tar",
     "module/daemon/sets_zhcn.tar",
+    "test/ncnn_ocr_benchmark.py",
+    "test/ncnn_ocr_benchmark.zh-CN.md",
 )
 
 
