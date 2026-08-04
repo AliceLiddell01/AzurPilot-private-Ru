@@ -40,8 +40,14 @@ jobs:
       - name: Checkout exact pull request head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Fetch immutable Stage 8B base
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin "$STAGE8B_BASE_REF"
+          git rev-parse --verify "$STAGE8B_BASE_REF^{commit}"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -60,7 +66,9 @@ jobs:
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse "$STAGE8B_BASE_REF^{commit}")" = "$STAGE8B_BASE_REF"
           printf 'exact_head=%s\n' "$(git rev-parse HEAD)" | tee artifacts-exact-head.txt
+          printf 'immutable_base=%s\n' "$STAGE8B_BASE_REF" | tee -a artifacts-exact-head.txt
 
       - name: Run Ruff on Stage 8B code
         shell: bash
