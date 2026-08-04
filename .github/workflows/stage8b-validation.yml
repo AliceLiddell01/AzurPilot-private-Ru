@@ -56,6 +56,7 @@ jobs:
       - name: Run Ruff on Stage 8B code
         run: >-
           uv run ruff check
+          --extend-per-file-ignores "dev_tools/stage8b_ocr_acceptance.py:PLC0415"
           --extend-per-file-ignores "dev_tools/stage8b_ocr_log_audit.py:FLY002,PIE810"
           --extend-per-file-ignores "dev_tools/stage8b_output_probe.py:I001,PLC0415"
           --extend-per-file-ignores "dev_tools/stage8b_security_audit.py:RUF101"
