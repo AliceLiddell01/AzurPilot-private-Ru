@@ -164,8 +164,8 @@ class Stage8BOcrAcceptanceTests(unittest.TestCase):
                     )
                 )
                 run_acceptance(args)
-            for name, value in original_values.items():
-                self.assertEqual(os.environ.get(name), value)
+                for name, value in original_values.items():
+                    self.assertEqual(os.environ.get(name), value)
         finally:
             shutil.rmtree(temporary_root, ignore_errors=True)
 
