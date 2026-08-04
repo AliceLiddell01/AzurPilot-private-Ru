@@ -1,0 +1,72 @@
+name: Stage 8B review remediation
+
+on:
+  pull_request:
+    paths:
+      - dev_tools/stage8b_apply_review_fixes.py
+      - .github/workflows/stage8b-apply-review-fixes.yml
+      - .github/workflows/stage8b-remediation-pr.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage8b-review-remediation-pr
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'codex/stage8b-ocr-recognition-logs'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout current PR branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: codex/stage8b-ocr-recognition-logs
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+
+      - name: Synchronize locked dependencies
+        run: uv sync --frozen
+
+      - name: Apply review fixes
+        run: uv run python dev_tools/stage8b_apply_review_fixes.py
+
+      - name: Regenerate configuration artifacts
+        run: uv run python -m module.config.config_updater
+
+      - name: Compile changed Python files
+        shell: bash
+        run: |
+          mapfile -t python_files < <(git diff --name-only --diff-filter=ACM -- '*.py')
+          if (( ${#python_files[@]} > 0 )); then
+            uv run python -m py_compile "${python_files[@]}"
+          fi
+
+      - name: Check diff formatting
+        run: git diff --check
+
+      - name: Remove temporary remediation files
+        run: |
+          git rm dev_tools/stage8b_apply_review_fixes.py
+          git rm .github/workflows/stage8b-apply-review-fixes.yml
+          git rm .github/workflows/stage8b-remediation-pr.yml
+
+      - name: Commit and push remediation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(stage8b): close review blockers"
+          git push origin HEAD:codex/stage8b-ocr-recognition-logs
