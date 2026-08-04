@@ -15,7 +15,12 @@ from dev_tools.stage8b_ocr_log_audit import Stage8BOcrLogAudit
 from dev_tools.stage8b_output_contract import build_output_contract
 from dev_tools.stage8b_security_audit import build_security_review
 from dev_tools.stage8b_semantic_policy import (
-    BLOCKING_METRICS, DEFAULT_OUTPUT_DIR, IMMUTABLE_STAGE8B_BASE_SHA, ROOT,
+    BLOCKING_METRICS,
+    DEFAULT_OUTPUT_DIR,
+    IMMUTABLE_STAGE8B_BASE_SHA,
+    ROOT,
+    SECURITY_RUNTIME_PATHS,
+    TRANSLATION_ONLY_RUNTIME_PATHS,
 )
 
 TEST_MODULES = (
@@ -43,6 +48,18 @@ def _effective_base_ref(requested: str | None) -> str:
     return IMMUTABLE_STAGE8B_BASE_SHA
 
 
+def _git_head() -> str:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return completed.stdout.strip()
+
+
 def _runtime_contract() -> dict[str, Any]:
     import importlib.metadata
     from rapidocr.ch_ppocr_det import TextDetOutput
@@ -62,7 +79,10 @@ def _runtime_contract() -> dict[str, Any]:
                 for field in dataclasses.fields(value)
             ]
         return {
-            "annotations": {key: str(item) for key, item in getattr(value, "__annotations__", {}).items()},
+            "annotations": {
+                key: str(item)
+                for key, item in getattr(value, "__annotations__", {}).items()
+            },
             "dataclass": False,
         }
 
@@ -70,7 +90,9 @@ def _runtime_contract() -> dict[str, Any]:
         "rapidocr_version": importlib.metadata.version("rapidocr"),
         "imports": {
             "TextDetOutput": f"{TextDetOutput.__module__}.{TextDetOutput.__name__}",
-            "TextClsOutput": None if TextClsOutput is None else f"{TextClsOutput.__module__}.{TextClsOutput.__name__}",
+            "TextClsOutput": None if TextClsOutput is None else (
+                f"{TextClsOutput.__module__}.{TextClsOutput.__name__}"
+            ),
             "TextRecOutput": f"{TextRecOutput.__module__}.{TextRecOutput.__name__}",
             "RapidOCROutput": f"{RapidOCROutput.__module__}.{RapidOCROutput.__name__}",
         },
@@ -80,24 +102,31 @@ def _runtime_contract() -> dict[str, Any]:
             "TextRecOutput": fields(TextRecOutput),
             "RapidOCROutput": fields(RapidOCROutput),
         },
-        "reviewed_members": ["boxes", "txts", "scores", "word_results", "imgs", "img_list", "elapse"],
+        "reviewed_members": [
+            "boxes", "txts", "scores", "word_results", "imgs", "img_list", "elapse",
+        ],
     }
 
 
 def _scenario_outputs() -> tuple[dict[str, bytes], int]:
     rows = scenario_evidence()
-    payload = {"status": "PENDING_TEST_EXECUTION", "requirements": len(rows), "evidence": rows}
+    payload = {
+        "status": "PENDING_TEST_EXECUTION",
+        "requirements": len(rows),
+        "evidence": rows,
+    }
     return {
         "scenario-evidence.json": _json_bytes(payload),
         "backend-coverage.json": _json_bytes(
             {
-                "status": "CI_EVIDENCE_ONLY",
+                "status": "CI_FIXTURE_COVERAGE",
                 "coverage": BACKEND_COVERAGE,
                 "real_acceptance": {
                     "required": True,
                     "exact_head_required": True,
                     "path": "artifacts/stage8b/ocr-acceptance.json",
                     "included_in_ci_artifact": False,
+                    "status": "PENDING_USER_PASS",
                 },
             }
         ),
@@ -119,28 +148,42 @@ def _verify_scenarios(output_dir: Path, unittest_output: str) -> dict[str, Any]:
         "fixtures": fixtures,
     }
     (output_dir / "scenario-execution.json").write_text(
-        json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
     return result
 
 
-def _update_report(output_dir: Path, metrics: dict[str, Any], status: str) -> None:
+def _update_report(
+    output_dir: Path,
+    metrics: dict[str, Any],
+    status: str,
+    head_sha: str,
+) -> None:
     lines = [
-        "# Stage 8B — OCR и распознавание", "", f"Статус: **{status}**",
-        f"Immutable base: `{IMMUTABLE_STAGE8B_BASE_SHA}`", "", "## Метрики",
-        *[f"- {key}: {value}" for key, value in sorted(metrics.items())], "",
+        "# Stage 8B — OCR и распознавание",
+        "",
+        f"Статус: **{status}**",
+        f"Immutable base: `{IMMUTABLE_STAGE8B_BASE_SHA}`",
+        f"Exact head: `{head_sha}`",
+        "",
+        "## Метрики",
+        *[f"- {key}: {value}" for key, value in sorted(metrics.items())],
+        "",
         "## Контракты",
-        "- Runtime strings: русский first-party context, неизменённые recognized/raw values.",
-        "- Output equivalence: два изолированных source roots, одинаковый dependency/model fingerprint.",
-        "- OCR RPC: loopback-only trusted process boundary.",
-        "- Debug images: opt-in, вне Git root, без recognized text в filename.",
-        "- Real Windows/MuMu acceptance: отдельный exact-head user gate.",
+        "- Runtime strings: русский first-party context; recognized/raw values не переводятся.",
+        "- Output equivalence: два изолированных source roots и фактическое сравнение values.",
+        "- OCR RPC: loopback-only и фиксированный ndarray wire format без pickle.",
+        "- Debug images: explicit opt-in, вне Git root, без recognized text в filename.",
+        "- Real Windows/MuMu acceptance: отдельный exact-head user gate, пока не выполнен.",
     ]
     (output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _review_snapshot(output_dir: Path) -> None:
     target = output_dir / "review-source"
+    if target.exists():
+        shutil.rmtree(target)
     for relative_root, patterns in (
         (ROOT / "dev_tools", ("stage8b_*.py", "verify_stage8b.py")),
         (ROOT / "tests", ("test_stage8b_*.py",)),
@@ -160,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    head_sha = _git_head()
 
     try:
         base_ref = _effective_base_ref(args.base_ref)
@@ -169,27 +213,52 @@ def main(argv: list[str] | None = None) -> int:
         metrics["stage8b_scenario_requirements"] = scenario_count
         outputs["rapidocr-contract.json"] = _json_bytes(_runtime_contract())
         _write_outputs(output_dir, outputs)
-        _security, security_metrics = build_security_review(output_dir)
+
+        security_review, security_metrics = build_security_review(output_dir)
         metrics.update(security_metrics)
         output_contract, output_metrics = build_output_contract(output_dir)
         metrics.update(output_metrics)
+
+        approved_delta_status = (
+            "PASS"
+            if security_review["status"] == "PASS" and output_contract["status"] == "PASS"
+            else "FAIL"
+        )
         approved_delta = {
-            "status": "PASS" if output_contract["status"] == "PASS" else "FAIL",
-            "translation_only": True,
+            "status": approved_delta_status,
+            "whole_change_is_translation_only": False,
+            "translation_only_runtime_paths": list(TRANSLATION_ONLY_RUNTIME_PATHS),
+            "security_runtime_paths": list(SECURITY_RUNTIME_PATHS),
             "security_deltas": [
-                "OCR debug output is explicit opt-in and uses safe filenames outside Git root.",
-                "OCR RPC default bind is loopback-only; remote wildcard pickle is rejected.",
-                "Acceptance disables Windows ML provider download/update by default.",
+                "OCR debug output is explicit opt-in and uses atomic safe filenames outside Git root.",
+                "OCR RPC is loopback-only and uses a bounded ndarray wire format without pickle.",
+                "Acceptance forces vendor EP download/update off in memory.",
             ],
-            "behavioral_contract": "OCR text/scores/boxes/order/model/provider/threshold/postprocess unchanged",
+            "runtime_behavior_equivalent": output_contract["status"] == "PASS",
+            "security_contract_pass": security_review["status"] == "PASS",
+            "behavioral_contract": {
+                "compared": [
+                    "text", "scores", "boxes", "result_order", "model_versions",
+                    "provider_order", "thresholds", "alphabets", "postprocess",
+                    "cache_key", "queue_result",
+                ],
+                "security_exceptions": ["debug_output", "rpc_transport"],
+            },
         }
         (output_dir / "approved-delta.json").write_text(
-            json.dumps(approved_delta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            json.dumps(approved_delta, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
     except Exception as exc:
-        failure = {"status": "FAIL", "error": str(exc), "immutable_base_sha": IMMUTABLE_STAGE8B_BASE_SHA}
+        failure = {
+            "status": "FAIL",
+            "error": str(exc),
+            "immutable_base_sha": IMMUTABLE_STAGE8B_BASE_SHA,
+            "head_sha": head_sha,
+        }
         (output_dir / "metrics.json").write_text(
-            json.dumps(failure, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
         _review_snapshot(output_dir)
         print(f"FAIL: {exc}", file=sys.stderr)
@@ -197,8 +266,12 @@ def main(argv: list[str] | None = None) -> int:
 
     completed = subprocess.run(
         [sys.executable, "-m", "unittest", "-v", *TEST_MODULES],
-        cwd=ROOT, check=False, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
         env={**os.environ, "STAGE8B_BASE_REF": IMMUTABLE_STAGE8B_BASE_SHA},
     )
     unittest_output = completed.stdout + completed.stderr
@@ -215,10 +288,15 @@ def main(argv: list[str] | None = None) -> int:
     scenario_payload = json.loads(scenario_evidence_path.read_text(encoding="utf-8"))
     scenario_payload["status"] = scenario_execution["status"]
     scenario_evidence_path.write_text(
-        json.dumps(scenario_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+        json.dumps(scenario_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
 
-    failures = [f"{key}: {metrics.get(key)}" for key in BLOCKING_METRICS if metrics.get(key)]
+    failures = [
+        f"{key}: {metrics.get(key)}"
+        for key in BLOCKING_METRICS
+        if metrics.get(key)
+    ]
     if metrics.get("remaining_log_translation_count", 0) <= 0:
         failures.append("remaining_log_translation_count должен быть ненулевым до Stage 8C–8E")
     if completed.returncode:
@@ -227,10 +305,11 @@ def main(argv: list[str] | None = None) -> int:
         failures.append("scenario execution incomplete")
 
     (output_dir / "metrics.json").write_text(
-        json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+        json.dumps(metrics, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
     status = "PASS" if not failures else "FAIL"
-    _update_report(output_dir, metrics, status)
+    _update_report(output_dir, metrics, status, head_sha)
     _review_snapshot(output_dir)
     if failures:
         for failure in failures:
@@ -239,7 +318,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "Stage 8B verifier: PASS "
         f"(translated={metrics['stage8b_translated']}, "
-        f"scenarios={metrics['stage8b_scenario_executed']}/{metrics['stage8b_scenario_requirements']})"
+        f"scenarios={metrics['stage8b_scenario_executed']}/"
+        f"{metrics['stage8b_scenario_requirements']})"
     )
     return 0
 
