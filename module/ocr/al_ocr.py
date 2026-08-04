@@ -37,29 +37,19 @@ from module.exception import RequestHumanTakeover
 from module.logger import logger
 from module.config.config import AzurLaneConfig
 from module.config.utils import DEFAULT_CONFIG_NAME
+from module.ocr.stage8b_privacy import OcrDebugOutputError, save_debug_image
 from module.ocr.windows_ml import create_onnx_session
 
 
 def handle_ocr_error(e):
-    """处理 OCR 依赖加载失败的统一错误处理。
-
-    打印详细的故障排除指引，包括：
-    - 安装微软 C++ 运行库
-    - 关闭 GPU 加速
-    - 获取社区支持
-
-    Args:
-        e (Exception): 原始异常。
-
-    Raises:
-        RequestHumanTakeover: 始终抛出，需要用户手动干预。
-    """
-    logger.critical(f"加载OCR依赖失败: {e}")
+    """处理 OCR 依赖加载失败的统一错误处理。"""
+    logger.critical(f"Не удалось загрузить зависимости OCR: {e}")
     logger.critical(
-        "[OCR] 无法加载 OCR 依赖，请安装微软 C++ 运行库 https://aka.ms/vs/17/release/vc_redist.x64.exe"
+        "[OCR] Не удалось загрузить зависимости OCR. Установите Microsoft Visual C++ Runtime: "
+        "https://aka.ms/vs/17/release/vc_redist.x64.exe"
     )
-    logger.critical("[OCR] 也有可能是 GPU 不支持加速引起，请尝试关闭 GPU 加速")
-    logger.critical("[OCR] 如果上述方法都无法解决，请加群获取支持")
+    logger.critical("[OCR] Возможная причина — неподдерживаемое ускорение GPU. Отключите ускорение GPU.")
+    logger.critical("[OCR] Если проблема сохраняется, обратитесь в сообщество поддержки.")
     raise RequestHumanTakeover
 
 
@@ -100,12 +90,7 @@ AZUR_LANE_JP_V6_PARAMS = (
 
 
 class RecOnlyOCR(RapidOCR):
-    """只加载识别模型，跳过 det 和 cls 的 ONNX 模型加载。
-
-    碧蓝航线的 OCR 场景中，文本位置通常固定（已通过 Button 区域裁剪），
-    不需要文本检测模型，仅需识别模型即可。跳过检测模型可节省约 10MB 内存
-    和加载时间。
-    """
+    """只加载识别模型，跳过 det 和 cls 的 ONNX 模型加载。"""
 
     def _initialize(self, cfg):
         self.text_score = cfg.Global.text_score
@@ -135,24 +120,7 @@ class RecOnlyOCR(RapidOCR):
 
 
 class AlOcrCtcRecOCR:
-    """900k 参数 CNN-CTC 英文识别模型。
-
-    专为碧蓝航线优化的轻量级英文识别模型，直接使用 ONNXRuntime 推理，
-    不依赖 RapidOCR 框架。使用 CTC (Connectionist Temporal Classification)
-    解码算法进行序列识别。
-
-    模型特点：
-    - 固定输入高度 48px，最大宽度 768px
-    - 字符集仅包含数字、冒号、斜线和大小写英文字母
-    - 支持 DirectML/CoreML GPU 加速
-
-    Attributes:
-        model_path (Path): ONNX 模型文件路径。
-        device (str): 推理设备（'cpu'、'gpu'、'ane'）。
-        charset (str): 识别字符集。
-        blank_id (int): CTC blank token 的索引。
-        session: ONNXRuntime 推理会话。
-    """
+    """900k 参数 CNN-CTC 英文识别模型。"""
 
     def __init__(self, model_path, device="cpu", allow_vendor_execution_providers=True):
         try:
@@ -162,7 +130,7 @@ class AlOcrCtcRecOCR:
 
         self.model_path = self._resolve_path(model_path)
         if not self.model_path.is_file():
-            raise FileNotFoundError(f"OCR model not found: {self.model_path}")
+            raise FileNotFoundError(f"Модель OCR не найдена: {self.model_path}")
 
         self.device = device
         self.charset = ALAS_CTC_CHARSET
@@ -180,7 +148,7 @@ class AlOcrCtcRecOCR:
         )
         self.input_names = [item.name for item in self.session.get_inputs()]
         logger.info(
-            f"Loaded OCR model '{ALAS_CTC_MODEL_VERSION}' on "
+            f"Загружена модель OCR '{ALAS_CTC_MODEL_VERSION}' через "
             f"{selected_provider} ({', '.join(self.session.get_providers())})"
         )
 
@@ -196,7 +164,7 @@ class AlOcrCtcRecOCR:
 
     def __call__(self, image_or_path):
         if self.session is None:
-            raise RuntimeError("OCR model has been closed")
+            raise RuntimeError("Модель OCR уже закрыта")
 
         start_time = time.perf_counter()
         image, width, original = self._preprocess(image_or_path)
@@ -222,7 +190,7 @@ class AlOcrCtcRecOCR:
 
         height, width = gray.shape[:2]
         if height <= 0 or width <= 0:
-            raise ValueError(f"Invalid OCR image shape: {gray.shape}")
+            raise ValueError(f"Недопустимая форма OCR-изображения: {gray.shape}")
 
         scaled_width = max(1, int(round(width * (self.image_height / height))))
         scaled_width = min(scaled_width, self.max_width)
@@ -251,7 +219,7 @@ class AlOcrCtcRecOCR:
         elif arr.ndim == 3:
             gray = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
         else:
-            raise ValueError(f"Unsupported OCR image shape: {arr.shape}")
+            raise ValueError(f"Неподдерживаемая форма OCR-изображения: {arr.shape}")
 
         if gray.dtype != np.uint8:
             gray = gray.astype(np.float32)
@@ -443,7 +411,7 @@ def _resolve_onnx_model_version(name):
     specs = ONNX_MODEL_PARAMS.get(name)
     custom_specs = CUSTOM_CTC_MODEL_PARAMS.get(name, {})
     if specs is None and not custom_specs:
-        raise ValueError(f"Unsupported OCR model: {name}")
+        raise ValueError(f"Неподдерживаемая модель OCR: {name}")
 
     requested = config.ocr_model_version(name)
     if requested == OCR_MODEL_VERSION_AUTO:
@@ -453,28 +421,20 @@ def _resolve_onnx_model_version(name):
 
     fallback = DEFAULT_ONNX_MODEL_VERSION[name]
     logger.warning(
-        f"OCR model version '{requested}' is not available for '{name}', "
-        f"using '{fallback}'"
+        f"Версия модели OCR '{requested}' недоступна для '{name}'; "
+        f"используется '{fallback}'"
     )
     return fallback
 
 
 def _get_onnx_model_params(name):
-    """
-    按配置选择 ONNX 识别模型版本。
-
-    Args:
-        name: 模型名称，如 'azur_lane'、'azur_lane_jp'、'ppocr_v6'、'cn'、'jp'、'tw'。
-
-    Returns:
-        (model_path, rec_keys_path, ocr_version) 三元组。
-    """
+    """按配置选择 ONNX 识别模型版本。"""
     version = _resolve_onnx_model_version(name)
     if version in CUSTOM_CTC_MODEL_PARAMS.get(name, {}):
         fallback = "azur_lane_v6_6" if name == "azur_lane" else DEFAULT_ONNX_MODEL_VERSION[name]
         logger.info(
-            f"OCR model '{version}' is recognition-only, using '{fallback}' "
-            f"for RapidOCR-compatible pipeline"
+            f"Модель OCR '{version}' поддерживает только распознавание; используется '{fallback}' "
+            f"для совместимого конвейера RapidOCR"
         )
         return ONNX_MODEL_PARAMS[name][fallback]
     return ONNX_MODEL_PARAMS[name][version]
@@ -516,8 +476,8 @@ def _create_ocr(name):
     backend = config.ocr_backend
     if backend == 'ncnn':
         if not supports_ncnn_model(name):
-            raise ValueError(f"Unsupported ncnn OCR model: {name}")
-        logger.info("[OCR] OCR后端为ncnn，使用ncnn专用识别模型")
+            raise ValueError(f"Неподдерживаемая модель OCR ncnn: {name}")
+        logger.info("[OCR] Выбран backend ncnn; используется специализированная модель распознавания ncnn")
         return NcnnRecOCR(name, device=config.ocr_device)
     else:
         ocr_device = config.ocr_device
@@ -583,11 +543,7 @@ _det_model_cache = {}
 
 
 class DetOnlyOCR(RapidOCR):
-    """仅加载 RapidOCR 检测模型，识别部分由 ncnn 处理。
-
-    在 ncnn 后端模式下，文本检测使用 ONNX 的 PP-OCRv6 tiny 检测模型，
-    而文本识别使用 ncnn 的识别模型。此类封装了这种混合模式的检测端。
-    """
+    """仅加载 RapidOCR 检测模型，识别部分由 ncnn 处理。"""
 
     def _initialize(self, cfg):
         self.text_score = cfg.Global.text_score
@@ -659,12 +615,7 @@ def _create_det_ocr_for_ncnn():
 
 
 def _get_det_model(name):
-    """
-    获取检测模型。
-
-    Args:
-        name: 语言名称。ONNX 后端按语言缓存，ncnn 后端共享单一实例。
-    """
+    """获取检测模型。"""
     backend = config.ocr_backend
     if backend == 'ncnn':
         key = _model_cache_key("det")
@@ -693,37 +644,23 @@ def release_ocr_models(names=None):
                     try:
                         close()
                     except Exception as exc:
-                        logger.warning("关闭 OCR 模型缓存失败: %s", exc)
+                        logger.warning("Не удалось закрыть модель в кэше OCR: %s", exc)
                 released += 1
 
         if released:
-            logger.info("已释放 %s 个 OCR 模型缓存", released)
+            logger.info("Освобождено моделей в кэше OCR: %s", released)
         return released
 
     return _run_ocr_queued(_release)
 
 
 def reset_ocr_model():
-    logger.info("重置 OCR 模型")
+    logger.info("Сброс моделей OCR")
     return release_ocr_models()
 
 
 class AlOcr:
-    """统一的 OCR 识别接口。
-
-    封装了 ONNX 和 ncnn 两种后端的识别和检测功能，提供一致的 API。
-    所有 OCR 推理操作在专用后台线程中执行，避免阻塞主事件循环。
-
-    支持的操作：
-    - ocr(): 单行文本识别（已裁剪的文本图像）
-    - det(): 文本检测 + 识别（完整图像，返回带位置坐标的结果）
-    - ocr_for_single_lines(): 批量单行文本识别
-
-    Attributes:
-        name (str): 模型名称，如 'azur_lane'、'cn'、'jp'、'tw'。
-        model: 识别模型实例（懒加载）。
-        _det_model: 检测模型实例（懒加载）。
-    """
+    """统一的 OCR 识别接口。"""
     def __init__(self, **kwargs):
         self.model = None
         self.name = kwargs.get("name", "en")
@@ -732,7 +669,7 @@ class AlOcr:
         self._det_model = None
         self._det_loaded = False
         logger.info(
-            f"Created AlOcr instance: name='{self.name}', kwargs={kwargs}, PID={os.getpid()}"
+            f"Создан экземпляр AlOcr: name='{self.name}', kwargs={kwargs}, PID={os.getpid()}"
         )
 
     def init(self):
@@ -748,57 +685,15 @@ class AlOcr:
             self._det_model = _get_det_model(self.name)
             self._det_loaded = True
 
-    def _save_debug_image(self, img, result):
-        folder = "ocr_debug"
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-
-        # 获取当前时间用于文件名唯一性和排序
-        import time
-
-        now = int(time.time() * 1000)
-        # 清理结果文本用于文件名
-        res_clean = str(result).replace("\n", " ").replace("\r", " ").strip()
-        # 移除无效文件名字符，仅保留安全字符
-        res_clean = "".join(
-            [c for c in res_clean if c.isalnum() or c in (" ", "_", "-")]
-        ).strip()
-        if not res_clean:
-            res_clean = "empty"
-
-        filename = f"{self.name}_{res_clean}_{now}.png"
-        filepath = os.path.join(folder, filename)
-
+    def _save_debug_image(self, img, _result):
         try:
-            if isinstance(img, np.ndarray):
-                cv2.imwrite(filepath, img)
-            elif isinstance(img, Image.Image):
-                img.save(filepath)
-            elif isinstance(img, str) and os.path.exists(img):
-                import shutil
-
-                shutil.copy(img, filepath)
-
-            # 限制文件数量为 100
-            files = [
-                os.path.join(folder, f)
-                for f in os.listdir(folder)
-                if os.path.isfile(os.path.join(folder, f))
-            ]
-            if len(files) > 100:
-                files.sort(key=os.path.getmtime)
-                # 保留最新的 100 个文件
-                for f in files[:-100]:
-                    try:
-                        os.remove(f)
-                    except:
-                        pass
-        except Exception as e:
-            # 不应因调试图片保存失败而崩溃主进程
-            logger.warning(f"保存OCR调试图像失败: {e}")
+            return save_debug_image(img, model_name=self.name, kind="rec")
+        except OcrDebugOutputError as exc:
+            logger.warning(f"Не удалось сохранить отладочное OCR-изображение: {exc}")
+            return None
 
     def _ocr_direct(self, img_fp):
-        logger.debug(f"[VERBOSE] AlOcr.ocr: Ensure loaded...")
+        logger.debug(f"[VERBOSE] AlOcr.ocr: проверка загрузки модели...")
         self._ensure_loaded()
 
         try:
@@ -810,7 +705,7 @@ class AlOcr:
             self._save_debug_image(img_fp, txt)
             return txt
         except Exception as e:
-            logger.error(f"AlOcr.ocr异常: {e}")
+            logger.error(f"Ошибка AlOcr.ocr: {e}")
             raise
 
     def ocr(self, img_fp):
@@ -861,66 +756,45 @@ class AlOcr:
                     return results
                 return []
         except Exception as e:
-            logger.error(f"AlOcr.det异常: {e}")
+            logger.error(f"Ошибка AlOcr.det: {e}")
             raise
 
     def _save_det_debug(self, img, results):
-        import cv2 as cv
-        import time
-        from PIL import Image as PILImage
-
-        # 根据需要转换为 numpy 数组
-        if isinstance(img, PILImage.Image):
+        if isinstance(img, Image.Image):
             img = np.array(img.convert("RGB"))
-            img = cv.cvtColor(img, cv.COLOR_RGB2BGR)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         elif isinstance(img, str):
-            img = cv.imread(img)
+            img = cv2.imread(img)
             if img is None:
-                return
+                return None
 
         if not isinstance(img, np.ndarray):
-            return
+            return None
 
         draw = img.copy()
-        for txt, box, score in results:
+        for _txt, box, score in results:
             pts = np.array(box, dtype=np.int32).reshape((-1, 1, 2))
-            cv.polylines(draw, [pts], True, (0, 255, 0), 2)
-            cx, cy = int(sum(p[0] for p in box) / len(box)), int(sum(p[1] for p in box) / len(box))
-            label = f"{txt} {score:.2f}"
-            cv.putText(draw, label, (cx - 20, cy - 10),
-                       cv.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+            cv2.polylines(draw, [pts], True, (0, 255, 0), 2)
+            cx = int(sum(point[0] for point in box) / len(box))
+            cy = int(sum(point[1] for point in box) / len(box))
+            cv2.putText(
+                draw,
+                f"{score:.2f}",
+                (cx - 20, cy - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (0, 255, 0),
+                1,
+            )
 
-        folder = "ocr_debug"
-        os.makedirs(folder, exist_ok=True)
-        now = int(time.time() * 1000)
-        filename = f"det_{self.name}_{now}.png"
-        filepath = os.path.join(folder, filename)
-        cv.imwrite(filepath, draw)
-
-        # 限制文件数量为 100
-        files = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith(".png")]
-        if len(files) > 100:
-            files.sort(key=os.path.getmtime)
-            for f in files[:-100]:
-                try:
-                    os.remove(f)
-                except Exception:
-                    pass
+        try:
+            return save_debug_image(draw, model_name=self.name, kind="det")
+        except OcrDebugOutputError as exc:
+            logger.warning(f"Не удалось сохранить отладочное изображение OCR detection: {exc}")
+            return None
 
     def det(self, img_fp):
-        """
-        运行文本检测 + 识别，返回带位置坐标的结果。
-
-        Args:
-            img_fp: 图像输入（numpy 数组、PIL Image 或文件路径字符串）。
-
-        Returns:
-            (text, box, score) 元组列表：
-                - text (str): 识别文本。
-                - box (list): 4 个角点 [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]。
-                - score (float): 置信度分数 (0.0-1.0)。
-            未检测到内容时返回空列表。
-        """
+        """运行文本检测 + 识别，返回带位置坐标的结果。"""
         return _run_ocr_queued(self._det_direct, img_fp)
 
     def ocr_for_single_line(self, img_fp):
@@ -939,7 +813,7 @@ class AlOcr:
                 results.append(txt)
                 self._save_debug_image(img, txt)
             except Exception as e:
-                logger.error(f"AlOcr.ocr_for_single_lines exception on image {i}: {e}")
+                logger.error(f"Пакетный OCR завершился ошибкой для изображения {i}: {e}")
                 raise
         return results
 
