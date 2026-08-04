@@ -93,6 +93,7 @@ class AutomatedScreenshotIntervalBenchmark(Meta):
     duration_per_candidate_s = 2.0
     warmup_frames = 2
     transition_timeout_s = 25.0
+    simulation_button_timeout_s = 8.0
     simulation_button_min_score = 0.35
 
     def _wait_until(self, predicate, *, description: str, timeout: float | None = None) -> None:
@@ -229,6 +230,23 @@ class AutomatedScreenshotIntervalBenchmark(Meta):
         )
         return center_x, center_y
 
+    def _wait_for_simulation_button(self) -> tuple[int, int]:
+        deadline = time.monotonic() + self.simulation_button_timeout_s
+        last_error: ScreenshotIntervalBenchmarkError | None = None
+        while time.monotonic() < deadline:
+            self.device.screenshot()
+            try:
+                return self._find_simulation_button()
+            except ScreenshotIntervalBenchmarkError as exc:
+                last_error = exc
+                self.device.sleep(0.5)
+
+        if last_error is not None:
+            raise last_error
+        raise ScreenshotIntervalBenchmarkError(
+            "Кнопка Battle Simulation не найдена; обычная атака не запускалась."
+        )
+
     def _enter_meta_simulation(self) -> AshCombat:
         if self.config.SERVER != "en":
             raise ScreenshotIntervalBenchmarkError(
@@ -237,8 +255,7 @@ class AutomatedScreenshotIntervalBenchmark(Meta):
             )
 
         self._enter_current_target()
-        self.device.screenshot()
-        center_x, center_y = self._find_simulation_button()
+        center_x, center_y = self._wait_for_simulation_button()
         logger.info("[Screenshot benchmark] Запуск бесплатной Battle Simulation")
         self.device.click((center_x, center_y))
 
