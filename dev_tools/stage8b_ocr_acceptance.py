@@ -15,11 +15,22 @@ import cv2
 import numpy as np
 
 from dev_tools.stage8a_device_acceptance import (
-    AcceptanceFailure, _check_android_boot_completed, _detect_package,
-    _git_head_sha, _load_profile, _resolve_adb, _resolve_serial, _run_adb,
-    _safe_text, _validate_bgr_image, _validate_profile_name,
+    AcceptanceFailure,
+    _check_android_boot_completed,
+    _detect_package,
+    _git_head_sha,
+    _load_profile,
+    _resolve_adb,
+    _resolve_serial,
+    _run_adb,
+    _safe_text,
+    _validate_bgr_image,
+    _validate_profile_name,
 )
-from module.ocr.stage8b_privacy import cleanup_debug_directory
+from module.ocr.stage8b_privacy import (
+    OcrDebugOutputError,
+    cleanup_debug_directory,
+)
 from module.ocr.stage8b_rpc_security import loopback_bind_uri
 
 DEFAULT_REPORT = Path("artifacts/stage8b/ocr-acceptance.json")
@@ -74,18 +85,18 @@ def _provider_evidence(model: Any) -> dict[str, Any]:
         return {"registered": [], "session": [], "options": {}}
     try:
         providers = list(session.get_providers())
-    except Exception:
+    except Exception:  # noqa: BLE001 - vendor session APIs are optional diagnostics.
         providers = []
     try:
         options = session.get_provider_options()
-    except Exception:
+    except Exception:  # noqa: BLE001 - provider options are optional diagnostics.
         options = {}
     return {"registered": providers, "session": providers, "options": options}
 
 
 def _run_fixture_benchmark(config: Any, device: str) -> dict[str, Any]:
-    import module.ocr.al_ocr as al_ocr
     from module.daemon.ocr_benchmark import OcrBenchmark
+    from module.ocr import al_ocr
 
     config.override(
         Optimization_OcrDevice=device,
@@ -96,7 +107,10 @@ def _run_fixture_benchmark(config: Any, device: str) -> dict[str, Any]:
         al_ocr.reset_ocr_model()
         try:
             result = benchmark._run_single(
-                "azur_lane", "sets_num", "sets_num", ocr_device=device,
+                "azur_lane",
+                "sets_num",
+                "sets_num",
+                ocr_device=device,
             )
         finally:
             al_ocr.release_ocr_models()
@@ -115,7 +129,7 @@ def _recognize_safe_values(
     image: np.ndarray,
     config: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    import module.ocr.al_ocr as al_ocr
+    from module.ocr import al_ocr
 
     config.override(Optimization_OcrWindowsMlVendorEp=False)
     with patch.object(al_ocr, "config", config):
@@ -144,11 +158,21 @@ def _print_plan(profile: str, package: str, details: dict[str, Any], head: str) 
     print(f"Server/package: {details['server']} / {package}")
     print(
         "Backend/device/model: "
-        f"{details['backend']} / {details['device_preference']} / {details['model_version']}"
+        f"{details['backend']} / {details['device_preference']} / "
+        f"{details['model_version']}"
     )
-    print("Provider download/update: запрещено; vendor EP принудительно отключены in-memory")
-    print("Действия: один read-only screenshot, bundled fixture benchmark, OCR in-memory.")
-    print("Запрещено: input, battle, purchase, APK install, app-data clear, config write, wildcard RPC.")
+    print(
+        "Provider download/update: запрещено; "
+        "vendor EP принудительно отключены in-memory"
+    )
+    print(
+        "Действия: один read-only screenshot, bundled fixture benchmark, "
+        "OCR in-memory."
+    )
+    print(
+        "Запрещено: input, battle, purchase, APK install, app-data clear, "
+        "config write, wildcard RPC."
+    )
     print("Откройте безопасный статический главный экран EN/Global без chat/profile/UID.")
 
 
@@ -166,13 +190,17 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     package = _detect_package(adb, serial, profile["package"])
     config, details = _load_ocr_config(args.profile)
     if details["server"] != "en":
-        raise AcceptanceFailure("Stage 8B real acceptance должен выполняться на EN/Global profile.")
+        raise AcceptanceFailure(
+            "Stage 8B real acceptance должен выполняться на EN/Global profile."
+        )
 
     _print_plan(args.profile, package, details, head)
     if not args.non_interactive:
         confirmation = input("Введите START для начала read-only проверки: ").strip()
         if confirmation != "START":
-            raise AcceptanceFailure("Acceptance отменён: не получено точное подтверждение START.")
+            raise AcceptanceFailure(
+                "Acceptance отменён: не получено точное подтверждение START."
+            )
 
     config_path = _config_path(args.profile)
     config_hash_before = _sha256(config_path)
@@ -184,7 +212,14 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         os.environ["AZURPILOT_OCR_DEBUG_DIR"] = str(temp_dir / "ocr-debug")
         os.environ["AZURPILOT_OCR_ALLOW_PROVIDER_DOWNLOAD"] = "0"
         try:
-            screenshot = _run_adb(adb, serial, "exec-out", "screencap", "-p", binary=True)
+            screenshot = _run_adb(
+                adb,
+                serial,
+                "exec-out",
+                "screencap",
+                "-p",
+                binary=True,
+            )
             if screenshot.returncode != 0:
                 raise AcceptanceFailure("ADB screencap завершился ошибкой.")
             image = _decode_png(bytes(screenshot.stdout))
@@ -202,13 +237,17 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
             values, provider = _recognize_safe_values(image, config)
             if len(values) < 2:
                 raise AcceptanceFailure(
-                    "На выбранном безопасном экране найдено меньше двух проверяемых OCR-значений."
+                    "На выбранном безопасном экране найдено меньше двух "
+                    "проверяемых OCR-значений."
                 )
         finally:
             try:
                 cleanup_debug_directory(temp_dir / "ocr-debug")
-            except Exception:
-                pass
+            except (OcrDebugOutputError, OSError) as exc:
+                print(
+                    f"Предупреждение: не удалось очистить временный OCR-каталог: {exc}",
+                    file=sys.stderr,
+                )
             if debug_before is None:
                 os.environ.pop("AZURPILOT_OCR_DEBUG", None)
             else:
@@ -223,8 +262,12 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     if not config_unchanged:
         raise AcceptanceFailure("Acceptance обнаружил изменение постоянного profile config.")
 
-    model_path = Path("bin/ocr_models/azur_lane/ap_azurlane-v6.6_small_rec_dcu.onnx")
-    dictionary_path = Path("bin/ocr_models/azur_lane/ppocrv6_azurlane_dict.txt")
+    model_path = Path(
+        "bin/ocr_models/azur_lane/ap_azurlane-v6.6_small_rec_dcu.onnx"
+    )
+    dictionary_path = Path(
+        "bin/ocr_models/azur_lane/ppocrv6_azurlane_dict.txt"
+    )
     return {
         "status": "PASS",
         "title": "Stage 8B OCR acceptance: PASS",
@@ -257,7 +300,9 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Безопасная EN/Global OCR-приёмка Stage 8B")
+    parser = argparse.ArgumentParser(
+        description="Безопасная EN/Global OCR-приёмка Stage 8B"
+    )
     parser.add_argument("--profile", required=True)
     serial_group = parser.add_mutually_exclusive_group(required=True)
     serial_group.add_argument("--serial")
@@ -269,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         report = run_acceptance(args)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - acceptance must always emit a report.
         failure = {
             "status": "FAIL",
             "error": _safe_text(str(exc)),
@@ -280,7 +325,10 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(f"Stage 8B OCR acceptance: FAIL — {failure['error']}", file=sys.stderr)
+        print(
+            f"Stage 8B OCR acceptance: FAIL — {failure['error']}",
+            file=sys.stderr,
+        )
         return 1
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
