@@ -40,6 +40,55 @@ class Stage8BOutputContractTests(unittest.TestCase):
             _normalize_translation_literals(changed_style),
         )
 
+    def test_compact_spacing_wrapper_is_the_only_approved_ast_delta(self) -> None:
+        base = ast.parse("def f(model, value):\n    return value\n").body[0]
+        approved = ast.parse(
+            "def f(model, value):\n"
+            "    return normalize_ocr_text(model, value)\n"
+        ).body[0]
+        unrelated = ast.parse(
+            "def f(model, value):\n"
+            "    return value.replace(' ', '')\n"
+        ).body[0]
+        self.assertEqual(
+            _normalize_translation_literals(base),
+            _normalize_translation_literals(approved),
+        )
+        self.assertNotEqual(
+            _normalize_translation_literals(base),
+            _normalize_translation_literals(unrelated),
+        )
+
+    def test_azur_lane_compact_spacing_is_normalized(self) -> None:
+        from module.ocr.ocr import normalize_ocr_text
+
+        cases = {
+            "MAX: 96056": "MAX:96056",
+            "MAX : 96056": "MAX:96056",
+            "14 / 15": "14/15",
+            "01: 30: 00": "01:30:00",
+            "7 - 2": "7-2",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_ocr_text("azur_lane", raw), expected)
+
+    def test_spacing_normalization_preserves_words_and_other_models(self) -> None:
+        from module.ocr.ocr import normalize_ocr_text
+
+        self.assertEqual(
+            normalize_ocr_text("azur_lane", "New Jersey"),
+            "New Jersey",
+        )
+        self.assertEqual(
+            normalize_ocr_text("azur_lane", "LEVEL: New Jersey 120"),
+            "LEVEL: New Jersey 120",
+        )
+        self.assertEqual(
+            normalize_ocr_text("cn", "MAX: 96056"),
+            "MAX: 96056",
+        )
+
     def test_immutable_base_is_exact_sha(self) -> None:
         self.assertRegex(IMMUTABLE_STAGE8B_BASE_SHA, r"^[0-9a-f]{40}$")
 
