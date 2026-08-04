@@ -10,15 +10,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dev_tools.stage8b_acceptance_contract import build_acceptance_contract
 from dev_tools.stage8b_evidence_policy import BACKEND_COVERAGE, scenario_evidence
+from dev_tools.stage8b_model_scope import build_model_scope
 from dev_tools.stage8b_ocr_log_audit import Stage8BOcrLogAudit
 from dev_tools.stage8b_output_contract import build_output_contract
+from dev_tools.stage8b_real_output_contract import build_real_output_contract
 from dev_tools.stage8b_security_audit import build_security_review
 from dev_tools.stage8b_semantic_policy import (
     APPROVED_BEHAVIOR_RUNTIME_PATHS,
     BLOCKING_METRICS,
     DEFAULT_OUTPUT_DIR,
     IMMUTABLE_STAGE8B_BASE_SHA,
+    PROMPT_SCENARIO_COUNT,
     ROOT,
     SECURITY_RUNTIME_PATHS,
     TRANSLATION_ONLY_RUNTIME_PATHS,
@@ -29,7 +33,10 @@ TEST_MODULES = (
     "tests.test_stage8b_security_review",
     "tests.test_stage8b_output_contract",
     "tests.test_stage8b_ocr_acceptance",
+    "tests.test_stage8b_rpc_runtime",
     "tests.test_stage8b_runtime_scenario_matrix",
+    "tests.test_stage8b_prompt_scenario_matrix",
+    "tests.test_stage8b_reparse_privacy",
 )
 
 
@@ -64,6 +71,7 @@ def _git_head() -> str:
 def _runtime_contract() -> dict[str, Any]:
     import importlib.metadata
     from rapidocr.ch_ppocr_det import TextDetOutput
+
     try:
         from rapidocr.ch_ppocr_cls import TextClsOutput
     except ImportError:
@@ -104,7 +112,13 @@ def _runtime_contract() -> dict[str, Any]:
             "RapidOCROutput": fields(RapidOCROutput),
         },
         "reviewed_members": [
-            "boxes", "txts", "scores", "word_results", "imgs", "img_list", "elapse",
+            "boxes",
+            "txts",
+            "scores",
+            "word_results",
+            "imgs",
+            "img_list",
+            "elapse",
         ],
     }
 
@@ -114,17 +128,19 @@ def _scenario_outputs() -> tuple[dict[str, bytes], int]:
     payload = {
         "status": "PENDING_TEST_EXECUTION",
         "requirements": len(rows),
+        "prompt_requirement": PROMPT_SCENARIO_COUNT,
         "evidence": rows,
     }
     return {
         "scenario-evidence.json": _json_bytes(payload),
         "backend-coverage.json": _json_bytes(
             {
-                "status": "CI_FIXTURE_COVERAGE",
+                "status": "CI_AND_REAL_FIXTURE_COVERAGE",
                 "coverage": BACKEND_COVERAGE,
                 "real_acceptance": {
                     "required": True,
                     "exact_head_required": True,
+                    "visual_confirmation_required": True,
                     "path": "artifacts/stage8b/ocr-acceptance.json",
                     "included_in_ci_artifact": False,
                     "status": "PENDING_USER_PASS",
@@ -155,6 +171,39 @@ def _verify_scenarios(output_dir: Path, unittest_output: str) -> dict[str, Any]:
     return result
 
 
+def _required_gate_contract(output_dir: Path) -> tuple[dict[str, Any], dict[str, int]]:
+    workflow = ROOT / ".github/workflows/stage8b-validation.yml"
+    source = workflow.read_text(encoding="utf-8")
+    required_tokens = (
+        "stage8b-required-gate:",
+        "needs: stage8b-verifier",
+        "if: always()",
+        "needs.stage8b-verifier.result",
+        "Stage 8B required gate",
+    )
+    findings = [
+        {"kind": "workflow_gate_token_missing", "token": token}
+        for token in required_tokens
+        if token not in source
+    ]
+    payload = {
+        "status": "PASS" if not findings else "FAIL",
+        "workflow": workflow.relative_to(ROOT).as_posix(),
+        "job": "stage8b-required-gate",
+        "note": (
+            "This validates a fail-closed final job in repository code. "
+            "GitHub branch-ruleset attachment remains a repository setting."
+        ),
+        "findings": findings,
+    }
+    metrics = {"stage8b_required_gate_findings": len(findings)}
+    (output_dir / "required-gate.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return payload, metrics
+
+
 def _update_report(
     output_dir: Path,
     metrics: dict[str, Any],
@@ -172,11 +221,14 @@ def _update_report(
         *[f"- {key}: {value}" for key, value in sorted(metrics.items())],
         "",
         "## Контракты",
-        "- Runtime strings: русский first-party context; recognized/raw values не переводятся.",
-        "- Output contract: два изолированных source roots; разрешён только проверенный фикс ложных пробелов в компактных EN OCR-значениях.",
+        "- Scope: OCR core и только OCR-owned функции campaign/OS/device.",
+        "- Models: только Global/English registries, settings, assets и benchmark rows.",
+        "- Scenario matrix: 171 уникальный executable scenario ID из Stage 8B prompt.",
+        "- Output: synthetic contract плюс реальный CPU inference на bundled fixtures в двух isolated worktrees.",
         "- OCR RPC: loopback-only и фиксированный ndarray wire format без pickle.",
-        "- Debug images: explicit opt-in, вне Git root, без recognized text в filename.",
-        "- Real Windows/MuMu acceptance: отдельный exact-head user gate, пока не выполнен.",
+        "- Debug images: explicit opt-in, вне Git root, symlink/junction/reparse-safe.",
+        "- Acceptance: provider/cache/process/temp evidence измеряется, а не декларируется.",
+        "- Real Windows/MuMu acceptance: отдельный exact-head visual user gate.",
     ]
     (output_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -212,6 +264,9 @@ def main(argv: list[str] | None = None) -> int:
         scenario_outputs, scenario_count = _scenario_outputs()
         outputs.update(scenario_outputs)
         metrics["stage8b_scenario_requirements"] = scenario_count
+        metrics["stage8b_scenario_count_mismatches"] = int(
+            scenario_count != PROMPT_SCENARIO_COUNT
+        )
         outputs["rapidocr-contract.json"] = _json_bytes(_runtime_contract())
         _write_outputs(output_dir, outputs)
 
@@ -219,12 +274,26 @@ def main(argv: list[str] | None = None) -> int:
         metrics.update(security_metrics)
         output_contract, output_metrics = build_output_contract(output_dir)
         metrics.update(output_metrics)
+        real_output_contract, real_output_metrics = build_real_output_contract(output_dir)
+        metrics.update(real_output_metrics)
+        model_scope, model_scope_metrics = build_model_scope(output_dir)
+        metrics.update(model_scope_metrics)
+        acceptance_contract, acceptance_metrics = build_acceptance_contract(output_dir)
+        metrics.update(acceptance_metrics)
+        required_gate, required_gate_metrics = _required_gate_contract(output_dir)
+        metrics.update(required_gate_metrics)
 
-        approved_delta_status = (
-            "PASS"
-            if security_review["status"] == "PASS" and output_contract["status"] == "PASS"
-            else "FAIL"
-        )
+        approved_delta_status = "PASS" if all(
+            contract["status"] == "PASS"
+            for contract in (
+                security_review,
+                output_contract,
+                real_output_contract,
+                model_scope,
+                acceptance_contract,
+                required_gate,
+            )
+        ) else "FAIL"
         approved_delta = {
             "status": approved_delta_status,
             "whole_change_is_translation_only": False,
@@ -232,25 +301,40 @@ def main(argv: list[str] | None = None) -> int:
             "approved_behavior_runtime_paths": list(APPROVED_BEHAVIOR_RUNTIME_PATHS),
             "security_runtime_paths": list(SECURITY_RUNTIME_PATHS),
             "security_deltas": [
-                "OCR debug output is explicit opt-in and uses atomic safe filenames outside Git root.",
+                "OCR debug output is explicit opt-in, atomic and reparse-safe outside Git root.",
                 "OCR RPC is loopback-only and uses a bounded ndarray wire format without pickle.",
-                "Acceptance forces vendor EP download/update off in memory.",
+                "Acceptance disables and observes vendor EP download/update state.",
+            ],
+            "approved_behavioral_deltas": [
+                "remove non-Global Chinese/Japanese OCR model registries, settings and assets",
+                "benchmark only Global/English model versions with explicit metadata",
+                "azur_lane removes false whitespace for MAX and numeric separators only",
             ],
             "runtime_behavior_equivalent_except_approved_deltas": (
                 output_contract["status"] == "PASS"
+                and real_output_contract["status"] == "PASS"
             ),
-            "approved_behavioral_deltas": [
-                "azur_lane removes false whitespace around numeric separators (:, /, -)",
-            ],
-            "security_contract_pass": security_review["status"] == "PASS",
             "behavioral_contract": {
                 "compared": [
-                    "text", "scores", "boxes", "result_order", "model_versions",
-                    "provider_order", "thresholds", "alphabets", "postprocess",
-                    "cache_key", "queue_result", "compact_numeric_spacing",
+                    "real recognized text",
+                    "real scores",
+                    "real boxes",
+                    "result order",
+                    "English model hashes",
+                    "provider order",
+                    "thresholds",
+                    "alphabets",
+                    "postprocess",
+                    "cache key",
+                    "queue result",
+                    "compact numeric spacing",
                 ],
-                "approved_behavior_exceptions": ["compact_numeric_spacing"],
-                "security_exceptions": ["debug_output", "rpc_transport"],
+                "approved_behavior_exceptions": [
+                    "English-only model scope",
+                    "English benchmark matrix",
+                    "compact numeric spacing",
+                ],
+                "security_exceptions": ["debug output", "RPC transport"],
             },
         }
         (output_dir / "approved-delta.json").write_text(
@@ -327,7 +411,7 @@ def main(argv: list[str] | None = None) -> int:
         "Stage 8B verifier: PASS "
         f"(translated={metrics['stage8b_translated']}, "
         f"scenarios={metrics['stage8b_scenario_executed']}/"
-        f"{metrics['stage8b_scenario_requirements']})"
+        f"{metrics['stage8b_scenario_requirements']}, real_inference=PASS)"
     )
     return 0
 
