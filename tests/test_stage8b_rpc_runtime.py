@@ -10,8 +10,10 @@ import numpy as np
 
 from module.ocr.rpc import (
     MAX_CANDIDATE_ALPHABET_LENGTH,
+    MAX_RPC_BATCH_BYTES,
     MAX_RPC_BATCH_IMAGES,
     ModelProxy,
+    _encode_batch,
     _get_server_model,
     _validate_batch,
     _validate_candidate_alphabet,
@@ -119,6 +121,7 @@ class Stage8BRpcRuntimeTests(unittest.TestCase):
                 _get_server_model(SimpleNamespace(), name)
 
     def test_batch_and_alphabet_limits_are_enforced(self) -> None:
+        self.assertGreater(MAX_RPC_BATCH_BYTES, 0)
         self.assertEqual(_validate_batch([1]), [1])
         with self.assertRaises(ValueError):
             _validate_batch([])
@@ -126,6 +129,17 @@ class Stage8BRpcRuntimeTests(unittest.TestCase):
             _validate_batch([None] * (MAX_RPC_BATCH_IMAGES + 1))
         with self.assertRaises(ValueError):
             _validate_batch("not-a-batch")
+
+        with patch(
+            "module.ocr.rpc.MAX_RPC_BATCH_BYTES",
+            2,
+        ), patch(
+            "module.ocr.rpc.encode_image_payload",
+            return_value=b"x",
+        ):
+            self.assertEqual(_encode_batch([1, 2]), [b"x", b"x"])
+            with self.assertRaises(ValueError):
+                _encode_batch([1, 2, 3])
 
         self.assertIsNone(_validate_candidate_alphabet(None))
         self.assertEqual(_validate_candidate_alphabet("ABC"), "ABC")
