@@ -62,6 +62,7 @@ DEFAULT_COMBAT_INTERVALS = (
 NORMAL_RANGE = (0.001, 0.3)
 COMBAT_RANGE = (0.001, 1.0)
 MIN_FRAMES = 5
+SCRCPY_FORCED_INTERVAL = 0.1
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,7 @@ def _parse_intervals(
     )
     if not values:
         raise AcceptanceFailure("Список интервалов benchmark не может быть пустым.")
+
     low, high = bounds
     normalized: list[float] = []
     for value in values:
@@ -159,7 +161,9 @@ def _system_cpu_percent(before: Any, after: Any) -> float:
     }
     total = sum(deltas.values())
     idle = deltas.get("idle", 0.0) + deltas.get("iowait", 0.0)
-    return 0.0 if total <= 0 else max(0.0, min(100.0, (total - idle) / total * 100.0))
+    if total <= 0:
+        return 0.0
+    return max(0.0, min(100.0, (total - idle) / total * 100.0))
 
 
 def _summarize_interval(
@@ -199,6 +203,7 @@ def _summarize_interval(
     start_intervals = [later - earlier for earlier, later in pairwise(starts)]
     if not start_intervals:
         start_intervals = [ends[0] - starts[0]]
+
     p50 = _percentile(start_intervals, 0.50)
     p95 = _percentile(start_intervals, 0.95)
     target_fps = 1.0 / requested_interval_s
@@ -207,6 +212,7 @@ def _summarize_interval(
         achieved_fps = (len(starts) - 1) / measurement_span
     else:
         achieved_fps = 1.0 / wall_s
+
     achievement = achieved_fps / target_fps
     tolerance = max(0.002, requested_interval_s * 0.10)
     misses = sum(value > requested_interval_s + tolerance for value in start_intervals)
@@ -270,7 +276,7 @@ def _benchmark_interval(
             ends.append(ended)
             if frame_contract is None:
                 frame_contract = _validate_bgr_image(image)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - один кандидат должен дать отчёт.
         error = f"{type(exc).__name__}: {_safe_text(str(exc))}"
 
     process_cpu_after = _process_cpu_seconds(process)
@@ -299,13 +305,39 @@ def _pick_at_least(results: list[IntervalResult], minimum: float) -> float | Non
     return stable[-1]
 
 
+def _forced_backend_recommendation(interval: float) -> dict[str, Any]:
+    return {
+        "status": "FORCED_BY_BACKEND",
+        "recommended_profile": "backend_forced",
+        "minimum_stable": None,
+        "profiles": {
+            "backend_forced": {
+                "normal_s": interval,
+                "combat_s": interval,
+                "intent": (
+                    "Backend scrcpy принудительно использует этот интервал "
+                    "независимо от значений двух настроек."
+                ),
+            }
+        },
+        "heuristic": {
+            "automatic_config_write": False,
+            "reason": "scrcpy_forces_screenshot_interval",
+        },
+    }
+
+
 def _recommend_profiles(
     normal: list[IntervalResult],
     combat: list[IntervalResult],
     *,
     current_normal: float,
     current_combat: float,
+    forced_interval_s: float | None = None,
 ) -> dict[str, Any]:
+    if forced_interval_s is not None:
+        return _forced_backend_recommendation(forced_interval_s)
+
     minimum_normal = _pick_at_least(normal, 0.0)
     minimum_combat = _pick_at_least(combat, 0.0)
     if minimum_normal is None or minimum_combat is None:
@@ -316,6 +348,7 @@ def _recommend_profiles(
                 "current": {
                     "normal_s": current_normal,
                     "combat_s": current_combat,
+                    "intent": "Устойчивые кандидаты не найдены.",
                 }
             },
         }
@@ -453,6 +486,8 @@ def _result_table(results: list[IntervalResult], title: str) -> Table:
 
 def _write_markdown(report: dict[str, Any], path: Path) -> None:
     recommendations = report["recommendations"]
+    profile_name = recommendations["recommended_profile"]
+    selected = recommendations["profiles"][profile_name]
     lines = [
         "# Benchmark интервала снимков экрана",
         "",
@@ -460,28 +495,23 @@ def _write_markdown(report: dict[str, Any], path: Path) -> None:
         f"- Профиль: `{report['profile']}`",
         f"- Backend: `{report['screenshot_backend']}`",
         f"- Config unchanged: `{str(report['config_unchanged']).lower()}`",
+        f"- Backend forced interval: `{report['backend_forced_interval_s']}`",
         "",
         "## Рекомендация",
         "",
+        f"Профиль: **{profile_name}**",
+        "",
+        f"- `Optimization_ScreenshotInterval`: `{selected['normal_s']}`",
+        f"- `Optimization_CombatScreenshotInterval`: `{selected['combat_s']}`",
+        "",
+        "## Результаты",
+        "",
+        (
+            "| Режим | Интервал | FPS | p50 | p95 | Пропуски | "
+            "CPU процесса | Стабильно |"
+        ),
+        "|---|---:|---:|---:|---:|---:|---:|:---:|",
     ]
-    profile_name = recommendations["recommended_profile"]
-    profile = recommendations["profiles"][profile_name]
-    lines.extend(
-        [
-            f"Профиль: **{profile_name}**",
-            "",
-            f"- `Optimization_ScreenshotInterval`: `{profile['normal_s']}`",
-            f"- `Optimization_CombatScreenshotInterval`: `{profile['combat_s']}`",
-            "",
-            "## Результаты",
-            "",
-            (
-                "| Режим | Интервал | FPS | p50 | p95 | Пропуски | "
-                "CPU процесса | Стабильно |"
-            ),
-            "|---|---:|---:|---:|---:|---:|---:|:---:|",
-        ]
-    )
     for result in [*report["normal_results"], *report["combat_results"]]:
         lines.append(
             "| {phase} | {interval:g} с | {fps:.1f} | {p50:.1f} мс | "
@@ -519,6 +549,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         raise AcceptanceFailure(
             "Serial benchmark должен совпадать с Emulator_Serial выбранного профиля."
         )
+
     adb = _resolve_adb(args.adb)
     _check_android_boot_completed(adb, serial)
     package = _detect_package(adb, serial, profile["package"])
@@ -527,24 +558,47 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     config, device = _load_config(args.profile)
     current_normal = float(config.Optimization_ScreenshotInterval)
     current_combat = float(config.Optimization_CombatScreenshotInterval)
-    normal_intervals = _with_current(
-        _parse_intervals(args.normal_intervals, DEFAULT_NORMAL_INTERVALS, NORMAL_RANGE),
-        current_normal,
-        NORMAL_RANGE,
+    screenshot_backend = profile["screenshot_backend"]
+    forced_interval = (
+        SCRCPY_FORCED_INTERVAL if screenshot_backend == "scrcpy" else None
     )
-    combat_intervals = _with_current(
-        _parse_intervals(args.combat_intervals, DEFAULT_COMBAT_INTERVALS, COMBAT_RANGE),
-        current_combat,
-        COMBAT_RANGE,
-    )
+
+    if forced_interval is None:
+        normal_intervals = _with_current(
+            _parse_intervals(
+                args.normal_intervals,
+                DEFAULT_NORMAL_INTERVALS,
+                NORMAL_RANGE,
+            ),
+            current_normal,
+            NORMAL_RANGE,
+        )
+        combat_intervals = _with_current(
+            _parse_intervals(
+                args.combat_intervals,
+                DEFAULT_COMBAT_INTERVALS,
+                COMBAT_RANGE,
+            ),
+            current_combat,
+            COMBAT_RANGE,
+        )
+    else:
+        normal_intervals = [forced_interval]
+        combat_intervals = [forced_interval]
 
     print(
         "Benchmark не отправляет игре touch/key-команды и использует только "
         "настроенный screenshot backend."
     )
     print(f"Exact head: {head}")
-    print(f"Профиль/backend: {args.profile} / {profile['screenshot_backend']}")
+    print(f"Профиль/backend: {args.profile} / {screenshot_backend}")
     print(f"Текущие интервалы: обычный={current_normal:g} с, бой={current_combat:g} с")
+    if forced_interval is not None:
+        print(
+            "Backend scrcpy принудительно использует интервал "
+            f"{forced_interval:g} с для обоих режимов."
+        )
+
     _confirm(
         "NORMAL",
         "Откройте типичный статический экран игры без UID/чата.",
@@ -592,6 +646,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         combat_results,
         current_normal=current_normal,
         current_combat=current_combat,
+        forced_interval_s=forced_interval,
     )
     return {
         "status": "PASS",
@@ -599,7 +654,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "profile": args.profile,
         "package": package,
         "serial_redacted": True,
-        "screenshot_backend": profile["screenshot_backend"],
+        "screenshot_backend": screenshot_backend,
+        "backend_forced_interval_s": forced_interval,
         "duration_per_candidate_s": args.duration,
         "warmup_frames": args.warmup_frames,
         "combat_context": combat_context,
@@ -637,7 +693,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         report = run_benchmark(args)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - CLI всегда пишет failure-report.
         failure = {
             "status": "FAIL",
             "error": _safe_text(str(exc)),
