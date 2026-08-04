@@ -326,7 +326,7 @@ class CampaignOcr(ModuleBase):
         del_cached_property(self, '_stage_image')
         del_cached_property(self, '_stage_image_gray')
         if len(buttons) == 0:
-            logger.info('[战役] 未找到关卡。')
+            logger.info('[Кампания — OCR] Этапы не найдены.')
             raise CampaignNameError
 
         ocr = Ocr(buttons, name='campaign', letter=(255, 255, 255), threshold=128,
@@ -359,8 +359,8 @@ class CampaignOcr(ModuleBase):
             button.name = name
             self.stage_entrance[name] = button
 
-        logger.attr('章节', self.campaign_chapter)
-        logger.attr('关卡', ', '.join(self.stage_entrance.keys()))
+        logger.attr('Глава', self.campaign_chapter)
+        logger.attr('Этапы', ', '.join(self.stage_entrance.keys()))
 
     def handle_get_chapter_additional(self):
         """

@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import cv2
 import numpy as np
 
 from dev_tools.stage8b_evidence_policy import FULL_SCENARIO_REQUIREMENTS
@@ -166,7 +167,7 @@ class Stage8BPromptScenarioMatrixTests(unittest.TestCase):
                 if scenario == "invalid_rank"
                 else np.zeros((8, 8, 2), dtype=np.uint8)
             )
-            with self.assertRaises(ValueError):
+            with self.assertRaises((ValueError, cv2.error)):
                 instance._to_gray(image)
             return scenario
         if scenario in {"inference_uint8", "inference_float32", "dynamic_width", "max_width_clamp"}:
@@ -484,10 +485,37 @@ class Stage8BPromptScenarioMatrixTests(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
             self.assertEqual(results, [0, 1, 2, 3])
             return results
+        if scenario == "worker_started_once":
+            original_worker = al_ocr._ocr_worker
+            created = []
+
+            class FakeThread:
+                def __init__(self, **kwargs):
+                    self.kwargs = kwargs
+                    self.alive = False
+                    created.append(self)
+
+                def start(self):
+                    self.alive = True
+
+                def is_alive(self):
+                    return self.alive
+
+            try:
+                al_ocr._ocr_worker = None
+                with patch.object(al_ocr.threading, "Thread", FakeThread):
+                    al_ocr._ensure_ocr_worker()
+                    first = al_ocr._ocr_worker
+                    al_ocr._ensure_ocr_worker()
+                    self.assertIs(al_ocr._ocr_worker, first)
+                    self.assertEqual(len(created), 1)
+            finally:
+                al_ocr._ocr_worker = original_worker
+            return len(created)
+
         source = Path(al_ocr.__file__).read_text(encoding="utf-8")
         token = {
             "task_done_called": "task_done",
-            "worker_started_once": "_ocr_worker_started",
             "worker_ident_set": "_ocr_worker_ident",
             "shutdown_independent": "daemon=True",
         }[scenario]

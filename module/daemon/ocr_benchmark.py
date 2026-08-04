@@ -122,7 +122,7 @@ class OcrBenchmark:
         from module.ocr import al_ocr
 
         if model_name != "azur_lane":
-            raise ValueError(f"Benchmark поддерживает только Global/English model: {model_name}")
+            raise ValueError(f"Benchmark поддерживает только глобальную английскую модель: {model_name}")
         if ocr_device is None and use_gpu is not None:
             ocr_device = "gpu" if use_gpu else "cpu"
         if ocr_device is None:
@@ -204,7 +204,7 @@ class OcrBenchmark:
             accuracy = correct / total * 100 if total else 0.0
             benchmark_image = cv2.imread(test_cases[0][0])
             if benchmark_image is None:
-                raise RuntimeError("OpenCV не смог загрузить benchmark image.")
+                raise RuntimeError("OpenCV не смог загрузить изображение для benchmark.")
             logger.info(f"[{model_version}] Прогрев...")
             for _ in range(3):
                 ocr.ocr(benchmark_image)
