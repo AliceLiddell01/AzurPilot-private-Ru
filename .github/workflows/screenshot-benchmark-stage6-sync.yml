@@ -1,0 +1,56 @@
+name: Temporary screenshot benchmark Stage 6 sync
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/screenshot-benchmark-stage6-sync.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshot-benchmark-stage6-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout writable head branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+
+      - name: Synchronize dependencies
+        run: uv sync --frozen
+
+      - name: Regenerate Stage 6 audit baselines
+        run: uv run python -m dev_tools.stage6_ui_audit --write
+
+      - name: Commit deterministic baselines
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            dev_tools/russianization/results/ui_translation_exceptions.json \
+            dev_tools/russianization/results/stage6_metrics.json \
+            dev_tools/russianization/results/stage6_report.md
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Stage 6 baselines already current"
+            exit 0
+          fi
+          git commit -m "chore(stage6): обновить UI audit baseline"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
