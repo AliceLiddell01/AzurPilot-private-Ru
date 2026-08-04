@@ -16,6 +16,7 @@ from dev_tools.stage8b_semantic_policy import (
     OCR_SCOPE_PATHS,
     PRESERVED_IDENTIFIERS,
     ROOT,
+    TRANSLATION_ONLY_RUNTIME_PATHS,
 )
 
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
@@ -32,7 +33,6 @@ ENGLISH_HINTS = frozenset(
         "package", "connection", "server", "success", "disconnect",
     }
 )
-PRESERVED_LOWER = {value.lower() for value in PRESERVED_IDENTIFIERS}
 
 
 @dataclass(frozen=True)
@@ -222,12 +222,10 @@ def is_user_actionable(message: str) -> bool:
 
 def _ordinary_english(message: str) -> bool:
     text = PLACEHOLDER_RE.sub(" ", message)
+    for identifier in sorted(PRESERVED_IDENTIFIERS, key=len, reverse=True):
+        text = re.sub(re.escape(identifier), " ", text, flags=re.IGNORECASE)
     words = {word.lower() for word in LATIN_WORD_RE.findall(text)}
-    ordinary = {
-        word for word in words
-        if word not in PRESERVED_LOWER
-        and word not in {"verbose", "azurpilot", "fallback", "backend", "benchmark"}
-    }
+    ordinary = words - {"verbose", "azurpilot", "fallback", "backend", "benchmark"}
     return len(ordinary) >= 2 and bool(ordinary & ENGLISH_HINTS)
 
 
@@ -277,7 +275,7 @@ def collect_entries(root: Path = ROOT) -> list[ScopeEntry]:
 
 def _base_placeholder_map(base_sha: str) -> dict[tuple[str, str, str, str], list[tuple[str, ...]]]:
     mapping: dict[tuple[str, str, str, str], list[tuple[str, ...]]] = {}
-    for relative in OCR_SCOPE_PATHS:
+    for relative in TRANSLATION_ONLY_RUNTIME_PATHS:
         source = _git_show(base_sha, relative)
         if not source:
             continue
@@ -320,6 +318,8 @@ class Stage8BOcrLogAudit:
         base_placeholders = _base_placeholder_map(self.base_sha)
         placeholder_mismatches: list[dict[str, Any]] = []
         for entry in entries:
+            if entry.path not in TRANSLATION_ONLY_RUNTIME_PATHS:
+                continue
             key = (entry.path, entry.function_owner, entry.call_kind, entry.severity)
             signatures = base_placeholders.get(key)
             if signatures and entry.placeholder_signature not in signatures:
