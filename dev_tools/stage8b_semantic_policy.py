@@ -21,9 +21,12 @@ OCR_SCOPE_PATHS = (
 )
 
 TRANSLATION_ONLY_RUNTIME_PATHS = (
-    "module/ocr/ocr.py",
     "module/ocr/ncnn_ocr.py",
     "module/ocr/windows_ml.py",
+)
+
+APPROVED_BEHAVIOR_RUNTIME_PATHS = (
+    "module/ocr/ocr.py",
     "module/daemon/ocr_benchmark.py",
 )
 
