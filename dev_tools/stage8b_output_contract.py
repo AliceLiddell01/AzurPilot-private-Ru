@@ -18,6 +18,7 @@ CRITICAL_LITERAL_NAMES = (
     "REC_IMAGE_SHAPE", "INPUT_NAME", "OUTPUT_NAME",
 )
 CRITICAL_FUNCTIONS = (
+    ("module/ocr/al_ocr.py", "handle_ocr_error"),
     ("module/ocr/al_ocr.py", "AlOcrCtcRecOCR.__init__"),
     ("module/ocr/al_ocr.py", "AlOcrCtcRecOCR.__call__"),
     ("module/ocr/al_ocr.py", "AlOcrCtcRecOCR._preprocess"),
@@ -34,6 +35,8 @@ CRITICAL_FUNCTIONS = (
     ("module/ocr/al_ocr.py", "_create_det_ocr_for_onnx"),
     ("module/ocr/al_ocr.py", "_create_det_ocr_for_ncnn"),
     ("module/ocr/al_ocr.py", "_get_det_model"),
+    ("module/ocr/al_ocr.py", "reset_ocr_model"),
+    ("module/ocr/al_ocr.py", "AlOcr.__init__"),
     ("module/ocr/al_ocr.py", "AlOcr._ocr_direct"),
     ("module/ocr/al_ocr.py", "AlOcr._det_direct"),
     ("module/ocr/al_ocr.py", "AlOcr._ocr_for_single_lines_direct"),
@@ -63,7 +66,9 @@ CRITICAL_FUNCTIONS = (
     ("module/daemon/ocr_benchmark.py", "OcrBenchmark._load_test_cases"),
     ("module/daemon/ocr_benchmark.py", "OcrBenchmark._rate_speed"),
     ("module/daemon/ocr_benchmark.py", "OcrBenchmark._run_single"),
+    ("module/daemon/ocr_benchmark.py", "OcrBenchmark.run"),
     ("module/daemon/ocr_benchmark.py", "OcrBenchmark.run_simple_ocr_benchmark"),
+    ("module/daemon/ocr_benchmark.py", "run_ocr_benchmark"),
 )
 
 MODEL_SELECTION_SYMBOLS = {
@@ -82,13 +87,8 @@ class ContractError(RuntimeError):
 
 def _git(*args: str) -> str:
     completed = subprocess.run(
-        ["git", *args],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        ["git", *args], cwd=ROOT, check=False, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
     if completed.returncode != 0:
         raise ContractError(completed.stderr.strip() or "Git command failed")
@@ -183,12 +183,16 @@ def _normalize_translation_literals(node: ast.AST) -> str:
     return ast.dump(normalized, include_attributes=False)
 
 
+def _critical_names_by_path() -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for path, name in CRITICAL_FUNCTIONS:
+        result.setdefault(path, []).append(name)
+    return result
+
+
 def _critical_function_mismatches(base: str, head: str) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
-    by_path: dict[str, list[str]] = {}
-    for path, name in CRITICAL_FUNCTIONS:
-        by_path.setdefault(path, []).append(name)
-    for path, names in by_path.items():
+    for path, names in _critical_names_by_path().items():
         base_functions = _qualified_functions(ast.parse(_source_at(base, path)))
         head_functions = _qualified_functions(ast.parse(_source_at(head, path)))
         for name in names:
@@ -224,38 +228,38 @@ def _critical_literal_mismatches(base: str, head: str) -> list[dict[str, str]]:
     return findings
 
 
-def _logger_sequences(source: str) -> dict[str, list[str]]:
-    tree = ast.parse(source)
-    result: dict[str, list[str]] = {}
-    functions = _qualified_functions(tree)
-    for name, node in functions.items():
-        sequence: list[str] = []
-        for child in ast.walk(node):
-            if (
-                isinstance(child, ast.Call)
-                and isinstance(child.func, ast.Attribute)
-                and isinstance(child.func.value, ast.Name)
-                and child.func.value.id == "logger"
-            ):
-                sequence.append(child.func.attr)
-        result[name] = sequence
-    return result
+def _logger_sequence(node: ast.AST) -> list[str]:
+    sequence: list[tuple[int, int, str]] = []
+    for child in ast.walk(node):
+        if (
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Attribute)
+            and isinstance(child.func.value, ast.Name)
+            and child.func.value.id == "logger"
+        ):
+            sequence.append((child.lineno, child.col_offset, child.func.attr))
+    return [severity for _line, _column, severity in sorted(sequence)]
 
 
 def _logger_sequence_mismatches(base: str, head: str) -> list[dict[str, object]]:
-    paths = sorted({path for path, _name in CRITICAL_FUNCTIONS})
     findings: list[dict[str, object]] = []
-    for path in paths:
-        base_sequences = _logger_sequences(_source_at(base, path))
-        head_sequences = _logger_sequences(_source_at(head, path))
-        for name in sorted(set(base_sequences) | set(head_sequences)):
-            if base_sequences.get(name, []) != head_sequences.get(name, []):
+    for path, names in _critical_names_by_path().items():
+        base_functions = _qualified_functions(ast.parse(_source_at(base, path)))
+        head_functions = _qualified_functions(ast.parse(_source_at(head, path)))
+        for name in names:
+            base_node = base_functions.get(name)
+            head_node = head_functions.get(name)
+            if base_node is None or head_node is None:
+                continue
+            base_sequence = _logger_sequence(base_node)
+            head_sequence = _logger_sequence(head_node)
+            if base_sequence != head_sequence:
                 findings.append(
                     {
                         "path": path,
                         "symbol": name,
-                        "base": base_sequences.get(name, []),
-                        "head": head_sequences.get(name, []),
+                        "base": base_sequence,
+                        "head": head_sequence,
                     }
                 )
     return findings
@@ -265,12 +269,8 @@ def _run_probe(source_root: Path, output: Path) -> dict[str, Any]:
     probe = ROOT / "dev_tools" / "stage8b_output_probe.py"
     completed = subprocess.run(
         [sys.executable, str(probe), "--source-root", str(source_root), "--output", str(output)],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        cwd=ROOT, check=False, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
     if completed.returncode != 0:
         raise ContractError(
@@ -371,13 +371,10 @@ def build_output_contract(output_dir: Path) -> tuple[dict[str, Any], dict[str, i
         "head_values": head_values,
         "values_equal": base_values == head_values,
         "environment_equal": not environment_mismatch,
-        "metric_evidence": {
-            key: value for key, value in metrics.items()
-        },
+        "metric_evidence": dict(metrics),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "output-contract.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
     )
     return payload, metrics
