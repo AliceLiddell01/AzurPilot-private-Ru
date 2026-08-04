@@ -38,28 +38,49 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
     return True
 
 
-def resolve_debug_directory(explicit: str | os.PathLike[str] | None = None) -> Path:
-    configured = explicit or os.environ.get(DEBUG_DIR_ENV)
-    if configured:
-        candidate = Path(configured).expanduser()
-    else:
-        candidate = Path(tempfile.gettempdir()) / "azurpilot-ocr-debug" / str(os.getpid())
+def _absolute_without_resolving(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path)))
 
-    candidate = candidate.resolve(strict=False)
-    repository = _repository_root().resolve()
-    if _is_relative_to(candidate, repository):
-        raise OcrDebugOutputError(
-            "Каталог отладочных OCR-изображений не должен находиться внутри Git-репозитория."
-        )
 
-    current = candidate
+def _reject_existing_symlink_components(path: Path) -> None:
+    current = path
     while current != current.parent:
         if current.exists() and current.is_symlink():
             raise OcrDebugOutputError(
                 "Каталог отладочных OCR-изображений не должен проходить через символическую ссылку."
             )
         current = current.parent
+
+
+def resolve_debug_directory(explicit: str | os.PathLike[str] | None = None) -> Path:
+    configured = explicit or os.environ.get(DEBUG_DIR_ENV)
+    if configured:
+        original = Path(configured).expanduser()
+    else:
+        original = Path(tempfile.gettempdir()) / "azurpilot-ocr-debug" / str(os.getpid())
+
+    absolute = _absolute_without_resolving(original)
+    _reject_existing_symlink_components(absolute)
+    candidate = absolute.resolve(strict=False)
+    repository = _repository_root().resolve()
+    if _is_relative_to(candidate, repository):
+        raise OcrDebugOutputError(
+            "Каталог отладочных OCR-изображений не должен находиться внутри Git-репозитория."
+        )
     return candidate
+
+
+def _secure_directory(directory: Path) -> None:
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _reject_existing_symlink_components(_absolute_without_resolving(directory))
+    if directory.is_symlink() or directory.resolve(strict=True) != directory:
+        raise OcrDebugOutputError(
+            "Каталог отладочных OCR-изображений не должен быть символической ссылкой."
+        )
+    try:
+        directory.chmod(0o700)
+    except OSError:
+        pass
 
 
 def _image_array(image: Any) -> np.ndarray:
@@ -115,11 +136,7 @@ def save_debug_image(
         return None
 
     target = resolve_debug_directory(directory)
-    target.mkdir(parents=True, exist_ok=True)
-    if target.is_symlink():
-        raise OcrDebugOutputError(
-            "Каталог отладочных OCR-изображений не должен быть символической ссылкой."
-        )
+    _secure_directory(target)
 
     array = _image_array(image)
     digest = image_fingerprint(array)[:16]
@@ -130,8 +147,16 @@ def save_debug_image(
     filename = f"{safe_kind}_{safe_model}_{time.time_ns()}_{digest}.png"
     path = target / filename
 
-    if not cv2.imwrite(str(path), array):
-        raise OcrDebugOutputError("OpenCV не смог сохранить отладочное OCR-изображение.")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".ocr-", suffix=".png", dir=target)
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        if not cv2.imwrite(str(temporary), array):
+            raise OcrDebugOutputError("OpenCV не смог сохранить отладочное OCR-изображение.")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
     _bounded_cleanup(target, retention)
     return path
 
@@ -140,6 +165,7 @@ def cleanup_debug_directory(directory: str | os.PathLike[str]) -> None:
     target = resolve_debug_directory(directory)
     if not target.exists():
         return
+    _reject_existing_symlink_components(_absolute_without_resolving(target))
     if target.is_symlink():
         raise OcrDebugOutputError(
             "Отказано в удалении каталога OCR, перенаправленного символической ссылкой."
