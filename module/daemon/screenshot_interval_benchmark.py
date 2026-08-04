@@ -248,6 +248,7 @@ class AutomatedScreenshotIntervalBenchmark(Meta):
         )
 
         combat = AshCombat(config=self.config, device=self.device)
+        self._benchmark_combat = combat
         combat.combat_preparation(
             balance_hp=False,
             emotion_reduce=False,
@@ -336,6 +337,8 @@ class AutomatedScreenshotIntervalBenchmark(Meta):
         )
 
         combat: AshCombat | None = None
+        self._benchmark_combat: AshCombat | None = None
+        returned_to_main = False
         normal_results: list[IntervalResult] = []
         combat_results: list[IntervalResult] = []
         try:
@@ -351,20 +354,30 @@ class AutomatedScreenshotIntervalBenchmark(Meta):
             )
         finally:
             self.device.screenshot_interval_set(current_normal)
-            if combat is not None:
-                try:
-                    self._leave_meta_simulation(combat)
-                except Exception as exc:  # noqa: BLE001 - cleanup must not hide result.
-                    logger.warning(
-                        "[Screenshot benchmark] Ошибка очистки после simulation: "
-                        f"{_safe_text(exc)}"
-                    )
+            cleanup_combat = combat or self._benchmark_combat
+            try:
+                if cleanup_combat is not None:
+                    self._leave_meta_simulation(cleanup_combat)
+                else:
+                    self.ui_goto_main()
+                returned_to_main = True
+            except Exception as exc:  # noqa: BLE001 - cleanup must not hide result.
+                logger.warning(
+                    "[Screenshot benchmark] Ошибка возврата на главный экран: "
+                    f"{_safe_text(exc)}"
+                )
+            finally:
+                self._benchmark_combat = None
 
         config_hash_after = _sha256(config_path)
         config_unchanged = config_hash_before == config_hash_after
         if not config_unchanged:
             raise ScreenshotIntervalBenchmarkError(
                 "Benchmark обнаружил изменение постоянного profile config."
+            )
+        if not returned_to_main:
+            raise ScreenshotIntervalBenchmarkError(
+                "Benchmark завершил измерения, но не подтвердил возврат на главный экран."
             )
         if not normal_results or not combat_results:
             raise ScreenshotIntervalBenchmarkError(
@@ -399,7 +412,7 @@ class AutomatedScreenshotIntervalBenchmark(Meta):
                 ),
                 "simulation_button_requires_ocr_token": "SIMULATION",
                 "ordinary_meta_attack_allowed": False,
-                "returned_to_main": True,
+                "returned_to_main": returned_to_main,
             },
             "task_stuck_guard_reset_per_candidate": True,
             "resources_released_during_interactive_wait": False,
