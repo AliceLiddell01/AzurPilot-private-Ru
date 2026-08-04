@@ -1,0 +1,101 @@
+name: Temporary screenshot benchmark META inheritance fix
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/screenshot-benchmark-meta-inheritance-fix.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshot-benchmark-meta-inheritance-fix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout writable head branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Apply META inheritance fix and regression test
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          module_path = Path("module/daemon/screenshot_interval_benchmark.py")
+          module_text = module_path.read_text(encoding="utf-8")
+
+          old_import = "from module.os_ash.meta import Meta"
+          new_import = "from module.os_ash.meta import OpsiAshBeacon"
+          if module_text.count(old_import) != 1:
+              raise SystemExit("Unexpected Meta import count")
+          module_text = module_text.replace(old_import, new_import, 1)
+
+          old_base = "class AutomatedScreenshotIntervalBenchmark(Meta):"
+          new_base = "class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):"
+          if module_text.count(old_base) != 1:
+              raise SystemExit("Unexpected benchmark base-class count")
+          module_text = module_text.replace(old_base, new_base, 1)
+          module_path.write_text(module_text, encoding="utf-8")
+
+          test_path = Path("tests/test_screenshot_interval_benchmark_automation.py")
+          test_text = test_path.read_text(encoding="utf-8")
+
+          import_anchor = (
+              "    run_screenshot_interval_benchmark,\n"
+              ")\n"
+          )
+          import_replacement = (
+              "    run_screenshot_interval_benchmark,\n"
+              ")\n"
+              "from module.os_ash.meta import OpsiAshBeacon\n"
+          )
+          if test_text.count(import_anchor) != 1:
+              raise SystemExit("Unexpected automation-test import anchor count")
+          test_text = test_text.replace(import_anchor, import_replacement, 1)
+
+          test_anchor = (
+              "    def test_automated_route_runs_campaign_before_meta_simulation(self) -> None:\n"
+          )
+          regression_test = (
+              "    def test_meta_navigation_helpers_are_inherited_from_ash_task(self) -> None:\n"
+              "        self.assertTrue(\n"
+              "            issubclass(AutomatedScreenshotIntervalBenchmark, OpsiAshBeacon)\n"
+              "        )\n"
+              "        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(\n"
+              "            AutomatedScreenshotIntervalBenchmark\n"
+              "        )\n"
+              "        self.assertTrue(callable(benchmark._ensure_meta_page))\n"
+              "        self.assertTrue(callable(benchmark._in_meta_page))\n"
+              "\n"
+          )
+          if test_text.count(test_anchor) != 1:
+              raise SystemExit("Unexpected automation-test insertion anchor count")
+          test_text = test_text.replace(test_anchor, regression_test + test_anchor, 1)
+          test_path.write_text(test_text, encoding="utf-8")
+          PY
+
+      - name: Commit deterministic fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            module/daemon/screenshot_interval_benchmark.py \
+            tests/test_screenshot_interval_benchmark_automation.py
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "META inheritance fix already applied"
+            exit 0
+          fi
+          git commit -m "fix(device): использовать META-контур с навигационными helper-методами"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
