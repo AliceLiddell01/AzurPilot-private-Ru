@@ -74,9 +74,8 @@ class Stage8BRpcRuntimeTests(unittest.TestCase):
         with patch.dict(
             sys.modules,
             {"module.ocr.models": self._models_module(fallback)},
-        ):
-            with self.assertRaises(OcrRpcSecurityError):
-                proxy.ocr(object())
+        ), self.assertRaises(OcrRpcSecurityError):
+            proxy.ocr(object())
 
         self.assertTrue(proxy.online)
         self.assertEqual(fallback.calls, [])
