@@ -21,7 +21,7 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
         getattr(self, f"_execute_{category}")(scenario)
 
     def _execute_model_selection(self, scenario: str) -> None:
-        import module.ocr.al_ocr as al_ocr
+        from module.ocr import al_ocr
 
         if scenario == "unsupported_model":
             with self.assertRaises(ValueError):
@@ -56,7 +56,7 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
         self.assertEqual(params, al_ocr.ONNX_MODEL_PARAMS["azur_lane"]["azur_lane_v6_6"])
 
     def _execute_model_files(self, scenario: str) -> None:
-        from module.ocr.ncnn_ocr import NcnnRecOCR, NcnnRecModelSpec
+        from module.ocr.ncnn_ocr import NcnnRecModelSpec, NcnnRecOCR
 
         if scenario == "closed_model":
             model = NcnnRecOCR.__new__(NcnnRecOCR)
@@ -157,7 +157,7 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
         return output
 
     def _execute_detection_contract(self, scenario: str) -> None:
-        import module.ocr.al_ocr as al_ocr
+        from module.ocr import al_ocr
 
         instance = al_ocr.AlOcr.__new__(al_ocr.AlOcr)
         instance._ensure_loaded = lambda: None
@@ -210,7 +210,7 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
             )
 
     def _execute_queue_cache(self, scenario: str) -> None:
-        import module.ocr.al_ocr as al_ocr
+        from module.ocr import al_ocr
 
         if scenario == "queued_success":
             self.assertEqual(al_ocr._run_ocr_queued(lambda value: value + 1, 2), 3)
@@ -246,8 +246,10 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
 
     def _execute_windows_ml(self, scenario: str) -> None:
         from module.ocr.windows_ml import (
-            _is_discrete_gpu, _iter_preferred_devices,
-            _vendor_execution_provider_names, create_onnx_session,
+            _is_discrete_gpu,
+            _iter_preferred_devices,
+            _vendor_execution_provider_names,
+            create_onnx_session,
         )
 
         if scenario == "cpu_session":
@@ -279,10 +281,16 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
             self.assertEqual(_iter_preferred_devices(ort), ())
             return
 
-        description = "Intel Iris Xe Graphics" if scenario == "integrated_gpu_rejected" else "NVIDIA RTX"
+        description = (
+            "Intel Iris Xe Graphics"
+            if scenario == "integrated_gpu_rejected"
+            else "NVIDIA RTX"
+        )
         metadata = {
             "Description": description,
-            "DxgiVideoMemory": "512 MiB" if scenario == "integrated_gpu_rejected" else "8 GiB",
+            "DxgiVideoMemory": (
+                "512 MiB" if scenario == "integrated_gpu_rejected" else "8 GiB"
+            ),
         }
         device = SimpleNamespace(device=SimpleNamespace(metadata=metadata))
         self.assertEqual(
@@ -292,12 +300,17 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
 
     def _execute_rpc_security(self, scenario: str) -> None:
         from module.ocr.stage8b_rpc_security import (
-            OcrRpcSecurityError, decode_image_payload, encode_image_payload,
+            OcrRpcSecurityError,
+            decode_image_payload,
+            encode_image_payload,
             normalize_loopback_address,
         )
 
         if scenario == "loopback_normalization":
-            self.assertEqual(normalize_loopback_address("localhost:22268"), "127.0.0.1:22268")
+            self.assertEqual(
+                normalize_loopback_address("localhost:22268"),
+                "127.0.0.1:22268",
+            )
             return
         if scenario == "remote_address_rejected":
             with self.assertRaises(OcrRpcSecurityError):
@@ -346,7 +359,10 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
                         directory=target,
                     )
                     assert path is not None
-                    self.assertRegex(path.name, r"^rec_azur_lane_\d+_[0-9a-f]{16}\.png$")
+                    self.assertRegex(
+                        path.name,
+                        r"^rec_azur_lane_\d+_[0-9a-f]{16}\.png$",
+                    )
                 else:
                     for _ in range(3):
                         save_debug_image(
@@ -360,7 +376,11 @@ class Stage8BRuntimeScenarioMatrixTests(unittest.TestCase):
     def _execute_benchmark(self, scenario: str) -> None:
         from module.daemon.ocr_benchmark import OcrBenchmark
 
-        value = {"fast_rating": 4.0, "medium_rating": 60.0, "slow_rating": 200.0}[scenario]
+        value = {
+            "fast_rating": 4.0,
+            "medium_rating": 60.0,
+            "slow_rating": 200.0,
+        }[scenario]
         rating, style = OcrBenchmark._rate_speed(value)
         expected_style = {
             "fast_rating": "bold bright_green",
