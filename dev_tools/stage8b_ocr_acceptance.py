@@ -525,20 +525,27 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         if fixture_archive is None:
             raise AcceptanceFailure("Bundled fixture archive sets_num не найден.")
     finally:
+        cleanup_failure: Exception | None = None
         try:
             cleanup_debug_directory(debug_dir)
         except (OcrDebugOutputError, OSError) as exc:
-            raise AcceptanceFailure(
-                f"Не удалось безопасно очистить временный OCR-каталог: {exc}"
-            ) from exc
-        finally:
+            cleanup_failure = exc
+        try:
             shutil.rmtree(temp_root, ignore_errors=False)
+        except OSError as exc:
+            if cleanup_failure is None:
+                cleanup_failure = exc
+        finally:
             temporary_files_removed = not temp_root.exists()
             for name, value in environment_before.items():
                 if value is None:
                     os.environ.pop(name, None)
                 else:
                     os.environ[name] = value
+        if cleanup_failure is not None:
+            raise AcceptanceFailure(
+                f"Не удалось безопасно очистить временные OCR-данные: {cleanup_failure}"
+            ) from cleanup_failure
 
     if not temporary_files_removed:
         raise AcceptanceFailure("Временный acceptance-каталог остался на диске.")
