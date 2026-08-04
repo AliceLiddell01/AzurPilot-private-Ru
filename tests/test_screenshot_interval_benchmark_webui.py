@@ -4,6 +4,8 @@ import json
 import unittest
 from pathlib import Path
 
+from module.submodule.utils import get_available_func
+
 ROOT = Path(__file__).resolve().parents[1]
 TASK = "ScreenshotIntervalBenchmark"
 
@@ -25,6 +27,9 @@ class ScreenshotIntervalBenchmarkWebUiTests(unittest.TestCase):
         )
         self.assertIn(TASK, args)
         self.assertIn("Storage", args[TASK])
+
+    def test_webui_dispatcher_whitelist_accepts_task(self) -> None:
+        self.assertIn(TASK, get_available_func())
 
     def test_dispatch_method_calls_automated_task(self) -> None:
         source = (ROOT / "alas.py").read_text(encoding="utf-8")
