@@ -49,20 +49,22 @@ jobs:
           alas = Path("alas.py")
           source = alas.read_text(encoding="utf-8")
           if "def screenshot_interval_benchmark(self):" not in source:
-              marker = '''    def ocr_benchmark(self):
-                  from module.daemon.ocr_benchmark import run_ocr_benchmark
-                  run_ocr_benchmark(config=self.config)
-          '''
-              replacement = marker + '''
-              def screenshot_interval_benchmark(self):
-                  from module.daemon.screenshot_interval_benchmark import (
-                      run_screenshot_interval_benchmark,
-                  )
-                  run_screenshot_interval_benchmark(
-                      config=self.config,
-                      device=self.device,
-                  )
-          '''
+              marker = (
+                  "    def ocr_benchmark(self):\n"
+                  "        from module.daemon.ocr_benchmark import run_ocr_benchmark\n"
+                  "        run_ocr_benchmark(config=self.config)\n"
+              )
+              replacement = marker + (
+                  "\n"
+                  "    def screenshot_interval_benchmark(self):\n"
+                  "        from module.daemon.screenshot_interval_benchmark import (\n"
+                  "            run_screenshot_interval_benchmark,\n"
+                  "        )\n"
+                  "        run_screenshot_interval_benchmark(\n"
+                  "            config=self.config,\n"
+                  "            device=self.device,\n"
+                  "        )\n"
+              )
               if marker not in source:
                   raise SystemExit("alas.py marker not found")
               alas.write_text(source.replace(marker, replacement, 1), encoding="utf-8")
@@ -70,12 +72,11 @@ jobs:
           task = Path("module/config/argument/task.yaml")
           source = task.read_text(encoding="utf-8")
           if "    ScreenshotIntervalBenchmark:\n" not in source:
-              marker = '''    OcrBenchmark:
-                  - OcrBenchmark
-          '''
-              replacement = marker + '''    ScreenshotIntervalBenchmark:
-                  - OcrBenchmark
-          '''
+              marker = "    OcrBenchmark:\n      - OcrBenchmark\n"
+              replacement = marker + (
+                  "    ScreenshotIntervalBenchmark:\n"
+                  "      - OcrBenchmark\n"
+              )
               if marker not in source:
                   raise SystemExit("task.yaml marker not found")
               task.write_text(source.replace(marker, replacement, 1), encoding="utf-8")
