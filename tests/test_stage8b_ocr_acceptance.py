@@ -71,11 +71,16 @@ class Stage8BOcrAcceptanceTests(unittest.TestCase):
 
     def test_cleanup_failure_still_restores_environment(self) -> None:
         temporary_root = Path(tempfile.mkdtemp(prefix="stage8b-acceptance-test-"))
-        original_values = {
+        expected_values = {
             "AZURPILOT_OCR_DEBUG": "before-debug",
             "AZURPILOT_OCR_DEBUG_DIR": "before-directory",
             "AZURPILOT_OCR_ALLOW_PROVIDER_DOWNLOAD": "before-download",
         }
+        previous_values = {
+            name: os.environ.get(name)
+            for name in expected_values
+        }
+        os.environ.update(expected_values)
         args = argparse.Namespace(
             profile="alas",
             serial="127.0.0.1:5555",
@@ -93,7 +98,6 @@ class Stage8BOcrAcceptanceTests(unittest.TestCase):
             "vendor_ep_enabled": False,
         }
         patchers = (
-            patch.dict(os.environ, original_values, clear=False),
             patch("dev_tools.stage8b_ocr_acceptance._validate_profile_name"),
             patch("dev_tools.stage8b_ocr_acceptance._git_head_sha", return_value="head"),
             patch(
@@ -164,10 +168,15 @@ class Stage8BOcrAcceptanceTests(unittest.TestCase):
                     )
                 )
                 run_acceptance(args)
-                for name, value in original_values.items():
-                    self.assertEqual(os.environ.get(name), value)
+            for name, value in expected_values.items():
+                self.assertEqual(os.environ.get(name), value)
         finally:
             shutil.rmtree(temporary_root, ignore_errors=True)
+            for name, value in previous_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
     def test_acceptance_does_not_enable_debug_or_provider_download_by_import(self) -> None:
         self.assertNotEqual(os.environ.get("AZURPILOT_OCR_DEBUG"), "1")
