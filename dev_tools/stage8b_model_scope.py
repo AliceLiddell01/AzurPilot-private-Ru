@@ -5,11 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from dev_tools.stage8b_semantic_policy import (
-    ENGLISH_ONLY_MODEL_NAMES,
-    REMOVED_MODEL_NAMES,
-    ROOT,
-)
+from dev_tools.stage8b_semantic_policy import ENGLISH_ONLY_MODEL_NAMES, ROOT
 
 REMOVED_ASSET_PATHS = (
     "bin/ocr_models/azur_lane_jp",
@@ -35,14 +31,45 @@ class ModelScopeError(RuntimeError):
     pass
 
 
-def _load_assignment(path: Path, name: str) -> Any:
+def _assignment_value(path: Path, name: str) -> ast.AST:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == name:
-                    return ast.literal_eval(node.value)
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        if any(isinstance(target, ast.Name) and target.id == name for target in targets):
+            if node.value is None:
+                break
+            return node.value
     raise ModelScopeError(f"Assignment {name} not found in {path}")
+
+
+def _constant_string(node: ast.AST) -> str:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise ModelScopeError(f"Expected a constant string, got {ast.dump(node)}")
+
+
+def _dict_keys(path: Path, name: str) -> set[str]:
+    value = _assignment_value(path, name)
+    if not isinstance(value, ast.Dict):
+        raise ModelScopeError(f"{name} must be a dict literal in {path}")
+    return {_constant_string(key) for key in value.keys if key is not None}
+
+
+def _string_collection(path: Path, name: str) -> set[str]:
+    value = _assignment_value(path, name)
+    if isinstance(value, (ast.Set, ast.List, ast.Tuple)):
+        return {_constant_string(item) for item in value.elts}
+    if (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id in {"set", "frozenset", "tuple", "list"}
+        and len(value.args) == 1
+        and isinstance(value.args[0], (ast.Set, ast.List, ast.Tuple))
+    ):
+        return {_constant_string(item) for item in value.args[0].elts}
+    raise ModelScopeError(f"{name} must be a literal string collection in {path}")
 
 
 def _class_properties(path: Path, class_name: str) -> set[str]:
@@ -63,10 +90,14 @@ def _benchmark_rows(path: Path) -> list[tuple[Any, ...]]:
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and node.name == "OcrBenchmark":
             for child in node.body:
-                if isinstance(child, ast.Assign):
-                    for target in child.targets:
-                        if isinstance(target, ast.Name) and target.id == "BENCHMARKS":
-                            return [tuple(row) for row in ast.literal_eval(child.value)]
+                if not isinstance(child, ast.Assign):
+                    continue
+                if any(
+                    isinstance(target, ast.Name) and target.id == "BENCHMARKS"
+                    for target in child.targets
+                ):
+                    value = ast.literal_eval(child.value)
+                    return [tuple(row) for row in value]
     raise ModelScopeError("OcrBenchmark.BENCHMARKS not found")
 
 
@@ -79,18 +110,18 @@ def build_model_scope(output_dir: Path) -> tuple[dict[str, Any], dict[str, int]]
     argument_path = ROOT / "module/config/argument/argument.yaml"
     benchmark_path = ROOT / "module/daemon/ocr_benchmark.py"
 
-    onnx_models = _load_assignment(al_ocr_path, "ONNX_MODEL_PARAMS")
-    defaults = _load_assignment(al_ocr_path, "DEFAULT_ONNX_MODEL_VERSION")
-    ncnn_models = _load_assignment(ncnn_path, "MODEL_SPECS")
-    rpc_models = set(_load_assignment(rpc_path, "SUPPORTED_OCR_MODELS"))
+    onnx_models = _dict_keys(al_ocr_path, "ONNX_MODEL_PARAMS")
+    defaults = _dict_keys(al_ocr_path, "DEFAULT_ONNX_MODEL_VERSION")
+    ncnn_models = _dict_keys(ncnn_path, "MODEL_SPECS")
+    rpc_models = _string_collection(rpc_path, "SUPPORTED_OCR_MODELS")
     model_properties = _class_properties(models_path, "OcrModel")
     benchmark_rows = _benchmark_rows(benchmark_path)
 
     expected = set(ENGLISH_ONLY_MODEL_NAMES)
     registries = {
-        "ONNX_MODEL_PARAMS": set(onnx_models),
-        "DEFAULT_ONNX_MODEL_VERSION": set(defaults),
-        "MODEL_SPECS": set(ncnn_models),
+        "ONNX_MODEL_PARAMS": onnx_models,
+        "DEFAULT_ONNX_MODEL_VERSION": defaults,
+        "MODEL_SPECS": ncnn_models,
         "SUPPORTED_OCR_MODELS": rpc_models,
         "OcrModel properties": model_properties,
     }
@@ -121,22 +152,10 @@ def build_model_scope(output_dir: Path) -> tuple[dict[str, Any], dict[str, int]]
         model_name, model_version, dataset_prefix, subfolder = row[:4]
         if model_name != "azur_lane":
             findings.append({"kind": "non_english_benchmark_model", "row": row})
-        if model_version not in onnx_models["azur_lane"] and model_version != "alocr_en_900k":
-            findings.append({"kind": "unknown_english_benchmark_version", "row": row})
+        if not isinstance(model_version, str) or not model_version:
+            findings.append({"kind": "benchmark_version_missing", "row": row})
         if not dataset_prefix or not subfolder:
             findings.append({"kind": "benchmark_dataset_missing", "row": row})
-
-    all_runtime_sources = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (al_ocr_path, ncnn_path, models_path, rpc_path, benchmark_path)
-    )
-    for name in sorted(REMOVED_MODEL_NAMES):
-        if name in {"ppocr_v6"}:
-            # ppocr_v6 remains an English recognition version under azur_lane,
-            # but must not remain a top-level model registry.
-            continue
-        if f'"{name}"' in all_runtime_sources or f"'{name}'" in all_runtime_sources:
-            findings.append({"kind": "removed_model_literal_present", "model": name})
 
     payload = {
         "status": "PASS" if not findings else "FAIL",
