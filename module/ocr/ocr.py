@@ -99,7 +99,8 @@ class Ocr:
         Returns:
             处理后的结果字符串。
         """
-        return normalize_ocr_text(self.lang, result)
+        model_name = getattr(self, "lang", "azur_lane")
+        return normalize_ocr_text(model_name, result)
 
     def ocr(self, image, direct_ocr=False):
         """执行 OCR 识别。
