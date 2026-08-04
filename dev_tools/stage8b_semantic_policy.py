@@ -60,4 +60,5 @@ BLOCKING_METRICS = (
     "stage8b_environment_fingerprint_mismatches", "stage8b_acceptance_head_mismatches",
     "stage8b_raw_payload_violations", "stage8b_debug_image_privacy_findings",
     "stage8b_secret_findings", "stage8b_mojibake_findings", "stage8b_scenario_missing",
+    "stage8b_compact_spacing_fix_mismatches",
 )
