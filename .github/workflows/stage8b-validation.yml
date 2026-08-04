@@ -17,6 +17,7 @@ on:
       - "dev_tools/stage8b_*.py"
       - "dev_tools/verify_stage8b.py"
       - "tests/test_stage8b_*.py"
+      - "tests/test_stage5_locale_runtime.py"
       - ".github/workflows/stage8b-validation.yml"
 
 permissions:
@@ -34,7 +35,7 @@ jobs:
   stage8b-verifier:
     name: Stage 8B OCR semantic, output and security gates
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
       - name: Checkout exact pull request head
@@ -122,17 +123,39 @@ jobs:
             tests/test_stage8b_semantic_contract.py
 
       - name: Run Stage 8B verifier
-        run: >-
-          uv run python -m dev_tools.verify_stage8b
-          --base-ref "$STAGE8B_BASE_REF"
-          --output-dir artifacts/stage8b
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          heartbeat_pid=''
+          cleanup_heartbeat() {
+            if [[ -n "$heartbeat_pid" ]]; then
+              kill "$heartbeat_pid" 2>/dev/null || true
+              wait "$heartbeat_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup_heartbeat EXIT
+
+          (
+            while true; do
+              sleep 60
+              echo "Stage 8B verifier is still running at $(date --utc --iso-8601=seconds)"
+            done
+          ) &
+          heartbeat_pid=$!
+
+          timeout --signal=TERM --kill-after=30s 20m \
+            uv run python -m dev_tools.verify_stage8b \
+              --base-ref "$STAGE8B_BASE_REF" \
+              --output-dir artifacts/stage8b
 
       - name: Run RPC runtime regression tests
         shell: bash
         run: |
           set -o pipefail
-          uv run python -m unittest -v \
-            tests.test_stage8b_rpc_runtime \
+          timeout --signal=TERM --kill-after=15s 5m \
+            uv run python -m unittest -v \
+              tests.test_stage8b_rpc_runtime \
             2>&1 | tee artifacts/stage8b/rpc-runtime.log
 
       - name: Check diff formatting
