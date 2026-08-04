@@ -71,3 +71,5 @@ jobs:
           fi
           git commit -m "fix(stage8b): close review blockers"
           git push origin HEAD:codex/stage8b-ocr-recognition-logs
+
+# Second push trigger: workflow now exists in the parent revision.
