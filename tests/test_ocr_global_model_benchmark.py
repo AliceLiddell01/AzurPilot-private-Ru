@@ -73,7 +73,16 @@ class OcrGlobalModelBenchmarkTests(unittest.TestCase):
         self.assertEqual(MODEL_ALIASES, {"en": "azur_lane"})
         for name in REMOVED_MODEL_NAMES:
             self.assertNotIn(name, OcrModel.__dict__)
-        self.assertNotIn("cnocr", OcrModel.__dict__)
+        self.assertIn("cnocr", OcrModel.__dict__)
+
+    def test_legacy_cnocr_uses_generic_model_without_chinese_weights(self):
+        from module.ocr.models import OcrModel
+
+        sentinel = object()
+        with mock.patch("module.ocr.models.AlOcr", return_value=sentinel) as factory:
+            models = OcrModel()
+            self.assertIs(models.cnocr, sentinel)
+        factory.assert_called_once_with(name="ppocr_v6")
 
     def test_non_english_model_files_are_removed(self):
         remaining = [path for path in REMOVED_MODEL_FILES if Path(path).exists()]
