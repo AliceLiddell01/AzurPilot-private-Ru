@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -86,7 +87,8 @@ def _detection_values(al_ocr) -> list[dict[str, object]]:
     instance._ensure_det_loaded = lambda: None
     instance._save_det_debug = lambda *_args: None
     instance._det_model = lambda *_args, **_kwargs: output
-    with patch.object(al_ocr.config, "ocr_backend", "onnx"):
+    fixture_config = SimpleNamespace(ocr_backend="onnx")
+    with patch.object(al_ocr, "config", fixture_config):
         results = instance._det_direct(np.zeros((16, 16, 3), dtype=np.uint8))
     return [
         {"text": text, "box": box, "score": score}
@@ -136,10 +138,13 @@ def build_probe(source_root: Path) -> dict[str, object]:
     ncnn_input = np.arange(12, dtype=np.float32).reshape(3, 4)
     normalized = ncnn._normalize_output(ncnn_input)
 
-    with patch.object(al_ocr.config, "ocr_backend", "onnx"), \
-         patch.object(al_ocr.config, "ocr_device", "cpu"), \
-         patch.object(al_ocr.config, "Optimization_OcrWindowsMlVendorEp", False), \
-         patch.object(al_ocr.config, "ocr_model_version", return_value="fixture-version"):
+    fixture_config = SimpleNamespace(
+        ocr_backend="onnx",
+        ocr_device="cpu",
+        Optimization_OcrWindowsMlVendorEp=False,
+        ocr_model_version=lambda _name: "fixture-version",
+    )
+    with patch.object(al_ocr, "config", fixture_config):
         cache_key = list(al_ocr._model_cache_key("azur_lane"))
 
     original_worker_ident = al_ocr._ocr_worker_ident
