@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -97,12 +98,21 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
     simulation_button_timeout_s = 8.0
     simulation_button_min_score = 0.35
 
-    def _wait_until(self, predicate, *, description: str, timeout: float | None = None) -> None:
+    def _wait_until(
+        self,
+        predicate: Callable[[], bool],
+        *,
+        description: str,
+        timeout: float | None = None,
+        additional: Callable[[], bool] | None = None,
+    ) -> None:
         deadline = time.monotonic() + (timeout or self.transition_timeout_s)
         while time.monotonic() < deadline:
             self.device.screenshot()
             if predicate():
                 return
+            if additional is not None and additional():
+                continue
             self.device.sleep(0.25)
         raise ScreenshotIntervalBenchmarkError(
             f"Не удалось дождаться экрана: {description}."
@@ -264,6 +274,10 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
         self._wait_until(
             lambda: self.appear(BATTLE_PREPARATION, offset=(30, 30)),
             description="Formation после Battle Simulation",
+            additional=lambda: self.handle_popup_confirm(
+                "BATTLE_SIMULATION",
+                interval=0,
+            ),
         )
 
         combat = AshCombat(config=self.config, device=self.device)
