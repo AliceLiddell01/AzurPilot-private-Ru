@@ -255,19 +255,11 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         return val
 
     def ocr_model_version(self, name: str) -> str:
-        if self.ocr_backend == 'ncnn':
-            return 'ncnn'
-
-        if name == 'azur_lane':
-            return self.Optimization_OcrModelVersionEnglish
-        elif name == 'cn':
-            return self.Optimization_OcrModelVersionChinese
-        elif name in ['azur_lane_jp', 'jp']:
-            return self.Optimization_OcrModelVersionJapanese
-        elif name == 'tw':
-            return self.Optimization_OcrModelVersionTraditionalChinese
-        else:
-            return 'auto'
+        if name != "azur_lane":
+            raise ValueError(f"Неподдерживаемая OCR-модель: {name}")
+        if self.ocr_backend == "ncnn":
+            return "ncnn"
+        return self.Optimization_OcrModelVersionEnglish
 
     @property
     def ocr_device(self) -> str:

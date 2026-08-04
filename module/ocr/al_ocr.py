@@ -94,13 +94,6 @@ GENERIC_PPOCR_V6_PARAMS = (
     "bin/ocr_models/ppocr-v6/ppocrv6_dict.txt",
     OCRVersion.PPOCRV6,
 )
-AZUR_LANE_JP_V6_PARAMS = (
-    "bin/ocr_models/azur_lane_jp/ap_azurlane_jp-v6_small_rec_nvidia.onnx",
-    "bin/ocr_models/azur_lane_jp/ppocrv6_azurlane_jp_dict.txt",
-    OCRVersion.PPOCRV6,
-)
-
-
 class RecOnlyOCR(RapidOCR):
     """只加载识别模型，跳过 det 和 cls 的 ONNX 模型加载。
 
@@ -386,43 +379,6 @@ ONNX_MODEL_PARAMS = {
             OCRVersion.PPOCRV4,
         ),
     },
-    "azur_lane_jp": {
-        "azur_lane_jp_v6": AZUR_LANE_JP_V6_PARAMS,
-        "ppocr_v6": GENERIC_PPOCR_V6_PARAMS,
-    },
-    "ppocr_v6": {
-        "ppocr_v6": GENERIC_PPOCR_V6_PARAMS,
-    },
-    "cn": {
-        "cn_v6_1": (
-            "bin/ocr_models/zh-CN/ap_zh-cn-v6.1_small_rec_dcu.onnx",
-            "bin/ocr_models/zh-CN/ppocrv6_cn_dict.txt",
-            OCRVersion.PPOCRV6,
-        ),
-        "cn_v6": (
-            "bin/ocr_models/zh-CN/ap_zh-cn-v6_small_rec_dcu.onnx",
-            "bin/ocr_models/zh-CN/ppocrv6_cn_dict.txt",
-            OCRVersion.PPOCRV6,
-        ),
-        "ppocr_v6": GENERIC_PPOCR_V6_PARAMS,
-        "alocr_cn_v3": (
-            "bin/ocr_models/zh-CN/alocr-zh-cn-v3.dtk.onnx",
-            "bin/ocr_models/zh-CN/cn.txt",
-            OCRVersion.PPOCRV5,
-        ),
-        "alocr_cn_v2_5": (
-            "bin/ocr_models/zh-CN/alocr-zh-cn-v2.5.dtk.onnx",
-            "bin/ocr_models/zh-CN/cn.txt",
-            OCRVersion.PPOCRV5,
-        ),
-    },
-    "jp": {
-        "azur_lane_jp_v6": AZUR_LANE_JP_V6_PARAMS,
-        "ppocr_v6": GENERIC_PPOCR_V6_PARAMS,
-    },
-    "tw": {
-        "ppocr_v6": GENERIC_PPOCR_V6_PARAMS,
-    },
 }
 
 CUSTOM_CTC_MODEL_PARAMS = {
@@ -433,11 +389,6 @@ CUSTOM_CTC_MODEL_PARAMS = {
 
 DEFAULT_ONNX_MODEL_VERSION = {
     "azur_lane": "alocr_en_v2_6",
-    "azur_lane_jp": "azur_lane_jp_v6",
-    "ppocr_v6": "ppocr_v6",
-    "cn": "cn_v6_1",
-    "jp": "ppocr_v6",
-    "tw": "ppocr_v6",
 }
 
 
@@ -466,7 +417,7 @@ def _get_onnx_model_params(name):
     按配置选择 ONNX 识别模型版本。
 
     Args:
-        name: 模型名称，如 'azur_lane'、'azur_lane_jp'、'ppocr_v6'、'cn'、'jp'、'tw'。
+        name: имя единственной Global/English модели 'azur_lane'.
 
     Returns:
         (model_path, rec_keys_path, ocr_version) 三元组。

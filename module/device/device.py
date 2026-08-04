@@ -205,7 +205,7 @@ class Device(Screenshot, Control, AppControl, Input):
 
         准确率 100% 则选择 'gpu'，否则回退到 'cpu'。
         """
-        logger.info('[设备-基准测试] 运行OCR设备基准测试')
+        logger.info('[Устройство — OCR benchmark] Проверка доступных OCR-устройств')
         from module.daemon.ocr_benchmark import OcrBenchmark
         bench = OcrBenchmark(config=self.config, device=self)
         device = bench.run_simple_ocr_benchmark()

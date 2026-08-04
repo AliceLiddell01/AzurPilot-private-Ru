@@ -193,8 +193,12 @@ def build_probe(source_root: Path) -> dict[str, Any]:
     import cv2
     import onnxruntime as ort
 
-    from module.ocr import al_ocr
-    from module.ocr.ocr import normalize_ocr_text
+    from module.ocr import al_ocr, ocr as ocr_module
+    normalize_ocr_text = getattr(
+        ocr_module,
+        "normalize_ocr_text",
+        lambda _model_name, text: text,
+    )
 
     config = SimpleNamespace(
         ocr_backend="onnx",

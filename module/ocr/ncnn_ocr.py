@@ -64,53 +64,10 @@ MODEL_SPECS = {
         output_name=OUTPUT_NAME,
         disable_fp16=True,
     ),
-    "azur_lane_jp": NcnnRecModelSpec(
-        name="azur_lane_jp",
-        param_path=MODEL_ROOT / "azur_lane_jp.param",
-        bin_path=MODEL_ROOT / "azur_lane_jp.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/azur_lane_jp/ppocrv6_azurlane_jp_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
-    "ppocr_v6": NcnnRecModelSpec(
-        name="ppocr_v6",
-        param_path=MODEL_ROOT / "jp.param",
-        bin_path=MODEL_ROOT / "jp.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/ppocr-v6/ppocrv6_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
-    "cn": NcnnRecModelSpec(
-        name="cn",
-        param_path=MODEL_ROOT / "cn.param",
-        bin_path=MODEL_ROOT / "cn.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/zh-CN/ppocrv6_cn_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
-    "jp": NcnnRecModelSpec(
-        name="jp",
-        param_path=MODEL_ROOT / "jp.param",
-        bin_path=MODEL_ROOT / "jp.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/ppocr-v6/ppocrv6_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
-    "tw": NcnnRecModelSpec(
-        name="tw",
-        param_path=MODEL_ROOT / "tw.param",
-        bin_path=MODEL_ROOT / "tw.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/ppocr-v6/ppocrv6_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
 }
 
 MODEL_ALIASES = {
-    "ppocr-v6": "ppocr_v6",
-    "cnocr": "cn",
     "en": "azur_lane",
-    "zhcn": "cn",
 }
 
 

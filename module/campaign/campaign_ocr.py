@@ -108,10 +108,10 @@ class CampaignOcr(ModuleBase):
             return name[:-1], name[-1]
         elif name[0].isdigit() and name[-1].isalpha():
             # 49X
-            logger.warning(f'[战役-OCR] 未知的关卡名称: {name}')
+            logger.warning(f'[Кампания — OCR] Неизвестное имя этапа: {name}')
             return '', ''
 
-        logger.warning(f'[战役-OCR] 未知的关卡名称: {name}')
+        logger.warning(f'[Кампания — OCR] Неизвестное имя этапа: {name}')
         return '', ''
 
     def campaign_match_multi(self, template, image, stage_image=None, name_offset=(75, 9), name_size=(60, 16),
@@ -303,7 +303,7 @@ class CampaignOcr(ModuleBase):
         x_color = np.convolve(np.mean(image, axis=0), np.ones(interval), 'valid') / interval
         x_list = np.where(x_color[x_skip:] > 245)[0]
         if x_list is None or len(x_list) == 0:
-            logger.warning('[战役] 数字与文本之间未找到间隔。')
+            logger.warning('[Кампания — OCR] Не найден интервал между номером этапа и текстом.')
             area = (0, 0, image.shape[1], image.shape[0])
         else:
             area = (0, 0, x_list[0] + 1 + x_skip, image.shape[0])

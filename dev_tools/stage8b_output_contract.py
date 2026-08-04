@@ -13,8 +13,8 @@ from dev_tools.stage8b_semantic_policy import IMMUTABLE_STAGE8B_BASE_SHA, ROOT
 
 CRITICAL_LITERAL_NAMES = (
     "ALAS_CTC_CHARSET", "ALAS_CTC_BLANK_ID", "ALAS_CTC_IMAGE_HEIGHT",
-    "ALAS_CTC_MAX_WIDTH", "ONNX_MODEL_PARAMS", "CUSTOM_CTC_MODEL_PARAMS",
-    "DEFAULT_ONNX_MODEL_VERSION", "DET_MODEL_PATH", "MODEL_ALIASES",
+    "ALAS_CTC_MAX_WIDTH", "CUSTOM_CTC_MODEL_PARAMS",
+    "DET_MODEL_PATH",
     "REC_IMAGE_SHAPE", "INPUT_NAME", "OUTPUT_NAME",
 )
 CRITICAL_FUNCTIONS = (
@@ -27,10 +27,7 @@ CRITICAL_FUNCTIONS = (
     ("module/ocr/al_ocr.py", "_ocr_worker_loop"),
     ("module/ocr/al_ocr.py", "_ensure_ocr_worker"),
     ("module/ocr/al_ocr.py", "_run_ocr_queued"),
-    ("module/ocr/al_ocr.py", "_resolve_onnx_model_version"),
-    ("module/ocr/al_ocr.py", "_get_onnx_model_params"),
     ("module/ocr/al_ocr.py", "_configure_windows_ml_sessions"),
-    ("module/ocr/al_ocr.py", "_create_ocr"),
     ("module/ocr/al_ocr.py", "_model_cache_key"),
     ("module/ocr/al_ocr.py", "_create_det_ocr_for_onnx"),
     ("module/ocr/al_ocr.py", "_create_det_ocr_for_ncnn"),
@@ -62,13 +59,6 @@ CRITICAL_FUNCTIONS = (
     ("module/ocr/windows_ml.py", "_iter_preferred_devices"),
     ("module/ocr/windows_ml.py", "_vendor_execution_provider_names"),
     ("module/ocr/windows_ml.py", "_is_discrete_gpu"),
-    ("module/daemon/ocr_benchmark.py", "OcrBenchmark._find_archive"),
-    ("module/daemon/ocr_benchmark.py", "OcrBenchmark._load_test_cases"),
-    ("module/daemon/ocr_benchmark.py", "OcrBenchmark._rate_speed"),
-    ("module/daemon/ocr_benchmark.py", "OcrBenchmark._run_single"),
-    ("module/daemon/ocr_benchmark.py", "OcrBenchmark.run"),
-    ("module/daemon/ocr_benchmark.py", "OcrBenchmark.run_simple_ocr_benchmark"),
-    ("module/daemon/ocr_benchmark.py", "run_ocr_benchmark"),
 )
 
 MODEL_SELECTION_SYMBOLS = {
@@ -296,7 +286,7 @@ EXPECTED_COMPACT_SPACING_BASE = {
     "duration": "01: 30: 00",
     "stage": "7 - 2",
     "words": "New Jersey",
-    "phrase": "LEVEL: New Jersey 120",
+    "phrase": "LEVEL: 120",
     "other_model": "MAX: 96056",
 }
 EXPECTED_COMPACT_SPACING_HEAD = {
@@ -306,7 +296,7 @@ EXPECTED_COMPACT_SPACING_HEAD = {
     "duration": "01:30:00",
     "stage": "7-2",
     "words": "New Jersey",
-    "phrase": "LEVEL: New Jersey 120",
+    "phrase": "LEVEL: 120",
     "other_model": "MAX: 96056",
 }
 

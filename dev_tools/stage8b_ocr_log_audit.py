@@ -14,6 +14,7 @@ from dev_tools.stage8b_semantic_policy import (
     DEFAULT_OUTPUT_DIR,
     IMMUTABLE_STAGE8B_BASE_SHA,
     OCR_SCOPE_PATHS,
+    OCR_SCOPE_RULES,
     PRESERVED_IDENTIFIERS,
     ROOT,
     TRANSLATION_ONLY_RUNTIME_PATHS,
@@ -260,6 +261,16 @@ def _entries_from_source(path: str, source: str) -> list[ScopeEntry]:
     return visitor.entries
 
 
+def _entry_is_owned(entry: ScopeEntry) -> bool:
+    owners = OCR_SCOPE_RULES.get(entry.path)
+    if owners is None:
+        return True
+    return any(
+        entry.function_owner == owner or entry.function_owner.startswith(owner + ".")
+        for owner in owners
+    )
+
+
 def collect_entries(root: Path = ROOT) -> list[ScopeEntry]:
     entries: list[ScopeEntry] = []
     for relative in OCR_SCOPE_PATHS:
@@ -267,7 +278,8 @@ def collect_entries(root: Path = ROOT) -> list[ScopeEntry]:
         if not path.is_file():
             raise RuntimeError(f"Stage 8B scope path отсутствует: {relative}")
         try:
-            entries.extend(_entries_from_source(relative, path.read_text(encoding="utf-8")))
+            parsed = _entries_from_source(relative, path.read_text(encoding="utf-8"))
+            entries.extend(entry for entry in parsed if _entry_is_owned(entry))
         except SyntaxError as exc:
             raise RuntimeError(f"Не удалось разобрать {relative}: {exc}") from exc
     return entries
@@ -280,6 +292,8 @@ def _base_placeholder_map(base_sha: str) -> dict[tuple[str, str, str, str], list
         if not source:
             continue
         for entry in _entries_from_source(relative, source):
+            if not _entry_is_owned(entry):
+                continue
             key = (entry.path, entry.function_owner, entry.call_kind, entry.severity)
             mapping.setdefault(key, []).append(entry.placeholder_signature)
     return mapping

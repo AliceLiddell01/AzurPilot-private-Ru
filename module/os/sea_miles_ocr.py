@@ -29,7 +29,7 @@ class SeaMilesOCR(Digit):
     def after_process(self, result):
         result = super().after_process(result)
         if not (0 <= result <= 100000000):
-            logger.warning(f"[大世界-里程] 异常的海域里程: {result}")
+            logger.warning(f"[Operation Siren — OCR] Недопустимое значение Sea Miles: {result}")
             return 0
         return result
 

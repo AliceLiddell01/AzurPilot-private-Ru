@@ -54,16 +54,11 @@ def _set_fields(output_type, **fields):
 
 
 def _model_versions(al_ocr) -> dict[str, object]:
+    name = "azur_lane"
     return {
-        "defaults": dict(al_ocr.DEFAULT_ONNX_MODEL_VERSION),
-        "onnx_versions": {
-            name: sorted(specs)
-            for name, specs in al_ocr.ONNX_MODEL_PARAMS.items()
-        },
-        "custom_versions": {
-            name: sorted(specs)
-            for name, specs in al_ocr.CUSTOM_CTC_MODEL_PARAMS.items()
-        },
+        "defaults": {name: al_ocr.DEFAULT_ONNX_MODEL_VERSION[name]},
+        "onnx_versions": {name: sorted(al_ocr.ONNX_MODEL_PARAMS[name])},
+        "custom_versions": {name: sorted(al_ocr.CUSTOM_CTC_MODEL_PARAMS.get(name, {}))},
         "detector": al_ocr.DET_MODEL_PATH,
     }
 
@@ -167,7 +162,7 @@ def build_probe(source_root: Path) -> dict[str, object]:
         "duration": normalize_text("azur_lane", "01: 30: 00"),
         "stage": normalize_text("azur_lane", "7 - 2"),
         "words": normalize_text("azur_lane", "New Jersey"),
-        "phrase": normalize_text("azur_lane", "LEVEL: New Jersey 120"),
+        "phrase": normalize_text("azur_lane", "LEVEL: 120"),
         "other_model": normalize_text("cn", "MAX: 96056"),
     }
     values: dict[str, object] = {

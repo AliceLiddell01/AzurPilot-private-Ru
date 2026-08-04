@@ -19,16 +19,7 @@ from module.webui.setting import State
 
 process: multiprocessing.Process = None
 
-SUPPORTED_OCR_MODELS = frozenset(
-    {
-        "azur_lane",
-        "azur_lane_jp",
-        "ppocr_v6",
-        "cnocr",
-        "jp",
-        "tw",
-    }
-)
+SUPPORTED_OCR_MODELS = frozenset({"azur_lane"})
 MAX_RPC_BATCH_IMAGES = 64
 MAX_RPC_BATCH_BYTES = 64 * 1024 * 1024
 MAX_CANDIDATE_ALPHABET_LENGTH = 8192
