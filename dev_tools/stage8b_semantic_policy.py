@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 IMMUTABLE_STAGE8B_BASE_SHA = "045162c35ae7583860c88d6d899640ef3a6a1abb"
 DEFAULT_OUTPUT_DIR = ROOT / "artifacts" / "stage8b"
 PROMPT_SCENARIO_COUNT = 171
+STAGE8B_POLICY_REVISION = "full-prompt-v2"
 
 # Stage 8B owns the OCR engine/backend/RPC/benchmark contour and only the
 # OCR-owned runtime messages in campaign, Operation Siren and device modules.
