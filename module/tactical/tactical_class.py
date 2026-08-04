@@ -878,7 +878,7 @@ class RewardTacticalClass(Dock):
         if not skip_first_screenshot:
             self.device.screenshot()
 
-        skill_level_ocr = ExpOnSkillSelect(buttons=SKILL_LEVEL_GRIDS.buttons, lang='cnocr', name='SKILL_LEVEL')
+        skill_level_ocr = ExpOnSkillSelect(buttons=SKILL_LEVEL_GRIDS.buttons, lang='azur_lane', name='SKILL_LEVEL')
         skill_level_list = skill_level_ocr.ocr(self.device.image)
         for skill_button, skill_level in list(zip(SKILL_GRIDS.buttons, skill_level_list)):
             level = skill_level.upper().replace(' ', '')
