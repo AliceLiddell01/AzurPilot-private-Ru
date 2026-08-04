@@ -141,6 +141,21 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
         self.assertTrue(callable(benchmark._ensure_meta_page))
         self.assertTrue(callable(benchmark._in_meta_page))
 
+    def test_no_active_boss_screen_still_allows_battle_simulation(self) -> None:
+        benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
+            AutomatedScreenshotIntervalBenchmark
+        )
+        benchmark._ensure_meta_showdown = Mock()
+        benchmark._wait_until = Mock()
+        benchmark.device = SimpleNamespace(click=Mock())
+        benchmark.appear = Mock(return_value=True)
+
+        benchmark._enter_current_target()
+
+        benchmark._ensure_meta_showdown.assert_called_once_with()
+        benchmark._wait_until.assert_called_once()
+        benchmark.device.click.assert_called_once()
+
     def test_automated_route_runs_campaign_before_meta_simulation(self) -> None:
         benchmark = AutomatedScreenshotIntervalBenchmark.__new__(
             AutomatedScreenshotIntervalBenchmark
