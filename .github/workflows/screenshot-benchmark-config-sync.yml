@@ -1,0 +1,139 @@
+name: Temporary screenshot benchmark config sync
+
+on:
+  push:
+    branches:
+      - chatgpt/screenshot-interval-benchmark
+    paths:
+      - .github/workflows/screenshot-benchmark-config-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: chatgpt/screenshot-interval-benchmark
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+
+      - name: Synchronize dependencies
+        run: uv sync --frozen
+
+      - name: Register task and regenerate config
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          alas = Path("alas.py")
+          source = alas.read_text(encoding="utf-8")
+          if "def screenshot_interval_benchmark(self):" not in source:
+              marker = '''    def ocr_benchmark(self):
+                  from module.daemon.ocr_benchmark import run_ocr_benchmark
+                  run_ocr_benchmark(config=self.config)
+          '''
+              replacement = marker + '''
+              def screenshot_interval_benchmark(self):
+                  from module.daemon.screenshot_interval_benchmark import (
+                      run_screenshot_interval_benchmark,
+                  )
+                  run_screenshot_interval_benchmark(
+                      config=self.config,
+                      device=self.device,
+                  )
+          '''
+              if marker not in source:
+                  raise SystemExit("alas.py marker not found")
+              alas.write_text(source.replace(marker, replacement, 1), encoding="utf-8")
+
+          task = Path("module/config/argument/task.yaml")
+          source = task.read_text(encoding="utf-8")
+          if "    ScreenshotIntervalBenchmark:\n" not in source:
+              marker = '''    OcrBenchmark:
+                  - OcrBenchmark
+          '''
+              replacement = marker + '''    ScreenshotIntervalBenchmark:
+                  - OcrBenchmark
+          '''
+              if marker not in source:
+                  raise SystemExit("task.yaml marker not found")
+              task.write_text(source.replace(marker, replacement, 1), encoding="utf-8")
+          PY
+
+          uv run -m module.config.config_updater
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("module/config/i18n/ru-RU.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          data.setdefault("Task", {}).setdefault("ScreenshotIntervalBenchmark", {}).update(
+              {
+                  "name": "Тест интервалов снимков экрана",
+                  "help": (
+                      "Автоматически измеряет частоту снимков на экране кампании и "
+                      "в бесплатной META Battle Simulation. Настройки профиля не "
+                      "изменяются автоматически."
+                  ),
+              }
+          )
+          optimization = data.setdefault("Optimization", {})
+          optimization.setdefault("ScreenshotInterval", {}).update(
+              {
+                  "name": "Интервал между снимками экрана, с",
+                  "help": (
+                      "Минимальная пауза между снимками: чем меньше значение, тем "
+                      "чаще обновляется экран и тем выше нагрузка. Диапазон: "
+                      "0,001–0,3 с."
+                  ),
+              }
+          )
+          optimization.setdefault("CombatScreenshotInterval", {}).update(
+              {
+                  "name": "Интервал между снимками экрана в бою, с",
+                  "help": (
+                      "Минимальная пауза между снимками во время боя: чем меньше "
+                      "значение, тем чаще обновляется экран и тем выше нагрузка. "
+                      "Диапазон: 0,001–1,0 с."
+                  ),
+              }
+          )
+          path.write_text(
+              json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Commit generated files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            alas.py \
+            module/config/argument/task.yaml \
+            module/config/argument/args.json \
+            module/config/argument/menu.json \
+            module/config/config_generated.py \
+            module/config/i18n/ru-RU.json \
+            config/template.json
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git commit -m "feat(webui): зарегистрировать screenshot benchmark"
+          git push origin HEAD:chatgpt/screenshot-interval-benchmark
