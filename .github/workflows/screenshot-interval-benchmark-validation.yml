@@ -6,6 +6,7 @@ on:
       - "alas.py"
       - "dev_tools/screenshot_interval_benchmark.py"
       - "module/daemon/screenshot_interval_benchmark.py"
+      - "module/submodule/utils.py"
       - "module/config/argument/task.yaml"
       - "module/config/argument/args.json"
       - "module/config/argument/menu.json"
