@@ -187,8 +187,9 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
             description="Current Target",
         )
         if self.appear(BEACON_EMPTY, offset=(20, 20)):
-            raise ScreenshotIntervalBenchmarkError(
-                "Current Target недоступен: активная META-цель не найдена."
+            logger.info(
+                "[Screenshot benchmark] Активных META-боссов нет; "
+                "бесплатная Battle Simulation остаётся доступной"
             )
 
     def _find_simulation_button(self) -> tuple[int, int]:
