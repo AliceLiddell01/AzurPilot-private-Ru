@@ -16,11 +16,19 @@ jobs:
   functional-tests:
     name: Python functional and regression tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Checkout exact head with filtered history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
         with:
           fetch-depth: 0
+          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -162,11 +170,19 @@ jobs:
   browser-validation:
     name: Stage 7 Playwright DOM and security checks
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -191,8 +207,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/stage7-browser
-          uv run python tests/run_stage7_webui_traceback_browser.py \
-            > artifacts/stage7-browser/report.json
+          timeout --signal=TERM --kill-after=15s 10m \
+            uv run python tests/run_stage7_webui_traceback_browser.py \
+              > artifacts/stage7-browser/report.json
 
       - name: Verify Chromium process cleanup
         shell: bash
@@ -216,11 +233,19 @@ jobs:
   generated-checks:
     name: Generated baselines and idempotence
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -244,7 +269,7 @@ jobs:
 
       - name: Check Stage 6 audit baseline
         continue-on-error: true
-        run: uv run python -m dev_tools.stage6_ui_audit --check
+        run: uv run python -m dev_tools.stage6_active_ui_audit --check
 
       - name: Verify deterministic and idempotent generators
         shell: bash
@@ -293,11 +318,19 @@ jobs:
   repository-audit:
     name: Repository and secret audit
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Checkout exact head with filtered history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
         with:
           fetch-depth: 0
+          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -427,10 +460,19 @@ jobs:
   powershell-validation:
     name: PowerShell parser and PSScriptAnalyzer
     runs-on: windows-latest
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
         with:
+          fetch-depth: 1
+          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5

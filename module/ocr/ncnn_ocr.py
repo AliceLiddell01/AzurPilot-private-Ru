@@ -64,53 +64,10 @@ MODEL_SPECS = {
         output_name=OUTPUT_NAME,
         disable_fp16=True,
     ),
-    "azur_lane_jp": NcnnRecModelSpec(
-        name="azur_lane_jp",
-        param_path=MODEL_ROOT / "azur_lane_jp.param",
-        bin_path=MODEL_ROOT / "azur_lane_jp.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/azur_lane_jp/ppocrv6_azurlane_jp_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
-    "ppocr_v6": NcnnRecModelSpec(
-        name="ppocr_v6",
-        param_path=MODEL_ROOT / "jp.param",
-        bin_path=MODEL_ROOT / "jp.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/ppocr-v6/ppocrv6_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
-    "cn": NcnnRecModelSpec(
-        name="cn",
-        param_path=MODEL_ROOT / "cn.param",
-        bin_path=MODEL_ROOT / "cn.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/zh-CN/ppocrv6_cn_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
-    "jp": NcnnRecModelSpec(
-        name="jp",
-        param_path=MODEL_ROOT / "jp.param",
-        bin_path=MODEL_ROOT / "jp.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/ppocr-v6/ppocrv6_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
-    "tw": NcnnRecModelSpec(
-        name="tw",
-        param_path=MODEL_ROOT / "tw.param",
-        bin_path=MODEL_ROOT / "tw.bin",
-        keys_path=REPO_ROOT / "bin/ocr_models/ppocr-v6/ppocrv6_dict.txt",
-        output_name=OUTPUT_NAME,
-        disable_fp16=True,
-    ),
 }
 
 MODEL_ALIASES = {
-    "ppocr-v6": "ppocr_v6",
-    "cnocr": "cn",
     "en": "azur_lane",
-    "zhcn": "cn",
 }
 
 
@@ -139,7 +96,7 @@ def _load_ncnn():
                 import ncnn
             except ImportError as exc:
                 raise RuntimeError(
-                    "Python package 'ncnn' is required for OCR recognition."
+                    "Для OCR-распознавания требуется Python-пакет 'ncnn'."
                 ) from exc
             _ncnn = ncnn
     return _ncnn
@@ -191,14 +148,14 @@ def has_ncnn_vulkan_gpu() -> bool:
     try:
         return get_ncnn_vulkan_gpu_count() > 0
     except Exception as e:
-        logger.warning(f"ncnn Vulkan GPU detection failed: {e}")
+        logger.warning(f"Не удалось определить Vulkan GPU для ncnn: {e}")
         return False
 
 
 def _resolve_gpu_index(ncnn, requested_index: int) -> int:
     gpu_count = get_ncnn_vulkan_gpu_count()
     if gpu_count <= 0:
-        raise RuntimeError("ncnn Vulkan requested, but no Vulkan GPU was detected.")
+        raise RuntimeError("Запрошен ncnn Vulkan, но совместимый Vulkan GPU не найден.")
 
     if requested_index < 0:
         get_default_gpu_index = getattr(ncnn, "get_default_gpu_index", None)
@@ -206,8 +163,8 @@ def _resolve_gpu_index(ncnn, requested_index: int) -> int:
 
     if not 0 <= requested_index < gpu_count:
         raise RuntimeError(
-            f"ncnn Vulkan GPU index {requested_index} is out of range; "
-            f"detected {gpu_count} GPU(s)."
+            f"Индекс ncnn Vulkan GPU {requested_index} вне допустимого диапазона; "
+            f"обнаружено GPU: {gpu_count}."
         )
     return requested_index
 
@@ -228,7 +185,7 @@ class RecPreprocessor:
     def resize_norm_img(self, img: np.ndarray) -> np.ndarray:
         img_channel, img_height, img_width = self.rec_image_shape
         if img.shape[2] != img_channel:
-            raise ValueError(f"Expected {img_channel} channels, got {img.shape[2]}")
+            raise ValueError(f"Ожидалось каналов: {img_channel}; получено: {img.shape[2]}")
 
         h, w = img.shape[:2]
         ratio = w / float(h)
@@ -249,7 +206,7 @@ class NcnnRecOCR:
     def __init__(self, model_name: str, device: str = "cpu", gpu_index: int = -1):
         normalized_name = normalize_model_name(model_name)
         if normalized_name not in MODEL_SPECS:
-            raise ValueError(f"Unsupported ncnn OCR model: {model_name}")
+            raise ValueError(f"Неподдерживаемая модель OCR ncnn: {model_name}")
 
         self.spec = MODEL_SPECS[normalized_name]
         self.device = device
@@ -273,7 +230,7 @@ class NcnnRecOCR:
         ]
         if missing:
             raise FileNotFoundError(
-                "Missing ncnn OCR model files: " + ", ".join(missing)
+                "Не найдены файлы модели OCR ncnn: " + ", ".join(missing)
             )
 
     def _create_net(self) -> None:
@@ -283,7 +240,7 @@ class NcnnRecOCR:
         elif self.device == "cpu":
             self.use_vulkan = False
         else:
-            raise RuntimeError(f"Unsupported OCR device for ncnn: {self.device}")
+            raise RuntimeError(f"Неподдерживаемое устройство OCR для ncnn: {self.device}")
 
         self.net = self.ncnn.Net()
         if hasattr(self.net, "opt"):
@@ -314,12 +271,12 @@ class NcnnRecOCR:
                 backend = f"{backend} ({gpu_name})"
         else:
             backend = "CPU"
-        logger.info(f"[OCR-NCNN] 已加载ncnnOCR模型 '{self.spec.name}' 在 {backend}")
+        logger.info(f"[OCR-NCNN] Загружена модель ncnn OCR '{self.spec.name}' через {backend}")
 
     @staticmethod
     def _check_return(value, op: str, path: Path) -> None:
         if isinstance(value, int) and value != 0:
-            raise RuntimeError(f"ncnn {op} failed for {path}, return code {value}")
+            raise RuntimeError(f"ncnn {op} завершился ошибкой для {path}; код возврата: {value}")
 
     def close(self) -> None:
         self.net = None
@@ -344,20 +301,20 @@ class NcnnRecOCR:
 
     def _infer(self, input_arr: np.ndarray) -> np.ndarray:
         if self.net is None:
-            raise RuntimeError("ncnn OCR model has been closed")
+            raise RuntimeError("Модель OCR ncnn уже закрыта")
 
         ex = self.net.create_extractor()
         mat_in = self._to_ncnn_mat(input_arr)
         ret = ex.input(INPUT_NAME, mat_in)
         if isinstance(ret, int) and ret != 0:
-            raise RuntimeError(f"ncnn input('{INPUT_NAME}') failed with code {ret}")
+            raise RuntimeError(f"ncnn input('{INPUT_NAME}') завершился с кодом {ret}")
 
         extracted = ex.extract(self.spec.output_name)
         if isinstance(extracted, tuple):
             status, mat_out = extracted
             if isinstance(status, int) and status != 0:
                 raise RuntimeError(
-                    f"ncnn extract('{self.spec.output_name}') failed with code {status}"
+                    f"ncnn extract('{self.spec.output_name}') завершился с кодом {status}"
                 )
         else:
             mat_out = extracted
@@ -367,7 +324,7 @@ class NcnnRecOCR:
     def _to_ncnn_mat(self, input_arr: np.ndarray):
         arr = np.ascontiguousarray(input_arr, dtype=np.float32)
         if arr.ndim != 3:
-            raise ValueError(f"Expected CHW input for ncnn, got shape {arr.shape}")
+            raise ValueError(f"Для ncnn ожидался input CHW; получена форма {arr.shape}")
 
         c, h, w = arr.shape
         mat = self.ncnn.Mat()
@@ -388,6 +345,6 @@ class NcnnRecOCR:
             return np.moveaxis(arr, 0, -1).reshape(1, -1, self.class_count)
 
         raise RuntimeError(
-            "Unable to interpret ncnn output shape "
-            f"{arr.shape}; expected class dimension {self.class_count}."
+            "Не удалось интерпретировать форму output ncnn "
+            f"{arr.shape}; ожидалось измерение классов {self.class_count}."
         )

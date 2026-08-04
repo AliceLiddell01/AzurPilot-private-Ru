@@ -39,10 +39,11 @@ def _stage8a_webui_api_ids() -> set[str]:
     return result
 
 
-def _policy_point_paths() -> set[str]:
+def _stage8a_policy_point_paths() -> set[str]:
     return {
         path
         for group in POLICY_GROUPS
+        if group["classification"] == "stage8a_device"
         for path in group["points"]
     }
 
@@ -160,7 +161,7 @@ class Stage8AStage7PolicyBridgeTests(unittest.TestCase):
             )
         )
         self.assertEqual(
-            changed & _policy_point_paths(),
+            changed & _stage8a_policy_point_paths(),
             {"module/webui/api.py"},
         )
 

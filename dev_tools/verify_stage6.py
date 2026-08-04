@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dev_tools.stage6_ui_audit import METRICS_PATH, ROOT, Stage6Audit
+from dev_tools.stage6_active_ui_audit import ActiveStage6Audit, METRICS_PATH, ROOT
 
 
 TEST_MODULES = (
@@ -15,7 +15,7 @@ TEST_MODULES = (
 
 
 def main() -> int:
-    failures = Stage6Audit(ROOT).check()
+    failures = ActiveStage6Audit(ROOT).check()
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)

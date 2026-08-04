@@ -108,10 +108,10 @@ class CampaignOcr(ModuleBase):
             return name[:-1], name[-1]
         elif name[0].isdigit() and name[-1].isalpha():
             # 49X
-            logger.warning(f'[战役-OCR] 未知的关卡名称: {name}')
+            logger.warning(f'[Кампания — OCR] Неизвестное имя этапа: {name}')
             return '', ''
 
-        logger.warning(f'[战役-OCR] 未知的关卡名称: {name}')
+        logger.warning(f'[Кампания — OCR] Неизвестное имя этапа: {name}')
         return '', ''
 
     def campaign_match_multi(self, template, image, stage_image=None, name_offset=(75, 9), name_size=(60, 16),
@@ -303,7 +303,7 @@ class CampaignOcr(ModuleBase):
         x_color = np.convolve(np.mean(image, axis=0), np.ones(interval), 'valid') / interval
         x_list = np.where(x_color[x_skip:] > 245)[0]
         if x_list is None or len(x_list) == 0:
-            logger.warning('[战役] 数字与文本之间未找到间隔。')
+            logger.warning('[Кампания — OCR] Не найден интервал между номером этапа и текстом.')
             area = (0, 0, image.shape[1], image.shape[0])
         else:
             area = (0, 0, x_list[0] + 1 + x_skip, image.shape[0])
@@ -326,7 +326,7 @@ class CampaignOcr(ModuleBase):
         del_cached_property(self, '_stage_image')
         del_cached_property(self, '_stage_image_gray')
         if len(buttons) == 0:
-            logger.info('[战役] 未找到关卡。')
+            logger.info('[Кампания — OCR] Этапы не найдены.')
             raise CampaignNameError
 
         ocr = Ocr(buttons, name='campaign', letter=(255, 255, 255), threshold=128,
@@ -359,8 +359,8 @@ class CampaignOcr(ModuleBase):
             button.name = name
             self.stage_entrance[name] = button
 
-        logger.attr('章节', self.campaign_chapter)
-        logger.attr('关卡', ', '.join(self.stage_entrance.keys()))
+        logger.attr('Глава', self.campaign_chapter)
+        logger.attr('Этапы', ', '.join(self.stage_entrance.keys()))
 
     def handle_get_chapter_additional(self):
         """

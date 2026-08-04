@@ -8,7 +8,7 @@ STAGE8A_SCOPE_PREFIXES = ("module/device/",)
 STAGE8A_SCOPE_FILES = ("module/webui/api.py",)
 
 TRANSFER_POLICY = {
-    "[设备-基准测试] 运行OCR设备基准测试": (
+    "[Устройство — OCR benchmark] Проверка доступных OCR-устройств": (
         "stage8b_ocr",
         "OCR benchmark принадлежит Stage 8B, хотя вызов находится в module/device/device.py.",
     ),

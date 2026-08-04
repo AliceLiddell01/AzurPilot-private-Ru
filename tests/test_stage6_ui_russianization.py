@@ -5,15 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from dev_tools.stage6_active_ui_audit import ActiveStage6Audit
 from dev_tools.stage6_ui_audit import (
     EXCEPTIONS_PATH,
     METRICS_PATH,
     REPORT_PATH,
-    Stage6Audit,
     exception_category,
     format_signature,
-    javascript_ui_candidates,
     javascript_file_ui_candidates,
+    javascript_ui_candidates,
     python_translation_key_usage,
 )
 from module.webui.event_calculator import build_event_calculator_js
@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class Stage6UiRussianizationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.audit = Stage6Audit(ROOT)
+        cls.audit = ActiveStage6Audit(ROOT)
         cls.outputs, cls.details = cls.audit.build()
         cls.metrics = json.loads(METRICS_PATH.read_text(encoding="utf-8"))
         cls.exceptions = json.loads(EXCEPTIONS_PATH.read_text(encoding="utf-8"))["entries"]

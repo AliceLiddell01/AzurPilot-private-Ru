@@ -91,7 +91,7 @@ def create_onnx_session(
     if allow_vendor_execution_providers and vendor_execution_providers:
         _prepare_vendor_execution_providers(ort, vendor_execution_providers)
     elif not allow_vendor_execution_providers and vendor_execution_providers:
-        logger.info("[OCR] Windows ML 厂商 EP 自动安装和使用已禁用")
+        logger.info("[OCR] Автоматическая установка и использование vendor EP Windows ML отключены")
 
     for device in _iter_preferred_devices(
         ort,
@@ -110,14 +110,14 @@ def create_onnx_session(
             session = ort.InferenceSession(str(model_path), sess_options=options)
         except Exception as exc:
             logger.warning(
-                f"[OCR] Windows ML 无法使用 {device.ep_name}，尝试下一个设备: {exc}"
+                f"[OCR] Windows ML не смог использовать {device.ep_name}; пробуем следующее устройство: {exc}"
             )
             continue
 
-        logger.info(f"[OCR] Windows ML 选择 {_describe_device(device)}")
+        logger.info(f"[OCR] Windows ML выбрал {_describe_device(device)}")
         return session, device.ep_name
 
-    logger.info("[OCR] 未找到符合条件的 Windows ML 加速设备，使用 CPU")
+    logger.info("[OCR] Подходящее устройство ускорения Windows ML не найдено; используется CPU")
     return (
         ort.InferenceSession(
             str(model_path),
@@ -143,7 +143,7 @@ def _prepare_vendor_execution_providers(ort, provider_names):
         try:
             import windowsml
         except Exception as exc:
-            logger.warning(f"[OCR] Windows ML Runtime 不可用，跳过 NPU/OpenVINO: {exc}")
+            logger.warning(f"[OCR] Windows ML Runtime недоступен; NPU/OpenVINO пропущены: {exc}")
             _prepared_execution_providers.update(
                 (marker, name) for name in pending_provider_names
             )
@@ -162,7 +162,7 @@ def _prepare_vendor_execution_providers(ort, provider_names):
                         continue
                     _ensure_and_register_provider(ort, windowsml, provider)
         except Exception as exc:
-            logger.warning(f"[OCR] 无法枚举 Windows ML 执行提供程序: {exc}")
+            logger.warning(f"[OCR] Не удалось перечислить Execution Provider Windows ML: {exc}")
 
         _prepared_execution_providers.update(
             (marker, name) for name in pending_provider_names
@@ -173,19 +173,19 @@ def _ensure_and_register_provider(ort, windowsml, provider):
     try:
         ready = windowsml.EpReadyState.Ready
         if provider.ready_state != ready:
-            logger.info(f"[OCR] 准备 Windows ML {provider.name}: {provider.ready_state}")
+            logger.info(f"[OCR] Подготовка Windows ML {provider.name}: {provider.ready_state}")
             with provider.ensure_ready_async() as operation:
                 operation.wait()
 
         registered_names = {device.ep_name for device in ort.get_ep_devices()}
         if provider.name not in registered_names:
             ort.register_execution_provider_library(provider.name, provider.library_path)
-            logger.info(f"[OCR] 已注册 Windows ML {provider.name}")
+            logger.info(f"[OCR] Зарегистрирован Windows ML {provider.name}")
     except Exception as exc:
         logger.warning(
-            f"[OCR] Windows ML {provider.name} 自动安装或更新失败: {exc}。"
-            "已跳过该 EP 并继续尝试后备设备；请检查 Windows Update 服务未被禁用、"
-            "Windows 更新策略没有被组织管理器关闭，以及网络可访问 Windows 更新服务。"
+            f"[OCR] Автоматическая установка или обновление Windows ML {provider.name} завершилась ошибкой: {exc}. "
+            "EP пропущен, продолжается проверка резервных устройств; убедитесь, что служба Windows Update включена, "
+            "политики обновления не отключены администратором и доступен сервис Windows Update."
         )
 
 
@@ -197,7 +197,7 @@ def _iter_preferred_devices(
     try:
         devices = ort.get_ep_devices()
     except Exception as exc:
-        logger.warning(f"[OCR] 无法枚举 ONNX Runtime 设备: {exc}")
+        logger.warning(f"[OCR] Не удалось перечислить устройства ONNX Runtime: {exc}")
         return ()
 
     device_types = ort.OrtHardwareDeviceType

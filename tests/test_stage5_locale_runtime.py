@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 from module.config.deep import deep_iter
 from module.config.locale import LEGACY_UI_LOCALES, UI_LOCALE
-from module.webui import lang
 from module.webui import deploy_settings
+from module.webui import lang
 
 ROOT = Path(__file__).resolve().parents[1]
 PLACEHOLDER_RE = re.compile(
@@ -17,10 +17,27 @@ PLACEHOLDER_RE = re.compile(
     r"|%\([^)]+\)[#0 +\-]?(?:\d+|\*)?(?:\.\d+)?[diouxXeEfFgGcrs]"
     r"|%[#0+\-]?(?:\d+|\*)?(?:\.\d+)?[diouxXeEfFgGcrs%]"
 )
+RETIRED_NON_EN_OCR_PREFIXES = (
+    "Optimization.OcrModelVersionChinese.",
+    "Optimization.OcrModelVersionJapanese.",
+    "Optimization.OcrModelVersionTraditionalChinese.",
+)
 
 
 def flatten_strings(data):
-    return {".".join(path): value for path, value in deep_iter(data, depth=3) if isinstance(value, str)}
+    return {
+        ".".join(path): value
+        for path, value in deep_iter(data, depth=3)
+        if isinstance(value, str)
+    }
+
+
+def active_canonical_strings(data):
+    return {
+        key: value
+        for key, value in flatten_strings(data).items()
+        if not key.startswith(RETIRED_NON_EN_OCR_PREFIXES)
+    }
 
 
 class Stage5LocaleRuntimeTests(unittest.TestCase):
@@ -28,7 +45,10 @@ class Stage5LocaleRuntimeTests(unittest.TestCase):
         self.assertEqual(UI_LOCALE, "ru-RU")
         self.assertEqual(lang.LANG, UI_LOCALE)
         self.assertNotIn(UI_LOCALE, LEGACY_UI_LOCALES)
-        self.assertEqual(set(LEGACY_UI_LOCALES), {"en-US", "ja-JP", "zh-CN", "zh-MIAO", "zh-TW"})
+        self.assertEqual(
+            set(LEGACY_UI_LOCALES),
+            {"en-US", "ja-JP", "zh-CN", "zh-MIAO", "zh-TW"},
+        )
 
     def test_loader_reads_only_ru_ru_and_uses_flat_dictionary(self) -> None:
         calls = []
@@ -37,7 +57,10 @@ class Stage5LocaleRuntimeTests(unittest.TestCase):
             calls.append(str(path).replace("\\", "/"))
             return {"Gui": {"Menu": {"Title": "Русский интерфейс"}}}
 
-        with patch.object(lang, "list_mod_dir", return_value=[]), patch.object(lang, "read_file", side_effect=fake_read):
+        with (
+            patch.object(lang, "list_mod_dir", return_value=[]),
+            patch.object(lang, "read_file", side_effect=fake_read),
+        ):
             lang.reload()
 
         self.assertEqual(lang.dic_lang, {"Gui.Menu.Title": "Русский интерфейс"})
@@ -64,14 +87,19 @@ class Stage5LocaleRuntimeTests(unittest.TestCase):
                 lang._t("Gui.Missing", legacy)
 
     def test_language_selector_is_absent_from_ui_surfaces(self) -> None:
-        deploy_keys = {field.key for _, fields in deploy_settings.DEPLOY_GROUPS for field in fields}
+        deploy_keys = {
+            field.key for _, fields in deploy_settings.DEPLOY_GROUPS for field in fields
+        }
         self.assertNotIn("Language", deploy_keys)
         home = (ROOT / "module/webui/app_home.py").read_text(encoding="utf-8")
         oobe = (ROOT / "module/webui/oobe.py").read_text(encoding="utf-8")
         self.assertNotIn("Select your language", home)
         self.assertNotIn("简体中文", home)
         self.assertNotIn("_on_language_selected", oobe)
-        self.assertNotIn('"welcome"', oobe.split("STEPS =", 1)[1].split("\n", 1)[0])
+        self.assertNotIn(
+            '"welcome"',
+            oobe.split("STEPS =", 1)[1].split("\n", 1)[0],
+        )
 
     def test_ru_catalog_is_complete_and_preserves_placeholders(self) -> None:
         ru_path = ROOT / "module/config/i18n/ru-RU.json"
@@ -81,7 +109,14 @@ class Stage5LocaleRuntimeTests(unittest.TestCase):
         ru = json.loads(ru_raw)
         canonical = json.loads(canonical_path.read_text(encoding="utf-8"))
         ru_flat = flatten_strings(ru)
-        canonical_flat = flatten_strings(canonical)
+        canonical_flat = active_canonical_strings(canonical)
+
+        retired_ru_keys = {
+            key
+            for key in ru_flat
+            if key.startswith(RETIRED_NON_EN_OCR_PREFIXES)
+        }
+        self.assertEqual(retired_ru_keys, set())
         self.assertEqual(set(ru_flat), set(canonical_flat))
         self.assertEqual(len(ru_flat), len(canonical_flat))
         for key in sorted(ru_flat):
@@ -90,7 +125,10 @@ class Stage5LocaleRuntimeTests(unittest.TestCase):
                     sorted(PLACEHOLDER_RE.findall(ru_flat[key])),
                     sorted(PLACEHOLDER_RE.findall(canonical_flat[key])),
                 )
-        self.assertEqual(ru_raw, json.dumps(ru, ensure_ascii=False, indent=2) + "\n")
+        self.assertEqual(
+            ru_raw,
+            json.dumps(ru, ensure_ascii=False, indent=2) + "\n",
+        )
 
 
 if __name__ == "__main__":
