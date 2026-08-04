@@ -1,0 +1,60 @@
+name: Screenshot interval benchmark validation
+
+on:
+  pull_request:
+    paths:
+      - "dev_tools/screenshot_interval_benchmark.py"
+      - "tests/test_screenshot_interval_benchmark.py"
+      - "docs/benchmarks/screenshot-interval.md"
+      - ".github/workflows/screenshot-interval-benchmark-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screenshot-interval-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Screenshot interval benchmark tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+
+      - name: Synchronize locked dependencies
+        run: uv sync --frozen
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+
+      - name: Run Ruff
+        run: >-
+          uv run ruff check
+          dev_tools/screenshot_interval_benchmark.py
+          tests/test_screenshot_interval_benchmark.py
+
+      - name: Run benchmark unit tests
+        run: >-
+          uv run python -m unittest -v
+          tests.test_screenshot_interval_benchmark
+
+      - name: Check diff formatting
+        run: git diff --check
