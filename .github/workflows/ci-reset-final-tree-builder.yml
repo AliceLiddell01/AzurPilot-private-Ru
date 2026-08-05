@@ -44,6 +44,7 @@ jobs:
             docs/ci.md
             pyproject.toml
             tests/test_ocr_debug_privacy.py
+            tests/test_ocr_rpc_security.py
             uv.lock
           ref: codex/ci-reset
 
@@ -86,7 +87,7 @@ jobs:
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all
+          git add --all --sparse
           git commit -m "build: materialize corrected CI Reset tree"
 
           final_commit="$(git rev-parse HEAD)"
