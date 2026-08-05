@@ -13,12 +13,12 @@ from dev_tools.commission_ocr_acceptance import (
 from dev_tools.commission_ocr_acceptance import _write_png as write_commission_png
 from dev_tools.stage8b_opsi_zone_acceptance import (
     _png_for_cv2 as opsi_png_for_cv2,
+)
+from dev_tools.stage8b_opsi_zone_acceptance import (
     _prepare_artifact_dir,
     evaluate_samples,
 )
-from dev_tools.stage8b_opsi_zone_acceptance import (
-    _write_png as write_opsi_png,
-)
+from dev_tools.stage8b_opsi_zone_acceptance import _write_png as write_opsi_png
 from module.ocr.ocr import Ocr
 from module.os.assets import MAP_NAME
 
