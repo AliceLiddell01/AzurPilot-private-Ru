@@ -7,7 +7,7 @@
 装饰器为 CN/EN/JP/TW 四个服务器分别实现不同的解析逻辑。
 
 本模块还定义了 COMMISSION_FILTER 过滤器实例，用于根据用户配置的
-规则（如 'daily_resource-01:30'）筛选和排序委托列表。
+过滤规则（如 'daily_resource-01:30'）筛选和排序委托列表。
 
 依赖：
     - module.base.filter: 正则过滤器框架
@@ -166,7 +166,7 @@ class Commission:
     def commission_parse(self):
         """解析委托信息（EN 服务器）。
 
-        EN 服委托名称较长，OCR裁剪区域与 CN 不同。
+        EN 服委托名称较长，OCR 裁剪区域与 CN 不同。
         需要对常见 OCR 识别错误进行修正（如 DALY -> DAILY）。
 
         解析内容：名称、后缀、时长、过期时间、状态。
