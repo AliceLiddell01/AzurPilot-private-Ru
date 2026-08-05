@@ -16,7 +16,7 @@
 
 ## Постоянный CI
 
-Единственный required pull-request workflow — `.github/workflows/ci.yml`. Он должен запускаться для каждого PR в `personal/stable` без `paths`-фильтров и публиковать три устойчивых context:
+Единственный постоянный pull-request workflow — `.github/workflows/ci.yml`. Он должен запускаться для каждого PR в `personal/stable` без `paths`-фильтров и публиковать три устойчивых context, которые ruleset обязан сделать required:
 
 - `Python`;
 - `Windows`;
@@ -66,7 +66,7 @@
 
 ### Python
 
-- `uv lock --check` и `uv sync --locked` для постоянного CI;
+- `uv lock --check` и `uv sync --locked --group ci` для постоянного CI;
 - compile/import затронутого модуля;
 - существующий ruff-профиль;
 - точечные tests;

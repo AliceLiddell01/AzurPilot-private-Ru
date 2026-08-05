@@ -1,0 +1,643 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+  push:
+    branches:
+      - personal/stable
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  python:
+    name: Python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Validate environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked --group ci
+
+      - name: Run Python checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+          uv run --locked python - <<'PY'
+          import compileall
+          from pathlib import Path
+
+          roots = (
+              Path("alas.py"),
+              Path("gui.py"),
+              Path("mcp_server_sse.py"),
+              Path("module"),
+              Path("dev_tools"),
+              Path("tests"),
+              Path("tools"),
+          )
+          failed = False
+          for root in roots:
+              if not root.exists():
+                  continue
+              if root.is_file():
+                  failed = not compileall.compile_file(root, quiet=1) or failed
+              else:
+                  failed = not compileall.compile_dir(root, quiet=1) or failed
+          if failed:
+              raise SystemExit("Python compilation failed.")
+          PY
+          uv run --locked --group ci python -m pytest -q tests
+
+      - name: Verify generated files and working tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked -m dev_tools.button_extract
+          uv run --locked -m module.config.config_updater
+          git diff --exit-code
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          artifact_dir="${RUNNER_TEMP}/azurpilot-ci-python"
+          mkdir -p "$artifact_dir"
+          {
+            echo "commit=$(git rev-parse HEAD 2>/dev/null)"
+            echo "uv=$(uv --version 2>&1)"
+            echo "python=$(uv run --locked python --version 2>&1)"
+            echo
+            echo '--- git status --short ---'
+            git status --short
+            echo
+            echo '--- git diff --check ---'
+            git diff --check
+          } > "${artifact_dir}/diagnostics.txt" 2>&1
+          git diff --binary > "${artifact_dir}/working-tree.diff" 2>&1
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/azurpilot-ci-python
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+          $gitExecutable = $gitCommand.Path
+          $expectedHead = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $gitArguments = @(
+              'rev-parse'
+              'HEAD'
+          )
+          $actualHead = & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+
+          if ($gitExitCode -ne 0) {
+              throw ('git rev-parse failed with exit code {0}.' -f $gitExitCode)
+          }
+
+          $actualHeadValue = [string]($actualHead | Select-Object -Last 1)
+
+          if ($actualHeadValue -ne $expectedHead) {
+              throw ('Unexpected checkout head: {0}' -f $actualHeadValue)
+          }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Validate environment
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop
+          $uvExecutable = $uvCommand.Path
+
+          $uvArguments = @(
+              'lock'
+              '--check'
+          )
+          & $uvExecutable @uvArguments
+          $uvLockExitCode = $LASTEXITCODE
+
+          if ($uvLockExitCode -ne 0) {
+              throw ('uv lock --check failed with exit code {0}.' -f $uvLockExitCode)
+          }
+
+          $uvArguments = @(
+              'sync'
+              '--locked'
+          )
+          & $uvExecutable @uvArguments
+          $uvSyncExitCode = $LASTEXITCODE
+
+          if ($uvSyncExitCode -ne 0) {
+              throw ('uv sync --locked failed with exit code {0}.' -f $uvSyncExitCode)
+          }
+
+      - name: Parse and analyze tracked PowerShell
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+          $gitExecutable = $gitCommand.Path
+          $gitArguments = @(
+              'ls-files'
+              '--'
+              '*.ps1'
+              '*.psm1'
+          )
+          $powerShellFiles = @(& $gitExecutable @gitArguments)
+          $gitExitCode = $LASTEXITCODE
+
+          if ($gitExitCode -ne 0) {
+              throw ('git ls-files failed with exit code {0}.' -f $gitExitCode)
+          }
+
+          $parseFindings = [System.Collections.Generic.List[string]]::new()
+
+          foreach ($relativePath in $powerShellFiles) {
+              $tokens = $null
+              $parseErrors = $null
+              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
+
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  $scriptPath,
+                  [ref]$tokens,
+                  [ref]$parseErrors
+              )
+
+              foreach ($parseError in $parseErrors) {
+                  $parseFindings.Add(
+                      ('{0}:{1}: {2}' -f $relativePath, $parseError.Extent.StartLineNumber, $parseError.Message)
+                  )
+              }
+          }
+
+          if ($parseFindings.Count -gt 0) {
+              $message = $parseFindings | Out-String
+              throw "PowerShell Parser reported findings:`n$message"
+          }
+
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion '1.25.0' -Scope CurrentUser -Force
+
+          $analysisFindings = foreach ($relativePath in $powerShellFiles) {
+              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
+              Invoke-ScriptAnalyzer -Path $scriptPath -Severity Error, Warning
+          }
+
+          if ($analysisFindings) {
+              $message = $analysisFindings | Format-Table -AutoSize | Out-String
+              throw "PSScriptAnalyzer reported findings:`n$message"
+          }
+
+      - name: Run Windows product regressions
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop
+          $uvExecutable = $uvCommand.Path
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+          $gitExecutable = $gitCommand.Path
+
+          $uvArguments = @(
+              'run'
+              '--locked'
+              'python'
+              '-m'
+              'unittest'
+              '-v'
+              'tests.test_webui_no_reload_recovery'
+              'tests.test_device_acceptance'
+              'tests.test_powershell_contracts'
+              'tests.test_deploy_set'
+              'tests.test_webui_deploy_settings'
+          )
+          & $uvExecutable @uvArguments
+          $testExitCode = $LASTEXITCODE
+
+          if ($testExitCode -ne 0) {
+              throw ('Windows product regression tests failed with exit code {0}.' -f $testExitCode)
+          }
+
+          $gitArguments = @(
+              'diff'
+              '--check'
+          )
+          & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+
+          if ($gitExitCode -ne 0) {
+              throw ('git diff --check failed with exit code {0}.' -f $gitExitCode)
+          }
+
+          $gitArguments = @(
+              'status'
+              '--porcelain'
+          )
+          $status = @(& $gitExecutable @gitArguments)
+          $gitExitCode = $LASTEXITCODE
+
+          if ($gitExitCode -ne 0) {
+              throw ('git status failed with exit code {0}.' -f $gitExitCode)
+          }
+
+          if ($status.Count -gt 0) {
+              $message = $status | Out-String
+              throw "Windows job left the working tree dirty:`n$message"
+          }
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+          $gitExecutable = $gitCommand.Path
+          $artifactDirectory = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows'
+          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+
+          $metadataPath = Join-Path -Path $artifactDirectory -ChildPath 'metadata.txt'
+          @(
+              ('commit={0}' -f '${{ github.event.pull_request.head.sha || github.sha }}')
+              ('pwsh={0}' -f $PSVersionTable.PSVersion)
+              ('runner={0}' -f $env:RUNNER_OS)
+          ) | Set-Content -LiteralPath $metadataPath -Encoding utf8
+
+          $gitArguments = @(
+              'status'
+              '--short'
+          )
+          $statusOutput = @(& $gitExecutable @gitArguments 2>&1)
+          $gitExitCode = $LASTEXITCODE
+
+          if ($gitExitCode -ne 0) {
+              $statusOutput += ('git status failed with exit code {0}.' -f $gitExitCode)
+          }
+
+          $statusPath = Join-Path -Path $artifactDirectory -ChildPath 'status.txt'
+          $statusOutput | Set-Content -LiteralPath $statusPath -Encoding utf8
+
+          $gitArguments = @(
+              'diff'
+              '--binary'
+          )
+          $diffOutput = @(& $gitExecutable @gitArguments 2>&1)
+          $gitExitCode = $LASTEXITCODE
+
+          if ($gitExitCode -ne 0) {
+              $diffOutput += ('git diff failed with exit code {0}.' -f $gitExitCode)
+          }
+
+          $diffPath = Join-Path -Path $artifactDirectory -ChildPath 'working-tree.diff'
+          $diffOutput | Set-Content -LiteralPath $diffPath -Encoding utf8
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/azurpilot-ci-windows
+          if-no-files-found: error
+          retention-days: 14
+
+  security:
+    name: Security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Fetch bounded PR history without historical blobs
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git config remote.origin.promisor true
+          git config remote.origin.partialclonefilter blob:none
+          git fetch --no-tags --filter=blob:none --deepen=100 origin "$PR_HEAD_REF"
+          if ! git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --filter=blob:none --depth=1 origin "$PR_BASE_SHA"
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Validate environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked --group ci
+
+      - name: Scan source and commit range with Gitleaks
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          version='8.30.1'
+          archive="gitleaks_${version}_linux_x64.tar.gz"
+          archive_sha256='551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+          release_url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}"
+          tool_dir="${RUNNER_TEMP}/gitleaks"
+
+          mkdir -p "$tool_dir"
+          curl --fail --location --silent --show-error --output "${tool_dir}/${archive}" "$release_url"
+          printf '%s  %s\n' "$archive_sha256" "${tool_dir}/${archive}" | sha256sum --check --strict
+          tar -xzf "${tool_dir}/${archive}" -C "$tool_dir" gitleaks
+          gitleaks="${tool_dir}/gitleaks"
+
+          scan_paths=(
+            .github
+            .codex
+            config
+            deploy
+            dev_tools
+            docs
+            module
+            scripts
+            tests
+            tools
+            AGENTS.md
+            README.md
+            alas.py
+            gui.py
+            mcp_server_sse.py
+            pyproject.toml
+            uv.lock
+          )
+
+          for scan_path in "${scan_paths[@]}"; do
+            if [[ -e "$scan_path" ]]; then
+              "$gitleaks" dir --redact --no-banner --verbose "$scan_path"
+            fi
+          done
+
+          if [[ "$EVENT_NAME" == 'pull_request' ]]; then
+            range_start="$PR_BASE_SHA"
+          elif [[ -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != '0000000000000000000000000000000000000000' ]]; then
+            range_start="$PUSH_BEFORE_SHA"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            range_start='HEAD^'
+          else
+            range_start=''
+          fi
+
+          if [[ -n "$range_start" ]] && ! git cat-file -e "${range_start}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$range_start"
+          fi
+
+          if [[ -n "$range_start" ]]; then
+            "$gitleaks" git --redact --no-banner --verbose --log-opts="${range_start}..HEAD" .
+          else
+            "$gitleaks" git --redact --no-banner --verbose --log-opts='HEAD' .
+          fi
+
+      - name: Check added files and security regressions
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == 'pull_request' ]]; then
+            range_start="$PR_BASE_SHA"
+          elif [[ -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != '0000000000000000000000000000000000000000' ]]; then
+            range_start="$PUSH_BEFORE_SHA"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            range_start='HEAD^'
+          else
+            range_start=''
+          fi
+
+          if [[ -n "$range_start" ]] && ! git cat-file -e "${range_start}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$range_start"
+          fi
+
+          if [[ -n "$range_start" ]]; then
+            diff_range="${range_start}..HEAD"
+          else
+            diff_range='HEAD'
+          fi
+
+          DIFF_RANGE="$diff_range" uv run --locked python - <<'PY'
+          import os
+          import subprocess
+          from pathlib import PurePosixPath
+
+          output = subprocess.run(
+              ["git", "diff", "--name-status", "--diff-filter=AM", os.environ["DIFF_RANGE"]],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout
+
+          risky_names = {
+              ".env",
+              "credentials.json",
+              "cookies.json",
+              "session.json",
+              "id_rsa",
+              "id_ed25519",
+          }
+          risky_suffixes = {
+              ".key",
+              ".p12",
+              ".pfx",
+              ".pem",
+              ".jks",
+              ".keystore",
+              ".log",
+              ".dump",
+              ".bak",
+          }
+
+          findings = []
+          for line in output.splitlines():
+              _, path = line.split("\t", 1)
+              pure = PurePosixPath(path)
+              lower_name = pure.name.lower()
+              if lower_name in risky_names or any(lower_name.endswith(suffix) for suffix in risky_suffixes):
+                  findings.append(path)
+
+          if findings:
+              raise SystemExit("Risky added files:\n" + "\n".join(findings))
+          PY
+
+          uv run --locked python -m unittest -v \
+            tests.test_binary_log_audit \
+            tests.test_binary_log_audit_arguments \
+            tests.test_exception_context_audit \
+            tests.test_webui_event_calculator_security \
+            tests.test_device_security \
+            tests.test_ocr_debug_privacy \
+            tests.test_ocr_rpc_security \
+            tests.test_ocr_rpc_runtime \
+            tests.test_ocr_acceptance \
+            tests.test_opsi_zone_ocr_acceptance
+
+      - name: Install pinned browser runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked --group ci playwright install --with-deps chromium
+
+      - name: Run WebUI DOM security regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python -m unittest -v tests.test_webui_traceback_security
+          mkdir -p "${RUNNER_TEMP}/webui-security"
+          timeout --signal=TERM --kill-after=15s 10m \
+            uv run --locked python tests/run_webui_traceback_browser.py \
+              > "${RUNNER_TEMP}/webui-security/report.json"
+          if pgrep -af 'playwright.*chromium|chromium.*playwright' \
+            > "${RUNNER_TEMP}/webui-security/processes.txt"; then
+            cat "${RUNNER_TEMP}/webui-security/processes.txt"
+            exit 1
+          fi
+          echo 'No orphaned Playwright Chromium processes.' \
+            > "${RUNNER_TEMP}/webui-security/processes.txt"
+
+      - name: Verify working tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          artifact_dir="${RUNNER_TEMP}/azurpilot-ci-security"
+          mkdir -p "$artifact_dir"
+          {
+            echo "commit=$(git rev-parse HEAD 2>/dev/null)"
+            echo
+            echo '--- git status --short ---'
+            git status --short
+          } > "${artifact_dir}/diagnostics.txt" 2>&1
+          git diff --binary > "${artifact_dir}/working-tree.diff" 2>&1
+
+          if [[ -d "${RUNNER_TEMP}/webui-security" ]]; then
+            cp -R "${RUNNER_TEMP}/webui-security" "${artifact_dir}/browser"
+          fi
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/azurpilot-ci-security
+          if-no-files-found: error
+          retention-days: 14

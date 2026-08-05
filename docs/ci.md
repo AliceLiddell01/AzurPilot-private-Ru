@@ -6,24 +6,24 @@
 
 CI не использует исторические SHA, committed evidence, stage-specific baselines или временные migration gates как источник истины. Источниками истины являются текущий код, исполняемые тесты и фактическое состояние ветки.
 
-## Required checks
+## Публичные status contexts
 
-Ruleset ветки `personal/stable` требует три отдельных status checks:
+Workflow публикует три стабильных status contexts:
 
 - `Python`;
 - `Windows`;
 - `Security`.
 
-Имена являются публичным контрактом ruleset. Переименование job требует предварительного согласованного изменения ruleset; добавление новой required job допускается только при наличии отдельного устойчивого класса риска, который нельзя корректно включить в существующие три проверки.
+Ruleset ветки `personal/stable` должен требовать именно эти три context и не должен сохранять старые Stage-зависимые checks. Фактическое состояние ruleset проверяется через GitHub перед приёмкой PR и не подменяется утверждением в документации. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
 
 ## Python
 
 Job выполняется на `ubuntu-24.04` с Python `3.14.6` и проверяет:
 
-- `uv lock --check` и `uv sync --locked`;
+- `uv lock --check` и `uv sync --locked --group ci`;
 - Ruff для ошибок выполнения и импорта;
 - компиляцию основных Python entry points и каталогов;
-- автоматическое обнаружение всех `tests/test_*.py` через закреплённый `pytest 9.1.1`;
+- автоматическое обнаружение всего каталога `tests/` через `pytest 9.1.1`, зафиксированный в `uv.lock`;
 - генераторы конфигурации и assets;
 - отсутствие generated diff и незакоммиченных файлов.
 
@@ -31,7 +31,7 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
 
 ```bash
 uv lock --check
-uv sync --locked
+uv sync --locked --group ci
 uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 ```
 
@@ -54,11 +54,15 @@ Job выполняется на `ubuntu-24.04` и проверяет:
 
 - текущие исходники и диапазон коммитов PR через Gitleaks `8.30.1` с проверкой SHA256 загружаемого архива;
 - новые файлы, архивы, бинарные данные и repository hygiene;
-- security/privacy regressions устройства, OCR RPC, debug output и traceback rendering;
+- security/privacy regressions устройства, OCR RPC, debug output и traceback rendering, включая loopback-only RPC, безопасный wire format без pickle, bounded payload, model/batch/candidate limits, debug opt-in, retention, cleanup и symlink/reparse protection;
 - DOM-безопасность WebUI через закреплённый browser runner;
 - отсутствие изменений рабочего дерева после проверок.
 
 Секреты в диагностике должны редактироваться; найденное значение нельзя публиковать полностью.
+
+## Dependency lock
+
+Обязательные Python-инструменты CI объявлены в `pyproject.toml` и разрешаются в `uv.lock`: `ruff` находится в group `dev`, а `pytest==9.1.1` и `playwright==1.55.0` — в group `ci`. Required jobs не используют `uv pip install` или `uv run --with` для обязательных инструментов.
 
 ## Action pins и checkout
 
