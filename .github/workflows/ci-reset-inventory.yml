@@ -1,9 +1,9 @@
 name: CI reset inventory
 
 on:
-  push:
+  pull_request:
     branches:
-      - codex/ci-reset
+      - personal/stable
 
 permissions:
   contents: read
@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Print tracked cleanup candidates
         shell: bash
