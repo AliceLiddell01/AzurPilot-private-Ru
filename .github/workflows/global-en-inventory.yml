@@ -1,0 +1,80 @@
+name: Global EN Inventory
+
+on:
+  push:
+    branches:
+      - codex/global-en-cleanup
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: global-en-inventory-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  inventory:
+    name: Global EN Inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Validate locked environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked --group ci
+
+      - name: Build sanitized inventory
+        shell: bash
+        env:
+          INVENTORY_DIR: ${{ runner.temp }}/global-en-inventory
+        run: |
+          set -euo pipefail
+          rm -rf "$INVENTORY_DIR"
+          mkdir -p "$INVENTORY_DIR"
+          uv run --locked python tools/global_en_inventory.py \
+            --output-dir "$INVENTORY_DIR" \
+            --repository "${{ github.repository }}" \
+            --branch "${{ github.ref_name }}" \
+            --base-sha "e392880602bc83986f42107fc87b1ce7c1d52ef0" \
+            --head-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}"
+
+      - name: Upload sanitized inventory
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: global-en-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/global-en-inventory
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 9
