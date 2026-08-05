@@ -3,9 +3,9 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from dev_tools.commission_ocr_acceptance import evaluate_rows
+from dev_tools.commission_ocr_acceptance import _scan_mode, evaluate_rows
 from dev_tools.stage8b_model_scope import find_removed_runtime_model_references
 from dev_tools.stage8b_ocr_log_audit import Stage8BOcrLogAudit
 from dev_tools.stage8b_semantic_policy import (
@@ -135,13 +135,33 @@ class Stage8BSemanticContractTests(unittest.TestCase):
         self.assertTrue(any("OCR-мусор" in item for item in findings))
         self.assertTrue(any("длительность не распознана" in item for item in findings))
 
+    @patch(
+        "dev_tools.commission_ocr_acceptance.COMMISSION_SWITCH.get",
+        return_value="daily",
+    )
+    def test_commission_acceptance_accepts_already_active_tab(
+        self,
+        switch_get: Mock,
+    ) -> None:
+        runner = Mock()
+        runner._commission_ensure_mode.return_value = False
+        runner._commission_scan_list.return_value = []
+
+        result = _scan_mode(runner, "daily")
+
+        self.assertEqual(result, [])
+        runner._commission_ensure_mode.assert_called_once_with("daily")
+        runner._commission_swipe_to_top.assert_called_once_with()
+        runner.device.screenshot.assert_not_called()
+        switch_get.assert_called_once_with(main=runner)
+
     def test_commission_acceptance_is_live_read_only_and_manual(self) -> None:
         source = (ROOT / "dev_tools/commission_ocr_acceptance.py").read_text(
             encoding="utf-8"
         )
         self.assertIn("runner.ui_ensure(page_commission)", source)
         self.assertIn("runner._commission_scan_list()", source)
-        self.assertIn('runner._commission_ensure_mode("daily")', source)
+        self.assertIn('_ensure_mode_active(runner, "daily")', source)
         self.assertIn("_confirm_rows(rows, args)", source)
         self.assertIn("MATCH ALL", source)
         self.assertNotIn("runner.commission_start(", source)
