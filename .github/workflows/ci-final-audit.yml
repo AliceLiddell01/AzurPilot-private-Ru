@@ -1,0 +1,99 @@
+name: CI reset final audit
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+    paths:
+      - ".github/workflows/ci-final-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout audit scope
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            .github
+            .codex
+            deploy
+            dev_tools
+            docs
+            module/config
+            module/daemon
+            module/device
+            module/ocr
+            module/webui
+            scripts
+            tests
+            tools
+            AGENTS.md
+            README.md
+          sparse-checkout-cone-mode: true
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify exact head and workflow inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          echo '--- workflows ---'
+          git ls-files '.github/workflows/*'
+
+      - name: Reject exact legacy CI references
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern='dev_tools[./]stage[0-9]|tests[./]test_stage[0-9]|verify_stage[0-9]|artifacts/stage[0-9]|IMMUTABLE_STAGE|11-STAGE8A|stage8b_(privacy|rpc_security)|lint\.yml|stage8b-validation\.yml|screenshot-interval-benchmark-validation\.yml|ocr-global-model-benchmark\.yml|ci-reset-inventory\.yml'
+          findings="$(git grep -n -I -E "$pattern" -- . ':!/.github/workflows/ci-final-audit.yml' || true)"
+          if [[ -n "$findings" ]]; then
+            printf '%s\n' "$findings"
+            exit 1
+          fi
+
+      - name: Print broad historical wording for review
+        shell: bash
+        run: |
+          set -euo pipefail
+          git grep -n -I -i -E 'stage ?(3|4|5|6|7|8a|8b)|evidence-oriented|stage-specific' -- \
+            .github .codex dev_tools docs tests tools module/config module/daemon module/device module/ocr module/webui scripts AGENTS.md README.md \
+            ':!/.github/workflows/ci-final-audit.yml' || true
+
+      - name: Check renamed Python imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          roots = [Path('dev_tools'), Path('tests'), Path('tools'), Path('module/ocr')]
+          failures = []
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob('*.py'):
+                  try:
+                      tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
+                  except SyntaxError as error:
+                      failures.append(f'{path}: syntax error: {error}')
+                      continue
+                  for node in ast.walk(tree):
+                      names = []
+                      if isinstance(node, ast.Import):
+                          names.extend(alias.name for alias in node.names)
+                      elif isinstance(node, ast.ImportFrom) and node.module:
+                          names.append(node.module)
+                      for name in names:
+                          if name.startswith(('dev_tools.stage', 'tests.test_stage', 'module.ocr.stage8b')):
+                              failures.append(f'{path}:{node.lineno}: {name}')
+          if failures:
+              raise SystemExit('\n'.join(failures))
+          PY
