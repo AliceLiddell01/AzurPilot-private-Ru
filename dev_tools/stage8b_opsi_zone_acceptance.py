@@ -276,9 +276,11 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     print(f"Profile: {args.profile}")
     print("Действия: открыть локальную карту OS и прочитать MAP_NAME серией снимков.")
     print("Запрещено: checkout миссии, os_init/zone_init, auto-search и globe fallback.")
-    if not args.non_interactive:
-        if input("Введите START для начала: ").strip() != "START":
-            raise AcceptanceFailure("Acceptance отменён: не получено точное START.")
+    if (
+        not args.non_interactive
+        and input("Введите START для начала: ").strip() != "START"
+    ):
+        raise AcceptanceFailure("Acceptance отменён: не получено точное START.")
 
     device = args.serial if args.serial else None
     runner = OperationSiren(args.profile, device=device, task="OpsiDaily")
@@ -328,11 +330,14 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     zone_id = zone_ids.pop()
     zone_name = str(samples[0]["zone_name"])
 
-    # One final call through the complete production method on the current frame.
-    production_zone = runner.get_current_zone()
+    # Repeat the exact production OCR -> normalization -> Zone lookup chain,
+    # but intentionally skip get_current_zone() because it also changes runtime
+    # map-detection configuration after a successful lookup.
+    final_processed_name = str(runner.get_zone_name()).strip()
+    production_zone = runner.name_to_zone(final_processed_name)
     if int(production_zone.zone_id) != zone_id:
         raise AcceptanceFailure(
-            "get_current_zone() не согласован с серией снимков: "
+            "Финальная production-цепочка не согласована с серией снимков: "
             f"series={zone_id}, production={production_zone.zone_id}."
         )
 
@@ -360,6 +365,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         "automatic_findings": findings,
         "stable_zone_id": zone_id,
         "stable_zone_name": zone_name,
+        "final_processed_name": final_processed_name,
         "production_zone_id": int(production_zone.zone_id),
         "production_zone_name": str(production_zone.en),
         "samples": samples,
