@@ -1,0 +1,32 @@
+name: CI inventory
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Print repository inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git rev-parse 'HEAD^{tree}')"
+          echo '--- TRACKED FILES ---'
+          git ls-files -s
+          echo '--- LEGACY REFERENCES ---'
+          git grep -n -I -E 'stage3|stage4|stage5|stage6|stage7|stage8a|stage8b|verify_stage|semantic|evidence|baseline|migration|russianization|acceptance|required_gate|output_contract|scenario_matrix|immutable|artifacts/stage|Stage 7 validation|Stage 8B validation' -- . ':!uv.lock' || true
