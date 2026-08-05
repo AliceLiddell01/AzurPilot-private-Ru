@@ -1,0 +1,54 @@
+name: Finalize pytest discovery
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+    paths:
+      - ".github/workflows/ci-pytest-finalize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/ci-reset' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact files
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/scripts/finalize_pytest_discovery.py
+            .github/workflows/ci.yml
+            .github/workflows/ci-pytest-finalize.yml
+            .github/workflows/ci-discovery-probe.yml
+            .github/workflows/ci-nonglobal-inventory.yml
+            docs/ci.md
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Finalize permanent CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/finalize_pytest_discovery.py
+          rm -f \
+            .github/scripts/finalize_pytest_discovery.py \
+            .github/workflows/ci-pytest-finalize.yml \
+            .github/workflows/ci-discovery-probe.yml \
+            .github/workflows/ci-nonglobal-inventory.yml
+          git diff --check
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "ci: включить автоматический pytest discovery"
+          git push origin HEAD:codex/ci-reset
