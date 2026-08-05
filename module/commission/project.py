@@ -28,12 +28,12 @@ from module.reward.assets import *
 
 COMMISSION_FILTER = Filter(
     regex=re.compile(
-        '(major|daily|extra|urgent|night)?'
-        '-?'
-        '(resource|chip|event|drill|part|cube|oil|book|retrofit|box|gem|ship)?'
-        '-?'
-        '(\d\d?:\d\d)?'
-        '(\d\d?.\d\d?|\d\d?)?'
+        r'(major|daily|extra|urgent|night)?'
+        r'-?'
+        r'(resource|chip|event|drill|part|cube|oil|book|retrofit|box|gem|ship)?'
+        r'-?'
+        r'(\d\d?:\d\d)?'
+        r'(\d\d?.\d\d?|\d\d?)?'
     ),
     attr=('category_str', 'genre_str', 'duration_hm', 'duration_hour'),
     preset=('shortest', 'expire')
@@ -166,7 +166,7 @@ class Commission:
     def commission_parse(self):
         """解析委托信息（EN 服务器）。
 
-        EN 服委托名称较长，OCR 裁剪区域与 CN 不同。
+        EN 服委托名称较长，OCR裁剪区域与 CN 不同。
         需要对常见 OCR 识别错误进行修正（如 DALY -> DAILY）。
 
         解析内容：名称、后缀、时长、过期时间、状态。
@@ -478,7 +478,7 @@ class Commission:
         """
         # OCR 常将 0 识别为 D，此处修正
         string = string.replace('D', '0')
-        result = re.search('(\d+):(\d+):(\d+)', string)
+        result = re.search(r'(\d+):(\d+):(\d+)', string)
         if not result:
             logger.warning(f'无效的时间字符串: {string}')
             self.valid = False
