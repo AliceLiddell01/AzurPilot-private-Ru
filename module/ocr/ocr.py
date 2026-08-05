@@ -37,23 +37,38 @@ def normalize_ocr_text(model_name: str, text: str) -> str:
     return _COMPACT_NUMERIC_SEPARATOR_RE.sub(r"\1", text)
 
 
-def _select_ocr_model(model, lang: str, alphabet: str | None):
-    """Select the compact or general recognizer without changing public lang IDs."""
+def _select_ocr_model(
+    model,
+    lang: str,
+    alphabet: str | None,
+    *,
+    name: str | None,
+    recognizer_type: str,
+):
+    """Select a general model only for audited EN/Global callsites."""
 
-    selector = getattr(model, "for_alphabet", None)
+    selector = getattr(model, "for_request", None)
     if callable(selector):
-        return selector(alphabet)
+        return selector(
+            alphabet,
+            name=name,
+            recognizer_type=recognizer_type,
+        )
 
-    # OCR server mode exposes the historical public namespace only.  Natural
-    # English text stays process-local so it cannot be serialized through an
-    # incompatible compact-model RPC contract.
+    # OCR server mode exposes the historical public namespace only.  Audited
+    # general-English requests stay process-local so they cannot be serialized
+    # through an incompatible compact-model RPC contract.
     if lang == "azur_lane":
         from module.ocr.global_english import (
             GeneralEnglishOcr,
             should_use_general_english,
         )
 
-        if should_use_general_english(alphabet):
+        if should_use_general_english(
+            alphabet,
+            name=name,
+            recognizer_type=recognizer_type,
+        ):
             global _LOCAL_GENERAL_ENGLISH_OCR
             if _LOCAL_GENERAL_ENGLISH_OCR is None:
                 _LOCAL_GENERAL_ENGLISH_OCR = GeneralEnglishOcr()
@@ -84,7 +99,13 @@ class Ocr:
     @property
     def cnocr(self) -> "AlOcr":
         model = OCR_MODEL.__getattribute__(self.lang)
-        return _select_ocr_model(model, self.lang, self.alphabet)
+        return _select_ocr_model(
+            model,
+            self.lang,
+            self.alphabet,
+            name=self.name,
+            recognizer_type=type(self).__name__,
+        )
 
     @property
     def buttons(self):
