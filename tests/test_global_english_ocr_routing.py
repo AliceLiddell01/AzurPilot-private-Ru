@@ -7,28 +7,49 @@ from module.ocr.global_english import GlobalEnglishOcr, should_use_general_engli
 
 
 class GlobalEnglishOcrRoutingTests(unittest.TestCase):
-    def test_unconstrained_text_uses_general_english(self) -> None:
-        self.assertTrue(should_use_general_english(None))
+    def test_audited_commission_name_uses_general_english(self) -> None:
+        self.assertTrue(should_use_general_english(None, name="COMMISSION"))
 
-    def test_real_letters_use_general_english(self) -> None:
-        self.assertTrue(should_use_general_english("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+    def test_audited_zone_name_uses_general_english(self) -> None:
+        self.assertTrue(should_use_general_english(None, name="OCR_OS_MAP_NAME"))
 
-    def test_numeric_wrappers_keep_compact_model(self) -> None:
+    def test_unlisted_unconstrained_request_keeps_compact_model(self) -> None:
+        self.assertFalse(should_use_general_english(None, name="UNLISTED_OCR"))
+
+    def test_special_font_numeric_wrapper_uses_general_english(self) -> None:
+        self.assertTrue(
+            should_use_general_english(
+                "0123456789:IDSB",
+                name="OCR_TRANSPORT_TIME",
+                recognizer_type="Duration",
+            )
+        )
+
+    def test_default_numeric_wrappers_keep_compact_model(self) -> None:
         self.assertFalse(should_use_general_english("0123456789IDSB"))
         self.assertFalse(should_use_general_english("0123456789/IDSB"))
         self.assertFalse(should_use_general_english("0123456789:IDSB"))
 
-    def test_router_delegates_unconstrained_ocr_to_text_model(self) -> None:
+    def test_router_selects_text_model_for_audited_request(self) -> None:
         router = GlobalEnglishOcr()
         router.compact = Mock()
         router.text = Mock()
-        router.text.ocr.return_value = "DAILY RESOURCE EXTRACTION"
+
+        selected = router.for_request(None, name="COMMISSION", recognizer_type="Ocr")
+
+        self.assertIs(selected, router.text)
+
+    def test_router_keeps_unlisted_direct_ocr_on_compact_model(self) -> None:
+        router = GlobalEnglishOcr()
+        router.compact = Mock()
+        router.text = Mock()
+        router.compact.ocr.return_value = "12345"
 
         result = router.ocr(object())
 
-        self.assertEqual(result, "DAILY RESOURCE EXTRACTION")
-        router.text.ocr.assert_called_once()
-        router.compact.ocr.assert_not_called()
+        self.assertEqual(result, "12345")
+        router.compact.ocr.assert_called_once()
+        router.text.ocr.assert_not_called()
 
     def test_router_keeps_numeric_candidate_alphabet_on_compact_model(self) -> None:
         router = GlobalEnglishOcr()
