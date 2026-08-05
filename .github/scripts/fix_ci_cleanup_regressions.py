@@ -59,6 +59,7 @@ replace(
     "tools/acceptance/device.py",
     '"stage": "8A",',
     '"scope": "device",',
+    count=2,
 )
 replace(
     "tools/acceptance/device.py",
