@@ -172,7 +172,7 @@ class Commission:
         解析内容：名称、后缀、时长、过期时间、状态。
         """
         # 名称识别——EN 服名称较长，使用更宽的裁剪区域
-        area = area_offset((131, 23, 409, 53), self.area[0:2])
+        area = area_offset((131, 23, 430, 53), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='COMMISSION')
         ocr = Ocr(button, lang='azur_lane')
         self.button = button
