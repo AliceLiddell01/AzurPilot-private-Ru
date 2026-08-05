@@ -26,6 +26,7 @@ else:
 
 _COMPACT_MAX_LABEL_RE = re.compile(r"^\s*MAX\s*:\s*(?=\d)", re.IGNORECASE)
 _COMPACT_NUMERIC_SEPARATOR_RE = re.compile(r"(?<=\d)\s*([:/-])\s*(?=\d)")
+_LOCAL_GENERAL_ENGLISH_OCR = None
 
 
 def normalize_ocr_text(model_name: str, text: str) -> str:
@@ -34,6 +35,30 @@ def normalize_ocr_text(model_name: str, text: str) -> str:
         return text
     text = _COMPACT_MAX_LABEL_RE.sub("MAX:", text)
     return _COMPACT_NUMERIC_SEPARATOR_RE.sub(r"\1", text)
+
+
+def _select_ocr_model(model, lang: str, alphabet: str | None):
+    """Select the compact or general recognizer without changing public lang IDs."""
+
+    selector = getattr(model, "for_alphabet", None)
+    if callable(selector):
+        return selector(alphabet)
+
+    # OCR server mode exposes the historical public namespace only.  Natural
+    # English text stays process-local so it cannot be serialized through an
+    # incompatible compact-model RPC contract.
+    if lang == "azur_lane":
+        from module.ocr.global_english import (
+            GeneralEnglishOcr,
+            should_use_general_english,
+        )
+
+        if should_use_general_english(alphabet):
+            global _LOCAL_GENERAL_ENGLISH_OCR
+            if _LOCAL_GENERAL_ENGLISH_OCR is None:
+                _LOCAL_GENERAL_ENGLISH_OCR = GeneralEnglishOcr()
+            return _LOCAL_GENERAL_ENGLISH_OCR
+    return model
 
 
 class Ocr:
@@ -58,7 +83,8 @@ class Ocr:
 
     @property
     def cnocr(self) -> "AlOcr":
-        return OCR_MODEL.__getattribute__(self.lang)
+        model = OCR_MODEL.__getattribute__(self.lang)
+        return _select_ocr_model(model, self.lang, self.alphabet)
 
     @property
     def buttons(self):
