@@ -25,7 +25,7 @@ from dev_tools.stage8a_device_acceptance import (
     _safe_text,
     _validate_profile_name,
 )
-from module.commission.commission import RewardCommission
+from module.commission.commission import COMMISSION_SWITCH, RewardCommission
 from module.ui.page import page_commission
 
 DEFAULT_REPORT = Path("artifacts/ocr/commission-acceptance.json")
@@ -120,9 +120,29 @@ def evaluate_rows(rows: list[dict[str, Any]]) -> list[str]:
     return findings
 
 
+def _ensure_mode_active(runner: RewardCommission, mode: str) -> None:
+    """Ensure a Commission tab is active regardless of whether a click was needed.
+
+    ``Switch.set`` returns whether it clicked, not whether the requested state is
+    active.  An already-active tab therefore returns ``False`` even though the
+    operation succeeded.  Acceptance validates the observed selector state
+    instead of interpreting that change flag as success/failure.
+    """
+
+    runner._commission_ensure_mode(mode)
+    current = COMMISSION_SWITCH.get(main=runner)
+    if current != mode:
+        runner.device.screenshot()
+        current = COMMISSION_SWITCH.get(main=runner)
+    if current != mode:
+        raise AcceptanceFailure(
+            "Не удалось подтвердить вкладку комиссий "
+            f"{mode}; текущее состояние: {current}."
+        )
+
+
 def _scan_mode(runner: RewardCommission, mode: str):
-    if not runner._commission_ensure_mode(mode):
-        raise AcceptanceFailure(f"Не удалось переключить вкладку комиссий на {mode}.")
+    _ensure_mode_active(runner, mode)
     runner._commission_swipe_to_top()
     rows = runner._commission_scan_list()
     if mode == "urgent":
@@ -205,7 +225,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
     daily = _scan_mode(runner, "daily")
     urgent = _scan_mode(runner, "urgent")
-    runner._commission_ensure_mode("daily")
+    _ensure_mode_active(runner, "daily")
 
     rows: list[dict[str, Any]] = []
     for mode, commissions in (("daily", daily), ("urgent", urgent)):
