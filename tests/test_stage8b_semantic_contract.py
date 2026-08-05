@@ -7,6 +7,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import numpy as np
+
 from dev_tools.commission_ocr_acceptance import (
     _is_single_blank_scan,
     _scan_mode,
@@ -20,7 +22,11 @@ from dev_tools.stage8b_semantic_policy import (
     OCR_SCOPE_RULES,
     ROOT,
 )
-from module.ocr.global_english import GlobalEnglishOcr, should_use_general_english
+from module.ocr.global_english import (
+    GlobalEnglishOcr,
+    reconcile_trailing_roman_suffix,
+    should_use_general_english,
+)
 
 
 class Stage8BSemanticContractTests(unittest.TestCase):
@@ -111,6 +117,26 @@ class Stage8BSemanticContractTests(unittest.TestCase):
         self.assertEqual(result[0][0], "SIMULATION")
         router.text.det.assert_called_once()
         router.compact.det.assert_not_called()
+
+    def test_general_english_restores_collapsed_roman_suffix(self) -> None:
+        image = np.full((24, 120), 255, dtype=np.uint8)
+        image[7:19, 10:55] = 0
+        image[6:19, 92:95] = 0
+        image[6:19, 98:101] = 0
+        image[6:19, 104:107] = 0
+
+        result = reconcile_trailing_roman_suffix("SELF TRAINING I", image)
+
+        self.assertEqual(result, "SELF TRAINING III")
+
+    def test_general_english_does_not_guess_roman_suffix_from_wide_noise(self) -> None:
+        image = np.full((24, 120), 255, dtype=np.uint8)
+        image[7:19, 10:55] = 0
+        image[5:20, 88:116] = 0
+
+        result = reconcile_trailing_roman_suffix("SELF TRAINING I", image)
+
+        self.assertEqual(result, "SELF TRAINING I")
 
     def test_commission_acceptance_rejects_observed_gibberish(self) -> None:
         rows = [
@@ -281,8 +307,7 @@ else:
 """
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            module_path = root / "module"
-            module_path.mkdir()
+            module_path.mkdir(exist_ok=True)
             (module_path / "sample.py").write_text(source, encoding="utf-8")
 
             findings = find_removed_runtime_model_references(root)
