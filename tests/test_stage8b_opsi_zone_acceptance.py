@@ -4,8 +4,19 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import cv2
+import numpy as np
+
+from dev_tools.commission_ocr_acceptance import (
+    _png_for_cv2 as commission_png_for_cv2,
+)
+from dev_tools.commission_ocr_acceptance import _write_png as write_commission_png
+from dev_tools.stage8b_opsi_zone_acceptance import (
+    _png_for_cv2 as opsi_png_for_cv2,
+)
 from dev_tools.stage8b_opsi_zone_acceptance import (
     _prepare_artifact_dir,
+    _write_png as write_opsi_png,
     evaluate_samples,
 )
 from module.ocr.ocr import Ocr
@@ -90,6 +101,39 @@ class OperationSirenZoneAcceptanceTests(unittest.TestCase):
         self.assertEqual(type(selected).__name__, "GeneralEnglishOcr")
         self.assertEqual(selected.name, "english_text")
 
+    def test_acceptance_png_writers_preserve_rgb_colors(self) -> None:
+        rgb = np.array(
+            [[[255, 0, 0], [0, 255, 0], [0, 0, 255]]],
+            dtype=np.uint8,
+        )
+        expected_bgr = np.array(
+            [[[0, 0, 255], [0, 255, 0], [255, 0, 0]]],
+            dtype=np.uint8,
+        )
+
+        for label, writer in (
+            ("commission", write_commission_png),
+            ("opsi", write_opsi_png),
+        ):
+            with self.subTest(writer=label), TemporaryDirectory() as temporary_directory:
+                output = Path(temporary_directory) / f"{label}.png"
+                writer(output, rgb)
+                decoded = cv2.imread(str(output), cv2.IMREAD_COLOR)
+                np.testing.assert_array_equal(decoded, expected_bgr)
+
+    def test_acceptance_png_conversion_preserves_gray_and_alpha(self) -> None:
+        gray = np.array([[0, 127, 255]], dtype=np.uint8)
+        rgba = np.array([[[255, 0, 0, 128]]], dtype=np.uint8)
+        expected_bgra = np.array([[[0, 0, 255, 128]]], dtype=np.uint8)
+
+        for label, converter in (
+            ("commission", commission_png_for_cv2),
+            ("opsi", opsi_png_for_cv2),
+        ):
+            with self.subTest(converter=label):
+                np.testing.assert_array_equal(converter(gray), gray)
+                np.testing.assert_array_equal(converter(rgba), expected_bgra)
+
     def test_artifact_cleanup_removes_only_generated_images(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             artifact_dir = Path(temporary_directory)
@@ -116,6 +160,7 @@ class OperationSirenZoneAcceptanceTests(unittest.TestCase):
         self.assertIn("runner.name_to_zone(processed_name)", source)
         self.assertIn("runner.name_to_zone(final_processed_name)", source)
         self.assertIn("MATCH ZONE", source)
+        self.assertIn("cv2.COLOR_RGB2BGR", source)
         self.assertNotIn("runner.os_init(", source)
         self.assertNotIn("runner.zone_init(", source)
         self.assertNotIn("runner.run_auto_search(", source)
