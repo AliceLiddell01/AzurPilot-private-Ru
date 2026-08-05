@@ -1,11 +1,10 @@
 name: Build CI Reset replacement
 
 on:
-  push:
+  pull_request:
     branches:
-      - codex/ci-reset
+      - personal/stable
     paths:
-      - ".github/scripts/build_ci_reset_replacement.py"
       - ".github/workflows/ci-reset-replacement-builder.yml"
   workflow_dispatch:
 
