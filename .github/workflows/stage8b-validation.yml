@@ -104,6 +104,7 @@ jobs:
             dev_tools/stage8b_model_scope.py \
             dev_tools/stage8b_ocr_acceptance.py \
             dev_tools/stage8b_ocr_log_audit.py \
+            dev_tools/stage8b_opsi_zone_acceptance.py \
             dev_tools/stage8b_output_contract.py \
             dev_tools/stage8b_output_probe.py \
             dev_tools/stage8b_real_output_contract.py \
@@ -114,6 +115,7 @@ jobs:
             module/ocr/stage8b_privacy.py \
             module/ocr/stage8b_rpc_security.py \
             tests/test_stage8b_ocr_acceptance.py \
+            tests/test_stage8b_opsi_zone_acceptance.py \
             tests/test_stage8b_output_contract.py \
             tests/test_stage8b_prompt_scenario_matrix.py \
             tests/test_stage8b_reparse_privacy.py \
@@ -121,6 +123,15 @@ jobs:
             tests/test_stage8b_runtime_scenario_matrix.py \
             tests/test_stage8b_security_review.py \
             tests/test_stage8b_semantic_contract.py
+
+      - name: Run Operation Siren zone acceptance contracts
+        shell: bash
+        run: |
+          mkdir -p artifacts/stage8b
+          set -o pipefail
+          uv run python -m unittest -v \
+            tests.test_stage8b_opsi_zone_acceptance \
+            2>&1 | tee artifacts/stage8b/opsi-zone-acceptance-contracts.log
 
       - name: Run Stage 8B verifier
         shell: bash
