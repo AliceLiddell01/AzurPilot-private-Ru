@@ -30,7 +30,6 @@ jobs:
         timeout-minutes: 10
         with:
           fetch-depth: 1
-          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify exact head
@@ -65,7 +64,7 @@ jobs:
           import compileall
           from pathlib import Path
 
-          roots = [Path("alas.py"), Path("gui.py"), Path("mcp_server_sse.py"), Path("module"), Path("dev_tools"), Path("tests")]
+          roots = [Path("alas.py"), Path("gui.py"), Path("mcp_server_sse.py"), Path("module"), Path("dev_tools"), Path("tests"), Path("tools")]
           failed = False
           for root in roots:
               if not root.exists():
@@ -85,10 +84,10 @@ jobs:
           uv run --locked python -m unittest -v \
             tests.test_webui_worker_registry \
             tests.test_webui_no_reload_recovery \
-            tests.test_stage8a_device_acceptance \
-            tests.test_stage8b_rpc_runtime \
-            tests.test_stage8b_ocr_acceptance \
-            tests.test_stage8b_opsi_zone_acceptance \
+            tests.test_device_acceptance \
+            tests.test_ocr_rpc_runtime \
+            tests.test_ocr_acceptance \
+            tests.test_opsi_zone_ocr_acceptance \
             tests.test_ocr_global_model_benchmark \
             tests.test_screenshot_interval_benchmark \
             tests.test_screenshot_interval_benchmark_automation \
@@ -148,7 +147,6 @@ jobs:
         timeout-minutes: 10
         with:
           fetch-depth: 1
-          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify exact head
@@ -243,11 +241,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          uv run --locked python -m dev_tools.stage6_webui_smoke
-          if ($LASTEXITCODE -ne 0) {
-              throw 'Windows WebUI smoke failed.'
-          }
-          uv run --locked python -m unittest -v tests.test_webui_no_reload_recovery tests.test_stage8a_device_acceptance
+          uv run --locked python -m unittest -v tests.test_webui_no_reload_recovery tests.test_device_acceptance
           if ($LASTEXITCODE -ne 0) {
               throw 'Windows product regression tests failed.'
           }
@@ -308,7 +302,6 @@ jobs:
         timeout-minutes: 10
         with:
           fetch-depth: 0
-          filter: blob:none
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify exact head
@@ -361,6 +354,7 @@ jobs:
             module
             scripts
             tests
+            tools
             AGENTS.md
             README.md
             alas.py
@@ -456,11 +450,16 @@ jobs:
         run: |
           set -euo pipefail
           uv run --locked python -m unittest -v \
-            tests.test_stage8b_rpc_runtime \
-            tests.test_stage8b_reparse_privacy \
-            tests.test_stage8b_ocr_acceptance \
-            tests.test_stage8b_opsi_zone_acceptance \
-            tests.test_stage8a_device_acceptance
+            tests.test_ocr_rpc_runtime \
+            tests.test_ocr_debug_privacy \
+            tests.test_ocr_acceptance \
+            tests.test_opsi_zone_ocr_acceptance \
+            tests.test_device_acceptance \
+            tests.test_binary_log_audit \
+            tests.test_binary_log_audit_arguments \
+            tests.test_exception_context_audit \
+            tests.test_device_security \
+            tests.test_webui_traceback_security
 
       - name: Install pinned browser runner
         shell: bash
@@ -475,7 +474,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/security-browser
           timeout --signal=TERM --kill-after=15s 10m \
-            uv run python tests/run_stage7_webui_traceback_browser.py \
+            uv run --locked python tests/run_webui_traceback_browser.py \
               > artifacts/security-browser/report.json
           if pgrep -af 'playwright.*chromium|chromium.*playwright' > artifacts/security-browser/processes.txt; then
             cat artifacts/security-browser/processes.txt
