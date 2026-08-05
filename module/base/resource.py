@@ -193,32 +193,17 @@ def release_resources(next_task=''):
         # 仅在使用实例内 OCR 时释放
         from module.ocr.al_ocr import release_ocr_models
         from module.ocr.ocr import OCR_MODEL
-        if 'Opsi' in next_task or 'commission' in next_task:
-            # OCR 模型即将被使用，不释放
-            models = []
-        elif next_task:
-            # 释放除 'azur_lane' 以外的 OCR 模型
-            models = ['cnocr', 'jp', 'tw']
-        else:
-            models = ['azur_lane', 'cnocr', 'jp', 'tw']
+        # The Global OCR namespace is retained between active tasks.
+        models = [] if next_task else ['azur_lane']
         for model in models:
             del_cached_property(OCR_MODEL, model)
 
         if models:
-            cache_model_names = {
-                'azur_lane': 'azur_lane',
-                'cnocr': 'cn',
-                'jp': 'jp',
-                'tw': 'tw',
-            }
-            cache_names = [cache_model_names[model] for model in models]
-            # 默认 OCR 实例会在连续任务间保留，可能仍持有检测模型；只有空闲时
-            # 所有语言模型均已释放，才能安全清理独立的 ``det`` 缓存。
+            cache_names = list(models)
+            # The shared detection cache is released only while idle.
             if not next_task:
                 cache_names.append('det')
-            released_ocr_models = release_ocr_models(
-                names=cache_names
-            )
+            released_ocr_models = release_ocr_models(names=cache_names)
 
     # 释放资源缓存
     # module.ui 约有 80 个资源，占约 3MB

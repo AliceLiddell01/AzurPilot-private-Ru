@@ -323,7 +323,7 @@ class Adb(Connection):
                             r'.*\s+Category: "android.intent.category.LAUNCHER"',
                             result)
             if res:
-                # com.bilibili.azurlane/com.manjuu.azurlane.MainActivity
+                # com.YoStarEN.AzurLane/com.manjuu.azurlane.PrePermissionActivity
                 activity_name = res.group(1)
                 try:
                     activity_name = activity_name.split('/')[-1]

@@ -10,11 +10,7 @@ NCNN 是一个为移动端优化的高性能神经网络推理框架，
 - 模型文件：.param（网络结构）+ .bin（权重数据）+ 字典文件
 
 支持的模型：
-- azur_lane: 英文数字识别（碧蓝航线专用）
-- azur_lane_jp: 日文服务器专用
-- cn: 中文识别
-- jp: 日文识别
-- tw: 繁体中文识别
+- azur_lane: Global/English game recognition
 
 注意：ncnn 后端不支持文本检测，需要配合 ONNX 检测模型使用。
 """

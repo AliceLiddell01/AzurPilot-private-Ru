@@ -37,10 +37,7 @@ from module.config.locale import (
     UI_LOCALE,
 )
 SERVER_TO_TIMEZONE = {
-    'cn': timedelta(hours=8),
     'en': timedelta(hours=-7),
-    'jp': timedelta(hours=9),
-    'tw': timedelta(hours=8),
 }
 DEFAULT_TIME = datetime(2023, 1, 1, 0, 0)
 DEFAULT_CONFIG_NAME = 'ap'
@@ -352,7 +349,10 @@ def dict_to_kv(dictionary, allow_none=True):
 
 
 def server_timezone() -> timedelta:
-    return SERVER_TO_TIMEZONE.get(server_.server, SERVER_TO_TIMEZONE['cn'])
+    try:
+        return SERVER_TO_TIMEZONE[server_.server]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported server timezone: {server_.server}") from exc
 
 
 def server_time_offset() -> timedelta:

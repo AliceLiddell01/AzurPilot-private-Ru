@@ -27,14 +27,14 @@ def to_server(package_or_server: str) -> str:
     """Return EN for the supported server or package; reject everything else."""
     if package_or_server == "en":
         return "en"
-    if package_or_server == GLOBAL_PACKAGE:
+    if package_or_server in (GLOBAL_PACKAGE, "auto"):
         return "en"
     raise ValueError(f"Unsupported Global/EN package or server: {package_or_server}")
 
 
 def to_package(package_or_server: str) -> str:
     """Return the only supported Global package; reject everything else."""
-    if package_or_server in ("en", GLOBAL_PACKAGE):
+    if package_or_server in ("en", GLOBAL_PACKAGE, "auto"):
         return GLOBAL_PACKAGE
     raise ValueError(f"Unsupported Global/EN package or server: {package_or_server}")
 

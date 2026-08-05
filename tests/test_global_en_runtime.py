@@ -21,6 +21,8 @@ class GlobalEnRuntimeTests(unittest.TestCase):
         self.assertEqual(server.to_server(GLOBAL_PACKAGE), "en")
         self.assertEqual(server.to_package("en"), GLOBAL_PACKAGE)
         self.assertEqual(server.to_package(GLOBAL_PACKAGE), GLOBAL_PACKAGE)
+        self.assertEqual(server.to_server("auto"), "en")
+        self.assertEqual(server.to_package("auto"), GLOBAL_PACKAGE)
 
     def test_foreign_and_unknown_inputs_are_rejected(self) -> None:
         for value in (

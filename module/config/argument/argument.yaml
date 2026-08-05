@@ -93,8 +93,8 @@ Emulator:
     value: auto
     valuetype: str
   PackageName:
-    value: auto
-    option: [auto]
+    value: com.YoStarEN.AzurLane
+    option: [com.YoStarEN.AzurLane]
   ServerName:
     value: disabled
     option: [disabled]

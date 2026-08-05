@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FOREIGN_ROOTS = ("assets/cn", "assets/jp", "assets/tw")
-ASSET_PATTERN = re.compile(r"(?:\./)?assets/(?P<server>en|cn|jp|tw)/[^'\"\s]+")
+ASSET_PATTERN = re.compile(r"(?:\./)?assets/(?P<server>en|cn|jp|tw)/[^'\"]+")
 
 
 class GlobalEnAssetTests(unittest.TestCase):

@@ -699,10 +699,10 @@ class OOBEWizard:
     def __init__(self, gui):
         self.gui = gui
         self.step_index = 0
-        self.server = "cn"
+        self.server = "en"
         self.emulator_serial = "127.0.0.1:5555"
-        self.package_name = "com.bilibili.azurlane"
-        self.server_name = "cn_android-0"
+        self.package_name = "com.YoStarEN.AzurLane"
+        self.server_name = "en-0"
         self.config_name = "ap"
         self.screenshot_method = "auto"
 
@@ -999,53 +999,28 @@ class OOBEWizard:
         self._render()
 
     def _package_label(self, package):
-        labels = {
-            "com.bilibili.azurlane": lang.t("Gui.OOBE.ServerCN"),
-            "com.YoStarEN.AzurLane": lang.t("Gui.OOBE.ServerEN"),
-            "com.YoStarJP.AzurLane": lang.t("Gui.OOBE.ServerJP"),
-            "com.hkmanjuu.azurlane.gp": lang.t("Gui.OOBE.ServerTW"),
-        }
-        if package in labels:
-            return labels[package]
-        if package in VALID_CHANNEL_PACKAGE:
-            server, channel = VALID_CHANNEL_PACKAGE[package]
-            return f"{server.upper()} {channel}"
-        return package
+        if package != "com.YoStarEN.AzurLane":
+            raise ValueError(f"Unsupported Global package: {package}")
+        return lang.t("Gui.OOBE.ServerEN")
 
     def _package_options(self):
-        options = [
-            {"label": f'{lang.t("Gui.OOBE.ServerCN")} (com.bilibili.azurlane)', "value": "com.bilibili.azurlane"},
-            {"label": f'{lang.t("Gui.OOBE.ServerEN")} (com.YoStarEN.AzurLane)', "value": "com.YoStarEN.AzurLane"},
-            {"label": f'{lang.t("Gui.OOBE.ServerJP")} (com.YoStarJP.AzurLane)', "value": "com.YoStarJP.AzurLane"},
-            {"label": f'{lang.t("Gui.OOBE.ServerTW")} (com.hkmanjuu.azurlane.gp)', "value": "com.hkmanjuu.azurlane.gp"},
-        ]
-        options.extend(
+        return [
             {
-                "label": f"{self._package_label(pkg)} ({pkg})",
-                "value": pkg,
-            }
-            for pkg in VALID_CHANNEL_PACKAGE
-        )
-        return options
+                "label": f'{lang.t("Gui.OOBE.ServerEN")} (com.YoStarEN.AzurLane)',
+                "value": "com.YoStarEN.AzurLane",
+            },
+        ]
 
     @staticmethod
     def _server_prefixes_for_region(region):
-        return {
-            "cn": ("cn_android", "cn_ios", "cn_channel"),
-            "en": ("en",),
-            "jp": ("jp",),
-            "tw": (),
-        }.get(region, ())
+        return ("en",) if region == "en" else ()
 
     def _server_name_items_for_region(self, region):
         items = []
         for prefix in self._server_prefixes_for_region(region):
             for index, name in enumerate(VALID_SERVER_LIST.get(prefix, [])):
                 value = f"{prefix}-{index}"
-                label_prefix = "国服" if prefix.startswith("cn") else prefix.upper()
-                items.append((value, f"[{label_prefix}] {name}", value))
-        if region == "tw":
-            items.append(("disabled", lang.t("Emulator.ServerName.disabled"), "TW"))
+                items.append((value, f"[EN] {name}", value))
         return items
 
     def _default_server_name_for_region(self, region):
@@ -1054,10 +1029,9 @@ class OOBEWizard:
 
     @staticmethod
     def _package_for_server(server):
-        for pkg, srv in VALID_PACKAGE.items():
-            if srv == server:
-                return pkg
-        return "com.bilibili.azurlane"
+        if server != "en":
+            raise ValueError(f"Unsupported Global server: {server}")
+        return "com.YoStarEN.AzurLane"
 
     # ─── 步骤 3：模拟器配置 ───
 
