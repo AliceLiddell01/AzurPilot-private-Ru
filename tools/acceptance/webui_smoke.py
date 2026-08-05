@@ -88,7 +88,7 @@ def _stop_process_tree(process: subprocess.Popen[bytes]) -> list[int]:
 def run(timeout: float = 45) -> dict[str, object]:
     before = _config_snapshot()
     port = _free_local_port()
-    with tempfile.TemporaryDirectory(prefix="azurpilot-stage6-webui-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="azurpilot-webui-smoke-") as temporary:
         environment = os.environ.copy()
         environment.update(
             {

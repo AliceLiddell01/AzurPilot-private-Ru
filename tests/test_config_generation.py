@@ -1,0 +1,57 @@
+
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+import yaml
+
+from module.config.locale import UI_LOCALE
+
+
+ROOT = Path(__file__).resolve().parents[1]
+ACTIVE_TEMPLATES = (
+    "deploy/template",
+    "deploy/Windows/template.yaml",
+    "config/deploy.template.yaml",
+    "config/deploy.template-AidLux.yaml",
+    "config/deploy.template-docker.yaml",
+    "config/deploy.template-linux.yaml",
+)
+
+
+class ConfigGenerationTests(unittest.TestCase):
+    def test_generation_uses_one_ui_locale_and_explicit_event_source(self) -> None:
+        source = (ROOT / "module/config/config_updater.py").read_text(encoding="utf-8")
+        generate = source[source.index("    def generate(self):") :]
+        start = source.index("    def generate_i18n(self):")
+        end = source.index("    @cached_property\n    def menu", start)
+        generate_i18n = source[start:end]
+
+        self.assertIn("self.generate_i18n()", generate)
+        self.assertNotIn("for lang", generate)
+        self.assertIn("UI_LOCALE", generate_i18n)
+        self.assertIn("EVENT_NAME_SOURCE", generate_i18n)
+        self.assertNotIn("LANG_TO_SERVER", generate_i18n)
+        self.assertNotIn("SERVER_TO_LANG", generate_i18n)
+
+    def test_generator_does_not_regenerate_inactive_ui_templates(self) -> None:
+        source = (ROOT / "module/config/config_updater.py").read_text(encoding="utf-8")
+        start = source.index("    def generate_deploy_template():")
+        end = source.index("    def insert_package", start)
+        generator = source[start:end]
+
+        self.assertNotIn("template-cn", generator)
+        self.assertNotIn("AidLux-cn", generator)
+        self.assertNotIn("docker-cn", generator)
+        self.assertNotIn("linux-cn", generator)
+
+    def test_active_templates_use_runtime_locale(self) -> None:
+        for relative in ACTIVE_TEMPLATES:
+            with self.subTest(relative=relative):
+                data = yaml.safe_load((ROOT / relative).read_text(encoding="utf-8"))
+                self.assertEqual(data["Deploy"]["Webui"]["Language"], UI_LOCALE)
+
+
+if __name__ == "__main__":
+    unittest.main()

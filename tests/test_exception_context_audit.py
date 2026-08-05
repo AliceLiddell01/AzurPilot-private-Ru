@@ -88,7 +88,7 @@ class ExceptionContextAuditTests(unittest.TestCase):
         self.assertEqual(findings, [])
 
 
-    def test_stage8c_webui_exception_message_remains_out_of_scope(self):
+    def test_shared_webui_exception_message_remains_out_of_scope(self):
         findings = self._findings_at(
             "module/webui/api.py",
             "def api_deploy_settings():\n"

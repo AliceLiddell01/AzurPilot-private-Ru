@@ -5,13 +5,29 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-from dev_tools.stage8a_semantic_policy import classify_message
-
 SCOPE_PREFIX = Path("module/device")
 SCOPE_FILES = (Path("module/webui/api.py"),)
 LOGGER_METHODS = {"debug", "info", "warning", "error", "critical", "exception"}
 EXCEPTION_NAMES = {"e", "err", "error", "exc", "exception"}
 CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
+DEVICE_WEBUI_OWNERS = (
+    "_ws_scrcpy",
+    "LiveWsScrcpySession.",
+    "LiveScrcpySession.",
+    "ws_live_screenshot",
+    "_ws_live_scrcpy",
+    "_ws_live_ws_scrcpy",
+    "_ws_live_raw_scrcpy",
+    "_ws_live_screenshot_fallback",
+    "ws_live_control",
+)
+
+
+def _is_device_owned_webui(owner: str) -> bool:
+    return any(
+        owner == prefix or owner.startswith(prefix)
+        for prefix in DEVICE_WEBUI_OWNERS
+    )
 
 
 def _call_name(node: ast.AST) -> str:
@@ -117,17 +133,14 @@ class _ExceptionContextVisitor(ast.NodeVisitor):
         has_russian_context = bool(CYRILLIC_RE.search(static_text))
         owner = ".".join(self.owner_stack)
 
-        if static_text and not has_russian_context:
-            _, stage_owner, _, _ = classify_message(
-                path=self.path,
-                function_owner=owner,
-                call_kind=call_kind,
-                arg_role="message",
-                message=static_text,
-            )
-            if stage_owner != "stage8a":
-                self.generic_visit(node)
-                return
+        if (
+            static_text
+            and not has_russian_context
+            and self.path == "module/webui/api.py"
+            and not _is_device_owned_webui(owner)
+        ):
+            self.generic_visit(node)
+            return
 
         method = call_kind.rsplit(".", 1)[-1]
         if references_exception and not has_russian_context:

@@ -12,7 +12,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-DEFAULT_REPORT = Path("artifacts/stage8a/device-acceptance.json")
+DEFAULT_REPORT = Path("artifacts/acceptance/device.json")
 ADB_CANDIDATES = (
     Path(".venv/Scripts/adb.exe"),
     Path(".venv/bin/adb"),
@@ -790,7 +790,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         if not isinstance(screenshot.stdout, bytes):
             raise AcceptanceFailure("ADB screencap вернул неожиданный текстовый payload.")
         with tempfile.NamedTemporaryFile(
-            prefix="stage8a-",
+            prefix="device-acceptance-",
             suffix=".png",
             delete=False,
         ) as temporary:

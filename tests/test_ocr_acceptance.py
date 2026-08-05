@@ -70,7 +70,7 @@ class OcrAcceptanceTests(unittest.TestCase):
             self.assertEqual(_provider_cache_snapshot(), {})
 
     def test_cleanup_failure_still_restores_environment(self) -> None:
-        temporary_root = Path(tempfile.mkdtemp(prefix="stage8b-acceptance-test-"))
+        temporary_root = Path(tempfile.mkdtemp(prefix="ocr-acceptance-test-"))
         expected_values = {
             "AZURPILOT_OCR_DEBUG": "before-debug",
             "AZURPILOT_OCR_DEBUG_DIR": "before-directory",

@@ -37,7 +37,7 @@ from module.ocr.privacy import (
 )
 from module.ocr.rpc_security import loopback_bind_uri
 
-DEFAULT_REPORT = Path("artifacts/stage8b/ocr-acceptance.json")
+DEFAULT_REPORT = Path("artifacts/acceptance/ocr.json")
 SAFE_VALUE_RE = re.compile(r"^[A-Za-z0-9:/-]{1,20}$")
 VALUE_PATTERNS = (
     ("counter", re.compile(r"^\d{1,6}/\d{1,6}$")),
@@ -470,7 +470,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         "AZURPILOT_OCR_ALLOW_PROVIDER_DOWNLOAD",
     )
     environment_before = {name: os.environ.get(name) for name in env_names}
-    temp_root = Path(tempfile.mkdtemp(prefix="azurpilot-stage8b-"))
+    temp_root = Path(tempfile.mkdtemp(prefix="azurpilot-ocr-acceptance-"))
     debug_dir = temp_root / "ocr-debug"
     temporary_files_removed = False
     try:

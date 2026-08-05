@@ -92,7 +92,7 @@ def metrics(page: Page) -> dict[str, object]:
             return {
                 container_count: document.querySelectorAll('.rich-traceback-container').length,
                 script_count: document.querySelectorAll('script').length,
-                injected_id_count: document.querySelectorAll('#stage7-owned').length,
+                injected_id_count: document.querySelectorAll('#traceback-owned').length,
                 page_client_width: root.clientWidth,
                 page_scroll_width: root.scrollWidth,
                 page_client_height: root.clientHeight,
