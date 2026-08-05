@@ -1,10 +1,9 @@
 """Semantic routing for the Global/English OCR contour.
 
-The compact Azur Lane recognizer is excellent for constrained counters and
-short UI values, while the bundled PP-OCRv6 recognizer is required for full
-English text such as commission and Operation Siren zone names.  This module
-keeps one public ``azur_lane`` runtime namespace and routes recognition by the
-candidate alphabet instead of reviving removed multilingual namespaces.
+The compact Azur Lane recognizer remains the default public ``azur_lane``
+model.  The bundled PP-OCRv6 recognizer is selected only for audited runtime
+contours that historically requested a general OCR model because they contain
+natural English text or unsupported UI fonts.
 """
 
 from __future__ import annotations
@@ -24,21 +23,54 @@ from module.ocr.al_ocr import (
 
 GENERAL_ENGLISH_MODEL_NAME = "english_text"
 _DIGIT_CONFUSION_LETTERS = frozenset("IDSB")
+_GENERAL_OCR_NAMES = frozenset(
+    {
+        "COMMISSION",
+        "ENEMY_NAME",
+        "OCR_ACTION_POINT_BUY_REMAIN",
+        "OCR_EVENT_SHOP_DEADLINE",
+        "OCR_OS_ADAPTABILITY",
+        "OCR_OS_MAP_NAME",
+        "OCR_PT",
+        "OCR_TRANSPORT_TIME",
+        "SKILL_LEVEL",
+        "pearl_current_count",
+        "pearl_price",
+        "pearl_rank_price",
+        "pearl_trade_count",
+        "pearl_weekly_purchase",
+    }
+)
+_GENERAL_OCR_NAME_PREFIXES = ("TEXT_POS", "pearl_rank_price")
+_GENERAL_OCR_TYPES = frozenset({"RaidCounter", "RaidCounterPostMixin"})
 
 
-def should_use_general_english(alphabet: str | None) -> bool:
-    """Return whether an OCR request needs the general English recognizer.
+def should_use_general_english(
+    alphabet: str | None,
+    *,
+    name: str | None = None,
+    recognizer_type: str | None = None,
+    direct: bool = False,
+) -> bool:
+    """Return whether an audited request needs the general English model.
 
-    Unconstrained recognition is treated as natural text.  Candidate alphabets
-    containing real letters also use PP-OCRv6.  Pure numeric/counter alphabets
-    (including I/D/S/B confusion symbols corrected by the numeric wrappers)
-    remain on the compact Azur Lane model.
+    ``direct`` is reserved for explicit direct-model callers.  Normal Ocr
+    wrappers are routed by their stable OCR name or recognizer class, keeping
+    all unlisted ``azur_lane`` callsites on their previous compact model.
     """
 
-    if alphabet is None:
+    if direct:
+        if alphabet is None:
+            return False
+        letters = {char.upper() for char in alphabet if char.isalpha()}
+        return bool(letters - _DIGIT_CONFUSION_LETTERS)
+
+    normalized_name = str(name or "")
+    if normalized_name in _GENERAL_OCR_NAMES:
         return True
-    letters = {char.upper() for char in alphabet if char.isalpha()}
-    return bool(letters - _DIGIT_CONFUSION_LETTERS)
+    if any(normalized_name.startswith(prefix) for prefix in _GENERAL_OCR_NAME_PREFIXES):
+        return True
+    return str(recognizer_type or "") in _GENERAL_OCR_TYPES
 
 
 def _general_recognition_model() -> Any:
@@ -90,7 +122,7 @@ def _general_detection_model() -> Any:
 
 
 class GeneralEnglishOcr(AlOcr):
-    """Fixed PP-OCRv6 recognizer for natural English text."""
+    """Fixed PP-OCRv6 recognizer for audited general-English requests."""
 
     def __init__(self) -> None:
         super().__init__(name=GENERAL_ENGLISH_MODEL_NAME)
@@ -129,7 +161,7 @@ class GeneralEnglishOcr(AlOcr):
 
 
 class GlobalEnglishOcr:
-    """Public EN/Global OCR facade with semantic model routing."""
+    """Public EN/Global OCR facade with constrained semantic routing."""
 
     name = "azur_lane"
 
@@ -137,17 +169,32 @@ class GlobalEnglishOcr:
         self.compact = AlOcr(name="azur_lane")
         self.text = GeneralEnglishOcr()
 
+    def for_request(
+        self,
+        alphabet: str | None,
+        *,
+        name: str | None = None,
+        recognizer_type: str | None = None,
+    ):
+        use_text = should_use_general_english(
+            alphabet,
+            name=name,
+            recognizer_type=recognizer_type,
+        )
+        return self.text if use_text else self.compact
+
     def for_alphabet(self, alphabet: str | None):
-        return self.text if should_use_general_english(alphabet) else self.compact
+        use_text = should_use_general_english(alphabet, direct=True)
+        return self.text if use_text else self.compact
 
     def ocr(self, img_fp):
-        return self.text.ocr(img_fp)
+        return self.compact.ocr(img_fp)
 
     def ocr_for_single_line(self, img_fp):
-        return self.text.ocr_for_single_line(img_fp)
+        return self.compact.ocr_for_single_line(img_fp)
 
     def ocr_for_single_lines(self, img_list):
-        return self.text.ocr_for_single_lines(img_list)
+        return self.compact.ocr_for_single_lines(img_list)
 
     def atomic_ocr(self, img_fp, cand_alphabet=None):
         return self.for_alphabet(cand_alphabet).atomic_ocr(img_fp, cand_alphabet)
