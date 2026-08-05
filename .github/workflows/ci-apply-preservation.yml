@@ -1,0 +1,42 @@
+name: CI reset preservation apply
+
+on:
+  push:
+    branches:
+      - codex/ci-reset
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: Apply preservation map
+    if: github.repository == 'AliceLiddell01/AzurPilot-private-Ru'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: codex/ci-reset
+
+      - name: Apply mechanical product renames
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/apply-ci-reset-preservation.py
+          rm .github/scripts/apply-ci-reset-preservation.py
+          rm .github/workflows/ci-apply-preservation.yml
+          git diff --check
+          test -n "$(git status --porcelain)"
+
+      - name: Commit atomic preservation map
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: вынести product regressions из Stage namespace'
+          git push origin HEAD:codex/ci-reset
