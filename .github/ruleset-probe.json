@@ -1,0 +1,60 @@
+{
+  "http_code": 200,
+  "body": [
+    {
+      "type": "deletion",
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "AliceLiddell01/AzurPilot-private-Ru",
+      "ruleset_id": 20179789
+    },
+    {
+      "type": "non_fast_forward",
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "AliceLiddell01/AzurPilot-private-Ru",
+      "ruleset_id": 20179789
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": [
+          "merge",
+          "squash",
+          "rebase"
+        ]
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "AliceLiddell01/AzurPilot-private-Ru",
+      "ruleset_id": 20179789
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "Python",
+            "integration_id": 15368
+          },
+          {
+            "context": "Windows",
+            "integration_id": 15368
+          },
+          {
+            "context": "Security",
+            "integration_id": 15368
+          }
+        ]
+      },
+      "ruleset_source_type": "Repository",
+      "ruleset_source": "AliceLiddell01/AzurPilot-private-Ru",
+      "ruleset_id": 20179789
+    }
+  ]
+}
