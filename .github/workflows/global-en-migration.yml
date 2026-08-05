@@ -1,16 +1,20 @@
 name: Global EN Migration
 
 on:
-  push:
+  pull_request:
     branches:
-      - codex/global-en-cleanup
+      - personal/stable
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: global-en-migration-${{ github.ref }}
+  group: global-en-migration-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -19,21 +23,22 @@ env:
 jobs:
   migrate:
     name: Global EN Migration
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/global-en-cleanup') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - name: Checkout exact head
+      - name: Checkout exact branch head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         timeout-minutes: 10
         with:
           fetch-depth: 1
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Verify exact head
+      - name: Verify exact branch head
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -58,7 +63,7 @@ jobs:
           set -euo pipefail
           uv run --locked python tools/global_en_migrate.py
 
-      - name: Run implementation checks
+      - name: Verify migrated implementation
         shell: bash
         run: |
           set -euo pipefail
@@ -92,14 +97,19 @@ jobs:
           test ! -e tools/global_en_inventory.py
           test ! -e .github/workflows/global-en-migration.yml
           test ! -e tools/global_en_migrate.py
+          test ! -e tools/global_en_migrate_impl.py
+          test ! -e tools/global_en_shared.py
           test ! -e assets/cn
           test ! -e assets/jp
           test ! -e assets/tw
 
       - name: Commit migrated tree
         shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
