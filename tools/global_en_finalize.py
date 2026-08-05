@@ -60,12 +60,26 @@ def prune_build_time_catalog() -> None:
     if not isinstance(packages, dict) or not isinstance(servers, dict):
         raise RuntimeError("en-US package/server catalogs missing")
 
+    package_metadata = {"name", "help"}
+    server_metadata = {"name", "help", "disabled"}
     for key in list(packages):
-        if key != GLOBAL_PACKAGE:
+        if key not in package_metadata and key != GLOBAL_PACKAGE:
             del packages[key]
     for key in list(servers):
-        if not key.startswith("en-"):
+        if key not in server_metadata and not key.startswith("en-"):
             del servers[key]
+
+    optimization = en.get("Optimization")
+    if not isinstance(optimization, dict):
+        raise RuntimeError("en-US Optimization catalog missing")
+    for key in (
+        "OcrModelVersionChinese",
+        "OcrModelVersionJapanese",
+        "OcrModelVersionTraditionalChinese",
+    ):
+        if key not in optimization:
+            raise RuntimeError(f"en-US foreign OCR catalog missing: {key}")
+        del optimization[key]
 
     en_keys = {key for key, _ in flatten_strings(en)}
     ru_keys = {key for key, _ in flatten_strings(ru)}
