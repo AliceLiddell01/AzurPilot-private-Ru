@@ -22,7 +22,7 @@ jobs:
       - name: Checkout exact branch head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: codex/ci-reset
 
       - name: Apply mechanical product renames
