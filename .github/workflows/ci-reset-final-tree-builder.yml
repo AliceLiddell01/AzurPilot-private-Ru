@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-reset-final-tree-${{ github.sha }}
@@ -28,18 +28,9 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             .codex/context/08-VERIFICATION.md
-            .github/scripts/ci-reset-builder.py.b64.00
-            .github/scripts/ci-reset-builder.py.b64.01
-            .github/scripts/ci-reset-builder.py.b64.02
-            .github/scripts/ci-reset-builder.py.b64.03
-            .github/scripts/ci-reset-builder.py.b64.04
-            .github/scripts/ci-reset-builder.py.b64.04a
-            .github/scripts/ci-reset-builder.py.b64.05
-            .github/scripts/ci-reset-builder.py.b64.06
             .github/scripts/ci-reset-builder.py.gz.b64.0
             .github/scripts/ci-reset-builder.py.gz.b64.1
             .github/workflows/ci-reset-final-tree-builder.yml
-            .github/workflows/ci-reset-replacement-builder.yml
             .github/workflows/ci.yml
             docs/ci.md
             pyproject.toml
@@ -58,7 +49,7 @@ jobs:
         with:
           python-version: "3.14.6"
 
-      - name: Materialize corrected final tree
+      - name: Materialize non-workflow files
         shell: bash
         run: |
           set -euo pipefail
@@ -69,27 +60,21 @@ jobs:
           python "${RUNNER_TEMP}/build_ci_reset_replacement.py"
           uv lock
           uv lock --check
-
-          rm -f \
-            .github/scripts/ci-reset-builder.py.b64.00 \
-            .github/scripts/ci-reset-builder.py.b64.01 \
-            .github/scripts/ci-reset-builder.py.b64.02 \
-            .github/scripts/ci-reset-builder.py.b64.03 \
-            .github/scripts/ci-reset-builder.py.b64.04 \
-            .github/scripts/ci-reset-builder.py.b64.04a \
-            .github/scripts/ci-reset-builder.py.b64.05 \
-            .github/scripts/ci-reset-builder.py.b64.06 \
-            .github/scripts/ci-reset-builder.py.gz.b64.0 \
-            .github/scripts/ci-reset-builder.py.gz.b64.1 \
-            .github/workflows/ci-reset-final-tree-builder.yml \
-            .github/workflows/ci-reset-replacement-builder.yml
+          cp .github/workflows/ci.yml .github/generated-ci.yml.txt
 
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all --sparse
-          git commit -m "build: materialize corrected CI Reset tree"
+          git add --sparse -- \
+            .codex/context/08-VERIFICATION.md \
+            .github/generated-ci.yml.txt \
+            docs/ci.md \
+            pyproject.toml \
+            tests/test_ocr_debug_privacy.py \
+            tests/test_ocr_rpc_security.py \
+            uv.lock
+          git commit -m "build: materialize corrected CI Reset files"
+          git push origin HEAD:codex/ci-reset
 
           final_commit="$(git rev-parse HEAD)"
-          final_tree="$(git rev-parse 'HEAD^{tree}')"
-          printf 'FINAL_COMMIT=%s\nFINAL_TREE=%s\n' "$final_commit" "$final_tree"
+          printf 'MATERIALIZED_COMMIT=%s\n' "$final_commit"
