@@ -31,8 +31,10 @@ jobs:
           set -euo pipefail
           python .github/scripts/apply-ci-reset-preservation.py
           git restore .github/workflows/ci.yml
+          git restore docs/benchmarks/ocr-english-models.md
+          git restore docs/benchmarks/screenshot-interval.md
           git diff --check
-          test -n "$(git status --porcelain -- dev_tools module tests tools docs)"
+          test -n "$(git status --porcelain -- dev_tools module tests tools)"
 
       - name: Commit atomic preservation map
         shell: bash
@@ -40,6 +42,6 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A -- dev_tools/security module/ocr module/daemon/screenshot_interval_benchmark.py tests tools docs/benchmarks
+          git add -A -- dev_tools/security module/ocr module/daemon/screenshot_interval_benchmark.py tests tools
           git commit -m 'refactor: вынести product regressions из Stage namespace'
           git push origin HEAD:codex/ci-reset
