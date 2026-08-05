@@ -37,7 +37,7 @@ from module.exception import RequestHumanTakeover
 from module.logger import logger
 from module.config.config import AzurLaneConfig
 from module.config.utils import DEFAULT_CONFIG_NAME
-from module.ocr.stage8b_privacy import OcrDebugOutputError, save_debug_image
+from module.ocr.privacy import OcrDebugOutputError, save_debug_image
 from module.ocr.windows_ml import create_onnx_session
 
 
