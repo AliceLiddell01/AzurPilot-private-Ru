@@ -1,9 +1,9 @@
 name: CI reset preservation apply
 
 on:
-  push:
+  pull_request:
     branches:
-      - codex/ci-reset
+      - personal/stable
 
 permissions:
   contents: write
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   apply:
     name: Apply preservation map
-    if: github.repository == 'AliceLiddell01/AzurPilot-private-Ru'
+    if: github.repository == 'AliceLiddell01/AzurPilot-private-Ru' && github.head_ref == 'codex/ci-reset'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
