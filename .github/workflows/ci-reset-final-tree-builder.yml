@@ -1,4 +1,4 @@
-name: Patch CI Reset materialization
+name: Probe personal stable ruleset
 
 on:
   pull_request:
@@ -12,58 +12,66 @@ permissions:
   contents: write
 
 concurrency:
-  group: ci-reset-materialization-patch-${{ github.sha }}
+  group: ci-reset-ruleset-probe-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
-  patch:
+  probe:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Checkout materialized files
+      - name: Checkout probe output path
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            .github/generated-ci.yml.txt
+            .github/ruleset-probe.json
             .github/workflows/ci-reset-final-tree-builder.yml
-            tests/test_ocr_rpc_security.py
           ref: codex/ci-reset
 
-      - name: Patch generated CI and RPC test source
+      - name: Read effective rules for personal stable
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python - <<'PY'
+
+          response_file="${RUNNER_TEMP}/ruleset-response.json"
+          http_code="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/rules/branches/personal%2Fstable")"
+
+          python - "$http_code" "$response_file" <<'PY'
+          import json
+          import sys
           from pathlib import Path
 
-          workflow = Path('.github/generated-ci.yml.txt')
-          text = workflow.read_text(encoding='utf-8')
-          old_git = "$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop"
-          new_git = "$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1"
-          old_uv = "$uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop"
-          new_uv = "$uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop | Select-Object -First 1"
-          if old_git not in text:
-              raise SystemExit('generated CI: git command resolution pattern not found')
-          if old_uv not in text:
-              raise SystemExit('generated CI: uv command resolution pattern not found')
-          workflow.write_text(
-              text.replace(old_git, new_git).replace(old_uv, new_uv),
+          http_code = int(sys.argv[1])
+          response_path = Path(sys.argv[2])
+          try:
+              body = json.loads(response_path.read_text(encoding='utf-8'))
+          except json.JSONDecodeError:
+              body = {"message": "Non-JSON response omitted"}
+
+          output = {
+              "http_code": http_code,
+              "body": body,
+          }
+          Path('.github/ruleset-probe.json').write_text(
+              json.dumps(output, ensure_ascii=False, indent=2) + '\n',
               encoding='utf-8',
           )
-
-          test_path = Path('tests/test_ocr_rpc_security.py')
-          data = test_path.read_bytes()
-          if b'\x00' not in data:
-              raise SystemExit('RPC security test: expected embedded null bytes were not found')
-          test_path.write_bytes(data.replace(b'\x00', b'\\x00'))
           PY
 
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --sparse -f -- .github/generated-ci.yml.txt tests/test_ocr_rpc_security.py
-          git commit -m "build: patch generated CI and RPC test source"
+          git add --sparse -f -- .github/ruleset-probe.json
+          git commit -m "chore: record effective ruleset probe"
           git push origin HEAD:codex/ci-reset
