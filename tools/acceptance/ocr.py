@@ -418,7 +418,7 @@ def _confirm_real_values(values: list[dict[str, Any]], args: argparse.Namespace)
 
 
 def _print_plan(profile: str, package: str, details: dict[str, Any], head: str) -> None:
-    print("Stage 8B OCR acceptance plan")
+    print("OCR acceptance plan")
     print(f"Exact head: {head}")
     print(f"Profile: {profile}")
     print(f"Server/package: {details['server']} / {package}")
@@ -450,7 +450,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     package = _detect_package(adb, serial, profile["package"])
     config, details = _load_ocr_config(args.profile)
     if details["server"] != "en":
-        raise AcceptanceFailure("Stage 8B real acceptance выполняется только на EN/Global profile.")
+        raise AcceptanceFailure("Реальная OCR-приёмка выполняется только на EN/Global profile.")
 
     _print_plan(args.profile, package, details, head)
     if not args.non_interactive:
@@ -578,7 +578,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     rpc_port = int(getattr(__import__("module.webui.setting", fromlist=["State"]).State.deploy_config, "OcrServerPort", 22268))
     return {
         "status": "PASS",
-        "title": "Stage 8B OCR acceptance: PASS",
+        "title": "OCR acceptance: PASS",
         "head_sha": head,
         "profile": args.profile,
         "server": details["server"],
@@ -620,7 +620,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Безопасная EN/Global OCR-приёмка Stage 8B")
+    parser = argparse.ArgumentParser(description="Безопасная EN/Global OCR-приёмка")
     parser.add_argument("--profile", required=True)
     serial_group = parser.add_mutually_exclusive_group(required=True)
     serial_group.add_argument("--serial")
@@ -647,14 +647,14 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(f"Stage 8B OCR acceptance: FAIL — {failure['error']}", file=sys.stderr)
+        print(f"OCR acceptance: FAIL — {failure['error']}", file=sys.stderr)
         return 1
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print("Stage 8B OCR acceptance: PASS")
+    print("OCR acceptance: PASS")
     print("Визуально подтверждённые значения сохранены в user_confirmed_values.")
     return 0
 

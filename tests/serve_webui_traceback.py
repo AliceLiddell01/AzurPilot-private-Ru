@@ -47,14 +47,14 @@ class FixtureHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Локальный сервер ручной проверки Stage 7 traceback fixtures"
+        description="Локальный сервер ручной проверки traceback fixtures"
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
 
     server = ThreadingHTTPServer((args.host, args.port), FixtureHandler)
-    print(f"Stage 7 fixture server: http://{args.host}:{args.port}")
+    print(f"Traceback fixture server: http://{args.host}:{args.port}")
     print(
         "Dark: "
         f"http://{args.host}:{args.port}"

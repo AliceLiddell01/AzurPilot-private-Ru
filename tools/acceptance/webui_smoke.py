@@ -154,7 +154,7 @@ def run(timeout: float = 45) -> dict[str, object]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Изолированный Windows/WebUI smoke-тест Stage 6")
+    parser = argparse.ArgumentParser(description="Изолированный Windows/WebUI smoke-тест")
     parser.add_argument("--timeout", type=float, default=45)
     args = parser.parse_args()
     print(json.dumps(run(args.timeout), ensure_ascii=False, indent=2))
