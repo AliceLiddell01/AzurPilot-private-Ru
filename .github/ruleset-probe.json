@@ -1,6 +1,6 @@
 {
-  "http_code": 200,
-  "body": [
+  "effective_rules_http_code": 200,
+  "effective_rules": [
     {
       "type": "deletion",
       "ruleset_source_type": "Repository",
@@ -56,5 +56,79 @@
       "ruleset_source": "AliceLiddell01/AzurPilot-private-Ru",
       "ruleset_id": 20179789
     }
-  ]
+  ],
+  "ruleset_details_http_code": 200,
+  "ruleset_details": {
+    "id": 20179789,
+    "name": "Protect personal/stable",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "AliceLiddell01/AzurPilot-private-Ru",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "refs/heads/personal/stable"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "type": "deletion"
+      },
+      {
+        "type": "non_fast_forward"
+      },
+      {
+        "type": "pull_request",
+        "parameters": {
+          "required_approving_review_count": 0,
+          "dismiss_stale_reviews_on_push": false,
+          "required_reviewers": [],
+          "require_code_owner_review": false,
+          "require_last_push_approval": false,
+          "required_review_thread_resolution": true,
+          "allowed_merge_methods": [
+            "merge",
+            "squash",
+            "rebase"
+          ]
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": true,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "Python",
+              "integration_id": 15368
+            },
+            {
+              "context": "Windows",
+              "integration_id": 15368
+            },
+            {
+              "context": "Security",
+              "integration_id": 15368
+            }
+          ]
+        }
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5Of_0yzgEz600",
+    "created_at": "2026-08-01T10:35:45.468Z",
+    "updated_at": "2026-08-05T17:08:59.363Z",
+    "current_user_can_bypass": "never",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/AliceLiddell01/AzurPilot-private-Ru/rulesets/20179789"
+      },
+      "html": {
+        "href": "https://github.com/AliceLiddell01/AzurPilot-private-Ru/rules/20179789"
+      }
+    }
+  }
 }
