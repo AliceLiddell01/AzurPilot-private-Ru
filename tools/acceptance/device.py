@@ -739,7 +739,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
     report: dict[str, Any] = {
         "status": "RUNNING",
-        "stage": "8A",
+        "scope": "device",
         "head_sha": _git_head_sha(),
         "profile": args.profile,
         "target_serial": "<serial>",
@@ -838,7 +838,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Безопасный real-device/emulator acceptance Stage 8A"
+        description="Безопасная приёмка реального устройства или эмулятора"
     )
     parser.add_argument("--profile", default="alas")
     serial_group = parser.add_mutually_exclusive_group(required=True)
@@ -864,7 +864,7 @@ def main(argv: list[str] | None = None) -> int:
         report.update(
             {
                 "status": "FAIL",
-                "stage": "8A",
+                "scope": "device",
                 "error": _safe_text(error_text, resolved_serial),
                 "target_serial": "<serial>",
             }
@@ -877,10 +877,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"Sanitized report: {args.report}")
     if report["status"] == "PASS":
-        print("Stage 8A device acceptance: PASS")
+        print("Device acceptance: PASS")
         return 0
     print(
-        "Stage 8A device acceptance: FAIL — "
+        "Device acceptance: FAIL — "
         f"{report.get('error', 'неизвестная ошибка')}"
     )
     return 1

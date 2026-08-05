@@ -126,7 +126,7 @@ class ScreenshotIntervalBenchmarkTests(unittest.TestCase):
             return _result(phase, interval)
 
         with patch(
-            "dev_tools.screenshot_interval_benchmark._benchmark_interval",
+            "tools.benchmarks.screenshot_intervals._benchmark_interval",
             side_effect=fake_benchmark,
         ):
             results = _run_phase(

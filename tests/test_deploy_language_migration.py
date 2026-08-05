@@ -178,11 +178,8 @@ class DeployLanguageMigrationTests(unittest.TestCase):
     def test_cached_state_migrates_before_deploy_config_constructor(self) -> None:
         from module.webui.setting import State
 
-        cache_name = "_deploy_config_"
-        missing = object()
-        previous = vars(State).get(cache_name, missing)
-        if previous is not missing:
-            delattr(State, cache_name)
+        class FreshState(State):
+            pass
 
         events: list[str] = []
         expected_config = object()
@@ -195,22 +192,17 @@ class DeployLanguageMigrationTests(unittest.TestCase):
             events.append("constructor")
             return expected_config
 
-        try:
-            with patch(
-                "deploy.language_migration.migrate_deploy_language",
-                side_effect=migrate,
-            ), patch(
-                "module.webui.config.DeployConfig",
-                side_effect=construct,
-            ):
-                self.assertIs(State.deploy_config, expected_config)
-                self.assertIs(State.deploy_config, expected_config)
-            self.assertEqual(events, ["migration", "constructor"])
-        finally:
-            if cache_name in vars(State):
-                delattr(State, cache_name)
-            if previous is not missing:
-                setattr(State, cache_name, previous)
+        with patch(
+            "deploy.language_migration.migrate_deploy_language",
+            side_effect=migrate,
+        ), patch(
+            "module.webui.config.DeployConfig",
+            side_effect=construct,
+        ):
+            self.assertIs(FreshState.deploy_config, expected_config)
+            self.assertIs(FreshState.deploy_config, expected_config)
+
+        self.assertEqual(events, ["migration", "constructor"])
 
     def test_parsed_runtime_values_except_language_are_unchanged(self) -> None:
         self.file.write_text(deploy_text("ja-JP"), encoding="utf-8")

@@ -148,7 +148,7 @@ class CommissionOcrAcceptanceTests(unittest.TestCase):
         self.assertEqual(result, "SELF TRAINING I")
 
     @patch(
-        "dev_tools.commission_ocr_acceptance.COMMISSION_SWITCH.get",
+        "tools.acceptance.ocr_commission.COMMISSION_SWITCH.get",
         return_value="daily",
     )
     def test_already_active_daily_tab_is_success(self, switch_get: Mock) -> None:
