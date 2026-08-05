@@ -27,6 +27,7 @@ class StorageEntryHarness(OpsiVoucher):
         self.info_bar_calls = 0
         self.map_event_calls = 0
         self.interval_clears = []
+        self.zone = SimpleNamespace(is_azur_port=True)
         self.device = SimpleNamespace(
             screenshot=lambda: None,
             click=lambda _button: None,
@@ -37,6 +38,9 @@ class StorageEntryHarness(OpsiVoucher):
 
     def interval_clear(self, button):
         self.interval_clears.append(button)
+
+    def is_in_map(self):
+        return True
 
     def is_in_storage(self):
         return self.storage_clicked
