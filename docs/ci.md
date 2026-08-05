@@ -14,7 +14,7 @@ Workflow публикует три стабильных status contexts:
 - `Windows`;
 - `Security`.
 
-Ruleset ветки `personal/stable` должен требовать именно эти три context и не должен сохранять старые Stage-зависимые checks. Фактическое состояние ruleset проверяется через GitHub перед приёмкой PR и не подменяется утверждением в документации. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
+Активный repository ruleset `Protect personal/stable` (ID `20179789`) применяется к `refs/heads/personal/stable` и требует именно эти три context со strict-проверкой актуальности ветки. Старые Stage-зависимые required contexts отсутствуют. Ruleset также запрещает удаление ветки и non-fast-forward updates, требует pull request и разрешения review threads. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
 
 ## Python
 
