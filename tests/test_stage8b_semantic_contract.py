@@ -201,6 +201,14 @@ class Stage8BSemanticContractTests(unittest.TestCase):
             source,
         )
 
+    def test_commission_regexes_are_python314_safe_raw_strings(self) -> None:
+        source = (ROOT / "module/commission/project.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("r'(\\d\\d?:\\d\\d)?'", source)
+        self.assertIn("re.search(r'(\\d+):(\\d+):(\\d+)'", source)
+        self.assertNotIn("re.search('(\\d+):(\\d+):(\\d+)'", source)
+
     @patch(
         "dev_tools.commission_ocr_acceptance.COMMISSION_SWITCH.get",
         return_value="daily",
