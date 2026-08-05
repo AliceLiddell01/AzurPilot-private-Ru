@@ -30,6 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Retry after tightening the expected product-report replacement count.
           python .github/scripts/fix_ci_cleanup_regressions.py
           git diff --check
 
