@@ -307,7 +307,8 @@ else:
 """
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            module_path.mkdir(exist_ok=True)
+            module_path = root / "module"
+            module_path.mkdir()
             (module_path / "sample.py").write_text(source, encoding="utf-8")
 
             findings = find_removed_runtime_model_references(root)
