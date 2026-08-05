@@ -31,37 +31,48 @@ jobs:
             .github/workflows/ci-reset-final-tree-builder.yml
           ref: codex/ci-reset
 
-      - name: Read effective rules for personal stable
+      - name: Read effective rules and repository ruleset
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RULESET_ID: "20179789"
         run: |
           set -euo pipefail
 
-          response_file="${RUNNER_TEMP}/ruleset-response.json"
-          http_code="$(curl --silent --show-error \
-            --output "$response_file" \
+          effective_file="${RUNNER_TEMP}/effective-rules.json"
+          effective_http_code="$(curl --silent --show-error \
+            --output "$effective_file" \
             --write-out '%{http_code}' \
             --header 'Accept: application/vnd.github+json' \
             --header "Authorization: Bearer ${GH_TOKEN}" \
             --header 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/rules/branches/personal%2Fstable")"
 
-          python - "$http_code" "$response_file" <<'PY'
+          details_file="${RUNNER_TEMP}/ruleset-details.json"
+          details_http_code="$(curl --silent --show-error \
+            --output "$details_file" \
+            --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/rulesets/${RULESET_ID}")"
+
+          python - "$effective_http_code" "$effective_file" "$details_http_code" "$details_file" <<'PY'
           import json
           import sys
           from pathlib import Path
 
-          http_code = int(sys.argv[1])
-          response_path = Path(sys.argv[2])
-          try:
-              body = json.loads(response_path.read_text(encoding='utf-8'))
-          except json.JSONDecodeError:
-              body = {"message": "Non-JSON response omitted"}
+          def load(path: str):
+              try:
+                  return json.loads(Path(path).read_text(encoding='utf-8'))
+              except json.JSONDecodeError:
+                  return {"message": "Non-JSON response omitted"}
 
           output = {
-              "http_code": http_code,
-              "body": body,
+              "effective_rules_http_code": int(sys.argv[1]),
+              "effective_rules": load(sys.argv[2]),
+              "ruleset_details_http_code": int(sys.argv[3]),
+              "ruleset_details": load(sys.argv[4]),
           }
           Path('.github/ruleset-probe.json').write_text(
               json.dumps(output, ensure_ascii=False, indent=2) + '\n',
@@ -73,5 +84,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --sparse -f -- .github/ruleset-probe.json
-          git commit -m "chore: record effective ruleset probe"
+          git commit -m "chore: record ruleset details"
           git push origin HEAD:codex/ci-reset
