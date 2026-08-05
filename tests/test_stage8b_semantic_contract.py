@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from dev_tools.commission_ocr_acceptance import _scan_mode, evaluate_rows
+from dev_tools.commission_ocr_acceptance import (
+    _is_single_blank_scan,
+    _scan_mode,
+    evaluate_rows,
+)
 from dev_tools.stage8b_model_scope import find_removed_runtime_model_references
 from dev_tools.stage8b_ocr_log_audit import Stage8BOcrLogAudit
 from dev_tools.stage8b_semantic_policy import (
@@ -135,6 +141,27 @@ class Stage8BSemanticContractTests(unittest.TestCase):
         self.assertTrue(any("OCR-мусор" in item for item in findings))
         self.assertTrue(any("длительность не распознана" in item for item in findings))
 
+    def test_commission_acceptance_only_accepts_strict_empty_sentinel(self) -> None:
+        blank = SimpleNamespace(
+            valid=False,
+            name="",
+            genre="",
+            duration=timedelta(0),
+            suffix_hash="",
+        )
+        visible_but_failed = SimpleNamespace(
+            valid=False,
+            name="",
+            genre="",
+            duration=timedelta(hours=1),
+            suffix_hash="",
+        )
+
+        self.assertTrue(_is_single_blank_scan([blank]))
+        self.assertFalse(_is_single_blank_scan([]))
+        self.assertFalse(_is_single_blank_scan([blank, blank]))
+        self.assertFalse(_is_single_blank_scan([visible_but_failed]))
+
     @patch(
         "dev_tools.commission_ocr_acceptance.COMMISSION_SWITCH.get",
         return_value="daily",
@@ -161,7 +188,12 @@ class Stage8BSemanticContractTests(unittest.TestCase):
         )
         self.assertIn("runner.ui_ensure(page_commission)", source)
         self.assertIn("runner._commission_scan_list()", source)
+        self.assertIn('_ensure_mode_active(runner, "urgent")', source)
         self.assertIn('_ensure_mode_active(runner, "daily")', source)
+        self.assertIn("urgent-page-warmup.png", source)
+        self.assertIn("urgent-page-retry.png", source)
+        self.assertIn("_confirm_empty_urgent(", source)
+        self.assertIn("EMPTY URGENT", source)
         self.assertIn("_confirm_rows(rows, args)", source)
         self.assertIn("MATCH ALL", source)
         self.assertNotIn("runner.commission_start(", source)
