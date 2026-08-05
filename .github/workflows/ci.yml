@@ -488,15 +488,29 @@ jobs:
             tests.test_ocr_acceptance \
             tests.test_opsi_zone_ocr_acceptance
 
+      - name: Install pinned browser runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv pip install playwright==1.55.0
+          uv run playwright install --with-deps chromium
+
       - name: Run WebUI DOM security regression
         shell: bash
         run: |
           set -euo pipefail
           uv run --locked python -m unittest -v tests.test_webui_traceback_security
-          uv run --locked python -m playwright install chromium
-          uv run --locked python tests/run_webui_traceback_browser.py \
-            --browser chromium \
-            --output-dir "${RUNNER_TEMP}/webui-security"
+          mkdir -p "${RUNNER_TEMP}/webui-security"
+          timeout --signal=TERM --kill-after=15s 10m \
+            uv run --locked python tests/run_webui_traceback_browser.py \
+              > "${RUNNER_TEMP}/webui-security/report.json"
+          if pgrep -af 'playwright.*chromium|chromium.*playwright' \
+            > "${RUNNER_TEMP}/webui-security/processes.txt"; then
+            cat "${RUNNER_TEMP}/webui-security/processes.txt"
+            exit 1
+          fi
+          echo 'No orphaned Playwright Chromium processes.' \
+            > "${RUNNER_TEMP}/webui-security/processes.txt"
 
       - name: Verify working tree
         shell: bash
