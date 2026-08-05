@@ -121,7 +121,7 @@ def evaluate_rows(rows: list[dict[str, Any]]) -> list[str]:
 
 
 def _ensure_mode_active(runner: RewardCommission, mode: str) -> None:
-    """Ensure a Commission tab is active regardless of whether a click was needed.
+    """Ensure the requested Commission tab is the observed active state.
 
     ``Switch.set`` returns whether it clicked, not whether the requested state is
     active.  An already-active tab therefore returns ``False`` even though the
