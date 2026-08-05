@@ -1,0 +1,108 @@
+name: Global EN Migration
+
+on:
+  push:
+    branches:
+      - codex/global-en-cleanup
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: global-en-migration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  migrate:
+    name: Global EN Migration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Validate locked environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked --group ci
+
+      - name: Migrate Global assets and product sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python tools/global_en_migrate.py
+
+      - name: Run implementation checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+          uv run --locked python - <<'PY'
+          import compileall
+          from pathlib import Path
+
+          roots = (
+              Path("alas.py"),
+              Path("gui.py"),
+              Path("mcp_server_sse.py"),
+              Path("module"),
+              Path("dev_tools"),
+              Path("tests"),
+              Path("tools"),
+          )
+          failed = False
+          for root in roots:
+              if not root.exists():
+                  continue
+              if root.is_file():
+                  failed = not compileall.compile_file(root, quiet=1) or failed
+              else:
+                  failed = not compileall.compile_dir(root, quiet=1) or failed
+          if failed:
+              raise SystemExit("Python compilation failed.")
+          PY
+          git diff --check
+          test ! -e .github/workflows/global-en-inventory.yml
+          test ! -e tools/global_en_inventory.py
+          test ! -e .github/workflows/global-en-migration.yml
+          test ! -e tools/global_en_migrate.py
+          test ! -e assets/cn
+          test ! -e assets/jp
+          test ! -e assets/tw
+
+      - name: Commit migrated tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          test -n "$(git status --porcelain)"
+          git commit -m "refactor: migrate runtime and assets to Global EN"
+          git push origin HEAD:codex/global-en-cleanup
