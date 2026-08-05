@@ -162,6 +162,19 @@ class Stage8BSemanticContractTests(unittest.TestCase):
         self.assertFalse(_is_single_blank_scan([blank, blank]))
         self.assertFalse(_is_single_blank_scan([visible_but_failed]))
 
+    def test_en_commission_name_crop_keeps_full_roman_suffix(self) -> None:
+        source = (ROOT / "module/commission/project.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "area = area_offset((131, 23, 430, 53), self.area[0:2])",
+            source,
+        )
+        self.assertNotIn(
+            "area = area_offset((131, 23, 409, 53), self.area[0:2])",
+            source,
+        )
+
     @patch(
         "dev_tools.commission_ocr_acceptance.COMMISSION_SWITCH.get",
         return_value="daily",
