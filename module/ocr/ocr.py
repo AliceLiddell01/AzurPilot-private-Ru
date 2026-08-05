@@ -1,4 +1,4 @@
-"""OCR-распознаватели текста, чисел, счётчиков и длительности."""
+"""OCR-распознаватели текста, чисел, счётчиков и длительности。"""
 
 import re
 import time
@@ -89,7 +89,9 @@ class Ocr:
         alphabet=None,
         name=None,
     ):
-        self.name = str(buttons) if isinstance(buttons, Button) else name
+        self.name = name if name is not None else (
+            str(buttons) if isinstance(buttons, Button) else None
+        )
         self._buttons = buttons
         self.letter = letter
         self.threshold = threshold
