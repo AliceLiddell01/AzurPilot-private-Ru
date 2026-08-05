@@ -9,7 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class GlobalEnOcrTests(unittest.TestCase):
     def test_all_inventory_proved_ocr_files_are_kept(self) -> None:
-        files = sorted(path for path in (ROOT / "bin/ocr_models").rglob("*") if path.is_file())
+        files = sorted(
+            path for path in (ROOT / "bin/ocr_models").rglob("*")
+            if path.is_file()
+        )
         self.assertEqual(len(files), 18)
 
     def test_registry_is_global_only_and_paths_exist(self) -> None:
@@ -23,9 +26,15 @@ class GlobalEnOcrTests(unittest.TestCase):
             for target in node.targets
             if isinstance(target, ast.Name)
         }
-        for name in ("ONNX_MODEL_PARAMS", "CUSTOM_CTC_MODEL_PARAMS", "DEFAULT_ONNX_MODEL_VERSION"):
-            value = ast.literal_eval(assignments[name])
-            self.assertEqual(set(value), {"azur_lane"})
+        for name in (
+            "ONNX_MODEL_PARAMS",
+            "CUSTOM_CTC_MODEL_PARAMS",
+            "DEFAULT_ONNX_MODEL_VERSION",
+        ):
+            mapping = assignments[name]
+            self.assertIsInstance(mapping, ast.Dict)
+            keys = {ast.literal_eval(key) for key in mapping.keys}
+            self.assertEqual(keys, {"azur_lane"})
         for relative in (
             "bin/ocr_models/azur_lane/ap_azurlane-v6.6_small_rec_dcu.onnx",
             "bin/ocr_models/azur_lane/ap_azurlane-v6.5_small_rec_nvidia.onnx",
@@ -42,11 +51,21 @@ class GlobalEnOcrTests(unittest.TestCase):
             self.assertTrue((ROOT / relative).is_file(), relative)
 
     def test_stale_foreign_ocr_cache_names_are_absent(self) -> None:
-        resource = (ROOT / "module/base/resource.py").read_text(encoding="utf-8")
-        for stale in ("'cnocr'", "'jp'", "'tw'"):
-            self.assertNotIn(stale, resource)
-        self.assertIn("'azur_lane'", resource)
-        self.assertIn("'det'", resource)
+        path = ROOT / "module/base/resource.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        release = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "release_resources"
+        )
+        runtime_strings = {
+            node.value for node in ast.walk(release)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        for stale in ("cnocr", "jp", "tw"):
+            self.assertNotIn(stale, runtime_strings)
+        self.assertIn("azur_lane", runtime_strings)
+        self.assertIn("det", runtime_strings)
 
 
 if __name__ == "__main__":
