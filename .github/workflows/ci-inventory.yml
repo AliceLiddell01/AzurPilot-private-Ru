@@ -34,7 +34,7 @@ jobs:
           } > inventory.txt
 
       - name: Upload inventory
-        uses: actions/upload-artifact@043fb281ed1c0e52e29303d8f9a355900ec7aa19 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ci-reset-inventory
           path: inventory.txt
