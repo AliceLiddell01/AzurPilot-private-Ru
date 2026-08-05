@@ -8,16 +8,23 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-reset-inventory-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   inventory:
     name: CI reset inventory
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Checkout exact head
+      - name: Checkout exact head index
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: .github
+          sparse-checkout-cone-mode: true
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Print tracked cleanup candidates
