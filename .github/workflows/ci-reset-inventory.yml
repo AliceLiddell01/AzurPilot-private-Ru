@@ -18,53 +18,43 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Checkout exact head index
+      - name: Checkout productized CI paths
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
           filter: blob:none
-          sparse-checkout: .github
+          sparse-checkout: |
+            .github
+            .codex
+            dev_tools/security
+            docs/benchmarks
+            module/daemon
+            module/ocr
+            tests
+            tools
           sparse-checkout-cone-mode: true
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Print tracked cleanup candidates
+      - name: Print remaining Stage references in productized paths
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import subprocess
-
-          paths = subprocess.run(
-              ["git", "ls-files"],
-              check=True,
-              capture_output=True,
-              text=True,
-          ).stdout.splitlines()
-
-          keywords = (
-              "stage3",
-              "stage4",
-              "stage5",
-              "stage6",
-              "stage7",
-              "stage8a",
-              "stage8b",
-              "russianization",
-              "semantic",
-              "evidence",
-              "baseline",
-              "migration",
-              "acceptance",
-              "benchmark",
-          )
-          prefixes = (
-              ".github/workflows/",
-              ".codex/context/",
-              ".codex/reviews/",
-          )
-
-          for path in paths:
-              lowered = path.lower()
-              if path.startswith(prefixes) or any(keyword in lowered for keyword in keywords):
-                  print(path)
-          PY
+          git grep -n -i -E 'stage(3|4|5|6|7|8a|8b)' -- \
+            .github/workflows/ci.yml \
+            dev_tools/security \
+            docs/benchmarks \
+            module/daemon \
+            module/ocr \
+            tests/test_binary_log_audit.py \
+            tests/test_binary_log_audit_arguments.py \
+            tests/test_device_acceptance.py \
+            tests/test_device_security.py \
+            tests/test_exception_context_audit.py \
+            tests/test_ocr_acceptance.py \
+            tests/test_ocr_debug_privacy.py \
+            tests/test_ocr_rpc_runtime.py \
+            tests/test_opsi_zone_ocr_acceptance.py \
+            tests/test_webui_traceback_security.py \
+            tests/run_webui_traceback_browser.py \
+            tests/serve_webui_traceback.py \
+            tools || true
