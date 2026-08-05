@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.global_en_shared import SHARED
+from global_en_shared import SHARED
 
 ROOT = Path(__file__).resolve().parents[1]
 IMPL = ROOT / "tools/global_en_migrate_impl.py"
