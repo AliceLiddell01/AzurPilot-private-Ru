@@ -14,6 +14,16 @@
 
 Недоступность одного инструмента не отменяет остальные проверки. Если недоступен обязательный для задачи gate, результат получает статус `blocked`: Codex не выдаёт непроверенный артефакт как готовый и не передаёт запуск пользователю.
 
+## Постоянный CI
+
+Единственный required pull-request workflow — `.github/workflows/ci.yml`. Он должен запускаться для каждого PR в `personal/stable` без `paths`-фильтров и публиковать три устойчивых context:
+
+- `Python`;
+- `Windows`;
+- `Security`.
+
+Исторические номера этапов, committed evidence, stage-specific baselines и временные migration gates не являются постоянными quality gates. Подробный фактический контракт, локальные эквиваленты и правила изменения CI находятся в `docs/ci.md`.
+
 ## Режимы
 
 ### Fast-track
@@ -56,12 +66,13 @@
 
 ### Python
 
+- `uv lock --check` и `uv sync --locked` для постоянного CI;
 - compile/import затронутого модуля;
 - существующий ruff-профиль;
-- точечные pytest;
+- точечные tests;
 - полный связанный набор;
 - generator check;
-- dependency sync при изменении зависимостей.
+- чистое рабочее дерево после генераторов.
 
 ### Конфигурация
 
@@ -81,10 +92,12 @@
 - server/theme variants;
 - range validation OCR.
 
+Реальные device/OCR acceptance и benchmarks выполняются локальными инструментами из `tools/acceptance/` и `tools/benchmarks/`. Они не становятся required checks каждого PR без отдельного устойчивого обоснования.
+
 ### PowerShell
 
-- Parser через фактический `pwsh`;
-- PSScriptAnalyzer как обязательный gate для релевантного изменения;
+- Parser через фактический `pwsh` для всех tracked `.ps1` и `.psm1`;
+- PSScriptAnalyzer зафиксированной версии как обязательный gate;
 - статический аудит правил;
 - disposable smoke для Git refs/branches/files;
 - идемпотентный повторный запуск.
@@ -95,7 +108,8 @@
 - endpoint/unit tests;
 - lifecycle smoke;
 - Windows process semantics;
-- автоматизированная visual acceptance через browser/Windows runner, если она обязательна; отсутствие безопасной среды блокирует merge.
+- автоматизированная DOM/security-проверка через browser runner;
+- visual acceptance только если она обязательна для конкретного изменения и доступна безопасная среда.
 
 ## Secret scan
 
@@ -109,16 +123,21 @@
 
 Перед commit и merge обязателен фактически запущенный secret scanner. Ручной паттерн-аудит может быть только дополнительной проверкой и не заменяет обязательный scanner. Если scanner недоступен, задача блокируется.
 
+Постоянный job `Security` проверяет текущие исходники и релевантный диапазон коммитов PR. Диагностика должна редактировать секреты и загружаться только при падении.
+
 ## Definition of Done
 
 - правильная ветка и базовый SHA;
 - минимальный связный diff;
 - архитектурные границы соблюдены;
 - generated-файлы согласованы;
-- все обязательные проверки выполнены, а недоступный обязательный gate оформлен как `blocked`;
+- required checks `Python`, `Windows`, `Security` зелёные на exact head;
+- на exact head отсутствуют старые параллельные Stage/evidence workflow;
 - упавшие проверки исправлены и повторены в пределах установленного бюджета;
 - secret scan выполнен;
 - независимый reviewer pass завершён;
+- security review завершён;
+- открытые review threads отсутствуют;
 - документация обновлена;
 - post-merge verification завершён для слитой задачи;
 - ограничения перечислены;
