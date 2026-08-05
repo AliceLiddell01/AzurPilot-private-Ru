@@ -60,11 +60,23 @@ class Stage8BSemanticContractTests(unittest.TestCase):
     def test_blocking_metric_names_are_unique(self) -> None:
         self.assertEqual(len(BLOCKING_METRICS), len(set(BLOCKING_METRICS)))
 
-    def test_unconstrained_english_text_uses_general_ppocr(self) -> None:
-        self.assertTrue(should_use_general_english(None))
+    def test_general_english_routing_is_limited_to_audited_callsites(self) -> None:
+        self.assertTrue(should_use_general_english(None, name="COMMISSION"))
+        self.assertTrue(should_use_general_english(None, name="OCR_OS_MAP_NAME"))
         self.assertTrue(
-            should_use_general_english("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            should_use_general_english(
+                "0123456789:IDSB",
+                name="OCR_TRANSPORT_TIME",
+                recognizer_type="Duration",
+            )
         )
+        self.assertTrue(
+            should_use_general_english(
+                "0123456789/IDSB",
+                recognizer_type="RaidCounter",
+            )
+        )
+        self.assertFalse(should_use_general_english(None, name="UNLISTED_OCR"))
         self.assertFalse(should_use_general_english("0123456789:IDSB"))
 
     def test_global_router_keeps_numeric_ocr_compact(self) -> None:
