@@ -33,10 +33,20 @@ jobs:
             git grep -n -I -E 'stage3|stage4|stage5|stage6|stage7|stage8a|stage8b|verify_stage|semantic|evidence|baseline|migration|russianization|acceptance|required_gate|output_contract|scenario_matrix|immutable|artifacts/stage|Stage 7 validation|Stage 8B validation' -- . ':!uv.lock' || true
           } > inventory.txt
 
+          include_paths=()
+          for path in .github .codex dev_tools tests test tools docs scripts module AGENTS.md README.md pyproject.toml .gitignore; do
+            if [[ -e "$path" ]]; then
+              include_paths+=("$path")
+            fi
+          done
+          tar -czf ci-reset-source-snapshot.tar.gz "${include_paths[@]}"
+
       - name: Upload inventory
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ci-reset-inventory
-          path: inventory.txt
+          path: |
+            inventory.txt
+            ci-reset-source-snapshot.tar.gz
           if-no-files-found: error
           retention-days: 1
