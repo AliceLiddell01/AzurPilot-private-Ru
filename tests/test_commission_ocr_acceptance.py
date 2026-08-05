@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import unittest
+from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from dev_tools.commission_ocr_acceptance import _scan_mode, evaluate_rows
+from dev_tools.commission_ocr_acceptance import (
+    _is_single_blank_scan,
+    _scan_mode,
+    evaluate_rows,
+)
 
 
 class CommissionOcrAcceptanceTests(unittest.TestCase):
@@ -61,6 +67,27 @@ class CommissionOcrAcceptanceTests(unittest.TestCase):
         self.assertTrue(any("OCR-мусор" in item for item in findings))
         self.assertTrue(any("длительность не распознана" in item for item in findings))
 
+    def test_only_one_fully_blank_object_is_empty_tab_sentinel(self) -> None:
+        blank = SimpleNamespace(
+            valid=False,
+            name="",
+            genre="",
+            duration=timedelta(0),
+            suffix_hash="",
+        )
+        real_but_failed = SimpleNamespace(
+            valid=False,
+            name="",
+            genre="",
+            duration=timedelta(hours=1),
+            suffix_hash="",
+        )
+
+        self.assertTrue(_is_single_blank_scan([blank]))
+        self.assertFalse(_is_single_blank_scan([]))
+        self.assertFalse(_is_single_blank_scan([blank, blank]))
+        self.assertFalse(_is_single_blank_scan([real_but_failed]))
+
     @patch(
         "dev_tools.commission_ocr_acceptance.COMMISSION_SWITCH.get",
         return_value="daily",
@@ -84,17 +111,21 @@ class CommissionOcrAcceptanceTests(unittest.TestCase):
         )
         self.assertIn("runner.ui_ensure(page_commission)", source)
         self.assertIn("runner._commission_scan_list()", source)
+        self.assertIn('_ensure_mode_active(runner, "urgent")', source)
         self.assertIn('_ensure_mode_active(runner, "daily")', source)
         self.assertNotIn("runner.commission_start(", source)
         self.assertNotIn("runner._commission_receive(", source)
         self.assertNotIn("runner._commission_choose(", source)
 
-    def test_manual_confirmation_is_required_for_success(self) -> None:
+    def test_empty_urgent_and_rows_require_separate_manual_confirmation(self) -> None:
         source = Path("dev_tools/commission_ocr_acceptance.py").read_text(
             encoding="utf-8"
         )
+        self.assertIn("_confirm_empty_urgent(", source)
+        self.assertIn("EMPTY URGENT", source)
         self.assertIn("_confirm_rows(rows, args)", source)
         self.assertIn("MATCH ALL", source)
+        self.assertIn("user_confirmed_empty_modes", source)
         self.assertIn("user_confirmed_ids", source)
 
 
