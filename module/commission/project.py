@@ -7,7 +7,7 @@
 装饰器为 CN/EN/JP/TW 四个服务器分别实现不同的解析逻辑。
 
 本模块还定义了 COMMISSION_FILTER 过滤器实例，用于根据用户配置的
-规则（如 'daily_resource-01:30'）筛选和排序委托列表。
+过滤规则（如 'daily_resource-01:30'）筛选和排序委托列表。
 
 依赖：
     - module.base.filter: 正则过滤器框架
@@ -28,12 +28,12 @@ from module.reward.assets import *
 
 COMMISSION_FILTER = Filter(
     regex=re.compile(
-        '(major|daily|extra|urgent|night)?'
-        '-?'
-        '(resource|chip|event|drill|part|cube|oil|book|retrofit|box|gem|ship)?'
-        '-?'
-        '(\d\d?:\d\d)?'
-        '(\d\d?.\d\d?|\d\d?)?'
+        r'(major|daily|extra|urgent|night)?'
+        r'-?'
+        r'(resource|chip|event|drill|part|cube|oil|book|retrofit|box|gem|ship)?'
+        r'-?'
+        r'(\d\d?:\d\d)?'
+        r'(\d\d?.\d\d?|\d\d?)?'
     ),
     attr=('category_str', 'genre_str', 'duration_hm', 'duration_hour'),
     preset=('shortest', 'expire')
@@ -172,9 +172,9 @@ class Commission:
         解析内容：名称、后缀、时长、过期时间、状态。
         """
         # 名称识别——EN 服名称较长，使用更宽的裁剪区域
-        area = area_offset((131, 23, 409, 53), self.area[0:2])
+        area = area_offset((131, 23, 430, 53), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='COMMISSION')
-        ocr = Ocr(button, lang='ppocr_v6')
+        ocr = Ocr(button, lang='azur_lane')
         self.button = button
         result = ocr.ocr(self.image).upper()
         # 修正常见 OCR 识别错误
@@ -478,7 +478,7 @@ class Commission:
         """
         # OCR 常将 0 识别为 D，此处修正
         string = string.replace('D', '0')
-        result = re.search('(\d+):(\d+):(\d+)', string)
+        result = re.search(r'(\d+):(\d+):(\d+)', string)
         if not result:
             logger.warning(f'无效的时间字符串: {string}')
             self.valid = False

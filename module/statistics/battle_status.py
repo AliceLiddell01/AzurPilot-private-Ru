@@ -16,7 +16,7 @@ class BattleStatusStatistics:
 
     @cached_property
     def ocr_object(self):
-        return Ocr(ENEMY_NAME, lang='cnocr', threshold=128, name='ENEMY_NAME')
+        return Ocr(ENEMY_NAME, lang='azur_lane', threshold=128, name='ENEMY_NAME')
 
     def stats_battle_status(self, image):
         """从战斗状态截图中识别敌人名称。

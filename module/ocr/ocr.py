@@ -1,4 +1,4 @@
-"""OCR-распознаватели текста, чисел, счётчиков и длительности."""
+"""OCR-распознаватели текста, чисел, счётчиков и длительности。"""
 
 import re
 import time
@@ -26,6 +26,7 @@ else:
 
 _COMPACT_MAX_LABEL_RE = re.compile(r"^\s*MAX\s*:\s*(?=\d)", re.IGNORECASE)
 _COMPACT_NUMERIC_SEPARATOR_RE = re.compile(r"(?<=\d)\s*([:/-])\s*(?=\d)")
+_LOCAL_GENERAL_ENGLISH_OCR = None
 
 
 def normalize_ocr_text(model_name: str, text: str) -> str:
@@ -34,6 +35,45 @@ def normalize_ocr_text(model_name: str, text: str) -> str:
         return text
     text = _COMPACT_MAX_LABEL_RE.sub("MAX:", text)
     return _COMPACT_NUMERIC_SEPARATOR_RE.sub(r"\1", text)
+
+
+def _select_ocr_model(
+    model,
+    lang: str,
+    alphabet: str | None,
+    *,
+    name: str | None,
+    recognizer_type: str,
+):
+    """Select a general model only for audited EN/Global callsites."""
+
+    selector = getattr(model, "for_request", None)
+    if callable(selector):
+        return selector(
+            alphabet,
+            name=name,
+            recognizer_type=recognizer_type,
+        )
+
+    # OCR server mode exposes the historical public namespace only.  Audited
+    # general-English requests stay process-local so they cannot be serialized
+    # through an incompatible compact-model RPC contract.
+    if lang == "azur_lane":
+        from module.ocr.global_english import (
+            GeneralEnglishOcr,
+            should_use_general_english,
+        )
+
+        if should_use_general_english(
+            alphabet,
+            name=name,
+            recognizer_type=recognizer_type,
+        ):
+            global _LOCAL_GENERAL_ENGLISH_OCR
+            if _LOCAL_GENERAL_ENGLISH_OCR is None:
+                _LOCAL_GENERAL_ENGLISH_OCR = GeneralEnglishOcr()
+            return _LOCAL_GENERAL_ENGLISH_OCR
+    return model
 
 
 class Ocr:
@@ -49,7 +89,9 @@ class Ocr:
         alphabet=None,
         name=None,
     ):
-        self.name = str(buttons) if isinstance(buttons, Button) else name
+        self.name = name if name is not None else (
+            str(buttons) if isinstance(buttons, Button) else None
+        )
         self._buttons = buttons
         self.letter = letter
         self.threshold = threshold
@@ -58,7 +100,14 @@ class Ocr:
 
     @property
     def cnocr(self) -> "AlOcr":
-        return OCR_MODEL.__getattribute__(self.lang)
+        model = OCR_MODEL.__getattribute__(self.lang)
+        return _select_ocr_model(
+            model,
+            self.lang,
+            self.alphabet,
+            name=self.name,
+            recognizer_type=type(self).__name__,
+        )
 
     @property
     def buttons(self):

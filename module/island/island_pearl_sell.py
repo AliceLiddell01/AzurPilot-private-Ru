@@ -567,7 +567,7 @@ class IslandPearlSell(Island):
     def _ocr_counter_text(self, button, name, letter=(255, 255, 255), threshold=128):
         ocr = Ocr(
             button,
-            lang="cnocr",
+            lang="azur_lane",
             letter=letter,
             threshold=threshold,
             alphabet="0123456789/IDSB",
@@ -599,7 +599,7 @@ class IslandPearlSell(Island):
 
     def _ocr_digit(self, button, name):
         ocr = Digit(
-            button, lang="cnocr", letter=(255, 255, 255), threshold=128, name=name
+            button, lang="azur_lane", letter=(255, 255, 255), threshold=128, name=name
         )
         try:
             return int(ocr.ocr(self.device.image))
@@ -608,7 +608,7 @@ class IslandPearlSell(Island):
 
     def _ocr_text(self, button, name):
         ocr = Ocr(
-            button, lang="cnocr", letter=(255, 255, 255), threshold=128, name=name
+            button, lang="azur_lane", letter=(255, 255, 255), threshold=128, name=name
         )
         try:
             return str(ocr.ocr(self.device.image))

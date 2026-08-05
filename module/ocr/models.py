@@ -1,7 +1,7 @@
-"""Ленивое управление единственной Global/English OCR-моделью AzurPilot."""
+"""Ленивое управление единственным публичным EN/Global OCR namespace."""
 
 from module.base.decorator import cached_property
-from module.ocr.al_ocr import AlOcr
+from module.ocr.global_english import GlobalEnglishOcr
 
 
 class OcrModel:
@@ -9,8 +9,8 @@ class OcrModel:
 
     @cached_property
     def azur_lane(self):
-        """Английская OCR-модель для чисел и компактных значений интерфейса."""
-        return AlOcr(name="azur_lane")
+        """EN/Global OCR с маршрутизацией compact values и natural text."""
+        return GlobalEnglishOcr()
 
 
 OCR_MODEL = OcrModel()

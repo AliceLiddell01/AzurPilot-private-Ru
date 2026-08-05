@@ -36,7 +36,7 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
                 ]
             )
         )
-        models = SimpleNamespace(ppocr_v6=ocr)
+        models = SimpleNamespace(azur_lane=ocr)
         with (
             patch("module.ocr.models.OCR_MODEL", models),
             self.assertRaises(ScreenshotIntervalBenchmarkError) as raised,
@@ -70,7 +70,7 @@ class ScreenshotIntervalBenchmarkAutomationTests(unittest.TestCase):
                 ]
             )
         )
-        models = SimpleNamespace(ppocr_v6=ocr)
+        models = SimpleNamespace(azur_lane=ocr)
         with patch("module.ocr.models.OCR_MODEL", models):
             self.assertEqual(benchmark._find_simulation_button(), (1120, 610))
 
