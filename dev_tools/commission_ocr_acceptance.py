@@ -177,6 +177,11 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
             f"Acceptance head mismatch: ожидался {args.expected_head}, получен {head}."
         )
 
+    config_path = Path("config") / f"{args.profile}.json"
+    config_before = _sha256(config_path)
+    if config_before is None:
+        raise AcceptanceFailure(f"Файл профиля не найден: {config_path}")
+
     print("Commission OCR acceptance plan")
     print(f"Exact head: {head}")
     print(f"Profile: {args.profile}")
@@ -191,8 +196,6 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     if runner.config.SERVER != "en":
         raise AcceptanceFailure("Commission OCR acceptance поддерживает только EN/Global.")
 
-    config_path = Path("config") / f"{args.profile}.json"
-    config_before = _sha256(config_path)
     args.artifact_dir.mkdir(parents=True, exist_ok=True)
 
     runner.ui_ensure(page_commission)
