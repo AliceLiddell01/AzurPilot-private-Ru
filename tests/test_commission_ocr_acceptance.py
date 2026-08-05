@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+import json
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import numpy as np
+
 from dev_tools.commission_ocr_acceptance import (
     _is_single_blank_scan,
+    _prepare_artifact_dir,
     _scan_mode,
+    _write_json_report,
     evaluate_rows,
 )
+from module.ocr.global_english import reconcile_trailing_roman_suffix
 
 
 class CommissionOcrAcceptanceTests(unittest.TestCase):
@@ -87,6 +94,58 @@ class CommissionOcrAcceptanceTests(unittest.TestCase):
         self.assertFalse(_is_single_blank_scan([]))
         self.assertFalse(_is_single_blank_scan([blank, blank]))
         self.assertFalse(_is_single_blank_scan([real_but_failed]))
+
+    def test_report_writer_serializes_numpy_evidence(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            report_path = Path(temporary_directory) / "report.json"
+            _write_json_report(
+                report_path,
+                {
+                    "row_area": [np.int64(188), np.int64(87)],
+                    "matrix": np.array([[1, 2]], dtype=np.int64),
+                },
+            )
+
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["row_area"], [188, 87])
+        self.assertEqual(payload["matrix"], [[1, 2]])
+
+    def test_artifact_cleanup_removes_only_generated_files(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            artifact_dir = Path(temporary_directory)
+            (artifact_dir / "07-urgent-row.png").write_bytes(b"stale")
+            (artifact_dir / "urgent-page-retry.png").write_bytes(b"stale")
+            keep = artifact_dir / "operator-note.txt"
+            keep.write_text("keep", encoding="utf-8")
+
+            removed = _prepare_artifact_dir(artifact_dir)
+
+            self.assertEqual(
+                removed,
+                ["07-urgent-row.png", "urgent-page-retry.png"],
+            )
+            self.assertTrue(keep.is_file())
+
+    def test_visual_geometry_restores_collapsed_roman_suffix(self) -> None:
+        image = np.full((24, 120), 255, dtype=np.uint8)
+        image[7:19, 10:55] = 0
+        image[6:19, 92:95] = 0
+        image[6:19, 98:101] = 0
+        image[6:19, 104:107] = 0
+
+        result = reconcile_trailing_roman_suffix("SELF TRAINING I", image)
+
+        self.assertEqual(result, "SELF TRAINING III")
+
+    def test_roman_suffix_is_not_changed_without_strict_geometry(self) -> None:
+        image = np.full((24, 120), 255, dtype=np.uint8)
+        image[7:19, 10:55] = 0
+        image[5:20, 88:116] = 0
+
+        result = reconcile_trailing_roman_suffix("SELF TRAINING I", image)
+
+        self.assertEqual(result, "SELF TRAINING I")
 
     @patch(
         "dev_tools.commission_ocr_acceptance.COMMISSION_SWITCH.get",
