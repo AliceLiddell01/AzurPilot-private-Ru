@@ -1,0 +1,517 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+  push:
+    branches:
+      - personal/stable
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  python:
+    name: Python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Validate and synchronize lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+
+      - name: Run Ruff
+        run: uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+
+      - name: Compile first-party Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python - <<'PY'
+          import compileall
+          from pathlib import Path
+
+          roots = [Path("alas.py"), Path("gui.py"), Path("mcp_server_sse.py"), Path("module"), Path("dev_tools"), Path("tests")]
+          failed = False
+          for root in roots:
+              if not root.exists():
+                  continue
+              if root.is_file():
+                  failed = not compileall.compile_file(root, quiet=1) or failed
+              else:
+                  failed = not compileall.compile_dir(root, quiet=1) or failed
+          if failed:
+              raise SystemExit("Python compilation failed.")
+          PY
+
+      - name: Run product regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python -m unittest -v \
+            tests.test_webui_worker_registry \
+            tests.test_webui_no_reload_recovery \
+            tests.test_stage8a_device_acceptance \
+            tests.test_stage8b_rpc_runtime \
+            tests.test_stage8b_ocr_acceptance \
+            tests.test_stage8b_opsi_zone_acceptance \
+            tests.test_ocr_global_model_benchmark \
+            tests.test_screenshot_interval_benchmark \
+            tests.test_screenshot_interval_benchmark_automation \
+            tests.test_screenshot_interval_benchmark_webui
+
+      - name: Verify runtime generators
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked -m dev_tools.button_extract
+          uv run --locked -m module.config.config_updater
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+
+      - name: Check repository hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts/python
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "uv=$(uv --version 2>&1)"
+            echo "python=$(uv run --locked python --version 2>&1)"
+            echo
+            echo '--- git status --short ---'
+            git status --short
+            echo
+            echo '--- git diff --check ---'
+            git diff --check
+          } > artifacts/python/diagnostics.txt 2>&1
+          git diff --binary > artifacts/python/working-tree.diff
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/python
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expectedHead = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $actualHead = & git rev-parse HEAD
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git rev-parse failed with exit code {0}.' -f $gitExitCode)
+          }
+          if ([string]($actualHead | Select-Object -Last 1) -ne $expectedHead) {
+              throw ('Unexpected checkout head: {0}' -f $actualHead)
+          }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Validate and synchronize lockfile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          uv lock --check
+          if ($LASTEXITCODE -ne 0) {
+              throw 'uv lock --check failed.'
+          }
+          uv sync --locked
+          if ($LASTEXITCODE -ne 0) {
+              throw 'uv sync --locked failed.'
+          }
+
+      - name: Parse all tracked PowerShell files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $powerShellFiles = @(& git ls-files -- '*.ps1' '*.psm1')
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git ls-files failed with exit code {0}.' -f $gitExitCode)
+          }
+          $findings = [System.Collections.Generic.List[string]]::new()
+          foreach ($relativePath in $powerShellFiles) {
+              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
+              $tokens = $null
+              $parseErrors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  $scriptPath,
+                  [ref]$tokens,
+                  [ref]$parseErrors
+              )
+              foreach ($parseError in $parseErrors) {
+                  $findings.Add(
+                      ('{0}:{1}: {2}' -f $relativePath, $parseError.Extent.StartLineNumber, $parseError.Message)
+                  )
+              }
+          }
+          if ($findings.Count -gt 0) {
+              $findings | Write-Error
+              throw 'PowerShell Parser reported findings.'
+          }
+
+      - name: Run pinned PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -RequiredVersion '1.25.0' -Scope CurrentUser -Force
+          $powerShellFiles = @(& git ls-files -- '*.ps1' '*.psm1')
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git ls-files failed with exit code {0}.' -f $gitExitCode)
+          }
+          $findings = @()
+          foreach ($relativePath in $powerShellFiles) {
+              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
+              $findings += Invoke-ScriptAnalyzer -Path $scriptPath -Severity Error, Warning
+          }
+          if ($findings.Count -gt 0) {
+              $findings | Format-Table -AutoSize
+              throw 'PSScriptAnalyzer reported findings.'
+          }
+
+      - name: Run Windows product regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          uv run --locked python -m dev_tools.stage6_webui_smoke
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Windows WebUI smoke failed.'
+          }
+          uv run --locked python -m unittest -v tests.test_webui_no_reload_recovery tests.test_stage8a_device_acceptance
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Windows product regression tests failed.'
+          }
+
+      - name: Check repository hygiene
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & git diff --check
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git diff --check failed with exit code {0}.' -f $gitExitCode)
+          }
+          $status = @(& git status --porcelain)
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git status failed with exit code {0}.' -f $gitExitCode)
+          }
+          if ($status.Count -gt 0) {
+              $status | Write-Error
+              throw 'Windows job left the working tree dirty.'
+          }
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $artifactDirectory = Join-Path -Path $PWD -ChildPath 'artifacts/windows'
+          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+          @(
+              "commit=$(& git rev-parse HEAD)"
+              "pwsh=$($PSVersionTable.PSVersion)"
+              "uv=$(uv --version)"
+              "python=$(uv run --locked python --version)"
+              ''
+              '--- git status --short ---'
+              (& git status --short | Out-String)
+          ) | Set-Content -LiteralPath (Join-Path -Path $artifactDirectory -ChildPath 'diagnostics.txt') -Encoding utf8
+          & git diff --binary | Set-Content -LiteralPath (Join-Path -Path $artifactDirectory -ChildPath 'working-tree.diff') -Encoding utf8
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/windows
+          if-no-files-found: error
+          retention-days: 14
+
+  security:
+    name: Security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact head with history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact head
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Validate and synchronize lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked
+
+      - name: Scan current tree and relevant history with Gitleaks
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          version='8.30.1'
+          archive="gitleaks_${version}_linux_x64.tar.gz"
+          archive_sha256='551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+          release_url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}"
+          tool_dir="${RUNNER_TEMP}/gitleaks"
+          mkdir -p "$tool_dir"
+          curl --fail --location --silent --show-error --output "${tool_dir}/${archive}" "$release_url"
+          printf '%s  %s\n' "$archive_sha256" "${tool_dir}/${archive}" | sha256sum --check --strict
+          tar -xzf "${tool_dir}/${archive}" -C "$tool_dir" gitleaks
+          gitleaks="${tool_dir}/gitleaks"
+
+          scan_paths=(
+            .github
+            .codex
+            config
+            deploy
+            dev_tools
+            docs
+            module
+            scripts
+            tests
+            AGENTS.md
+            README.md
+            alas.py
+            gui.py
+            mcp_server_sse.py
+            pyproject.toml
+            uv.lock
+          )
+          for scan_path in "${scan_paths[@]}"; do
+            if [[ -e "$scan_path" ]]; then
+              "$gitleaks" dir --redact --no-banner --verbose "$scan_path"
+            fi
+          done
+
+          if [[ "$EVENT_NAME" == 'pull_request' ]]; then
+            log_opts="${PR_BASE_SHA}..HEAD"
+          elif [[ -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != '0000000000000000000000000000000000000000' ]]; then
+            log_opts="${PUSH_BEFORE_SHA}..HEAD"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            log_opts='HEAD^..HEAD'
+          else
+            log_opts='HEAD'
+          fi
+          "$gitleaks" git --redact --no-banner --verbose --log-opts="$log_opts" .
+
+      - name: Check added repository files
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == 'pull_request' ]]; then
+            diff_range="${PR_BASE_SHA}..HEAD"
+          elif [[ -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != '0000000000000000000000000000000000000000' ]]; then
+            diff_range="${PUSH_BEFORE_SHA}..HEAD"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            diff_range='HEAD^..HEAD'
+          else
+            diff_range='HEAD'
+          fi
+          DIFF_RANGE="$diff_range" uv run --locked python - <<'PY'
+          import os
+          import subprocess
+          from pathlib import PurePosixPath
+
+          output = subprocess.run(
+              ["git", "diff", "--name-status", "--diff-filter=AM", os.environ["DIFF_RANGE"]],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout
+          risky_names = {
+              ".env",
+              "credentials.json",
+              "cookies.json",
+              "session.json",
+              "id_rsa",
+              "id_ed25519",
+          }
+          risky_suffixes = {
+              ".pem",
+              ".key",
+              ".p12",
+              ".pfx",
+              ".dump",
+              ".bak",
+              ".backup",
+          }
+          risky_parts = {"screenshots", "ocr-crops", "debug-images", "browser-profile"}
+          findings = []
+          for line in output.splitlines():
+              _, path_text = line.split("\t", 1)
+              path = PurePosixPath(path_text)
+              lowered_parts = {part.lower() for part in path.parts}
+              if path.name.lower() in risky_names:
+                  findings.append(path_text)
+              elif path.suffix.lower() in risky_suffixes:
+                  findings.append(path_text)
+              elif lowered_parts & risky_parts:
+                  findings.append(path_text)
+          if findings:
+              print("Potential private or local-only files were added:")
+              for path in findings:
+                  print(path)
+              raise SystemExit(1)
+          print("Repository hygiene: no risky added files.")
+          PY
+
+      - name: Run product security regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python -m unittest -v \
+            tests.test_stage8b_rpc_runtime \
+            tests.test_stage8b_reparse_privacy \
+            tests.test_stage8b_ocr_acceptance \
+            tests.test_stage8b_opsi_zone_acceptance \
+            tests.test_stage8a_device_acceptance
+
+      - name: Install pinned browser runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv pip install playwright==1.55.0
+          uv run playwright install --with-deps chromium
+
+      - name: Run WebUI DOM security regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/security-browser
+          timeout --signal=TERM --kill-after=15s 10m \
+            uv run python tests/run_stage7_webui_traceback_browser.py \
+              > artifacts/security-browser/report.json
+          if pgrep -af 'playwright.*chromium|chromium.*playwright' > artifacts/security-browser/processes.txt; then
+            cat artifacts/security-browser/processes.txt
+            exit 1
+          fi
+          echo 'No orphaned Playwright Chromium processes.' > artifacts/security-browser/processes.txt
+
+      - name: Check repository hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -z "$(git status --porcelain)"
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts/security
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo
+            echo '--- git status --short ---'
+            git status --short
+          } > artifacts/security/diagnostics.txt 2>&1
+          git diff --binary > artifacts/security/working-tree.diff
+          if [[ -d artifacts/security-browser ]]; then
+            cp -R artifacts/security-browser artifacts/security/browser
+          fi
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/security
+          if-no-files-found: error
+          retention-days: 14
