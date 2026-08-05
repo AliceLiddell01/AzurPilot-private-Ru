@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ci-reset-replacement-builder
+  group: ci-reset-replacement-builder-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
