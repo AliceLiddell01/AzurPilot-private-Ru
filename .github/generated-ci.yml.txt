@@ -144,7 +144,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
 
-          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $gitExecutable = $gitCommand.Path
           $expectedHead = '${{ github.event.pull_request.head.sha || github.sha }}'
           $gitArguments = @(
@@ -181,7 +181,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
 
-          $uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop
+          $uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $uvExecutable = $uvCommand.Path
 
           $uvArguments = @(
@@ -213,7 +213,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
 
-          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $gitExecutable = $gitCommand.Path
           $gitArguments = @(
               'ls-files'
@@ -273,9 +273,9 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
 
-          $uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop
+          $uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $uvExecutable = $uvCommand.Path
-          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $gitExecutable = $gitCommand.Path
 
           $uvArguments = @(
@@ -333,7 +333,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $false
 
-          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $gitExecutable = $gitCommand.Path
           $artifactDirectory = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows'
           New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
