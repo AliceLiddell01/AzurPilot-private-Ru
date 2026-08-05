@@ -2,7 +2,7 @@
 
 The runner navigates to the Commission page, scans the Daily and Urgent tabs,
 saves full-row and name crops, validates the parsed Commission objects and then
-requires the operator to visually confirm every recognized row.  It never
+requires the operator to visually confirm every recognized row. It never
 claims rewards and never starts a commission.
 """
 
@@ -60,6 +60,12 @@ def _write_png(path: Path, image: np.ndarray) -> None:
         raise AcceptanceFailure(f"Не удалось сохранить PNG: {path}")
 
 
+def _capture_screen(runner: RewardCommission, path: Path) -> str:
+    runner.device.screenshot()
+    _write_png(path, np.asarray(runner.device.image))
+    return path.as_posix()
+
+
 def _commission_row(comm, mode: str, row_id: int, artifact_dir: Path) -> dict[str, Any]:
     image = np.asarray(comm.image)
     row_path = artifact_dir / f"{row_id:02d}-{mode}-row.png"
@@ -99,6 +105,29 @@ def _commission_row(comm, mode: str, row_id: int, artifact_dir: Path) -> dict[st
     }
 
 
+def _is_blank_commission(comm) -> bool:
+    """Return whether a detector result is the single empty-tab sentinel.
+
+    The EN empty Urgent page can expose one decorative separator to
+    ``lines_detect``. That creates one Commission object with no name, no genre,
+    no duration and no suffix. This predicate is deliberately strict so a real
+    card with even one recognized field remains a blocking OCR failure.
+    """
+
+    duration_seconds = int(comm.duration.total_seconds())
+    return bool(
+        not comm.valid
+        and not str(comm.name).strip()
+        and not str(comm.genre).strip()
+        and duration_seconds == 0
+        and not str(comm.suffix_hash).strip()
+    )
+
+
+def _is_single_blank_scan(commissions: list[Any]) -> bool:
+    return len(commissions) == 1 and _is_blank_commission(commissions[0])
+
+
 def evaluate_rows(rows: list[dict[str, Any]]) -> list[str]:
     """Return fail-closed automatic acceptance findings."""
 
@@ -124,8 +153,8 @@ def _ensure_mode_active(runner: RewardCommission, mode: str) -> None:
     """Ensure the requested Commission tab is the observed active state.
 
     ``Switch.set`` returns whether it clicked, not whether the requested state is
-    active.  An already-active tab therefore returns ``False`` even though the
-    operation succeeded.  Acceptance validates the observed selector state
+    active. An already-active tab therefore returns ``False`` even though the
+    operation succeeded. Acceptance validates the observed selector state
     instead of interpreting that change flag as success/failure.
     """
 
@@ -148,6 +177,66 @@ def _scan_mode(runner: RewardCommission, mode: str):
     if mode == "urgent":
         rows.call("convert_to_night")
     return list(rows)
+
+
+def _scan_urgent_with_retry(
+    runner: RewardCommission,
+    artifact_dir: Path,
+) -> tuple[list[Any], bool, dict[str, Any]]:
+    """Scan lazy-loaded Urgent twice before offering an empty-tab confirmation."""
+
+    first = _scan_mode(runner, "urgent")
+    first_screen = _capture_screen(runner, artifact_dir / "urgent-page-first.png")
+    evidence: dict[str, Any] = {
+        "first_raw_count": len(first),
+        "first_blank_sentinel": _is_single_blank_scan(first),
+        "first_screen": first_screen,
+        "first_screen_sha256": _sha256(Path(first_screen)),
+    }
+    if not _is_single_blank_scan(first):
+        return first, False, evidence
+
+    # Force the same Daily -> Urgent refresh used by the production scanner.
+    _ensure_mode_active(runner, "daily")
+    _ensure_mode_active(runner, "urgent")
+    second = _scan_mode(runner, "urgent")
+    second_screen = _capture_screen(runner, artifact_dir / "urgent-page-retry.png")
+    evidence.update(
+        {
+            "second_raw_count": len(second),
+            "second_blank_sentinel": _is_single_blank_scan(second),
+            "second_screen": second_screen,
+            "second_screen_sha256": _sha256(Path(second_screen)),
+        }
+    )
+    if _is_single_blank_scan(second):
+        return [], True, evidence
+    return second, False, evidence
+
+
+def _confirm_empty_urgent(
+    empty_urgent: bool,
+    evidence: dict[str, Any],
+    args: argparse.Namespace,
+) -> list[str]:
+    if not empty_urgent:
+        return []
+
+    screen = evidence.get("second_screen") or evidence.get("first_screen")
+    print("\nUrgent дал один полностью пустой detector-объект после двух сканов.")
+    print(f"Проверьте, что на вкладке Urgent действительно нет карточек: {screen}")
+    if args.non_interactive:
+        raw = args.confirmed_empty_modes or ""
+    else:
+        raw = input(
+            "Введите EMPTY URGENT только если вкладка визуально пуста; "
+            "любое другое значение завершит тест с FAIL: "
+        ).strip()
+    if raw.upper() != "EMPTY URGENT":
+        raise AcceptanceFailure(
+            "Пустая вкладка Urgent не подтверждена точной командой EMPTY URGENT."
+        )
+    return ["urgent"]
 
 
 def _confirm_rows(rows: list[dict[str, Any]], args: argparse.Namespace) -> list[int]:
@@ -219,12 +308,33 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     args.artifact_dir.mkdir(parents=True, exist_ok=True)
 
     runner.ui_ensure(page_commission)
-    runner.device.screenshot()
-    initial_screen = args.artifact_dir / "commission-page-initial.png"
-    _write_png(initial_screen, np.asarray(runner.device.image))
+    initial_screen = _capture_screen(
+        runner,
+        args.artifact_dir / "commission-page-initial.png",
+    )
+
+    # Urgent is lazy-loaded in production. Warm it before scanning Daily.
+    _ensure_mode_active(runner, "urgent")
+    urgent_warmup_screen = _capture_screen(
+        runner,
+        args.artifact_dir / "urgent-page-warmup.png",
+    )
+    _ensure_mode_active(runner, "daily")
 
     daily = _scan_mode(runner, "daily")
-    urgent = _scan_mode(runner, "urgent")
+    daily_final_screen = _capture_screen(
+        runner,
+        args.artifact_dir / "daily-page-final.png",
+    )
+    urgent, empty_urgent, urgent_evidence = _scan_urgent_with_retry(
+        runner,
+        args.artifact_dir,
+    )
+    confirmed_empty_modes = _confirm_empty_urgent(
+        empty_urgent,
+        urgent_evidence,
+        args,
+    )
     _ensure_mode_active(runner, "daily")
 
     rows: list[dict[str, Any]] = []
@@ -254,14 +364,21 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         "commission_count": len(rows),
         "daily_count": len(daily),
         "urgent_count": len(urgent),
+        "empty_modes": ["urgent"] if empty_urgent else [],
+        "user_confirmed_empty_modes": confirmed_empty_modes,
+        "urgent_empty_evidence": urgent_evidence,
         "rows": rows,
         "user_confirmed_ids": confirmed_ids,
         "confirmation_method": (
             "non_interactive_MATCH" if args.non_interactive else "interactive_MATCH"
         ),
         "config_unchanged": True,
-        "initial_screen": initial_screen.as_posix(),
-        "initial_screen_sha256": _sha256(initial_screen),
+        "screens": {
+            "initial": initial_screen,
+            "urgent_warmup": urgent_warmup_screen,
+            "daily_final": daily_final_screen,
+        },
+        "initial_screen_sha256": _sha256(Path(initial_screen)),
     }
 
 
@@ -280,6 +397,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--confirmed-ids",
         help="Use 'MATCH ALL' or 'MATCH 1,2,...' with --non-interactive.",
+    )
+    parser.add_argument(
+        "--confirmed-empty-modes",
+        help="Use exact 'EMPTY URGENT' with --non-interactive when Urgent is empty.",
     )
     args = parser.parse_args(argv)
 
