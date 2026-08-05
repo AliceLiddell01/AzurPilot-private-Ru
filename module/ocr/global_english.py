@@ -1,15 +1,20 @@
 """Semantic routing for the Global/English OCR contour.
 
 The compact Azur Lane recognizer remains the default public ``azur_lane``
-model.  The bundled PP-OCRv6 recognizer is selected only for audited runtime
+model. The bundled PP-OCRv6 recognizer is selected only for audited runtime
 contours that historically requested a general OCR model because they contain
 natural English text or unsupported UI fonts.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
+import cv2
+import numpy as np
+
+from module.logger import logger
 from module.ocr.al_ocr import (
     DET_MODEL_PATH,
     GENERIC_PPOCR_V6_PARAMS,
@@ -43,6 +48,15 @@ _GENERAL_OCR_NAMES = frozenset(
 )
 _GENERAL_OCR_NAME_PREFIXES = ("TEXT_POS", "pearl_rank_price")
 _GENERAL_OCR_TYPES = frozenset({"RaidCounter", "RaidCounterPostMixin"})
+_TRAILING_ROMAN_RE = re.compile(r"(?<![A-Z])(VI|IV|V|III|II|I)$", re.IGNORECASE)
+_ROMAN_COMPONENT_MAP = {
+    ("I",): "I",
+    ("I", "I"): "II",
+    ("I", "I", "I"): "III",
+    ("I", "V"): "IV",
+    ("V",): "V",
+    ("V", "I"): "VI",
+}
 
 
 def should_use_general_english(
@@ -54,7 +68,7 @@ def should_use_general_english(
 ) -> bool:
     """Return whether an audited request needs the general English model.
 
-    ``direct`` is reserved for explicit direct-model callers.  Normal Ocr
+    ``direct`` is reserved for explicit direct-model callers. Normal Ocr
     wrappers are routed by their stable OCR name or recognizer class, keeping
     all unlisted ``azur_lane`` callsites on their previous compact model.
     """
@@ -71,6 +85,93 @@ def should_use_general_english(
     if any(normalized_name.startswith(prefix) for prefix in _GENERAL_OCR_NAME_PREFIXES):
         return True
     return str(recognizer_type or "") in _GENERAL_OCR_TYPES
+
+
+def _roman_suffix_from_preprocessed(image: Any) -> str | None:
+    """Classify a detached trailing Roman numeral I..VI from OCR input pixels.
+
+    ``Ocr`` passes an ``extract_letters``/``crop_to_text`` image here: dark text
+    on a light background. The classifier is intentionally narrow. It only
+    accepts one detached final glyph group no wider than 20 pixels whose
+    connected components match the game's simple I/V font geometry.
+    """
+
+    array = np.asarray(image)
+    if array.ndim == 3:
+        array = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
+    if array.ndim != 2 or array.size == 0:
+        return None
+    array = np.clip(array, 0, 255).astype(np.uint8, copy=False)
+
+    # Dark text becomes white foreground for connected-component analysis.
+    _, foreground = cv2.threshold(
+        array,
+        0,
+        255,
+        cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU,
+    )
+    min_column_pixels = max(2, int(round(array.shape[0] * 0.15)))
+    columns = np.flatnonzero(
+        np.count_nonzero(foreground, axis=0) >= min_column_pixels
+    )
+    if columns.size == 0:
+        return None
+
+    gaps = np.diff(columns)
+    word_breaks = np.flatnonzero(gaps >= 6)
+    left = int(columns[word_breaks[-1] + 1]) if word_breaks.size else int(columns[0])
+    right = int(columns[-1]) + 1
+    if right - left > 20:
+        return None
+
+    tail = foreground[:, left:right]
+    count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        tail,
+        connectivity=8,
+    )
+    components = []
+    min_height = max(7, int(round(array.shape[0] * 0.45)))
+    for x, _y, width, height, area in stats[1:count]:
+        if area < 8 or height < min_height:
+            continue
+        components.append((int(x), int(width), int(height), int(area)))
+    components.sort(key=lambda item: item[0])
+    if not 1 <= len(components) <= 3:
+        return None
+
+    shapes: list[str] = []
+    for _x, width, height, area in components:
+        if width <= 4 and area <= height * 4:
+            shapes.append("I")
+        elif 6 <= width <= 12 and area <= height * 8:
+            shapes.append("V")
+        else:
+            return None
+    return _ROMAN_COMPONENT_MAP.get(tuple(shapes))
+
+
+def reconcile_trailing_roman_suffix(text: str, image: Any) -> str:
+    """Replace a collapsed OCR Roman suffix with the observed glyph sequence."""
+
+    normalized = str(text or "")
+    observed = _roman_suffix_from_preprocessed(image)
+    if observed is None:
+        return normalized
+
+    match = _TRAILING_ROMAN_RE.search(normalized.rstrip())
+    if match is None:
+        return normalized
+    recognized = match.group(1).upper()
+    if recognized == observed:
+        return normalized
+
+    corrected = normalized[: match.start(1)] + observed
+    logger.info(
+        "[OCR] Исправлен римский суффикс по геометрии: %s -> %s",
+        normalized,
+        corrected,
+    )
+    return corrected
 
 
 def _general_recognition_model() -> Any:
@@ -131,6 +232,15 @@ class GeneralEnglishOcr(AlOcr):
         self.model = _general_recognition_model()
         self._model_loaded = True
 
+    def atomic_ocr_for_single_lines(self, img_list, cand_alphabet=None):
+        results = super().atomic_ocr_for_single_lines(img_list, cand_alphabet)
+        if cand_alphabet:
+            return results
+        return [
+            reconcile_trailing_roman_suffix(text, image)
+            for text, image in zip(results, img_list)
+        ]
+
     def _ensure_det_loaded(self) -> None:
         if not self._det_loaded:
             self._det_model = _general_detection_model()
@@ -154,8 +264,6 @@ class GeneralEnglishOcr(AlOcr):
                 self._save_det_debug(img_fp, rows)
             return rows
         except Exception as exc:
-            from module.logger import logger
-
             logger.error(f"Ошибка GeneralEnglishOcr.det: {exc}")
             raise
 
