@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from dev_tools.screenshot_interval_benchmark import (
+from tools.benchmarks.screenshot_intervals import (
     COMBAT_RANGE,
     DEFAULT_COMBAT_INTERVALS,
     DEFAULT_MARKDOWN_REPORT,

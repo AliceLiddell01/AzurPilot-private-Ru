@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from dev_tools.screenshot_interval_benchmark import (
+from tools.benchmarks.screenshot_intervals import (
     IntervalResult,
     _parse_intervals,
     _percentile,
@@ -11,7 +11,7 @@ from dev_tools.screenshot_interval_benchmark import (
     _run_phase,
     _summarize_interval,
 )
-from dev_tools.stage8a_device_acceptance import AcceptanceFailure
+from tools.acceptance.device import AcceptanceFailure
 
 
 def _result(phase: str, interval: float, stable: bool = True) -> IntervalResult:
@@ -126,7 +126,7 @@ class ScreenshotIntervalBenchmarkTests(unittest.TestCase):
             return _result(phase, interval)
 
         with patch(
-            "dev_tools.screenshot_interval_benchmark._benchmark_interval",
+            "tools.benchmarks.screenshot_intervals._benchmark_interval",
             side_effect=fake_benchmark,
         ):
             results = _run_phase(

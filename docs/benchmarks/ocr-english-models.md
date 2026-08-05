@@ -3,7 +3,7 @@
 Персональная версия AzurPilot работает только с международным сервером
 **EN/Global**. Отдельные китайские, японские и традиционно-китайские OCR-веса,
 словари и тестовые наборы удалены. Параметры выбора этих моделей были удалены
-ранее в Stage 8B.
+в product-контуре.
 
 ## Что сравнивается
 
@@ -30,19 +30,19 @@ Benchmark проверяет распознавание уже вырезанн�
 - все возможные надписи вне набора `sets_num`.
 
 Результаты проходят через тот же `normalize_ocr_text("azur_lane", ...)`, который
-использует production-контур после Stage 8B. Поэтому сравнивается итоговая строка,
+использует production-контур в product-контуре. Поэтому сравнивается итоговая строка,
 а не ненормализованный промежуточный вывод модели.
 
 ## Запуск
 
 ```powershell
-uv run python -m dev_tools.ocr_english_model_benchmark --profile alas
+uv run python -m tools.benchmarks.ocr_english_models --profile alas
 ```
 
 Временно задать устройство ONNX-моделей:
 
 ```powershell
-uv run python -m dev_tools.ocr_english_model_benchmark --profile alas --device gpu
+uv run python -m tools.benchmarks.ocr_english_models --profile alas --device gpu
 ```
 
 Настройки профиля на диске команда не изменяет. Vendor Execution Providers во

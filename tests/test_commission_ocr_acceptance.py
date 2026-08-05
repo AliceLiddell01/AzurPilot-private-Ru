@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from dev_tools.commission_ocr_acceptance import (
+from tools.acceptance.ocr_commission import (
     _is_single_blank_scan,
     _prepare_artifact_dir,
     _scan_mode,
@@ -148,7 +148,7 @@ class CommissionOcrAcceptanceTests(unittest.TestCase):
         self.assertEqual(result, "SELF TRAINING I")
 
     @patch(
-        "dev_tools.commission_ocr_acceptance.COMMISSION_SWITCH.get",
+        "tools.acceptance.ocr_commission.COMMISSION_SWITCH.get",
         return_value="daily",
     )
     def test_already_active_daily_tab_is_success(self, switch_get: Mock) -> None:
@@ -165,7 +165,7 @@ class CommissionOcrAcceptanceTests(unittest.TestCase):
         switch_get.assert_called_once_with(main=runner)
 
     def test_live_runner_is_read_only_for_commission_state(self) -> None:
-        source = Path("dev_tools/commission_ocr_acceptance.py").read_text(
+        source = Path("tools/acceptance/ocr_commission.py").read_text(
             encoding="utf-8"
         )
         self.assertIn("runner.ui_ensure(page_commission)", source)
@@ -177,7 +177,7 @@ class CommissionOcrAcceptanceTests(unittest.TestCase):
         self.assertNotIn("runner._commission_choose(", source)
 
     def test_empty_urgent_and_rows_require_separate_manual_confirmation(self) -> None:
-        source = Path("dev_tools/commission_ocr_acceptance.py").read_text(
+        source = Path("tools/acceptance/ocr_commission.py").read_text(
             encoding="utf-8"
         )
         self.assertIn("_confirm_empty_urgent(", source)

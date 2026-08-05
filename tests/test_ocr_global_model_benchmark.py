@@ -153,7 +153,7 @@ class OcrGlobalModelBenchmarkTests(unittest.TestCase):
         self.assertFalse(payload["detector_tested"])
         self.assertEqual(payload["results"][0]["model_version"], "alocr_en_v2_6")
 
-    def test_accuracy_path_uses_stage8b_production_normalizer(self):
+    def test_accuracy_path_uses_production_normalizer(self):
         source = Path("module/daemon/ocr_benchmark.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         calls = [

@@ -8,7 +8,7 @@ import argparse
 import multiprocessing
 
 from module.logger import logger
-from module.ocr.stage8b_rpc_security import (
+from module.ocr.rpc_security import (
     client_uri,
     decode_image_payload,
     encode_image_payload,

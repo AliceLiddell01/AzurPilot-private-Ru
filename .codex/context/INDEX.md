@@ -23,10 +23,11 @@
 | `08-VERIFICATION.md` | Режимы задач, проверки и Definition of Done |
 | `09-SOURCES-MAINTENANCE.md` | Источники истины и поддержка этой папки |
 | `10-GLOSSARY.md` | Термины и быстрые связи |
-| `11-STAGE8A-DEVICE-LOG-CONTRACT.md` | Stage 8A: device/ADB logs, semantic verifier и real-device acceptance |
 | `GIT-WORKFLOW.md` | Полный регламент веток, PR и upstream |
 | `POWERSHELL-GIT-RULES.md` | Полный стандарт `.ps1` с Git-командами |
 | `MIGRATION-MAP.md` | Что было сохранено и отброшено из старых AI-файлов |
+
+Постоянный контракт CI описан отдельно в `docs/ci.md`. Required checks: `Python`, `Windows`, `Security`.
 
 ## Что здесь намеренно отсутствует
 
@@ -35,4 +36,5 @@
 - номера строк и количество методов;
 - неподтверждённые архитектурные предложения;
 - автоматически применяемые инструкции для всех задач;
+- исторические Stage/evidence-контракты и одноразовые отчёты;
 - китайский текст.

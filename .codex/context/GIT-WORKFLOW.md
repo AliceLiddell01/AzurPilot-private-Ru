@@ -294,7 +294,7 @@ codex/<stage-or-task>
 Примеры:
 
 ```text
-codex/stage4-updater-hardening
+codex/updater-hardening
 codex/fix-repair-rollback
 codex/docs-update-recovery
 ```
