@@ -23,7 +23,8 @@ jobs:
       - name: Checkout iterative PR head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          filter: blob:none
           ref: codex/ci-reset
 
       - name: Install uv
@@ -47,12 +48,12 @@ jobs:
           set -euo pipefail
 
           iterative_head="$(git rev-parse HEAD)"
-          git fetch --no-tags origin "$BASE_BRANCH"
+          git fetch --no-tags --filter=blob:none --depth=1 origin "$BASE_BRANCH"
           base_sha="$(git rev-parse "origin/${BASE_BRANCH}")"
           printf 'iterative_head=%s\nbase_sha=%s\n' "$iterative_head" "$base_sha"
 
           patch_file="${RUNNER_TEMP}/ci-reset-final.patch"
-          git diff --binary "$base_sha...$iterative_head" > "$patch_file"
+          git diff --binary "$base_sha" "$iterative_head" > "$patch_file"
           test -s "$patch_file"
 
           git switch --detach "$base_sha"
