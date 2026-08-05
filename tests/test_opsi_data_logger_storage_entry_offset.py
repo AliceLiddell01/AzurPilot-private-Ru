@@ -69,12 +69,12 @@ class StorageEntryHarness(OpsiVoucher):
 
 
 def test_storage_entry_accepts_shifted_en_button_position(monkeypatch):
-    timer = FrameTimer()
+    timeout = FrameTimer()
     monkeypatch.setattr(
         'module.os.tasks.voucher.Timer.from_seconds',
-        lambda seconds: timer
+        lambda seconds: timeout
         if seconds == DATA_LOGGER_STORAGE_ENTER_SECONDS
-        else None,
+        else FrameTimer(),
     )
     task = StorageEntryHarness()
 
