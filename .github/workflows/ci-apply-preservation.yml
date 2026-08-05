@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ci-reset-preservation-apply
+  cancel-in-progress: true
+
 jobs:
   apply:
     name: Apply preservation map
