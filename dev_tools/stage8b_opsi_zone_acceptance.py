@@ -79,10 +79,20 @@ def _prepare_artifact_dir(path: Path) -> list[str]:
     return removed
 
 
+def _png_for_cv2(image: np.ndarray) -> np.ndarray:
+    """Convert in-memory RGB/RGBA evidence to OpenCV's BGR/BGRA order."""
+
+    array = np.clip(np.asarray(image), 0, 255).astype(np.uint8, copy=False)
+    if array.ndim == 3 and array.shape[2] == 3:
+        array = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+    elif array.ndim == 3 and array.shape[2] == 4:
+        array = cv2.cvtColor(array, cv2.COLOR_RGBA2BGRA)
+    return np.ascontiguousarray(array)
+
+
 def _write_png(path: Path, image: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    array = np.clip(np.asarray(image), 0, 255).astype(np.uint8, copy=False)
-    if not cv2.imwrite(str(path), array):
+    if not cv2.imwrite(str(path), _png_for_cv2(image)):
         raise AcceptanceFailure(f"Не удалось сохранить PNG: {path}")
 
 
