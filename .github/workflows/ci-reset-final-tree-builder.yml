@@ -1,4 +1,4 @@
-name: Build CI Reset final tree
+name: Patch CI Reset materialization
 
 on:
   pull_request:
@@ -12,69 +12,58 @@ permissions:
   contents: write
 
 concurrency:
-  group: ci-reset-final-tree-${{ github.sha }}
+  group: ci-reset-materialization-patch-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
-  build:
+  patch:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
-      - name: Checkout final-tree inputs
+      - name: Checkout materialized files
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            .codex/context/08-VERIFICATION.md
-            .github/scripts/ci-reset-builder.py.gz.b64.0
-            .github/scripts/ci-reset-builder.py.gz.b64.1
+            .github/generated-ci.yml.txt
             .github/workflows/ci-reset-final-tree-builder.yml
-            .github/workflows/ci.yml
-            docs/ci.md
-            pyproject.toml
-            tests/test_ocr_debug_privacy.py
             tests/test_ocr_rpc_security.py
-            uv.lock
           ref: codex/ci-reset
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.14.6"
-
-      - name: Materialize non-workflow files
+      - name: Patch generated CI and RPC test source
         shell: bash
         run: |
           set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
 
-          cat .github/scripts/ci-reset-builder.py.gz.b64.* \
-            | base64 --decode \
-            | gzip --decompress > "${RUNNER_TEMP}/build_ci_reset_replacement.py"
-          python "${RUNNER_TEMP}/build_ci_reset_replacement.py"
-          uv lock
-          uv lock --check
-          cp .github/workflows/ci.yml .github/generated-ci.yml.txt
+          workflow = Path('.github/generated-ci.yml.txt')
+          text = workflow.read_text(encoding='utf-8')
+          old_git = "$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop"
+          new_git = "$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1"
+          old_uv = "$uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop"
+          new_uv = "$uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop | Select-Object -First 1"
+          if old_git not in text:
+              raise SystemExit('generated CI: git command resolution pattern not found')
+          if old_uv not in text:
+              raise SystemExit('generated CI: uv command resolution pattern not found')
+          workflow.write_text(
+              text.replace(old_git, new_git).replace(old_uv, new_uv),
+              encoding='utf-8',
+          )
+
+          test_path = Path('tests/test_ocr_rpc_security.py')
+          data = test_path.read_bytes()
+          if b'\x00' not in data:
+              raise SystemExit('RPC security test: expected embedded null bytes were not found')
+          test_path.write_bytes(data.replace(b'\x00', b'\\x00'))
+          PY
 
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --sparse -f -- \
-            .codex/context/08-VERIFICATION.md \
-            .github/generated-ci.yml.txt \
-            docs/ci.md \
-            pyproject.toml \
-            tests/test_ocr_debug_privacy.py \
-            tests/test_ocr_rpc_security.py \
-            uv.lock
-          git commit -m "build: materialize corrected CI Reset files"
+          git add --sparse -f -- .github/generated-ci.yml.txt tests/test_ocr_rpc_security.py
+          git commit -m "build: patch generated CI and RPC test source"
           git push origin HEAD:codex/ci-reset
-
-          final_commit="$(git rev-parse HEAD)"
-          printf 'MATERIALIZED_COMMIT=%s\n' "$final_commit"
