@@ -1,8 +1,8 @@
-# Benchmark tools
+# Инструменты benchmark
 
-Benchmarks are optional developer commands and are not required status checks.
+Benchmarks являются необязательными командами разработчика и не входят в required status checks.
 
-- `uv run python -m tools.benchmarks.ocr_english_models --help`
-- `uv run python -m tools.benchmarks.screenshot_intervals --help`
+- `uv run python -m tools.benchmarks.ocr_english_models --help`;
+- `uv run python -m tools.benchmarks.screenshot_intervals --help`.
 
-Hardware, emulator, and game measurements are environment-specific. Keep generated reports and screenshots out of version control. Fast parser and formatting regressions remain covered by the `Python` job.
+Измерения зависят от оборудования, эмулятора и состояния игры. Generated reports и screenshots должны оставаться вне Git. Быстрые parser/format/regression tests инструментов выполняются в job `Python`, но реальные измерения запускаются только вручную в подходящей контролируемой среде.
