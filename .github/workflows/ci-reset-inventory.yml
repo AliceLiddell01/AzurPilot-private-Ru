@@ -1,0 +1,63 @@
+name: CI reset inventory
+
+on:
+  push:
+    branches:
+      - codex/ci-reset
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: CI reset inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+
+      - name: Print tracked cleanup candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+
+          paths = subprocess.run(
+              ["git", "ls-files"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+
+          keywords = (
+              "stage3",
+              "stage4",
+              "stage5",
+              "stage6",
+              "stage7",
+              "stage8a",
+              "stage8b",
+              "russianization",
+              "semantic",
+              "evidence",
+              "baseline",
+              "migration",
+              "acceptance",
+              "benchmark",
+          )
+          prefixes = (
+              ".github/workflows/",
+              ".codex/context/",
+              ".codex/reviews/",
+          )
+
+          for path in paths:
+              lowered = path.lower()
+              if path.startswith(prefixes) or any(keyword in lowered for keyword in keywords):
+                  print(path)
+          PY
