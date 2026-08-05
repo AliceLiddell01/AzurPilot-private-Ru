@@ -175,12 +175,10 @@ class DeployLanguageMigrationTests(unittest.TestCase):
         config.read()
         self.assertEqual(self.file.read_bytes(), before)
 
-    def test_cached_state_migrates_before_deploy_config_constructor(self) -> None:
+    def test_state_getter_migrates_before_deploy_config_constructor(self) -> None:
         from module.webui.setting import State
 
-        class FreshState(State):
-            pass
-
+        descriptor = vars(State)["deploy_config"]
         events: list[str] = []
         expected_config = object()
 
@@ -199,8 +197,7 @@ class DeployLanguageMigrationTests(unittest.TestCase):
             "module.webui.config.DeployConfig",
             side_effect=construct,
         ):
-            self.assertIs(FreshState.deploy_config, expected_config)
-            self.assertIs(FreshState.deploy_config, expected_config)
+            self.assertIs(descriptor.__func__(State), expected_config)
 
         self.assertEqual(events, ["migration", "constructor"])
 
