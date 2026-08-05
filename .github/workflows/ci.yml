@@ -84,31 +84,7 @@ jobs:
           if failed:
               raise SystemExit("Python compilation failed.")
           PY
-          uv run --locked python -m unittest -v \
-            tests.test_webui_worker_registry \
-            tests.test_webui_no_reload_recovery \
-            tests.test_deploy_set \
-            tests.test_legacy_installer_removal \
-            tests.test_deploy_templates \
-            tests.test_webui_deploy_settings \
-            tests.test_deploy_language_migration \
-            tests.test_config_generation \
-            tests.test_locale_runtime \
-            tests.test_server_locale_separation \
-            tests.test_deploy_diagnostics \
-            tests.test_webui_traceback_rendering \
-            tests.test_commission_ocr_acceptance \
-            tests.test_device_runtime_contracts \
-            tests.test_ocr_output_normalization \
-            tests.test_device_acceptance \
-            tests.test_ocr_rpc_runtime \
-            tests.test_ocr_acceptance \
-            tests.test_opsi_zone_ocr_acceptance \
-            tests.test_ocr_global_model_benchmark \
-            tests.test_screenshot_interval_benchmark \
-            tests.test_screenshot_interval_benchmark_automation \
-            tests.test_screenshot_interval_benchmark_webui
-          uv run --locked pytest -q tests/test_opsi_data_logger_hardening.py
+          uv run --with pytest==9.1.1 python -m pytest -q tests
 
       - name: Verify generated files and working tree
         shell: bash
