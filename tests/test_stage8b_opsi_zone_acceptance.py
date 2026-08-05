@@ -69,6 +69,12 @@ class OperationSirenZoneAcceptanceTests(unittest.TestCase):
 
         self.assertTrue(any("разными зонами" in item for item in findings))
 
+    def test_explicit_semantic_name_overrides_button_label(self) -> None:
+        ocr = Ocr(MAP_NAME, name="OCR_OS_MAP_NAME")
+
+        self.assertEqual(ocr.name, "OCR_OS_MAP_NAME")
+        self.assertNotEqual(ocr.name, str(MAP_NAME))
+
     def test_actual_map_name_request_routes_to_general_english(self) -> None:
         ocr = Ocr(
             MAP_NAME,
@@ -80,6 +86,7 @@ class OperationSirenZoneAcceptanceTests(unittest.TestCase):
 
         selected = ocr.cnocr
 
+        self.assertEqual(ocr.name, "OCR_OS_MAP_NAME")
         self.assertEqual(type(selected).__name__, "GeneralEnglishOcr")
         self.assertEqual(selected.name, "english_text")
 
