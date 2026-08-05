@@ -59,12 +59,13 @@ jobs:
           git apply --binary "$patch_file"
           python - <<'PY'
           import base64
+          import os
           from pathlib import Path
 
           parts = sorted(Path('.github/scripts').glob('ci-reset-builder.py.b64.*'))
           encoded = ''.join(part.read_text(encoding='ascii').strip().rstrip('=') for part in parts)
           encoded += '=' * (-len(encoded) % 4)
-          Path('${RUNNER_TEMP}/build_ci_reset_replacement.py').write_bytes(base64.b64decode(encoded, validate=True))
+          (Path(os.environ['RUNNER_TEMP']) / 'build_ci_reset_replacement.py').write_bytes(base64.b64decode(encoded, validate=True))
           PY
           python "${RUNNER_TEMP}/build_ci_reset_replacement.py"
           rm -f .github/scripts/ci-reset-builder.py.b64.*
