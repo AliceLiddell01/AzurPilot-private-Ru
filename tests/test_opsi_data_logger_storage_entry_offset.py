@@ -27,6 +27,7 @@ class StorageEntryHarness(OpsiVoucher):
         self.info_bar_calls = 0
         self.map_event_calls = 0
         self.interval_clears = []
+        self.zone = SimpleNamespace(is_azur_port=True)
         self.device = SimpleNamespace(
             screenshot=lambda: None,
             click=lambda _button: None,
@@ -37,6 +38,9 @@ class StorageEntryHarness(OpsiVoucher):
 
     def interval_clear(self, button):
         self.interval_clears.append(button)
+
+    def is_in_map(self):
+        return True
 
     def is_in_storage(self):
         return self.storage_clicked
@@ -65,12 +69,12 @@ class StorageEntryHarness(OpsiVoucher):
 
 
 def test_storage_entry_accepts_shifted_en_button_position(monkeypatch):
-    timer = FrameTimer()
+    timeout = FrameTimer()
     monkeypatch.setattr(
         'module.os.tasks.voucher.Timer.from_seconds',
-        lambda seconds: timer
+        lambda seconds: timeout
         if seconds == DATA_LOGGER_STORAGE_ENTER_SECONDS
-        else None,
+        else FrameTimer(),
     )
     task = StorageEntryHarness()
 

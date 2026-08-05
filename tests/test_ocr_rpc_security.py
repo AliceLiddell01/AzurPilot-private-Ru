@@ -1,0 +1,153 @@
+from __future__ import annotations
+
+import json
+import pickle
+import struct
+import unittest
+from unittest.mock import patch
+
+import numpy as np
+
+from module.ocr.rpc_security import (
+    MAX_HEADER_BYTES,
+    MAX_IMAGE_ELEMENTS,
+    MAX_SERIALIZED_IMAGE_BYTES,
+    OcrRpcSecurityError,
+    _IMAGE_MAGIC,
+    client_uri,
+    decode_image_payload,
+    encode_image_payload,
+    loopback_bind_uri,
+    normalize_loopback_address,
+)
+
+
+class OcrRpcSecurityTests(unittest.TestCase):
+    @staticmethod
+    def _raw_payload(shape, dtype, data: bytes) -> bytes:
+        header = json.dumps(
+            {"shape": list(shape), "dtype": dtype},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        return _IMAGE_MAGIC + struct.pack("!H", len(header)) + header + data
+
+    def test_rpc_accepts_only_loopback_addresses(self) -> None:
+        self.assertEqual(
+            normalize_loopback_address("localhost:22268"),
+            "127.0.0.1:22268",
+        )
+        self.assertEqual(
+            normalize_loopback_address("[::1]:22268"),
+            "127.0.0.1:22268",
+        )
+        self.assertEqual(
+            client_uri("127.0.0.1:22268"),
+            "tcp://127.0.0.1:22268",
+        )
+        self.assertEqual(loopback_bind_uri(22268), "tcp://127.0.0.1:22268")
+
+        for address in (
+            "0.0.0.0:22268",
+            "*:22268",
+            "192.0.2.1:22268",
+            "example.test:22268",
+        ):
+            with self.subTest(address=address):
+                with self.assertRaises(OcrRpcSecurityError):
+                    normalize_loopback_address(address)
+
+    def test_safe_wire_payload_round_trip_does_not_use_pickle(self) -> None:
+        images = (
+            np.arange(64, dtype=np.uint8).reshape(8, 8),
+            np.arange(8 * 8 * 3, dtype=np.float32).reshape(8, 8, 3),
+        )
+        with patch("pickle.dumps", side_effect=AssertionError("pickle.dumps called")), patch(
+            "pickle.loads",
+            side_effect=AssertionError("pickle.loads called"),
+        ):
+            for image in images:
+                with self.subTest(dtype=str(image.dtype), shape=image.shape):
+                    payload = encode_image_payload(image)
+                    decoded = decode_image_payload(payload)
+                    self.assertEqual(decoded.shape, image.shape)
+                    self.assertEqual(decoded.dtype, image.dtype)
+                    np.testing.assert_array_equal(decoded, image)
+
+    def test_pickle_and_corrupted_payloads_are_rejected(self) -> None:
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+        payload = encode_image_payload(image)
+        invalid_payloads = (
+            pickle.dumps(image),
+            b"broken",
+            payload[:-1],
+            payload + b"extra",
+        )
+        for invalid in invalid_payloads:
+            with self.subTest(size=len(invalid)):
+                with self.assertRaises(OcrRpcSecurityError):
+                    decode_image_payload(invalid)
+
+    def test_encode_rejects_invalid_shape_dtype_and_size(self) -> None:
+        invalid_images = (
+            np.array([], dtype=np.uint8),
+            np.zeros((8,), dtype=np.uint8),
+            np.zeros((1, 1, 1, 1), dtype=np.uint8),
+            np.array([object()], dtype=object),
+            np.zeros((2, 2), dtype=np.complex64),
+        )
+        for image in invalid_images:
+            with self.subTest(dtype=str(image.dtype), shape=image.shape):
+                with self.assertRaises(OcrRpcSecurityError):
+                    encode_image_payload(image)
+
+        self.assertGreater(MAX_IMAGE_ELEMENTS, 4)
+        with patch("module.ocr.rpc_security.MAX_IMAGE_ELEMENTS", 4):
+            with self.assertRaises(OcrRpcSecurityError):
+                encode_image_payload(np.zeros((3, 3), dtype=np.uint8))
+
+        self.assertGreater(MAX_SERIALIZED_IMAGE_BYTES, 32)
+        with patch("module.ocr.rpc_security.MAX_SERIALIZED_IMAGE_BYTES", 32):
+            with self.assertRaises(OcrRpcSecurityError):
+                encode_image_payload(np.zeros((8, 8), dtype=np.uint8))
+
+        self.assertGreater(MAX_HEADER_BYTES, 2)
+        with patch("module.ocr.rpc_security.MAX_HEADER_BYTES", 2):
+            with self.assertRaises(OcrRpcSecurityError):
+                encode_image_payload(np.zeros((2, 2), dtype=np.uint8))
+
+    def test_decode_rejects_invalid_shape_dtype_and_size_contracts(self) -> None:
+        invalid_payloads = (
+            self._raw_payload((8,), "|u1", b"\x00" * 8),
+            self._raw_payload((1, 1, 1, 1), "|u1", b"\x00"),
+            self._raw_payload((0, 8), "|u1", b""),
+            self._raw_payload((2, 2), "|O", b"\x00" * 32),
+            self._raw_payload((2, 2), "<c8", b"\x00" * 32),
+            self._raw_payload((2, 2), "|u1", b"\x00" * 3),
+        )
+        for payload in invalid_payloads:
+            with self.subTest(size=len(payload)):
+                with self.assertRaises(OcrRpcSecurityError):
+                    decode_image_payload(payload)
+
+        oversized = self._raw_payload((3, 3), "|u1", b"\x00" * 9)
+        with patch("module.ocr.rpc_security.MAX_IMAGE_ELEMENTS", 4):
+            with self.assertRaises(OcrRpcSecurityError):
+                decode_image_payload(oversized)
+
+    def test_decode_rejects_non_binary_and_bounded_payloads(self) -> None:
+        with self.assertRaises(OcrRpcSecurityError):
+            decode_image_payload("not-bytes")
+
+        image = np.zeros((8, 8), dtype=np.uint8)
+        payload = encode_image_payload(image)
+        with patch(
+            "module.ocr.rpc_security.MAX_SERIALIZED_IMAGE_BYTES",
+            len(payload) - 1,
+        ):
+            with self.assertRaises(OcrRpcSecurityError):
+                decode_image_payload(payload)
+
+
+if __name__ == "__main__":
+    unittest.main()

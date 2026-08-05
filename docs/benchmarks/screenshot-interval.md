@@ -47,7 +47,7 @@
 Интерактивный CLI сохранён для диагностики нестандартных серверов и экранов:
 
 ```powershell
-uv run python -m dev_tools.screenshot_interval_benchmark `
+uv run python -m tools.benchmarks.screenshot_intervals `
     --profile alas `
     --serial-from-config `
     --expected-head <EXACT_HEAD_SHA>
@@ -60,7 +60,7 @@ uv run python -m dev_tools.screenshot_interval_benchmark `
 Для проверки обоих режимов на одном и том же экране:
 
 ```powershell
-uv run python -m dev_tools.screenshot_interval_benchmark `
+uv run python -m tools.benchmarks.screenshot_intervals `
     --profile alas `
     --serial-from-config `
     --expected-head <EXACT_HEAD_SHA> `
