@@ -130,7 +130,11 @@ def _roman_suffix_from_preprocessed(image: Any) -> str | None:
         connectivity=8,
     )
     components = []
-    min_height = max(7, int(round(array.shape[0] * 0.45)))
+    # Commission crops may include a taller decorative/chibi fragment on the
+    # far left. Cap the reference height so 11-12 px Roman strokes are not
+    # rejected merely because unrelated pixels make the full crop 30 px tall.
+    reference_height = min(array.shape[0], 24)
+    min_height = max(7, int(round(reference_height * 0.35)))
     for x, _y, width, height, area in stats[1:count]:
         if area < 8 or height < min_height:
             continue
