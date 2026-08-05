@@ -4,13 +4,20 @@ on:
   push:
     branches:
       - codex/global-en-cleanup
+  pull_request:
+    branches:
+      - personal/stable
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: global-en-inventory-${{ github.ref }}
+  group: global-en-inventory-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -27,13 +34,13 @@ jobs:
         timeout-minutes: 10
         with:
           fetch-depth: 1
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify exact head
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -63,9 +70,9 @@ jobs:
           uv run --locked python tools/global_en_inventory.py \
             --output-dir "$INVENTORY_DIR" \
             --repository "${{ github.repository }}" \
-            --branch "${{ github.ref_name }}" \
+            --branch "${{ github.head_ref || github.ref_name }}" \
             --base-sha "e392880602bc83986f42107fc87b1ce7c1d52ef0" \
-            --head-sha "${{ github.sha }}" \
+            --head-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}"
 
