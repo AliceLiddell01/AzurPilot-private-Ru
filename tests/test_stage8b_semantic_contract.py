@@ -3,7 +3,9 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import Mock
 
+from dev_tools.commission_ocr_acceptance import evaluate_rows
 from dev_tools.stage8b_model_scope import find_removed_runtime_model_references
 from dev_tools.stage8b_ocr_log_audit import Stage8BOcrLogAudit
 from dev_tools.stage8b_semantic_policy import (
@@ -12,6 +14,7 @@ from dev_tools.stage8b_semantic_policy import (
     OCR_SCOPE_RULES,
     ROOT,
 )
+from module.ocr.global_english import GlobalEnglishOcr, should_use_general_english
 
 
 class Stage8BSemanticContractTests(unittest.TestCase):
@@ -56,6 +59,82 @@ class Stage8BSemanticContractTests(unittest.TestCase):
 
     def test_blocking_metric_names_are_unique(self) -> None:
         self.assertEqual(len(BLOCKING_METRICS), len(set(BLOCKING_METRICS)))
+
+    def test_unconstrained_english_text_uses_general_ppocr(self) -> None:
+        self.assertTrue(should_use_general_english(None))
+        self.assertTrue(
+            should_use_general_english("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        )
+        self.assertFalse(should_use_general_english("0123456789:IDSB"))
+
+    def test_global_router_keeps_numeric_ocr_compact(self) -> None:
+        router = GlobalEnglishOcr()
+        router.compact = Mock()
+        router.text = Mock()
+        router.compact.atomic_ocr_for_single_lines.return_value = ["01:30:00"]
+
+        result = router.atomic_ocr_for_single_lines(
+            [object()],
+            "0123456789:IDSB",
+        )
+
+        self.assertEqual(result, ["01:30:00"])
+        router.compact.atomic_ocr_for_single_lines.assert_called_once()
+        router.text.atomic_ocr_for_single_lines.assert_not_called()
+
+    def test_global_router_uses_general_pipeline_for_detection(self) -> None:
+        router = GlobalEnglishOcr()
+        router.compact = Mock()
+        router.text = Mock()
+        router.text.det.return_value = [("SIMULATION", [], 0.99)]
+
+        result = router.det(object())
+
+        self.assertEqual(result[0][0], "SIMULATION")
+        router.text.det.assert_called_once()
+        router.compact.det.assert_not_called()
+
+    def test_commission_acceptance_rejects_observed_gibberish(self) -> None:
+        rows = [
+            {
+                "id": 1,
+                "mode": "daily",
+                "name": "A1R::8XM861",
+                "genre": "",
+                "valid": False,
+                "duration_seconds": 7200,
+                "suspicious_gibberish": True,
+            },
+            {
+                "id": 2,
+                "mode": "urgent",
+                "name": "MM",
+                "genre": "",
+                "valid": False,
+                "duration_seconds": 0,
+                "suspicious_gibberish": False,
+            },
+        ]
+
+        findings = evaluate_rows(rows)
+
+        self.assertTrue(any("Commission.valid=False" in item for item in findings))
+        self.assertTrue(any("тип комиссии не классифицирован" in item for item in findings))
+        self.assertTrue(any("OCR-мусор" in item for item in findings))
+        self.assertTrue(any("длительность не распознана" in item for item in findings))
+
+    def test_commission_acceptance_is_live_read_only_and_manual(self) -> None:
+        source = (ROOT / "dev_tools/commission_ocr_acceptance.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("runner.ui_ensure(page_commission)", source)
+        self.assertIn("runner._commission_scan_list()", source)
+        self.assertIn('runner._commission_ensure_mode("daily")', source)
+        self.assertIn("_confirm_rows(rows, args)", source)
+        self.assertIn("MATCH ALL", source)
+        self.assertNotIn("runner.commission_start(", source)
+        self.assertNotIn("runner._commission_receive(", source)
+        self.assertNotIn("runner._commission_choose(", source)
 
     def test_removed_runtime_model_scan_covers_en_and_common_code(self) -> None:
         source = """
