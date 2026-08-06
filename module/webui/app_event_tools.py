@@ -17,7 +17,6 @@ from module.webui.app_dependencies import (
     datetime,
     deep_get,
     eval_js,
-    json,
     load_event_calculator,
     logger,
     pin,
@@ -346,13 +345,6 @@ class EventToolsMixin(WebUIMixinBase):
                             "log-bar-btns",
                             [
                                 put_scope("log_scroll_btn"),
-                                put_button(
-                                    label="Предпросмотр снимка",
-                                    onclick=lambda: run_js(
-                                        f"window.alasToggleLivePreview({json.dumps(self.alas_name)});"
-                                    ),
-                                    color="off",
-                                ),
                             ],
                         ),
                     ],
