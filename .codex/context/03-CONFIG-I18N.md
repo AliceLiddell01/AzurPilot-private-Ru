@@ -94,3 +94,12 @@ uv run -m module.config.config_updater
 - сохранение пользовательского значения;
 - rollback при невалидном значении;
 - различия server-specific defaults.
+
+## Global/EN product boundary
+
+- server — только `en`; package — только `com.YoStarEN.AzurLane`;
+- legacy `auto` — sentinel device detection и допустим только после exact-match Global package;
+- foreign/unknown package или server отклоняется до device/game side effects;
+- runtime WebUI — `ru-RU`; `en-US.json` — только build-time key/placeholder parity;
+- `ja-JP`, `zh-CN`, `zh-MIAO`, `zh-TW` не runtime-selectable;
+- event metadata source — `en`, foreign fallback order пуст.

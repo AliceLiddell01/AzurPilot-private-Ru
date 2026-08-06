@@ -38,7 +38,14 @@ from module.base.timer import timer
 from module.config.deep import deep_default, deep_get, deep_iter, deep_set
 from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE
 from module.config.env import IS_ON_PHONE_CLOUD
-from module.config.server import VALID_CHANNEL_PACKAGE, VALID_PACKAGE, VALID_SERVER_LIST, to_package, to_server
+from module.config.server import (
+    GLOBAL_PACKAGE,
+    VALID_CHANNEL_PACKAGE,
+    VALID_PACKAGE,
+    VALID_SERVER_LIST,
+    to_package,
+    to_server,
+)
 from module.config.task_priority import get_scheduler_tasks, merge_task_priority
 from module.config.utils import *
 from module.config.redirect_utils.utils import *
@@ -59,10 +66,7 @@ class GeneratedConfig:
     """
 '''.strip().split('\n')
 ARCHIVES_PREFIX = {
-    'cn': '档案 ',
     'en': 'archives ',
-    'jp': '檔案 ',
-    'tw': '檔案 '
 }
 MAINS = ['Main', 'Main2', 'Main3']
 EVENTS = ['Event', 'Event2', 'Event3', 'EventA', 'EventB', 'EventC', 'EventD', 'EventSp']
@@ -709,7 +713,9 @@ class ConfigUpdater:
         else:
             deep_default(new, 'Alas.DropRecord.AzurStatsID', random_id())
         # 更新到最新活动
-        server = to_server(deep_get(new, 'Alas.Emulator.PackageName', 'cn'))
+        server = to_server(
+            deep_get(new, 'Alas.Emulator.PackageName', GLOBAL_PACKAGE)
+        )
         if not is_template:
             for task in EVENTS + RAIDS + COALITIONS:
                 opts = deep_get(self.args, keys=f'{task}.Campaign.Event.option_{server}', default=[])

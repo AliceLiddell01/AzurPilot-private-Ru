@@ -6,12 +6,8 @@
 - Windows ML 设备选择，精确控制 GPU/CPU 推理设备
 - 自定义 CNN-CTC 英文识别模型（900k 参数），专为碧蓝航线优化
 
-模型按语言区分：
-- azur_lane：英文数字识别（游戏 UI 中的数字、等级、时间等）
-- azur_lane_jp：日文服务器专用识别模型
-- cn：中文识别（中+英混合）
-- jp：日文识别
-- tw：繁体中文识别
+模型注册表仅暴露 Global/English `azur_lane` namespace。
+共享检测模型和 generic English recognition models 仍由同一安全缓存管理。
 
 工作线程模型：
 - OCR 推理在专用后台线程 (AlOcrQueue) 中执行，避免阻塞主循环
@@ -673,13 +669,13 @@ class AlOcr:
     - ocr_for_single_lines(): 批量单行文本识别
 
     Attributes:
-        name (str): 模型名称，如 'azur_lane'、'cn'、'jp'、'tw'。
+        name (str): единственный публичный Global namespace 'azur_lane'.
         model: 识别模型实例（懒加载）。
         _det_model: 检测模型实例（懒加载）。
     """
     def __init__(self, **kwargs):
         self.model = None
-        self.name = kwargs.get("name", "en")
+        self.name = kwargs.get("name", "azur_lane")
         self.params = {}
         self._model_loaded = False
         self._det_model = None

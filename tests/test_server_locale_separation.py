@@ -32,7 +32,7 @@ class ServerLocaleSeparationTests(unittest.TestCase):
 
     def test_event_name_source_is_explicit_and_server_based(self) -> None:
         self.assertEqual(EVENT_NAME_SOURCE, "en")
-        self.assertEqual(EVENT_NAME_FALLBACK_ORDER, ("en", "cn", "jp", "tw"))
+        self.assertEqual(EVENT_NAME_FALLBACK_ORDER, ())
         self.assertNotEqual(EVENT_NAME_SOURCE, UI_LOCALE)
 
 

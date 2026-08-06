@@ -10,6 +10,7 @@ from module.config.deep import deep_iter
 from module.config.locale import LEGACY_UI_LOCALES, UI_LOCALE
 from module.webui import deploy_settings
 from module.webui import lang
+from module.webui.oobe import OOBEWizard
 
 ROOT = Path(__file__).resolve().parents[1]
 PLACEHOLDER_RE = re.compile(
@@ -92,14 +93,10 @@ class LocaleRuntimeTests(unittest.TestCase):
         }
         self.assertNotIn("Language", deploy_keys)
         home = (ROOT / "module/webui/app_home.py").read_text(encoding="utf-8")
-        oobe = (ROOT / "module/webui/oobe.py").read_text(encoding="utf-8")
         self.assertNotIn("Select your language", home)
         self.assertNotIn("简体中文", home)
-        self.assertNotIn("_on_language_selected", oobe)
-        self.assertNotIn(
-            '"welcome"',
-            oobe.split("STEPS =", 1)[1].split("\n", 1)[0],
-        )
+        self.assertFalse(hasattr(OOBEWizard, "_on_language_selected"))
+        self.assertNotIn("welcome", OOBEWizard.STEPS)
 
     def test_ru_catalog_is_complete_and_preserves_placeholders(self) -> None:
         ru_path = ROOT / "module/config/i18n/ru-RU.json"

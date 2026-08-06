@@ -107,3 +107,12 @@ crop
 - переходный/анимированный кадр;
 - разные значения OCR;
 - server/theme variants, если затронуты.
+
+## Global/EN asset и OCR contract
+
+- canonical root — `assets/en`; CN/JP/TW roots и string fallback недопустимы;
+- generator читает module list из EN и fail-closed при missing asset;
+- package detection использует exact match `com.YoStarEN.AzurLane`;
+- 18 OCR files — Global recognition либо shared detection/generic resources;
+- registry exposes `azur_lane`; `cnocr`, JP и TW aliases отклоняются;
+- shared `det`, English routing, RPC allowlist, recovery и privacy controls сохраняются.
