@@ -61,6 +61,28 @@ class _FakeWebSocket:
 
 
 class DeviceSecurityTests(unittest.TestCase):
+    def test_gacha_ui_has_no_module_level_debug_runner(self):
+        source = _source("module/gacha/ui.py")
+        tree = ast.parse(source, filename="module/gacha/ui.py")
+        debug_runners = []
+        for node in tree.body:
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            is_main_guard = (
+                isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Name)
+                and test.left.id == "__name__"
+                and len(test.ops) == 1
+                and isinstance(test.ops[0], ast.Eq)
+                and len(test.comparators) == 1
+                and isinstance(test.comparators[0], ast.Constant)
+                and test.comparators[0].value == "__main__"
+            )
+            if is_main_guard:
+                debug_runners.append(node.lineno)
+        self.assertEqual(debug_runners, [])
+
     def test_subprocess_calls_do_not_enable_shell(self):
         source = _source("tools/acceptance/device.py")
         tree = ast.parse(source)
@@ -95,14 +117,14 @@ class DeviceSecurityTests(unittest.TestCase):
     def test_temporary_screenshot_is_deleted(self):
         run = _function_source("tools/acceptance/device.py", "run_acceptance")
         self.assertGreaterEqual(run.count("temp_path.unlink(missing_ok=True)"), 2)
-        self.assertIn("finally:", run)
+      self.assertIn("finally:", run)
 
     def test_forwarding_remains_target_scoped(self):
         run_adb = _function_source("tools/acceptance/device.py", "_run_adb")
         self.assertIn('[adb, "-s", serial, *args]', run_adb)
         close_probe = _function_source(
             "tools/acceptance/device.py", "_close_minitouch_probe"
-        )
+      )
         self.assertIn('adb_forward_remove(f"tcp:{port}")', close_probe)
 
     def test_websocket_errors_are_json_encoded(self):
