@@ -347,22 +347,22 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
         if self.pending_task:
             AzurLaneConfig.is_hoarding_task = False
-            logger.info(f"[配置] 待处理任务: {[f.command for f in self.pending_task]}")
+            logger.info(f"[Конфигурация] Задачи в очереди: {[f.command for f in self.pending_task]}")
             task = self.pending_task[0]
-            logger.attr("任务", task)
+            logger.attr("Задача", task)
             return task
         else:
             AzurLaneConfig.is_hoarding_task = True
 
         if self.waiting_task:
-            logger.info("[配置] 没有待处理任务")
+            logger.info("[Конфигурация] Нет задач в очереди")
             task = copy.deepcopy(self.waiting_task[0])
             task.next_run = (task.next_run + self.hoarding).replace(microsecond=0)
-            logger.attr("任务", task)
+            logger.attr("Задача", task)
             return task
         else:
-            logger.critical("[Config] 没有等待或待处理的任务")
-            logger.critical("[Config] 请启用至少一个任务")
+            logger.critical("[Конфигурация] Нет задач в очереди или ожидающих запуска")
+            logger.critical("[Конфигурация] Включите хотя бы одну задачу")
             raise RequestHumanTakeover
 
     def save(self, mod_name='alas'):
@@ -528,12 +528,12 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             )
             if task is None:
                 task = self.task.command
-            logger.info(f"[配置] 延迟任务 `{task}` 到 {run} ({kv})")
+            logger.info(f"[Конфигурация] Задача `{task}` отложена до {run} ({kv})")
             self.modified[f'{task}.Scheduler.NextRun'] = run
             self.update()
         else:
             raise ScriptError(
-                "[配置] delay_next_run 缺少参数，应至少设置一个"
+                "[Конфигурация] Для delay_next_run требуется хотя бы один аргумент"
             )
 
     def opsi_task_delay(
@@ -574,7 +574,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                 keys = f"{task}.Scheduler.NextRun"
                 current = deep_get(self.data, keys=keys, default=DEFAULT_TIME)
                 if current < next_run:
-                    logger.info(f"[配置-大世界] 延迟任务 `{task}` 到 {next_run} ({kv})")
+                    logger.info(f"[Конфигурация — Operation Siren] Задача `{task}` отложена до {next_run} ({kv})")
                     self.modified[keys] = next_run
 
         def is_submarine_call(task):
@@ -647,7 +647,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             elif get_os_reset_remain() > 0:
                 delay_tasks(tasks, minutes=360)
             else:
-                logger.info("[配置-大世界] 距离大世界重置不足1天，延迟2.5小时")
+                logger.info("[Конфигурация — Operation Siren] До сброса менее суток: задачи отложены на 2,5 часа")
                 delay_tasks(tasks, minutes=150)
         if cl1_preserve:
             tasks = SelectedGrids(
@@ -677,10 +677,10 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             bool: 是否成功调用。
         """
         if deep_get(self.data, keys=f"{task}.Scheduler.NextRun", default=None) is None:
-            raise ScriptError(f"[配置] 要调用的任务: `{task}` 在用户配置中不存在")
+            raise ScriptError(f"[Конфигурация] Вызываемая задача `{task}` отсутствует в пользовательской конфигурации")
 
         if force_call or self.is_task_enabled(task):
-            logger.info(f"[配置] 任务调用: {task}")
+            logger.info(f"[Конфигурация] Вызов задачи: {task}")
             self.modified[f"{task}.Scheduler.NextRun"] = current_time().replace(
                 microsecond=0
             )
@@ -689,7 +689,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                 self.update()
             return True
         else:
-            logger.info(f"[配置] 任务调用: {task} (因用户禁用而跳过)")
+            logger.info(f"[Конфигурация] Вызов задачи: {task} (пропущен: задача отключена пользователем)")
             return False
 
     @staticmethod
@@ -724,10 +724,10 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         self.load()
         new = self.get_next()
         if prev == new:
-            logger.info(f"[配置] 继续任务 `{new}`")
+            logger.info(f"[Конфигурация] Продолжение задачи `{new}`")
             return False
         else:
-            logger.info(f"[配置] 切换任务 `{prev}` 到 `{new}`")
+            logger.info(f"[Конфигурация] Переключение с задачи `{prev}` на `{new}`")
             return True
 
     def check_task_switch(self, message=""):
@@ -738,7 +738,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         """
         # 如果设置了禁用任务切换标志，则跳过检查
         if getattr(self, '_disable_task_switch', False):
-            logger.info('[配置] 任务切换检查已临时禁用')
+            logger.info('[Конфигурация] Проверка переключения задач временно отключена')
             return
 
         if self.task_switched():
