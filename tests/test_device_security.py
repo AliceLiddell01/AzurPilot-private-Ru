@@ -61,6 +61,28 @@ class _FakeWebSocket:
 
 
 class DeviceSecurityTests(unittest.TestCase):
+    def test_gacha_ui_has_no_module_level_debug_runner(self):
+        source = _source("module/gacha/ui.py")
+        tree = ast.parse(source, filename="module/gacha/ui.py")
+        debug_runners = []
+        for node in tree.body:
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            is_main_guard = (
+                isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Name)
+                and test.left.id == "__name__"
+                and len(test.ops) == 1
+                and isinstance(test.ops[0], ast.Eq)
+                and len(test.comparators) == 1
+                and isinstance(test.comparators[0], ast.Constant)
+                and test.comparators[0].value == "__main__"
+            )
+            if is_main_guard:
+                debug_runners.append(node.lineno)
+        self.assertEqual(debug_runners, [])
+
     def test_subprocess_calls_do_not_enable_shell(self):
         source = _source("tools/acceptance/device.py")
         tree = ast.parse(source)

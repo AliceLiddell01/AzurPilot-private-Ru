@@ -219,10 +219,3 @@ class GachaUI(UI):
         Pages: out: *, in: page_build
         """
         self.ui_ensure(page_build)
-
-
-if __name__ == '__main__':
-    self = GachaUI('alas')
-    self.image_file = r'C:\Users\LmeSzinc\Nox_share\ImageShare\Screenshots\Screenshot_20220224-182355.png'
-    res = self._gacha_side_navbar.get_info(main=self)
-    print(res)
