@@ -677,12 +677,14 @@ def readable_time(before: str, value: str) -> str:
     if diff < -1:
         timedata['time_name'] = 'TimeError'
     elif diff < 60:
+        timedata['time_name'] = 'JustNow'
+    elif diff < 5400:
         timedata['time'] = int(diff // 60)
         timedata['time_name'] = 'MinutesAgo'
-    elif diff < 5400:
+    elif diff < 129600:
         timedata['time'] = int(diff // 3600)
         timedata['time_name'] = 'HoursAgo'
-    elif diff < 129600:
+    elif diff < 1296000:
         timedata['time'] = int(diff // 86400)
         timedata['time_name'] = 'DaysAgo'
     else:
