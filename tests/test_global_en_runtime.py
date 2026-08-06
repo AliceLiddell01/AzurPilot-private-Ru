@@ -6,6 +6,7 @@ from pathlib import Path
 
 import module.config.server as server
 from module.config.utils import SERVER_TO_TIMEZONE, server_timezone
+from module.webui.oobe import OOBEWizard
 
 ROOT = Path(__file__).resolve().parents[1]
 GLOBAL_PACKAGE = "com.YoStarEN.AzurLane"
@@ -21,8 +22,10 @@ class GlobalEnRuntimeTests(unittest.TestCase):
         self.assertEqual(server.to_server(GLOBAL_PACKAGE), "en")
         self.assertEqual(server.to_package("en"), GLOBAL_PACKAGE)
         self.assertEqual(server.to_package(GLOBAL_PACKAGE), GLOBAL_PACKAGE)
-        self.assertEqual(server.to_server("auto"), "en")
-        self.assertEqual(server.to_package("auto"), GLOBAL_PACKAGE)
+        with self.assertRaises(ValueError):
+            server.to_server("auto")
+        with self.assertRaises(ValueError):
+            server.to_package("auto")
 
     def test_foreign_and_unknown_inputs_are_rejected(self) -> None:
         for value in (
@@ -61,14 +64,10 @@ class GlobalEnRuntimeTests(unittest.TestCase):
             server.server = old
 
     def test_oobe_exposes_only_global_package(self) -> None:
-        source = (ROOT / "module/webui/oobe.py").read_text(encoding="utf-8")
-        self.assertIn(GLOBAL_PACKAGE, source)
-        for foreign in (
-            "com.bilibili.azurlane",
-            "com.YoStarJP.AzurLane",
-            "com.hkmanjuu.azurlane.gp",
-        ):
-            self.assertNotIn(foreign, source)
+        wizard = OOBEWizard.__new__(OOBEWizard)
+        wizard.package_name = GLOBAL_PACKAGE
+        values = [item["value"] for item in wizard._package_options()]
+        self.assertEqual(values, [GLOBAL_PACKAGE])
 
 
 if __name__ == "__main__":
