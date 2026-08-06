@@ -39,6 +39,10 @@ STATIC_ASSET_CACHE_CONTROL = "no-cache"
 NO_CACHE_CONTROL = "no-cache"
 HTTP_GZIP_MINIMUM_SIZE = 1024
 HTTP_GZIP_COMPRESS_LEVEL = 5
+DISABLED_API_ROUTE_PATHS = {
+    "/ws/live_screenshot",
+    "/ws/live_control",
+}
 
 
 class HeaderMiddleware(BaseHTTPMiddleware):
@@ -157,7 +161,11 @@ def asgi_app(
     try:
         from module.webui.api import api_routes
 
-        routes.extend(api_routes)
+        routes.extend(
+            route
+            for route in api_routes
+            if getattr(route, "path", None) not in DISABLED_API_ROUTE_PATHS
+        )
     except Exception as e:
         import logging
 
