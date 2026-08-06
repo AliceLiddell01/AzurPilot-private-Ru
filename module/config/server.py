@@ -29,14 +29,14 @@ def to_server(package_or_server: str) -> str:
         return "en"
     if package_or_server == GLOBAL_PACKAGE:
         return "en"
-    raise ValueError(f"Unsupported Global/EN package or server: {package_or_server}")
+    raise ValueError(f"Неподдерживаемое значение пакета или сервера Global/EN: {package_or_server}")
 
 
 def to_package(package_or_server: str) -> str:
     """Return the only supported Global package for an explicit EN value."""
     if package_or_server in ("en", GLOBAL_PACKAGE):
         return GLOBAL_PACKAGE
-    raise ValueError(f"Unsupported Global/EN package or server: {package_or_server}")
+    raise ValueError(f"Неподдерживаемое значение пакета или сервера Global/EN: {package_or_server}")
 
 
 def set_server(package_or_server: str) -> None:

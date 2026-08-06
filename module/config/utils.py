@@ -352,7 +352,7 @@ def server_timezone() -> timedelta:
     try:
         return SERVER_TO_TIMEZONE[server_.server]
     except KeyError as exc:
-        raise ValueError(f"Unsupported server timezone: {server_.server}") from exc
+        raise ValueError(f"Неподдерживаемый часовой пояс сервера: {server_.server}") from exc
 
 
 def server_time_offset() -> timedelta:
@@ -440,10 +440,10 @@ def get_os_reset_remain():
     """
     next_reset = get_os_next_reset()
     now = current_time()
-    logger.attr('大世界下次重置', next_reset)
+    logger.attr('Следующий сброс Operation Siren', next_reset)
 
     remain = int((next_reset - now).total_seconds() // 86400)
-    logger.attr('重置剩余天数', remain)
+    logger.attr('Дней до сброса', remain)
     return remain
 
 
@@ -694,7 +694,7 @@ def readable_time(before: str, value: str) -> str:
 @run_once
 def is_good_gpu():
     if os.name != 'nt':
-        logger.info("[Config] 当前系统为非 Windows，不使用 GPU")
+        logger.info("[Конфигурация] Текущая система не Windows; GPU не используется")
         return False
 
     try:
@@ -709,14 +709,14 @@ def is_good_gpu():
                 try:
                     # AdapterRAM 单位为字节，1GB = 1073741824 字节
                     if int(line) >= 1073741824:
-                        logger.info("[Config] 检测到高性能 GPU")
+                        logger.info("[Конфигурация] Обнаружен производительный GPU")
                         return True
                 except (ValueError, TypeError):
                     continue
-        logger.info("[Config] 未检测到高性能 GPU")
+        logger.info("[Конфигурация] Производительный GPU не обнаружен")
         return False
     except Exception:
-        logger.warning("[Config] 检测 GPU 性能失败")
+        logger.warning("[Конфигурация] Не удалось определить производительность GPU")
         return False
     
 
