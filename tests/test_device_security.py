@@ -117,14 +117,14 @@ class DeviceSecurityTests(unittest.TestCase):
     def test_temporary_screenshot_is_deleted(self):
         run = _function_source("tools/acceptance/device.py", "run_acceptance")
         self.assertGreaterEqual(run.count("temp_path.unlink(missing_ok=True)"), 2)
-      self.assertIn("finally:", run)
+        self.assertIn("finally:", run)
 
     def test_forwarding_remains_target_scoped(self):
         run_adb = _function_source("tools/acceptance/device.py", "_run_adb")
         self.assertIn('[adb, "-s", serial, *args]', run_adb)
         close_probe = _function_source(
             "tools/acceptance/device.py", "_close_minitouch_probe"
-      )
+        )
         self.assertIn('adb_forward_remove(f"tcp:{port}")', close_probe)
 
     def test_websocket_errors_are_json_encoded(self):
