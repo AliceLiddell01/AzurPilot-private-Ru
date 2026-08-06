@@ -80,29 +80,29 @@ class AzurLaneAutoScript:
 
         if not self.config.Error_AdbOfflineRestart:
             logger.error_context(
-                title='模拟器自动重启已禁用',
-                reason='配置项 Error.AdbOfflineRestart 未启用。',
-                impact='模拟器离线后无法自动恢复，当前任务可能终止。',
-                action='确认模拟器稳定性后，按需启用 AdbOfflineRestart 和合理的重试阈值。',
+                title='Автоматический перезапуск эмулятора отключён',
+                reason='Параметр Error.AdbOfflineRestart отключён.',
+                impact='После отключения эмулятора автоматическое восстановление невозможно; текущая задача может завершиться.',
+                action='Проверьте стабильность эмулятора и при необходимости включите AdbOfflineRestart с подходящим пределом попыток.',
                 level=30,
             )
             return False
 
         self.consecutive_adb_offline += 1
         limit = int(self.config.Error_AdbOfflineThreshold)
-        logger.warning(f'[Alas] EmulatorNotRunningError: 连续次数 {self.consecutive_adb_offline}/{limit}')
+        logger.warning(f'[Alas] EmulatorNotRunningError: последовательных сбоев {self.consecutive_adb_offline}/{limit}')
 
         if self.consecutive_adb_offline > limit:
             logger.error_context(
-                title='模拟器自动重启次数已达上限',
-                reason=f'模拟器连续离线次数已超过配置限制 {limit} 次。',
-                impact='本次自动恢复停止，任务将进入失败处理。',
-                action='手动确认模拟器是否运行、ADB 是否可用，再重新启动 AzurPilot。',
+                title='Достигнут предел автоматических перезапусков эмулятора',
+                reason=f'Число последовательных отключений эмулятора превысило установленный предел: {limit}.',
+                impact='Автоматическое восстановление остановлено; задача перейдёт в обработку ошибки.',
+                action='Проверьте, что эмулятор запущен и ADB доступен, затем перезапустите AzurPilot.',
                 level=50,
             )
             return False
 
-        logger.hr('[Alas] 正在重启模拟器', level=1)
+        logger.hr('[Alas] Перезапуск эмулятора', level=1)
         try:
             # 优先使用已缓存的设备对象
             device = self.__dict__.get('device', None)
@@ -115,12 +115,12 @@ class AzurLaneAutoScript:
                     from module.device.platform.platform_windows import PlatformWindows
                     device = PlatformWindows(self.config)
 
-            logger.info('[Alas] 正在停止模拟器...')
+            logger.info('[Alas] Остановка эмулятора...')
             device.emulator_stop()
             time.sleep(5)
-            logger.info('[Alas] 正在启动模拟器...')
+            logger.info('[Alas] Запуск эмулятора...')
             device.emulator_start()
-            logger.info('[Alas] 模拟器重启完成')
+            logger.info('[Alas] Эмулятор перезапущен')
 
             # 清除 device 缓存，下次访问时重新建立连接
             if 'device' in self.__dict__:
@@ -128,10 +128,10 @@ class AzurLaneAutoScript:
             return True
         except Exception as e:
             logger.exception_context(
-                title='重启模拟器失败',
+                title='Не удалось перезапустить эмулятор',
                 exc=e,
-                impact='模拟器仍可能处于离线状态，当前任务无法恢复。',
-                action='检查模拟器进程权限、ADB 服务和模拟器管理配置。',
+                impact='Эмулятор может оставаться недоступным; текущую задачу восстановить невозможно.',
+                action='Проверьте права процесса эмулятора, службу ADB и параметры управления эмулятором.',
             )
             return False
 
@@ -144,25 +144,25 @@ class AzurLaneAutoScript:
         Returns:
             bool: 启动成功返回 True，失败返回 False。
         """
-        logger.hr('[Alas] 长时间等待后启动模拟器', level=1)
+        logger.hr('[Alas] Запуск эмулятора после длительного ожидания', level=1)
         try:
             from module.device.platform import Platform
 
             platform = Platform(self.config, connect=False)
             if platform.emulator_instance is None:
-                logger.warning('[Alas] 未找到模拟器实例，无法在长时间等待后启动模拟器')
+                logger.warning('[Alas] Экземпляр эмулятора не найден; запуск после длительного ожидания невозможен')
                 return False
 
             if platform.emulator_start():
-                logger.info('[Alas] 长时间等待后模拟器启动完成')
+                logger.info('[Alas] Эмулятор запущен после длительного ожидания')
                 if 'device' in self.__dict__:
                     del_cached_property(self, 'device')
                 return True
 
-            logger.warning('[Alas] 长时间等待后启动模拟器失败，继续调度恢复流程')
+            logger.warning('[Alas] Не удалось запустить эмулятор после длительного ожидания; продолжается восстановление планировщика')
             return False
         except Exception as e:
-            logger.warning(f'[Alas] 长时间等待后启动模拟器失败，继续调度恢复流程: {e}')
+            logger.warning(f'[Alas] Не удалось запустить эмулятор после длительного ожидания; продолжается восстановление планировщика: {e}')
             return False
 
     @cached_property
@@ -172,18 +172,18 @@ class AzurLaneAutoScript:
             return config
         except RequestHumanTakeover:
             logger.error_context(
-                title='配置初始化需要人工介入',
-                reason='配置加载或配置校验未通过，自动修复无法继续。',
-                impact='调度器无法启动。',
-                action='检查配置文件和最近一次错误堆栈，修正配置后重新启动。',
+                title='Для инициализации конфигурации требуется вмешательство пользователя',
+                reason='Загрузка или проверка конфигурации завершилась ошибкой; автоматическое исправление невозможно.',
+                impact='Планировщик не может быть запущен.',
+                action='Проверьте файл конфигурации и последний стек ошибки, исправьте параметры и перезапустите приложение.',
                 level=50,
             )
             exit(1)
         except Exception as e:
             logger.exception_context(
-                title='配置初始化失败', exc=e,
-                impact='调度器无法启动。',
-                action='检查 config 目录中的配置格式、参数名称和文件权限。',
+                title='Не удалось инициализировать конфигурацию', exc=e,
+                impact='Планировщик не может быть запущен.',
+                action='Проверьте формат конфигурации, имена параметров и права доступа к файлам в каталоге config.',
                 level=50,
             )
             exit(1)
@@ -196,18 +196,18 @@ class AzurLaneAutoScript:
             return device
         except RequestHumanTakeover:
             logger.error_context(
-                title='设备初始化需要人工介入',
-                reason='设备连接或设备参数校验未通过，自动修复无法继续。',
-                impact='调度器无法控制模拟器。',
-                action='确认模拟器已启动、ADB 可用且分辨率为 1280x720，然后重新启动。',
+                title='Для инициализации устройства требуется вмешательство пользователя',
+                reason='Подключение к устройству или проверка его параметров завершилась ошибкой; автоматическое исправление невозможно.',
+                impact='Планировщик не может управлять эмулятором.',
+                action='Убедитесь, что эмулятор запущен, ADB доступен и разрешение равно 1280x720, затем перезапустите приложение.',
                 level=50,
             )
             exit(1)
         except Exception as e:
             logger.exception_context(
-                title='设备初始化失败', exc=e,
-                impact='调度器无法控制模拟器。',
-                action='检查模拟器、ADB 连接和当前截图/控制方案配置。',
+                title='Не удалось инициализировать устройство', exc=e,
+                impact='Планировщик не может управлять эмулятором.',
+                action='Проверьте эмулятор, подключение ADB и выбранные способы получения снимков и управления.',
                 level=50,
             )
             exit(1)
@@ -220,9 +220,9 @@ class AzurLaneAutoScript:
             return checker
         except Exception as e:
             logger.exception_context(
-                title='服务器状态检查器初始化失败', exc=e,
-                impact='无法判断服务器维护状态，调度器无法继续。',
-                action='检查网络连接、服务器配置和相关依赖后重新启动。',
+                title='Не удалось инициализировать проверку состояния сервера', exc=e,
+                impact='Невозможно определить состояние технического обслуживания сервера; планировщик не может продолжить работу.',
+                action='Проверьте сетевое подключение, параметры сервера и связанные зависимости, затем перезапустите приложение.',
                 level=50,
             )
             exit(1)
@@ -248,22 +248,22 @@ class AzurLaneAutoScript:
             return False
 
         logger.error_context(
-            title=f'敏感任务失败，禁止自动重启（{task_name}）',
-            reason=f'任务抛出了 {type(error).__name__}，且该任务被配置为重启敏感任务。',
-            impact='为避免状态或数据损坏，AzurPilot 将停止运行。',
-            action='查看错误现场并手动确认游戏状态；修复配置或根因后再启动。',
+            title=f'Ошибка чувствительной задачи; автоматический перезапуск запрещён ({task_name})',
+            reason=f'Задача вызвала {type(error).__name__} и помечена как чувствительная к перезапуску.',
+            impact='Чтобы избежать повреждения состояния или данных, AzurPilot завершит работу.',
+            action='Изучите сохранённое состояние и вручную проверьте игру; устраните причину или исправьте конфигурацию перед следующим запуском.',
             exc=error,
             level=50,
         )
         handle_notify(
             self.config.Error_OnePushConfig,
-            title=f"AzurPilot <{self.config_name}> 敏感任务出错",
-            content=f"<{self.config_name}> 敏感任务 `{task_name}` 出错，AzurPilot 已停止运行\n{error}",
+            title=f"AzurPilot <{self.config_name}>: ошибка чувствительной задачи",
+            content=f"<{self.config_name}> Чувствительная задача `{task_name}` завершилась с ошибкой; AzurPilot остановлен\n{error}",
         )
         notify_webui(
             self.config_name,
-            title=f"敏感任务 {task_name} 出错喵！AzurPilot 已停止喵！",
-            content=f"因为 {task_name} 是敏感任务，出错后不会重启喵~\n{error}",
+            title=f"Ошибка чувствительной задачи {task_name}; AzurPilot остановлен",
+            content=f"Задача {task_name} является чувствительной, поэтому после ошибки автоматический перезапуск не выполняется.\n{error}",
         )
         exit(1)
 
@@ -296,10 +296,10 @@ class AzurLaneAutoScript:
         except GameNotRunningError as e:
             # 游戏未运行，调度 Restart 任务自动恢复
             logger.error_context(
-                title='游戏进程未运行',
-                reason='任务执行前未检测到碧蓝航线游戏进程。',
-                impact='当前任务跳过，调度器将自动安排 Restart 任务。',
-                action='通常无需处理；若反复发生，请检查游戏包名、模拟器状态和登录流程。',
+                title='Игровой процесс не запущен',
+                reason='Перед выполнением задачи процесс Azur Lane не обнаружен.',
+                impact='Текущая задача пропущена; планировщик автоматически назначит задачу Restart.',
+                action='Обычно действие не требуется. При повторении проверьте имя пакета игры, состояние эмулятора и процедуру входа.',
                 exc=e,
                 level=30,
                 # 预期恢复路径仅保留异常摘要，避免堆栈淹没后续重启日志。
@@ -308,23 +308,23 @@ class AzurLaneAutoScript:
             self._check_sensitive_exit(command, e)
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config_name}> 警告",
-                content=f"<{self.config_name}> 游戏未运行 - 将自动重启游戏",
+                title=f"AzurPilot <{self.config_name}>: предупреждение",
+                content=f"<{self.config_name}> Игра не запущена; будет выполнен автоматический перезапуск",
             )
             notify_webui(
                 self.config_name,
-                title=f" <{self.config_name}> 发出了警告喵！",
-                content=f"<{self.config_name}> 游戏未运行喵 将自动重启游戏喵~",
+                title=f"<{self.config_name}>: предупреждение",
+                content=f"<{self.config_name}> Игра не запущена; будет выполнен автоматический перезапуск",
             )
             self.config.task_call('Restart')
             return 'recoverable'
         except (GameStuckError, GameTooManyClickError) as e:
             # 游戏卡住或点击过多，尝试重启游戏；连续卡死则重启模拟器
             logger.error_context(
-                title='游戏状态无法推进',
-                reason='截图状态在限定时间内没有变化，或同一按钮被连续点击过多。',
-                impact='当前任务已中断，将尝试重启游戏；重复发生时会重启模拟器。',
-                action='确认模拟器没有被手动操作，检查截图方案、游戏分辨率和资源版本。',
+                title='Игра не отвечает на действия',
+                reason='Изображение не меняется в течение допустимого времени либо одна кнопка нажата слишком много раз.',
+                impact='Текущая задача прервана; будет предпринят перезапуск игры, а при повторении — перезапуск эмулятора.',
+                action='Убедитесь, что эмулятор не управляется вручную; проверьте способ получения снимков, разрешение игры и версию ресурсов.',
                 exc=e,
             )
             self.save_error_log()
@@ -335,23 +335,23 @@ class AzurLaneAutoScript:
                 limit = int(self.config.Error_GameStuckThreshold)
                 logger.warning(f'[Alas] GameStuckError: {self.consecutive_game_stuck}/{limit}')
                 if self.consecutive_game_stuck >= limit:
-                    logger.warning('[Alas] 游戏卡住次数过多，正在重启模拟器...')
+                    logger.warning('[Alas] Игра зависает слишком часто; выполняется перезапуск эмулятора...')
                     if self._try_restart_emulator():
                         self.consecutive_game_stuck = 0
                         self.config.task_call('Restart')
                         return 'recoverable'
 
-            logger.warning(f'[Alas] 游戏卡住，{self.device.package} 将在10秒后重启')
-            logger.warning('[Alas] 如果您正在手动操作，请停止 AzurPilot')
+            logger.warning(f'[Alas] Игра зависла; пакет {self.device.package} будет перезапущен через 10 секунд')
+            logger.warning('[Alas] Если вы управляете игрой вручную, остановите AzurPilot')
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config_name}> 警告",
-                content=f"<{self.config_name}> 游戏卡住 - 将自动重启游戏",
+                title=f"AzurPilot <{self.config_name}>: предупреждение",
+                content=f"<{self.config_name}> Игра зависла; будет выполнен автоматический перезапуск",
             )
             notify_webui(
                 self.config_name,
-                title=f"<{self.config_name}> 发出了警告喵！",
-                content=f"<{self.config_name}> 游戏卡住 将自动重启游戏喵~",
+                title=f"<{self.config_name}>: предупреждение",
+                content=f"<{self.config_name}> Игра зависла; будет выполнен автоматический перезапуск",
             )
             self.config.task_call('Restart')
             self.device.sleep(10)
@@ -359,51 +359,51 @@ class AzurLaneAutoScript:
         except GameBugError as e:
             # 游戏客户端 bug，重启游戏修复
             logger.error_context(
-                title='游戏客户端发生异常',
-                reason='检测到碧蓝航线客户端的异常状态。',
-                impact='当前任务已中断，正在重启游戏尝试恢复。',
-                action='等待自动重启；若反复出现，请更新游戏和 AzurPilot，并保留错误现场。',
+                title='Ошибка игрового клиента',
+                reason='Обнаружено некорректное состояние клиента Azur Lane.',
+                impact='Текущая задача прервана; выполняется перезапуск игры для восстановления.',
+                action='Дождитесь автоматического перезапуска. При повторении обновите игру и AzurPilot и сохраните данные об ошибке.',
                 exc=e,
             )
             self.save_error_log()
             self._check_sensitive_exit(command, e)
-            logger.warning('[Alas] 碧蓝航线游戏客户端发生错误，AzurPilot 无法处理')
-            logger.warning(f'[Alas] 正在重启 {self.device.package} 以修复问题')
+            logger.warning('[Alas] Клиент Azur Lane завершился с ошибкой, которую AzurPilot не может обработать')
+            logger.warning(f'[Alas] Перезапуск {self.device.package} для восстановления')
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config_name}> 警告",
-                content=f"<{self.config_name}> 游戏客户端错误 - 将自动重启游戏",
+                title=f"AzurPilot <{self.config_name}>: предупреждение",
+                content=f"<{self.config_name}> Ошибка игрового клиента; будет выполнен автоматический перезапуск",
             )
             notify_webui(
                 self.config_name,
-                title=f"<{self.config_name}> 发出了警告喵！",
-                content=f"<{self.config_name}> 游戏客户端错误 将自动重启游戏喵~",
+                title=f"<{self.config_name}>: предупреждение",
+                content=f"<{self.config_name}> Ошибка игрового клиента; будет выполнен автоматический перезапуск",
             )
             self.config.task_call('Restart')
             self.device.sleep(10)
             return 'recoverable'
         except GamePageUnknownError as e:
-            logger.info('[Alas] 游戏服务器可能正在维护或网络连接中断，正在检查服务器状态')
+            logger.info('[Alas] Возможны техническое обслуживание сервера или разрыв сети; проверяется состояние сервера')
             self.checker.check_now()
             if self.checker.is_available():
                 logger.error_context(
-                    title='无法识别游戏页面',
-                    reason='服务器可用，但当前截图不符合任何已知游戏页面。',
-                    impact='无法安全继续任务，调度器即将终止。',
-                    action='确认游戏版本、服务器和分辨率；若更新后出现，请更新 AzurPilot 资源。',
+                    title='Игровая страница не распознана',
+                    reason='Сервер доступен, но текущий снимок не соответствует ни одной известной странице игры.',
+                    impact='Безопасное продолжение задачи невозможно; планировщик завершит работу.',
+                    action='Проверьте версию игры, сервер и разрешение. Если проблема появилась после обновления, обновите ресурсы AzurPilot.',
                     exc=e,
                     level=50,
                 )
                 self.save_error_log()
                 handle_notify(
                     self.config.Error_OnePushConfig,
-                    title=f"AzurPilot <{self.config_name}> 崩溃",
+                    title=f"AzurPilot <{self.config_name}>: аварийное завершение",
                     content=f"<{self.config_name}> GamePageUnknownError",
                 )
                 notify_webui(
                     self.config_name,
-                    title=f"出大问题了喵！{self.config_name} 崩溃了喵！",
-                    content=f"因为 GamePageUnknownError 喵！",
+                    title=f"Аварийное завершение {self.config_name}",
+                    content=f"Причина: GamePageUnknownError",
                 )
                 exit(1)
             else:
@@ -411,29 +411,29 @@ class AzurLaneAutoScript:
                 return False
         except ScriptError as e:
             logger.exception_context(
-                title='任务脚本执行失败', exc=e,
-                impact='当前任务无法继续，调度器将终止并保留错误现场。',
-                action='根据堆栈定位脚本错误；如果是新版本回归，请提交错误日志和截图。',
+                title='Ошибка выполнения сценария задачи', exc=e,
+                impact='Текущую задачу продолжить невозможно; планировщик завершит работу и сохранит данные об ошибке.',
+                action='Определите причину по стеку. Если это регрессия новой версии, приложите журнал ошибки и снимки экрана.',
                 level=50,
             )
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config_name}> 崩溃",
+                title=f"AzurPilot <{self.config_name}>: аварийное завершение",
                 content=f"<{self.config_name}> ScriptError",
             )
             notify_webui(
                 self.config_name,
-                title=f"出大问题了喵！{self.config_name}崩溃了喵！",
-                content=f"因为 ScriptError 喵！",
+                title=f"Аварийное завершение {self.config_name}",
+                content=f"Причина: ScriptError",
             )
             raise
         except EmulatorNotRunningError as e:
             # 模拟器离线或死机，尝试自动重启
             logger.error_context(
-                title='模拟器连接中断',
-                reason='任务执行期间无法访问模拟器或 ADB 设备。',
-                impact='当前任务中断，系统将按配置尝试重启模拟器。',
-                action='确认模拟器进程和 ADB 服务正常；连续失败时检查端口、代理和模拟器保活设置。',
+                title='Соединение с эмулятором потеряно',
+                reason='Во время выполнения задачи эмулятор или устройство ADB стали недоступны.',
+                impact='Текущая задача прервана; система попробует перезапустить эмулятор согласно конфигурации.',
+                action='Убедитесь, что эмулятор и служба ADB работают. При повторении проверьте порты, прокси и настройки поддержания работы эмулятора.',
                 exc=e,
             )
             self.save_error_log()
@@ -443,81 +443,81 @@ class AzurLaneAutoScript:
                 self.config.task_call('Restart')
                 handle_notify(
                     self.config.Error_OnePushConfig,
-                    title=f"AzurPilot <{self.config_name}> 警告",
-                    content=f"<{self.config_name}> 模拟器离线 - 已自动重启模拟器",
+                    title=f"AzurPilot <{self.config_name}>: предупреждение",
+                    content=f"<{self.config_name}> Эмулятор был недоступен и автоматически перезапущен",
                 )
                 notify_webui(
                     self.config_name,
-                    title=f"{self.config_name} 出了点小问题喵~",
-                    content=f"模拟器离线喵 所以重启了喵",
+                    title=f"{self.config_name}: эмулятор перезапущен",
+                    content=f"Эмулятор был недоступен и автоматически перезапущен",
                 )
                 return 'recoverable'
             else:
                 # 重启失败或未启用自动重启，终止程序
                 logger.error_context(
-                    title='模拟器无法自动恢复',
-                    reason='模拟器离线重启失败或已达到自动重启次数限制。',
-                    impact='调度器将终止，任务不会继续执行。',
-                    action='手动启动模拟器并确认 ADB 可见，再重新启动 AzurPilot。',
+                    title='Автоматическое восстановление эмулятора невозможно',
+                    reason='Перезапуск отключён, завершился ошибкой либо достиг предела попыток.',
+                    impact='Планировщик завершит работу; выполнение задач остановлено.',
+                    action='Запустите эмулятор вручную, убедитесь, что он виден через ADB, и перезапустите AzurPilot.',
                     level=50,
                 )
                 handle_notify(
                     self.config.Error_OnePushConfig,
-                    title=f"AzurPilot <{self.config_name}> 崩溃",
+                    title=f"AzurPilot <{self.config_name}>: аварийное завершение",
                     content=f"<{self.config_name}> EmulatorNotRunningError",
                 )
                 notify_webui(
                     self.config_name,
-                    title=f"出大问题了喵！{self.config_name}崩溃了喵！",
-                    content=f"因为 模拟器出问题了 喵！",
+                    title=f"Аварийное завершение {self.config_name}",
+                    content=f"Причина: EmulatorNotRunningError",
                 )
                 exit(1)
         except RequestHumanTakeover:
             logger.error_context(
-                title='任务需要人工介入',
-                reason='当前状态无法由自动化流程安全判断或修复。',
-                impact='调度器将终止，避免继续执行造成误操作。',
-                action='查看错误现场和堆栈，按日志中的具体建议处理后重新启动。',
+                title='Требуется вмешательство пользователя',
+                reason='Автоматизация не может безопасно определить или исправить текущее состояние.',
+                impact='Планировщик завершит работу, чтобы избежать ошибочных действий.',
+                action='Изучите сохранённое состояние и стек и выполните рекомендации журнала перед повторным запуском.',
                 level=50,
             )
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config_name}> 崩溃",
+                title=f"AzurPilot <{self.config_name}>: аварийное завершение",
                 content=f"<{self.config_name}> RequestHumanTakeover",
             )
             notify_webui(
                 self.config_name,
-                title=f"出大问题了喵！{self.config_name}崩溃了喵！",
-                content=f"因为 需要人工介入 喵！",
+                title=f"Аварийное завершение {self.config_name}",
+                content=f"Причина: требуется вмешательство пользователя",
             )
             exit(1)
         except AutoSearchSetError as e:
             logger.error_context(
-                title='自动搜索设置失败',
-                reason='无法将游戏切换到所需的自动搜索状态。',
-                impact='当前任务无法安全继续，调度器将终止。',
-                action='检查编队、关卡限制和游戏页面；确认后手动设置自动搜索并重新启动。',
+                title='Не удалось настроить автоматический поиск',
+                reason='Игру не удалось переключить в требуемый режим автоматического поиска.',
+                impact='Безопасное продолжение задачи невозможно; планировщик завершит работу.',
+                action='Проверьте состав флота, ограничения этапа и текущую страницу; настройте автоматический поиск вручную и перезапустите приложение.',
                 exc=e,
                 level=50,
             )
             exit(1)
         except Exception as e:
             logger.exception_context(
-                title=f'任务执行发生未处理异常（{command}）', exc=e,
-                impact='当前任务无法确认执行结果，调度器将保留现场并终止。',
-                action='查看错误现场中的 log.txt、截图和完整堆栈，确认是否需要更新资源或提交问题。',
+                title=f'Необработанная ошибка при выполнении задачи ({command})', exc=e,
+                impact='Результат текущей задачи невозможно определить; планировщик сохранит данные об ошибке и завершит работу.',
+                action='Изучите log.txt, снимки и полный стек в сохранённых данных и определите, требуется ли обновление ресурсов или регистрация проблемы.',
                 level=50,
             )
             self.save_error_log()
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config_name}> 崩溃",
-                content=f"<{self.config_name}> 发生异常",
+                title=f"AzurPilot <{self.config_name}>: аварийное завершение",
+                content=f"<{self.config_name}> Произошла необработанная ошибка",
             )
             notify_webui(
                 self.config_name,
-                title=f"出大问题了喵！{self.config_name}崩溃了喵！",
-                content=f"因为 发生异常 喵！",
+                title=f"Аварийное завершение {self.config_name}",
+                content=f"Причина: необработанная ошибка",
             )
             raise
 
@@ -549,7 +549,7 @@ class AzurLaneAutoScript:
         from module.base.utils import save_image
         from module.handler.sensitive_info import (handle_sensitive_image,
                                                    handle_sensitive_logs)
-                                                   
+
         # LLM 错误分析放在最前面，避免后续截图保存时二次崩溃导致分析未执行
         try:
             if hasattr(self, 'config') and getattr(self.config, 'Error_LlmAnalysis', False):
@@ -560,10 +560,10 @@ class AzurLaneAutoScript:
                     analyze_exception(self.config, exc_value)
         except Exception as e:
             logger.exception_context(
-                title='LLM 错误分析失败',
+                title='Не удалось выполнить LLM-анализ ошибки',
                 exc=e,
-                impact='不影响任务恢复，但本次错误不会生成 LLM 分析结果。',
-                action='检查 LLM API 配置、网络和配额；直接根据错误现场排查。',
+                impact='Восстановление задачи не затронуто, но для этой ошибки результат LLM-анализа не создан.',
+                action='Проверьте конфигурацию LLM API, сеть и квоту; используйте сохранённые данные ошибки для диагностики.',
                 level=30,
             )
 
@@ -571,7 +571,7 @@ class AzurLaneAutoScript:
             config_folder = pathlib.Path(f"./log/error/{self.config_name}")
             folder = config_folder.joinpath(str(int(time.time() * 1000)))
             folder.mkdir(parents=True, exist_ok=True)
-            logger.warning(f'[Alas] 保存错误日志: {folder}')
+            logger.warning(f'[Alas] Сохранение журнала ошибки: {folder}')
 
             try:
                 # 只在已经初始化了设备时才尝试保存截图，避免按需初始化时二次崩溃
@@ -581,7 +581,7 @@ class AzurLaneAutoScript:
                         image = handle_sensitive_image(data['image'])
                         save_image(image, f'{folder}/{image_time}.png')
             except Exception as e:
-                logger.error(f"[Alas] 保存错误截图失败: {e}")
+                logger.error(f"[Alas] Не удалось сохранить снимок ошибки: {e}")
 
             try:
                 with open(logger.log_file, 'r', encoding='utf-8') as f:
@@ -596,8 +596,8 @@ class AzurLaneAutoScript:
                 with open(f'{folder}/log.txt', 'w', encoding='utf-8') as f:
                     f.writelines(lines)
             except Exception as e:
-                logger.error(f"[Alas] 保存错误日志失败: {e}")
-                
+                logger.error(f"[Alas] Не удалось сохранить журнал ошибки: {e}")
+
             self.keep_last_errlog(config_folder, getattr(self.config, 'Error_SaveErrorCount', 0))
 
     def restart(self):
@@ -615,7 +615,7 @@ class AzurLaneAutoScript:
         try:
             delay = int(ensure_time(random_delay, n=1, precision=0))
         except (TypeError, ValueError):
-            logger.warning(f'[Alas] 无效的重启随机延后设置: {random_delay}, 使用 0 分钟')
+            logger.warning(f'[Alas] Некорректная случайная задержка перезапуска: {random_delay}; используется 0 минут')
             delay = 0
 
         return max(delay, 0)
@@ -636,10 +636,10 @@ class AzurLaneAutoScript:
 
         next_run = last_update + timedelta(minutes=delay)
         if next_run <= current_time().replace(microsecond=0):
-            logger.info(f'[Alas] 每日重启随机延后 {delay} 分钟已到达，继续重启')
+            logger.info(f'[Alas] Случайная задержка ежедневного перезапуска на {delay} минут истекла; перезапуск продолжается')
             return False
 
-        logger.info(f'[Alas] 每日重启命中服务器刷新时间，随机延后 {delay} 分钟至 {next_run}')
+        logger.info(f'[Alas] Ежедневный перезапуск совпал со временем обновления сервера и отложен на {delay} минут до {next_run}')
         self.config.task_delay(target=next_run)
         return True
 
@@ -648,7 +648,7 @@ class AzurLaneAutoScript:
         delay = self.restart_random_delay_minutes()
         next_run = get_server_next_update(self.config.Scheduler_ServerUpdate) + timedelta(minutes=delay)
         if delay:
-            logger.info(f'[Alas] 每日重启随机延后 {delay} 分钟')
+            logger.info(f'[Alas] Ежедневный перезапуск отложен на {delay} минут')
         self.config.task_delay(target=next_run)
 
     def start(self):
@@ -659,10 +659,10 @@ class AzurLaneAutoScript:
         from module.handler.login import LoginHandler
         from module.ui.ui import UI
         if self.device.app_is_running():
-            logger.info('[Alas] 应用已在运行，前往主页面')
+            logger.info('[Alas] Приложение уже запущено; переход на главную страницу')
             UI(self.config, device=self.device).ui_goto_main()
         else:
-            logger.info('[Alas] 应用未运行，启动应用并前往主页面')
+            logger.info('[Alas] Приложение не запущено; запуск и переход на главную страницу')
             LoginHandler(self.config, device=self.device).app_start()
             UI(self.config, device=self.device).ui_goto_main()
 
@@ -1064,7 +1064,7 @@ class AzurLaneAutoScript:
             # 回退到 EmulatorManager 配置
             enable = deep_get(self.config.data, 'EmulatorManager.EmulatorManager.EnableRemoteSSH', False)
             if not enable:
-                logger.warning('[Alas-SSH] 模拟器管理器设置中未启用远程SSH')
+                logger.warning('[Alas-SSH] Удалённый SSH не включён в настройках управления эмулятором')
                 return
 
             host = deep_get(self.config.data, 'EmulatorManager.EmulatorManager.RemoteSSHHost', '')
@@ -1076,10 +1076,10 @@ class AzurLaneAutoScript:
             key = deep_get(self.config.data, 'EmulatorManager.EmulatorManager.RemoteSSHPublicKey', '')
 
         if not host or not command:
-            logger.warning(f'[Alas-SSH] 远程SSH主机 ({host}) 或远程启动命令 ({command}) 为空，跳过远程SSH命令')
+            logger.warning(f'[Alas-SSH] Хост удалённого SSH ({host}) или команда запуска ({command}) не заданы; команда пропущена')
             return
 
-        logger.hr('远程SSH命令', level=1)
+        logger.hr('Команда удалённого SSH', level=1)
         target = f'{user}@{host}' if user else host
         clear_ssh_host_key(host, port)
         # -n: 禁用标准输入  -T: 禁用伪终端分配  BatchMode: 避免密码提示导致挂起
@@ -1090,7 +1090,7 @@ class AzurLaneAutoScript:
             '-o', f'GlobalKnownHostsFile={os.devnull}',
             '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
         ]
-        
+
         key_file = None
         if key and len(key) > 50:
             import tempfile
@@ -1098,7 +1098,7 @@ class AzurLaneAutoScript:
                 fd, key_file = tempfile.mkstemp()
                 with os.fdopen(fd, 'w') as f:
                     f.write(key.strip() + '\n')
-                
+
                 if os.name == 'nt':
                     import subprocess
                     user_env = os.environ.get('USERNAME')
@@ -1109,12 +1109,12 @@ class AzurLaneAutoScript:
                     os.chmod(key_file, 0o600)
 
                 cmd += ['-i', key_file]
-                logger.info(f'[Alas-SSH] 使用提供的私钥进行认证')
+                logger.info(f'[Alas-SSH] Для аутентификации используется предоставленный закрытый ключ')
             except Exception as e:
-                logger.error(f'[Alas-SSH] 创建或保护临时密钥文件失败: {e}')
+                logger.error(f'[Alas-SSH] Не удалось создать или защитить временный файл ключа: {e}')
 
         cmd += [target, command]
-        logger.info(f'[Alas-SSH] 执行远程命令: {" ".join(cmd)}')
+        logger.info(f'[Alas-SSH] Выполнение удалённой команды: {" ".join(cmd)}')
 
         try:
             process = subprocess.Popen(
@@ -1129,14 +1129,14 @@ class AzurLaneAutoScript:
             # 缓存 stderr 输出，仅在失败时打印
             stderr_content = []
             import threading
-            
+
             def collect_stderr():
                 for line in process.stderr:
                     stderr_content.append(line.strip())
-            
+
             def collect_stdout():
                 for line in process.stdout:
-                    logger.info(f'[Alas-SSH] 远程输出: {line.strip()}')
+                    logger.info(f'[Alas-SSH] Удалённый вывод: {line.strip()}')
 
             stderr_thread = threading.Thread(target=collect_stderr)
             stdout_thread = threading.Thread(target=collect_stdout)
@@ -1148,20 +1148,20 @@ class AzurLaneAutoScript:
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 process.kill()
-                logger.error('[Alas-SSH] 远程SSH命令超时（30秒）')
+                logger.error('[Alas-SSH] Команда удалённого SSH превысила тайм-аут 30 секунд')
                 return
             finally:
                 stderr_thread.join(timeout=5)
                 stdout_thread.join(timeout=5)
 
             if process.returncode == 0:
-                logger.info('[Alas-SSH] 远程命令执行成功')
+                logger.info('[Alas-SSH] Удалённая команда выполнена успешно')
             else:
-                logger.error(f'[Alas-SSH] 远程命令失败，返回码 {process.returncode}')
+                logger.error(f'[Alas-SSH] Удалённая команда завершилась с кодом {process.returncode}')
                 for line in stderr_content:
-                    logger.error(f'[Alas-SSH] 远程错误: {line}')
+                    logger.error(f'[Alas-SSH] Ошибка удалённой команды: {line}')
         except Exception as e:
-            logger.error(f'[Alas-SSH] 执行远程SSH命令失败: {e}')
+            logger.error(f'[Alas-SSH] Не удалось выполнить команду удалённого SSH: {e}')
         finally:
             if key_file and os.path.exists(key_file):
                 try:
@@ -1188,9 +1188,9 @@ class AzurLaneAutoScript:
                 return True
             if self.stop_event is not None:
                 if self.stop_event.is_set():
-                    logger.info('[Alas] 收到停止请求')
+                    logger.info('[Alas] Получен запрос на остановку')
                     logger.info(
-                        f'[{self.config_name}] 已退出。原因: 停止请求 | Reason: Stop request'
+                        f'[{self.config_name}] Работа завершена. Причина: запрос на остановку'
                     )
                     exit(0)
 
@@ -1219,7 +1219,7 @@ class AzurLaneAutoScript:
                 release_resources(next_task=task.command)
 
             if task.next_run > current_time():
-                logger.info(f'[Alas] 等待直到 {task.next_run} 执行任务 `{task.command}`')
+                logger.info(f'[Alas] Ожидание до {task.next_run} перед запуском задачи `{task.command}`')
                 self.is_first_task = False
                 method = self.config.Optimization_WhenTaskQueueEmpty
                 wait_duration = task.next_run - current_time()
@@ -1229,18 +1229,18 @@ class AzurLaneAutoScript:
                     and 'device' in self.__dict__ and self.device.emulator_instance is not None  # 远程设备（无线 ADB / SSH）没有本地模拟器实例可管理，跳过关闭流程，走常规等待逻辑
                 ):
                     logger.info(
-                        f'下一个任务 `{task.command}` 将在 {wait_duration} 后运行，'
-                        '等待期间关闭模拟器'
+                        f'Следующая задача `{task.command}` запустится через {wait_duration}; '
+                        'на время ожидания эмулятор будет остановлен'
                     )
                     release_resources()
                     self.device.release_during_wait()
                     try:
                         if self.device.emulator_stop():
-                            logger.info('[Alas] 等待期间已关闭模拟器')
+                            logger.info('[Alas] Эмулятор остановлен на время ожидания')
                         else:
-                            logger.warning('[Alas] 等待期间关闭模拟器失败，继续等待')
+                            logger.warning('[Alas] Не удалось остановить эмулятор на время ожидания; ожидание продолжается')
                     except Exception as e:
-                        logger.warning(f'[Alas] 等待期间关闭模拟器失败，继续等待: {e}')
+                        logger.warning(f'[Alas] Не удалось остановить эмулятор на время ожидания; ожидание продолжается: {e}')
                     if 'device' in self.__dict__:
                         del_cached_property(self, 'device')
                     if not self.wait_until(task.next_run):
@@ -1252,7 +1252,7 @@ class AzurLaneAutoScript:
                         del_cached_property(self, 'config')
                         continue
                 elif method == 'close_game':
-                    logger.info('[Alas] 等待期间关闭游戏')
+                    logger.info('[Alas] Игра закрывается на время ожидания')
                     self.device.app_stop()
                     release_resources()
                     self.device.release_during_wait()
@@ -1264,7 +1264,7 @@ class AzurLaneAutoScript:
                         del_cached_property(self, 'config')
                         continue
                 elif method == 'goto_main':
-                    logger.info('[Alas] 等待期间前往主页面')
+                    logger.info('[Alas] Переход на главную страницу на время ожидания')
                     self.run('goto_main')
                     release_resources()
                     self.device.release_during_wait()
@@ -1278,7 +1278,7 @@ class AzurLaneAutoScript:
                         del_cached_property(self, 'config')
                         continue
                 else:
-                    logger.warning(f'[Alas] 无效的 Optimization_WhenTaskQueueEmpty: {method}, 回退到 stay_there')
+                    logger.warning(f'[Alas] Некорректное значение Optimization_WhenTaskQueueEmpty: {method}; используется stay_there')
                     release_resources()
                     self.device.release_during_wait()
                     if not self.wait_until(task.next_run):
@@ -1291,16 +1291,16 @@ class AzurLaneAutoScript:
 
     def loop(self):
         logger.set_file_logger(self.config_name)
-        logger.info(f'[Alas] 启动调度器循环: {self.config_name}')
+        logger.info(f'[Alas] Запуск цикла планировщика: {self.config_name}')
 
         from module.config.utils import is_oobe_needed
 
         if is_oobe_needed():
             logger.error_context(
-                title='未检测到配置文件',
-                reason='项目尚未完成首次配置，或 config 目录中的配置文件缺失。',
-                impact='调度器无法启动。',
-                action='运行 `uv run python gui.py` 打开 WebUI，完成初次设置后再启动调度器。',
+                title='Файл конфигурации не найден',
+                reason='Первичная настройка проекта не завершена либо файл конфигурации отсутствует в каталоге config.',
+                impact='Планировщик не может быть запущен.',
+                action='Запустите `uv run python gui.py`, откройте WebUI, завершите первоначальную настройку и снова запустите планировщик.',
                 level=50,
             )
             exit(1)
@@ -1316,9 +1316,9 @@ class AzurLaneAutoScript:
                 # 检查来自 GUI 的通用停止请求
                 if self.stop_event is not None:
                     if self.stop_event.is_set():
-                        logger.info('[Alas] 收到停止请求')
+                        logger.info('[Alas] Получен запрос на остановку')
                         logger.info(
-                            f"[Alas] [{self.config_name}] 已退出。原因: 停止请求 | Reason: Stop request"
+                            f"[Alas] [{self.config_name}] Работа завершена. Причина: запрос на остановку"
                         )
                         break
                 # 检查游戏服务器维护
@@ -1326,23 +1326,23 @@ class AzurLaneAutoScript:
                 if self.checker.is_recovered():
                     # 服务器恢复后强制刷新配置，修复阻塞期间配置未更新的问题
                     del_cached_property(self, 'config')
-                    logger.info('[Alas] 服务器或网络已恢复。重启游戏客户端')
+                    logger.info('[Alas] Сервер или сеть восстановлены; выполняется перезапуск игрового клиента')
                     self.config.task_call('Restart')
                 # 检查计划的模拟器重启（在任务之间，不会中断正在运行的任务）
                 if self.config.EmulatorManagement_ScheduledEmulatorRestart:
                     elapsed_hours = (time.monotonic() - self.last_emulator_restart_time) / 3600
                     interval = self.config.EmulatorManagement_RestartIntervalHours
                     if elapsed_hours >= interval:
-                        logger.hr('[Alas] 计划的模拟器重启', level=1)
-                        logger.info(f'[Alas] 模拟器已运行 {elapsed_hours:.1f} 小时, '
-                                    f'计划重启间隔为 {interval} 小时')
+                        logger.hr('[Alas] Плановый перезапуск эмулятора', level=1)
+                        logger.info(f'[Alas] Эмулятор работает {elapsed_hours:.1f} ч; '
+                                    f'интервал планового перезапуска — {interval} ч')
                         if self._try_restart_emulator():
                             self.last_emulator_restart_time = time.monotonic()
                             self.config.task_call('Restart')
                             del_cached_property(self, 'config')
                             continue
                         else:
-                            logger.warning('[Alas] 计划的模拟器重启失败，继续正常运行')
+                            logger.warning('[Alas] Плановый перезапуск эмулятора не выполнен; обычная работа продолжается')
 
                 # 获取任务
                 task = self.get_next_task()
@@ -1351,18 +1351,18 @@ class AzurLaneAutoScript:
                 self.device.config = self.config
                 # 跳过第一次重启
                 if self.is_first_task and task == 'Restart':
-                    logger.info('[Alas] 调度器启动时跳过任务 `Restart`')
+                    logger.info('[Alas] При запуске планировщика задача `Restart` пропущена')
                     self.delay_next_restart()
                     del_cached_property(self, 'config')
                     continue
 
                 # 运行
-                logger.info(f'[Alas] 调度器: 开始任务 `{task}`')
+                logger.info(f'[Alas] Планировщик: запуск задачи `{task}`')
                 self.device.stuck_record_clear()
                 self.device.click_record_clear()
                 logger.hr(task, level=0)
                 success = self.run(inflection.underscore(task))
-                logger.info(f'[Alas] 调度器: 结束任务 `{task}`')
+                logger.info(f'[Alas] Планировщик: завершение задачи `{task}`')
                 self.is_first_task = False
 
                 # 每任务推送通知（须在 config_generated 刷新前读取）
@@ -1370,19 +1370,19 @@ class AzurLaneAutoScript:
                     try:
                         if getattr(self.config, 'Scheduler_PushNotification', False):
                             if success == True:
-                                status = '成功'
+                                status = 'Успешно'
                             elif success == 'recoverable':
-                                status = '成功（有可恢复错误需关注）'
+                                status = 'Успешно (обнаружена восстановимая ошибка)'
                             else:
-                                status = '失败'
+                                status = 'Ошибка'
                             task_display = _get_task_display_name(task)
                             handle_notify(
                                 self.config.Error_OnePushConfig,
-                                title=f"[AzurPilot] <{self.config_name}> {task_display} {status}",
-                                content=f"<{self.config_name}> 任务 {task_display} —— {status}",
+                                title=f"[AzurPilot] <{self.config_name}> {task_display}: {status}",
+                                content=f"<{self.config_name}> Задача {task_display}: {status}",
                             )
                     except Exception:
-                        logger.warning('[Alas] 每任务推送通知异常，已跳过')
+                        logger.warning('[Alas] Не удалось отправить уведомление о задаче; уведомление пропущено')
 
                 # 检查失败
                 # 单个任务连续失败三次终止程序
@@ -1393,7 +1393,7 @@ class AzurLaneAutoScript:
                 elif success == 'recoverable':
                     # 可恢复错误（如 GameStuckError），不增加失败计数
                     # 但也不重置，保持之前的计数
-                    logger.info(f'[Alas] 任务 `{task}` 遇到可恢复错误，不计入失败限制')
+                    logger.info(f'[Alas] В задаче `{task}` произошла восстановимая ошибка; предел ошибок не увеличен')
                 else:
                     failed = failed + 1  # 不可恢复错误，增加计数
                 deep_set(self.failure_record, keys=task, value=failed)
@@ -1402,29 +1402,29 @@ class AzurLaneAutoScript:
                     keys=f'{task}.Scheduler.Sensitive', default=False
                 )
                 if failed >= 3 or strict_restart:
-                    reason = '任务配置或使用方式不符合要求，也可能是任务本身存在问题。'
-                    action = '检查任务选项帮助和错误现场；确认配置正确后再重试。'
+                    reason = 'Конфигурация или способ запуска задачи некорректны либо в самой задаче произошла ошибка.'
+                    action = 'Проверьте справку по параметрам задачи и сохранённые данные ошибки; исправьте конфигурацию перед повторным запуском.'
                     if strict_restart:
-                        reason += '该任务是重启敏感任务，失败后禁止自动重启。'
-                        action += '如需自动恢复，请关闭对应任务的 StrictRestart；否则手动接管游戏。'
+                        reason += 'Задача чувствительна к перезапуску, поэтому автоматический перезапуск после ошибки запрещён.'
+                        action += 'Для автоматического восстановления отключите StrictRestart этой задачи; иначе перейдите к ручному управлению игрой.'
                     logger.error_context(
-                        title=f'任务连续失败，需要人工介入（{task}）',
-                        reason=f'该任务已连续失败 {failed} 次。{reason}',
-                        impact='调度器将停止，避免继续执行造成重复操作或数据异常。',
+                        title=f'Задача многократно завершилась с ошибкой; требуется вмешательство пользователя ({task})',
+                        reason=f'Задача завершилась с ошибкой {failed} раз подряд. {reason}',
+                        impact='Планировщик остановится, чтобы избежать повторных действий или повреждения данных.',
                         action=action,
                         level=50,
                     )
                     handle_notify(
                         self.config.Error_OnePushConfig,
-                        title=f"AzurPilot <{self.config_name}> crashed",
-                        content=f"<{self.config_name}> RequestHumanTakeover\nTask `{task}` failed {failed} or more times.",
+                        title=f"AzurPilot <{self.config_name}>: аварийное завершение",
+                        content=f"<{self.config_name}> RequestHumanTakeover\nЗадача `{task}` завершилась с ошибкой не менее {failed} раз.",
                     )
                     notify_webui(
                         self.config_name,
-                        title=f"诶呀！{self.config_name}出现了问题喵！",
-                        content=f"因为 {task} 任务失败次数过多喵！",
+                        title=f"Ошибка в {self.config_name}",
+                        content=f"Задача {task} превысила предел последовательных ошибок.",
                     )
-                    logger.warning("[Alas] 任务连续失败次数过多，错误信息仅保留在本地日志中。")
+                    logger.warning("[Alas] Превышен предел последовательных ошибок задачи; подробности сохранены только в локальном журнале.")
                     exit(1)
 
                 if success == True:
@@ -1447,58 +1447,58 @@ class AzurLaneAutoScript:
                 self.is_first_task = False
                 import traceback
                 logger.exception_context(
-                    title='调度器循环发生未处理异常',
+                    title='Необработанная ошибка в цикле планировщика',
                     exc=e,
-                    impact='本轮任务中断，调度器将尝试执行 Restart 后继续运行。',
-                    action='关注下方堆栈；若连续发生，请检查设备连接、配置和最近更新的资源。',
+                    impact='Текущая итерация прервана; планировщик попробует назначить Restart и продолжить работу.',
+                    action='Изучите стек ниже. При повторении проверьте подключение устройства, конфигурацию и недавно обновлённые ресурсы.',
                 )
-                
+
                 # 即使没有达到重启或失败上限，也第一时间自动请求分析崩溃原因
                 try:
                     if hasattr(self, 'config') and getattr(self.config, 'Error_LlmAnalysis', False):
                         from module.llm import analyze_exception
                         analyze_exception(self.config, e)
                 except Exception as ex:
-                    logger.error(f'[Alas] LLM错误分析失败: {ex}')
+                    logger.error(f'[Alas] Не удалось выполнить LLM-анализ ошибки: {ex}')
 
                 logger.warning(
-                    f">>> 这是第 {consecutive_global_failures} 次连续全局失败，共 {MAX_GLOBAL_FAILURES} 次。"
+                    f">>> Последовательная глобальная ошибка {consecutive_global_failures} из {MAX_GLOBAL_FAILURES}."
                 )
 
                 # 检查是否达到重试上限
                 if consecutive_global_failures >= MAX_GLOBAL_FAILURES:
                     logger.error_context(
-                        title='调度器达到连续失败上限',
-                        reason=f'全局异常已连续发生 {MAX_GLOBAL_FAILURES} 次。',
-                        impact='自动恢复已停止，AzurPilot 将退出。',
-                        action='查看错误现场中的 log.txt 和截图，修复根因后重新启动；提交问题时请附带该现场。',
+                        title='Достигнут предел последовательных ошибок планировщика',
+                        reason=f'Глобальная ошибка произошла {MAX_GLOBAL_FAILURES} раз подряд.',
+                        impact='Автоматическое восстановление остановлено; AzurPilot завершит работу.',
+                        action='Изучите log.txt и снимки в сохранённых данных, устраните причину и перезапустите приложение; приложите эти данные при регистрации проблемы.',
                         exc=e,
                         level=50,
                     )
                     self.save_error_log()
-                    logger.warning("[Alas] 遇到无法恢复的致命错误，错误信息仅保留在本地日志中。")
+                    logger.warning("[Alas] Обнаружена невосстановимая ошибка; подробности сохранены только в локальном журнале.")
                     exit(1)
 
                 # 尝试重启
-                logger.warning("[Alas] 尝试通过强制执行 RESTART 任务来恢复...")
+                logger.warning("[Alas] Попытка восстановления через принудительное назначение задачи `Restart`...")
                 try:
                     # 注入 Restart 任务
                     self.config.task_call('Restart')
                     # 重新加载配置
                     del_cached_property(self, 'config')
-                    logger.info("[Alas] 已为下一个循环安排了 `Restart` 任务。")
+                    logger.info("[Alas] Задача `Restart` назначена для следующего цикла.")
                 except Exception as restart_e:
                     logger.exception_context(
-                        title='无法安排 Restart 恢复任务',
+                        title='Не удалось назначить задачу Restart для восстановления',
                         exc=restart_e,
-                        impact='调度器无法自动恢复，本轮循环结束后仍可能再次失败。',
-                        action='检查配置是否可读、Restart 任务是否启用，以及设备是否仍在线。',
+                        impact='Автоматическое восстановление невозможно; следующая итерация также может завершиться ошибкой.',
+                        action='Проверьте доступность конфигурации, включена ли задача Restart и остаётся ли устройство подключённым.',
                     )
 
                 # 等待一段时间后开始下一次循环
                 wait_seconds = RESTART_DELAY if consecutive_global_failures < 4 else LONG_WAIT
                 logger.info(
-                    f"调度器将在 {wait_seconds} 秒后从头重试。"
+                    f"Планировщик повторит цикл с начала через {wait_seconds} с."
                 )
                 time.sleep(wait_seconds)
 
