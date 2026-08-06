@@ -22,6 +22,11 @@ class GlobalEnMetadataTests(unittest.TestCase):
         for locale in ("ja-JP", "zh-CN", "zh-MIAO", "zh-TW"):
             self.assertFalse((ROOT / f"module/config/i18n/{locale}.json").exists())
 
+    def test_legacy_root_locale_outputs_are_absent(self) -> None:
+        for locale in ("en-US", "ja-JP", "zh-CN", "zh-MIAO", "zh-TW"):
+            with self.subTest(locale=locale):
+                self.assertFalse((ROOT / f"module/config/{locale}.json").exists())
+
     def test_event_metadata_has_no_foreign_fallback(self) -> None:
         self.assertEqual(EVENT_NAME_SOURCE, "en")
         self.assertEqual(EVENT_NAME_FALLBACK_ORDER, ())
