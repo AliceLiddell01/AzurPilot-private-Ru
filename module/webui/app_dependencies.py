@@ -139,9 +139,26 @@ pin_on_change: Callable[..., Any] = cast(
 )
 eval_js: Callable[..., Any] = cast(Callable[..., Any], _eval_js)
 file_upload: Callable[..., Any] = cast(Callable[..., Any], _file_upload)
-put_button: Callable[..., Any] = cast(Callable[..., Any], _put_button)
 set_env: Callable[..., Any] = cast(Callable[..., Any], _set_env)
 webconfig: Callable[..., Any] = cast(Callable[..., Any], _webconfig)
+
+LIVE_PREVIEW_BUTTON_LABELS = frozenset(
+    {
+        "Предпросмотр снимка",
+        "截图预览",
+    }
+)
+
+
+def put_button(*args: Any, **kwargs: Any) -> Any:
+    """Не создавать кнопку удалённой трансляции в персональной WebUI."""
+    label = kwargs.get("label")
+    if label is None and args:
+        label = args[0]
+    if label in LIVE_PREVIEW_BUTTON_LABELS:
+        return put_none()
+    return _put_button(*args, **kwargs)
+
 
 patch_executor()
 patch_mimetype()
