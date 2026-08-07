@@ -62,7 +62,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
         from module.island.island_season import get_global_season_config
         self.season_config = get_global_season_config(self.config)
         if self.season_config.is_seasonal_enabled:
-            logger.info(f"[岛屿-农田] 当前季节: {self.season_config.season_name}，季节限定作物将根据配置启用")
+            logger.info(f"[Остров — ферма] Текущий сезон: {self.season_config.season_name}; сезонные культуры включаются согласно конфигурации")
 
         self.farm_positions = self.config.IslandFarm_Positions
         self.orchard_positions = self.config.IslandOrchard_Positions
@@ -258,7 +258,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                 # === 季节限定：不在当季的作物不列入补种计划 ===
                 if category == 'nursery' and hasattr(self, 'season_config'):
                     if not self._is_nursery_crop_in_season(item_name):
-                        logger.info(f"[岛屿-农田] 跳过非当季苗圃作物: {item_name}")
+                        logger.info(f"[Остров — ферма] Несезонная культура питомника пропущена: {item_name}")
                         continue
                 if count < threshold:
                     self.to_plant_lists[category].append(item_name)
@@ -408,11 +408,11 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                 if category == 'orchard':
                     character_filter = self.get_orchard_character_filter(product)
                 if self.select_character(character_list=character_filter):
-                    if not self.confirm_selected_character(f"{product}种植派遣"):
+                    if not self.confirm_selected_character(f"{product} — посев"):
                         self.back_to_postmanage_from_dispatch()
                         return False
                 else:
-                    logger.warning(f"[岛屿-农田] {product}种植派遣无可用角色: {character_filter}")
+                    logger.warning(f"[Остров — ферма] Для посева {product} нет доступных персонажей: {character_filter}")
                     self.back_to_postmanage_from_dispatch()
                     return False
                 continue
@@ -423,18 +423,18 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                             item_button=seed_config['shop'],
                             required_quantity=seed_config['seed_number'],
                             shop_check=ISLAND_SHOP_SEED_TAB_CHECK,
-                            item_name=f"{product}种子",
+                            item_name=f"семена {product}",
                     ):
                         continue
                     self.device.sleep(0.3)
-                    if not self.confirm_post_add_order(f"{product}种植派遣"):
+                    if not self.confirm_post_add_order(f"{product} — посев"):
                         self.back_to_postmanage_from_dispatch()
                         return False
                     break
                 else:
                     return self._handle_select_product_failure(product)
         else:
-            logger.warning(f"[岛屿-农田] {product}种植派遣超时")
+            logger.warning(f"[Остров — ферма] Тайм-аут отправки на посев {product}")
             self.back_to_postmanage_from_dispatch()
             return False
 
@@ -460,10 +460,10 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
         self.ui_ensure(page_island)
         self.check_inventory_and_prepare_lists()
 
-        logger.info("[岛屿-农田] \n当前库存统计:")
-        logger.info(f"[岛屿-农田] 农场库存: {self.inventory_counts['farm']}")
-        logger.info(f"[岛屿-农田] 果园库存: {self.inventory_counts['orchard']}")
-        logger.info(f"[岛屿-农田] 苗圃库存: {self.inventory_counts['nursery']}")
+        logger.info("[Остров — ферма] \nТекущие запасы:")
+        logger.info(f"[Остров — ферма] Запасы фермы: {self.inventory_counts['farm']}")
+        logger.info(f"[Остров — ферма] Запасы сада: {self.inventory_counts['orchard']}")
+        logger.info(f"[Остров — ферма] Запасы питомника: {self.inventory_counts['nursery']}")
 
         self.goto_postmanage()
         self.post_manage_mode(POST_MANAGE_PRODUCTION)
@@ -545,9 +545,9 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                     'time_var_name': time_var_name
                 })
 
-        logger.info(f"[岛屿-农田] \n空闲岗位统计:")
+        logger.info(f"[Остров — ферма] \nСвободные позиции:")
         for category in ['farm', 'orchard', 'nursery']:
-            logger.info(f"[岛屿-农田] {category}: {len(idle_posts[category])}个空闲岗位")
+            logger.info(f"[Остров — ферма] {category}: свободных позиций — {len(idle_posts[category])}")
 
         all_plants_to_plant = {'farm': [], 'orchard': [], 'nursery': []}
 
@@ -568,7 +568,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                 if self.posts[post_id]['crop'] == default_crop:
                     already_planted_default += 1
 
-            logger.info(f"[岛屿-农田] {category}已有{already_planted_default}个岗位种植了{default_crop}，配置要求{default_count}个")
+            logger.info(f"[Остров — ферма] {category}: {already_planted_default} поз. уже занято {default_crop}, по конфигурации требуется {default_count}")
 
             need_default = max(0, default_count - already_planted_default)
 
@@ -586,7 +586,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                     all_plants_to_plant[category].append(default_crop)
 
             if all_plants_to_plant[category]:
-                logger.info(f"[岛屿-农田] \n{category}需要种植的作物: {all_plants_to_plant[category]}")
+                logger.info(f"[Остров — ферма] \n{category}: культуры для посадки — {all_plants_to_plant[category]}")
 
         need_to_plant = any(all_plants_to_plant.values())
 
@@ -604,16 +604,16 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
 
                 for i, post_info in enumerate(idle_posts_list):
                     if i >= len(crops_to_plant):
-                        logger.info(f"[岛屿-农田] 跳过{category}岗位{post_info['post_id']}: 没有需要种植的作物")
+                        logger.info(f"[Остров — ферма] {category}, позиция {post_info['post_id']} пропущена: нет культур для посадки")
                         continue
 
                     crop_to_plant = crops_to_plant[i]
-                    logger.info(f"[岛屿-农田] 尝试播种{category}岗位{post_info['post_id']}: {crop_to_plant}")
+                    logger.info(f"[Остров — ферма] Попытка посадки на {category}, позиция {post_info['post_id']}: {crop_to_plant}")
 
                     success = self.post_plant(post_info['button'], crop_to_plant, category, post_info['time_var_name'])
 
                     if success:
-                        logger.info(f"[岛屿-农田] 播种{category}岗位{post_info['post_id']}成功: {crop_to_plant}")
+                        logger.info(f"[Остров — ферма] Посадка на {category}, позиция {post_info['post_id']} выполнена: {crop_to_plant}")
                         if crop_to_plant in self.to_plant_lists[category]:
                             self.to_plant_lists[category].remove(crop_to_plant)
 
@@ -627,20 +627,20 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
 
                 for i, post_info in enumerate(idle_posts_list):
                     if i >= len(crops_to_plant):
-                        logger.info(f"[岛屿-农田] 跳过{category}岗位{post_info['post_id']}: 没有需要种植的作物")
+                        logger.info(f"[Остров — ферма] {category}, позиция {post_info['post_id']} пропущена: нет культур для посадки")
                         continue
 
                     crop_to_plant = crops_to_plant[i]
-                    logger.info(f"[岛屿-农田] 尝试播种{category}岗位{post_info['post_id']}: {crop_to_plant}")
+                    logger.info(f"[Остров — ферма] Попытка посадки на {category}, позиция {post_info['post_id']}: {crop_to_plant}")
 
                     success = self.post_plant(post_info['button'], crop_to_plant, category, post_info['time_var_name'])
 
                     if success:
-                        logger.info(f"[岛屿-农田] 播种{category}岗位{post_info['post_id']}成功: {crop_to_plant}")
+                        logger.info(f"[Остров — ферма] Посадка на {category}, позиция {post_info['post_id']} выполнена: {crop_to_plant}")
                         if crop_to_plant in self.to_plant_lists[category]:
                             self.to_plant_lists[category].remove(crop_to_plant)
 
-        logger.info("[岛屿-农田] \n农田管理完成！")
+        logger.info("[Остров — ферма] \nУправление фермой завершено")
         future_finish = []
 
         for category in ['farm', 'orchard', 'nursery']:
@@ -654,10 +654,10 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
         future_finish.append(six_hours_later)
         future_finish.sort()
         self.config.task_delay(target=future_finish)
-        logger.info(f'[岛屿-农田] 下次运行时间: {future_finish[0]}')
+        logger.info(f'[Остров — ферма] Следующий запуск: {future_finish[0]}')
         if self.island_error:
             from module.exception import GameBugError
-            raise GameBugError("检测到岛屿ERROR1，需要重启")
+            raise GameBugError("Обнаружен Island ERROR1; требуется перезапуск")
     def test(self):
         self.warehouse_inventory('farm')
 if __name__ == "__main__":
