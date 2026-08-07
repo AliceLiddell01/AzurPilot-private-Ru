@@ -45,7 +45,7 @@ class RaidScuttleCombat(RaidCombat):
             self.device.click(OPTS_INFO_D)
             return True
         if super().handle_battle_status(drop=drop):
-            logger.warning("Сработало обычное завершение")
+            logger.warning("触发正常结束")
             self.triggered_normal_end = True
             return True
 
@@ -157,10 +157,10 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
         ship = self.get_common_rarity_ship(index='vanguard')
         if ship:
             self._ship_change_confirm(min(ship, key=lambda s: (s.level, -s.emotion)).button)
-            logger.info('[突袭-扫荡] 更换前排成功')
+            logger.info('[Рейд — затопление] Авангард успешно заменён')
             return True
         else:
-            logger.info('[突袭-扫荡] 更换前排失败，无普通稀有度前排舰船')
+            logger.info('[Рейд — затопление] Не удалось заменить авангард: нет доступных кораблей обычной редкости')
             self._dock_reset()
             self.ui_back(check_button=RAID_FLEET_PREPARATION)
             return False
@@ -177,10 +177,10 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
         ship = self.get_common_rarity_ship(index='main')
         if ship:
             self._ship_change_confirm(min(ship, key=lambda s: (s.level, -s.emotion)).button)
-            logger.info('[突袭-扫荡] 更换旗舰成功')
+            logger.info('[Рейд — затопление] Флагман успешно заменён')
             return True
         else:
-            logger.info('[突袭-扫荡] 更换旗舰失败，无普通稀有度旗舰舰船')
+            logger.info('[Рейд — затопление] Не удалось заменить флагман: нет доступных кораблей обычной редкости')
             self._dock_reset()
             self.ui_back(check_button=RAID_FLEET_PREPARATION)
             return False
@@ -197,7 +197,7 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
         name = name if name else self.config.Campaign_Event
         mode = mode if mode else self.config.Raid_Mode
         if not name or not mode:
-            raise ScriptError(f'RaidRun arguments unfilled. name={name}, mode={mode}')
+            raise ScriptError(f'Не заполнены аргументы RaidRun. name={name}, mode={mode}')
 
         while 1:
             super().run(name=name, mode=mode, total=total)
