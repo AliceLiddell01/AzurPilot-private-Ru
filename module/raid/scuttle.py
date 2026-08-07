@@ -45,7 +45,7 @@ class RaidScuttleCombat(RaidCombat):
             self.device.click(OPTS_INFO_D)
             return True
         if super().handle_battle_status(drop=drop):
-            logger.warning("触发正常结束")
+            logger.warning('Сработало обычное завершение')
             self.triggered_normal_end = True
             return True
 
@@ -138,7 +138,7 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
             index=index, rarity='common', extra='enhanceable', sort='total'
         )
 
-        logger.hr('搜索舰船')
+        logger.hr('Поиск кораблей')
 
         scanner = ShipScanner(level=(1, 31), fleet=0, status='free')
         scanner.disable('rarity')
@@ -146,7 +146,7 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
         return scanner.scan(self.device.image)
 
     def vanguard_change(self):
-        logger.hr('更换前排', level=2)
+        logger.hr('Замена авангарда', level=2)
         for _ in self.loop():
             if self.appear(DOCK_CHECK, offset=(20, 20)):
                 break
@@ -166,7 +166,7 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
             return False
 
     def flagship_change(self):
-        logger.hr('更换旗舰', level=2)
+        logger.hr('Замена флагмана', level=2)
         for _ in self.loop():
             if self.appear(DOCK_CHECK, offset=(20, 20)):
                 break
