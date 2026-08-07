@@ -85,7 +85,7 @@ class Dock(Equipment):
                 new_result = scanner.scan(self.device.image)
 
             if self.appear(DOCK_EMPTY):
-                logger.info('船坞为空')
+                logger.info('Док пуст')
                 break
             if timeout.reached():
                 break
@@ -119,7 +119,7 @@ class Dock(Equipment):
                 self.handle_dock_cards_loading()
 
     def dock_filter_enter(self):
-        logger.info('船坞筛选进入')
+        logger.info('Открытие фильтра дока')
         self.interval_clear(DOCK_CHECK)
         for _ in self.loop():
             if self.appear(DOCK_FILTER_CONFIRM, offset=(20, 60)):
@@ -356,7 +356,7 @@ class Dock(Equipment):
                 self.device.screenshot()
 
             if timeout.reached():
-                logger.warning('[退役-船坞] 获取已选数量超时，假设未选中')
+                logger.warning('[Списание — док] Тайм-аут определения количества выбранных кораблей; считаем, что ничего не выбрано')
                 break
 
             current, _, total = OCR_DOCK_SELECTED.ocr(self.device.image)
@@ -402,7 +402,7 @@ class Dock(Equipment):
             in: page_dock
             out: SHIP_DETAIL_CHECK
         """
-        logger.info('进入船坞首选')
+        logger.info('Открытие первого корабля в доке')
         self.interval_clear(DOCK_CHECK, interval=3)
 
         while 1:
@@ -415,7 +415,7 @@ class Dock(Equipment):
             if self.appear(SHIP_DETAIL_CHECK, offset=(20, 20)):
                 return True
             if self.appear(DOCK_EMPTY, offset=(20, 20)):
-                logger.info('船坞为空')
+                logger.info('Док пуст')
                 return False
 
             # Click
@@ -423,12 +423,12 @@ class Dock(Equipment):
                 if non_npc:
                     # Check NPC
                     if DOCK_FIRST_NPC.match_luma(self.device.image, offset=(20, 20)):
-                        logger.info('第一艘是NPC舰船，选择第二艘')
+                        logger.info('Первый корабль — NPC; выбираем второй')
                         button = CARD_GRIDS[(1, 0)]
                         # Check if there's second ship
                         color = get_color(self.device.image, button.area)
                         if color_similar(color, (34, 34, 42)):
-                            logger.info('第二艘为空，船坞为空')
+                            logger.info('Второй слот пуст; док пуст')
                             return False
                     else:
                         button = CARD_GRIDS[(0, 0)]
