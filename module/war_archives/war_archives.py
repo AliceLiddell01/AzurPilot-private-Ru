@@ -83,7 +83,7 @@ class CampaignWarArchives(CampaignRun, CampaignBase):
         remain = self.config.WarArchives_DailyRunCountRemain
         old_limit = self.config.WarArchives_DailyRunCountLimit
         if record < last_update or remain > limit:
-            logger.info(f'[作战档案] 重置每日出击次数: {remain} -> {limit}')
+            logger.info(f'[Архивы] Сброс дневного числа выходов: {remain} -> {limit}')
             with self.config.multi_set():
                 self.config.WarArchives_DailyRunCountRemain = limit
                 self.config.WarArchives_DailyRunCountRecord = last_update
@@ -91,7 +91,7 @@ class CampaignWarArchives(CampaignRun, CampaignBase):
         elif old_limit != limit:
             remain = max(remain + limit - old_limit, 0)
             remain = min(remain, limit)
-            logger.info(f'[作战档案] 更新每日出击次数: {old_limit} -> {limit}，剩余: {remain}')
+            logger.info(f'[Архивы] Обновление дневного числа выходов: {old_limit} -> {limit}, осталось: {remain}')
             with self.config.multi_set():
                 self.config.WarArchives_DailyRunCountRemain = remain
                 self.config.WarArchives_DailyRunCountLimit = limit
@@ -103,7 +103,7 @@ class CampaignWarArchives(CampaignRun, CampaignBase):
             return False
 
         remain = self.config.WarArchives_DailyRunCountRemain
-        logger.info(f'[作战档案] 今日剩余出击次数: {remain} / {limit}')
+        logger.info(f'[Архивы] На сегодня осталось выходов: {remain} / {limit}')
         if remain > 0:
             return False
 
@@ -118,7 +118,7 @@ class CampaignWarArchives(CampaignRun, CampaignBase):
             return
 
         remain = max(self.config.WarArchives_DailyRunCountRemain - 1, 0)
-        logger.info(f'[作战档案] 今日剩余出击次数: {remain} / {limit}')
+        logger.info(f'[Архивы] На сегодня осталось выходов: {remain} / {limit}')
         with self.config.multi_set():
             self.config.WarArchives_DailyRunCountRemain = remain
             self.config.WarArchives_DailyRunCountRecord = get_server_last_update(self.config.Scheduler_ServerUpdate)
@@ -150,9 +150,9 @@ class CampaignWarArchives(CampaignRun, CampaignBase):
         if self.appear(WAR_ARCHIVES_CAMPAIGN_CHECK, offset=(20, 20)):
             # 检查数据密钥是否已用尽
             current, remain, total = DATA_KEY_CAMPAIGN.ocr(self.device.image)
-            logger.info(f'[作战档案] 数据密钥: {current} / {total}, 剩余: {current}')
+            logger.info(f'[Архивы] Ключи данных: {current} / {total}, осталось: {current}')
             if remain == total:
-                logger.hr('[作战档案] 数据密钥已用尽')
+                logger.hr('[Архивы] Ключи данных исчерпаны')
                 # 仅在数据密钥用尽时才能延迟任务
                 self.config.task_delay(server_update=True)
                 return True
