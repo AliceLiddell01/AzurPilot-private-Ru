@@ -1000,7 +1000,7 @@ class OOBEWizard:
 
     def _package_label(self, package):
         if package != "com.YoStarEN.AzurLane":
-            raise ValueError(f"Unsupported Global package: {package}")
+            raise ValueError(f"Неподдерживаемый пакет Global: {package}")
         return lang.t("Gui.OOBE.ServerEN")
 
     def _package_options(self):
@@ -1030,7 +1030,7 @@ class OOBEWizard:
     @staticmethod
     def _package_for_server(server):
         if server != "en":
-            raise ValueError(f"Unsupported Global server: {server}")
+            raise ValueError(f"Неподдерживаемый сервер Global: {server}")
         return "com.YoStarEN.AzurLane"
 
     # ─── 步骤 3：模拟器配置 ───
