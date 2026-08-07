@@ -112,9 +112,9 @@ class AutoSearchReward(ImageBase):
                 item = self.auto_search_revise_item(item)
                 after = str(item)
                 if before != after:
-                    logger.info(f'[统计-物品] 物品 {before} 修正为 {after}')
+                    logger.info(f'[Статистика — предметы] Предмет {before} исправлен на {after}')
                 if item.amount == 0:
-                    raise ZeroAmountError(f'Invalid item amount: {item}')
+                    raise ZeroAmountError(f'Некорректное количество предмета: {item}')
                 yield item
 
     def extract_auto_search_item_template(self, image, folder=None):
@@ -131,7 +131,7 @@ class AutoSearchReward(ImageBase):
             new = self.auto_search_item_group.extract_template(image, folder=folder)
             new = len(new.keys())
             if not GetItems.ALLOW_TOO_MANY_NEW_TEMPLATE and new >= 2:
-                raise TooManyNewTemplate(f'Extracted {new} new templates')
+                raise TooManyNewTemplate(f'Извлечено новых шаблонов: {new}')
 
     @cached_property
     def auto_search_item_group(self) -> ItemGrid:
@@ -153,7 +153,7 @@ class AutoSearchReward(ImageBase):
 
     def _auto_search_get_items_load(self, image):
         if not self.classify_server(AUTO_SEARCH_REWARD_TITLE, image, offset=(-80, -20, 80, 500)):
-            raise AutoSearchRewardNoTitle('Drop title not found')
+            raise AutoSearchRewardNoTitle('Заголовок награды не найден')
 
         title = CLASSIFY_CACHE[AUTO_SEARCH_REWARD_TITLE][self.server]
         origin = area_offset(title.button, offset=(-7, 34))[:2]
