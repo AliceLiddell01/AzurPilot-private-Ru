@@ -243,7 +243,7 @@ class IslandCargoPreparation(IslandUI):
         return blacklist
 
     def run(self):
-        logger.hr('岛屿货物准备运行', level=1)
+        logger.hr('Подготовка грузов Острова', level=1)
 
         self.ui_ensure(page_island)
         self.ui_goto(page_island_phone, get_ship=False)
@@ -285,9 +285,9 @@ class IslandCargoPreparation(IslandUI):
             if self.transport_start(comm):
                 comm.convert_to_running()
 
-        logger.hr('货物准备状态', level=2)
+        logger.hr('Состояние подготовки грузов', level=2)
         for comm in commissions:
-            logger.attr('货运委托', comm)
+            logger.attr('Транспортная комиссия', comm)
 
         return commissions
 
@@ -298,7 +298,7 @@ class IslandCargoPreparation(IslandUI):
         更换页面默认选中第一个可替换委托，因此只需要确认列表不为空，
         再点击确定按钮。
         """
-        logger.info('货物准备替换委托')
+        logger.info('Замена транспортной комиссии при подготовке грузов')
         self.interval_clear([TRANSPORT_REFRESH, CARGO_PREPARATION_REPLACE_CONFIRM])
 
         if not self._open_replace_page(comm):
@@ -312,7 +312,7 @@ class IslandCargoPreparation(IslandUI):
                 continue
             return False
 
-        logger.warning('[岛屿-货物筹备] 更换列表刷新后仍为空，返回货运界面')
+        logger.warning('[Остров — подготовка грузов] Список замен после обновления всё ещё пуст; возврат к перевозкам')
         self._back_to_transport()
         return False
 
@@ -332,11 +332,11 @@ class IslandCargoPreparation(IslandUI):
 
     def _transport_detect(self):
         """从当前截图中检测所有货运委托。"""
-        logger.hr('运输委托检测')
+        logger.hr('Обнаружение транспортных комиссий')
         commissions = []
         for index in range(3):
             comm = CargoPreparationTransport(main=self, index=index, blacklist=self.blacklist)
-            logger.attr('运输委托', comm)
+            logger.attr('Транспортная комиссия', comm)
             for item in comm.items:
                 logger.attr(item.button, item)
             commissions.append(comm)
@@ -353,19 +353,19 @@ class IslandCargoPreparation(IslandUI):
 
             commissions = self._transport_detect()
             if not commissions.count:
-                logger.warning('[岛屿-货运] 未检测到委托，重试检测')
+                logger.warning('[Остров — перевозки] Комиссии не обнаружены; повторное обнаружение')
                 continue
             if commissions.select(valid=False).count:
-                logger.warning('[岛屿-货运] 检测到无效委托，重试检测')
+                logger.warning('[Остров — перевозки] Обнаружена некорректная комиссия; повторное обнаружение')
                 continue
             return commissions.select(valid=True)
 
-        logger.info('[岛屿-货运] 委托检测重试耗尽，停止')
+        logger.info('[Остров — перевозки] Попытки обнаружения комиссий исчерпаны; остановка')
         return commissions.select(valid=True)
 
     def transport_receive(self):
         """领取运输页面上所有已完成的货运委托。"""
-        logger.hr('岛屿运输', level=2)
+        logger.hr('Перевозки Острова', level=2)
         self.device.click_record_clear()
         self.interval_clear([GET_ITEMS_ISLAND, TRANSPORT_RECEIVE, POPUP_CANCEL_WHITE])
         success = True
@@ -413,7 +413,7 @@ class IslandCargoPreparation(IslandUI):
 
     def transport_start(self, comm):
         """启动指定的货运委托。"""
-        logger.info('[岛屿-货运] 运输委托开始')
+        logger.info('[Остров — перевозки] Транспортная комиссия запущена')
         self.interval_clear([GET_ITEMS_ISLAND, TRANSPORT_START, POPUP_CANCEL_WHITE])
         success = True
         confirm_timer = Timer(1, count=2).start()
@@ -456,7 +456,7 @@ class IslandCargoPreparation(IslandUI):
             if self.ui_additional():
                 continue
 
-        logger.warning('[岛屿-货物筹备] 进入更换委托页面超时')
+        logger.warning('[Остров — подготовка грузов] Тайм-аут входа на страницу замены комиссии')
         return False
 
     def _confirm_first_replacement(self):
@@ -471,24 +471,24 @@ class IslandCargoPreparation(IslandUI):
                 continue
 
             if self.appear(EMPTY_LIST_CHECK, offset=(20, 20)):
-                logger.info('[岛屿-货物筹备] 更换委托列表为空')
+                logger.info('[Остров — подготовка грузов] Список замен комиссий пуст')
                 if self.appear_then_click(REFRESH_BUTTON_BLUE, offset=(20, 20), interval=2):
-                    logger.info('[岛屿-货物筹备] 刷新更换委托列表')
+                    logger.info('[Остров — подготовка грузов] Обновление списка замен комиссий')
                     self._wait_replace_refresh()
                     return 'empty_refreshed'
                 if self.appear(REFRESH_BUTTON_GREY, offset=(20, 20)):
-                    logger.info('[岛屿-货物筹备] 更换委托列表为空且刷新不可用')
+                    logger.info('[Остров — подготовка грузов] Список замен пуст, а обновление недоступно')
                     self._back_to_transport()
                     return 'empty_unavailable'
                 continue
 
             if self.appear_then_click(CARGO_PREPARATION_REPLACE_CONFIRM, offset=(20, 20), interval=2):
-                logger.info('[岛屿-货物筹备] 确认更换默认选中的货运委托')
+                logger.info('[Остров — подготовка грузов] Подтверждение замены выбранной по умолчанию транспортной комиссии')
                 if self._wait_transport_after_replace():
                     return 'success'
                 return 'failed'
 
-        logger.warning('[岛屿-货物筹备] 确认更换委托超时')
+        logger.warning('[Остров — подготовка грузов] Тайм-аут подтверждения замены комиссии')
         self._back_to_transport()
         return 'failed'
 
@@ -512,7 +512,7 @@ class IslandCargoPreparation(IslandUI):
             else:
                 confirm_timer.reset()
 
-        logger.warning('[岛屿-货物筹备] 更换委托后未回到货运界面')
+        logger.warning('[Остров — подготовка грузов] После замены комиссии не удалось вернуться к перевозкам')
         self._back_to_transport()
         return False
 
@@ -531,7 +531,7 @@ class IslandCargoPreparation(IslandUI):
         """根据委托状态设置下次运行时间。"""
         if self._all_slots_inactive(commissions):
             target = self._next_grey_retry_time()
-            logger.info(f'[岛屿-货物筹备] 所有货运栏位暂无可操作委托，下次检测: {target}')
+            logger.info(f'[Остров — подготовка грузов] Во всех транспортных слотах пока нет доступных действий; следующая проверка: {target}')
             self.config.task_delay(target=target)
             return
 
@@ -541,17 +541,17 @@ class IslandCargoPreparation(IslandUI):
         ]
         if future_finish:
             target = max(future_finish)
-            logger.info(f'[岛屿-货物筹备] 下次货物筹备检测（最晚完成）: {target}')
+            logger.info(f'[Остров — подготовка грузов] Следующая проверка по самому позднему завершению: {target}')
             self.config.task_delay(target=target)
             return
 
         if commissions.count and commissions.select(status='locked').count == commissions.count:
             target = self._next_grey_retry_time()
-            logger.info(f'[岛屿-货物筹备] 所有货运栏位不可委托，下次检测: {target}')
+            logger.info(f'[Остров — подготовка грузов] Все транспортные слоты недоступны для комиссии; следующая проверка: {target}')
             self.config.task_delay(target=target)
             return
 
-        logger.info('[岛屿-货物筹备] 暂无可确认完成时间，2 小时后重新检测货物筹备')
+        logger.info('[Остров — подготовка грузов] Подтверждённого времени завершения пока нет; повторная проверка через 2 часа')
         self.config.task_delay(minute=self.DEFAULT_DELAY.total_seconds() / 60)
 
     def _all_slots_inactive(self, commissions):
@@ -577,7 +577,7 @@ class IslandCargoPreparation(IslandUI):
         return tomorrow_morning
 
     def _back_to_island_phone(self):
-        logger.info('[岛屿-货物筹备] 返回岛屿手机页面')
+        logger.info('[Остров — подготовка грузов] Возврат на страницу телефона Острова')
         for _ in self.loop():
             if self.ui_page_appear(page_island_phone):
                 break
