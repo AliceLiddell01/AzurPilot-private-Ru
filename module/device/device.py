@@ -339,6 +339,7 @@ class Device(Screenshot, Control, AppControl, Input):
 
         small = cv2.resize(self.image, (16, 16))
         fp = hash(small.tobytes())
+
         if self._prev_fingerprint is not None and fp == self._prev_fingerprint:
             self._stuck_image_timer.start()
             if self._stuck_image_timer.reached():
