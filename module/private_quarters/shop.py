@@ -138,7 +138,7 @@ class PQShop(PQShopClerk, PQStatus):
         """
         self._currency = self.status_get_gold_coins()
         self.gems = self.status_get_gems()
-        logger.info(f'[私人休息室-商店] 金币: {self._currency}, 钻石: {self.gems}')
+        logger.info(f'[Личные покои — магазин] Монеты: {self._currency}, самоцветы: {self.gems}')
 
     def shop_check_item(self, item):
         """
