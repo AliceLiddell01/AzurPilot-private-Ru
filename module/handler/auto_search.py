@@ -103,8 +103,8 @@ class AutoSearchHandler(EnemySearchingHandler):
                 break
 
         if not current:
-            logger.warning('[处理器-自动搜索] 没有活跃的舰队侧边栏')
-        logger.attr('舰队侧边栏', f'{current}/{total}')
+            logger.warning('[Обработчик — автопоиск] Нет активной боковой панели флота')
+        logger.attr('Боковая панель флота', f'{current}/{total}')
         return current
 
     def fleet_preparation_sidebar_ensure(self, index):
@@ -122,7 +122,7 @@ class AutoSearchHandler(EnemySearchingHandler):
                   超过则返回 False，成功则返回 True。
         """
         if index <= 0 or index > 5:
-            logger.warning(f'[处理器-自动搜索] 无法确保侧边栏索引，{index}，限制为1到5')
+            logger.warning(f'[Обработчик — автопоиск] Не удалось установить индекс боковой панели: {index}; допустимый диапазон — от 1 до 5')
             return False
 
         interval = Timer(1, count=2)
@@ -136,7 +136,7 @@ class AutoSearchHandler(EnemySearchingHandler):
                 interval.reset()
                 continue
         else:
-            logger.warning('[处理器-自动搜索] 无法确保侧边栏切换')
+            logger.warning('[Обработчик — автопоиск] Не удалось переключить боковую панель')
             return False
 
     def _auto_search_set_click(self, setting):
@@ -156,17 +156,17 @@ class AutoSearchHandler(EnemySearchingHandler):
                 active.append(index)
 
         if not active:
-            logger.warning('[处理器-自动搜索] 未找到活跃的自动搜索设置')
+            logger.warning('[Обработчик — автопоиск] Активная настройка автопоиска не найдена')
             return False
 
-        logger.attr('自动搜索设置', ', '.join([dic_setting_index_to_name[index] for index in active]))
+        logger.attr('Настройка автопоиска', ', '.join([dic_setting_index_to_name[index] for index in active]))
 
         if setting not in dic_setting_name_to_index:
-            logger.warning(f'[处理器-自动搜索] 未知的自动搜索设置: {setting}')
+            logger.warning(f'[Обработчик — автопоиск] Неизвестная настройка автопоиска: {setting}')
         target_index = dic_setting_name_to_index[setting]
 
         if target_index in active:
-            logger.info('[处理器-自动搜索] 已选择正确的自动搜索设置')
+            logger.info('[Обработчик — автопоиск] Правильная настройка автопоиска уже выбрана')
             return True
         else:
             self.device.click(AUTO_SEARCH_SETTINGS[target_index])
@@ -196,7 +196,7 @@ class AutoSearchHandler(EnemySearchingHandler):
                 return True
             else:
                 if counter >= 5:
-                    logger.warning('[处理器-自动搜索] 无法确保自动搜索设置切换')
+                    logger.warning('[Обработчик — автопоиск] Не удалось переключить настройку автопоиска')
                     return False
                 counter += 1
                 self.device.sleep((0.3, 0.5))

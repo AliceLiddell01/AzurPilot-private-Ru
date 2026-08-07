@@ -128,7 +128,7 @@ class Resource:
         输出当前注册表中尚未加载图像数据的资源列表。
         """
         from module.logger import logger
-        logger.hr('显示资源')
+        logger.hr('Отображение ресурсов')
         for key, obj in cls.instances.items():
             if cls.is_loaded(obj):
                 continue

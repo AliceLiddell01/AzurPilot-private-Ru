@@ -137,7 +137,7 @@ class Filter:
         if result and len(string) and result.span()[1]:
             return [result.group(index + 1) for index, attr in enumerate(self.attr)]
         else:
-            logger.warning(f'[过滤器] 无效的过滤器: "{string}"。此选择器不匹配正则表达式，也不是预设。')
+            logger.warning(f'[Фильтр] Некорректный фильтр: "{string}". Селектор не соответствует регулярному выражению и не является предустановкой.')
             # 无效的过滤条件将被忽略
             # 返回不可能匹配的值以确保被跳过
             return ['1nVa1d'] + [None] * (len(self.attr) - 1)

@@ -190,7 +190,7 @@ class InfoHandler(ModuleBase):
         """
         appear = self.appear(GET_MISSION, offset=True, interval=2)
         if appear:
-            logger.info('[处理器-委托] 收到紧急委托')
+            logger.info('[Обработчик — комиссии] Получена срочная комиссия')
             if drop:
                 self.handle_info_bar()
                 drop.add(self.device.image)
@@ -203,12 +203,12 @@ class InfoHandler(ModuleBase):
             self._hot_fix_check_wait.clear()
         if self._hot_fix_check_wait.started() and 3 <= self._hot_fix_check_wait.current_time() <= 6:
             if not self.device.app_is_running():
-                logger.error('[处理器-热更新] 检测到游戏服务器热更新，游戏进程已退出')
+                logger.error('[Обработчик — горячее обновление] Обнаружено горячее обновление игрового сервера; игровой процесс завершён')
                 raise GameNotRunningError
             # 使用模板匹配（不含颜色匹配），因为维护公告弹窗颜色不同
             if self.appear(LOGIN_CHECK, offset=(30, 30)):
-                logger.warning('[处理器-热更新] 账号已登出，'
-                               '可能是因为服务器维护或另一个登录将账号踢下线')
+                logger.warning('[Обработчик — горячее обновление] Выполнен выход из аккаунта; '
+                               'возможны обслуживание сервера или вход с другого устройства')
             self._hot_fix_check_wait.clear()
 
         return appear
@@ -454,7 +454,7 @@ class InfoHandler(ModuleBase):
         )
 
         if not siren_research_enabled:
-            logger.info('[Handler] [Story] 塞壬研究装置未启用，选择离开')
+            logger.info('[Обработчик] [Сюжет] Сиренское исследовательское устройство отключено; выбран выход')
             self.siren_device_mode = None
             return options[-1]
 
@@ -464,11 +464,11 @@ class InfoHandler(ModuleBase):
         )
 
         if siren_mode == 'enemy':
-            logger.info('[Handler] [Story] 选择反复尝试探测隐藏的敌人')
+            logger.info('[Обработчик] [Сюжет] Выбраны повторные попытки обнаружить скрытого противника')
             self.siren_device_mode = 'enemy'
             return options[2]
         else:
-            logger.info('[Handler] [Story] 选择反复尝试探测隐藏的资源')
+            logger.info('[Обработчик] [Сюжет] Выбраны повторные попытки обнаружить скрытые ресурсы')
             self.siren_device_mode = 'resource'
             return options[3]
 
@@ -492,9 +492,9 @@ class InfoHandler(ModuleBase):
         if self._story_option_timer.reached() and self.appear(STORY_SKIP_3, offset=(20, 20), interval=0):
             options = self._story_option_buttons_2()
             options_count = len(options)
-            logger.attr('剧情选项数量', options_count)
+            logger.attr('Количество вариантов сюжета', options_count)
             if options_count:
-                logger.attr('剧情选项按钮', [option.button for option in options])
+                logger.attr('Кнопки вариантов сюжета', [option.button for option in options])
             if not options_count:
                 self._story_option_record = 0
                 self._story_option_confirm.reset()
@@ -564,7 +564,7 @@ class InfoHandler(ModuleBase):
         return self.story_skip(drop=drop)
 
     def ensure_no_story(self, skip_first_screenshot=True):
-        logger.info('[处理器-剧情] 确保没有剧情')
+        logger.info('[Обработчик — сюжет] Проверка отсутствия сюжета')
         story_timer = Timer(3, count=6).start()
         while 1:
             if skip_first_screenshot:
@@ -640,7 +640,7 @@ class InfoHandler(ModuleBase):
                 timer.reset()
             else:
                 if timer.reached():
-                    logger.info('[处理器-加载] 小黄鸡已消失')
+                    logger.info('[Обработчик — загрузка] Manjuu исчез')
                     break
 
     def handle_manjuu(self):
@@ -652,7 +652,7 @@ class InfoHandler(ModuleBase):
         """
         count = self.manjuu_count()
         if count > 2:
-            logger.info(f'[处理器-加载] 小黄鸡数量: {count}，等待小黄鸡消失')
+            logger.info(f'[Обработчик — загрузка] Количество Manjuu: {count}; ожидание исчезновения')
             self.wait_until_manjuu_disappear()
             return True
         else:

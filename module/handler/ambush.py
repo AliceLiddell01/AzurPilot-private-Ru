@@ -38,7 +38,7 @@ class AmbushHandler(Combat):
         """
         等待空袭动画消失。
         """
-        logger.info('[地图-伏击] 空袭')
+        logger.info('[Карта — засада] Воздушный налёт')
         disappear = Timer(self.MAP_AIR_RAID_CONFIRM_SECOND).start()
         timeout = Timer(2.5, count=2).start()
 
@@ -46,7 +46,7 @@ class AmbushHandler(Combat):
             self.device.screenshot()
             # 超时处理
             if timeout.reached():
-                logger.warning('[地图-伏击] 空袭处理超时，假设空袭已消失')
+                logger.warning('[Карта — засада] Истекло время обработки воздушного налёта; предполагается, что он исчез')
                 break
             # 检测是否消失
             if self._air_raid_appear():
@@ -57,7 +57,7 @@ class AmbushHandler(Combat):
 
     def _handle_ambush_evade(self):
         """处理伏击回避事件。"""
-        logger.info('[地图-伏击] 遭遇伏击')
+        logger.info('[Карта — засада] Обнаружена засада')
         # 等待 MAP_AMBUSH_EVADE 出现
         self.wait_until_appear(MAP_AMBUSH_EVADE, offset=(30, 30))
         self.handle_info_bar()
@@ -80,19 +80,19 @@ class AmbushHandler(Combat):
         # 处理回避成功和失败
         image = info_letter_preprocess(self.image_crop(INFO_BAR_DETECT, copy=False))
         if TEMPLATE_AMBUSH_EVADE_SUCCESS.match(image):
-            logger.attr('伏击回避', '成功')
+            logger.attr('Уклонение от засады', 'Успешно')
         elif TEMPLATE_AMBUSH_EVADE_FAILED.match(image):
-            logger.attr('伏击回避', '失败')
+            logger.attr('Уклонение от засады', 'Неудачно')
             self.combat(expected_end='no_searching', fleet_index=self.fleet_show_index)
         else:
-            logger.warning('[地图-伏击] 无法识别的伏击回避信息')
+            logger.warning('[Карта — засада] Не удалось распознать результат уклонения от засады')
             self.ensure_no_info_bar()
             if self.combat_appear():
                 self.combat(fleet_index=self.fleet_show_index)
 
     def _handle_ambush_attack(self):
         """处理伏击迎击事件。"""
-        logger.info('[地图-伏击] 遭遇伏击')
+        logger.info('[Карта — засада] Обнаружена засада')
         # 等待 MAP_AMBUSH_ATTACK 出现
         self.wait_until_appear(MAP_AMBUSH_ATTACK, offset=(30, 30))
 
@@ -116,7 +116,7 @@ class AmbushHandler(Combat):
                 continue
 
         # 进入战斗
-        logger.attr('伏击回避', '迎击')
+        logger.attr('Уклонение от засады', 'Вступить в бой')
         self.combat(expected_end='no_searching', fleet_index=self.fleet_show_index)
 
     def _handle_ambush(self):
@@ -153,7 +153,7 @@ class AmbushHandler(Combat):
 
         image = info_letter_preprocess(self.image_crop(INFO_BAR_DETECT, copy=False))
         if TEMPLATE_MAP_WALK_OUT_OF_STEP.match(image):
-            logger.warning('[地图-伏击] 舰队步数不足')
+            logger.warning('[Карта — засада] Недостаточно шагов флота')
             self.handle_info_bar()
             return True
 

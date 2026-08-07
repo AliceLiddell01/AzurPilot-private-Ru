@@ -61,7 +61,7 @@ class LoginHandler(UI):
             GameTooManyClickError: 点击次数过多。
             GameNotRunningError: 游戏未运行。
         """
-        logger.hr('应用登录')
+        logger.hr('Вход в приложение')
 
         confirm_timer = Timer(1.5, count=4).start()
         orientation_timer = Timer(5)
@@ -81,7 +81,7 @@ class LoginHandler(UI):
             # 结束条件
             if self.is_in_main():
                 if confirm_timer.reached():
-                    logger.info('[登录] 登录到主界面确认')
+                    logger.info('[Вход] Подтверждение перехода на главный экран')
                     break
             else:
                 confirm_timer.reset()
@@ -90,10 +90,10 @@ class LoginHandler(UI):
             if self.match_template_color(LOGIN_CHECK, offset=(30, 30), interval=5):
                 self.device.click(LOGIN_CHECK)
                 if not login_success:
-                    logger.info('[登录] 登录成功')
+                    logger.info('[Вход] Вход выполнен успешно')
                     login_success = True
             if self.appear(ANDROID_NO_RESPOND, offset=(30, 30), interval=5):
-                logger.warning('[登录] 模拟器无响应')
+                logger.warning('[Вход] Эмулятор не отвечает')
                 self.device.click_record_add(ANDROID_NO_RESPOND)
                 self.device.click_record_check()
                 self.device.click(ANDROID_NO_RESPOND, control_check=False)
@@ -178,7 +178,7 @@ class LoginHandler(UI):
             GameTooManyClickError: 点击次数过多。
             GameNotRunningError: 游戏未运行。
         """
-        logger.info('[登录] 处理应用登录')
+        logger.info('[Вход] Обработка входа в приложение')
         self.device.screenshot_interval_set(1.0)
         try:
             self._handle_app_login()
@@ -186,11 +186,11 @@ class LoginHandler(UI):
             self.device.screenshot_interval_set()
 
     def app_stop(self):
-        logger.hr('应用停止')
+        logger.hr('Остановка приложения')
         self.device.app_stop()
 
     def app_start(self):
-        logger.hr('应用启动')
+        logger.hr('Запуск приложения')
         self.device.app_start()
         self.handle_app_login()
         # self.ensure_no_unfinished_campaign()
@@ -204,7 +204,7 @@ class LoginHandler(UI):
     #     self.config.task_delay(server_update=True)
 
     def app_restart(self):
-        logger.hr('应用重启')
+        logger.hr('Перезапуск приложения')
         # 智能的多次尝试重启逻辑
         RESTART_TRIES = 4
         FIRST_TRY_WAIT_SECONDS = 30
@@ -214,31 +214,31 @@ class LoginHandler(UI):
 
         clear_cache = getattr(self.config, 'Restart_ClearCache', False)
         for i in range(RESTART_TRIES):
-            logger.info(f"[重启] 应用重启尝试 {i + 1}/{RESTART_TRIES}...")
+            logger.info(f"[Перезапуск] Попытка перезапуска приложения {i + 1}/{RESTART_TRIES}...")
             self.device.app_stop()
             if clear_cache:
                 self.device.app_clear()
             self.device.sleep(3)
             self.device.app_start()
             wait_seconds = FIRST_TRY_WAIT_SECONDS if i == 0 else SUBSEQUENT_TRY_WAIT_SECONDS
-            logger.info(f"[重启] 等待 {wait_seconds} 秒让应用启动和稳定...")
+            logger.info(f"[Перезапуск] Ожидание {wait_seconds} с для запуска и стабилизации приложения...")
             self.device.sleep(wait_seconds)
 
             # 验证应用是否已运行
             if self.device.app_is_running():
-                logger.info("[重启] 应用启动成功并正在运行")
+                logger.info("[Перезапуск] Приложение успешно запущено и работает")
                 is_restart_success = True
                 break  # 成功启动，跳出循环
             else:
-                logger.warning(f"[重启] 尝试 {i + 1} 失败。应用启动后未运行（可能崩溃）")
+                logger.warning(f"[Перезапуск] Попытка {i + 1} не удалась: после запуска приложение не работает (возможно, произошёл сбой)")
                 if i < RESTART_TRIES - 1:
-                    logger.info("[重启] 重试中...")
+                    logger.info("[Перезапуск] Повторная попытка...")
 
         # 所有尝试均失败则抛出异常
         if not is_restart_success:
-            logger.critical(f"[重启] 重试 {RESTART_TRIES} 次了！还是死活起不来，你的运行环境是碳基生物能搞出来的？")
+            logger.critical(f"[Перезапуск] Выполнено {RESTART_TRIES} повторных попыток, но приложение всё ещё не запускается")
             from module.exception import RequestHumanTakeover
-            raise RequestHumanTakeover("[重启] 应用重启多次失败")
+            raise RequestHumanTakeover("[Перезапуск] Не удалось перезапустить приложение после нескольких попыток")
         self.handle_app_login()
         # self.ensure_no_unfinished_campaign()
 
@@ -325,8 +325,8 @@ class LoginHandler(UI):
                 peaks = (peaks[0] + peaks[1]) / 2
             start_pos = [(start_padding_results[2] + start_margin_results[2]) / 2, float(peaks)]
             end_pos = [(start_padding_results[2] + start_margin_results[2]) / 2, area_wait_results[3]]
-            logger.info("[登录-协议] 用户协议位置查找结果: " + ', '.join(f'{pos:.2f}' for pos in start_pos))
-            logger.info("[登录-协议] 用户协议区域预期:          " + 'x:963-973, y:259-279')
+            logger.info("[Вход — соглашение] Результат поиска расположения пользовательского соглашения: " + ', '.join(f'{pos:.2f}' for pos in start_pos))
+            logger.info("[Вход — соглашение] Ожидаемая область пользовательского соглашения: " + 'x:963-973, y:259-279')
 
             self.device.drag(start_pos, end_pos, segments=2, shake=(0, 25), point_random=(0, 0, 0, 0),
                              shake_random=(0, -5, 0, 5))

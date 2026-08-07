@@ -77,7 +77,7 @@ class MysteryHandler(StrategyHandler, EnemySearchingHandler):
             button = MYSTERY_ITEM
 
         if self.appear(GET_ITEMS_1, offset=5):
-            logger.attr('神秘格子', '获得道具')
+            logger.attr('Таинственная клетка', 'Получен предмет')
             if drop:
                 drop.add(self.device.image)
             self.device.click(button)
@@ -101,7 +101,7 @@ class MysteryHandler(StrategyHandler, EnemySearchingHandler):
         """
         if self.info_bar_count():
             if self._get_ammo_log_timer.reached() and self.appear(GET_AMMO):
-                logger.attr('神秘格子', '获得弹药')
+                logger.attr('Таинственная клетка', 'Получены боеприпасы')
                 self._get_ammo_log_timer.reset()
                 if drop:
                     drop.add(self.device.image)
@@ -123,7 +123,7 @@ class MysteryHandler(StrategyHandler, EnemySearchingHandler):
         """
         if self.config.MAP_MYSTERY_HAS_CARRIER:
             if self.is_in_map() and self.enemy_searching_appear():
-                logger.attr('神秘格子', '获得航母支援')
+                logger.attr('Таинственная клетка', 'Получена поддержка авианосца')
                 self.carrier_count += 1
                 if drop:
                     drop.add(self.device.image)

@@ -74,7 +74,7 @@ class Config:
 
                     return record['func'](self, *args, **kwargs)
 
-                logger.warning(f'[装饰器] 没有选项适合 {name}，使用最后定义的函数')
+                logger.warning(f'[Декоратор] Для {name} нет подходящего варианта; используется последняя определённая функция')
                 return func(self, *args, **kwargs)
 
             return wrapper
@@ -174,7 +174,7 @@ def function_drop(rate=0.5, default=None):
                         arguments.pop(0)
                 arguments += [f'{k}={v}' for k, v in kwargs.items()]
                 arguments = ', '.join(arguments)
-                logger.info(f'[装饰器] 已丢弃: {cls}{func.__name__}({arguments})')
+                logger.info(f'[Декоратор] Вызов отброшен: {cls}{func.__name__}({arguments})')
                 return default
 
         return wrapper
