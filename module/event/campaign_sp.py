@@ -35,7 +35,7 @@ class CampaignSP(EventBase):
         # 检查当前活动是否包含 SP 关卡
         if not os.path.exists(f'./campaign/{self.config.Campaign_Event}/sp.py'):
             logger.info(f'[活动-SP] ./campaign/{self.config.Campaign_Event}/sp.py 不存在')
-            logger.info(f'此活动无SP，跳过')
+            logger.info('В этом событии нет SP; пропуск')
             self.config.Scheduler_Enable = False
             self.config.task_stop()
 
@@ -46,18 +46,18 @@ class CampaignSP(EventBase):
             pass
         except RequestHumanTakeover:
             # 每日 SP 已完成或无法进入，延迟到次日
-            logger.info('每日SP已完成或无法进入')
-            logger.info('延迟任务到明天')
+            logger.info('Ежедневный SP уже завершён или недоступен')
+            logger.info('Задача отложена до завтра')
             self.config.task_delay(server_update=True)
             return
 
         # 根据执行结果决定后续调度
         if self.run_count > 0:
             # SP 执行成功，延迟到次日服务器刷新
-            logger.info(f'已完成, run_count={self.run_count}')
+            logger.info(f'Завершено, run_count={self.run_count}')
             self.config.task_delay(server_update=True)
         else:
             # SP 未成功执行（可能今日已完成），延迟到次日而非停止
-            logger.info('执行失败，可能今天已完成')
-            logger.info('延迟任务到明天')
+            logger.info('Выполнение не удалось; возможно, SP уже завершён сегодня')
+            logger.info('Задача отложена до завтра')
             self.config.task_delay(server_update=True)
