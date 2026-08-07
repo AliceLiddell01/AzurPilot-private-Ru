@@ -99,12 +99,12 @@ class PQShopClerk(ShopClerk, PQShopUI):
             items = self.shop_get_items()
             self.shop_currency()
             if self._currency <= 0:
-                logger.warning(f'[私人休息室-店员] 当前资金: {self._currency}，停止购买')
+                logger.warning(f'[Личные покои — продавец] Текущие средства: {self._currency}; покупки остановлены')
                 return False
 
             item = self.shop_get_item_to_buy(items)
             if item is None:
-                logger.info('[私人休息室-店员] 商店购买完成')
+                logger.info('[Личные покои — продавец] Покупки в магазине завершены')
                 return True
             else:
                 self.shop_buy_execute(item)
@@ -115,5 +115,5 @@ class PQShopClerk(ShopClerk, PQShopUI):
 
                 continue
 
-        logger.warning('[私人休息室-店员] 购买物品过多，停止')
+        logger.warning('[Личные покои — продавец] Куплено слишком много предметов; остановка')
         return True
