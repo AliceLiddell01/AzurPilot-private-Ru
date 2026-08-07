@@ -137,15 +137,15 @@ class RewardShipyard(ShipyardUI):
                 if pay:
                     self._coin_count -= total
                 else:
-                    logger.info(f'最多只能购买 {(i - start)} '
-                                f'/ {count} 张蓝图')
+                    logger.info(f'Можно купить не более {(i - start)} '
+                                f'/ {count} чертежей')
                 return i, i - start
             total += cost
 
         if pay:
             self._coin_count -= total
         else:
-            logger.info(f'可以购买全部 {count} 张蓝图')
+            logger.info(f'Можно купить все {count} чертежей')
         return i + 1, count
 
     def _shipyard_buy_calc(self, start, count):
@@ -166,7 +166,7 @@ class RewardShipyard(ShipyardUI):
         Args:
             count (int): 待购买总数
         """
-        logger.hr('船坞购买')
+        logger.hr('Верфь — покупка')
         prev = 1
         start, count = self._shipyard_buy_calc(prev, count)
         while count > 0:
@@ -201,7 +201,7 @@ class RewardShipyard(ShipyardUI):
         Args:
             index (int): 目标舰船索引
         """
-        logger.hr('船坞使用')
+        logger.hr('Верфь — использование')
         count = self._shipyard_get_bp_count(index)
         while count > 0:
             if not self._shipyard_buy_enter() or \
@@ -230,10 +230,10 @@ class RewardShipyard(ShipyardUI):
             bool: 是否执行了购买流程
         """
         if count <= 0:
-            logger.info('船坞购买数量为0，跳过')
+            logger.info('Количество чертежей для покупки равно 0; пропуск')
             return False
         if index <= 0:
-            logger.info('船坞舰船索引为0，跳过')
+            logger.info('Индекс корабля на верфи равен 0; пропуск')
             return False
 
         # 船坞页面中金币 OCR 困难（文字和数字右对齐导致混淆）
@@ -252,7 +252,7 @@ class RewardShipyard(ShipyardUI):
             if self._coin_count > 0:
                 break
             if timeout.reached():
-                logger.warning('假设OCR_COIN在正确位置')
+                logger.warning('Считаем OCR_COIN находящимся в правильной позиции')
                 break
 
         self.ui_goto(page_shipyard)
@@ -284,24 +284,24 @@ class RewardShipyard(ShipyardUI):
             self.config.Scheduler_Enable = False
             self.config.task_stop()
 
-        logger.hr('船坞DR', level=1)
-        logger.attr('船坞DR上次运行', self.config.ShipyardDr_LastRun)
+        logger.hr('Верфь — DR', level=1)
+        logger.attr('Последний запуск верфи DR', self.config.ShipyardDr_LastRun)
         if not dr_enabled:
-            logger.info('船坞DR任务未配置，跳过')
+            logger.info('Задание верфи DR не настроено; пропуск')
         elif self.config.ShipyardDr_LastRun > get_server_last_update('04:00'):
-            logger.warning('船坞DR任务今天已运行，跳过')
+            logger.warning('Задание верфи DR уже выполнялось сегодня; пропуск')
         else:
             self._shipyard_bp_rarity = 'DR'
             self.shipyard_run(series=self.config.ShipyardDr_ResearchSeries,
                               index=self.config.ShipyardDr_ShipIndex,
                               count=self.config.ShipyardDr_BuyAmount)
 
-        logger.hr('船坞PR', level=1)
-        logger.attr('船坞PR上次运行', self.config.Shipyard_LastRun)
+        logger.hr('Верфь — PR', level=1)
+        logger.attr('Последний запуск верфи PR', self.config.Shipyard_LastRun)
         if not pr_enabled:
-            logger.info('船坞PR任务未配置，跳过')
+            logger.info('Задание верфи PR не настроено; пропуск')
         elif self.config.Shipyard_LastRun > get_server_last_update('04:00'):
-            logger.warning('船坞PR任务今天已运行，停止')
+            logger.warning('Задание верфи PR уже выполнялось сегодня; остановка')
             self.config.task_delay(server_update=True)
             self.config.task_stop()
         else:
