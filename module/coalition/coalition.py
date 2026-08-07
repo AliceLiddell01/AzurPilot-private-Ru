@@ -114,7 +114,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         elif event == 'coalition_20260723':
             ocr = Digit(HORROR_PT_OCR, name='OCR_PT', lang='azur_lane', letter=(228, 230, 237), threshold=256)
         else:
-            logger.error(f'[联动] 活动 {event} 未定义OCR对象')
+            logger.error(f'[Коалиция] Для события {event} не определён объект OCR')
             raise ScriptError
 
         pt = 0
@@ -242,7 +242,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
             Fleet_FleetOrder='fleet1_all_fleet2_standby',
         )
         if self.config.Coalition_Fleet == 'single' and self.config.Emotion_Fleet1Control == 'prevent_red_face':
-            logger.warning('[联动] 不允许单舰队联动心情低于30，强制切换为防止黄脸模式')
+            logger.warning('[Коалиция] В режиме одной коалиционной флотилии нельзя допускать мораль ниже 30; принудительно включён режим prevent_yellow_face')
             self.config.override(Emotion_Fleet1Control='prevent_yellow_face')
         if stage == 'sp':
             # SP 关卡需要多舰队
@@ -316,7 +316,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         mode = mode if mode else self.config.Coalition_Mode
         fleet = fleet if fleet else self.config.Coalition_Fleet
         if not event or not mode or not fleet:
-            raise ScriptError(f'Coalition arguments unfilled. name={event}, mode={mode}, fleet={fleet}')
+            raise ScriptError(f'Не заполнены аргументы Coalition. name={event}, mode={mode}, fleet={fleet}')
 
         event, mode = self.handle_stage_name(event, mode)
         self.run_count = 0
