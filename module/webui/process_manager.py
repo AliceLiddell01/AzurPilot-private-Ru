@@ -87,7 +87,7 @@ class ProcessManager:
             duration: 覆盖持续时间（秒），为 0 或 None 时持续生效直到手动清除
         """
         if state not in (1, 2, 3):
-            raise ValueError(f"Invalid state override: {state}")
+            raise ValueError(f"Недопустимое переопределение состояния: {state}")
         self._state_override = state
         if duration and duration > 0:
             self._state_override_deadline = time.time() + duration
