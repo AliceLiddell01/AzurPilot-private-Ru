@@ -49,7 +49,7 @@ class ModuleBase:
         elif isinstance(config, str):
             self.config = AzurLaneConfig(config, task=task)
         else:
-            logger.warning('[基类] 收到未知的配置对象，假设是AzurLaneConfig')
+            logger.warning('[Базовый класс] Получен неизвестный объект конфигурации; предполагается AzurLaneConfig')
             self.config = config
 
         if isinstance(device, Device):
@@ -60,7 +60,7 @@ class ModuleBase:
             self.config.override(Emulator_Serial=device)
             self.device = Device(config=self.config)
         else:
-            logger.warning('[基类] 收到未知的设备对象，假设是Device')
+            logger.warning('[Базовый класс] Получен неизвестный объект устройства; предполагается Device')
             self.device = device
 
         self.interval_timer = {}
@@ -95,7 +95,7 @@ class ModuleBase:
             ...         self.dungeon_update_stamina(image)
             >>> ModuleBase.worker.submit(func, self.device.image)
         """
-        logger.hr('创建后台线程池')
+        logger.hr('Создание пула фоновых потоков')
         from concurrent.futures import ThreadPoolExecutor
         pool = ThreadPoolExecutor(1)
         return pool
@@ -325,7 +325,7 @@ class ModuleBase:
                 button._match_init = True
 
             if timeout.reached():
-                logger.warning(f'[基类] wait_until_stable({button}) 超时')
+                logger.warning(f'[Базовый класс] Истекло время ожидания wait_until_stable({button})')
                 break
 
     def image_crop(self, button, copy=True):
