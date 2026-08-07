@@ -88,7 +88,7 @@ class HuanChangPtOcr(Digit):
             image (np.ndarray): 输入图像，形状 (height, width, channel)。
 
         Returns:
-            np.ndarray: 处理后的二值图像，形状 (height, width)。
+            np.ndarray: 处理后的二值图像，形状 (width, height)。
         """
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         image = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV)[1]
@@ -134,7 +134,7 @@ def raid_name_shorten(name):
     elif name == 'raid_20260212':
         return 'CHANGWU'
     else:
-        raise ScriptError(f'Unknown raid name: {name}')
+        raise ScriptError(f'Неизвестное имя рейда: {name}')
 
 
 def raid_entrance(raid, mode):
@@ -152,7 +152,7 @@ def raid_entrance(raid, mode):
     try:
         return globals()[key]
     except KeyError:
-        raise ScriptError(f'Raid entrance asset not exists: {key}')
+        raise ScriptError(f'Ресурс входа в рейд не существует: {key}')
 
 
 def raid_ocr(raid, mode):
@@ -171,7 +171,7 @@ def raid_ocr(raid, mode):
     try:
         button = globals()[key]
     except KeyError:
-        raise ScriptError(f'Raid entrance asset not exists: {key}')
+        raise ScriptError(f'Ресурс входа в рейд не существует: {key}')
     # 旧突袭活动使用 RaidCounter 以兼容旧 OCR 模型和资源
     # 新突袭活动使用 DigitCounter
     if raid == 'ESSEX':
@@ -482,7 +482,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
         self.emotion.check_reduce(1)
 
         if self.is_raid_rpg():
-            logger.info('RPG突袭: 进入战斗前获取石油')
+            logger.info('RPG-рейд: получение нефти перед входом в бой')
             self.ui_ensure(page_campaign_menu)
             CampaignEvent.get_oil(self, skip_first_screenshot=True, update=False)
             self.ui_ensure(page_rpg_stage)
@@ -528,7 +528,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
                     LogRes(self.config).Pt = pt
                     return pt
         else:
-            logger.info(f'[突袭-PT] 突袭 {self.config.Campaign_Event} 不支持PT OCR，跳过')
+            logger.info(f'[Рейд — PT] Рейд {self.config.Campaign_Event} не поддерживает OCR PT; пропуск')
             return 0
 
     def is_raid_rpg(self):
@@ -559,7 +559,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
             # 结束条件：已滑动到最右侧
             if self.appear(RPG_RAID_EASY, offset=(10, 10)):
-                logger.info('RPG突袭已在最右')
+                logger.info('RPG-рейд уже находится в крайнем правом положении')
                 break
 
             if self.handle_story_skip():
