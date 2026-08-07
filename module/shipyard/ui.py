@@ -105,7 +105,7 @@ class ShipyardUI(UI):
             int: 无法消耗的剩余蓝图数量，None 表示异常
         """
         if count < 0:
-            logger.warning('[船坞-UI] count 非正数，无法继续')
+            logger.warning('[Верфь — UI] count < 0; продолжение невозможно')
             return None
 
         current = diff = 0
