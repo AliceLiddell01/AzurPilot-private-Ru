@@ -214,23 +214,23 @@ class DroidCast(Uiautomator2):
         resp = self.droidcast_session.get(self.droidcast_url(), timeout=3)
 
         if resp.status_code == 404:
-            raise DroidCastVersionIncompatible('DroidCast server does not have /preview')
+            raise DroidCastVersionIncompatible('Сервер DroidCast не поддерживает /preview')
         image = resp.content
         image = np.frombuffer(image, np.uint8)
         if image is None:
-            raise ImageTruncated('Empty image after reading from buffer')
+            raise ImageTruncated('Пустое изображение после чтения из буфера')
         if image.shape == (1843200,):
-            raise DroidCastVersionIncompatible('Requesting screenshots from `DroidCast` but server is `DroidCast_raw`')
+            raise DroidCastVersionIncompatible('Запрошены снимки через `DroidCast`, но сервер работает как `DroidCast_raw`')
         if image.size < 500:
             logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана; получено {len(resp.content)} байт')
 
         image = cv2.imdecode(image, cv2.IMREAD_COLOR)
         if image is None:
-            raise ImageTruncated('Empty image after cv2.imdecode')
+            raise ImageTruncated('Пустое изображение после cv2.imdecode')
 
         cv2.cvtColor(image, cv2.COLOR_BGR2RGB, dst=image)
         if image is None:
-            raise ImageTruncated('Empty image after cv2.cvtColor')
+            raise ImageTruncated('Пустое изображение после cv2.cvtColor')
 
         if self.is_mumu_over_version_356:
             if self.orientation == 1:
@@ -256,7 +256,7 @@ class DroidCast(Uiautomator2):
 
         # 防止空内容导致 np.frombuffer 抛出 TypeError
         if image is None or len(image) == 0:
-            raise ImageTruncated('Empty image content from DroidCast_raw')
+            raise ImageTruncated('Пустые данные изображения от DroidCast_raw')
 
         # DroidCast 返回了短错误信息而非原始位图数据
         # 例如 b':(  Failed to generate the screenshot on device / emulator: ...'
@@ -282,9 +282,9 @@ class DroidCast(Uiautomator2):
                 image = cv2.imdecode(image, cv2.IMREAD_COLOR)
                 if image is not None:
                     raise DroidCastVersionIncompatible(
-                        'Requesting screenshots from `DroidCast_raw` but server is `DroidCast`')
+                        'Запрошены снимки через `DroidCast_raw`, но сервер работает как `DroidCast`')
             # ValueError: cannot reshape array of size 0 into shape (720,1280)
-            raise ImageTruncated(str(e)+'\nIf your emulator resolution not 1280x720, please set emulator resolution to 1280x720')
+            raise ImageTruncated(str(e)+'\nЕсли разрешение эмулятора отличается от 1280x720, установите разрешение 1280x720')
 
         # 将 RGB565 转换为 RGB888
         # https://blog.csdn.net/happy08god/article/details/10516871
