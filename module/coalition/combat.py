@@ -23,7 +23,7 @@ class CoalitionCombat(CoalitionUI, CampaignBase):
             in: battle_status
             out: is_combat_executing
         """
-        logger.info('[联动-战斗] 联动战斗重新进入')
+        logger.info('[Коалиция — бой] Повторный вход в бой')
         status_clicked = False
         click_timer = Timer(0.3)
         click_last = Timer(2)
@@ -87,4 +87,4 @@ class CoalitionCombat(CoalitionUI, CampaignBase):
                 self.coalition_combat_re_enter()
                 self.battle_count += 1
         except CampaignEnd:
-            logger.info('[联动-战斗] 联动战斗结束')
+            logger.info('[Коалиция — бой] Бой завершён')
