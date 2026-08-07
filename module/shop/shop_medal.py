@@ -131,7 +131,7 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
         image = self.image_crop(area, copy=True)
         medals = TEMPLATE_MEDAL_ICON_3.match_multi(image, similarity=0.5, threshold=5)
         medals = Points([(0., m.area[1]) for m in medals]).group(threshold=5)
-        logger.attr('勋章图标数', len(medals))
+        logger.attr('Количество значков медалей', len(medals))
         return medals
 
     def wait_until_medal_appear(self, skip_first_screenshot=True):
@@ -174,7 +174,7 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
         medals = self._get_medals()
         count = len(medals)
         if count == 0:
-            logger.warning('未找到勋章图标，假设商品列表在顶部')
+            logger.warning('Значки медалей не найдены; предполагается, что список товаров находится сверху')
             origin_y = 228
             delta_y = 223
             row = 2
@@ -192,7 +192,7 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
             delta_y = abs(y1 - y2)
             row = 2
         else:
-            logger.warning(f'意外的勋章图标匹配结果: {[m for m in medals]}')
+            logger.warning(f'Неожиданный результат сопоставления значков медалей: {[m for m in medals]}')
             origin_y = 228
             delta_y = 223
             row = 2
@@ -247,7 +247,7 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
             int: 勋章数量
         """
         self._currency = self.status_get_medal()
-        logger.info(f'[商店-勋章] 勋章: {self._currency}')
+        logger.info(f'[Магазин — медали] Медали: {self._currency}')
         return self._currency
 
     def shop_has_loaded(self, items):
@@ -310,20 +310,20 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
         if not self.shop_filter:
             return
 
-        logger.hr('[商店-勋章] 勋章商店', level=1)
+        logger.hr('[Магазин — медали] Магазин медалей', level=1)
         # 执行购买操作
         MEDAL_SHOP_SCROLL_250814.set_top(main=self)
         time.sleep(0.5)
         while 1:
             # 已售罄商品自动排序到后方，发现售罄则无需继续
             if self.shop_items().get_soldout_count(self.device.image):
-                logger.info('勋章商店提前停止')
+                logger.info('Магазин медалей остановлен досрочно')
                 break
 
             self.shop_buy()
 
             if MEDAL_SHOP_SCROLL_250814.at_bottom(main=self):
-                logger.info('勋章商店到达底部，停止')
+                logger.info('Достигнут конец магазина медалей; остановка')
                 break
             else:
                 MEDAL_SHOP_SCROLL_250814.next_page(main=self, page=0.66)
