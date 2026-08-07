@@ -54,25 +54,25 @@ class MeowfficerBuy(MeowfficerBase):
 
         # 检查购买状态
         if total != BUY_MAX:
-            logger.warning(f'[指挥喵-购买] 无效的购买上限: {total}，修正为 {BUY_MAX}')
+            logger.warning(f'[Комофицер — покупка] Некорректный лимит покупок: {total}; исправлено на {BUY_MAX}')
             total = BUY_MAX
             bought = total - remain
         if bought > 0:
             if bought >= count:
-                logger.info(f'[指挥喵-购买] 今天已购买 {bought} 个，停止')
+                logger.info(f'[Комофицер — покупка] Сегодня уже куплено {bought}; остановка')
                 return False
             else:
                 count -= bought
-                logger.info(f'[指挥喵-购买] 今天已购买 {bought} 个，还需要购买 {count} 个')
+                logger.info(f'[Комофицер — покупка] Сегодня уже куплено {bought}; осталось купить {count}')
 
         # 检查金币
         coins = MEOWFFICER_COINS.ocr(self.device.image)
         if (coins < BUY_PRIZE) and (remain < total):
-            logger.info('[指挥喵-购买] 金币不足以购买一个，停止')
+            logger.info('[Комофицер — покупка] Недостаточно монет даже для одной покупки; остановка')
             return False
         elif (count - int(remain == total)) * BUY_PRIZE > coins:
             count = coins // BUY_PRIZE + int(remain == total)
-            logger.info(f'[指挥喵-购买] 当前金币只够购买 {count} 个')
+            logger.info(f'[Комофицер — покупка] Текущих монет хватит только на {count}')
 
         self.meow_enter(MEOWFFICER_BUY_ENTER, check_button=MEOWFFICER_BUY)
         self.ui_ensure_index(count, letter=MEOWFFICER_CHOOSE, prev_button=MEOWFFICER_BUY_PREV,
@@ -140,7 +140,7 @@ class MeowfficerBuy(MeowfficerBase):
             else:
                 return True
 
-        logger.warning('[指挥喵-购买] 尝试次数过多，停止')
+        logger.warning('[Комофицер — покупка] Слишком много попыток; остановка')
         return False
 
     def meow_overflow_buy(self, overflow_coins):
@@ -167,12 +167,12 @@ class MeowfficerBuy(MeowfficerBase):
 
         # 每日限制检查
         if total != BUY_MAX:
-            logger.warning(f'[指挥喵-溢出] 无效的购买上限: {total}，修正为 {BUY_MAX}')
+            logger.warning(f'[Комофицер — избыток] Некорректный лимит покупок: {total}; исправлено на {BUY_MAX}')
             total = BUY_MAX
             bought = total - remain
 
         if bought >= BUY_MAX:
-            logger.info(f'[指挥喵-溢出] 今天已购买 {bought} 个，达到每日上限，跳过')
+            logger.info(f'[Комофицер — избыток] Сегодня уже куплено {bought}; дневной лимит достигнут, пропуск')
             return
 
         # OCR识别金币
@@ -180,7 +180,7 @@ class MeowfficerBuy(MeowfficerBase):
         logger.attr('指挥喵金币', coins)
 
         if coins <= overflow_coins:
-            logger.info(f'[指挥喵-溢出] 金币 {coins} <= 阈值 {overflow_coins}，跳过')
+            logger.info(f'[Комофицер — избыток] Монеты {coins} <= порога {overflow_coins}; пропуск')
             return
 
         # 计算溢出购买数量
@@ -196,17 +196,17 @@ class MeowfficerBuy(MeowfficerBase):
         affordable = coins // BUY_PRIZE + free
         if count > affordable:
             count = affordable
-            logger.info(f'[指挥喵-溢出] 金币只够购买 {count} 个指挥喵')
+            logger.info(f'[Комофицер — избыток] Монет хватит только на покупку {count} комофицеров')
 
         if count <= 0:
-            logger.info('[指挥喵-溢出] 没有指挥喵可购买，跳过')
+            logger.info('[Комофицер — избыток] Нет доступных комофицеров для покупки; пропуск')
             return
 
-        logger.info(f'[指挥喵-溢出] 溢出购买数量: {count} (溢出计算={overflow_count}, 今日剩余={today_left})')
+        logger.info(f'[Комофицер — избыток] Количество покупок из избытка: {count} (расчёт избытка={overflow_count}, осталось сегодня={today_left})')
 
         # 执行购买
         # 传入总共需要达到的数量（已买 + 还需买），meow_choose 会自动计算差额
         if self.meow_choose(count=count + bought):
             self.meow_confirm()
         else:
-            logger.info('[指挥喵-溢出] 溢出购买被 meow_choose 跳过')
+            logger.info('[Комофицер — избыток] Покупка из избытка пропущена meow_choose')
