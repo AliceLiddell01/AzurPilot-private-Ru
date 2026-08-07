@@ -70,7 +70,7 @@ class GuildShop_250814(ShopClerk, ShopUI, ShopStatus):
             int: 舰队币数量
         """
         self._currency = self.status_get_guild_coins()
-        logger.info(f'[商店-舰队] 舰队币: {self._currency}')
+        logger.info(f'[Магазин — гильдия] Монеты гильдии: {self._currency}')
         return self._currency
 
     def shop_interval_clear(self):
@@ -110,7 +110,7 @@ class GuildShop_250814(ShopClerk, ShopUI, ShopStatus):
         if not self.shop_filter:
             return
 
-        logger.hr('[商店-舰队] 舰队商店', level=1)
+        logger.hr('[Магазин — гильдия] Магазин гильдии', level=1)
 
         # 执行购买操作，启用刷新时最多尝试 2 次
         refresh = self.config.GuildShop_Refresh
@@ -124,5 +124,5 @@ class GuildShop_250814(ShopClerk, ShopUI, ShopStatus):
                     if self.shop_refresh():
                         continue
                 else:
-                    logger.info('[商店-舰队] 舰队币 < 110，跳过刷新')
+                    logger.info('[Магазин — гильдия] Монеты гильдии < 110; обновление пропущено')
             break
