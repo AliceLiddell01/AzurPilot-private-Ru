@@ -367,7 +367,7 @@ class TaskConfigMixin(WebUIMixinBase):
 
     def _simulator_start(self):
         if is_demo_mode():
-            logger.info("[WebUI] DEMO=1，跳过大世界模拟器启动。")
+            logger.info("[WebUI] DEMO=1: запуск симулятора Operation Siren пропущен.")
             return
         self.simulator.start()
 
@@ -492,7 +492,7 @@ class TaskConfigMixin(WebUIMixinBase):
                 else:
                     modified.pop(k)
                     invalid.append(k)
-                    logger.warning(f"[WebUI-任务配置] 无效值 {v}，键 {k}，跳过保存")
+                    logger.warning(f"[WebUI — Конфигурация задач] Недопустимое значение {v} для ключа {k}; сохранение пропущено")
             self.pin_remove_invalid_mark(valid)
             self.pin_set_invalid_mark(invalid)
             if modified:
@@ -503,7 +503,7 @@ class TaskConfigMixin(WebUIMixinBase):
                     color="success",
                 )
                 logger.info(
-                    f"[WebUI-任务配置] 保存配置 {filepath_config(config_name)}, {dict_to_kv(modified)}"
+                    f"[WebUI — Конфигурация задач] Сохранение конфигурации {filepath_config(config_name)}, {dict_to_kv(modified)}"
                 )
                 config_updater.write_file(config_name, config)
         except Exception as e:
