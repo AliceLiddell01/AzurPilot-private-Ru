@@ -36,7 +36,7 @@ class AsyncExecutor:
         try:
             self._loop.run_forever()
         except Exception as e:
-            logger.exception(f"AsyncExecutor event loop exception: {e}")
+            logger.exception(f"Исключение в цикле событий AsyncExecutor: {e}")
 
     def submit(self, func: Callable, *args, **kwargs) -> asyncio.Future:
         """
@@ -62,9 +62,9 @@ class AsyncExecutor:
             future = self.submit(lambda: None)
             future.result(timeout=timeout)
         except asyncio.TimeoutError:
-            logger.warning("[异步执行器] 刷新超时")
+            logger.warning("[Асинхронный исполнитель] Истекло время ожидания завершения задач")
         except Exception as e:
-            logger.warning(f"[异步执行器] 刷新错误: {e}")
+            logger.warning(f"[Асинхронный исполнитель] Ошибка при завершении задач: {e}")
 
 
 # 全局唯一实例
