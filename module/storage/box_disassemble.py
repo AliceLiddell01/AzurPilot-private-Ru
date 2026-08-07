@@ -30,7 +30,7 @@ class StorageBox(StorageHandler):
         Pages:
             in: SHOP_BUY_CONFIRM_AMOUNT
         """
-        logger.info(f'[存储-拆箱] 设置箱子数量')
+        logger.info(f'[Хранилище — ящики] Установка количества ящиков')
 
         # 与商店店员逻辑相同的数量输入处理
         ocr = Digit(BOX_AMOUNT_OCR, letter=(239, 239, 239), name='OCR_SHOP_AMOUNT')
@@ -44,7 +44,7 @@ class StorageBox(StorageHandler):
                     self.appear(AMOUNT_MAX, offset=index_offset):
                 break
             if timeout.reached():
-                logger.warning('[存储-拆箱] 等待数量按钮超时')
+                logger.warning('[Хранилище — ящики] Тайм-аут ожидания кнопок количества')
                 break
 
         # 等待 OCR 识别到正常数字
@@ -55,11 +55,11 @@ class StorageBox(StorageHandler):
             if 1 <= current <= amount + 10:
                 break
             if timeout.reached():
-                logger.warning('[存储-拆箱] 等待箱子数量超时')
+                logger.warning('[Хранилище — ящики] Тайм-аут ожидания количества ящиков')
                 break
 
         # 设置数量，类似 ui_ensure_index 的逻辑
-        logger.info(f'[存储-拆箱] 设置箱子数量: {amount}')
+        logger.info(f'[Хранилище — ящики] Установка количества ящиков: {amount}')
         skip_first = True
         retry = Timer(1, count=2)
         for _ in self.loop():
@@ -94,7 +94,7 @@ class StorageBox(StorageHandler):
             in: MATERIAL_CHECK
             out: BOX_USE
         """
-        logger.hr('[存储-拆箱] 检查箱子数量')
+        logger.hr('[Хранилище — ящики] Проверка количества ящиков')
         amount = 0
         ocr = Digit(BOX_REMAIN_AMOUNT_OCR, letter=(229, 227, 3), name='OCR_BOX_REAMIN_AMOUNT')
         self.interval_clear(MATERIAL_CHECK)
@@ -111,7 +111,7 @@ class StorageBox(StorageHandler):
             if amount > 0:
                 break
             if timeout.reached():
-                logger.warning('[存储-拆箱] 等待检查箱子数量超时')
+                logger.warning('[Хранилище — ящики] Тайм-аут ожидания проверки количества ящиков')
                 break
         return amount
 
@@ -128,7 +128,7 @@ class StorageBox(StorageHandler):
             in: MATERIAL_CHECK
             out: MATERIAL_CHECK
         """
-        logger.hr('[存储-拆箱] 使用多个箱子')
+        logger.hr('[Хранилище — ящики] Использование нескольких ящиков')
         used = 0
         end = True
         for box_button in buttons:
@@ -163,12 +163,12 @@ class StorageBox(StorageHandler):
         used = 0
         timeout = Timer(1.5, count=3).start()
         while 1:
-            logger.attr('[存储-拆箱] 已使用', f'{used}')
+            logger.attr('[Хранилище — ящики] Использовано', f'{used}')
             if used >= amount:
-                logger.info('[存储-拆箱] 达到目标数量，停止')
+                logger.info('[Хранилище — ящики] Целевое количество достигнуто; остановка')
                 break
             if timeout.reached():
-                logger.info('[存储-拆箱] 此页面没有更多箱子，停止')
+                logger.info('[Хранилище — ящики] На этой странице больше нет ящиков; остановка')
                 break
 
             if skip_first_screenshot:
@@ -188,7 +188,7 @@ class StorageBox(StorageHandler):
                 timeout.reset()
                 continue
             else:
-                logger.info('[存储-拆箱] 未找到箱子')
+                logger.info('[Хранилище — ящики] Ящики не найдены')
                 continue
 
         return used
@@ -204,7 +204,7 @@ class StorageBox(StorageHandler):
             in: Any
             out: page_main
         """
-        logger.hr(f'[存储-拆箱] 拆解T{rarity}箱子', level=2)
+        logger.hr(f'[Хранилище — ящики] Разбор ящиков T{rarity}', level=2)
         self.box_preserve_amount = preserve
         self.storage_disassemble_equipment(rarity=rarity, amount=1000000)
         self.ui_goto_main()
@@ -216,7 +216,7 @@ class StorageBox(StorageHandler):
             in: Any page
             out: page_main
         """
-        logger.hr('[存储-拆箱] 箱子拆解', level=1)
+        logger.hr('[Хранилище — ящики] Разбор ящиков', level=1)
         for rarity, box_color in BOX_DISASSEMBLE_DICT.items():
             if self.config.__getattribute__(f'BoxDisassemble_Use{box_color}Box'):
                 self.box_disassemble(
