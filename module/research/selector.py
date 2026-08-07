@@ -82,7 +82,7 @@ class ResearchSelector(ResearchUI):
             index (int): 科研项目索引，0 到 4。
             skip_first_screenshot (bool): 是否跳过首次截图，复用上一状态的截图。
         """
-        logger.info(f'[科研-详情] 进入科研详情 (项目 {index})')
+        logger.info(f'[Исследование — детали] Вход в детали проекта (проект {index})')
         click_timer = Timer(10)
         while 1:
             if skip_first_screenshot:
@@ -118,13 +118,13 @@ class ResearchSelector(ResearchUI):
                 self.device.screenshot()
 
             if self.info_bar_count():
-                logger.info('[科研-检测] 处理信息栏')
+                logger.info('[Исследование — обнаружение] Обработка информационной панели')
                 timeout.reset()
                 continue
 
             project = research_jp_detect(self.device.image)
             if project.duration == '0':
-                logger.warning(f'[科研-检测] 无效的科研时长: {project}')
+                logger.warning(f'[Исследование — обнаружение] Некорректная длительность проекта: {project}')
                 continue
             else:
                 return project
@@ -150,7 +150,7 @@ class ResearchSelector(ResearchUI):
             我们需要的是当前屏幕 'self.device.image'。
             """
             project = self._research_jp_detect()
-            logger.attr('科研项目', project)
+            logger.attr('Исследовательский проект', project)
             projects.append(project)
             self.research_detail_quit()
         """
@@ -170,13 +170,13 @@ class ResearchSelector(ResearchUI):
             projects = research_detect(self.device.image)
 
             if timeout.reached():
-                logger.warning('[科研-检测] 尝试3次后仍无法OCR科研名称，假设正确')
+                logger.warning('[Исследование — обнаружение] Не удалось распознать название проекта после 3 попыток; считаем его правильным')
                 break
 
             if sum([p.valid for p in projects]) < 5:
                 # 最左侧的科研系列被战令信息遮挡，参见 #1037
-                logger.info('[科研-检测] 检测到无效项目')
-                logger.info('[科研-检测] 可能是因为战令信息或截图过快')
+                logger.info('[Исследование — обнаружение] Обнаружен некорректный проект')
+                logger.info('[Исследование — обнаружение] Возможная причина: информация боевого пропуска или слишком ранний снимок')
                 # 罕见情况，少量 sleep 可以接受
                 self.device.sleep(1)
                 self.device.screenshot()
@@ -212,16 +212,16 @@ class ResearchSelector(ResearchUI):
                     and f'{preset}_cube' in DICT_FILTER_PRESET:
                 preset = f'{preset}_cube'
             if preset not in DICT_FILTER_PRESET:
-                logger.warning(f'[科研-筛选] 预设未找到: {preset}，使用默认预设')
+                logger.warning(f'[Исследование — фильтр] Предустановка не найдена: {preset}; используется предустановка по умолчанию')
                 preset = GeneratedConfig.Research_PresetFilter
             string = DICT_FILTER_PRESET[preset]
 
-        logger.attr('科研预设', preset)
-        logger.info('[科研-资源] 使用魔方: {} 使用金币: {} 使用部件: {}'.format(
+        logger.attr('Предустановка исследования', preset)
+        logger.info('[Исследование — ресурсы] Кубы мудрости: {}, монеты: {}, детали: {}'.format(
             self.config.Research_UseCube,
             self.config.Research_UseCoin,
             self.config.Research_UsePart))
-        logger.attr('允许延迟', self.config.Research_AllowDelay)
+        logger.attr('Разрешить задержку', self.config.Research_AllowDelay)
 
         # 不区分大小写
         string = string.lower()
@@ -236,7 +236,7 @@ class ResearchSelector(ResearchUI):
         priority = FILTER.apply(self.projects, func=partial(self._research_check, enforce=enforce))
 
         # 日志
-        logger.attr('过滤排序', ' > '.join([str(project) for project in priority]))
+        logger.attr('Порядок фильтрации', ' > '.join([str(project) for project in priority]))
         return priority
 
     def _research_check(self, project, enforce=False):
@@ -323,7 +323,7 @@ class ResearchSelector(ResearchUI):
         FILTER.load(FILTER_STRING_SHORTEST)
         priority = FILTER.apply(self.projects, func=partial(self._research_check, enforce=enforce))
 
-        logger.attr('过滤排序', ' > '.join([str(project) for project in priority]))
+        logger.attr('Порядок фильтрации', ' > '.join([str(project) for project in priority]))
         return priority
 
     def research_sort_cheapest(self, enforce):
@@ -342,5 +342,5 @@ class ResearchSelector(ResearchUI):
         FILTER.load(FILTER_STRING_CHEAPEST)
         priority = FILTER.apply(self.projects, func=partial(self._research_check, enforce=enforce))
 
-        logger.attr('过滤排序', ' > '.join([str(project) for project in priority]))
+        logger.attr('Порядок фильтрации', ' > '.join([str(project) for project in priority]))
         return priority
