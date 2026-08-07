@@ -96,6 +96,6 @@ class GuildLobby(GuildBase):
             in: GUILD_LOBBY
             out: GUILD_LOBBY
         """
-        logger.hr('大舰队大厅', level=1)
+        logger.hr('Зал гильдии', level=1)
         self._guild_lobby_collect()
         logger.info('[Гильдия — зал] Сбор наград в зале гильдии завершён')
