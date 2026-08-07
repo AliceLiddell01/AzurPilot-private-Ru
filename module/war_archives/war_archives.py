@@ -107,7 +107,7 @@ class CampaignWarArchives(CampaignRun, CampaignBase):
         if remain > 0:
             return False
 
-        logger.hr('触发停止条件：每日出击次数')
+        logger.hr('Условие остановки: дневное число выходов')
         self.config.task_delay(server_update=True)
         return True
 
