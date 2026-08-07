@@ -586,7 +586,7 @@ class Connection(ConnectionAttr):
                 logger.warning(f'[Устройство — соединение] {output}')
             finally:
                 _safe_close(stream)
-            raise AdbTimeout('reverse server accept timeout')
+            raise AdbTimeout('Истекло время ожидания подключения к reverse-серверу ADB')
 
         try:
             # 服务端接收数据
