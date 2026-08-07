@@ -187,7 +187,9 @@ class ResearchQueue(ResearchUI):
             GameBugError:
         """
         if self.image_color_count(QUEUE_REMAIN, color=(123, 125, 123), threshold=235, count=100):
-            logger.error('[Исследование — очередь] Первый проект в очереди не запущен; возможно, это ошибка игры. Перезапуск игры должен помочь.')
+            logger.error('[Исследование — очередь] Первый проект в очереди не запущен; '
+                         'возможно, это ошибка игры. '
+                         'Перезапуск игры должен помочь.')
             raise GameBugError
         if not self.image_color_count(QUEUE_REMAIN, color=(255, 255, 255), threshold=221, count=100):
             logger.info('[Исследование — очередь] Очередь исследований пуста')
