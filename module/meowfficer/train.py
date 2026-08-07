@@ -90,7 +90,7 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
             if self.appear(MEOWFFICER_TRAIN_FILL_QUEUE, offset=(20, 20)):
                 return True
             if self.info_bar_count():
-                logger.info('[Комофицер — обучение] Больше нет слотов обучения; выход')
+                logger.info('[Мяуфицер — обучение] Больше нет слотов обучения; выход')
                 return False
 
     def _meow_nqueue(self, skip_first_screenshot=True):
@@ -103,8 +103,6 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
             in: MEOWFFICER_TRAIN
             out: MEOWFFICER_TRAIN
         """
-        # Loop through possible screen transitions
-        # as a result of the previous action
         confirm_timer = Timer(1.5, count=3).start()
         while 1:
             if skip_first_screenshot:
@@ -124,7 +122,6 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
                 confirm_timer.reset()
                 continue
 
-            # End
             if self.appear(MEOWFFICER_TRAIN_START, offset=(20, 20)):
                 if confirm_timer.reached():
                     break
@@ -141,17 +138,13 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
             in: MEOWFFICER_TRAIN
             out: MEOWFFICER_TRAIN
         """
-        # Maintain local box count for
-        # count/click accuracy
         local_count = deepcopy(self._box_count)
         buttons = MEOWFFICER_BOX_GRID.buttons
         while 1:
-            # Number that can be queued
             current, remain, total = MEOWFFICER_QUEUE.ocr(self.device.image)
             if not remain:
                 break
 
-            # Loop as needed to queue boxes appropriately
             for i, j in ((0, 2), (1, 1)):
                 logger.attr(f'训练中猫箱数量 (索引 {i})', local_count)
                 count = local_count[i] - remain
@@ -168,7 +161,6 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
             self.device.sleep((0.3, 0.5))
             self.device.screenshot()
 
-        # Re-use mechanism to transition through screens
         self._meow_nqueue()
 
     def meow_queue(self, ascending=True):
@@ -187,34 +179,25 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
             out: MEOWFFICER_TRAIN
         """
         logger.hr('指挥喵队列', level=1)
-        # Either can remain in same window or
-        # enter the queuing window
         if not self._meow_queue_enter():
             return
 
-        # Sum of common and elite/sr boxes
-        # Ocr'ed earlier in meow_train else default
         common_sum = self._box_count[0] + self._box_count[1]
 
-        # Check remains
         if sum(self._box_count) <= 0:
-            logger.info('[Комофицер — обучение] Больше нет ящиков для обучения')
+            logger.info('[Мяуфицер — обучение] Больше нет ящиков для обучения')
             return
 
-        # Choose appropriate queue func based on
-        # common box sum count
-        # - <= 20, low stock; queue normally
-        # - > 20, high stock; queue common boxes first
         if ascending:
             if common_sum > 20:
-                logger.info('[Комофицер — обучение] Очередь по возрастанию (синий > фиолетовый > золотой)')
+                logger.info('[Мяуфицер — обучение] Очередь по возрастанию (синий > фиолетовый > золотой)')
                 self._meow_rqueue()
             else:
-                logger.info('[Комофицер — обучение] Недостаточный запас обычных ящиков')
-                logger.info('[Комофицер — обучение] Очередь по убыванию (золотой > фиолетовый > синий)')
+                logger.info('[Мяуфицер — обучение] Недостаточный запас обычных ящиков')
+                logger.info('[Мяуфицер — обучение] Очередь по убыванию (золотой > фиолетовый > синий)')
                 self._meow_nqueue()
         else:
-            logger.info('[Комофицер — обучение] Очередь по убыванию (золотой > фиолетовый > синий)')
+            logger.info('[Мяуфицер — обучение] Очередь по убыванию (золотой > фиолетовый > синий)')
             self._meow_nqueue()
 
     def meow_train(self):
@@ -228,34 +211,24 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
         """
         logger.hr('指挥喵训练', level=1)
 
-        # Retrieve capacity to determine whether able to collect
         current, remain, total = MEOWFFICER_CAPACITY.ocr(self.device.image)
         logger.attr('剩余容量', remain)
 
-        # Read box count, utilized in other helper funcs
         self._box_count = MEOWFFICER_BOX_COUNT.ocr(self.device.image)
 
         logger.attr('训练模式', self.config.MeowfficerTrain_Mode)
         collected = False
         if self.config.MeowfficerTrain_Mode == 'seamlessly':
-            # Enter
             self.meow_enter(MEOWFFICER_TRAIN_ENTER, check_button=MEOWFFICER_TRAIN_START)
-            # Collect
             if remain > 0:
                 collected = self.meow_collect(collect_all=True)
-            # Queue
             self.meow_queue(ascending=False)
-            # Exit
             self.meow_menu_close()
         else:
-            # Enter
             self.meow_enter(MEOWFFICER_TRAIN_ENTER, check_button=MEOWFFICER_TRAIN_START)
-            # Collect
             if remain > 0:
                 collected = self.meow_collect(collect_all=self.meow_is_sunday())
-            # Queue
             self.meow_queue(ascending=False)
-            # Exit
             self.meow_menu_close()
 
         return collected
