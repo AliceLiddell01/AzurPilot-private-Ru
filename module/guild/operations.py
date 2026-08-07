@@ -327,7 +327,7 @@ class GuildOperations(GuildBase):
 
         # 日志示例：| 1 | | 2 | [ 3 ]
         text = ' '.join(text)
-        logger.attr('派遣舰队', text)
+        logger.attr('Отправляемый флот', text)
         if text.endswith(']'):
             logger.info('[Гильдия — операция] Уже выбран крайний правый флот')
             return None
@@ -445,7 +445,7 @@ class GuildOperations(GuildBase):
             in: page_guild, guild operation, operation map (GUILD_OPERATIONS_ACTIVE_CHECK)
             out: page_guild, guild operation, operation map (GUILD_OPERATIONS_ACTIVE_CHECK)
         """
-        logger.hr('大舰队派遣')
+        logger.hr('Отправка гильдии')
         success = False
         for _ in reversed(range(2)):
             if self._guild_operations_dispatch_swipe(forward=_):
@@ -519,7 +519,7 @@ class GuildOperations(GuildBase):
             # 结束
             pause = az.is_combat_executing()
             if pause:
-                logger.attr('战斗UI', pause)
+                logger.attr('Боевой интерфейс', pause)
                 return True
 
     def _guild_operations_boss_combat(self):
@@ -555,7 +555,7 @@ class GuildOperations(GuildBase):
         return appear
 
     def guild_operations(self):
-        logger.hr('大舰队作战', level=1)
+        logger.hr('Операция гильдии', level=1)
         self.guild_side_navbar_ensure(bottom=1)
         entered = self._guild_operations_ensure()
         if not entered:

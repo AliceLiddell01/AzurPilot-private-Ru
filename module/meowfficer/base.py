@@ -87,7 +87,7 @@ class MeowfficerBase(UI):
             in: MEOWFFICER_FORT_CHECK, MEOWFFICER_BUY, MEOWFFICER_TRAIN_START, etc
             out: page_meowfficer
         """
-        logger.hr('指挥喵-菜单关闭')
+        logger.hr('Мяуфицер — закрытие меню')
         click_timer = Timer(3)
         while 1:
             if skip_first_screenshot:

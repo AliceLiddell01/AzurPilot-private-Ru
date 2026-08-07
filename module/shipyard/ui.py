@@ -49,7 +49,7 @@ class ShipyardUI(UI):
                 or self.appear(SHIPYARD_PROGRESS_FATE, offset=(20, 20)) \
                 or self.appear(SHIPYARD_LEVEL_NOT_ENOUGH_FATE, offset=(20, 20)) \
                 or self.appear(SHIPYARD_LEVEL_NOT_ENOUGH_DEV, offset=(20, 20)):
-            logger.info('当前等级舰船已达到最大强化，无法继续消耗蓝图')
+            logger.info('Корабль достиг максимального усиления для текущего уровня; дальнейший расход чертежей невозможен')
             return True
         return False
 
@@ -117,7 +117,7 @@ class ShipyardUI(UI):
 
             plus, minus, current = self._shipyard_get_total()
             if current == count:
-                logger.info(f'能够消耗全部 {count} 张蓝图')
+                logger.info(f'Можно израсходовать все {count} чертежей')
                 return 0
 
             diff = count - current
@@ -125,8 +125,8 @@ class ShipyardUI(UI):
             self.device.multi_click(button, n=diff, interval=(0.3, 0.5))
             self.device.sleep((0.3, 0.5))
 
-        logger.info(f'[船坞-UI] 当前界面无法消耗 {count} 张蓝图')
-        logger.info(f'最多能够消耗 {current} / {count} 张蓝图')
+        logger.info(f'[Верфь — UI] В текущем интерфейсе невозможно израсходовать {count} чертежей')
+        logger.info(f'Можно израсходовать не более {current} / {count} чертежей')
         return diff
 
     def _shipyard_get_bp_count(self, index=0):
@@ -141,7 +141,7 @@ class ShipyardUI(UI):
         """
         # index(config.SHIPYARD_INDEX) 从 1 开始
         if index <= 0 or index > len(SHIPYARD_BP_COUNT_GRID.buttons):
-            logger.warning(f'[船坞-UI] 无法从索引 {index} 解析数量')
+            logger.warning(f'[Верфь — UI] Не удалось получить количество по индексу {index}')
             return -1
 
         result = OCR_SHIPYARD_BP_COUNT_GRID.ocr(self.device.image)
@@ -176,7 +176,7 @@ class ShipyardUI(UI):
             bool: 是否设置成功
         """
         if series <= 0 or series > len(SHIPYARD_SERIES_GRID.buttons):
-            logger.warning(f'科研系列 {series} 不可选择')
+            logger.warning(f'Серия исследований {series} недоступна для выбора')
             return False
 
         self.ui_click(SHIPYARD_SERIES_SELECT_ENTER, appear_button=self._shipyard_in_ui,
@@ -219,7 +219,7 @@ class ShipyardUI(UI):
             right = None
         if left is not None:
             if left <= 0 or left > len(SHIPYARD_FACE_GRID.buttons):
-                logger.warning(f'[船坞-UI] 导航栏索引 {left} 不可选择')
+                logger.warning(f'[Верфь — UI] Индекс навигации {left} недоступен для выбора')
                 return False
 
         ensured = False
@@ -256,7 +256,7 @@ class ShipyardUI(UI):
             bool: 是否设置成功
         """
         if series > 2 and index > 5:
-            logger.warning(f'[船坞-UI] 科研系列 {series} 仅限索引 1-5，无法设置焦点到索引 {index}')
+            logger.warning(f'[Верфь — UI] Для серии исследований {series} допустимы только индексы 1–5; невозможно установить фокус на {index}')
             return False
         return self._shipyard_set_series(series, skip_first_screenshot) \
                and self.shipyard_bottom_navbar_ensure(left=index, skip_first_screenshot=skip_first_screenshot)
@@ -327,10 +327,10 @@ class ShipyardUI(UI):
 
             if ocr_timer.reached():
                 # 未能检测到正常退出，回退到 OCR 检查
-                logger.warning('[船坞-UI] 未能检测到正常退出流程，回退到OCR检查')
+                logger.warning('[Верфь — UI] Не удалось определить обычный выход; переход к проверке OCR')
                 _, _, current = self._shipyard_get_total()
                 if not current:
-                    logger.info('确认操作已完成，设置退出标志')
+                    logger.info('Операция подтверждена; установлен флаг выхода')
                     self.interval_reset(button)
                     success = True
                 ocr_timer.reset()
@@ -386,7 +386,7 @@ class ShipyardUI(UI):
         """
         if self.appear(SHIPYARD_RESEARCH_INCOMPLETE, offset=(20, 20)) \
                 or self.appear(SHIPYARD_RESEARCH_IN_PROGRESS, offset=(20, 20)):
-            logger.warning('[船坞-UI] 无法进入购买界面，当前舰船尚未完成研发')
+            logger.warning('[Верфь — UI] Не удалось открыть экран покупки: исследование текущего корабля ещё не завершено')
             return False
 
         if self.appear(SHIPYARD_RESEARCH_COMPLETE, offset=(20, 20)):

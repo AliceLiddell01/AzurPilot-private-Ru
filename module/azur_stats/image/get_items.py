@@ -145,7 +145,7 @@ class GetItems(ImageBase):
         """
         self.item_grid.grids = None
         if INFO_BAR_1.appear_on(image):
-            raise GetItemsCoveredByInfoBar('get_items image has info_bar')
+            raise GetItemsCoveredByInfoBar('Экран получения предметов перекрыт информационной панелью')
         elif self.classify_server(GET_ITEMS_1, image, offset=(5, 0)):
             self.item_grid.grids = ITEM_GRIDS_1_ODD if has_odd_items(image) else ITEM_GRIDS_1_EVEN
         elif self.classify_server(GET_ITEMS_2, image, offset=(5, 0)):

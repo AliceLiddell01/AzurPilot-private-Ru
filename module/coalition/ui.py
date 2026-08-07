@@ -81,7 +81,7 @@ class CoalitionUI(Combat):
         elif mode == 'battle':
             mode_switch.set('battle', main=self)
         else:
-            logger.warning(f'未知的联动战役模式: {mode}')
+            logger.warning(f'Неизвестный режим коалиционной кампании: {mode}')
 
     def coalition_set_fleet(self, event, mode):
         """
@@ -127,7 +127,7 @@ class CoalitionUI(Combat):
             fleet_switch.set('multi', main=self)
             return True
         else:
-            logger.warning(f'未知的联动舰队模式: {mode}')
+            logger.warning(f'Неизвестный режим коалиционного флота: {mode}')
             return False
 
     @staticmethod
@@ -361,7 +361,7 @@ class CoalitionUI(Combat):
             in: BATTLE_PREPARATION, or coalition specific fleet_preparation
             out: in_coalition
         """
-        logger.info('联动地图退出')
+        logger.info('Выход из карты коалиции')
         fleet_preparation = self.coalition_get_fleet_preparation(event)
         for _ in self.loop():
             if self.in_coalition():

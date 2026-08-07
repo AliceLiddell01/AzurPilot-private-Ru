@@ -52,7 +52,7 @@ class MaritimeEscort(MapOperation, CampaignEvent):
             in: ESCORT_CHECK
             out: ESCORT_CHECK
         """
-        logger.hr('海上护卫', level=1)
+        logger.hr('Морской эскорт', level=1)
         try:
             self.enter_map(ESCORT_HARD_ENTRANCE, mode='escort')
             self.withdraw()

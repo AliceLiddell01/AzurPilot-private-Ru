@@ -70,7 +70,7 @@ class Opponent:
         level = [str(x).rjust(3, ' ') for x in self.level]
         power = ['(' + str(x).rjust(5, ' ') + ')' for x in self.power]
         logger.attr(
-            '对手_%s' % index,
+            'Противник_%s' % index,
             ' '.join([power[0]] + level[:3] + ['|'] + [power[1]] + level[3:])
         )
 
@@ -168,5 +168,5 @@ class OpponentChoose(UI):
                        Attack one by one.
         """
         order = np.argsort([- x.get_priority(method) for x in self.opponents])
-        logger.attr('出战顺序', str(order))
+        logger.attr('Порядок выхода в бой', str(order))
         return order

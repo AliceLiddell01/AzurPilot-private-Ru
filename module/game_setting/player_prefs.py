@@ -109,7 +109,7 @@ def _is_target_key(name: str | None) -> bool:
 def _index_target_entries(root: etree.Element) -> dict[str, etree.Element]:
     """索引需要读取或修改的设置项，并拒绝同名目标键。"""
     if root.tag != 'map':
-        raise PlayerPrefsUnsupported(f'不支持的 PlayerPrefs 根节点: {root.tag!r}')
+        raise PlayerPrefsUnsupported(f'Неподдерживаемый корневой узел PlayerPrefs: {root.tag!r}')
 
     entries = {}
     for element in root:
@@ -133,9 +133,9 @@ def _set_int(root: etree.Element, entries: dict[str, etree.Element], name: str, 
         return True
 
     if element.tag != 'int':
-        raise PlayerPrefsUnsupported(f'目标键 {name!r} 的 XML 类型不是 int: {element.tag!r}')
+        raise PlayerPrefsUnsupported(f'XML-тип целевого ключа {name!r} не int: {element.tag!r}')
     if element.text and element.text.strip():
-        raise PlayerPrefsUnsupported(f'目标键 {name!r} 包含无法安全处理的文本值')
+        raise PlayerPrefsUnsupported(f'Целевой ключ {name!r} содержит текстовое значение, которое нельзя безопасно обработать')
     if element.get('value') == expected:
         return False
 
@@ -154,9 +154,9 @@ def _set_string(root: etree.Element, entries: dict[str, etree.Element], name: st
         return True
 
     if element.tag != 'string':
-        raise PlayerPrefsUnsupported(f'目标键 {name!r} 的 XML 类型不是 string: {element.tag!r}')
+        raise PlayerPrefsUnsupported(f'XML-тип целевого ключа {name!r} не string: {element.tag!r}')
     if element.get('value') is not None or len(element):
-        raise PlayerPrefsUnsupported(f'目标键 {name!r} 的 XML 内容无法安全处理')
+        raise PlayerPrefsUnsupported(f'XML-содержимое целевого ключа {name!r} нельзя безопасно обработать')
     current = '' if element.text is None else element.text
     if current == value:
         return False
@@ -228,29 +228,29 @@ def verify_player_prefs_xml(
     try:
         root = etree.fromstring(content)
     except etree.ParseError as error:
-        raise PlayerPrefsWriteError(f'回读的 PlayerPrefs XML 解析失败: {error}') from None
+        raise PlayerPrefsWriteError(f'Не удалось разобрать прочитанный обратно XML PlayerPrefs: {error}') from None
 
     entries = _index_target_entries(root)
     for name, value in RECOMMENDED_INT_SETTINGS.items():
         element = entries.get(name)
         if element is None or element.tag != 'int' or element.get('value') != str(value):
-            raise PlayerPrefsWriteError(f'目标键 {name!r} 的回读值不正确')
+            raise PlayerPrefsWriteError(f'Прочитанное обратно значение целевого ключа {name!r} неверно')
 
     for name, value in RECOMMENDED_STRING_SETTINGS.items():
         element = entries.get(name)
         actual = '' if element is None or element.text is None else element.text
         if element is None or element.tag != 'string' or actual != value:
-            raise PlayerPrefsWriteError(f'目标键 {name!r} 的回读值不正确')
+            raise PlayerPrefsWriteError(f'Прочитанное обратно значение целевого ключа {name!r} неверно')
 
     for name in story_speed_keys:
         element = entries.get(name)
         if element is None or element.tag != 'int' or element.get('value') != str(STORY_SPEED_VALUE):
-            raise PlayerPrefsWriteError('剧情自动播放速度设置的回读值不正确')
+            raise PlayerPrefsWriteError('Прочитанное обратно значение настройки скорости автопроигрывания сюжета неверно')
 
     for name in standby_keys:
         element = entries.get(name)
         if element is None or element.tag != 'int' or element.get('value') != '0':
-            raise PlayerPrefsWriteError('待机模式设置的回读值不正确')
+            raise PlayerPrefsWriteError('Прочитанное обратно значение настройки режима ожидания неверно')
 
 
 @contextmanager
@@ -282,7 +282,7 @@ def _device_lock(serial: str, package: str, timeout: float = 10) -> None:
                 break
             except OSError as error:
                 if time.monotonic() >= deadline:
-                    raise PlayerPrefsUnsupported('等待另一实例的游戏设置事务超时') from None
+                    raise PlayerPrefsUnsupported('Тайм-аут ожидания транзакции настроек игры в другом экземпляре') from None
                 time.sleep(0.1)
 
         try:
@@ -445,7 +445,7 @@ class PlayerPrefsManager:
     def _prefs_path(self) -> str:
         """定位 Unity PlayerPrefs 文件，文件名不符时拒绝猜测。"""
         if not PACKAGE_PATTERN.fullmatch(self.package):
-            raise PlayerPrefsUnsupported('游戏包名格式不安全')
+            raise PlayerPrefsUnsupported('Небезопасный формат имени пакета игры')
 
         directory = f'/data/user/0/{self.package}/shared_prefs'
         expected = f'{directory}/{self.package}.v2.playerprefs.xml'
@@ -454,22 +454,22 @@ class PlayerPrefsManager:
 
         files = self._shell(['ls', '-1', directory], check=False)
         if files.returncode != 0:
-            raise PlayerPrefsUnsupported('未找到游戏的 PlayerPrefs 目录')
+            raise PlayerPrefsUnsupported('Каталог PlayerPrefs игры не найден')
         candidates = [
             name for name in files.stdout.splitlines()
             if PREFS_FILE_PATTERN.fullmatch(name)
         ]
         if len(candidates) != 1:
-            raise PlayerPrefsUnsupported('无法唯一定位游戏的 PlayerPrefs 文件')
+            raise PlayerPrefsUnsupported('Не удалось однозначно определить файл PlayerPrefs игры')
         return f'{directory}/{candidates[0]}'
 
     def _ensure_no_atomic_backup(self, prefs: str) -> None:
         """避免 Android 未完成的原子写入在下次启动时覆盖主文件。"""
         result = self._shell(['test', '-e', f'{prefs}.bak'], check=False)
         if result.returncode == 0:
-            raise PlayerPrefsUnsupported('检测到未完成的应用偏好写入，拒绝覆盖')
+            raise PlayerPrefsUnsupported('Обнаружена незавершённая атомарная запись настроек приложения; перезапись запрещена')
         if result.returncode != 1:
-            raise PlayerPrefsUnsupported('无法确认应用偏好写入状态')
+            raise PlayerPrefsUnsupported('Не удалось подтвердить состояние атомарной записи настроек приложения')
 
     def _metadata(
             self,
@@ -479,11 +479,11 @@ class PlayerPrefsManager:
         metadata = self._shell(['stat', '-c', '%u:%g:%a', remote], error_type=error_type).stdout
         match = METADATA_PATTERN.fullmatch(metadata)
         if match is None:
-            raise error_type('无法读取 PlayerPrefs 文件权限')
+            raise error_type('Не удалось прочитать права доступа файла PlayerPrefs')
 
         label = self._shell(['ls', '-Zd', remote], error_type=error_type).stdout.split(maxsplit=1)
         if not label or not SELINUX_CONTEXT_PATTERN.fullmatch(label[0]):
-            raise error_type('无法读取 PlayerPrefs 文件的 SELinux 上下文')
+            raise error_type('Не удалось прочитать SELinux-контекст файла PlayerPrefs')
 
         return PlayerPrefsMetadata(
             uid=match.group('uid'),
@@ -529,7 +529,7 @@ class PlayerPrefsManager:
     def _cleanup_stale_transaction_files(self, prefs: str) -> None:
         """清理本模块旧版遗留副本和中断事务的临时文件，不记录文件名。"""
         if self._game_is_stopped() is not True:
-            raise PlayerPrefsUnsupported('游戏进程在清理敏感临时数据前启动，已取消本次写入')
+            raise PlayerPrefsUnsupported('Процесс игры запустился до очистки чувствительных временных данных; запись отменена')
 
         directory, filename = prefs.rsplit('/', maxsplit=1)
         files = self._shell(['ls', '-1', directory], error_type=PlayerPrefsUnsupported).stdout.splitlines()
@@ -548,7 +548,7 @@ class PlayerPrefsManager:
 
         for remote in stale_files:
             if self._game_is_stopped() is not True:
-                raise PlayerPrefsUnsupported('游戏进程在清理敏感临时数据期间启动，已取消本次写入')
+                raise PlayerPrefsUnsupported('Процесс игры запустился во время очистки чувствительных временных данных; запись отменена')
             self._shell(['rm', '-f', remote], error_type=PlayerPrefsUnsupported)
 
     def _restore_original(
@@ -578,11 +578,11 @@ class PlayerPrefsManager:
 
     def _apply_locked(self) -> bool:
         if not self._wait_until_game_stopped():
-            raise PlayerPrefsUnsupported('游戏进程仍在运行，已跳过本次写入')
+            raise PlayerPrefsUnsupported('Процесс игры всё ещё запущен; запись пропущена')
         if not self._ensure_root():
             raise PlayerPrefsUnsupported('ADB не получил права root')
         if not self._wait_until_game_stopped():
-            raise PlayerPrefsUnsupported('游戏进程在提权期间启动，已取消本次写入')
+            raise PlayerPrefsUnsupported('Процесс игры запустился во время повышения привилегий; запись отменена')
 
         prefs = self._prefs_path()
         self._cleanup_stale_transaction_files(prefs)
@@ -600,7 +600,7 @@ class PlayerPrefsManager:
                 return True
 
             if not self._wait_until_game_stopped():
-                raise PlayerPrefsUnsupported('游戏进程在写入前启动，已取消本次写入')
+                raise PlayerPrefsUnsupported('Процесс игры запустился перед записью; запись отменена')
 
             self._write_remote_bytes(temporary, modified, PlayerPrefsWriteError)
             self._restore_metadata(temporary, metadata)
@@ -608,7 +608,7 @@ class PlayerPrefsManager:
                 raise PlayerPrefsWriteError('Проверка содержимого временной записи PlayerPrefs не пройдена')
 
             if not self._wait_until_game_stopped():
-                raise PlayerPrefsUnsupported('游戏进程在替换前启动，已取消本次写入')
+                raise PlayerPrefsUnsupported('Процесс игры запустился перед заменой файла; запись отменена')
             replace_attempted = True
             self._shell(['mv', temporary, prefs], error_type=PlayerPrefsWriteError)
             applied = self._read_remote_bytes(prefs, PlayerPrefsWriteError)
@@ -618,7 +618,7 @@ class PlayerPrefsManager:
                 changes.story_speed_keys,
             )
             if self._metadata(prefs, error_type=PlayerPrefsWriteError) != metadata:
-                raise PlayerPrefsWriteError('写入后的 PlayerPrefs 文件元数据不正确')
+                raise PlayerPrefsWriteError('Метаданные файла PlayerPrefs после записи неверны')
         except PlayerPrefsError:
             if replace_attempted:
                 restored = self._restore_original(prefs, metadata, original, temporary)

@@ -43,7 +43,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
             return False
 
         if recommend:
-            logger.info('推荐舰队')
+            logger.info('Рекомендуемый флот')
             fleet_1.recommend()
             return True
         else:
@@ -59,23 +59,23 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
             auto: 自动战斗模式。
             fleet_index: 舰队索引。
         """
-        logger.info('战斗准备。')
+        logger.info('Подготовка к бою.')
         skip_first_screenshot = True
 
         @run_once
         def check_oil():
             if self.get_oil() < max(500, self.config.StopCondition_OilLimit):
-                logger.hr('触发石油上限')
+                logger.hr('Сработал лимит топлива')
                 raise OilExhausted
 
         @run_once
         def check_coin():
             if self.coin_limit_triggered():
-                logger.hr('触发停止条件: 物资上限')
+                logger.hr('Условие остановки: лимит монет')
                 self.config.task_stop()
                 return True
             if self.config.TaskBalancer_Enable and self.triggered_task_balancer():
-                logger.hr('触发停止条件: 物资上限')
+                logger.hr('Условие остановки: лимит монет')
                 self.handle_task_balancer()
                 return True
 
@@ -109,7 +109,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
             # 战斗开始
             pause = self.is_combat_executing()
             if pause:
-                logger.attr('战斗UI', pause)
+                logger.attr('Боевой интерфейс', pause)
                 if emotion_reduce:
                     self.emotion.reduce(fleet_index)
                 break

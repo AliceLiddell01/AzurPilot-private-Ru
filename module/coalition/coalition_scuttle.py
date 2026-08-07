@@ -145,7 +145,7 @@ class CoalitionScuttleCombat(CoalitionCombat):
                 self.coalition_combat_re_enter()
                 self.battle_count += 1
         except CampaignEnd:
-            logger.info('联动战斗结束。')
+            logger.info('Коалиционный бой завершён.')
 
     def handle_battle_status(self, drop=None):
         """
@@ -180,7 +180,7 @@ class CoalitionScuttleCombat(CoalitionCombat):
         if self.appear_then_click(SCUTTLE_CONFIRM, offset=(20, 20), interval=2):
             return True
         if super().handle_battle_status(drop=drop):
-            logger.warning("触发正常结束")
+            logger.warning('Сработало обычное завершение')
             self.triggered_normal_end = True
             return True
 
@@ -348,11 +348,11 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
                 self.config.task_stop()
 
             # 日志输出
-            logger.hr(f'{event}_{mode}', level=2)
+            logger.hr(f'Коалиция: {event}_{mode}', level=2)
             if self.config.StopCondition_RunCount > 0:
-                logger.info(f'剩余次数: {self.config.StopCondition_RunCount}')
+                logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
-                logger.info(f'计数: {self.run_count}')
+                logger.info(f'Счётчик: {self.run_count}')
 
             # 无燃油图标时，先在战役菜单检查停止条件
             if not self._coalition_has_oil_icon:
@@ -378,7 +378,7 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
             try:
                 self.coalition_execute_once(event=event, stage=mode, fleet=fleet)
             except ScriptEnd as e:
-                logger.hr('脚本结束')
+                logger.hr('Завершение скрипта')
                 logger.info(str(e))
                 break
 

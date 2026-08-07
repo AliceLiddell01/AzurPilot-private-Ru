@@ -148,7 +148,7 @@ class NewYearChallenge(MinigameRun):
                     self.appear_then_click(NEW_YEAR_CHALLENGE_DEC_COIN, offset=(5, 5), interval=3)
                     self.device.screenshot()
                 coin_cost_after_add = OCR_GAME_NEW_YEAR_COIN_COST.ocr(self.device.image)
-                logger.info(f"coin cost after add : {coin_cost_after_add}")
+                logger.info(f"Стоимость монет после добавления: {coin_cost_after_add}")
                 if count >= 1 and coin_cost_after_add <= 0:
                     # can't add coin because all monthly reward is gotten or coin left is 0
                     return False
@@ -164,7 +164,7 @@ class NewYearChallenge(MinigameRun):
                 if self.image_color_count(to_judge, color, threshold=221, count=10):
                     to_clicks.append(button)
                     break
-        logger.info(f"to clicks: {to_clicks}")
+        logger.info(f"Кнопки для нажатия: {to_clicks}")
         to_clicks.reverse()
         # click
         click_interval = Timer(0.2, count=5).start()

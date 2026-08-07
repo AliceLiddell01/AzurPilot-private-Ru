@@ -91,14 +91,14 @@ class Hospital(HospitalClue, HospitalCombat):
             in: page_hospital
         """
         if self.daily_red_dot_appear():
-            logger.info('每日红点出现')
+            logger.info('Красная точка ежедневной награды появилась')
         else:
-            logger.info('无每日红点')
+            logger.info('Красной точки ежедневной награды нет')
             return False
 
-        logger.hr('领取每日奖励', level=2)
+        logger.hr('Получение ежедневной награды', level=2)
         # 进入奖励界面
-        logger.info('进入每日奖励')
+        logger.info('Вход в ежедневные награды')
         skip_first_screenshot = True
         self.interval_clear(page_hospital.check_button)
         while 1:
@@ -114,7 +114,7 @@ class Hospital(HospitalClue, HospitalCombat):
                 continue
 
         # 领取奖励
-        logger.info('领取每日奖励')
+        logger.info('Получение ежедневной награды')
         skip_first_screenshot = True
         self.interval_clear(HOSIPITAL_CLUE_CHECK)
         timeout = Timer(1.5, count=6).start()
@@ -125,7 +125,7 @@ class Hospital(HospitalClue, HospitalCombat):
             else:
                 self.device.screenshot()
             if timeout.reached():
-                logger.warning('每日奖励领取超时')
+                logger.warning('Тайм-аут получения ежедневной награды')
                 break
             if clicked and self.is_in_daily_reward():
                 if not self.daily_reward_receive_appear():
@@ -140,7 +140,7 @@ class Hospital(HospitalClue, HospitalCombat):
                 continue
 
         # 退出奖励界面
-        logger.info('退出每日奖励')
+        logger.info('Выход из ежедневных наград')
         skip_first_screenshot = True
         self.interval_clear(HOSIPITAL_CLUE_CHECK)
         while 1:
@@ -165,7 +165,7 @@ class Hospital(HospitalClue, HospitalCombat):
         """
         self.config.override(Fleet_FleetOrder='fleet1_all_fleet2_standby')
         while 1:
-            logger.hr('循环医院投资', level=2)
+            logger.hr('Цикл исследований госпиталя', level=2)
             # 调度器检查，可能抛出 ScriptEnd
             self.emotion.check_reduce(battle=1)
 
@@ -182,7 +182,7 @@ class Hospital(HospitalClue, HospitalCombat):
             break
 
         self.claim_invest_reward()
-        logger.info('循环医院投资 end')
+        logger.info('Цикл исследований госпиталя завершён')
 
     def invest_reward_appear(self) -> bool:
         """检测调查奖励领取按钮是否出现。"""
@@ -191,9 +191,9 @@ class Hospital(HospitalClue, HospitalCombat):
     def claim_invest_reward(self):
         """领取调查奖励。"""
         if self.invest_reward_appear():
-            logger.info('投资奖励出现')
+            logger.info('Награда за исследование появилась')
         else:
-            logger.info('无投资奖励')
+            logger.info('Награды за исследование нет')
             return False
         # 领取奖励
         skip_first_screenshot = True
@@ -219,7 +219,7 @@ class Hospital(HospitalClue, HospitalCombat):
     def loop_aside(self):
         """遍历所有标签页的旁白并执行调查。"""
         while 1:
-            logger.hr('循环医院旁白', level=1)
+            logger.hr('Цикл реплик госпиталя', level=1)
             HOSPITAL_TAB.set('LOCATION', main=self)
             selected = self.select_aside()
             if not selected:
@@ -227,7 +227,7 @@ class Hospital(HospitalClue, HospitalCombat):
             self.loop_invest()
 
         while 1:
-            logger.hr('循环医院旁白', level=1)
+            logger.hr('Цикл реплик госпиталя', level=1)
             HOSPITAL_TAB.set('CHARACTER', main=self)
             selected = self.select_aside()
             if not selected:
@@ -235,7 +235,7 @@ class Hospital(HospitalClue, HospitalCombat):
             self.loop_invest()
 
         while 1:
-            logger.hr('循环医院旁白', level=1)
+            logger.hr('Цикл реплик госпиталя', level=1)
             HOSPITAL_TAB.set('CHARACTER', main=self)
             self.aside_swipe_down()
             selected = self.select_aside()
@@ -243,11 +243,11 @@ class Hospital(HospitalClue, HospitalCombat):
                 break
             self.loop_invest()
 
-        logger.info('循环医院旁白 end')
+        logger.info('Цикл реплик госпиталя завершён')
 
     def aside_swipe_down(self, skip_first_screenshot=True):
         """向下滑动旁白列表直到没有翻页标识。"""
-        logger.info('旁白下滑')
+        logger.info('Прокрутка реплик вниз')
         swiped = False
         interval = Timer(2, count=6)
         while 1:
@@ -257,7 +257,7 @@ class Hospital(HospitalClue, HospitalCombat):
                 self.device.screenshot()
 
             if swiped and not self.appear(ASIDE_NEXT_PAGE, offset=(20, 20)):
-                logger.info('旁白到达终点')
+                logger.info('Реплики достигли конца списка')
                 break
             if interval.reached():
                 p1, p2 = random_rectangle_vector(
@@ -287,10 +287,10 @@ class Hospital(HospitalClue, HospitalCombat):
             self.config.task_delay(server_update=True)
         except OilExhausted:
             self.clue_exit()
-            logger.hr('触发停止条件: 石油上限')
+            logger.hr('Условие остановки: лимит топлива')
             self.config.task_delay(minute=(120, 240))
         except ScriptEnd as e:
-            logger.hr('脚本结束')
+            logger.hr('Завершение скрипта')
             logger.info(str(e))
             self.clue_exit()
         except TaskEnd:

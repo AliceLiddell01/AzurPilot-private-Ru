@@ -116,7 +116,7 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
             # 数量为 0，无法执行建造
             if not target_count:
-                logger.warning('物资和/或心智魔方不足，无法建造')
+                logger.warning('Недостаточно монет и/или Кубов мудрости для строительства')
                 break
 
             # 资源不足，减少 1 并重新计算
@@ -127,7 +127,7 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
             break
 
         # 扣除资源，返回当前 target_count
-        logger.info(f'最多可提交 {target_count} 个建造订单')
+        logger.info(f'Можно отправить не более {target_count} заказов на строительство')
         self.build_coin_count -= gold_total
         self.build_cube_count -= cube_total
         LogRes(self.config).Cube = self.build_cube_count
@@ -256,7 +256,7 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
         # 许愿池不再显示金币，返回普通建造池
         if self.appear(BUILD_SUBMIT_WW_ORDERS):
-            logger.info('在许愿池中，返回普通池')
+            logger.info('Находимся в Колодце желаний; возврат к обычному пулу')
             self.gacha_side_navbar_ensure(upper=1)
 
     def gacha_submit(self, skip_first_screenshot=True):
@@ -270,7 +270,7 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
             in: POPUP_CONFIRM
             out: BUILD_FINISH_ORDERS
         """
-        logger.info('提交建造')
+        logger.info('Отправка заказов на строительство')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -327,7 +327,7 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
             if self.appear(BUILD_TICKET_CHECK, offset=(30, 30)):
                 self.build_ticket_count = OCR_BUILD_TICKET_COUNT.ocr(self.device.image)
             else:
-                logger.info('未检测到建造券，使用魔方和物资')
+                logger.info('Билет на строительство не обнаружен; используются Кубы мудрости и монеты')
         if self.config.Gacha_Amount > self.build_ticket_count:
             buy[0] = self.build_ticket_count
             # 根据配置和资源计算允许的建造次数

@@ -337,15 +337,15 @@ class MeowfficerCollect(MeowfficerBase):
         Returns:
             bool: whether collected or not
         """
-        logger.hr('指挥喵收集', level=2)
+        logger.hr('Мяуфицер — сбор', level=2)
 
         if self.appear(MEOWFFICER_TRAIN_COMPLETE, offset=(20, 20)):
             # Today is Sunday, finish all else get just one
             if collect_all:
-                logger.info('收集所有训练完成的指挥喵')
+                logger.info('Сбор всех обученных мяуфицеров')
                 button = MEOWFFICER_TRAIN_FINISH_ALL
             else:
-                logger.info('收集单个训练完成的指挥喵')
+                logger.info('Сбор одного обученного мяуфицера')
                 button = MEOWFFICER_TRAIN_COMPLETE
             self.ui_click(button, check_button=MEOWFFICER_GET_CHECK,
                           additional=self.handle_meow_popup_dismiss,

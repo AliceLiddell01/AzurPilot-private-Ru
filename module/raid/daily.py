@@ -90,7 +90,7 @@ class RaidDaily(RaidRun):
                    weekly=False)
             self.ui_ensure(page_raid)
 
-            logger.hr('ex', level=1)
+            logger.hr('EX', level=1)
             super().run(name=name, mode='ex', total=self.get_remain('ex'))
 
         self.config.task_delay(server_update=True)

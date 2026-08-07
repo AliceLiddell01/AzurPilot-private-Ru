@@ -475,7 +475,7 @@ class GuildLogistics(GuildBase):
             in: GUILD_LOGISTICS
             out: GUILD_LOGISTICS
         """
-        logger.hr('大舰队后勤')
+        logger.hr('Логистика гильдии')
         logger.attr('舰队司令/副司令', self.config.GuildLogistics_SelectNewMission)
         confirm_timer = Timer(1.5, count=3).start()
         exchange_interval = Timer(1.5, count=3)
@@ -519,8 +519,8 @@ class GuildLogistics(GuildBase):
             else:
                 confirm_timer.reset()
 
-        logger.info(f"supply_checked: {supply_state['checked']}, mission_checked: {mission_checked}, "
-                    f'exchange_checked: {exchange_checked}, mission_finished: {self._guild_logistics_mission_finished}')
+        logger.info(f"снабжение_проверено: {supply_state['checked']}, задание_проверено: {mission_checked}, "
+                    f'обмен_проверен: {exchange_checked}, задание_завершено: {self._guild_logistics_mission_finished}')
         # Azur Lane receives new guild missions now
         # No longer consider `self._guild_logistics_mission_finished` as a check
         return all([supply_state['checked'], mission_checked, exchange_checked])
@@ -570,7 +570,7 @@ class GuildLogistics(GuildBase):
         items = self._guild_exchange_scan()
         EXCHANGE_FILTER.load(self.config.GuildLogistics_ExchangeFilter)
         selected = EXCHANGE_FILTER.apply(items, func=lambda item: item.enough)
-        logger.attr('兑换排序', ' > '.join([str(item.name) for item in selected]))
+        logger.attr('Порядок обмена', ' > '.join([str(item.name) for item in selected]))
 
         if len(selected):
             button = EXCHANGE_BUTTONS.buttons[items.index(selected[0])]
@@ -592,7 +592,7 @@ class GuildLogistics(GuildBase):
             in: page_guild
             out: page_guild, GUILD_LOGISTICS
         """
-        logger.hr('大舰队后勤', level=1)
+        logger.hr('Логистика гильдии', level=1)
         self.guild_side_navbar_ensure(bottom=3)
         self._guild_logistics_ensure()
 

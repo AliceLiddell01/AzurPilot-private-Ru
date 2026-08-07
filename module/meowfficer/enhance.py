@@ -356,8 +356,8 @@ class MeowfficerEnhance(MeowfficerBase):
             in: page_meowfficer
             out: page_meowfficer
         """
-        logger.hr('指挥喵强化', level=1)
-        logger.attr('强化索引', self.config.MeowfficerTrain_EnhanceIndex)
+        logger.hr('Мяуфицер — усиление', level=1)
+        logger.attr('Индекс усиления', self.config.MeowfficerTrain_EnhanceIndex)
 
         # Base Cases
         # - Config at least > 0 but less than or equal to 12
@@ -399,7 +399,7 @@ class MeowfficerEnhance(MeowfficerBase):
         # - Confirm Enhancement
         # - Check remaining coins after enhancement
         while 1:
-            logger.hr('强化一次', level=2)
+            logger.hr('Одно усиление', level=2)
             if not self.meow_feed_enter():
                 # Exit back into page_meowfficer
                 self.ui_click(MEOWFFICER_GOTO_DORMMENU, check_button=MEOWFFICER_ENHANCE_ENTER,

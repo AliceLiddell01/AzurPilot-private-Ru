@@ -59,7 +59,7 @@ class ImageBase:
                         self.server = server
                     return server
             else:
-                raise ScriptError(f'classify_server() gets unknown button: {button}')
+                raise ScriptError(f'classify_server() получил неизвестную кнопку: {button}')
 
         # No match
         if not self.server:

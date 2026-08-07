@@ -37,7 +37,7 @@ class HospitalEvent(Hospital, RaidRun):
         if chapter in ['easy', 'normal', 'hard']:
             ASIDE_SWITCH_HOSPITAL.set(chapter, main=self)
         else:
-            logger.warning(f'未知的战役旁白: {chapter}')
+            logger.warning(f'Неизвестная глава госпиталя: {chapter}')
 
     def hospital_expected_end(self):
         """判断医院活动战斗是否结束（突袭模式）。
@@ -113,7 +113,7 @@ class HospitalEvent(Hospital, RaidRun):
             in: page_raid
             out: page_raid
         """
-        logger.hr('突袭执行')
+        logger.hr('Выполнение рейда')
         self.config.override(
             Campaign_Event=raid,
             Campaign_Name=f'{raid}_{mode}_{stage}',
@@ -127,7 +127,7 @@ class HospitalEvent(Hospital, RaidRun):
         self.raid_enter(stage=stage, raid=raid)
         self.hospital_combat()
 
-        logger.hr('突袭结束')
+        logger.hr('Рейд завершён')
 
     def run(self, name='', mode='', stage='', total=0):
         """医院活动突袭主入口。
@@ -154,11 +154,11 @@ class HospitalEvent(Hospital, RaidRun):
                 self.config.task_stop()
 
             # 日志
-            logger.hr(f'{name}_{mode}_{stage}', level=2)
+            logger.hr(f'Госпиталь: {name}_{mode}_{stage}', level=2)
             if self.config.StopCondition_RunCount > 0:
-                logger.info(f'剩余次数: {self.config.StopCondition_RunCount}')
+                logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
-                logger.info(f'次数: {self.run_count}')
+                logger.info(f'Счётчик: {self.run_count}')
 
             # 停止条件检查
             if self.triggered_stop_condition():
@@ -176,11 +176,11 @@ class HospitalEvent(Hospital, RaidRun):
                 self.campaign_ensure_aside_hospital(chapter=mode)
                 self.raid_execute_once(mode=mode, raid=name, stage=stage)
             except OilExhausted:
-                logger.hr('触发停止条件: 石油上限')
+                logger.hr('Условие остановки: лимит топлива')
                 self.config.task_delay(minute=(120, 240))
                 break
             except ScriptEnd as e:
-                logger.hr('脚本结束')
+                logger.hr('Завершение скрипта')
                 logger.info(str(e))
                 break
 

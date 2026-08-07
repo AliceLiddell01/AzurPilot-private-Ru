@@ -114,7 +114,7 @@ class HpDaemon(ModuleBase):
             self.attacker_hp = self._calculate_hp(image, area=ATTACKER_HP_AREA_New.area, reverse=True)
             self.defender_hp = self._calculate_hp(image, area=DEFENDER_HP_AREA_New.area, reverse=True)
         else:
-            logger.warning(f'_at_low_hp received unknown pause: {pause}')
+            logger.warning(f'_at_low_hp получил неизвестную тему паузы: {pause}')
             self.attacker_hp = self._calculate_hp(image, area=ATTACKER_HP_AREA.area, reverse=True)
             self.defender_hp = self._calculate_hp(image, area=DEFENDER_HP_AREA.area, reverse=False)
 

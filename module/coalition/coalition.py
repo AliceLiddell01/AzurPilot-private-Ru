@@ -124,7 +124,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
             if pt not in [999999]:
                 break
         else:
-            logger.warning('等待PT超时，假设已达到')
+            logger.warning('Тайм-аут ожидания PT; считаем, что значение достигнуто')
         LogRes(self.config).Pt = pt
         self.config.update()
         return pt
@@ -140,7 +140,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         """
         # 无燃油图标的联动活动跳过检查
         if not self._coalition_has_oil_icon:
-            logger.info('联动活动无石油图标，跳过石油检查')
+            logger.info('В коалиционном событии нет значка топлива; проверка топлива пропущена')
             return False
 
         limit = max(500, self.config.StopCondition_OilLimit)
@@ -154,7 +154,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
             if self.appear(BACK_ARROW, offset=(5, 2)):
                 break
             if timeout.reached():
-                logger.warning('假设OCR_OIL稳定')
+                logger.warning('Считаем OCR_OIL стабильным')
                 break
         if self.get_oil() < limit:
             return True
@@ -191,7 +191,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         """
         # 运行次数上限
         if self.run_limit and self.config.StopCondition_RunCount <= 0:
-            logger.hr('触发停止条件: 运行次数')
+            logger.hr('Условие остановки: число запусков')
             self.config.StopCondition_RunCount = 0
             self.config.Scheduler_Enable = False
             return True
@@ -200,22 +200,22 @@ class Coalition(CoalitionCombat, CampaignEvent):
             # 检查 ui_current 是否存在，避免属性异常
             ui_is_campaign_menu = hasattr(self, 'ui_current') and self.ui_current == page_campaign_menu
             if (self._coalition_has_oil_icon or ui_is_campaign_menu) and self.check_oil():
-                logger.hr('触发停止条件: 石油上限')
+                logger.hr('Условие остановки: лимит топлива')
                 self.config.task_delay(minute=(120, 240))
                 return True
         # 活动 PT 限制
         if pt_check:
             if self.event_pt_limit_triggered():
-                logger.hr('触发停止条件: 活动PT上限')
+                logger.hr('Условие остановки: лимит PT события')
                 return True
         # 金币限制
         if coin_check and self.coin_limit_triggered():
-            logger.hr('触发停止条件: 物资上限')
+            logger.hr('Условие остановки: лимит монет')
             return True
         # 任务均衡器
         if self.run_count >= 1:
             if self.config.TaskBalancer_Enable and self.triggered_task_balancer():
-                logger.hr('触发停止条件: 物资上限')
+                logger.hr('Условие остановки: лимит монет')
                 self.handle_task_balancer()
                 return True
 
@@ -291,7 +291,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
                 'tc3': 'hard',
             }.get(stage.replace('-', ''), stage)
             if converted != stage:
-                logger.warning(f'转换旧版联动关卡: {stage} -> {converted}')
+                logger.warning(f'Преобразование устаревшего этапа коалиции: {stage} -> {converted}')
                 stage = converted
 
         return event, stage
@@ -329,11 +329,11 @@ class Coalition(CoalitionCombat, CampaignEvent):
                 self.config.task_stop()
 
             # 日志输出当前关卡和剩余次数
-            logger.hr(f'{event}_{mode}', level=2)
+            logger.hr(f'Коалиция: {event}_{mode}', level=2)
             if self.config.StopCondition_RunCount > 0:
-                logger.info(f'剩余次数: {self.config.StopCondition_RunCount}')
+                logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
-                logger.info(f'计数: {self.run_count}')
+                logger.info(f'Счётчик: {self.run_count}')
 
             # 无燃油图标时，先在战役菜单检查停止条件
             if not self._coalition_has_oil_icon:
@@ -356,7 +356,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
             try:
                 self.coalition_execute_once(event=event, stage=mode, fleet=fleet)
             except ScriptEnd as e:
-                logger.hr('脚本结束')
+                logger.hr('Завершение скрипта')
                 logger.info(str(e))
                 break
 
