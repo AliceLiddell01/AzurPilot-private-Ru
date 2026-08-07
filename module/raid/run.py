@@ -56,7 +56,7 @@ class RaidRun(Raid, CampaignEvent):
                 remain = result
             else:
                 remain, _, _ = result
-            logger.attr(f'{mode.capitalize()} 剩余次数', remain)
+            logger.attr(f'{mode.capitalize()} Осталось попыток', remain)
 
             if self.appear_then_click(RAID_REWARDS, offset=(30, 30), interval=3):
                 confirm_timer.reset()
@@ -85,7 +85,7 @@ class RaidRun(Raid, CampaignEvent):
         name = name if name else self.config.Campaign_Event
         mode = mode if mode else self.config.Raid_Mode
         if not name or not mode:
-            raise ScriptError(f'RaidRun arguments unfilled. name={name}, mode={mode}')
+            raise ScriptError(f'Не заполнены аргументы RaidRun. name={name}, mode={mode}')
 
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
