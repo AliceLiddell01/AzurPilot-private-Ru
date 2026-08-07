@@ -158,7 +158,7 @@ class MeowfficerBuy(MeowfficerBase):
             in: page_meowfficer
             out: page_meowfficer
         """
-        logger.hr('指挥喵溢出购买', level=1)
+        logger.hr('Мяуфицер — покупка из избытка', level=1)
 
         # OCR识别剩余购买次数
         remain, bought, total = MEOWFFICER.ocr(self.device.image)
