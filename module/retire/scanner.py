@@ -279,7 +279,7 @@ class EmotionScanner(Scanner):
                 if emotion > 40:
                     emotion //= 10
             results.append(emotion)
-        logger.attr('船坞情绪OCR', results)
+        logger.attr('OCR настроения в доке', results)
         return results
 
     def limit_value(self, value) -> int:
@@ -329,7 +329,7 @@ class EmotionStatusScanner(Scanner):
     def _scan(self, image) -> List:
         results = [self.get_emotion_status(crop(image, button.area, copy=False))
                    for button in self.grids.buttons]
-        logger.attr('船坞情绪状态', results)
+        logger.attr('Статус настроения в доке', results)
         return results
 
     def limit_value(self, value) -> str:
@@ -647,7 +647,7 @@ class ShipScanner(Scanner):
             if value is False:
                 self.sub_scanners[attr].disable()
 
-        logger.info(f'筛选条件已设置为 {self.limitation}')
+        logger.info(f'Условие фильтра установлено: {self.limitation}')
 
 
 class DockScanner(ShipScanner):
@@ -811,7 +811,7 @@ class DockScanner(ShipScanner):
         if not results:
             self.retry += 1
             self.debug_info['reposition_retry'] += 1
-            logger.info(f'[退役-扫描] 未检测到舰船，重置位置。重试第 {self.retry} 次')
+            logger.info(f'[Списание — сканирование] Корабль не обнаружен; позиция сброшена. Повторная попытка {self.retry}')
             self.reset_position()
             self.reposition(image, bound)
             results = self.scanner.scan(image, cached=False, output=False)
@@ -914,7 +914,7 @@ class DockScanner(ShipScanner):
                 for k,v in self.debug_info.items():
                     f.write(f'{k} = {v}\n')
 
-            logger.info(f'[退役-扫描] 调试信息已保存到 {self.debug_folder}')
+            logger.info(f'[Списание — сканирование] Отладочная информация сохранена в {self.debug_folder}')
 
     def scan(self, image, cached=False, output=True) -> Union[List, None]:
         """请使用 multi_scan() 代替。"""
