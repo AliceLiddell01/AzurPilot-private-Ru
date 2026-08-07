@@ -59,7 +59,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
             # 结束
             pause = self.is_combat_executing()
             if pause:
-                logger.attr('战斗UI主题', pause)
+                logger.attr('Тема боевого интерфейса', pause)
                 break
 
     def _combat_execute(self):
@@ -84,7 +84,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
             self.device.screenshot()
             # 结束
             if self._in_exercise() or self.appear(BATTLE_PREPARATION, offset=(20, 20)):
-                logger.hr('战斗结束')
+                logger.hr('Бой завершён')
                 if not end:
                     logger.warning('[Учения — бой] Бой завершён, но условие завершения не обнаружено')
                 break
@@ -172,7 +172,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
         Args:
             index (int): 从左到右，0 到 3。
         """
-        logger.hr('对手: %s' % str(index))
+        logger.hr('Противник: %s' % str(index))
         opponent_timer = Timer(5)
         preparation_timer = Timer(5)
 
@@ -219,7 +219,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
             self.config.Exercise_OpponentTrial = 1
 
         for n in range(1, self.config.Exercise_OpponentTrial + 1):
-            logger.hr('尝试: %s' % n)
+            logger.hr('Попытка: %s' % n)
             self._combat_preparation()
             success = self._combat_execute()
             if success:
