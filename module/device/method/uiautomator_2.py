@@ -135,19 +135,19 @@ class Uiautomator2(Connection):
         image = self.u2.screenshot(format='raw')
         # 防止 None/空响应
         if image is None or len(image) == 0:
-            raise ImageTruncated('Empty image content from uiautomator2')
+            raise ImageTruncated('Пустые данные изображения от uiautomator2')
 
         image = np.frombuffer(image, np.uint8)
         if image is None or image.size == 0:
-            raise ImageTruncated('Empty image after reading from buffer')
+            raise ImageTruncated('Пустое изображение после чтения из буфера')
 
         image = cv2.imdecode(image, cv2.IMREAD_COLOR)
         if image is None:
-            raise ImageTruncated('Empty image after cv2.imdecode')
+            raise ImageTruncated('Пустое изображение после cv2.imdecode')
 
         cv2.cvtColor(image, cv2.COLOR_BGR2RGB, dst=image)
         if image is None:
-            raise ImageTruncated('Empty image after cv2.cvtColor')
+            raise ImageTruncated('Пустое изображение после cv2.cvtColor')
 
         return image
 

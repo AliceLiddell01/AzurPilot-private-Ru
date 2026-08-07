@@ -242,7 +242,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             logger.info('[Устройство — Windows] Запуск эмулятора по удалённой команде SSH')
             self.run_remote_ssh_command(getattr(self.config, 'EmulatorInfo_RemoteStartCommand', ''))
         else:
-            raise EmulatorUnknown(f'Cannot start an unknown emulator instance: {instance}')
+            raise EmulatorUnknown(f'Не удалось запустить неизвестный экземпляр эмулятора: {instance}')
 
     def _emulator_stop(self, instance: EmulatorInstance):
         """
@@ -316,7 +316,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
             logger.info('[Устройство — Windows] Остановка эмулятора по удалённой команде SSH')
             self.run_remote_ssh_command(getattr(self.config, 'EmulatorInfo_RemoteStopCommand', ''))
         else:
-            raise EmulatorUnknown(f'Cannot stop an unknown emulator instance: {instance}')
+            raise EmulatorUnknown(f'Не удалось остановить неизвестный экземпляр эмулятора: {instance}')
 
     def _emulator_function_wrapper(self, func: callable):
         """

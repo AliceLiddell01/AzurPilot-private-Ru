@@ -209,13 +209,13 @@ class LDOpenGLImpl:
             logger.error(str(f'[Устройство — LDOpenGL] Ошибка инициализации backend: {e}'))
             if not os.path.exists(ldopengl_dll):
                 raise LDOpenGLIncompatible(
-                    f'ldopengl_dll={ldopengl_dll} does not exist, '
-                    f'ldopengl requires LDPlayer >= 9.0.78, please check your version'
+                    f'ldopengl_dll={ldopengl_dll} не существует; '
+                    f'для ldopengl требуется LDPlayer >= 9.0.78. Проверьте версию'
                 )
             else:
                 raise LDOpenGLIncompatible(
-                    f'ldopengl_dll={ldopengl_dll} exist, '
-                    f'but cannot be loaded'
+                    f'ldopengl_dll={ldopengl_dll} существует, '
+                    f'но не может быть загружен'
                 )
         # 加载 DLL 后获取信息，这样 DLL 是否存在可作为版本检查
         self.console = LDConsole(ld_folder)

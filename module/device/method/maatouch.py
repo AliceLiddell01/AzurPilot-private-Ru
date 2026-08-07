@@ -330,7 +330,7 @@ class MaaTouch(Connection):
             if out == 'Killed':
                 raise MaaTouchNotInstalledError('[Устройство — MaaTouch] MaaTouch завершил работу; вероятно, версия несовместима')
             if n == max_trial - 1:
-                raise MaaTouchSyncTimeout('Too many incorrect sync response')
+                raise MaaTouchSyncTimeout('Получено слишком много некорректных ответов синхронизации')
             time.sleep(0.001)
 
         # logger.info(f'Delay: {builder.delay}')

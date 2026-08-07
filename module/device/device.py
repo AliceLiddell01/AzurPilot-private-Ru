@@ -269,7 +269,7 @@ class Device(Screenshot, Control, AppControl, Input):
             return False
 
         if GET_MISSION.match(self.image, offset=True):
-            logger.info('[设备-委托] 夜间委托出现')
+            logger.info('[Устройство — комиссии] Появилась ночная комиссия')
             self.click(GET_MISSION)
             return True
 
