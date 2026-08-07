@@ -785,28 +785,6 @@ class LiveScrcpySession:
     def release(cls, instance, session=None):
         key = instance or DEFAULT_CONFIG_NAME
         with cls._sessions_lock:
-            session = cls._sessions.get(key)
-            if session is not None:
-                session.stop()
-                cls._sessions.pop(key, None)
-            session = cls(key, fps=fps, width=width, bitrate_scale=bitrate_scale)
-            session.start()
-            cls._sessions[key] = session
-            return session
-
-    @classmethod
-    def get(cls, instance):
-        key = instance or DEFAULT_CONFIG_NAME
-        with cls._sessions_lock:
-            session = cls._sessions.get(key)
-            if session is not None and session.alive:
-                return session
-        return None
-
-    @classmethod
-    def release(cls, instance, session=None):
-        key = instance or DEFAULT_CONFIG_NAME
-        with cls._sessions_lock:
             current = cls._sessions.get(key)
             if current is not None and (session is None or current is session):
                 cls._sessions.pop(key, None)
@@ -912,7 +890,7 @@ class LiveScrcpySession:
 
     def drag(self, start, end, duration_ms=220):
         sx, sy = self.scale_point(start.get("x", 0), start.get("y", 0))
-        ex, ey = self.scale_point(end.get("x", 0)), self.scale_point(end.get("y", 0))
+        ex, ey = self.scale_point(end.get("x", 0), end.get("y", 0))
         duration = max(40, min(int(duration_ms or 220), 1500)) / 1000
         steps = max(3, min(int(duration / 0.012), 80))
         with self.control_lock:
