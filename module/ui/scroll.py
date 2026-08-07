@@ -139,7 +139,7 @@ class Scroll:
         Returns:
             bool: 是否执行了拖拽操作。
         """
-        logger.info(f'{self.name} set to {position}')
+        logger.info(f'{self.name}: установка позиции {position}')
         self.drag_interval.clear()
         self.drag_timeout.reset()
         dragged = 0
@@ -161,7 +161,7 @@ class Scroll:
                 self.drag_timeout.reset()
             else:
                 if self.drag_timeout.reached():
-                    logger.warning('[UI] 滚动条消失，假定已设置完成')
+                    logger.warning('[UI] Полоса прокрутки исчезла; считаем, что позиция установлена')
                     break
                 else:
                     continue
