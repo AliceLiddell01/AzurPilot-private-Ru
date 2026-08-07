@@ -208,7 +208,7 @@ class PrivateQuarters(PQInteract, PQShop):
             in: 私人宿舍主页
             out: 私人宿舍主页
         """
-        logger.hr(f'私人休息室运行', level=1)
+        logger.hr('Запуск личных покоев', level=1)
         target_title = target_ship.title().replace('_', ' ')
         logger.info(f'[Личные покои] Конфигурация задачи: покупать розы={buy_roses}, '
                     f'покупать торт={buy_cake}, '
@@ -233,7 +233,7 @@ class PrivateQuarters(PQInteract, PQShop):
             # 获取每日剩余次数，为 0 则退出
             count = self._pq_get_daily_count(retry=3)
             if count == 0:
-                logger.info('每日亲密度次数耗尽，退出子任务')
+                logger.info('Ежедневные попытки близости исчерпаны; выход из подзадачи')
                 return
 
             # 执行互动
