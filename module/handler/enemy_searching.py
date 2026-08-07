@@ -86,9 +86,9 @@ class EnemySearchingHandler(InfoHandler):
         """
         if self.is_in_stage():
             if self.in_stage_timer.reached():
-                logger.info('[处理器-搜索] 已回到关卡页面')
+                logger.info('[Обработчик — поиск] Возврат на страницу этапа')
                 self.ensure_no_info_bar(timeout=1.2)
-                raise CampaignEnd('[处理器-搜索] 已回到关卡页面')
+                raise CampaignEnd('[Обработчик — поиск] Возврат на страницу этапа')
             else:
                 return False
         else:
@@ -196,7 +196,7 @@ class EnemySearchingHandler(InfoHandler):
                 return True
             # immediately enter submarine combat in W16
             if hasattr(self, 'is_combat_loading') and self.is_combat_loading():
-                logger.warning('[处理器-搜索] 进入地图时出现战斗加载画面')
+                logger.warning('[Обработчик — поиск] При входе на карту появился экран загрузки боя')
                 break
             if self.handle_auto_search_exit(drop=drop):
                 timeout.limit = 10
@@ -229,11 +229,11 @@ class EnemySearchingHandler(InfoHandler):
                     self.handle_enemy_flashing()
                     self.device.sleep(0.3)
                     self.device.screenshot()
-                    logger.info('[处理器-搜索] 敌人搜索动画已出现')
+                    logger.info('[Обработчик — поиск] Появилась анимация поиска противника')
                     break
                 self.enemy_searching_color_initial()
             if timeout.reached():
-                logger.info('[处理器-搜索] 敌人搜索动画超时')
+                logger.info('[Обработчик — поиск] Истекло время ожидания анимации поиска противника')
                 break
 
         return True
@@ -281,7 +281,7 @@ class EnemySearchingHandler(InfoHandler):
 
             # 结束条件
             if timeout.reached():
-                logger.info('[处理器-搜索] 地图中未出现敌人搜索动画')
+                logger.info('[Обработчик — поиск] На карте не появилась анимация поиска противника')
                 break
 
         return True
