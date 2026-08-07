@@ -319,7 +319,7 @@ class Awaken(Dock):
             level = self.get_ship_level()
             if level > 0:
                 if level >= stop_level:
-                    logger.info('[Пробуждение] Пробуждение корабля завершено на целевом уровне')
+                    logger.info(f'[Пробуждение] Пробуждение корабля завершено на целевом уровне')
                     return 'level_max'
                 else:
                     result = self.awaken_once(use_array)
