@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import Mock, patch
+
+from module.shipyard.ui import ShipyardUI
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,61 +14,35 @@ def source(path: str) -> str:
 
 
 class TestCommonGameMisc01RuntimeMessages:
-    def test_representative_runtime_messages_are_russian(self):
+    def test_auto_search_reward_owned_messages_are_russian(self):
+        text = source("module/azur_stats/image/auto_search_reward.py")
+        for message in (
+            "[Статистика — предметы] Предмет {before} исправлен на {after}",
+            "Некорректное количество предмета: {item}",
+            "Извлечено новых шаблонов: {new}",
+            "Заголовок награды не найден",
+        ):
+            assert message in text, message
+
+    def test_reconciled_owner_files_have_group_01_messages(self):
         expected = {
-            "module/azur_stats/image/auto_search_reward.py": (
-                "[AzurStats — награды автопоиска]",
-            ),
-            "module/coalition/coalition.py": (
-                "[Коалиция] Для события",
-                "Не заполнены аргументы Coalition.",
-            ),
-            "module/exercise/combat.py": (
-                "[Учения — бой] Подготовка к бою",
-                "[Учения — бой] Выполнение боя",
-            ),
-            "module/gacha/gacha_reward.py": (
-                "[Строительство — подготовка]",
-                "'wishing_well' недоступен",
-            ),
-            "module/game_setting/player_prefs.py": (
-                "[GameSettings] Рекомендуемые локальные настройки игры уже применены",
-                "ADB не получил права root",
-            ),
-            "module/guild/logistics.py": (
-                "[Гильдия — логистика] Предметы обмена:",
-            ),
-            "module/meowfficer/buy.py": (
-                "[Комофицер — покупка] Сегодня уже куплено",
-                "[Комофицер — избыток]",
-            ),
-            "module/meta_reward/meta_reward.py": (
-                "[META — награды] Получение наград META завершено",
-                "Получение синхронизации META",
-            ),
-            "module/minigame/minigame.py": (
-                "[Мини-игра] Запуск",
-            ),
-            "module/private_quarters/private_quarters.py": (
-                "[Личные покои] Конфигурация задачи:",
-            ),
-            "module/raid/raid.py": (
-                "Неизвестное имя рейда:",
-                "[Рейд — PT]",
-            ),
-            "module/shipyard/shipyard_reward.py": (
-                "[Верфь — стоимость]",
+            "module/shipyard/ui.py": (
+                "[Верфь — UI] count < 0; продолжение невозможно",
             ),
             "module/sos/sos.py": (
-                "[SOS] Неизвестная глава SOS:",
-                "[SOS] Выбор сигнала главы",
+                "[SOS] Выбор сигнала главы {chapter}",
+                "[SOS] Неизвестная глава SOS: {chapter}",
+                "[SOS] Полоса прокрутки сигналов SOS не появилась; настройка позиции прокрутки пропущена",
+                "logger.attr('Сигнал SOS', remain)",
             ),
             "module/war_archives/war_archives.py": (
-                "Архивы сейчас недоступны",
-                "[Архивы] Выбран архив, область",
+                "[Архивы] Сброс дневного числа выходов: {remain} -> {limit}",
+                "[Архивы] Обновление дневного числа выходов: {old_limit} -> {limit}, осталось: {remain}",
+                "[Архивы] На сегодня осталось выходов: {remain} / {limit}",
+                "[Архивы] Ключи данных: {current} / {total}, осталось: {current}",
+                "[Архивы] Ключи данных исчерпаны",
             ),
         }
-
         for path, messages in expected.items():
             text = source(path)
             for message in messages:
@@ -199,7 +176,7 @@ class TestCommonGameMisc01ResourceSensitiveContracts:
         ):
             assert token in clerk, token
 
-    def test_shipyard_price_and_index_contracts_are_preserved(self):
+    def test_shipyard_price_contracts_are_preserved(self):
         reward = source("module/shipyard/shipyard_reward.py")
         for token in (
             "(1, 2):               0",
@@ -211,10 +188,21 @@ class TestCommonGameMisc01ResourceSensitiveContracts:
         ):
             assert token in reward, token
 
-        ui = source("module/shipyard/ui.py")
-        for token in (
-            "if series == 1:",
-            "return index + 42",
-            "if series not in range(1, 10):",
-        ):
-            assert token in ui, token
+    def test_shipyard_focus_and_negative_count_semantics(self):
+        ui = object.__new__(ShipyardUI)
+
+        with patch("module.shipyard.ui.logger.warning") as warning:
+            assert ui._shipyard_ensure_index(-1) is None
+        warning.assert_called_once_with('[Верфь — UI] count < 0; продолжение невозможно')
+
+        ui._shipyard_set_series = Mock(return_value=True)
+        ui.shipyard_bottom_navbar_ensure = Mock(return_value=True)
+        assert ui.shipyard_set_focus(series=3, index=5, skip_first_screenshot=False) is True
+        ui._shipyard_set_series.assert_called_once_with(3, False)
+        ui.shipyard_bottom_navbar_ensure.assert_called_once_with(left=5, skip_first_screenshot=False)
+
+        ui._shipyard_set_series.reset_mock()
+        ui.shipyard_bottom_navbar_ensure.reset_mock()
+        assert ui.shipyard_set_focus(series=3, index=6, skip_first_screenshot=False) is False
+        ui._shipyard_set_series.assert_not_called()
+        ui.shipyard_bottom_navbar_ensure.assert_not_called()
