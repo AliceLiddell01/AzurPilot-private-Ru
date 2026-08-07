@@ -24,8 +24,8 @@ import hashlib
 
 # 已分析错误的缓存，键为堆栈信息的 MD5 哈希
 _analyzed_errors_cache = {}
-LLM_CONFIG_WARNING = 'LLM 错误分析不可用，请检查 LLM 配置、API Key、API Base、模型名称以及账户余额。'
-LLM_EMPTY_RESULT_WARNING = 'LLM API 返回了空结果，请检查模型服务配置、模型名称或账户余额。'
+LLM_CONFIG_WARNING = 'Анализ ошибок LLM недоступен. Проверьте конфигурацию LLM, API Key, API Base, имя модели и баланс аккаунта.'
+LLM_EMPTY_RESULT_WARNING = 'LLM API вернул пустой результат. Проверьте конфигурацию сервиса модели, имя модели или баланс аккаунта.'
 
 
 def _get_analysis_from_response(response):
@@ -59,10 +59,10 @@ def analyze_exception(config, e):
     if error_hash in _analyzed_errors_cache:
         cached_result = _analyzed_errors_cache[error_hash]
         model = getattr(config, 'Error_LlmModel', 'gpt-4o-mini')
-        logger.hr('[LLM] LLM 错误分析（严禁提交此模块的相关日志 群内机器人检测到将自动移出群聊）', level=1)
-        logger.info('[LLM] 该错误已被 LLM 分析过，直接复用上次的分析结果以节省 API （严禁提交此模块的相关日志 群内机器人检测到将自动移出群聊） ...')
-        logger.info(f"[LLM] \n[LLM 分析报告 (由 {model} 提供, 复用缓存)（严禁提交此模块的相关日志 群内机器人检测到将自动移出群聊）]\n{cached_result}\n")
-        logger.hr('[LLM] LLM 分析结束', level=1)
+        logger.hr('[LLM] Анализ ошибки LLM (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя)', level=1)
+        logger.info('[LLM] Эта ошибка уже анализировалась LLM; повторно используется предыдущий результат для экономии API (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя) ...')
+        logger.info(f"[LLM] \n[Отчёт анализа LLM (предоставлен {model}, результат из кэша) (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя)]\n{cached_result}\n")
+        logger.hr('[LLM] Анализ LLM завершён', level=1)
         return
         
     api_key = getattr(config, 'Error_LlmApiKey', '')
@@ -70,7 +70,7 @@ def analyze_exception(config, e):
     model = getattr(config, 'Error_LlmModel', 'gpt-4o-mini')
     
     if not api_key:
-        logger.warning('[LLM] LLM 错误分析已启用，但 API Key 未配置。')
+        logger.warning('[LLM] Анализ ошибок LLM включён, но API Key не настроен.')
         logger.warning(LLM_CONFIG_WARNING)
         return
 
@@ -79,8 +79,8 @@ def analyze_exception(config, e):
         _analyzed_errors_cache.clear()
         _analyzed_errors_cache[error_hash] = "该错误正在被 LLM 分析中，暂无结果。（严禁提交此模块的相关日志 群内机器人检测到将自动移出群聊）"
 
-    logger.hr('[LLM] LLM 错误分析（严禁提交此模块的相关日志 群内机器人检测到将自动移出群聊）', level=1)
-    logger.info('[LLM] 正在调用 LLM 分析异常原因...')
+    logger.hr('[LLM] Анализ ошибки LLM (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя)', level=1)
+    logger.info('[LLM] Вызов LLM для анализа причины исключения...')
     
     try:
         from openai import OpenAI
@@ -136,19 +136,19 @@ def analyze_exception(config, e):
             _analyzed_errors_cache.pop(error_hash, None)
             logger.warning(LLM_EMPTY_RESULT_WARNING)
             logger.warning(LLM_CONFIG_WARNING)
-            logger.hr('[LLM] LLM 分析结束', level=1)
+            logger.hr('[LLM] Анализ LLM завершён', level=1)
             return
 
         # 覆写真正的成果进字典
         _analyzed_errors_cache[error_hash] = analysis
-        logger.info(f"[LLM] \n[LLM 分析报告 (由 {model} 提供)]\n{analysis}\n")
-        logger.hr('[LLM] LLM 分析结束', level=1)
+        logger.info(f"[LLM] \n[Отчёт анализа LLM (предоставлен {model})]\n{analysis}\n")
+        logger.hr('[LLM] Анализ LLM завершён', level=1)
         
     except ImportError:
         _analyzed_errors_cache.pop(error_hash, None)
-        logger.error('[LLM] 未安装 openai 库，无法进行 LLM 错误分析。')
+        logger.error('[LLM] Библиотека openai не установлена; анализ ошибок LLM недоступен.')
     except Exception as ex:
         _analyzed_errors_cache.pop(error_hash, None)
         # 避免循环日志问题，LLM 本身失败时使用简化的错误日志
-        logger.error(f'[LLM] LLM 分析调用失败（严禁提交此模块的相关日志 群内机器人检测到将自动移出群聊）: {ex}')
+        logger.error(f'[LLM] Вызов анализа LLM завершился ошибкой (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя): {ex}')
         logger.warning(LLM_CONFIG_WARNING)
