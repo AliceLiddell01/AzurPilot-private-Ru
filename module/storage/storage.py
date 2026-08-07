@@ -61,7 +61,7 @@ class StorageHandler(StorageUI):
         if rarity == 4:
             return TEMPLATE_BOX_T4
         else:
-            raise ScriptError(f'Unknown box template rarity: {rarity}')
+            raise ScriptError(f'Неизвестная редкость шаблона ящика: {rarity}')
 
     def _handle_use_box_amount(self, amount):
         """设置开箱数量。
@@ -78,7 +78,7 @@ class StorageHandler(StorageUI):
         Pages:
             in: SHOP_BUY_CONFIRM_AMOUNT
         """
-        logger.info(f'[存储] 设置箱子数量')
+        logger.info(f'[Хранилище] Установка количества ящиков')
 
         ocr = Digit(BOX_AMOUNT_OCR, letter=(239, 239, 239), name='OCR_SHOP_AMOUNT')
         index_offset = (40, 50)
@@ -90,7 +90,7 @@ class StorageHandler(StorageUI):
             if self.appear(AMOUNT_MINUS, offset=index_offset) and self.appear(AMOUNT_PLUS, offset=index_offset):
                 break
             if timeout.reached():
-                logger.warning('[存储] 等待数量加减按钮超时')
+                logger.warning('[Хранилище] Тайм-аут ожидания кнопок изменения количества')
                 break
 
         # 等待 OCR 读取到合理数值
@@ -101,11 +101,11 @@ class StorageHandler(StorageUI):
             if 1 <= current <= amount + 10:
                 break
             if timeout.reached():
-                logger.warning('[存储] 等待箱子数量超时')
+                logger.warning('[Хранилище] Тайм-аут ожидания количества ящиков')
                 break
 
         # 通过多点击 +/- 按钮设置目标数量，类似 ui_ensure_index
-        logger.info(f'[存储] 设置箱子数量: {amount}')
+        logger.info(f'[Хранилище] Установка количества ящиков: {amount}')
         skip_first = True
         retry = Timer(1, count=2)
         click_count = 0
@@ -118,8 +118,8 @@ class StorageHandler(StorageUI):
             if diff == 0:
                 break
             if click_count >= 2:
-                logger.warning(f'[存储] 箱子数量卡在 {current}，'
-                               f'请求 {amount} 但仅有 {current} 可用')
+                logger.warning(f'[Хранилище] Количество ящиков застряло на {current}; '
+                               f'запрошено {amount}, но доступно только {current}')
                 break
 
             if retry.reached():
@@ -128,7 +128,7 @@ class StorageHandler(StorageUI):
                 click_count += 1
                 retry.reset()
 
-        logger.info(f'[存储] 箱子数量设置为 {current}')
+        logger.info(f'[Хранилище] Количество ящиков установлено: {current}')
         return current
 
     def _storage_use_one_box(self, button, amount=1):
@@ -151,7 +151,7 @@ class StorageHandler(StorageUI):
             in: MATERIAL_CHECK
             out: MATERIAL_CHECK
         """
-        logger.hr('[存储] 使用一个箱子')
+        logger.hr('[Хранилище] Использование одного ящика')
         success = False
         used = 0
         self.interval_clear([
@@ -209,13 +209,13 @@ class StorageHandler(StorageUI):
 
             # 仓库已满处理
             if self.appear(EQUIPMENT_FULL, offset=(20, 20)):
-                logger.info('仓库已满')
+                logger.info('Хранилище заполнено')
                 # 关闭弹窗后抛出异常
                 self.ui_click(MATERIAL_ENTER, check_button=self._storage_in_material, appear_button=EQUIPMENT_FULL,
                               retry_wait=3, skip_first_screenshot=True)
                 raise StorageFull
 
-        logger.info(f'[存储] 使用了 {used} 个箱子')
+        logger.info(f'[Хранилище] Использовано ящиков: {used}')
         return used
 
     def _storage_use_box_in_page(self, rarity, amount, skip_first_screenshot=False):
@@ -239,12 +239,12 @@ class StorageHandler(StorageUI):
         used = 0
         timeout = Timer(1.5, count=3).start()
         while 1:
-            logger.attr('[存储] 已使用', f'{used}/{amount}')
+            logger.attr('[Хранилище] Использовано', f'{used}/{amount}')
             if used >= amount:
-                logger.info('达到目标数量，停止')
+                logger.info('Целевое количество достигнуто; остановка')
                 break
             if timeout.reached():
-                logger.info('此页面没有更多箱子，停止')
+                logger.info('На этой странице больше нет ящиков; остановка')
                 break
 
             if skip_first_screenshot:
@@ -258,7 +258,7 @@ class StorageHandler(StorageUI):
                 used += self._storage_use_one_box(box_button, amount)
                 continue
             else:
-                logger.info('未找到箱子')
+                logger.info('Ящик не найден')
                 continue
 
         return used
@@ -283,7 +283,7 @@ class StorageHandler(StorageUI):
             in: page_storage, material, MATERIAL_CHECK
             out: page_storage, material, MATERIAL_CHECK
         """
-        logger.hr('使用箱子', level=2)
+        logger.hr('Использование ящиков', level=2)
         used = 0
 
         if MATERIAL_SCROLL.appear(main=self):
@@ -294,16 +294,16 @@ class StorageHandler(StorageUI):
                 MATERIAL_SCROLL.set_top(main=self)
 
             while 1:
-                logger.hr('使用页面中的箱子')
+                logger.hr('Использование ящиков на странице')
                 used += self._storage_use_box_in_page(rarity=rarity, amount=max(amount - used, 0))
                 if used >= amount:
                     break
                 if MATERIAL_SCROLL.at_bottom(main=self):
-                    logger.info('[仓库] 滚动条到底，停止')
+                    logger.info('[Хранилище] Полоса прокрутки достигла конца; остановка')
                     break
                 MATERIAL_SCROLL.next_page(main=self)
         else:
-            logger.hr('使用页面中的箱子')
+            logger.hr('Использование ящиков на странице')
             used += self._storage_use_box_in_page(rarity=rarity, amount=amount)
 
         return used
@@ -333,7 +333,7 @@ class StorageHandler(StorageUI):
             GET_ITEMS_2,
             DISASSEMBLE_CANCEL,
         ])
-        logger.info(f'[仓库] 拆解一次, 预期数量: {amount}')
+        logger.info(f'[Хранилище] Один проход разбора, ожидаемое количество: {amount}')
 
         for _ in self.loop():
             if self.appear(GET_ITEMS_1, offset=(5, 5), interval=3):
@@ -356,7 +356,7 @@ class StorageHandler(StorageUI):
 
         items = EQUIPMENT_ITEMS.predict(self.device.image, name=False, amount=True)
         if not len(items):
-            logger.warning('[仓库] 仓库中没有可拆解的物品')
+            logger.warning('[Хранилище] В хранилище нет снаряжения для разбора')
             return 0
         cumsum = np.cumsum([item.amount for item in items])
         for item, total in zip(items, cumsum):
@@ -370,25 +370,25 @@ class StorageHandler(StorageUI):
         amount = min(cumsum[-1], amount)
 
         # 等待装备被选中
-        logger.info(f'[仓库] 拆解一次, 仓库数量: {amount}')
+        logger.info(f'[Хранилище] Один проход разбора, количество в хранилище: {amount}')
         timeout = Timer(1, count=2).start()
         prev_disassemble = 0
         while 1:
             self.device.screenshot()
             disassembled = OCR_DISASSEMBLE_COUNT.ocr(self.device.image)
             if disassembled >= amount:
-                logger.info('[仓库] 拆解数量达到预期')
+                logger.info('[Хранилище] Количество разобранного достигло ожидаемого')
                 break
             if timeout.reached():
-                logger.warning('[仓库] 等待拆解数量超时')
+                logger.warning('[Хранилище] Тайм-аут ожидания количества разбираемого снаряжения')
                 break
             if disassembled > prev_disassemble:
                 prev_disassemble = disassembled
                 timeout.reset()
 
-        logger.info(f'[仓库] 拆解一次, 实际数量: {disassembled}')
+        logger.info(f'[Хранилище] Один проход разбора, фактическое количество: {disassembled}')
         if disassembled <= 0:
-            logger.warning('[仓库] 未选择物品进行拆解')
+            logger.warning('[Хранилище] Для разбора не выбрано ни одного предмета')
             return 0
 
         skip_first_screenshot = True
@@ -402,7 +402,7 @@ class StorageHandler(StorageUI):
             if click_count >= 3:
                 # 可能是因为没有选中装备，
                 # _storage_disassemble_equipment_execute() 会重新选取
-                logger.warning('[仓库] 尝试3次后仍无法确认拆解')
+                logger.warning('[Хранилище] После 3 попыток не удалось подтвердить разбор')
                 disassembled = 0
                 break
             if success and self.appear(DISASSEMBLE_CANCEL, offset=(20, 20)):
@@ -453,13 +453,13 @@ class StorageHandler(StorageUI):
             MATERIAL_SCROLL.set_top(main=self)
 
         while 1:
-            logger.hr('拆解一次')
-            logger.attr('已拆解', f'{disassembled}/{amount}')
+            logger.hr('Один проход разбора')
+            logger.attr('Разобрано', f'{disassembled}/{amount}')
             if self.appear(EQUIPMENT_EMPTY, offset=(20, 20)):
-                logger.info('[仓库] 装备列表为空，停止')
+                logger.info('[Хранилище] Список снаряжения пуст; остановка')
                 break
             if disassembled >= amount:
-                logger.info('达到目标数量，停止')
+                logger.info('Целевое количество достигнуто; остановка')
                 break
 
             if amount - disassembled < 40:
@@ -487,21 +487,21 @@ class StorageHandler(StorageUI):
             in: Any
             out: page_storage, equipment, DISASSEMBLE
         """
-        logger.hr('拆解装备', level=2)
+        logger.hr('Разбор снаряжения', level=2)
         self.ui_goto_storage()
         # 装备中开关不影响拆解，无需设置；筛选确认会自动等待仓库稳定
         disassembled = 0
         while 1:
-            logger.attr('总拆解数', f'{disassembled}/{amount}')
+            logger.attr('Всего разобрано', f'{disassembled}/{amount}')
             if disassembled >= amount:
-                logger.info('[仓库] 达到总目标数量，停止')
+                logger.info('[Хранилище] Общее целевое количество достигнуто; остановка')
                 break
 
             self._storage_enter_material()
             try:
                 boxes = self._storage_use_box_execute(rarity=rarity, amount=amount - disassembled)
                 if boxes <= 0:
-                    logger.warning('[仓库] 没有更多箱子可使用，拆解装备结束')
+                    logger.warning('[Хранилище] Больше нет доступных ящиков; разбор снаряжения завершён')
                     self.storage_has_boxes = False
                     break
                 # 2025.05.20 起箱中装备会自动拆解
@@ -515,10 +515,10 @@ class StorageHandler(StorageUI):
             equip = self._storage_disassemble_equipment_execute(rarity=rarity, amount=amount)
             disassembled += equip
             if equip <= 0:
-                logger.warning('[存储-仓库] 仓库已满但无法拆解，'
-                               '可能是因为仓库全是稀有及以上装备，'
-                               '拆解装备结束')
-                logger.warning('[仓库] 请手动拆解一些装备以释放仓库空间')
+                logger.warning('[Хранилище] Хранилище заполнено, но разбор невозможен; '
+                               'возможно, всё снаряжение имеет редкость Rare или выше; '
+                               'разбор снаряжения завершён')
+                logger.warning('[Хранилище] Разберите часть снаряжения вручную, чтобы освободить место')
                 self.storage_has_boxes = False
                 break
 
@@ -541,7 +541,7 @@ class StorageHandler(StorageUI):
             in: Any
             out: page_storage, material, MATERIAL_CHECK
         """
-        logger.hr('使用箱子', level=2)
+        logger.hr('Использование ящиков', level=2)
         self.ui_goto_storage()
         self._storage_enter_material()
         self._wait_until_storage_stable()
@@ -551,9 +551,9 @@ class StorageHandler(StorageUI):
             self._storage_enter_disassemble()
             self._storage_disassemble_equipment_execute(rarity=rarity, amount=amount)
 
-            logger.attr('总使用数', f'{used}/{amount}')
+            logger.attr('Всего использовано', f'{used}/{amount}')
             if used >= amount:
-                logger.info('[仓库] 达到总目标数量，停止')
+                logger.info('[Хранилище] Общее целевое количество достигнуто; остановка')
                 break
 
             boxes = 0
@@ -562,15 +562,15 @@ class StorageHandler(StorageUI):
                 boxes = self._storage_use_box_execute(rarity=rarity, amount=amount - used)
                 used += boxes
                 if boxes <= 0:
-                    logger.warning('[仓库] 没有更多箱子可使用，使用箱子结束')
+                    logger.warning('[Хранилище] Больше нет доступных ящиков; использование ящиков завершено')
                     self.storage_has_boxes = False
                     break
             except StorageFull:
                 if boxes <= 0:
-                    logger.warning('[存储-仓库] 无法使用箱子因为仓库已满，'
-                                   '可能是因为仓库全是稀有及以上装备，'
-                                   '使用箱子结束')
-                    logger.warning('[仓库] 请手动拆解一些装备以释放仓库空间')
+                    logger.warning('[Хранилище] Невозможно использовать ящики: хранилище заполнено; '
+                                   'возможно, всё снаряжение имеет редкость Rare или выше; '
+                                   'использование ящиков завершено')
+                    logger.warning('[Хранилище] Разберите часть снаряжения вручную, чтобы освободить место')
                     self.storage_has_boxes = False
                     break
 
@@ -597,11 +597,11 @@ class StorageHandler(StorageUI):
             return False
 
         # 检测到 EQUIPMENT_FULL 弹窗，进入拆解流程
-        logger.info('[仓库] 处理仓库已满')
+        logger.info('[Хранилище] Обработка заполненного хранилища')
         self.ui_click(EQUIPMENT_FULL, check_button=DISASSEMBLE_CANCEL, skip_first_screenshot=True, retry_wait=3)
         disassembled = self._storage_disassemble_equipment_execute(rarity=rarity, amount=amount)
         if disassembled <= 0:
-            logger.warning('[仓库] 仓库已满但无法拆解任何装备')
+            logger.warning('[Хранилище] Хранилище заполнено, но разобрать снаряжение не удалось')
 
         # 退出拆解页面，返回之前的页面
         skip_first_screenshot = True
