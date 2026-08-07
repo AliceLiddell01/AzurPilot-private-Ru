@@ -24,7 +24,7 @@ class RaidRun(Raid, CampaignEvent):
         """
         # 运行次数限制
         if self.run_limit and self.config.StopCondition_RunCount <= 0:
-            logger.hr('触发停止条件: 运行次数')
+            logger.hr('Условие остановки: число запусков')
             self.config.StopCondition_RunCount = 0
             self.config.Scheduler_Enable = False
             return True
@@ -56,7 +56,7 @@ class RaidRun(Raid, CampaignEvent):
                 remain = result
             else:
                 remain, _, _ = result
-            logger.attr(f'{mode.capitalize()} Осталось попыток', remain)
+            logger.attr(f'Осталось попыток ({mode.capitalize()})', remain)
 
             if self.appear_then_click(RAID_REWARDS, offset=(30, 30), interval=3):
                 confirm_timer.reset()
@@ -97,11 +97,11 @@ class RaidRun(Raid, CampaignEvent):
                 self.config.task_stop()
 
             # 日志输出
-            logger.hr(f'{name}_{mode}', level=2)
+            logger.hr(f'Рейд: {name}_{mode}', level=2)
             if self.config.StopCondition_RunCount > 0:
-                logger.info(f'剩余次数: {self.config.StopCondition_RunCount}')
+                logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
-                logger.info(f'计数: {self.run_count}')
+                logger.info(f'Счётчик: {self.run_count}')
 
             # UI 切换：没有油量图标时先进入战役菜单检查停止条件
             if not self._raid_has_oil_icon:
@@ -135,7 +135,7 @@ class RaidRun(Raid, CampaignEvent):
             try:
                 self.raid_execute_once(mode=mode, raid=name)
             except ScriptEnd as e:
-                logger.hr('脚本结束')
+                logger.hr('Завершение скрипта')
                 logger.info(str(e))
                 break
 
