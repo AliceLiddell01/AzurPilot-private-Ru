@@ -182,6 +182,6 @@ class PQShop(PQShopClerk, PQStatus):
 
         if not filtered:
             return None
-        logger.attr('商品排序', ' > '.join([str(item) for item in filtered]))
+        logger.attr('Порядок товаров', ' > '.join([str(item) for item in filtered]))
 
         return filtered[0]
