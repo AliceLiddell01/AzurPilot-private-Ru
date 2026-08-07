@@ -287,22 +287,22 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
         # 油量限制
         if oil_check:
             if self.get_oil() < max(500, self.config.StopCondition_OilLimit):
-                logger.hr('触发停止条件: 石油上限')
+                logger.hr('Условие остановки: лимит топлива')
                 self.config.task_delay(minute=(120, 240))
                 return True
         # 活动积分限制
         if pt_check:
             if self.event_pt_limit_triggered():
-                logger.hr('触发停止条件: 活动PT上限')
+                logger.hr('Условие остановки: лимит PT события')
                 return True
         # 金币限制
         if coin_check and self.coin_limit_triggered():
-            logger.hr('触发停止条件: 物资上限')
+            logger.hr('Условие остановки: лимит монет')
             return True
         # 任务均衡器
         if coin_check:
             if self.config.TaskBalancer_Enable and self.triggered_task_balancer():
-                logger.hr('触发停止条件: 物资上限')
+                logger.hr('Условие остановки: лимит монет')
                 self.handle_task_balancer()
                 return True
 
@@ -318,7 +318,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
             auto (str): 自动战斗模式。
             fleet_index (int): 舰队索引。
         """
-        logger.info('战斗准备')
+        logger.info('Подготовка к бою')
 
         # 无需在此等待情绪恢复，已在 raid_execute_once() 中处理
 
@@ -347,7 +347,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
             # 结束条件：战斗开始执行
             pause = self.is_combat_executing()
             if pause:
-                logger.attr('战斗UI', pause)
+                logger.attr('Боевой интерфейс', pause)
                 if emotion_reduce:
                     self.emotion.reduce(fleet_index)
                 break
@@ -430,7 +430,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
             in: page_raid
             out: page_raid
         """
-        logger.hr('突袭执行')
+        logger.hr('Запуск рейда')
         self.config.override(
             Campaign_Name=f'{raid}_{mode}',
             Campaign_UseAutoSearch=False,
@@ -451,7 +451,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
         if mode == 'ex':
             backup.recover()
 
-        logger.hr('突袭结束')
+        logger.hr('Рейд завершён')
 
     def raid_execute_once_with_oil_check(self, mode, raid):
         """
@@ -466,7 +466,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
             in: page_raid
             out: page_raid
         """
-        logger.hr('突袭执行')
+        logger.hr('Запуск рейда')
         self.config.override(
             Campaign_Name=f'{raid}_{mode}',
             Campaign_UseAutoSearch=False,
@@ -494,7 +494,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
         if mode == 'ex':
             backup.recover()
 
-        logger.hr('突袭结束')
+        logger.hr('Рейд завершён')
 
     def get_event_pt(self):
         """
@@ -519,7 +519,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
                 pt = ocr.ocr(self.device.image)
                 if timeout.reached():
-                    logger.warning('等待PT超时，假设已达到')
+                    logger.warning('Тайм-аут ожидания PT; считаем, что значение достигнуто')
                     LogRes(self.config).Pt = pt
                     return pt
                 if pt in [70000, 70001]:
