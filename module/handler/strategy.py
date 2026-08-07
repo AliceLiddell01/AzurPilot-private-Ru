@@ -32,7 +32,7 @@ class StrategyHandler(InfoHandler):
     fleet_2_formation_fixed = False
 
     def strategy_open(self, skip_first_screenshot=True):
-        logger.info('[策略-面板] 打开策略面板')
+        logger.info('[Стратегия — панель] Открытие панели стратегии')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -51,7 +51,7 @@ class StrategyHandler(InfoHandler):
                 continue
 
     def strategy_close(self, skip_first_screenshot=True):
-        logger.info('[策略-面板] 关闭策略面板')
+        logger.info('[Стратегия — панель] Закрытие панели стратегии')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -76,7 +76,7 @@ class StrategyHandler(InfoHandler):
         Pages:
             in: STRATEGY_OPENED
         """
-        logger.info(f'[策略-设置] 设置: 阵型={formation}, 潜艇视图={sub_view}, 潜艇狩猎={sub_hunt}')
+        logger.info(f'[Стратегия — настройка] Значения: строй={formation}, отображение подлодок={sub_view}, охота подлодок={sub_hunt}')
 
         if formation is not None:
             FORMATION.set(formation, main=self)
@@ -90,12 +90,12 @@ class StrategyHandler(InfoHandler):
             if SUBMARINE_VIEW.appear(main=self):
                 SUBMARINE_VIEW.set('on' if sub_view else 'off', main=self)
             else:
-                logger.warning('[策略-设置] 设置潜艇视图但图标未出现')
+                logger.warning('[Стратегия — настройка] Значок отображения подлодок не появился после настройки')
         if sub_hunt is not None:
             if SUBMARINE_HUNT.appear(main=self):
                 SUBMARINE_HUNT.set('on' if sub_hunt else 'off', main=self)
             else:
-                logger.warning('[策略-设置] 设置潜艇狩猎但图标未出现')
+                logger.warning('[Стратегия — настройка] Значок охоты подлодок не появился после настройки')
 
     def handle_strategy(self, index):
         """
@@ -111,7 +111,7 @@ class StrategyHandler(InfoHandler):
             return False
         expected_formation = self.config.__getattribute__(f'Fleet_Fleet{index}Formation')
         if self._strategy_get_from_map_buff() == expected_formation and not self.config.Submarine_Fleet:
-            logger.info('[策略-设置] 跳过策略栏检查')
+            logger.info('[Стратегия — настройка] Проверка панели стратегии пропущена')
             self.__setattr__(f'fleet_{index}_formation_fixed', True)
             return False
 
@@ -142,7 +142,7 @@ class StrategyHandler(InfoHandler):
         else:
             buff = 'unknown'
 
-        logger.attr('地图增益', buff)
+        logger.attr('Бонус карты', buff)
         return buff
 
     def is_in_strategy_submarine_move(self):
@@ -162,7 +162,7 @@ class StrategyHandler(InfoHandler):
             in: STRATEGY_OPENED, SUBMARINE_MOVE_ENTER
             out: SUBMARINE_MOVE_CONFIRM
         """
-        logger.info('潜艇移动进入')
+        logger.info('Вход в режим перемещения подлодки')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -183,7 +183,7 @@ class StrategyHandler(InfoHandler):
             in: SUBMARINE_MOVE_CONFIRM
             out: STRATEGY_OPENED, SUBMARINE_MOVE_ENTER
         """
-        logger.info('潜艇移动确认')
+        logger.info('Подтверждение перемещения подлодки')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -206,7 +206,7 @@ class StrategyHandler(InfoHandler):
             in: SUBMARINE_MOVE_CONFIRM
             out: STRATEGY_OPENED, SUBMARINE_MOVE_ENTER
         """
-        logger.info('潜艇移动取消')
+        logger.info('Отмена перемещения подлодки')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -251,7 +251,7 @@ class StrategyHandler(InfoHandler):
             in: STRATEGY_OPENED, MOB_MOVE_ENTER
             out: MOB_MOVE_CANCEL
         """
-        logger.info('舰队移动进入')
+        logger.info('Вход в режим перемещения флота')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -272,7 +272,7 @@ class StrategyHandler(InfoHandler):
             in: MOB_MOVE_CANCEL
             out: STRATEGY_OPENED, MOB_MOVE_ENTER
         """
-        logger.info('舰队移动取消')
+        logger.info('Отмена перемещения флота')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -305,7 +305,7 @@ class StrategyHandler(InfoHandler):
             in: STRATEGY_OPENED, AIR_STRIKE_ENTER
             out: AIR_STRIKE_CONFIRM
         """
-        logger.info('空袭进入')
+        logger.info('Вход в режим воздушного удара')
         for _ in self.loop(skip_first=skip_first_screenshot):
             if self.appear(AIR_STRIKE_CONFIRM, offset=(20, 20)):
                 break
@@ -318,7 +318,7 @@ class StrategyHandler(InfoHandler):
             in: AIR_STRIKE_CONFIRM
             out: STRATEGY_OPENED, AIR_STRIKE_ENTER
         """
-        logger.info('空袭取消')
+        logger.info('Отмена воздушного удара')
         for _ in self.loop(skip_first=skip_first_screenshot):
             if self.appear(AIR_STRIKE_ENTER, offset=(150, 200)):
                 break
