@@ -49,12 +49,12 @@ class StockCounter(DigitCounter):
         if re.match(r'^\d\d$', result):
             # 55 -> 5/5
             new = f'{result[0]}/{result[1]}'
-            logger.info(f'[商店-购买] 库存计数器结果 {result} 修正为 {new}')
+            logger.info(f'[Магазин — покупка] Результат счётчика запасов {result} исправлен на {new}')
             result = new
         if re.match(r'^\d{4,}$', result):
             # 1515 -> 15/15
             new = f'{result[0:2]}/{result[2:4]}'
-            logger.info(f'[商店-购买] 库存计数器结果 {result} 修正为 {new}')
+            logger.info(f'[Магазин — покупка] Результат счётчика запасов {result} исправлен на {new}')
             result = new
 
         return result
@@ -103,7 +103,7 @@ class ShopClerk(ShopBase, Retirement):
 
                 if postfix is not None:
                     break
-                logger.warning('未能检测到PR系列，应用可能卡顿或冻结')
+                logger.warning('Не удалось определить серию PR; приложение может зависать или тормозить')
         else:
             postfix = f'_{item.tier.upper()}'
 
@@ -114,7 +114,7 @@ class ShopClerk(ShopBase, Retirement):
         try:
             return getattr(self.config, f'{class_name}_{ugroup}{postfix}')
         except Exception:
-            logger.critical(f"[商店] 大叔，连配置文件都找不到吗？没有 \'{class_name}_{ugroup}{postfix}\' 这种东西啦！❤")
+            logger.critical(f"[Магазин] Дядя, даже конфигурацию найти не можете? Нет никакого \'{class_name}_{ugroup}{postfix}\'! ❤")
             raise
 
     def shop_get_select(self, item):
@@ -133,7 +133,7 @@ class ShopClerk(ShopBase, Retirement):
         """
         group = item.group
         if group not in SELECT_ITEM_INFO_MAP:
-            logger.critical(f"[商店] 哈？物品组 \'{group}\' 是什么鬼？大叔你是活在哪个次元？❤")
+            logger.critical(f"[Магазин] Что ещё за группа товаров \'{group}\'? Дядя, вы из какого измерения? ❤")
             raise ScriptError
 
         # 获取商品的配置选择项
@@ -151,7 +151,7 @@ class ShopClerk(ShopBase, Retirement):
             else:
                 return item_info['grid'].buttons[index]
         except Exception:
-            logger.critical(f"[商店] SELECT_ITEM_INFO_MAP 配置出了这么大的错，大叔你是不是偷偷把资源文件卖了换酒喝了？❤")
+            logger.critical(f"[Магазин] В SELECT_ITEM_INFO_MAP такая серьёзная ошибка — дядя, вы что, тайком продали файлы ресурсов на выпивку? ❤")
             raise ScriptError
 
     def shop_buy_select_execute(self, item):
@@ -184,7 +184,7 @@ class ShopClerk(ShopBase, Retirement):
                 break
 
         if not limit:
-            logger.critical(f"[商店] 噗噗~ 连 {item.name} 的库存都数不明白，大叔你还是回幼儿园重修数学吧❤")
+            logger.critical(f"[Магазин] Пф-ф~ даже запас {item.name} посчитать не можете. Дядя, вам бы математику в детском саду повторить ❤")
             raise ScriptError
 
         # 间隔点击直到加减按钮出现
@@ -212,7 +212,7 @@ class ShopClerk(ShopBase, Retirement):
             current, remain, _ = OCR_SHOP_SELECT_STOCK.ocr(image)
             if not current:
                 group_case = item.group.title() if len(item.group) > 2 else item.group.upper()
-                logger.info(f'{group_case} 已售罄；退出以防止超买')
+                logger.info(f'{group_case} распродано; выход для предотвращения лишней покупки')
                 return limit
             return remain
 
@@ -258,7 +258,7 @@ class ShopClerk(ShopBase, Retirement):
                 break
 
         if not limit:
-            logger.critical("[商店] OCR_SHOP_AMOUNT 识别出来是 0 诶？难道大叔你已经穷得连底裤都没了吗？❤")
+            logger.critical("[Магазин] OCR_SHOP_AMOUNT распознал 0. Дядя, неужели вы уже настолько разорились? ❤")
             raise ScriptError
 
         # 调整购买数量（货币 / 单价）
@@ -347,21 +347,21 @@ class ShopClerk(ShopBase, Retirement):
             bool: 是否成功（True 表示购买完成或余额不足，False 表示余额为 0）
         """
         for _ in range(12):
-            logger.hr('商店购买', level=2)
+            logger.hr('Покупки в магазине', level=2)
             # 先获取商品列表，利用固有延迟等待 OCR 货币识别更准确
             items = self.shop_get_items()
             self.shop_currency()
             if self._currency <= 0:
-                logger.warning(f'[商店-购买] 当前资金: {self._currency}，停止')
+                logger.warning(f'[Магазин — покупка] Текущие средства: {self._currency}; остановка')
                 return False
 
             item = self.shop_get_item_to_buy(items)
             if item is None:
-                logger.info('[商店-购买] 购买完成')
+                logger.info('[Магазин — покупка] Покупки завершены')
                 return True
             else:
                 self.shop_buy_execute(item)
                 continue
 
-        logger.warning('购买物品过多，停止')
+        logger.warning('Куплено слишком много товаров; остановка')
         return True
