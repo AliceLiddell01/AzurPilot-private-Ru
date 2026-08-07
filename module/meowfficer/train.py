@@ -153,7 +153,7 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
 
             # Loop as needed to queue boxes appropriately
             for i, j in ((0, 2), (1, 1)):
-                logger.attr(f'训练中猫箱数量 (索引 {i})', local_count)
+                logger.attr(f'Ящики в обучении (индекс {i})', local_count)
                 count = local_count[i] - remain
                 if count < 0:
                     self.device.multi_click(buttons[j], remain + count)
@@ -164,7 +164,7 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
                     local_count[i] -= remain
                     break
 
-            logger.attr('训练完成猫箱数量', local_count)
+            logger.attr('Итоговое количество ящиков для обучения', local_count)
             self.device.sleep((0.3, 0.5))
             self.device.screenshot()
 
@@ -186,7 +186,7 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
             in: MEOWFFICER_TRAIN
             out: MEOWFFICER_TRAIN
         """
-        logger.hr('指挥喵队列', level=1)
+        logger.hr('Мяуфицер — очередь', level=1)
         # Either can remain in same window or
         # enter the queuing window
         if not self._meow_queue_enter():
@@ -226,16 +226,16 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
             in: page_meowfficer
             out: page_meowfficer
         """
-        logger.hr('指挥喵训练', level=1)
+        logger.hr('Мяуфицер — обучение', level=1)
 
         # Retrieve capacity to determine whether able to collect
         current, remain, total = MEOWFFICER_CAPACITY.ocr(self.device.image)
-        logger.attr('剩余容量', remain)
+        logger.attr('Оставшаяся вместимость', remain)
 
         # Read box count, utilized in other helper funcs
         self._box_count = MEOWFFICER_BOX_COUNT.ocr(self.device.image)
 
-        logger.attr('训练模式', self.config.MeowfficerTrain_Mode)
+        logger.attr('Режим обучения', self.config.MeowfficerTrain_Mode)
         collected = False
         if self.config.MeowfficerTrain_Mode == 'seamlessly':
             # Enter
