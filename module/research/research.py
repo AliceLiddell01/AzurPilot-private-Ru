@@ -285,7 +285,8 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             # 结束条件
             if click_count >= 3:
                 logger.error('[Исследование — запуск] Не удалось запустить проект после 3 попыток; '
-                             'возможно, уже выполняется проект с невыполненными условиями или исследование завершено')
+                             'возможно, уже выполняется проект с невыполненными условиями '
+                             'или исследование завершено')
                 raise GameTooManyClickError
             if self.appear(RESEARCH_STOP, offset=(20, 20)):
                 # RESEARCH_STOP 是半透明按钮，颜色会随背景变化
