@@ -150,7 +150,7 @@ class CaptureNemuIpc(CaptureStd):
         # b'nemu_capture_display rpc error: 1745\r\n'
         if b'error: 1783' in self.stderr or b'error: 1745' in self.stderr:
             raise NemuIpcIncompatible(
-                f'NemuIpc requires MuMu12 version >= 3.8.13, please check your version')
+                f'Для NemuIpc требуется MuMu12 версии >= 3.8.13. Проверьте версию')
         # contact_id 不正确
         # b'nemu_capture_display cannot find rpc connection\r\n'
         if b'cannot find rpc connection' in self.stderr:
@@ -257,8 +257,8 @@ class NemuIpcImpl:
         if self.lib is None:
             # 未找到
             raise NemuIpcIncompatible(
-                f'NemuIpc requires MuMu12 version >= 3.8.13, please check your version. '
-                f'None of the following path exists: {list_dll}')
+                f'Для NemuIpc требуется MuMu12 версии >= 3.8.13. Проверьте версию. '
+                f'Ни один из следующих путей не существует: {list_dll}')
         # 成功
         logger.info(
             f'[Устройство — NemuIpc] Инициализация: каталог MuMu={nemu_folder}, библиотека IPC={ipc_dll}, ID экземпляра={instance_id}, ID дисплея={display_id}'
