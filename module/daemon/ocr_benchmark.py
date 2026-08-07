@@ -231,7 +231,7 @@ class OcrBenchmark:
 
         if model_name != "azur_lane":
             raise ValueError(
-                f"Benchmark поддерживает только глобальную английскую модель: {model_name}"
+                f"Бенчмарк поддерживает только глобальную английскую модель: {model_name}"
             )
         if ocr_device is None and use_gpu is not None:
             ocr_device = "gpu" if use_gpu else "cpu"
@@ -243,7 +243,7 @@ class OcrBenchmark:
         ocr_device = self._resolve_device(backend, ocr_device)
         if inference_count < 1:
             raise ValueError(
-                "Количество benchmark inference должно быть положительным."
+                "Количество итераций бенчмарка должно быть положительным."
             )
 
         metadata = self._model_metadata(model_name, model_version)
@@ -287,11 +287,11 @@ class OcrBenchmark:
             return base_result
 
         logger.hr(
-            f"Benchmark OCR: {model_version} / {backend} / {ocr_device}",
+            f"Бенчмарк OCR: {model_version} / {backend} / {ocr_device}",
             level=2,
         )
         logger.info(
-            "[OCR benchmark] Версия: %s; файлы: %s; словарь: %s; набор: %s",
+            "[Бенчмарк OCR] Версия: %s; файлы: %s; словарь: %s; набор: %s",
             model_version,
             ", ".join(metadata["model_paths"]),
             metadata["dictionary_path"],
@@ -340,7 +340,7 @@ class OcrBenchmark:
             )
             try:
                 if archive_path:
-                    logger.info(f"[OCR benchmark] Распаковка {archive_path}...")
+                    logger.info(f"[Бенчмарк OCR] Распаковка {archive_path}...")
                     shutil.unpack_archive(archive_path, extract_dir)
 
                 test_cases = self._load_test_cases(extract_dir, subfolder)
@@ -394,7 +394,7 @@ class OcrBenchmark:
                 benchmark_image = cv2.imread(test_cases[0][0])
                 if benchmark_image is None:
                     raise RuntimeError(
-                        "OpenCV не смог загрузить изображение для benchmark."
+                        "OpenCV не смог загрузить изображение для бенчмарка."
                     )
                 for _ in range(WARMUP_ITERATIONS):
                     ocr.ocr(benchmark_image)
@@ -429,7 +429,7 @@ class OcrBenchmark:
             base_result["status"] = "ОШИБКА"
             base_result["error"] = f"{type(exc).__name__}: {exc}"
             logger.error(
-                f"[OCR benchmark] {model_version} завершилась ошибкой: "
+                f"[Бенчмарк OCR] {model_version} завершился ошибкой: "
                 f"{base_result['error']}"
             )
         finally:
@@ -488,10 +488,10 @@ class OcrBenchmark:
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        logger.info(f"[OCR benchmark] JSON-отчёт: {REPORT_PATH}")
+        logger.info(f"[Бенчмарк OCR] JSON-отчёт: {REPORT_PATH}")
 
     def run(self):
-        logger.hr("Сравнительный benchmark английских OCR-моделей", level=1)
+        logger.hr("Сравнительный бенчмарк английских OCR-моделей", level=1)
         results = []
         for model_name, model_version, dataset_prefix, subfolder in self.BENCHMARKS:
             result = self._run_single(
@@ -518,7 +518,7 @@ class OcrBenchmark:
             )
 
         if not results:
-            logger.error("[OCR benchmark] Результаты benchmark не получены")
+            logger.error("[Бенчмарк OCR] Результаты бенчмарка не получены")
             return []
 
         ranked = self._rank_results(results)
@@ -569,16 +569,16 @@ class OcrBenchmark:
                 self._status_text(result),
             )
 
-        logger.hr("Сводка сравнительного benchmark EN OCR", level=1)
+        logger.hr("Сводка сравнительного бенчмарка EN OCR", level=1)
         logger.print(table, justify="center")
         logger.info(
-            "[OCR benchmark] Проверяется распознавание готовых кропов "
+            "[Бенчмарк OCR] Проверяется распознавание готовых кропов "
             "на одном наборе sets_num; детектор текста не оценивается."
         )
         if ranked:
             winner = ranked[0]
             logger.info(
-                f"[OCR benchmark] Рекомендуемая модель: "
+                f"[Бенчмарк OCR] Рекомендуемая модель: "
                 f"{winner['model_version']} — "
                 f"{winner['accuracy']:.2f}%, "
                 f"среднее {winner['avg_ms']:.3f} мс, "
@@ -587,7 +587,7 @@ class OcrBenchmark:
         for result in results:
             if result["error"]:
                 logger.warning(
-                    f"[OCR benchmark] {result['model_version']}: "
+                    f"[Бенчмарк OCR] {result['model_version']}: "
                     f"{result['error']}"
                 )
 
@@ -620,11 +620,11 @@ class OcrBenchmark:
         )
         if result and result["accuracy"] >= 100.0:
             logger.info(
-                f"[OCR benchmark] {model_version} через {device.upper()} имеет точность 100%"
+                f"[Бенчмарк OCR] {model_version} через {device.upper()} имеет точность 100%"
             )
             return device
         logger.info(
-            f"[OCR benchmark] {model_version} через {device.upper()} не прошёл; используется CPU"
+            f"[Бенчмарк OCR] {model_version} через {device.upper()} не прошёл; используется CPU"
         )
         return "cpu"
 
