@@ -368,7 +368,7 @@ class FastForwardHandler(AutoSearchHandler):
             self.config.cross_set(keys='GemsFarming.Scheduler.Enable', value=False)
             logger.critical('[Обработчик] Не удалось применить настройки автопоиска.')
             logger.critical('[Обработчик] Задача GemsFarming отключена')
-            self.config.task_stop('无法确保自动搜索设置。')
+            self.config.task_stop('Не удалось применить настройки автопоиска.')
         if self.config.SUBMARINE:
             self.auto_search_setting_ensure(self.config.Submarine_AutoSearchMode)
         return True
