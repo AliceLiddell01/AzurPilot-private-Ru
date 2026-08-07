@@ -56,7 +56,7 @@ class Benchmark(DaemonBase, CampaignUI):
         Raises:
             RequestHumanTakeover: 不捕获此异常，直接向上抛出。
         """
-        logger.hr('Бенчмарк', level=2)
+        logger.hr(f'Бенчмарк', level=2)
         logger.info(f'Тестируемая функция: {func.__name__}')
         record = []
 
