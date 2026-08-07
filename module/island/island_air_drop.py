@@ -80,11 +80,11 @@ class IslandAirDrop(Island):
                         number1, number2, number3 = ocr_air_drop.ocr(image)
                         if number1 > 0:
                             logger.info(
-                                f"剩余补给次数: {number1}/{number2}，继续执行好友补给"
+                                f"Осталось снабжений: {number1}/{number2}; продолжается снабжение друзей"
                             )
                             continue
                         else:
-                            logger.info("[岛屿-每日补给] 补给次数已用尽")
+                            logger.info("[Остров — ежедневное снабжение] Попытки снабжения исчерпаны")
                             has_drops = False
                             break
                     else:
@@ -93,7 +93,7 @@ class IslandAirDrop(Island):
                     has_drops = False
                     break
         else:
-            logger.info("[岛屿-每日补给] 已禁用拜访其他玩家岛屿，跳过好友补给")
+            logger.info("[Остров — ежедневное снабжение] Посещение островов других игроков отключено; снабжение друзей пропущено")
             has_drops = False
         self.config.IslandAirDrop_LastSteal = current_time().replace(microsecond=0)
 
@@ -106,7 +106,7 @@ class IslandAirDrop(Island):
         if self.island_error:
             from module.exception import GameBugError
 
-            raise GameBugError("检测到岛屿拜访卡死，需要重启")
+            raise GameBugError("Обнаружено зависание при посещении Острова; требуется перезапуск")
         self.device.sleep(1)
 
     def find_air_drop(self):
@@ -125,28 +125,28 @@ class IslandAirDrop(Island):
             )
 
             if not air_drop_buttons:
-                logger.info("[岛屿-每日补给] 在指定区域内未找到补给")
+                logger.info("[Остров — ежедневное снабжение] Снабжение в заданной области не найдено")
 
                 # 检查是否在底部
                 if VISIT_SCROLL.at_bottom(main=self) and last_attempt_swipe > 0:
                     last_attempt_swipe -= 1
-                    logger.info("[岛屿-每日补给] 滑动槽已在底部，最后尝试滑动")
+                    logger.info("[Остров — ежедневное снабжение] Полоса прокрутки уже внизу; последняя попытка прокрутки")
                     continue
                 elif VISIT_SCROLL.at_bottom(main=self) and last_attempt_swipe <= 0:
-                    logger.info("[岛屿-每日补给] 滑动槽已在底部，停止搜索")
+                    logger.info("[Остров — ежедневное снабжение] Полоса прокрутки уже внизу; поиск остановлен")
                     return False
                 # 如果还有滑动次数，尝试滑动
                 if swipe_count < max_swipe_attempts:
-                    logger.info(f"[岛屿-每日补给] 滑动尝试 {swipe_count + 1}/{max_swipe_attempts}")
+                    logger.info(f"[Остров — ежедневное снабжение] Попытка прокрутки {swipe_count + 1}/{max_swipe_attempts}")
                     self.visit_swipe(480)
                     swipe_count += 1
                     self.device.sleep(0.5)
                     continue
                 else:
-                    logger.info("[岛屿-每日补给] 达到最大滑动次数，停止搜索")
+                    logger.info("[Остров — ежедневное снабжение] Достигнуто максимальное число прокруток; поиск остановлен")
                     return False
 
-            logger.info(f"[岛屿-每日补给] 找到 {len(air_drop_buttons)} 个补给目标")
+            logger.info(f"[Остров — ежедневное снабжение] Найдено целей снабжения: {len(air_drop_buttons)}")
             air_drop_buttons.sort(key=lambda btn: btn.area[1])
 
             # 标记是否有至少一个可以点击的补给
@@ -165,36 +165,36 @@ class IslandAirDrop(Island):
                 return True
             # 如果当前页面所有补给都不可用（全部skip或timeout）
             if not has_clickable_air_drop:
-                logger.info("[岛屿-每日补给] 当前页面没有可用补给目标")
+                logger.info("[Остров — ежедневное снабжение] На текущей странице нет доступных целей снабжения")
                 # 检查是否在底部
                 if VISIT_SCROLL.at_bottom(main=self) and last_attempt_swipe > 0:
                     last_attempt_swipe -= 1
-                    logger.info("[岛屿-每日补给] 滑动槽已在底部，最后尝试滑动")
+                    logger.info("[Остров — ежедневное снабжение] Полоса прокрутки уже внизу; последняя попытка прокрутки")
                     continue
                 elif VISIT_SCROLL.at_bottom(main=self) and last_attempt_swipe <= 0:
-                    logger.info("[岛屿-每日补给] 滑动槽已在底部，停止搜索")
+                    logger.info("[Остров — ежедневное снабжение] Полоса прокрутки уже внизу; поиск остановлен")
                     return False
                 # 滑动继续查找
                 if swipe_count < max_swipe_attempts:
-                    logger.info(f"[岛屿-每日补给] 滑动尝试 {swipe_count + 1}/{max_swipe_attempts}")
+                    logger.info(f"[Остров — ежедневное снабжение] Попытка прокрутки {swipe_count + 1}/{max_swipe_attempts}")
                     self.visit_swipe(480)
                     swipe_count += 1
                     self.device.sleep(0.5)
                     continue
                 else:
-                    logger.info("[岛屿-每日补给] 达到最大滑动次数，停止搜索")
+                    logger.info("[Остров — ежедневное снабжение] Достигнуто максимальное число прокруток; поиск остановлен")
                     return False
 
             if swipe_count < max_swipe_attempts:
                 logger.info(
-                    f"所有补给尝试失败，滑动尝试 {swipe_count + 1}/{max_swipe_attempts}"
+                    f"Все попытки снабжения неудачны; прокрутка {swipe_count + 1}/{max_swipe_attempts}"
                 )
                 self.visit_swipe(480)
                 swipe_count += 1
                 self.device.sleep(0.5)
                 continue
 
-        logger.info("[岛屿-每日补给] 未检测到可用补给")
+        logger.info("[Остров — ежедневное снабжение] Доступное снабжение не обнаружено")
         return False
 
     def calculate_visit_position(self, air_drop_button_x, air_drop_button_y):
