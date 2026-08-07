@@ -85,11 +85,11 @@ class Navbar:
         elif len(active) == 1:
             active = active[0]
         else:
-            logger.warning(f'发现过多激活的导航项: {self.name}, items: {active}')
+            logger.warning(f'Обнаружено несколько активных элементов навигации: {self.name}, элементы: {active}')
             active = active[0]
 
         if len(total) < 2:
-            logger.warning(f'发现过少的导航项: {self.name}, items: {total}')
+            logger.warning(f'Обнаружено слишком мало элементов навигации: {self.name}, элементы: {total}')
         if len(total) == 0:
             left, right = None, None
         else:
@@ -167,7 +167,7 @@ class Navbar:
             bool: 是否设置成功。
         """
         if left is None and right is None and upper is None and bottom is None:
-            logger.warning('[UI-导航栏] 设置索引无效，必须指定一个方向的索引')
+            logger.warning('[UI — Навигация] Некорректный индекс: необходимо указать индекс относительно одного из направлений')
             return False
         text = ''
         if left is None and upper is not None:
@@ -177,7 +177,7 @@ class Navbar:
         for k in ['left', 'right', 'upper', 'bottom']:
             if locals().get(k, None) is not None:
                 text += f'{k}={locals().get(k, None)} '
-        logger.info(f'[UI-导航栏] {self.name} 设置为 {text.strip()}')
+        logger.info(f'[UI — Навигация] {self.name}: установка {text.strip()}')
 
         interval = Timer(2, count=4)
         timeout = Timer(10, count=20).start()
@@ -188,7 +188,7 @@ class Navbar:
                 main.device.screenshot()
 
             if timeout.reached():
-                logger.warning(f'[UI-导航栏] {self.name} 设置 {text.strip()} 超时')
+                logger.warning(f'[UI — Навигация] {self.name}: превышено время ожидания установки {text.strip()}')
                 return False
 
             if self._shop_obstruct_handle(main=main):
@@ -197,7 +197,7 @@ class Navbar:
                 continue
 
             active, minimum, maximum = self.get_info(main=main)
-            logger.info(f'[UI-导航栏] 激活项: {active}，范围 ({minimum}, {maximum})')
+            logger.info(f'[UI — Навигация] Активный элемент: {active}, диапазон ({minimum}, {maximum})')
             # 收到纯黑截图时会返回 None
             # Active 为 None 可能是因为动画尚未加载完成
             if active is None or minimum is None or maximum is None:
@@ -206,7 +206,7 @@ class Navbar:
             index = minimum + left - 1 if left is not None else maximum - right + 1
             if not minimum <= index <= maximum:
                 logger.warning(
-                    f'[UI-导航栏] 设置索引 ({index}) 不在导航项范围内 ({minimum}, {maximum})')
+                    f'[UI — Навигация] Индекс ({index}) вне диапазона элементов навигации ({minimum}, {maximum})')
                 continue
 
             # End
