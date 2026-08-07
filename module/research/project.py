@@ -83,7 +83,7 @@ def get_research_series_old(image, series_button=RESEARCH_SERIES):
             series = 5
         else:
             series = 0
-            logger.warning(f'[科研-系列] 未知的科研系列: 按钮={button}, 上限={upper}, 下限={lower}')
+            logger.warning(f'[Исследование — серия] Неизвестная серия: кнопка={button}, верх={upper}, низ={lower}')
         result.append(series)
 
     return result
@@ -200,7 +200,7 @@ def get_research_finished(image):
         button = RESEARCH_STATUS[index]
         color = get_color(image, button.area)
         if max(color) - min(color) < 40:
-            logger.warning(f'[科研-状态] 异常颜色: {color}')
+            logger.warning(f'[Исследование — состояние] Неожиданный цвет: {color}')
             continue
         color_index = np.argmax(color)  # R, G, B
         if color_index == 1:
@@ -208,7 +208,7 @@ def get_research_finished(image):
         elif color_index == 2:
             continue  # 蓝色
         else:
-            logger.warning(f'[科研-状态] 异常颜色: {color}')
+            logger.warning(f'[Исследование — состояние] Неожиданный цвет: {color}')
             continue
 
     return None
@@ -227,7 +227,7 @@ def parse_time(string):
     """
     result = re.search('(\d+):(\d+):(\d+)', string)
     if not result:
-        logger.warning(f'[科研-时间] 无效的时间字符串: {string}')
+        logger.warning(f'[Исследование — время] Некорректная строка времени: {string}')
         return None
     else:
         result = [int(s) for s in result.groups()]
@@ -296,7 +296,7 @@ def get_research_series_jp_old(image):
         series = 5
     else:
         series = 0
-        logger.warning(f'未知的科研系列: upper={upper}, lower={lower}')
+        logger.warning(f'Неизвестная серия исследования: upper={upper}, lower={lower}')
 
     return f'S{series}'
 
@@ -351,7 +351,7 @@ def get_research_genre_jp(image):
             genre = button.name.split("_")[2]
             break
     if not genre:
-        logger.warning(f'无法识别科研类型!')
+        logger.warning('Не удалось распознать тип исследования!')
     return genre
 
 
@@ -425,7 +425,7 @@ def get_research_ship_jp(image):
             similarity = sim
             ship = name
     if ship == '':
-        logger.warning(f'舰船识别失败')
+        logger.warning('Не удалось распознать корабль')
     return ship
 
 
@@ -457,7 +457,7 @@ def research_jp_detect(image):
         project.ship_rarity = 'dr' if project.ship in project.DR_SHIP else 'pry'
     project.name = f'{project.series}-{project.genre}-{project.duration}{project.ship}'
     if not project.check_valid():
-        logger.warning(f'[科研-项目] 无效的科研项目 {project}')
+        logger.warning(f'[Исследование — проект] Некорректный проект {project}')
     return project
 
 
@@ -477,7 +477,7 @@ def research_detect(image):
     projects = []
     for name, series in zip(get_research_name(image), get_research_series_3(image)):
         project = ResearchProject(name=name, series=series)
-        logger.attr('科研项目', project)
+        logger.attr('Исследовательский проект', project)
         projects.append(project)
     return projects
 
@@ -573,7 +573,7 @@ class ResearchProject:
         # 'D-057-UL'
         self.name = self.check_name(name)
         if self.name != name:
-            logger.info(f'[科研-名称] 科研名称 {name} 修正为 {self.name}')
+            logger.info(f'[Исследование — название] Название проекта {name} исправлено на {self.name}')
         # 'D'
         self.genre = ''
         # '057'
@@ -613,7 +613,7 @@ class ResearchProject:
             break
 
         if not matched:
-            logger.warning(f'[科研-项目] 无效的科研项目 {self}')
+            logger.warning(f'[Исследование — проект] Некорректный проект {self}')
             self.valid = False
 
     def __str__(self):
@@ -717,7 +717,7 @@ class ResearchProject:
         if len(name) and name[0].isdigit():
             for t in 'QGE':
                 name1 = f'{t}-{self.name}'
-                logger.info(f'[科研-匹配] 测试最相似的候选 {name1}')
+                logger.info(f'[Исследование — сопоставление] Проверка наиболее похожего кандидата {name1}')
                 for data in LIST_RESEARCH_PROJECT:
                     if (data['series'] == series) and (data['name'] == name1):
                         self.name = name1
