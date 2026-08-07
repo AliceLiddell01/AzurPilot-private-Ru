@@ -48,7 +48,7 @@ class ShipLevel(Digit):
     def after_process(self, result):
         result = super().after_process(result)
         if result < 100 or result > 125:
-            logger.warning('[觉醒] 异常的舰船等级')
+            logger.warning('[Пробуждение] Некорректный уровень корабля')
             result = 0
         return result
 
@@ -113,7 +113,7 @@ class Awaken(Dock):
         chip = self._get_button_state(COST_CHIP)
         array = self._get_button_state(COST_ARRAY)
 
-        logger.attr('觉醒消耗', {'coin': coin, 'chip': chip, 'array': array})
+        logger.attr('Стоимость пробуждения', {'coin': coin, 'chip': chip, 'array': array})
 
         def is_right_moved(button):
             # 如果 COST_ARRAY 不存在，COST_COIN 和 COST_CHIP 会右移 54px
@@ -122,23 +122,23 @@ class Awaken(Dock):
         # 检查结果是否有效
         if array is not None:
             if not use_array:
-                logger.warning('[觉醒] 不使用阵列但阵列存在')
+                logger.warning('[Пробуждение] Cognitive Array доступен, хотя его использование отключено')
                 return 'unexpected_array'
             # 如果需要阵列，金币和芯片应该同时存在
             if coin is not None and not is_right_moved(COST_COIN) \
                     and chip is not None and not is_right_moved(COST_CHIP):
                 result = coin and chip and array
-                logger.attr('觉醒资源充足', result)
+                logger.attr('Ресурсов для пробуждения достаточно', result)
                 return result
         else:
             # 如果不需要阵列，金币和芯片应该同时存在且右移
             if coin is not None and is_right_moved(COST_COIN) \
                     and chip is not None and is_right_moved(COST_CHIP):
                 result = coin and chip
-                logger.attr('觉醒资源充足', result)
+                logger.attr('Ресурсов для пробуждения достаточно', result)
                 return result
 
-        logger.warning('[觉醒] 无效的觉醒消耗')
+        logger.warning('[Пробуждение] Некорректное состояние стоимости пробуждения')
         return 'invalid'
 
     def handle_awaken_finish(self):
@@ -148,7 +148,7 @@ class Awaken(Dock):
         return SHIP_LEVEL_CHECK.match_luma(self.device.image, similarity=0.7)
 
     def awaken_popup_close(self, skip_first_screenshot=True):
-        logger.info('[觉醒] 觉醒弹窗关闭')
+        logger.info('[Пробуждение] Закрытие окна пробуждения')
         self.interval_clear(AWAKEN_CANCEL)
         while 1:
             if skip_first_screenshot:
@@ -178,7 +178,7 @@ class Awaken(Dock):
             in: is_in_awaken
             out: is_in_awaken
         """
-        logger.hr('觉醒一次', level=2)
+        logger.hr('Однократное пробуждение', level=2)
         interval = Timer(3, count=6)
         while 1:
             if skip_first_screenshot:
@@ -189,7 +189,7 @@ class Awaken(Dock):
             if self.appear(AWAKEN_CONFIRM):
                 break
             if LEVEL_UP.match_luma(self.device.image):
-                logger.info(f'[觉醒] 觉醒一次在 {LEVEL_UP} 结束')
+                logger.info(f'[Пробуждение] Однократное пробуждение завершено на {LEVEL_UP}')
                 return 'no_exp'
             # 由于随机背景，降低相似度阈值
             if interval.reached() and AWAKENING.match_luma(self.device.image, similarity=0.7):
@@ -197,7 +197,7 @@ class Awaken(Dock):
                 interval.reset()
                 continue
 
-        logger.info('[觉醒] 获取觉醒消耗')
+        logger.info('[Пробуждение] Определение стоимости пробуждения')
         timeout = Timer(2, count=6).start()
         skip_first_screenshot = True
         while 1:
@@ -212,7 +212,7 @@ class Awaken(Dock):
                 self.awaken_popup_close()
                 return result
             elif result is False:
-                logger.info('[觉醒] 资源不足无法觉醒')
+                logger.info('[Пробуждение] Недостаточно ресурсов для пробуждения')
                 self.awaken_popup_close()
                 return 'insufficient'
             elif result is True:
@@ -222,14 +222,14 @@ class Awaken(Dock):
                 # 重试，同时检查超时
                 pass
             else:
-                raise ScriptError(f'Unexpected _get_awaken_cost result: {result}')
+                raise ScriptError(f'Неожиданный результат _get_awaken_cost: {result}')
             if timeout.reached():
-                logger.warning('[觉醒] 获取觉醒消耗超时')
+                logger.warning('[Пробуждение] Тайм-аут определения стоимости пробуждения')
                 self.awaken_popup_close()
                 return 'timeout'
 
         # 资源充足，确认觉醒
-        logger.info('[觉醒] 觉醒确认')
+        logger.info('[Пробуждение] Подтверждение пробуждения')
         self.interval_clear(AWAKEN_CONFIRM)
         # 觉醒弹窗在经验足够时需要 10 秒才出现，点击关闭需要 2 秒
         # 因此此处超时设置较长
@@ -244,11 +244,11 @@ class Awaken(Dock):
 
             # 结束条件
             if timeout.reached():
-                logger.warning('[觉醒] 觉醒确认超时')
+                logger.warning('[Пробуждение] Тайм-аут подтверждения пробуждения')
                 self.awaken_popup_close()
                 break
             if finished and self.is_in_awaken():
-                logger.info('[觉醒] 觉醒完成')
+                logger.info('[Пробуждение] Пробуждение завершено')
                 break
             # 点击操作
             if self.appear_then_click(AWAKEN_CONFIRM, offset=(20, 20), interval=3):
@@ -286,7 +286,7 @@ class Awaken(Dock):
                 if level > 0:
                     return level
             if timeout.reached():
-                logger.warning('[觉醒] 获取舰船等级超时')
+                logger.warning('[Пробуждение] Тайм-аут определения уровня корабля')
                 return level
 
     def awaken_ship(self, use_array=False, skip_first_screenshot=True):
@@ -304,8 +304,8 @@ class Awaken(Dock):
             in: is_in_awaken
             out: is_in_awaken
         """
-        logger.hr('觉醒舰船', level=1)
-        logger.info(f'[觉醒] 觉醒舰船, 使用阵列={use_array}')
+        logger.hr('Пробуждение корабля', level=1)
+        logger.info(f'[Пробуждение] Пробуждение корабля, использовать Cognitive Array={use_array}')
 
         if use_array:
             stop_level = 125
@@ -319,7 +319,7 @@ class Awaken(Dock):
             level = self.get_ship_level()
             if level > 0:
                 if level >= stop_level:
-                    logger.info(f'[觉醒] 觉醒舰船在停止等级结束')
+                    logger.info(f'[Пробуждение] Пробуждение корабля завершено на целевом уровне')
                     return 'level_max'
                 else:
                     result = self.awaken_once(use_array)
@@ -335,13 +335,13 @@ class Awaken(Dock):
                     if result == 'timeout':
                         # 获取资源超时，重试应该能修复
                         continue
-                    raise ScriptError(f'Unexpected awaken_once result: {result}')
+                    raise ScriptError(f'Неожиданный результат awaken_once: {result}')
             else:
                 # 获取等级超时，请求退出
                 return 'timeout'
 
         # 错误，请求退出
-        logger.warning('[觉醒] 单艘舰船觉醒尝试过多')
+        logger.warning('[Пробуждение] Слишком много попыток пробуждения одного корабля')
         return 'timeout'
 
     def awaken_exit(self, skip_first_screenshot=True):
@@ -352,7 +352,7 @@ class Awaken(Dock):
             in: is_in_awaken
             out: DOCK_CHECK
         """
-        logger.info('[觉醒] 觉醒退出')
+        logger.info('[Пробуждение] Выход из экрана пробуждения')
         interval = Timer(3)
         while 1:
             if skip_first_screenshot:
@@ -361,10 +361,10 @@ class Awaken(Dock):
                 self.device.screenshot()
 
             if self.ui_page_appear(page_dock):
-                logger.info(f'[觉醒] 觉醒退出在 {page_dock}')
+                logger.info(f'[Пробуждение] Выход из экрана пробуждения на {page_dock}')
                 break
             if interval.reached() and self.is_in_awaken():
-                logger.info(f'[觉醒] 在觉醒中 -> {BACK_ARROW}')
+                logger.info(f'[Пробуждение] На экране пробуждения -> {BACK_ARROW}')
                 self.device.click(BACK_ARROW)
                 interval.reset()
                 continue
@@ -391,7 +391,7 @@ class Awaken(Dock):
             in: Any
             out: page_dock
         """
-        logger.hr('觉醒运行', level=1)
+        logger.hr('Цикл пробуждения', level=1)
         self.ui_ensure(page_dock)
         self.dock_favourite_set(enable=favourite, wait_loading=False)
         self.dock_sort_method_dsc_set(wait_loading=False)
@@ -404,14 +404,14 @@ class Awaken(Dock):
         while 1:
             # 在 page_dock 页面
             if self.appear(DOCK_EMPTY, offset=(20, 20)):
-                logger.info('[觉醒] 觉醒运行完成，无舰船可觉醒')
+                logger.info('[Пробуждение] Цикл завершён: нет кораблей для пробуждения')
                 result = 'finish'
                 break
 
             # page_dock -> SHIP_DETAIL_CHECK
             entered = self.dock_enter_first()
             if not entered:
-                logger.info('[觉醒] 觉醒运行完成，无舰船可觉醒')
+                logger.info('[Пробуждение] Цикл завершён: нет кораблей для пробуждения')
                 result = 'finish'
                 break
 
@@ -423,12 +423,12 @@ class Awaken(Dock):
                 # Awaken next ship
                 continue
             if result == 'insufficient':
-                logger.info('[觉醒] 觉醒运行完成，资源耗尽')
+                logger.info('[Пробуждение] Цикл завершён: ресурсы исчерпаны')
                 break
             if result == 'timeout':
-                logger.info(f'[觉醒] 觉醒运行完成, 结果={result}')
+                logger.info(f'[Пробуждение] Цикл завершён, результат={result}')
                 break
-            raise ScriptError(f'Unexpected awaken_ship result: {result}')
+            raise ScriptError(f'Неожиданный результат awaken_ship: {result}')
 
         return result
 
@@ -445,10 +445,10 @@ class Awaken(Dock):
             # 使用心智芯片
             self.awaken_run(favourite=favourite)
         else:
-            raise ScriptError(f'Unknown Awaken_LevelCap={self.config.Awaken_LevelCap}')
+            raise ScriptError(f'Неизвестное значение Awaken_LevelCap={self.config.Awaken_LevelCap}')
 
         # 重置船坞筛选器
-        logger.hr('觉醒运行退出', level=1)
+        logger.hr('Завершение цикла пробуждения', level=1)
         if favourite:
             self.dock_favourite_set(wait_loading=False)
         self.dock_filter_set(wait_loading=False)

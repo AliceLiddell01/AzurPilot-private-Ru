@@ -54,7 +54,7 @@ class EquipmentCodeHandler(StorageHandler):
                 if item:
                     config.update(item)
         except Exception:
-            logger.error("加载装备码配置失败")
+            logger.error("Не удалось загрузить конфигурацию кодов экипировки")
         return config
 
     def _code_config_save(self, config):
@@ -65,7 +65,7 @@ class EquipmentCodeHandler(StorageHandler):
         elif hasattr(self.config, 'EquipmentCode_Config'):
             self.config.EquipmentCode_Config = value
         else:
-            logger.warning("无装备码配置目标，跳过保存")
+            logger.warning("Не задано место сохранения кодов экипировки; сохранение пропущено")
 
     def equipment_code_supported(self):
         method = self.config.Emulator_ControlMethod
@@ -73,8 +73,8 @@ class EquipmentCodeHandler(StorageHandler):
             return True
 
         logger.warning(
-            f"Equipment code requires uiautomator2 based control method, "
-            f"current control method is {method}, skip equipment change"
+            f"Код экипировки требует метод управления на базе uiautomator2; "
+            f"текущий метод: {method}. Смена экипировки пропущена"
         )
         return False
 
@@ -82,7 +82,7 @@ class EquipmentCodeHandler(StorageHandler):
         config = self._code_config_load()
         code = config.get(name)
         if code is None:
-            logger.error(f"[装备-代码] 配置不包含 {name} 的装备代码")
+            logger.error(f"[Код экипировки] В конфигурации нет кода экипировки для {name}")
         return code
 
     def set_code(self, name, code):
@@ -91,7 +91,7 @@ class EquipmentCodeHandler(StorageHandler):
             config.update({name: code})
             self._code_config_save(config)
         except Exception:
-            logger.error("设置装备码配置失败")
+            logger.error("Не удалось сохранить конфигурацию кодов экипировки")
 
     def current_ship(self):
         """
@@ -104,19 +104,19 @@ class EquipmentCodeHandler(StorageHandler):
             if not self.appear(EMPTY_SHIP_R):
                 break
         if TEMPLATE_BOGUE.match(self.device.image, scaling=1.46):  # image has rotation
-            logger.info("检测到博格")
+            logger.info("Обнаружен Bogue")
             return 'bogue'
         elif TEMPLATE_HERMES.match(self.device.image, scaling=124 / 89):
-            logger.info("检测到竞技神")
+            logger.info("Обнаружен Hermes")
             return 'hermes'
         elif TEMPLATE_RANGER.match(self.device.image, scaling=4 / 3):
-            logger.info("检测到突击者")
+            logger.info("Обнаружен Ranger")
             return 'ranger'
         elif TEMPLATE_LANGLEY.match(self.device.image, scaling=25 / 21):
-            logger.info("检测到兰利")
+            logger.info("Обнаружен Langley")
             return 'langley'
         else:
-            logger.warning("检测到未知舰船，假设为驱逐舰")
+            logger.warning("Обнаружен неизвестный корабль; предполагаем эсминец")
             return 'DD'
 
     def _code_enter(self):
@@ -166,7 +166,7 @@ class EquipmentCodeHandler(StorageHandler):
         timeout = Timer(10).start()
         while 1:
             if timeout.reached():
-                logger.warning("启用FastInputIME超时")
+                logger.warning("Тайм-аут включения FastInputIME")
                 break
 
             h = self.device.dump_hierarchy_adb()
@@ -200,7 +200,7 @@ class EquipmentCodeHandler(StorageHandler):
         try:
             d.set_fastinput_ime(True)
         except Exception:
-            logger.warning("[装备-代码] FastInputIME未启用，尝试启用")
+            logger.warning("[Код экипировки] FastInputIME не включён; пробуем включить")
             self.fastinput_ime_enable()
 
     @staticmethod
@@ -217,12 +217,12 @@ class EquipmentCodeHandler(StorageHandler):
             self.device.adb_shell(f'input keyevent KEYCODE_MOVE_END {clear_keys}', timeout=5)
             self.device.adb_shell(f'input text {text}', timeout=5)
             self.device.adb_shell('input keyevent KEYCODE_ENTER', timeout=1)
-            logger.info("通过 ADB 输入装备码")
+            logger.info("Ввод кода экипировки через ADB")
             return True
         except (EmulatorNotRunningError, RequestHumanTakeover):
             raise
         except Exception as e:
-            logger.warning(f"通过 ADB 输入装备码失败: {e}")
+            logger.warning(f"Не удалось ввести код экипировки через ADB: {e}")
             return False
 
     def _code_input_uiautomator2(self, code):
@@ -230,14 +230,14 @@ class EquipmentCodeHandler(StorageHandler):
             d = self.device.u2
             d.send_keys(text=code, clear=True)
             d.send_action(code="done")
-            logger.info("通过 uiautomator2 输入装备码")
+            logger.info("Ввод кода экипировки через uiautomator2")
             return True
         except Exception as e:
-            logger.warning(f"通过 uiautomator2 输入装备码失败: {e}")
+            logger.warning(f"Не удалось ввести код экипировки через uiautomator2: {e}")
             return False
 
     def _code_input(self, code):
-        logger.info(f"代码输入: {code}")
+        logger.info(f"Ввод кода экипировки: {code}")
         for _ in range(2):
             click_timer = Timer(1, count=3)
             textbox_clicked = False
@@ -263,11 +263,11 @@ class EquipmentCodeHandler(StorageHandler):
                 if self.appear_then_click(EQUIPMENT_CODE_ENTER, offset=(5, 5), interval=3):
                     continue
 
-        logger.warning("装备码加载失败")
+        logger.warning("Не удалось загрузить код экипировки")
         return False
 
     def _code_confirm(self):
-        logger.info("代码应用")
+        logger.info("Применение кода экипировки")
         for _ in self.loop(timeout=10):
             if self.appear(EQUIPMENT_CODE_ENTRANCE, offset=(5, 5)):
                 return True
@@ -289,7 +289,7 @@ class EquipmentCodeHandler(StorageHandler):
                     continue
             success = self._code_confirm()
             if success:
-                logger.info("装备码应用完成")
+                logger.info("Код экипировки применён")
                 return True
             else:
                 self.handle_storage_full()
@@ -404,12 +404,12 @@ class EquipmentCodeHandler(StorageHandler):
             except (EmulatorNotRunningError, RequestHumanTakeover):
                 raise
             except Exception as e:
-                logger.debug(f"通过 ADB 读取剪贴板失败: {e}")
+                logger.debug(f"Не удалось прочитать буфер обмена через ADB: {e}")
                 continue
 
             code = self._code_from_clipboard_output(output)
             if code is not None:
-                logger.info("通过 ADB 读取装备码剪贴板成功")
+                logger.info("Код экипировки успешно прочитан из буфера обмена через ADB")
                 return code
 
         return None
@@ -420,12 +420,12 @@ class EquipmentCodeHandler(StorageHandler):
         except (EmulatorNotRunningError, RequestHumanTakeover):
             raise
         except Exception as e:
-            logger.warning(f"通过 uiautomator2 读取剪贴板失败: {e}")
+            logger.warning(f"Не удалось прочитать буфер обмена через uiautomator2: {e}")
             return None
 
         code = self._code_from_clipboard_output(output)
         if code is not None:
-            logger.info("通过 uiautomator2 读取装备码剪贴板成功")
+            logger.info("Код экипировки успешно прочитан из буфера обмена через uiautomator2")
         return code
 
     def _clipboard_get(self):
@@ -437,7 +437,7 @@ class EquipmentCodeHandler(StorageHandler):
         if code is not None:
             return code
 
-        logger.warning("读取装备码剪贴板失败")
+        logger.warning("Не удалось прочитать код экипировки из буфера обмена")
         return None
 
     def _code_export(self):
@@ -459,7 +459,7 @@ class EquipmentCodeHandler(StorageHandler):
         if self.equipment_code_export_to_config and self.get_code(name=name) is None:
             self.last_code = self._code_export()
             if self.last_code is None:
-                logger.warning("装备码导出失败，跳过清空装备")
+                logger.warning("Не удалось экспортировать код экипировки; снятие экипировки пропущено")
                 return False
             self.set_code(name=name, code=self.last_code)
         return self._code_apply(code=None)
@@ -475,6 +475,6 @@ class EquipmentCodeHandler(StorageHandler):
         if code is None:
             code = self.last_code
         if code is None:
-            logger.warning("没有可用装备码，跳过装备应用")
+            logger.warning("Нет доступного кода экипировки; применение экипировки пропущено")
             return False
         return self._code_apply(code=code)

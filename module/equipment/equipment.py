@@ -77,7 +77,7 @@ class Equipment(EquipmentCodeHandler):
                     if self.appear(check_button, offset=(30, 30)):
                         break
                     if self.appear(RETIRE_EQUIP_CONFIRM, offset=(30, 30)):
-                        logger.info('[装备-穿戴] 退役装备确认弹窗')
+                        logger.info('[Экипировка — оснащение] Окно подтверждения списания экипировки')
                         return False
                     # Popup when enhancing a NPC ship
                     if self.handle_popup_confirm('SHIP_VIEW_SWIPE'):
@@ -87,16 +87,16 @@ class Equipment(EquipmentCodeHandler):
             self.device.screenshot()
 
             if self.appear(RETIRE_EQUIP_CONFIRM, offset=(30, 30)):
-                logger.info('[装备-穿戴] 退役装备确认弹窗')
+                logger.info('[Экипировка — оснащение] Окно подтверждения списания экипировки')
                 return False
             if SWIPE_CHECK.match(self.device.image):
                 if swipe_count > 1:
-                    logger.info('[装备-穿戴] 多次滑动同一舰船')
+                    logger.info('[Экипировка — оснащение] Повторное пролистывание того же корабля')
                     return False
                 continue
 
             if self.appear(check_button, offset=(30, 30)) and not SWIPE_CHECK.match(self.device.image):
-                logger.info('[装备-穿戴] 滑动检测到新舰船')
+                logger.info('[Экипировка — оснащение] После пролистывания обнаружен новый корабль')
                 return True
 
     def ship_view_next(self, check_button=EQUIPMENT_OPEN):
@@ -121,7 +121,7 @@ class Equipment(EquipmentCodeHandler):
             # Long click accidentally became normal click, exit from dock
             if long_click:
                 if self.appear(DOCK_CHECK, offset=(20, 20), interval=3):
-                    logger.info(f'[装备-穿戴] 舰船信息进入 {DOCK_CHECK} -> {BACK_ARROW}')
+                    logger.info(f'[Экипировка — оснащение] Вход в информацию о корабле: {DOCK_CHECK} -> {BACK_ARROW}')
                     self.device.click(BACK_ARROW)
                     continue
             if enter_timer.reached():
@@ -190,7 +190,7 @@ class Equipment(EquipmentCodeHandler):
         """
         if self._ship_side_navbar.get_total(main=self) == 3:
             if upper == 1 or bottom == 3:
-                logger.warning('[装备-穿戴] 不支持跳转到 "research"')
+                logger.warning('[Экипировка — оснащение] Переход к "research" не поддерживается')
                 return False
 
         if self._ship_side_navbar.set(self, upper=upper, bottom=bottom):
@@ -221,7 +221,7 @@ class Equipment(EquipmentCodeHandler):
         self.code_apply(name=name)
 
     def _equip_take_off_one(self, skip_first_screenshot=True):
-        logger.info('[装备-穿戴] 装备卸下')
+        logger.info('[Экипировка — оснащение] Снятие экипировки')
         bar_timer = Timer(5)
         off_timer = Timer(5)
         confirm_timer = Timer(5)
@@ -256,7 +256,7 @@ class Equipment(EquipmentCodeHandler):
                     bar_timer.reset()
                     continue
 
-        logger.info('[装备-穿戴] 装备卸下完成')
+        logger.info('[Экипировка — оснащение] Снятие экипировки завершено')
 
     def equipment_take_off(self, enter, out, fleet):
         """
@@ -265,7 +265,7 @@ class Equipment(EquipmentCodeHandler):
             out (Button): Button to confirm exit success.
             fleet (list[int]): list of equipment record. [3, 1, 1, 1, 1, 1]
         """
-        logger.hr('[装备-穿戴] 装备卸下')
+        logger.hr('[Экипировка — оснащение] Снятие экипировки')
         self.equip_enter(enter)
 
         for index in '9'.join([str(x) for x in fleet if x > 0]):
@@ -280,7 +280,7 @@ class Equipment(EquipmentCodeHandler):
         self.equipment_has_take_on = False
 
     def _equip_take_on_one(self, index, skip_first_screenshot=True):
-        logger.info('[装备-穿戴] 装备预设装上')
+        logger.info('[Экипировка — оснащение] Установка экипировки из пресета')
         bar_timer = Timer(5)
         on_timer = Timer(5)
 
@@ -310,7 +310,7 @@ class Equipment(EquipmentCodeHandler):
                 bar_timer.reset()
                 continue
 
-        logger.info('[装备-穿戴] 装备装上完成')
+        logger.info('[Экипировка — оснащение] Установка экипировки завершена')
 
     def equipment_take_on(self, enter, out, fleet):
         """
@@ -319,7 +319,7 @@ class Equipment(EquipmentCodeHandler):
             out (Button): Button to confirm exit success.
             fleet (list[int]): list of equipment record. [3, 1, 1, 1, 1, 1]
         """
-        logger.hr('[装备-穿戴] 装备装上')
+        logger.hr('[Экипировка — оснащение] Установка экипировки')
         self.equip_enter(enter)
 
         for index in '9'.join([str(x) for x in fleet if x > 0]):

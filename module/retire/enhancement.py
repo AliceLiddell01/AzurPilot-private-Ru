@@ -148,7 +148,7 @@ class Enhancement(Dock):
             need_to_skip = False
             if ship_count <= 0:
                 logger.info(
-                    '[退役-强化] 已达到最大检查次数，退出当前分类')
+                    '[Списание — усиление] Достигнут лимит проверок; выход из текущей категории')
                 return "state_enhance_exit"
             if not self.equip_side_navbar_ensure(bottom=4):
                 return "state_enhance_check"
@@ -160,7 +160,7 @@ class Enhancement(Dock):
         def state_enhance_ready():
             # Wait until ENHANCE_RECOMMEND appears
             if self.appear_then_click(ENHANCE_RECOMMEND, offset=(5, 5), interval=0.3):
-                logger.info('按推荐设置强化材料')
+                logger.info('Выбор материалов усиления по рекомендации')
                 return "state_enhance_recommend"
 
             return "state_enhance_ready"
@@ -168,12 +168,12 @@ class Enhancement(Dock):
         def state_enhance_recommend():
             # Judge if enhance material appeared
             if not EMPTY_ENHANCE_SLOT_PLUS.match(self.device.image):
-                logger.info('找到材料，尝试强化...')
+                logger.info('Материалы найдены; пробуем усиление...')
                 return "state_enhance_attempt"
             elif self.info_bar_count():
-                logger.info('未找到强化材料')
+                logger.info('Материалы для усиления не найдены')
                 logger.info(
-                    '[退役-强化] 强化失败，滑动到下一艘舰船（如可行）')
+                    '[Списание — усиление] Усиление не удалось; переходим к следующему кораблю, если возможно')
                 return "state_enhance_fail"
 
             return "state_enhance_ready"
@@ -191,17 +191,17 @@ class Enhancement(Dock):
         def state_enhance_confirm():
             # Succeeded if EQUIP_CONFIRM appeared, otherwise failed
             if self.appear(EQUIP_CONFIRM, offset=(30, 30)):
-                logger.info('强化成功')
+                logger.info('Усиление выполнено успешно')
                 self._enhance_confirm()
                 return "state_enhance_success"
             elif self.info_bar_count():
                 logger.info(
-                    '[退役-强化] 强化不可行，舰船当前在战斗中，滑动到下一艘舰船（如可行）')
+                    '[Списание — усиление] Усиление недоступно: корабль сейчас в бою; переходим к следующему, если возможно')
                 nonlocal need_to_skip
                 need_to_skip = True
                 return "state_enhance_fail"
             elif self.handle_popup_confirm('ENHANCE'):
-                logger.info('尝试临时舰船')
+                logger.info('Пробуем временный корабль')
                 return "state_enhance_confirm"
 
             return "state_enhance_attempt"
@@ -222,7 +222,7 @@ class Enhancement(Dock):
                 if self.appear(EQUIP_CONFIRM, offset=(30, 30)):
                     return "state_enhance_confirm"
                 else:
-                    logger.info('滑动失败，退出当前分类')
+                    logger.info('Пролистывание не удалось; выход из текущей категории')
                     return "state_enhance_exit"
 
         def state_enhance_success():
@@ -238,7 +238,7 @@ class Enhancement(Dock):
                 skip_first_screenshot = False
             else:
                 self.device.screenshot()
-            logger.info(f'调用状态函数: {state}')
+            logger.info(f'Вызов функции состояния: {state}')
 
             if state == "state_enhance_check":
                 # Avoid too_many_click exception caused by multiple tries without material
@@ -252,14 +252,14 @@ class Enhancement(Dock):
                 state_list.clear()
             state_list.append(state)
             if len(state_list) > 30:
-                logger.critical(f'[退役] 状态机循环次数过多: {state_list}')
-                raise GameStuckError('状态机循环次数过多')
+                logger.critical(f'[Списание] Слишком много итераций автомата состояний: {state_list}')
+                raise GameStuckError('Слишком много итераций автомата состояний')
 
             try:
                 state = locals()[state]()
             except KeyError as e:
-                logger.warning(f'未知的状态函数: {state}')
-                raise ScriptError(f'未知的状态函数: {state}')
+                logger.warning(f'Неизвестная функция состояния: {state}')
+                raise ScriptError(f'Неизвестная функция состояния: {state}')
 
         return state, ship_count
 
@@ -284,7 +284,7 @@ class Enhancement(Dock):
         if favourite is None:
             favourite = self.config.Enhance_ShipToEnhance == 'favourite'
 
-        logger.hr('按类型强化')
+        logger.hr('Усиление по типу')
         total = 0
 
         # Process ENHANCE_ORDER_STRING if any into ship_types
@@ -296,7 +296,7 @@ class Enhancement(Dock):
                 ship_types = [None]
         else:
             ship_types = [None]
-        logger.attr('强化顺序', ship_types)
+        logger.attr('Порядок усиления', ship_types)
 
         # Process available ship types for choice randomization
         # Removing types that have already been specified by
@@ -312,17 +312,17 @@ class Enhancement(Dock):
             if ship_type is not None and ship_type not in VALID_SHIP_TYPES:
                 if len(available_ship_types) == 0:
                     logger.info(
-                        '[退役-强化] 无可选舰船类型，跳过本次迭代')
+                        '[Списание — усиление] Нет доступного типа кораблей; итерация пропущена')
                     continue
                 ship_type = choice(available_ship_types)
                 available_ship_types.remove(ship_type)
 
-            logger.info(f'收藏={favourite}, 舰船类型={ship_type}')
+            logger.info(f'Избранное={favourite}, тип корабля={ship_type}')
 
             # Continue if at least 1 CARD_GRID is selectable
             # otherwise skip to next ship type
             if not self._enhance_enter(favourite=favourite, ship_type=ship_type):
-                logger.hr(f'[退役-强化] 船坞为空，舰船类型: {ship_type}')
+                logger.hr(f'[Списание — усиление] Док пуст, тип корабля: {ship_type}')
                 continue
 
             current_count = self.config.Enhance_CheckPerCategory

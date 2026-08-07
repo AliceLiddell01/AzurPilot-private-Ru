@@ -123,10 +123,10 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     f = True
 
             if not f:
-                logger.warning(f'[退役-稀有度] 未知稀有度颜色, 网格: ({x}, {y}), 颜色: {card_color}')
+                logger.warning(f'[Списание — редкость] Неизвестный цвет редкости, ячейка: ({x}, {y}), цвет: {card_color}')
 
-        logger.info('[退役-稀有度] ' + ' '.join([r.rjust(3) for r in rarity[:7]]))
-        logger.info('[退役-稀有度] ' + ' '.join([r.rjust(3) for r in rarity[7:]]))
+        logger.info('[Списание — редкость] ' + ' '.join([r.rjust(3) for r in rarity[:7]]))
+        logger.info('[Списание — редкость] ' + ' '.join([r.rjust(3) for r in rarity[7:]]))
 
         selected = 0
         for card, r in zip(cards, rarity):
@@ -152,7 +152,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 SHIP_CONFIRM（旧退役模式）
             out: IN_RETIREMENT_CHECK
         """
-        logger.info('[退役-确认] 退役确认')
+        logger.info('[Списание — подтверждение] Подтверждение списания')
         executed = False
         for button in [SHIP_CONFIRM, SHIP_CONFIRM_2, EQUIP_CONFIRM, EQUIP_CONFIRM_2, GET_ITEMS_1, SR_SSR_CONFIRM]:
             self.interval_clear(button)
@@ -166,7 +166,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
 
             # 结束条件——超时兜底
             if timeout.reached():
-                logger.warning('[退役-确认] 等待退役确认超时，假设已完成')
+                logger.warning('[Списание — подтверждение] Тайм-аут ожидания подтверждения; считаем списание завершённым')
                 break
             # 有时 EQUIP_CONFIRM 没有黑色模糊背景，与 IN_RETIREMENT_CHECK 同时出现
             if self.appear(IN_RETIREMENT_CHECK, offset=(20, 20)) and not self.appear(EQUIP_CONFIRM, offset=(30, 30)):
@@ -274,7 +274,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         Returns:
             bool: SHIP_CONFIRM_2 出现则返回 True。
         """
-        logger.info('[退役-确认] 等待慢速退役')
+        logger.info('[Списание — подтверждение] Ожидание медленного списания')
         self.device.click_record_clear()
         self.device.stuck_record_clear()
         while 1:
@@ -298,8 +298,8 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         Returns:
             int: 退役的舰船数量（每轮 10 艘）。
         """
-        logger.hr('退役')
-        logger.info('[退役-一键] 使用一键退役')
+        logger.hr('Списание')
+        logger.info('[Списание — в один клик] Используется списание в один клик')
         # 一键退役不需要等待加载船坞
         self.dock_favourite_set(wait_loading=False)
         self.dock_sort_method_dsc_set(wait_loading=False)
@@ -324,13 +324,13 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 if self.appear(SHIP_CONFIRM_2, offset=(30, 30)):
                     break
                 if self.info_bar_count():
-                    logger.info('[退役-一键] 没有更多舰船可退役')
+                    logger.info('[Списание — в один клик] Больше нет кораблей для списания')
                     end = True
                     break
 
                 # 点击——多次重试后等待慢速退役
                 if click_count >= 5:
-                    logger.warning('[退役-一键] 尝试5次后仍无法选择舰船')
+                    logger.warning('[Списание — в один клик] Не удалось выбрать корабль после 5 попыток')
                     if self._retire_wait_slow_retire():
                         # 等待成功，继续在同一截图上触发 ONE_CLICK_RETIREMENT
                         pass
@@ -352,7 +352,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             # 客户端一次性退役所有舰船，直接退出
             break
 
-        logger.info(f'[退役-一键] 退役总轮数: {total // 10}')
+        logger.info(f'[Списание — в один клик] Всего циклов списания: {total // 10}')
         return total
 
     def retire_ships_old(self, amount=None, rarity=None):
@@ -372,8 +372,8 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             amount = self._retire_amount
         if rarity is None:
             rarity = self._retire_rarity
-        logger.hr('退役')
-        logger.info(f'[退役-旧] 数量={amount}, 稀有度={rarity}')
+        logger.hr('Списание')
+        logger.info(f'[Списание — старый режим] Количество={amount}, редкость={rarity}')
 
         # 将稀有度映射为过滤器名称
         correspond_name = {
@@ -401,7 +401,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 break
             self.device.screenshot()
             if not self.match_template_color(SHIP_CONFIRM, offset=(30, 30)):
-                logger.warning('[退役-旧] 未选中舰船，重试中')
+                logger.warning('[Списание — старый режим] Корабль не выбран; повторная попытка')
                 continue
 
             self._retirement_confirm()
@@ -415,7 +415,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
 
         self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set()
-        logger.info(f'[退役-旧] 退役总数: {total}')
+        logger.info(f'[Списание — старый режим] Всего списано: {total}')
         return total
 
     def retire_gems_farming_flagships(self, keep_one=True) -> int:
@@ -431,11 +431,11 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         Returns:
             int: 退役的舰船数量。
         """
-        logger.info('[退役-保留] 退役钻石打捞/三油低耗的废弃旗舰')
+        logger.info('[Списание — сохранение] Списание ненужного флагмана для фарма самоцветов / низкозатратного флота на 3 нефти')
 
         gems_farming_enable: bool = self.config.is_task_enabled('GemsFarming') or self.config.is_task_enabled('ThreeOilLowCost')
         if not gems_farming_enable:
-            logger.info('[退役-保留] 非钻石打捞/三油低耗任务，跳过')
+            logger.info('[Списание — сохранение] Задача не относится к фарму самоцветов / низкозатратному флоту на 3 нефти; пропуск')
             return 0
 
         self.dock_favourite_set(wait_loading=False)
@@ -516,7 +516,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     self.map_cat_attack_timer.reset()
                     return True
                 except Exception as e:
-                    logger.warning(f'[退役-船坞] 退役失败: {e}')
+                    logger.warning(f'[Списание — док] Списание не удалось: {e}')
                     self._unable_to_enhance = False  # 防止无限循环
                     return False
         elif self.config.Retirement_RetireMode == 'enhance':
@@ -530,14 +530,14 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 try:
                     total, remain = self._enhance_handler()
                     if not total:
-                        logger.info('[退役-船坞] 无舰船可强化，但船坞已满，将尝试退役')
+                        logger.info('[Списание — док] Нет кораблей для усиления, но док заполнен; пробуем списание')
                         self._unable_to_enhance = True
-                    logger.info(f'[退役-船坞] 剩余空闲船坞数量: {remain}')
+                    logger.info(f'[Списание — док] Осталось свободных мест в доке: {remain}')
                     if remain < 3:
-                        logger.info('[退役-船坞] 空闲船坞过少，下次再退役')
+                        logger.info('[Списание — док] Свободных мест в доке слишком мало; списание будет выполнено позже')
                         self._unable_to_enhance = True
                 except Exception as e:
-                    logger.warning(f'[退役-船坞] 强化失败: {e}')
+                    logger.warning(f'[Списание — док] Усиление не удалось: {e}')
                     self._unable_to_enhance = True  # 尝试退役
                 self.interval_reset(DOCK_CHECK)
                 self.map_cat_attack_timer.reset()
@@ -556,7 +556,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     self.map_cat_attack_timer.reset()
                     return True
                 except Exception as e:
-                    logger.warning(f'[退役-船坞] 退役失败: {e}')
+                    logger.warning(f'[Списание — док] Списание не удалось: {e}')
                     self._unable_to_enhance = False  # 防止无限循环
                     return False
 
@@ -587,49 +587,49 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
 
         # 当模式为 'enhance' 时，使用 'one_click_retire' 作为默认退役模式
         if mode == 'enhance':
-            logger.info('[退役-船坞] 退役模式设为强化，使用一键退役作为后备')
+            logger.info('[Списание — док] Режим списания настроен на усиление; списание в один клик используется как резервный вариант')
             mode = 'one_click_retire'
 
         if mode == 'one_click_retire':
             total = self.retire_ships_one_click()
             if not total:
                 logger.warning(
-                    '[退役-船坞] 未退役舰船，尝试重置船坞筛选器并禁用收藏，然后再次退役')
+                    '[Списание — док] Корабли не списаны; сбрасываем фильтр дока, отключаем избранное и пробуем снова')
                 self.dock_favourite_set(False, wait_loading=False)
                 self.dock_filter_set()
                 total = self.retire_ships_one_click()
             if self.server_support_quick_retire_setting_fallback():
                 # 部分用户可能已设置 filter_5='all'，先尝试保留该设置
                 if not total:
-                    logger.warning('[退役-船坞] 未退役舰船，尝试重置前4个快速退役设置')
+                    logger.warning('[Списание — док] Корабли не списаны; сбрасываем первые 4 настройки быстрого списания')
                     self.quick_retire_setting_set(filter_5=None)
                     total = self.retire_ships_one_click()
                 if not total:
-                    logger.warning('[退役-船坞] 未退役舰船，尝试重置快速退役设置为"保留突破"')
+                    logger.warning('[Списание — док] Корабли не списаны; сбрасываем настройку быстрого списания на «сохранять для прорыва»')
                     self.quick_retire_setting_set(filter_5='keep_limit_break')
                     total = self.retire_ships_one_click()
                 if not total and self.config.OneClickRetire_KeepLimitBreak == 'do_not_keep':
-                    logger.warning('[退役-船坞] 未退役舰船，尝试重置快速退役设置为"全部"')
+                    logger.warning('[Списание — док] Корабли не списаны; сбрасываем настройку быстрого списания на «все»')
                     self.quick_retire_setting_set('all')
                     total = self.retire_ships_one_click()
             total += self.retire_gems_farming_flagships(keep_one=total > 0)
             if not total:
-                logger.critical('[退役] 杂鱼大叔~ 根本没有船可以退役啦，你是来表演冷笑话的吗？❤')
-                logger.critical('[退役] 赶紧把游戏里的”一键退役”配置好啦！不配置的话，难道大叔想让我亲手帮你点吗？❤')
-                logger.critical('[退役] 哼，因为大叔太笨没配置好退役，脚本只能停掉了呢。赶紧去求求谁教教你怎么操作吧~')
+                logger.critical('[Списание] Дядя-неумёха~ Тут вообще нет кораблей для списания. Вы решили разыграть шутку? ❤')
+                logger.critical('[Списание] Скорее настройте «Списание в один клик» в игре! Или хотите, чтобы я нажимала всё за вас? ❤')
+                logger.critical('[Списание] Хм, списание настроено неправильно, поэтому скрипту остаётся остановиться. Разберитесь с настройками и попробуйте снова~')
                 raise RequestHumanTakeover
         elif mode == 'old_retire':
             self.handle_dock_cards_loading()
             total = self.retire_ships_old()
             total += self.retire_gems_farming_flagships()
             if not total:
-                logger.critical('[退役] 甚至没船能退役，你这设置是认真的吗？')
-                logger.critical('[退役] 既然你想让脚本停，我也挺支持的，毕竟这设置简直不可思议。')
-                logger.critical('[退役] 未退役任何船只，如果你眼瞎没开对应稀有度，请去 Alas 设置打开。')
+                logger.critical('[Списание] Нет даже кораблей, которые можно списать. Вы уверены, что настройки корректны?')
+                logger.critical('[Списание] С такими настройками скрипт действительно придётся остановить.')
+                logger.critical('[Списание] Ни один корабль не списан. Проверьте, включены ли нужные редкости в настройках Alas.')
                 raise RequestHumanTakeover
         else:
             raise ScriptError(
-                f'[退役-模式] 未知退役模式: {self.config.Retirement_RetireMode}')
+                f'[Списание — режим] Неизвестный режим списания: {self.config.Retirement_RetireMode}')
 
         self._retirement_quit()
         self.config.DOCK_FULL_TRIGGERED = True
@@ -662,7 +662,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             if not RETIRE_COIN.match(self.device.image, offset=(20, 20), similarity=0.97):
                 return True
             if count > 3:
-                logger.warning('[退役-选择] 尝试3次后仍无法选择舰船')
+                logger.warning('[Списание — выбор] Не удалось выбрать корабль после 3 попыток')
                 return False
 
             if self.appear(SHIP_CONFIRM_2, offset=(30, 30), interval=2):
@@ -685,7 +685,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             list[str]: 去重后的舰船名称列表，如 ['bogue', 'hermes', 'ranger']。
         """
         if ship_type.lower() not in ['cv', 'dd']:
-            logger.warning(f'[退役-扫描] 无效的舰船类型: {ship_type}')
+            logger.warning(f'[Списание — сканирование] Недопустимый тип корабля: {ship_type}')
             return []
 
         ship_type = ship_type.upper()
@@ -700,14 +700,14 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             common_cv = list(dict.fromkeys(
                 [str(name[0]) for name in filter_obj.filter if name[0].upper() in templates]))
             if not common_cv:
-                logger.warning(f'[退役-扫描] 无效的筛选器: "{string}"，使用默认筛选器')
+                logger.warning(f'[Списание — сканирование] Недопустимый фильтр: "{string}"; используется фильтр по умолчанию')
                 string = default
                 self.config.cross_set(keys=key, value=default)
                 continue
 
             # 结束条件——过滤器解析成功
             if output:
-                logger.attr('筛选器排序', ' > '.join(common_cv))
+                logger.attr('Порядок фильтра', ' > '.join(common_cv))
             return common_cv
 
     def retirement_get_common_rarity_cv_in_page(self):
@@ -726,7 +726,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             common_cv = self.get_common_ship_filter(filter_string, ship_type='cv', output=False)
             if self.config.GemsFarming_CommonCV == 'eagle' and 'hermes' in common_cv:
                 common_cv.remove('hermes')
-            logger.attr('筛选器排序', ' > '.join(common_cv))
+            logger.attr('Порядок фильтра', ' > '.join(common_cv))
             for name in common_cv:
                 template = globals()[f'TEMPLATE_{name.upper()}']
                 sim, button = template.match_result(
@@ -784,23 +784,23 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             else:
                 disappear_confirm.start()
                 if disappear_confirm.reached():
-                    logger.warning('滚动条消失，停止')
+                    logger.warning('Полоса прокрутки исчезла; остановка')
                     break
                 else:
                     continue
 
             if not top_checked:
                 top_checked = True
-                logger.info('从下到上查找通用航母')
+                logger.info('Поиск обычного авианосца снизу вверх')
                 RETIRE_CONFIRM_SCROLL.set_bottom(main=self)
                 continue
             else:
                 if RETIRE_CONFIRM_SCROLL.at_top(main=self):
-                    logger.info('[退役-滚动] 滚动条已到达顶部，停止')
+                    logger.info('[Списание — прокрутка] Достигнут верх полосы прокрутки; остановка')
                     break
                 # 向上翻页
                 if swipe_count >= 7:
-                    logger.info('[退役-滚动] 已达到最大滑动次数查找普通航母')
+                    logger.info('[Списание — прокрутка] Достигнут лимит пролистываний при поиске обычного авианосца')
                     break
                 RETIRE_CONFIRM_SCROLL.prev_page(main=self)
                 swipe_count += 1
@@ -813,9 +813,9 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
 
         通过滚动查找并选中一艘普通航母，避免 GemsFarming 全部退役。
         """
-        logger.info('保留一艘通用航母')
+        logger.info('Сохранение одного обычного авианосца')
         button = self.retirement_get_common_rarity_cv()
         if button is not None:
             self._retire_select_one(button)
             self._have_kept_cv = True
-        logger.info('保留一艘通用航母完成')
+        logger.info('Сохранение одного обычного авианосца завершено')

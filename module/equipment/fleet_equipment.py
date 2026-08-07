@@ -29,7 +29,7 @@ class FleetEquipment(EquipmentChange):
         retry = Timer(1, count=2)
         for _ in self.loop():
             current = letter.ocr(self.device.image)
-            logger.attr("索引", current)
+            logger.attr("Индекс", current)
 
             # ui_ensure_index but ignore default value 0
             # otherwise we would have 1 extra click switching from 1 to 4

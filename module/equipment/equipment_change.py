@@ -38,7 +38,7 @@ class EquipmentChange(Equipment):
         Record equipment through upgrade page
         Notice: The equipment icons in the upgrade page are the same size as the icons in the equipment status
         """
-        logger.info('[装备-更换] 记录装备')
+        logger.info('[Экипировка — замена] Сохранение текущей экипировки')
         self.equip_side_navbar_ensure(bottom=1)
 
         # Ensure EQUIPMENT_GRID in the right place
@@ -79,20 +79,20 @@ class EquipmentChange(Equipment):
                     click_button=UPGRADE_QUIT, check_button=EQUIPMENT_OPEN, appear_button=UPGRADE_ENTER_CHECK,
                     skip_first_screenshot=True)
             else:
-                logger.info(f"[装备-更换] 装备栏 {index} 为空")
+                logger.info(f"[Экипировка — замена] Слот экипировки {index} пуст")
 
-        logger.info(f"[装备-更换] 装备列表: {list(self.equip_list.keys())}")
+        logger.info(f"[Экипировка — замена] Список экипировки: {list(self.equip_list.keys())}")
 
     def equipment_take_on(self, index_list=range(0, 5), skip_first_screenshot=True):
         '''
         Equip the equipment previously recorded
         '''
-        logger.info('[装备-更换] 装上装备')
+        logger.info('[Экипировка — замена] Установка экипировки')
         self.equip_side_navbar_ensure(bottom=2)
 
         for index in index_list:
             if index in self.equip_list:
-                logger.info(f'[装备-更换] 装上装备 {index}')
+                logger.info(f'[Экипировка — замена] Установка экипировки {index}')
                 enter_button = globals()[
                     'EQUIP_TAKE_ON_{index}'.format(index=index)]
 
@@ -129,11 +129,11 @@ class EquipmentChange(Equipment):
             in: EQUIPMENT STATUS
             out: SHIP_SIDEBAR_EQUIPMENT
         '''
-        logger.info('[装备-更换] 装备装备')
+        logger.info('[Экипировка — замена] Выбор экипировки')
         button = Button(area=(), color=(), button=(point[0], point[1], point[0] + offset[0], point[1] + offset[1]),
                         name='EQUIPMENT')
         self.ui_click(appear_button=EQUIPPING_OFF, click_button=button, check_button=EQUIP_CONFIRM)
-        logger.info('[装备-更换] 装备确认')
+        logger.info('[Экипировка — замена] Подтверждение экипировки')
         self.ui_click(click_button=EQUIP_CONFIRM, check_button=SHIP_INFO_EQUIPMENT_CHECK)
 
     def _find_equip(self, index):
@@ -154,7 +154,7 @@ class EquipmentChange(Equipment):
             return
 
         if not EQUIPMENT_SCROLL.appear(main=self):
-            logger.warning('[装备-更换] 未找到记录的装备')
+            logger.warning('[Экипировка — замена] Сохранённая экипировка не найдена')
             self.ui_back(check_button=globals()[f'EQUIP_TAKE_ON_{index}'], appear_button=EQUIPPING_OFF)
             return
 
@@ -172,7 +172,7 @@ class EquipmentChange(Equipment):
                 self._equip_equipment(point)
                 break
             if self.appear(EQUIPMENT_SCROLL_BOTTOM):
-                logger.warning('[装备-更换] 未找到记录的装备')
+                logger.warning('[Экипировка — замена] Сохранённая экипировка не найдена')
                 self.ui_back(check_button=globals()[f'EQUIP_TAKE_ON_{index}'], appear_button=EQUIPPING_OFF)
                 break
 
