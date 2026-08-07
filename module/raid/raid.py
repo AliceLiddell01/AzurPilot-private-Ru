@@ -88,7 +88,7 @@ class HuanChangPtOcr(Digit):
             image (np.ndarray): 输入图像，形状 (height, width, channel)。
 
         Returns:
-            np.ndarray: 处理后的二值图像，形状 (width, height)。
+            np.ndarray: 处理后的二值图像，形状 (height, width)。
         """
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         image = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV)[1]
