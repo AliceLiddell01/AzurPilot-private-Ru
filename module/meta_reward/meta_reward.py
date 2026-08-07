@@ -115,7 +115,7 @@ class BeaconReward(Combat, UI):
                 confirm_timer.reset()
                 continue
 
-        logger.info(f'[META-奖励] META奖励领取完成, 领取={received}')
+        logger.info(f'[META — награды] Получение наград META завершено, получено={received}')
         return received
 
     def meta_sync_notice_appear(self, interval=0):
@@ -148,7 +148,7 @@ class BeaconReward(Combat, UI):
             out: SYNC_ENTER if meta ship synced < 100%
                 REWARD_ENTER if meta ship synced >= 100%
         """
-        logger.hr('Meta同步领取', level=1)
+        logger.hr('Получение синхронизации META', level=1)
         received = False
         while 1:
             if skip_first_screenshot:
@@ -159,7 +159,7 @@ class BeaconReward(Combat, UI):
             # End
             # Sync progress >= 100%
             if self.appear(REWARD_ENTER, offset=(20, 20)):
-                logger.info('[META-同步] 同步领取在REWARD_ENTER结束')
+                logger.info('[META — синхронизация] Получение синхронизации завершено на REWARD_ENTER')
                 break
 
             if self.config.SERVER == 'en':
@@ -173,7 +173,7 @@ class BeaconReward(Combat, UI):
             else:
                 if self.appear(SYNC_ENTER, offset=(20, 20)):
                     if not self.meta_sync_notice_appear():
-                        logger.info('[META-同步] 同步领取在SYNC_ENTER结束')
+                        logger.info('[META — синхронизация] Получение синхронизации завершено на SYNC_ENTER')
                         break
 
             # Click
@@ -187,7 +187,7 @@ class BeaconReward(Combat, UI):
                 received = True
                 continue
             if self.appear(SYNC_REWARD_NOTICE, threshold=30, interval=3):
-                logger.info(f'[META-同步] 同步奖励通知出现 -> {SYNC_ENTER}')
+                logger.info(f'[META — синхронизация] Появилось уведомление о награде синхронизации -> {SYNC_ENTER}')
                 self.device.click(SYNC_ENTER)
                 received = True
                 continue
@@ -199,11 +199,11 @@ class BeaconReward(Combat, UI):
             else:
                 # Collect ship manually, just skip SYNC_TAP
                 if self.appear(SYNC_TAP, offset=(20, 20)):
-                    logger.info(f"[META-奖励] 跳过舰船收集，因为自动收集舰船已禁用")
+                    logger.info(f"[META — награды] Получение корабля пропущено, поскольку автоматический сбор кораблей отключён")
                     received = False
                     break
 
-        logger.info(f'[META-同步] META同步领取完成, 领取={received}')
+        logger.info(f'[META — синхронизация] Получение синхронизации META завершено, получено={received}')
         return received
 
     def meta_wait_reward_page(self, skip_first_screenshot=True):
@@ -218,37 +218,37 @@ class BeaconReward(Combat, UI):
                 self.device.screenshot()
 
             if timeout.reached():
-                logger.warning(f'[META-同步] 等待奖励页面超时')
+                logger.warning(f'[META — синхронизация] Тайм-аут ожидания страницы наград')
                 break
             if self.appear(REWARD_ENTER, offset=(20, 20)):
-                logger.info(f'[META-同步] 等待奖励页面在 {REWARD_ENTER} 结束')
+                logger.info(f'[META — синхронизация] Ожидание страницы наград завершено на {REWARD_ENTER}')
                 break
             if self.config.SERVER == 'en':
                 if self.appear(SYNC_ENTER, offset=(20, 20)):
-                    logger.info(f'[META-同步] 等待奖励页面在 {SYNC_ENTER} 结束')
+                    logger.info(f'[META — синхронизация] Ожидание страницы наград завершено на {SYNC_ENTER}')
                     break
                 elif self.appear(SYNC_ENTER2, offset=(20, 20)):
-                    logger.info(f'[META-同步] 等待奖励页面在 {SYNC_ENTER2} 结束')
+                    logger.info(f'[META — синхронизация] Ожидание страницы наград завершено на {SYNC_ENTER2}')
                     break
             else:
                 if self.appear(SYNC_ENTER, offset=(20, 20)):
-                    logger.info(f'[META-同步] 等待奖励页面在 {SYNC_ENTER} 结束')
+                    logger.info(f'[META — синхронизация] Ожидание страницы наград завершено на {SYNC_ENTER}')
                     break
             if self.appear(SYNC_TAP, offset=(20, 20)):
-                logger.info(f'[META-同步] 等待奖励页面在 {SYNC_TAP} 结束')
+                logger.info(f'[META — синхронизация] Ожидание страницы наград завершено на {SYNC_TAP}')
                 break
             if self.meta_sync_notice_appear():
-                logger.info('[META-同步] 等待奖励页面在同步红点结束')
+                logger.info('[META — синхронизация] Ожидание страницы наград завершено на индикаторе синхронизации')
                 break
             if self.meta_reward_notice_appear():
-                logger.info('[META-同步] 等待奖励页面在奖励红点结束')
+                logger.info('[META — синхронизация] Ожидание страницы наград завершено на индикаторе награды')
                 break
 
     def run(self):
         if self.config.SERVER in ['cn', 'en', 'jp']:
             pass
         else:
-            logger.info(f'[META-同步] MetaReward不支持 {self.config.SERVER} 服务器，请联系服务器维护者')
+            logger.info(f'[META — синхронизация] MetaReward не поддерживает сервер {self.config.SERVER}; обратитесь к сопровождающему сервер')
             return
 
         self.ui_ensure(page_meta)
@@ -257,17 +257,17 @@ class BeaconReward(Combat, UI):
         # Sync rewards
         # "sync" is the period that you gather meta points to 100% and get a meta ship
         if self.meta_sync_notice_appear():
-            logger.info('[META-同步] 找到META同步红点或同步按钮')
+            logger.info('[META — синхронизация] Найден индикатор или кнопка синхронизации META')
             self.meta_sync_receive()
         else:
-            logger.info('[META-同步] 未找到META同步红点或同步按钮')
+            logger.info('[META — синхронизация] Индикатор или кнопка синхронизации META не найдены')
 
         # Meta rewards
         if self.meta_reward_notice_appear():
-            logger.info('[META-同步] 找到META奖励红点')
+            logger.info('[META — синхронизация] Найден индикатор награды META')
             self.meta_reward_receive()
         else:
-            logger.info('[META-同步] 未找到META奖励红点')
+            logger.info('[META — синхронизация] Индикатор награды META не найден')
 
 
 class DossierReward(Combat, UI):
@@ -292,10 +292,10 @@ class DossierReward(Combat, UI):
         """
         self.device.screenshot()
         if self.appear(DOSSIER_REWARD_RECEIVE, offset=(-40, 10, -10, 40), similarity=0.7):
-            logger.info('[META-同步] 找到档案奖励红点')
+            logger.info('[META — синхронизация] Найден индикатор награды архива')
             return True
         else:
-            logger.info('[META-同步] 未找到档案奖励红点')
+            logger.info('[META — синхронизация] Индикатор награды архива не найден')
             return False
 
     def meta_reward_enter(self, skip_first_screenshot=True):
@@ -304,7 +304,7 @@ class DossierReward(Combat, UI):
             in: dossier meta page
             out: DOSSIER_REWARD_CHECK
         """
-        logger.info('[META-同步] 进入档案奖励')
+        logger.info('[META — синхронизация] Вход в награды архива')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -364,14 +364,14 @@ class DossierReward(Combat, UI):
             else:
                 confirm_timer.reset()
 
-        logger.info(f'[META-同步] 档案奖励领取完成, 领取={received}')
+        logger.info(f'[META — синхронизация] Получение наград архива завершено, получено={received}')
         return received
 
     def run(self):
         if self.config.SERVER in ['cn', 'en', 'jp']:
             pass
         else:
-            logger.info(f'[META-同步] MetaReward不支持 {self.config.SERVER} 服务器，请联系服务器维护者')
+            logger.info(f'[META — синхронизация] MetaReward не поддерживает сервер {self.config.SERVER}; обратитесь к сопровождающему сервер')
             return
 
         from module.os_ash.meta import OpsiAshBeacon
@@ -398,4 +398,4 @@ class MetaReward(BeaconReward, DossierReward):
         elif category == "dossier":
             DossierReward(self.config, self.device).run()
         else:
-            logger.info(f'[META-同步] 可能的错误参数 {category}，请联系开发者')
+            logger.info(f'[META — синхронизация] Возможный некорректный аргумент {category}; обратитесь к разработчику')
