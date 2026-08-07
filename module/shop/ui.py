@@ -103,7 +103,7 @@ class ShopUI(UI):
         Returns:
             bool: 是否刷新成功
         """
-        logger.info('[商店-UI] 刷新商店')
+        logger.info('[Магазин — UI] Обновление магазина')
         refreshed = False
 
         # 点击刷新按钮，等待确认弹窗出现
@@ -121,7 +121,7 @@ class ShopUI(UI):
                     self.device.click(SHOP_REFRESH)
                     continue
                 if self.image_color_count(SHOP_REFRESH.button, color=(52, 74, 94), threshold=221, count=50):
-                    logger.info('[商店-UI] 刷新不可用')
+                    logger.info('[Магазин — UI] Обновление недоступно')
                     break
                 # 不使用 continue，当作 SHOP_REFRESH 未匹配处理
                 self.interval_clear(SHOP_REFRESH)
@@ -131,7 +131,7 @@ class ShopUI(UI):
             if self.appear(SHOP_BACK_ARROW, offset=(30, 30)):
                 break
             if self.appear(SHOP_BUY_CONFIRM_MISTAKE, interval=3, offset=(200, 200)):
-                logger.warning('[商店-UI] 刷新确认错误')
+                logger.warning('[Магазин — UI] Ошибка подтверждения обновления')
                 self.ui_click(SHOP_CLICK_SAFE_AREA, appear_button=POPUP_CONFIRM, check_button=SHOP_BACK_ARROW,
                               offset=(20, 30), skip_first_screenshot=True)
                 refreshed = False
@@ -153,7 +153,7 @@ class ShopUI(UI):
             out: page_munitions
         """
         if self.ui_get_current_page() == page_munitions:
-            logger.info(f'[商店-UI] 已在 {page_munitions}')
+            logger.info(f'[Магазин — UI] Уже открыта страница {page_munitions}')
             return
 
         self.ui_ensure(page_academy)
