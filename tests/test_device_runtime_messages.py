@@ -43,8 +43,8 @@ class DeviceRuntimeMessageLocalizationTests(unittest.TestCase):
                 "Если разрешение эмулятора отличается от 1280x720, установите разрешение 1280x720",
             ],
             "module/device/method/ldopengl.py": [
-                "не существует; для ldopengl требуется LDPlayer >= 9.0.78. Проверьте версию",
-                "существует, но не может быть загружен",
+                "для ldopengl требуется LDPlayer >= 9.0.78. Проверьте версию",
+                "но не может быть загружен",
             ],
             "module/device/method/maatouch.py": [
                 "Получено слишком много некорректных ответов синхронизации",
