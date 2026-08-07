@@ -108,7 +108,7 @@ class RewardShipyard(ShipyardUI):
             else:
                 return 6000
         else:
-            raise ScriptError(f'Invalid rarity in _shipyard_get_cost: {rarity}')
+            raise ScriptError(f'Недопустимая редкость в _shipyard_get_cost: {rarity}')
 
     def _shipyard_calculate(self, start, count, pay=False):
         """
@@ -137,14 +137,15 @@ class RewardShipyard(ShipyardUI):
                 if pay:
                     self._coin_count -= total
                 else:
-                    logger.info(f'[Верфь — стоимость] Доступно купить только {(i - start)} / {count} чертежей')
+                    logger.info(f'最多只能购买 {(i - start)} '
+                                f'/ {count} 张蓝图')
                 return i, i - start
             total += cost
 
         if pay:
             self._coin_count -= total
         else:
-            logger.info(f'[Верфь — стоимость] Можно купить все {count} чертежей')
+            logger.info(f'可以购买全部 {count} 张蓝图')
         return i + 1, count
 
     def _shipyard_buy_calc(self, start, count):
