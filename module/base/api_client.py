@@ -44,9 +44,9 @@ class ApiClient:
 
         last_error: Optional[str] = None
         for index, endpoint in enumerate(cls._get_endpoints(path)):
-            domain_type = "主域名" if index == 0 else "备用域名"
+            domain_type = "основной домен" if index == 0 else "резервный домен"
             try:
-                logger.debug(f"[基础-API] 尝试使用{domain_type}: {endpoint}")
+                logger.debug(f"[База — API] Попытка использовать {domain_type}: {endpoint}")
                 response = requests.get(
                     endpoint,
                     params=params,
@@ -55,21 +55,21 @@ class ApiClient:
                 )
                 if response.status_code in success_codes:
                     if index > 0:
-                        logger.info(f"[基础-API] 使用{domain_type}请求成功")
+                        logger.info(f"[База — API] Запрос через {domain_type} выполнен успешно")
                     return True, response.status_code, response.text
 
                 logger.warning(
-                    f"[基础-API] {domain_type}返回错误状态: {response.status_code}"
+                    f"[База — API] {domain_type} вернул ошибочный статус: {response.status_code}"
                 )
                 last_error = f"HTTP {response.status_code}"
             except requests.exceptions.Timeout:
-                logger.warning(f"[基础-API] {domain_type}请求超时")
+                logger.warning(f"[База — API] Истекло время ожидания запроса через {domain_type}")
                 last_error = "Timeout"
             except requests.exceptions.RequestException as exc:
-                logger.warning(f"[基础-API] {domain_type}请求失败: {exc}")
+                logger.warning(f"[База — API] Ошибка запроса через {domain_type}: {exc}")
                 last_error = str(exc)
             except Exception as exc:
-                logger.warning(f"[基础-API] {domain_type}发生异常: {exc}")
+                logger.warning(f"[База — API] Исключение при запросе через {domain_type}: {exc}")
                 last_error = str(exc)
 
         return False, 0, last_error or "Unknown error"
@@ -92,7 +92,7 @@ class ApiClient:
                 success_codes=[200, 304],
             )
             if not success:
-                logger.warning(f"[Base] 获取公告失败: {response_text}")
+                logger.warning(f"[База] Не удалось получить объявление: {response_text}")
                 return None
             if status_code == 304 or not response_text.strip():
                 return None
@@ -101,16 +101,16 @@ class ApiClient:
                 data = json.loads(response_text)
             except json.JSONDecodeError as exc:
                 logger.warning(
-                    f"[Base] 解析公告JSON失败: {exc}, response={response_text[:100]}"
+                    f"[База] Не удалось разобрать JSON объявления: {exc}, ответ={response_text[:100]}"
                 )
                 return None
 
             if not data or not data.get("announcementId"):
-                logger.info("[Base] 公告数据为空或无ID")
+                logger.info("[База] Данные объявления пусты или не содержат ID")
                 return None
             if data.get("title") and (data.get("content") or data.get("url")):
                 return data
             return None
         except Exception as exc:
-            logger.warning(f"[Base] 获取公告异常: {exc}")
+            logger.warning(f"[База] Исключение при получении объявления: {exc}")
             return None
