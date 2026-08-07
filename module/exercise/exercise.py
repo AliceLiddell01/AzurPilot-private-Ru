@@ -136,7 +136,7 @@ class Exercise(ExerciseCombat):
         self.appear_then_click(NEW_OPPONENT)
         self.opponent_change_count += 1
 
-        logger.attr('对手刷新次数', self.opponent_change_count)
+        logger.attr('Количество обновлений противников', self.opponent_change_count)
         self.config.set_record(Exercise_OpponentRefreshValue=self.opponent_change_count)
 
         self.ensure_no_info_bar(timeout=3)
@@ -180,7 +180,7 @@ class Exercise(ExerciseCombat):
         self._opponent_fleet_check_all()
         while 1:
             for opponent in self._opponent_sort():
-                logger.hr(f'对手 {opponent}', level=2)
+                logger.hr(f'Противник {opponent}', level=2)
                 success = self._combat(opponent)
                 if success:
                     return success
@@ -206,7 +206,7 @@ class Exercise(ExerciseCombat):
         self._opponent_fleet_check_all()
         while 1:
             opponents = self._opponent_sort(method=method)
-            logger.hr(f'对手 {opponents[0]}', level=2)
+            logger.hr(f'Противник {opponents[0]}', level=2)
             self.config.override(Exercise_LowHpThreshold=threshold)
             success = self._combat(opponents[0])
             if success:
@@ -294,8 +294,8 @@ class Exercise(ExerciseCombat):
         server_update = self.config.Scheduler_ServerUpdate
 
         self.opponent_change_count = self._get_opponent_change_count()
-        logger.attr('对手刷新次数', self.opponent_change_count)
-        logger.attr('演习消耗策略', self.config.Exercise_ExerciseStrategy)
+        logger.attr('Количество обновлений противников', self.opponent_change_count)
+        logger.attr('Стратегия расходования попыток учений', self.config.Exercise_ExerciseStrategy)
         self.preserve, admiral_interval = self._get_exercise_strategy()
 
         remain_time = OCR_PERIOD_REMAIN.ocr(self.device.image)
@@ -333,7 +333,7 @@ class Exercise(ExerciseCombat):
             if self.remain <= self.preserve:
                 break
 
-            logger.hr(f'演习剩余 {self.remain}', level=1)
+            logger.hr(f'Осталось попыток учений: {self.remain}', level=1)
             if self.config.Exercise_OpponentChooseMode == "easiest_else_exp":
                 success = self._exercise_easiest_else_exp()
             else:
