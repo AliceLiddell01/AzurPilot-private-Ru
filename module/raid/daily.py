@@ -58,7 +58,7 @@ class RaidDaily(RaidRun):
             name (str): 突袭活动名称，如 'raid_20200624'。
         """
         if self.is_raid_rpg():
-            logger.info('[突袭-日常] RPG突袭没有每日任务')
+            logger.info('[Рейд — ежедневный] У RPG-рейда нет ежедневного задания')
             self.config.Scheduler_Enable = False
             self.config.task_stop()
 
