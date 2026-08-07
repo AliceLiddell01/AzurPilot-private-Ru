@@ -103,20 +103,20 @@ class Benchmark(DaemonBase, CampaignUI):
             return Text(cost, style="bold bright_red")
 
         if cost < 0.025:
-            return Text('Insane Fast', style="bold bright_green")
+            return Text('Экстремально быстро', style="bold bright_green")
         if cost < 0.100:
-            return Text('Ultra Fast', style="bold bright_green")
+            return Text('Очень быстро', style="bold bright_green")
         if cost < 0.200:
-            return Text('Very Fast', style="bright_green")
+            return Text('Весьма быстро', style="bright_green")
         if cost < 0.300:
-            return Text('Fast', style="green")
+            return Text('Быстро', style="green")
         if cost < 0.500:
-            return Text('Medium', style="yellow")
+            return Text('Средне', style="yellow")
         if cost < 0.750:
-            return Text('Slow', style="red")
+            return Text('Медленно', style="red")
         if cost < 1.000:
-            return Text('Very Slow', style="bright_red")
-        return Text('Ultra Slow', style="bold bright_red")
+            return Text('Очень медленно', style="bright_red")
+        return Text('Критически медленно', style="bold bright_red")
 
     @staticmethod
     def evaluate_click(cost):
@@ -132,12 +132,12 @@ class Benchmark(DaemonBase, CampaignUI):
             return Text(cost, style="bold bright_red")
 
         if cost < 0.100:
-            return Text('Fast', style="bright_green")
+            return Text('Быстро', style="bright_green")
         if cost < 0.200:
-            return Text('Medium', style="yellow")
+            return Text('Средне', style="yellow")
         if cost < 0.400:
-            return Text('Slow', style="red")
-        return Text('Very Slow', style="bright_red")
+            return Text('Медленно', style="red")
+        return Text('Очень медленно', style="bright_red")
 
     @staticmethod
     def show(test, data, evaluate_func):
@@ -161,8 +161,8 @@ class Benchmark(DaemonBase, CampaignUI):
         table.add_column(
             test, header_style="bright_cyan", style="cyan", no_wrap=True
         )
-        table.add_column("Time", style="magenta")
-        table.add_column("Speed", style="green")
+        table.add_column("Время", style="magenta")
+        table.add_column("Скорость", style="green")
         for row in data:
             table.add_row(
                 row[0],
@@ -208,12 +208,12 @@ class Benchmark(DaemonBase, CampaignUI):
         fastest_screenshot = 'ADB_nc'
         fastest_click = 'minitouch'
         if screenshot_result:
-            self.show(test='Screenshot', data=screenshot_result, evaluate_func=self.evaluate_screenshot)
+            self.show(test='Снимок экрана', data=screenshot_result, evaluate_func=self.evaluate_screenshot)
             fastest = sorted(screenshot_result, key=lambda item: compare(item))[0]
             logger.info(f'Рекомендуемый метод снимка экрана: {fastest[0]} ({float2str(fastest[1])})')
             fastest_screenshot = fastest[0]
         if click_result:
-            self.show(test='Control', data=click_result, evaluate_func=self.evaluate_click)
+            self.show(test='Управление', data=click_result, evaluate_func=self.evaluate_click)
             fastest = sorted(click_result, key=lambda item: compare(item))[0]
             # 如果 minitouch 和 MaaTouch 都是最快的，优先选择 MaaTouch
             if 'MaaTouch' in click and fastest[0] == 'minitouch':
