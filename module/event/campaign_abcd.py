@@ -38,8 +38,8 @@ class CampaignABCD(EventBase):
         # 扫描活动目录下的所有地图文件
         stages = [EventStage(file) for file in os.listdir(f'./campaign/{self.config.Campaign_Event}')]
         stages = self.convert_stages(stages)
-        logger.attr('关卡', [str(stage) for stage in stages])
-        logger.attr('关卡过滤器', self.config.EventDaily_StageFilter)
+        logger.attr('Этапы', [str(stage) for stage in stages])
+        logger.attr('Фильтр этапов', self.config.EventDaily_StageFilter)
         STAGE_FILTER.load(self.config.EventDaily_StageFilter)
         self.convert_stages(STAGE_FILTER)
         stages = [str(stage) for stage in STAGE_FILTER.apply(stages)]
@@ -47,7 +47,7 @@ class CampaignABCD(EventBase):
 
         # 过滤后无可用关卡，禁用调度器并停止任务
         if not stages:
-            logger.warning('无关卡满足当前筛选')
+            logger.warning('Нет этапов, соответствующих текущему фильтру')
             self.config.Scheduler_Enable = False
             self.config.task_stop()
 
@@ -64,7 +64,7 @@ class CampaignABCD(EventBase):
                 stages = stages[stages.index(last) + 1:]
                 logger.attr('过滤排序', ' > '.join(stages))
             else:
-                logger.info('从头开始')
+                logger.info('Начинаем с начала')
 
         # 依次执行每个关卡
         for stage in stages:
@@ -79,9 +79,9 @@ class CampaignABCD(EventBase):
                 if str(e) == 'Campaign name error':
                     task = self.config.task.command
                     logger.critical(
-                        f'无法找到关卡 "{stage}". '
-                        f'任务 "{task}" 是用于 3 倍日常PT的，如果您还没有解锁 {stage}，'
-                        f'应该使用任务 "Event" 来解锁它，而不是使用任务 "{task}"')
+                        f'Не удалось найти этап "{stage}". '
+                        f'Задача "{task}" предназначена для ежедневного получения тройного PT; если этап {stage} ещё не разблокирован, '
+                        f'используйте задачу "Event" для его разблокировки вместо задачи "{task}"')
                     raise RequestHumanTakeover
                 else:
                     raise
