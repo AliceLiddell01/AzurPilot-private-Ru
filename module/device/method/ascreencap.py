@@ -137,7 +137,7 @@ class AScreenCap(Connection):
         while byte_array[self.__bytepointer:self.__bytepointer + 4] != b'BMZ1':
             self.__bytepointer += 1
             if self.__bytepointer >= len(byte_array):
-                text = 'Repositioning byte pointer failed, corrupted aScreenCap data received'
+                text = 'Не удалось установить указатель байтов: получены повреждённые данные aScreenCap'
                 logger.warning(text)
                 if len(byte_array) < 500:
                     logger.warning(f'[Устройство — aScreenCap] Некорректный снимок экрана; получено {len(byte_array)} байт')
@@ -159,7 +159,7 @@ class AScreenCap(Connection):
 
         # 确保头部数据存在
         if raw_compressed_data is None or len(raw_compressed_data) < 20:
-            text = 'aScreenCap returned incomplete data or empty payload'
+            text = 'aScreenCap вернул неполные или пустые данные'
             logger.warning(text)
             if raw_compressed_data is not None and len(raw_compressed_data) < 500:
                 logger.warning(f'[Устройство — aScreenCap] Некорректный снимок экрана; получено {len(raw_compressed_data)} байт')
@@ -171,7 +171,7 @@ class AScreenCap(Connection):
         if compressed_data_header[0] != 828001602:
             compressed_data_header = compressed_data_header.byteswap()
             if compressed_data_header[0] != 828001602:
-                text = f'aScreenCap header verification failure, corrupted image received. ' \
+                text = f'Не удалось проверить заголовок aScreenCap: получено повреждённое изображение. ' \
                     f'HEADER IN HEX = {compressed_data_header.tobytes().hex()}'
                 logger.warning(text)
                 raise AscreencapError(text)
@@ -182,11 +182,11 @@ class AScreenCap(Connection):
         data = decompress(raw_compressed_data[20:], uncompressed_size=uncompressed_size)
 
         if data is None or len(data) == 0:
-            raise ImageTruncated('Empty uncompressed data from aScreenCap')
+            raise ImageTruncated('Пустые распакованные данные от aScreenCap')
 
         image = np.frombuffer(data, dtype=np.uint8)
         if image is None or image.size == 0:
-            raise ImageTruncated('Empty image after reading from buffer')
+            raise ImageTruncated('Пустое изображение после чтения из буфера')
 
         # 等同于 cv2.imdecode()
         try:
@@ -199,11 +199,11 @@ class AScreenCap(Connection):
         # np.frombuffer 创建的是只读内存视图，此处需要创建可写的副本
         image = cv2.flip(image, 0)
         if image is None:
-            raise ImageTruncated('Empty image after cv2.flip')
+            raise ImageTruncated('Пустое изображение после cv2.flip')
 
         cv2.cvtColor(image, cv2.COLOR_BGR2RGB, dst=image)
         if image is None:
-            raise ImageTruncated('Empty image after cv2.cvtColor')
+            raise ImageTruncated('Пустое изображение после cv2.cvtColor')
 
         return image
 
@@ -222,7 +222,7 @@ class AScreenCap(Connection):
         self.__screenshot_method_fixed = self.__screenshot_method
         if len(screenshot) < 500:
             logger.warning(f'[Устройство — aScreenCap] Некорректный снимок экрана; получено {len(screenshot)} байт')
-        raise ImageTruncated(f'cannot load screenshot')
+        raise ImageTruncated(f'Не удалось загрузить снимок экрана')
 
     @retry
     def screenshot_ascreencap(self):
