@@ -112,7 +112,7 @@ class IslandUI(UI):
             in: page_island_phone
             out: ISLAND_MANAGEMENT_CHECK
         """
-        logger.info('进入岛屿管理')
+        logger.info('Вход в управление Островом')
         self.interval_clear(ISLAND_MANAGEMENT_CHECK)
         if self.appear(ISLAND_MANAGEMENT_LOCKED, offset=(20, 20)):
             return False
@@ -136,7 +136,7 @@ class IslandUI(UI):
             in: page_island_phone
             out: ISLAND_TRANSPORT_CHECK
         """
-        logger.info('进入岛屿运输')
+        logger.info('Вход в транспорт Острова')
         self.ui_click(
             click_button=ISLAND_TRANSPORT,
             check_button=self.island_in_transport,
@@ -154,7 +154,7 @@ class IslandUI(UI):
             in: 任意带有 SHOP_BACK_ARROW 的页面
             out: page_island_phone
         """
-        logger.info('岛屿UI返回')
+        logger.info('Возврат из UI Острова')
         self.ui_click(
             click_button=SHOP_BACK_ARROW,
             check_button=page_island_phone.check_button,
@@ -171,7 +171,7 @@ class IslandUI(UI):
             in: page_island_phone 或产品页面
             out: ISLAND_MANAGEMENT_CHECK
         """
-        logger.info('UI确保管理页面')
+        logger.info('Проверка страницы управления Островом')
         self.interval_clear(ISLAND_MANAGEMENT_CHECK)
         confirm_timer = Timer(1, count=2).start()
         for _ in self.loop():
