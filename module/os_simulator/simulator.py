@@ -330,12 +330,12 @@ class OSSimulator:
     def _run(self):
         try:
             if not self.config:
-                raise ValueError('缺少配置')
+                raise ValueError('Отсутствует конфигурация')
             
             self.get_paras()
 
             if self.meow_hazard_level not in self.coin_expectation:
-                raise ValueError(f'不支持的耄耋相接侵蚀等级: {self.meow_hazard_level}')
+                raise ValueError(f'Неподдерживаемый уровень коррозии режима 耄耋相接: {self.meow_hazard_level}')
 
             self.precompile()
 
