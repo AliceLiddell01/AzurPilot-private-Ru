@@ -54,6 +54,20 @@ class HpDaemon(ModuleBase):
         Returns:
             float: HP. 0 to 1.
         """
+        # bar = crop(image, area)
+        # length = bar.shape[1]
+        # bar = np.swapaxes(bar, 0, 1)
+        # bar = bar[::-1, :, :] if reverse else bar
+        # prev_index = 0
+        # for index, color in enumerate(bar):
+        #     if index < starter:
+        #         continue
+        #     mask = color_similar_1d(color, prev_color, threshold=30)
+        #     if np.any(mask):
+        #         prev_color = color[mask].mean(axis=0)
+        #         prev_index = index
+        #
+        # return prev_index / length
         return color_bar_percentage(
             image, area, prev_color=prev_color, starter=starter, reverse=reverse, threshold=threshold)
 
@@ -104,6 +118,7 @@ class HpDaemon(ModuleBase):
             self.attacker_hp = self._calculate_hp(image, area=ATTACKER_HP_AREA.area, reverse=True)
             self.defender_hp = self._calculate_hp(image, area=DEFENDER_HP_AREA.area, reverse=False)
 
+        # Opponent died or HP bar get covered
         if self.defender_hp < 0.01:
             self.low_hp_confirm_timer.reset()
         if 0.01 < self.attacker_hp <= self.config.Exercise_LowHpThreshold:
