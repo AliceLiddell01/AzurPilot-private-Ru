@@ -242,7 +242,7 @@ def _read_cache() -> Dict[str, Any]:
     except FileNotFoundError:
         return {}
     except Exception as e:
-        logger.warning(f"[WebUI-计算器] 读取Wiki活动计算器缓存失败: {e}")
+        logger.warning(f"[WebUI — Калькулятор] Не удалось прочитать кэш калькулятора события Wiki: {e}")
         return {}
 
 
@@ -253,7 +253,7 @@ def _write_cache(data: Dict[str, Any]) -> None:
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logger.warning(f"[WebUI-计算器] 写入Wiki活动计算器缓存失败: {e}")
+        logger.warning(f"[WebUI — Калькулятор] Не удалось записать кэш калькулятора события Wiki: {e}")
 
 
 def load_event_calculator(force_refresh: bool = False) -> Dict[str, Any]:
@@ -272,7 +272,7 @@ def load_event_calculator(force_refresh: bool = False) -> Dict[str, Any]:
         _write_cache(data)
         return {**data, "from_cache": False}
     except Exception as e:
-        logger.warning(f"[WebUI-计算器] 获取Wiki活动计算器失败: {e}")
+        logger.warning(f"[WebUI — Калькулятор] Не удалось получить калькулятор события Wiki: {e}")
         if cache:
             return {**cache, "from_cache": True, "error": str(e)}
         return {"error": str(e), "from_cache": False}

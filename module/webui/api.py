@@ -53,7 +53,7 @@ def api_cl1_stats(request):
         stats = get_opsi_stats(instance_name=instance_name).get_detailed_summary()
         return JSONResponse({"success": True, "data": stats})
     except Exception as e:
-        logger.error(f"api_cl1_stats错误: {e}")
+        logger.error(f"Ошибка api_cl1_stats: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 def api_ap_timeline(request):
@@ -63,7 +63,7 @@ def api_ap_timeline(request):
         timeline = get_ap_timeline(instance_name=instance_name)
         return JSONResponse({"success": True, "data": timeline})
     except Exception as e:
-        logger.error(f"api_ap_timeline错误: {e}")
+        logger.error(f"Ошибка api_ap_timeline: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 def serve_obs_overlay(request):
@@ -1517,7 +1517,7 @@ async def api_deploy_settings(request):
     try:
         return JSONResponse({"success": True, "data": deploy_settings_schema(t)})
     except Exception as e:
-        logger.error(f"[WebUI] 读取部署设置失败: {e}")
+        logger.error(f"[WebUI] Не удалось прочитать настройки развёртывания: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
@@ -1541,7 +1541,7 @@ async def api_deploy_settings_save(request):
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
     except Exception as e:
-        logger.error(f"[WebUI] 保存部署设置失败: {e}")
+        logger.error(f"[WebUI] Не удалось сохранить настройки развёртывания: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     return JSONResponse({"success": True, "data": result})
@@ -1560,7 +1560,7 @@ async def api_deploy_startup_run(request):
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
     except Exception as e:
-        logger.error(f"[WebUI] 读取启动时自动运行失败: {e}")
+        logger.error(f"[WebUI] Не удалось прочитать настройку автозапуска профиля: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     return JSONResponse({"success": True, "data": result})
@@ -1586,7 +1586,7 @@ async def api_deploy_startup_run_save(request):
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
     except Exception as e:
-        logger.error(f"[WebUI] 保存启动时自动运行失败: {e}")
+        logger.error(f"[WebUI] Не удалось сохранить настройку автозапуска профиля: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     return JSONResponse({"success": True, "data": result})
@@ -1666,13 +1666,13 @@ async def api_import_legacy_upload(request):
                 elif "azurstat" in rel_target:
                     result["azurstat"] += 1
             except Exception as e:
-                logger.error(f"[WebUI] 写入失败 {target}: {e}")
+                logger.error(f"[WebUI] Не удалось записать {target}: {e}")
                 result["errors"] += 1
 
-        logger.info(f"[WebUI] 导入完成: {result}")
+        logger.info(f"[WebUI] Импорт завершён: {result}")
         return JSONResponse({"success": True, "data": result})
     except Exception as e:
-        logger.error(f"[WebUI] 导入API错误: {e}")
+        logger.error(f"[WebUI] Ошибка API импорта: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 

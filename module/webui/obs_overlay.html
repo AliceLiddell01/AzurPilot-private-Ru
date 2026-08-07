@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AzurPilot 侵蚀一实况监控</title>
+    <title>AzurPilot — мониторинг зоны коррозии 1</title>
     <style>
         body {
             margin: 0;
@@ -270,43 +270,43 @@
 <body>
     <div class="container">
         <div class="header">
-            <div class="title">侵蚀一监控系统</div>
+            <div class="title">Мониторинг зоны коррозии 1</div>
             <div class="header-controls">
                 <div class="chart-toggles">
-                    <button class="toggle-btn" id="btn-line" onclick="setChartView('line')">分时</button>
-                    <button class="toggle-btn active" id="btn-day" onclick="setChartView('day')">时K</button>
-                    <button class="toggle-btn" id="btn-month" onclick="setChartView('month')">日K</button>
+                    <button class="toggle-btn" id="btn-line" onclick="setChartView('line')">Линия</button>
+                    <button class="toggle-btn active" id="btn-day" onclick="setChartView('day')">Час</button>
+                    <button class="toggle-btn" id="btn-month" onclick="setChartView('month')">День</button>
                 </div>
-                <div class="status-dot" id="status-dot" title="数据实时更新中"></div>
+                <div class="status-dot" id="status-dot" title="Данные обновляются в реальном времени"></div>
             </div>
         </div>
 
         <div class="content-row">
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-label">当月战斗轮次</div>
+                    <div class="stat-label">Боёв за месяц</div>
                     <div class="stat-value" id="battle-rounds">--</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">平均体力</div>
+                    <div class="stat-label">Средние очки действия</div>
                     <div class="stat-value highlight" id="avg-ap">--</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">遇见明石次数</div>
+                    <div class="stat-label">Встреч с Акаши</div>
                     <div class="stat-value" id="akashi-encounters">--</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">明石出现概率</div>
+                    <div class="stat-label">Вероятность появления Акаши</div>
                     <div class="stat-value highlight" id="akashi-prob">--%</div>
                 </div>
             </div>
 
             <div class="ap-chart-wrapper">
                 <div class="ap-chart-header">
-                    <span class="view-title" id="chart-title">体力变化 (时K线)</span>
+                    <span class="view-title" id="chart-title">Изменение очков действия (часовые свечи)</span>
                     <div class="ap-chart-meta">
-                        <span id="ap-change">变化: --</span>
-                        <span>体力:</span>
+                        <span id="ap-change">Изменение: --</span>
+                        <span>Очки действия:</span>
                         <span id="current-ap" class="current-ap-text">--</span>
                     </div>
                 </div>
@@ -317,10 +317,10 @@
         </div>
 
         <div class="footer">
-            <div class="update-time" id="update-time">最后更新: --:--:--</div>
+            <div class="update-time" id="update-time">Последнее обновление: --:--:--</div>
         </div>
 
-        <div class="error-msg" id="error-msg">无法连接到数据源...</div>
+        <div class="error-msg" id="error-msg">Не удалось подключиться к источнику данных...</div>
     </div>
 
     <script>
@@ -372,9 +372,9 @@
             document.querySelectorAll('.toggle-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById(`btn-${view}`).classList.add('active');
 
-            if (view === 'line') elChartTitle.textContent = "体力变化 (详细波动)";
-            else if (view === 'day') elChartTitle.textContent = "体力变化 (今日时K)";
-            else if (view === 'month') elChartTitle.textContent = "体力变化 (本月日K)";
+            if (view === 'line') elChartTitle.textContent = "Изменение очков действия (подробно)";
+            else if (view === 'day') elChartTitle.textContent = "Изменение очков действия (сегодня по часам)";
+            else if (view === 'month') elChartTitle.textContent = "Изменение очков действия (по дням месяца)";
 
             drawChart(timelineData);
         }
@@ -431,11 +431,11 @@
                     elStatusDot.style.backgroundColor = '#10b981';
                     elStatusDot.style.boxShadow = '0 0 10px #10b981';
                 } else {
-                    throw new Error(statsData.error || "未知服务器错误");
+                    throw new Error(statsData.error || "Неизвестная ошибка сервера");
                 }
             } catch (err) {
-                console.error("API获取失败:", err);
-                elErrorMsg.textContent = `连接至 Alas 失败: ${err.message}`;
+                console.error("Ошибка получения данных API:", err);
+                elErrorMsg.textContent = `Не удалось подключиться к Alas: ${err.message}`;
                 elErrorMsg.style.display = 'block';
                 elStatusDot.style.backgroundColor = '#ef4444';
                 elStatusDot.style.boxShadow = '0 0 10px #ef4444';
@@ -474,7 +474,7 @@
             prevData = { rounds, avgAp, akashi, prob };
 
             const now = new Date();
-            elUpdateTime.innerHTML = `最后更新: ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+            elUpdateTime.innerHTML = `Последнее обновление: ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
         }
 
         // ==========================================
@@ -494,9 +494,9 @@
                 ctx.font = "12px sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
-                ctx.fillText("暂无体力数据流", W / 2, H / 2);
+                ctx.fillText("Нет данных об очках действия", W / 2, H / 2);
                 elCurrentAp.innerHTML = "--";
-                elApChange.innerHTML = "变化: --";
+                elApChange.innerHTML = "Изменение: --";
                 return;
             }
 
@@ -579,7 +579,7 @@
                 const isUp = chg >= 0;
                 const sign = isUp ? "+" : "";
                 const color = isUp ? "#ef4444" : "#10b981"; // 红涨绿跌 (A股)
-                elApChange.innerHTML = `变化: <span style="color:${color}">${sign}${chg}</span>`;
+                elApChange.innerHTML = `Изменение: <span style="color:${color}">${sign}${chg}</span>`;
             }
 
             // 3. 准备渲染参数

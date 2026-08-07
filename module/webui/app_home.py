@@ -116,7 +116,7 @@ class HomeMixin(WebUIMixinBase):
             data = ApiClient.get_announcement(timeout=10)
             self._announcement_result = (data, force)
         except Exception as e:
-            logger.error(f"[WebUI-主页] 获取公告失败: {e}")
+            logger.error(f"[WebUI — Главная] Не удалось получить объявление: {e}")
             self._announcement_result = (None, force, str(e))
         finally:
             self._announcement_fetching = False
@@ -183,7 +183,7 @@ class HomeMixin(WebUIMixinBase):
             url_json = json.dumps(data.get("url", ""))
             force_json = "true" if force else "false"
 
-            logger.info(f"[WebUI-主页] 推送公告: {data.get('title')}")
+            logger.info(f"[WebUI — Главная] Отправка объявления: {data.get('title')}")
             run_js(
                 f"window.alasShowAnnouncement({title_json}, {content_json}, {announcement_id_json}, {url_json}, {force_json});"
             )
@@ -303,7 +303,7 @@ class HomeMixin(WebUIMixinBase):
         def announcement_checker():
             from module.base.api_client import ApiClient
 
-            logger.info("[WebUI] 公告检查任务启动")
+            logger.info("[WebUI] Задача проверки объявлений запущена")
             th = yield  # 获取任务处理器引用
             # 首次检查：触发异步获取
             self._start_announcement_fetch(force=False)
