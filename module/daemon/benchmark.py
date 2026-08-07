@@ -56,8 +56,8 @@ class Benchmark(DaemonBase, CampaignUI):
         Raises:
             RequestHumanTakeover: 不捕获此异常，直接向上抛出。
         """
-        logger.hr(f'基准测试', level=2)
-        logger.info(f'测试函数: {func.__name__}')
+        logger.hr('Бенчмарк', level=2)
+        logger.info(f'Тестируемая функция: {func.__name__}')
         record = []
 
         for n in range(1, self.TEST_TOTAL + 1):
@@ -66,12 +66,12 @@ class Benchmark(DaemonBase, CampaignUI):
             try:
                 func(*args, **kwargs)
             except RequestHumanTakeover:
-                logger.critical('[Daemon] 错误 请求人类接管')
-                logger.warning(f'[Daemon] 基准测试失败，函数: {func.__name__}')
+                logger.critical('[Daemon] Ошибка: требуется вмешательство пользователя')
+                logger.warning(f'[Daemon] Бенчмарк функции завершился неудачно: {func.__name__}')
                 return 'Failed'
             except Exception as e:
                 logger.exception(e)
-                logger.warning(f'[Daemon] 基准测试失败，函数: {func.__name__}')
+                logger.warning(f'[Daemon] Бенчмарк функции завершился неудачно: {func.__name__}')
                 return 'Failed'
 
             cost = time.perf_counter() - start
@@ -81,9 +81,12 @@ class Benchmark(DaemonBase, CampaignUI):
             )
             record.append(cost)
 
-        logger.info('基准测试完成')
+        logger.info('Бенчмарк завершён')
         average = float(np.mean(np.sort(record)[:self.TEST_BEST]))
-        logger.info(f'[守护-基准测试] 耗时 {float2str(average)} (最优 {self.TEST_BEST} 次，共 {self.TEST_TOTAL} 次测试)')
+        logger.info(
+            f'[Daemon-Бенчмарк] Время: {float2str(average)} '
+            f'(лучшие {self.TEST_BEST} из {self.TEST_TOTAL} измерений)'
+        )
         return average
 
     @staticmethod
@@ -178,9 +181,9 @@ class Benchmark(DaemonBase, CampaignUI):
         Returns:
             tuple: (最快截图方法, 最快点击方法)。
         """
-        logger.hr('基准测试', level=1)
-        logger.info(f'测试截图方式: {screenshot}')
-        logger.info(f'测试点击方式: {click}')
+        logger.hr('Бенчмарк', level=1)
+        logger.info(f'Методы снимка экрана для теста: {screenshot}')
+        logger.info(f'Методы управления для теста: {click}')
 
         screenshot_result = []
         for method in screenshot:
@@ -201,13 +204,13 @@ class Benchmark(DaemonBase, CampaignUI):
             else:
                 return res
 
-        logger.hr('基准测试结果', level=1)
+        logger.hr('Результаты бенчмарка', level=1)
         fastest_screenshot = 'ADB_nc'
         fastest_click = 'minitouch'
         if screenshot_result:
             self.show(test='Screenshot', data=screenshot_result, evaluate_func=self.evaluate_screenshot)
             fastest = sorted(screenshot_result, key=lambda item: compare(item))[0]
-            logger.info(f'推荐截图方式: {fastest[0]} ({float2str(fastest[1])})')
+            logger.info(f'Рекомендуемый метод снимка экрана: {fastest[0]} ({float2str(fastest[1])})')
             fastest_screenshot = fastest[0]
         if click_result:
             self.show(test='Control', data=click_result, evaluate_func=self.evaluate_click)
@@ -215,7 +218,7 @@ class Benchmark(DaemonBase, CampaignUI):
             # 如果 minitouch 和 MaaTouch 都是最快的，优先选择 MaaTouch
             if 'MaaTouch' in click and fastest[0] == 'minitouch':
                 fastest[0] = 'MaaTouch'
-            logger.info(f'推荐控制方式: {fastest[0]} ({float2str(fastest[1])})')
+            logger.info(f'Рекомендуемый метод управления: {fastest[0]} ({float2str(fastest[1])})')
             fastest_click = fastest[0]
 
         return fastest_screenshot, fastest_click
@@ -269,8 +272,8 @@ class Benchmark(DaemonBase, CampaignUI):
         self.device.uninstall_minicap()
         self.ensure_campaign_ui('7-2', mode='normal')
 
-        logger.attr('设备类型', self.config.Benchmark_DeviceType)
-        logger.attr('测试场景', self.config.Benchmark_TestScene)
+        logger.attr('Тип устройства', self.config.Benchmark_DeviceType)
+        logger.attr('Сценарий теста', self.config.Benchmark_TestScene)
         screenshot, click = self.get_test_methods()
         self.benchmark(screenshot, click)
 
@@ -311,5 +314,5 @@ def run_benchmark(config):
         Benchmark(config, task='Benchmark').run()
         return True
     except RequestHumanTakeover:
-        logger.critical('[Daemon] 错误 请求人类接管')
+        logger.critical('[Daemon] Ошибка: требуется вмешательство пользователя')
         return False
