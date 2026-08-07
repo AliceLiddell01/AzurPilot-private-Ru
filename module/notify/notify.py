@@ -39,12 +39,12 @@ def handle_notify(_config: str, **kwargs) -> bool:
         for item in yaml.safe_load_all(_config):
             config.update(item)
     except Exception:
-        logger.error("加载onepush配置失败，跳过发送")
+        logger.error("Не удалось загрузить конфигурацию onepush; отправка пропущена")
         return False
     try:
         provider_name: str = config.pop("provider", None)
         if provider_name is None:
-            logger.info("未指定推送提供者，跳过发送")
+            logger.info("Провайдер push-уведомлений не указан; отправка пропущена")
             return False
         notifier: Provider = get_notifier(provider_name)
         required: list[str] = notifier.params["required"]
@@ -54,7 +54,7 @@ def handle_notify(_config: str, **kwargs) -> bool:
         for key in required:
             if key not in config:
                 logger.warning(
-                    f"[通知] 推送渠道 {notifier.name} 缺少必需参数 '{key}'"
+                    f"[Уведомления] У канала {notifier.name} отсутствует обязательный параметр '{key}'"
                 )
 
         if isinstance(notifier, Custom):
@@ -77,26 +77,26 @@ def handle_notify(_config: str, **kwargs) -> bool:
         resp = notifier.notify(**config)
         if isinstance(resp, Response):
             if resp.status_code != 200:
-                logger.warning("推送通知失败!")
-                logger.warning(f"[通知] HTTP状态码:{resp.status_code}")
+                logger.warning("Не удалось отправить push-уведомление!")
+                logger.warning(f"[Уведомления] HTTP-код состояния: {resp.status_code}")
                 return False
             else:
                 if provider_name.lower() == "gocqhttp":
                     return_data: dict = resp.json()
                     if return_data["status"] == "failed":
-                        logger.warning("推送通知失败!")
+                        logger.warning("Не удалось отправить push-уведомление!")
                         logger.warning(
                             f"Ответ сервера:{return_data['wording']}")
                         return False
     except OnePushException:
-        logger.error("推送通知失败")
+        logger.error("Не удалось отправить push-уведомление")
         return False
     except Exception as e:
         # 不打印完整异常栈，避免暴露变量信息
         logger.error(e)
         return False
 
-    logger.info("推送通知成功")
+    logger.info("Push-уведомление отправлено успешно")
     return True
 
 
