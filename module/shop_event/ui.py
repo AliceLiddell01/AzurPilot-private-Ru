@@ -85,7 +85,7 @@ class EventShopUI(UI):
         tab = color_similarity_2d(image, color=(232, 238, 240))
         index = np.where(np.average(tab > 221, axis=0) > 0.5)[0]
         count = (area[2] - area[0] + gap_x) // (len(index) + gap_x)
-        logger.info(f"活动商店标签数: {count}")
+        logger.info(f"Количество вкладок магазина события: {count}")
         delta_x = (area[2] - area[0] + gap_x) // count - gap_x
         grid = ButtonGrid((206, 92), (delta_x + gap_x, 44),
                           (delta_x, 44), (count, 1),
@@ -99,10 +99,10 @@ class EventShopUI(UI):
     @cached_property
     def event_shop_has_urpt(self):
         if self.image_color_count(SHOP_OCR_BALANCE_SECOND, OCR_EVENT_SHOP_URPT.letter, count=15):
-            logger.info("[活动商店-UI] 活动商店包含UR点数")
+            logger.info("[Магазин события — UI] Магазин содержит UR-очки")
             return True
         else:
-            logger.info("[活动商店-UI] 活动商店无UR点数")
+            logger.info("[Магазин события — UI] В магазине нет UR-очков")
             return False
 
     @cached_property
@@ -113,7 +113,7 @@ class EventShopUI(UI):
         pattern = r'(\d{4})\.(\d{1,2})\.(\d{1,2})'
         matches = re.findall(pattern, period)
         if not matches or len(matches) < 2:
-            logger.warning(f"[活动商店-UI] 活动截止日期读取失败: {period}")
+            logger.warning(f"[Магазин события — UI] Не удалось прочитать дату окончания события: {period}")
             return False
         y, m, d = matches[-1]
         deadline = datetime(int(y), int(m), int(d)) + timedelta(days=1)  # server deadline
@@ -124,10 +124,10 @@ class EventShopUI(UI):
         ensure_timeout = Timer(3, count=6).start()
         for _ in self.loop():
             if self.image_color_count(SHOP_OCR_BALANCE, OCR_EVENT_SHOP_PT.letter, count=15):
-                logger.info("活动商店已加载。")
+                logger.info("Магазин события загружен.")
                 break
             if ensure_timeout.reached():
-                raise GameStuckError('Waiting too long for EventShop to appear.')
+                raise GameStuckError('Слишком долгое ожидание появления магазина события.')
         return True
 
     def event_shop_get_pt(self):
@@ -152,11 +152,11 @@ class EventShopUI(UI):
                 self.device.screenshot()
 
             if timeout.reached():
-                logger.warning('获取石油超时')
+                logger.warning('Тайм-аут получения количества нефти')
                 break
 
             if not self.appear(SHOP_OCR_OIL_CHECK, offset=(10, 2)):
-                logger.info('无石油图标')
+                logger.info('Значок нефти отсутствует')
                 continue
             ocr = Digit(SHOP_OCR_OIL, name='OCR_OIL', letter=(247, 247, 247), threshold=128)
             amount = ocr.ocr(self.device.image)
@@ -167,7 +167,7 @@ class EventShopUI(UI):
 
     def handle_get_meowfficer(self):
         if self.appear(MEOWFFICER_GET_CHECK, offset=(40, 40), interval=3):
-            logger.info(f'获取指挥喵奖励。')
+            logger.info(f'Получение награды Мяуфицера.')
             SWITCH_LOCK.set('lock', main=self)
             # Wait until info bar disappears
             self.ensure_no_info_bar(timeout=1)
