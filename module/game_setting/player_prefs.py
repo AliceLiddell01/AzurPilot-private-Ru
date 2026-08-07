@@ -117,7 +117,7 @@ def _index_target_entries(root: etree.Element) -> dict[str, etree.Element]:
         if not _is_target_key(name):
             continue
         if name in entries:
-            raise PlayerPrefsUnsupported(f'PlayerPrefs 中存在重复的目标键: {name!r}')
+            raise PlayerPrefsUnsupported(f'В PlayerPrefs присутствует повторяющийся целевой ключ: {name!r}')
         entries[name] = element
     return entries
 
@@ -186,7 +186,7 @@ def update_player_prefs_xml(content: bytes) -> tuple[bytes, PlayerPrefsChanges]:
     try:
         root = etree.fromstring(content)
     except etree.ParseError as error:
-        raise PlayerPrefsUnsupported(f'PlayerPrefs XML 解析失败: {error}') from None
+        raise PlayerPrefsUnsupported(f'Не удалось разобрать XML PlayerPrefs: {error}') from None
 
     entries = _index_target_entries(root)
     static_changed = 0
@@ -327,7 +327,7 @@ class PlayerPrefsManager:
                 timeout=timeout,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
-            raise error_type(f'ADB 命令无法执行: {args[0]}') from None
+            raise error_type(f'Не удалось выполнить команду ADB: {args[0]}') from None
 
         result = AdbResult(
             returncode=completed.returncode,
@@ -335,7 +335,7 @@ class PlayerPrefsManager:
             stderr=completed.stderr.decode('utf-8', errors='replace').strip(),
         )
         if check and result.returncode != 0:
-            raise error_type(f'ADB 命令执行失败: {args[0]}')
+            raise error_type(f'Команда ADB завершилась с ошибкой: {args[0]}')
         return result
 
     def _run_adb_bytes(
@@ -357,9 +357,9 @@ class PlayerPrefsManager:
                 timeout=timeout,
             )
         except (OSError, subprocess.TimeoutExpired):
-            raise error_type(f'ADB 二进制传输失败: {args[0]}') from None
+            raise error_type(f'Не удалось передать бинарные данные через ADB: {args[0]}') from None
         if completed.returncode != 0:
-            raise error_type(f'ADB 二进制传输失败: {args[0]}')
+            raise error_type(f'Не удалось передать бинарные данные через ADB: {args[0]}')
         return completed.stdout
 
     def _shell(
@@ -414,7 +414,7 @@ class PlayerPrefsManager:
                 time.sleep(0.25)
         except PlayerPrefsError:
             pass
-        logger.warning('[GameSettings] 无法恢复 adbd 的原始非 root 状态')
+        logger.warning('[GameSettings] Не удалось восстановить исходное состояние adbd без root')
 
     def _game_is_stopped(self) -> bool | None:
         """确认包及其子进程均不在运行；无法确认时返回 None。"""
@@ -500,7 +500,7 @@ class PlayerPrefsManager:
         self._shell(['chmod', metadata.mode, remote], error_type=PlayerPrefsWriteError)
         self._shell(['chcon', metadata.context, remote], error_type=PlayerPrefsWriteError)
         if self._metadata(remote, error_type=PlayerPrefsWriteError) != metadata:
-            raise PlayerPrefsWriteError('PlayerPrefs 临时文件的元数据校验失败')
+            raise PlayerPrefsWriteError('Проверка метаданных временного файла PlayerPrefs не пройдена')
 
     def _read_remote_bytes(self, remote: str, error_type: type[PlayerPrefsError]) -> bytes:
         """直接读入内存，不产生本地副本。"""
@@ -580,7 +580,7 @@ class PlayerPrefsManager:
         if not self._wait_until_game_stopped():
             raise PlayerPrefsUnsupported('游戏进程仍在运行，已跳过本次写入')
         if not self._ensure_root():
-            raise PlayerPrefsUnsupported('ADB 未获得 root 权限')
+            raise PlayerPrefsUnsupported('ADB не получил права root')
         if not self._wait_until_game_stopped():
             raise PlayerPrefsUnsupported('游戏进程在提权期间启动，已取消本次写入')
 
@@ -596,7 +596,7 @@ class PlayerPrefsManager:
             original = self._read_remote_bytes(prefs, PlayerPrefsUnsupported)
             modified, changes = update_player_prefs_xml(original)
             if not changes.changed:
-                logger.info('[GameSettings] 推荐的游戏本地设置已符合，无需写入')
+                logger.info('[GameSettings] Рекомендуемые локальные настройки игры уже применены; запись не требуется')
                 return True
 
             if not self._wait_until_game_stopped():
@@ -605,7 +605,7 @@ class PlayerPrefsManager:
             self._write_remote_bytes(temporary, modified, PlayerPrefsWriteError)
             self._restore_metadata(temporary, metadata)
             if self._read_remote_bytes(temporary, PlayerPrefsWriteError) != modified:
-                raise PlayerPrefsWriteError('PlayerPrefs 临时写入内容校验失败')
+                raise PlayerPrefsWriteError('Проверка содержимого временной записи PlayerPrefs не пройдена')
 
             if not self._wait_until_game_stopped():
                 raise PlayerPrefsUnsupported('游戏进程在替换前启动，已取消本次写入')
@@ -623,20 +623,20 @@ class PlayerPrefsManager:
             if replace_attempted:
                 restored = self._restore_original(prefs, metadata, original, temporary)
                 if not restored:
-                    logger.critical('[GameSettings] 本地设置写入失败且内存恢复失败，已阻止启动游戏')
+                    logger.critical('[GameSettings] Запись локальных настроек не удалась, и восстановление исходного состояния из памяти также не удалось; запуск игры заблокирован')
                     raise RequestHumanTakeover from None
-                logger.warning('[GameSettings] 本地设置写入失败，已恢复原始状态')
+                logger.warning('[GameSettings] Запись локальных настроек не удалась; исходное состояние восстановлено')
             else:
-                logger.warning('[GameSettings] 本地设置写入未完成，原文件未被替换')
+                logger.warning('[GameSettings] Запись локальных настроек не завершена; исходный файл не заменён')
             return False
         finally:
             try:
                 self._shell(['rm', '-f', temporary], check=False)
             except PlayerPrefsError:
-                logger.warning('[GameSettings] 无法清理本次临时写入数据')
+                logger.warning('[GameSettings] Не удалось очистить временные данные этой записи')
 
         logger.info(
-            '[GameSettings] 已写入 %s 项静态设置、%s 项剧情速度设置和 %s 项待机模式设置',
+            '[GameSettings] Записано %s статических настроек, %s настроек скорости сюжета и %s настроек режима ожидания',
             changes.static_changed,
             changes.story_speed_changed,
             changes.standby_changed,
@@ -646,13 +646,13 @@ class PlayerPrefsManager:
     def apply(self) -> bool:
         """安全应用推荐设置；无法安全执行时不影响常规启动。"""
         if getattr(self.device, 'is_over_http', False):
-            logger.warning('[GameSettings] HTTP 设备不支持游戏本地设置自动配置，已跳过')
+            logger.warning('[GameSettings] HTTP-устройство не поддерживает автоматическую настройку локальных параметров игры; пропуск')
             return False
         try:
             with _device_lock(str(self.device.serial), self.package):
                 return self._apply_locked()
         except PlayerPrefsUnsupported:
-            logger.warning('[GameSettings] 已跳过游戏本地设置自动配置（安全检查未通过）')
+            logger.warning('[GameSettings] Автоматическая настройка локальных параметров игры пропущена: проверка безопасности не пройдена')
             return False
         finally:
             self._restore_root_state()
