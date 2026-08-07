@@ -137,7 +137,7 @@ class MeowfficerCollect(MeowfficerBase):
             bool
         """
         # Wait for complete load before examining talents
-        logger.info('[Комофицер — сбор] Ожидание полной загрузки и проверка базовых талантов')
+        logger.info('[Мяуфицер — сбор] Ожидание полной загрузки и проверка базовых талантов')
 
         special_talent = False
         grid = MEOWFFICER_TALENT_GRID_2 if self._meow_detect_shift() else MEOWFFICER_TALENT_GRID_1
@@ -162,8 +162,8 @@ class MeowfficerCollect(MeowfficerBase):
                 self._meow_talent_cap_handle(btn, drop)
             special_talent = True
 
-        log_insert = '发现' if special_talent else '未发现'
-        logger.info(f'[Комофицер — сбор] {log_insert}: у комофицера есть особый талант')
+        log_insert = 'обнаружен' if special_talent else 'не обнаружен'
+        logger.info(f'[Мяуфицер — сбор] Особый талант: {log_insert}')
         return special_talent
 
     def _meow_skip_lock(self):
@@ -224,7 +224,7 @@ class MeowfficerCollect(MeowfficerBase):
                     break
             # accidentally exited get queue
             if self.appear(MEOWFFICER_TRAIN_START, offset=(20, 20)):
-                logger.info('[Комофицер — сбор] После блокировки обработчик окна неожиданно вышел на MEOWFFICER_TRAIN_START')
+                logger.info('[Мяуфицер — сбор] После блокировки обработчик окна неожиданно вышел на MEOWFFICER_TRAIN_START')
                 break
 
             if self.appear(MEOWFFICER_APPLY_UNLOCK, offset=(40, 40), interval=3):
@@ -289,7 +289,7 @@ class MeowfficerCollect(MeowfficerBase):
                         continue
 
                 count += 1
-                logger.attr('[Комофицер — сбор] Количество получений', count)
+                logger.attr('[Мяуфицер — сбор] Количество получений', count)
                 with self.stat.new(
                         genre="meowfficer_talent",
                         method=self.config.DropRecord_MeowfficerTalent
