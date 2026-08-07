@@ -18,11 +18,11 @@ def _get_known_hosts_files(ssh_executable: str, host: str, port: int) -> list[Pa
             text=True,
         )
     except FileNotFoundError:
-        logger.warning(f"找不到 SSH 可执行文件，无法查询主机指纹路径：{ssh_executable}")
+        logger.warning(f"Исполняемый файл SSH не найден; невозможно определить пути к файлам отпечатков хостов: {ssh_executable}")
         return []
 
     if result.returncode:
-        logger.warning(f"查询 SSH 主机指纹路径失败：{result.stderr.strip()}")
+        logger.warning(f"Не удалось определить пути к файлам отпечатков SSH-хостов: {result.stderr.strip()}")
         return []
 
     files = []
@@ -48,7 +48,7 @@ def clear_ssh_host_key(host: str, port: int, ssh_executable: str = "ssh") -> boo
     try:
         port = int(port)
     except (TypeError, ValueError):
-        logger.warning(f"SSH 端口无效，跳过清理主机指纹：{host}:{port}")
+        logger.warning(f"Некорректный SSH-порт; очистка отпечатка хоста пропущена: {host}:{port}")
         return False
 
     targets = [f"[{host}]:{port}"]
@@ -74,13 +74,13 @@ def clear_ssh_host_key(host: str, port: int, ssh_executable: str = "ssh") -> boo
                     text=True,
                 )
             except FileNotFoundError:
-                logger.warning(f"找不到 ssh-keygen，无法清理 SSH 主机指纹：{target}")
+                logger.warning(f"ssh-keygen не найден; невозможно очистить отпечаток SSH-хоста: {target}")
                 return removed
 
             if result.returncode == 0:
-                logger.info(f"已清理 SSH 主机指纹：{target}（{known_hosts}）")
+                logger.info(f"Отпечаток SSH-хоста очищен: {target} ({known_hosts})")
                 removed = True
             elif result.returncode != 1:
-                logger.warning(f"清理 SSH 主机指纹失败：{target}，{result.stderr.strip()}")
+                logger.warning(f"Не удалось очистить отпечаток SSH-хоста: {target}, {result.stderr.strip()}")
 
     return removed
