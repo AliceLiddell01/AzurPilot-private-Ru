@@ -137,15 +137,14 @@ class RewardShipyard(ShipyardUI):
                 if pay:
                     self._coin_count -= total
                 else:
-                    logger.info(f'最多只能购买 {(i - start)} '
-                                f'/ {count} 张蓝图')
+                    logger.info(f'[Верфь — стоимость] Доступно купить только {(i - start)} / {count} чертежей')
                 return i, i - start
             total += cost
 
         if pay:
             self._coin_count -= total
         else:
-            logger.info(f'可以购买全部 {count} 张蓝图')
+            logger.info(f'[Верфь — стоимость] Можно купить все {count} чертежей')
         return i + 1, count
 
     def _shipyard_buy_calc(self, start, count):
