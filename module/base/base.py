@@ -465,4 +465,4 @@ class ModuleBase:
         package = to_package(server)
         self.device.package = package
         set_server(server)
-        logger.attr('服务器', self.config.SERVER)
+        logger.attr('Сервер', self.config.SERVER)

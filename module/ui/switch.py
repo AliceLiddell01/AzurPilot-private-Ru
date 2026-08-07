@@ -50,7 +50,7 @@ class Switch:
             similarity (float): 使用偏移量时的模板匹配阈值。
         """
         if state == 'unknown':
-            raise ScriptError(f'Cannot use "unknown" as state name')
+            raise ScriptError(f'Нельзя использовать "unknown" как имя состояния')
         self.state_list.append({
             'state': state,
             'check_button': check_button,
@@ -125,7 +125,7 @@ class Switch:
             if row['state'] == state:
                 return row
 
-        raise ScriptError(f'Switch {self.name} received an invalid state: {state}')
+        raise ScriptError(f'Переключатель {self.name} получил недопустимое состояние: {state}')
 
     def handle_additional(self, main):
         """
@@ -151,7 +151,7 @@ class Switch:
         Returns:
             bool: 是否发生了点击操作。
         """
-        logger.info(f'{self.name} set to {state}')
+        logger.info(f'{self.name}: установка состояния {state}')
         self.get_data(state)
 
         changed = False
@@ -179,8 +179,8 @@ class Switch:
             # 未知状态警告
             if current == 'unknown':
                 if unknown_timer.reached():
-                    logger.warning(f'[UI-开关] 开关 {self.name} 状态评估为未知，'
-                                   f'资源应重新验证')
+                    logger.warning(f'[UI — Переключатель] Состояние переключателя {self.name} не распознано; '
+                                   f'ресурсы следует перепроверить')
                     has_unknown = True
                     unknown_timer.reset()
                 # 如果 unknown_timer 从未触发，不点击未知状态（可能是切换动画）。
@@ -239,7 +239,7 @@ class Switch:
             if current != 'unknown':
                 return True
             if timeout.reached():
-                logger.warning(f'{self.name} wait activated timeout')
+                logger.warning(f'{self.name}: превышено время ожидания активации')
                 return False
 
             # 处理额外弹窗

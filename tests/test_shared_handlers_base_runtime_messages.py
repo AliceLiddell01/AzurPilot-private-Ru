@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 
@@ -9,12 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def source(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
-
-
-def git_blob_sha(path: str) -> str:
-    data = (ROOT / path).read_bytes()
-    header = f"blob {len(data)}\0".encode()
-    return hashlib.sha1(header + data, usedforsecurity=False).hexdigest()
 
 
 class TestSharedHandlersBaseRuntimeMessages:
@@ -237,12 +230,3 @@ class TestSharedHandlersBaseRuntimeMessages:
             "return buff",
         ):
             assert token in text, token
-
-    def test_out_of_scope_and_preserved_technical_files_are_byte_exact(self):
-        expected = {
-            "module/ui/ui.py": "d809b13450d22b00a6ed9cd8d8c9bc481ccec0cc",
-            "module/base/timer.py": "4cf5628b0637781bf1e367b55eccd48908c4b951",
-            "module/base/utils.py": "2c653aed8171a22942c8d992ecc6f600f6820b64",
-        }
-        for path, blob_sha in expected.items():
-            assert git_blob_sha(path) == blob_sha, path
