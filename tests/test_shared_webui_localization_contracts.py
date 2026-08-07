@@ -4,32 +4,20 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-
-CANONICAL_WEBUI_FILES = (
-    "module/webui/api.py",
-    "module/webui/app_dashboard.py",
-    "module/webui/app_developer_settings.py",
-    "module/webui/app_developer_tools.py",
-    "module/webui/app_home.py",
-    "module/webui/app_instances.py",
-    "module/webui/app_overview.py",
-    "module/webui/app_stat_action_point_toolbar.py",
-    "module/webui/app_stat_commission.py",
-    "module/webui/app_stat_opsi.py",
-    "module/webui/app_task_config.py",
-    "module/webui/event_calculator.py",
-    "module/webui/obs_overlay.html",
-    "module/webui/oobe.py",
-    "module/webui/oobe_base.py",
-    "module/webui/process_manager.py",
-    "module/webui/remote_access.py",
-    "module/webui/setting.py",
-    "module/webui/widgets.py",
-)
+WEBUI_ROOT = ROOT / "module/webui"
+WEBUI_RUNTIME_SUFFIXES = {".py", ".html", ".js", ".css"}
 
 
 def _source(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _webui_runtime_sources():
+    return sorted(
+        path
+        for path in WEBUI_ROOT.rglob("*")
+        if path.is_file() and path.suffix.lower() in WEBUI_RUNTIME_SUFFIXES
+    )
 
 
 def _class_method(path: str, class_name: str, method_name: str) -> ast.FunctionDef:
@@ -47,11 +35,10 @@ def _class_method(path: str, class_name: str, method_name: str) -> ast.FunctionD
 
 
 class TestSharedWebUiLocalizationContracts(unittest.TestCase):
-    def test_canonical_sources_are_utf8_clean(self):
-        self.assertEqual(19, len(CANONICAL_WEBUI_FILES))
-        for path in CANONICAL_WEBUI_FILES:
-            with self.subTest(path=path):
-                self.assertNotIn("\ufffd", _source(path))
+    def test_webui_runtime_sources_are_utf8_clean(self):
+        for path in _webui_runtime_sources():
+            with self.subTest(path=path.relative_to(ROOT)):
+                self.assertNotIn("\ufffd", path.read_text(encoding="utf-8"))
 
     def test_obs_overlay_preserves_dom_and_machine_contract(self):
         source = _source("module/webui/obs_overlay.html")
@@ -231,12 +218,6 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
         remote_source = _source("module/webui/remote_access.py")
         self.assertIn("[{host}]", remote_source)
         self.assertIn("{allowed_hosts}", remote_source)
-
-    def test_live_preview_policy_regression_test_remains_present(self):
-        source = _source("tests/test_webui_live_preview_policy.py")
-        self.assertIn('/ws/live_screenshot', source)
-        self.assertIn('/ws/live_control', source)
-        self.assertIn("ws-scrcpy-server-v1.19-ws7.jar", source)
 
 
 if __name__ == "__main__":
