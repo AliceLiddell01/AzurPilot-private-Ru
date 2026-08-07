@@ -1,621 +1,454 @@
-"""岛屿每日互动任务模块。
+"""岛屿每日交互模块。
 
-处理岛屿低频互动任务的自动化执行，包括摸猫、JUU 速运、商区外送服务和每周照相。
-结合开发计划任务列表区域检测，按顺序执行所有已启用的互动任务。
+管理岛屿每日的 NPC 交互任务，包括阿卡西、奥古斯特、斯蒂芬波特、
+伊丽莎白女王等角色的好感度互动，以及不同地点的地图导航与交互流程。
 """
-from datetime import timedelta
-
-from module.config.time_source import now as current_time
-
-from module.base.timer import Timer
-from module.island.island import Island
-from module.island.assets import *
-from module.island_daily_interact.assets import *
-from module.base.utils import crop
-from module.handler.assets import STORY_SKIP_3
+from module.island.island import *
 from module.logger import logger
-from module.ui.assets import ISLAND_PHONE_CHECK, ISLAND_CHECK
-from module.ui.page import page_island, page_island_map, page_island_phone
-
-
-DEVELOPMENT_PLAN_TASK_LIST_AREA = (179, 124, 280, 690)
+from module.island_daily_interact.assets import *
+from datetime import timedelta
+from module.config.time_source import now as current_time
+from module.island.island_detection import red, yellow
 
 
 class IslandDailyInteract(Island):
-    """每日与每周互动任务：摸猫、JUU速运、商区外送服务、每周照相。"""
-
-    def run(self):
-        """执行启用的岛屿低频互动任务。"""
-        logger.hr('岛屿每日互动运行', level=1)
-        self.ui_ensure(page_island)
-
-        all_done = True
-        self.pet_cat()
-        all_done = self.juu_express() and all_done
-        all_done = self.business_delivery() and all_done
-        if self.config.IslandDailyInteract_WeeklyPhoto:
-            all_done = self.weekly_photo() and all_done
-
-        if all_done:
-            self._delay_to_next_day()
-            logger.info('[岛屿-每日周任务] 岛屿每日互动执行完成')
-        else:
-            logger.warning('[岛屿-每日周任务] 岛屿每日互动部分任务失败，60分钟后重试')
-            self.config.task_delay(minute=60)
-
-    def pet_cat(self):
+    def _asset_matches_server(self, button):
         """
-        执行晨露农场摸猫。
+        判断资产是否来自当前服务器。
 
-        Pages:
-            in: 任意页面
-            out: page_island 或奖励关闭后的当前页面
+        统一使用 Button 当前加载的 ``file`` 路径，不再维护业务侧资产路径映射。
+        ``Button.file`` 在 :mod:`module.config.server` 中会按当前服务器自动选取，
+        因此这里只需验证该路径的目录片段即可。
         """
-        from module.island_daily_interact.assets import PET_CAT_FARM_INTERACT
-
-        logger.hr('撸猫', level=2)
-        if not self.island_map_goto('farm'):
-            logger.warning('[岛屿-每日周任务] 前往晨露农场失败，跳过摸猫任务')
-            return False
-        self.move_for_morningdew_farm()
-
-        if self._click_optional_interact(PET_CAT_FARM_INTERACT, '摸猫互动'):
-            self._handle_island_reward_optional()
-        else:
-            logger.info('[岛屿-每日周任务] 未检测到摸猫互动按钮，跳过')
-
-        self._click_safe_area_twice()
-
-    def juu_express(self):
-        """
-        执行 JUU 速运任务。
-
-        Pages:
-            in: 任意页面
-            out: page_island
-        """
-        from module.island_daily_interact.assets import (
-            DEVELOPMENT_PLAN_DAILY_TAB,
-            DEVELOPMENT_PLAN_DAILY_TAB_CHECK,
-            TEMPLATE_JUU_EXPRESS_TASK_ICON,
-        )
-
-        logger.hr('JUU快递', level=2)
-        if not self._detect_development_plan_template_task(
-                task_template=TEMPLATE_JUU_EXPRESS_TASK_ICON,
-                tab_button=DEVELOPMENT_PLAN_DAILY_TAB,
-                tab_check=DEVELOPMENT_PLAN_DAILY_TAB_CHECK,
-                tab_label='每日计划',
-                label='JUU速运'):
-            logger.info('[岛屿-每日周任务] 未检测到或已完成 JUU 速运任务，跳过')
-            self._back_to_island_phone_from_development_plan()
+        current_server = str(getattr(self.config, 'SERVER', '') or '').lower()
+        file_path = str(getattr(button, 'file', '') or '').replace('\\', '/').lower()
+        marker = '/assets/'
+        if marker not in file_path:
             return True
-        if not self._back_to_island_phone_from_development_plan():
-            return False
-
-        completed = True
-        for name, destination, move_method, interact_button, complete_button in self._juu_express_steps():
-            if not self.juu_express_location_flow(
-                    name=name,
-                    destination=destination,
-                    move_method=move_method,
-                    interact_button=interact_button,
-                    complete_button=complete_button):
-                logger.warning(f'[岛屿-每日周任务] JUU速运地点交互失败，终止后续流程: {name}')
-                completed = False
-                break
-
-        self._handle_island_reward_optional()
-        self._click_safe_area_twice()
-        self.ui_goto(page_island, get_ship=False)
-        return completed
-
-    def business_delivery(self):
-        """
-        执行商区外送服务任务。
-
-        Pages:
-            in: 任意页面
-            out: page_island
-        """
-        from module.island_daily_interact.assets import (
-            DEVELOPMENT_PLAN_DAILY_TAB,
-            DEVELOPMENT_PLAN_DAILY_TAB_CHECK,
-            TEMPLATE_BUSINESS_DELIVERY_TASK_ICON,
-        )
-
-        logger.hr('商业配送', level=2)
-        if not self._detect_development_plan_template_task(
-                task_template=TEMPLATE_BUSINESS_DELIVERY_TASK_ICON,
-                tab_button=DEVELOPMENT_PLAN_DAILY_TAB,
-                tab_check=DEVELOPMENT_PLAN_DAILY_TAB_CHECK,
-                tab_label='每日计划',
-                label='商区外送服务'):
-            logger.info('[岛屿-每日周任务] 未检测到或已完成商区外送服务任务，跳过')
-            self._back_to_island_phone_from_development_plan()
+        asset_root = file_path.split(marker, 1)[0].rstrip('/')
+        asset_server = asset_root.rsplit('/', 1)[-1]
+        if asset_server not in {'cn', 'en', 'jp', 'tw'}:
             return True
-        if not self._back_to_island_phone_from_development_plan():
+        return asset_server == current_server
+
+    @staticmethod
+    def _ensure_model_asset(button, name):
+        file_path = str(getattr(button, 'file', '') or '')
+        if not file_path:
+            raise FileNotFoundError(f'У {name} отсутствует путь к ресурсу')
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f'Не найден ресурс {name}: {file_path}')
+
+    def _ensure_interact_assets(self, button, name):
+        if not self._asset_matches_server(button):
+            raise FileNotFoundError(
+                f'Ресурс {name} не соответствует текущему серверу {self.config.SERVER}: {button.file}'
+            )
+        self._ensure_model_asset(button, name)
+
+    def _interact_model_available(self, button, name):
+        try:
+            self._ensure_interact_assets(button, name)
+            return True
+        except FileNotFoundError as exc:
+            logger.warning(str(exc))
             return False
 
-        completed = True
-        for name, destination, move_method, interact_button, complete_button in self._business_delivery_steps():
-            if not self.delivery_location_flow(
-                    task_label='商区外送服务',
-                    name=name,
-                    destination=destination,
-                    move_method=move_method,
-                    interact_button=interact_button,
-                    complete_button=complete_button):
-                logger.warning(f'[岛屿-每日周任务] 商区外送服务地点交互失败，终止后续流程: {name}')
-                completed = False
-                break
+    def goto_npc(self, target):
+        """导航到指定 NPC。"""
+        self.ensure_map_assets(force=True)
+        logger.info(f'[Остров — ежедневные взаимодействия] Переход к NPC: {target}')
+        self.map_goto(target)
+        self.device.sleep(0.5)
 
-        self._handle_island_reward_optional()
-        self._click_safe_area_twice()
-        self.ui_goto(page_island, get_ship=False)
-        return completed
+    def _detect_target(self, target, similarity=0.82):
+        """检测交互目标，使用目标模板在当前截图中定位。"""
+        if not self._interact_model_available(target, getattr(target, 'name', 'interact_target')):
+            return None
+        image = self.device.screenshot()
+        buttons = target.match_multi(image, similarity=similarity, threshold=5)
+        if buttons:
+            buttons.sort(key=lambda btn: btn.area[1], reverse=True)
+            return buttons[0]
+        return None
 
-    def weekly_photo(self):
-        """
-        执行每周照相任务，直到开发计划中不再出现任务图标。
-
-        Pages:
-            in: 任意页面
-            out: page_island_phone 或 page_island
-        """
-        from module.island_daily_interact.assets import (
-            DEVELOPMENT_PLAN_WEEKLY_TAB,
-            DEVELOPMENT_PLAN_WEEKLY_TAB_CHECK,
-            TEMPLATE_WEEKLY_PHOTO_TASK_ICON,
-            WEEKLY_PHOTO_TASK_CHECK,
-        )
-
-        logger.hr('每周拍照', level=2)
-        completed = True
-        while 1:
-            if not self._start_development_plan_template_task(
-                    task_template=TEMPLATE_WEEKLY_PHOTO_TASK_ICON,
-                    task_check=WEEKLY_PHOTO_TASK_CHECK,
-                    tab_button=DEVELOPMENT_PLAN_WEEKLY_TAB,
-                    tab_check=DEVELOPMENT_PLAN_WEEKLY_TAB_CHECK,
-                    tab_label='每周计划',
-                    label='每周照相任务'):
-                logger.info('[岛屿-每日周任务] 未检测到或已完成每周照相任务，结束循环')
-                self._back_to_island_phone_from_development_plan()
-                break
-
-            if not self._run_weekly_photo_once():
-                logger.warning('[岛屿-每日周任务] 每周照相任务单轮流程未完整完成，结束循环')
-                completed = False
-                break
-
-            if not self._back_to_island_phone():
-                completed = False
-                break
-
-        return completed
-
-    def delivery_location_flow(self, task_label, name, destination, move_method, interact_button, complete_button):
-        """
-        单个外送类任务地点的通用交付流程。
-
-        Args:
-            task_label: 日志中的任务名称。
-            name: 日志中的地点名称。
-            destination: island_map_goto() 的目的地。
-            move_method: 目的地内移动路线函数。
-            interact_button: 当前地点交互按钮。
-            complete_button: 当前地点已完成图标。
-
-        Returns:
-            bool: 是否完成该地点交付。
-        """
-        logger.hr(f'{task_label} - {name}', level=3)
-        for attempt in range(2):
-            logger.info(f'[岛屿-每日周任务] 前往{name}，第{attempt + 1}次尝试')
-            if not self.island_map_goto(destination):
-                logger.warning(f'[岛屿-每日周任务] 前往{name}失败')
+    def _move_to_target(self, target, max_attempts=20):
+        """尝试移动到目标交互范围。"""
+        for attempt in range(max_attempts):
+            target_button = self._detect_target(target)
+            if target_button is None:
+                logger.info(f'[Остров — ежедневные взаимодействия] Цель не обнаружена, попытка перемещения {attempt + 1}/{max_attempts}')
+                self.island_up(1000)
                 continue
-            move_method()
 
-            interact_status = self._click_optional_interact_or_complete(
-                    interact_button=interact_button,
-                    complete_button=complete_button,
-                    label=f'{name}交付互动')
-            if interact_status == 'clicked':
-                self.handle_island_story_skip_safely()
-                self.device.sleep(2)
-                self._handle_island_reward_optional()
+            x, y = target_button.center
+            logger.info(f'[Остров — ежедневные взаимодействия] Координаты цели: ({x}, {y})')
+            if y > 500:
+                self.island_down(400)
+            elif y < 260:
+                self.island_up(400)
+            if x > 900:
+                self.island_right(400)
+            elif x < 380:
+                self.island_left(400)
+
+            if self.appear(INTERACT_BUTTON, offset=(40, 40)):
                 return True
-            if interact_status == 'complete':
-                return True
-
-            logger.warning(f'[岛屿-每日周任务] 未检测到{name}交付互动按钮')
-
         return False
 
-    def juu_express_location_flow(self, name, destination, move_method, interact_button, complete_button):
-        """单个 JUU 速运地点的通用交付流程。"""
-        return self.delivery_location_flow(
-            task_label='JUU速运',
-            name=name,
-            destination=destination,
-            move_method=move_method,
-            interact_button=interact_button,
-            complete_button=complete_button,
-        )
-
-    def move_for_lakeniya(self):
-        """繁荫农圃拉科尼娅移动路线。"""
-        self.island_up(2000)
-        self.island_right(1800)
-        self.island_up(500)
-
-    def move_for_luxi(self):
-        """繁荫农圃露西移动路线。"""
-        self.island_left(800)
-        self.island_up(5500)
-        self.island_left(1000)
-        self.island_up(3700)
-
-    def move_for_aobulaien(self):
-        """栖风原野奥布莱恩移动路线。"""
-        self.island_right(4600)
-        self.island_up(5100)
-        self.island_right(1100)
-
-    def move_for_qiaoan(self):
-        """栖风原野乔安移动路线。"""
-        self.island_right(6000)
-        self.island_down(3000)
-        self.island_right(2300)
-
-    def move_for_morningdew_farm(self):
-        """晨露农场摸猫移动路线。"""
-        self.island_left(500)
-        self.island_down(200)
-
-    def move_for_hemo(self):
-        """晨露农场赫莫移动路线。"""
-        self.island_left(600)
-        self.island_up(2000)
-        self.island_left(800)
-
-    def move_for_meili(self):
-        """晨露农场梅莉移动路线。"""
-        self.island_right(1800)
-        self.island_down(600)
-
-    def move_for_aolipike(self):
-        """晨露农场奥利匹克移动路线。"""
-        self.island_left(500)
-        self.island_down(1500)
-        self.island_left(1700)
-        self.island_down(1900)
-
-    def move_for_amoma(self):
-        """港口商区阿莫玛移动路线。"""
-        self.island_up(1500)
-        self.island_left(400)
-
-    def move_for_pateli(self):
-        """港口帕特莉移动路线。"""
-        self.island_left(2200)
-        self.device.click(ISLAND_JUMP)
-        self.island_left(1200)
-        self.island_up(500)
-
-    def move_for_bulaimei(self):
-        """港口布莱梅移动路线（需跳转到啾咖啡餐厅）。"""
-        self.island_up(2600)
-        self.device.click(ROUTE_TWO_OPTION_COMPLETE)
-        for _ in self.loop(timeout=12, skip_first=False):
-            self.device.sleep(2)
-            if self.appear(ISLAND_CHECK):
-                break
-        self.island_left(600)
-
-    def move_for_lisha(self):
-        """集会岛莉莎移动路线。"""
-        self.island_up(3000)
-        self.island_left(2000)
-        self.island_up(5500)
-        self.island_right(300)
-        self.island_up(2200)
-        self.island_left(1100)
-
-    def handle_island_story_skip_safely(self):
-        """
-        安全处理岛屿互动后的剧情跳过。
-
-        Returns:
-            bool: 是否检测到返回状态或执行过跳过处理。
-        """
-        handled = False
-        for _ in self.loop(timeout=20, skip_first=False):
-            if self._appear_story_skip_luma(interval=2):
-                self.device.click(AIR_DROP_SKIP)
-                handled = True
-                continue
-
-            in_island = self.ui_page_appear(page_island)
-            in_island_map = self.ui_page_appear(page_island_map)
-            if in_island or in_island_map:
-                return handled
-
-            if self.appear(ISLAND_PHONE_CHECK):
-                logger.warning('[岛屿-每日周任务] 跳过期间检测到岛屿手机页面，停止继续点击跳过')
-                self.ui_goto(page_island, get_ship=False)
-                return handled
-
-            if self._handle_island_reward_once():
-                handled = True
-                continue
-
-        logger.warning('[岛屿-每日周任务] 剧情跳过等待超时')
-        return handled
-
-    def _appear_story_skip_luma(self, interval=0):
-        """岛屿对话左上角菜单易受场景光照染色，使用亮度匹配复用 STORY_SKIP_3。"""
-        self.device.stuck_record_add(STORY_SKIP_3)
-        if interval:
-            timer = self.interval_timer.get(STORY_SKIP_3.name)
-            if timer is None or timer.limit != interval:
-                self.interval_timer[STORY_SKIP_3.name] = Timer(interval)
-                timer = self.interval_timer[STORY_SKIP_3.name]
-            if not timer.reached():
-                return False
-
-        appear = STORY_SKIP_3.match_luma(self.device.image, offset=(20, 20), similarity=0.85)
-        if appear and interval:
-            timer.reset()
-        return appear
-
-    def _juu_express_steps(self):
-        # 其余 2 个 JUU 速运按钮暂缺，后续补图后再补回。
-        return [
-            ('港口的帕特莉', 'port', self.move_for_pateli, JUU_EXPRESS_PATELI_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            ('栖风原野的奥布莱恩', 'mine_forest', self.move_for_aobulaien, JUU_EXPRESS_AOBULAIEN_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            ('晨露农场的梅莉', 'farm', self.move_for_meili, JUU_EXPRESS_MEILI_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            ('集会岛的莉莎', 'assembly', self.move_for_lisha, JUU_EXPRESS_LISHA_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            # 缺图：繁荫农圃的拉科尼娅
-            # ('繁荫农圃的拉科尼娅', 'nursery', self.move_for_lakeniya, JUU_EXPRESS_LAKENIYA_INTERACT, ROUTE_THREE_OPTION_COMPLETE),
-            ('栖风原野的乔安', 'mine_forest', self.move_for_qiaoan, JUU_EXPRESS_QIAOAN_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            # 缺图：晨露农场的奥利匹克
-            # ('晨露农场的奥利匹克', 'farm', self.move_for_aolipike, JUU_EXPRESS_AOLIPIKE_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            ('港口商区的阿莫玛', 'port_business', self.move_for_amoma, JUU_EXPRESS_AMOMA_INTERACT, ROUTE_THREE_OPTION_COMPLETE),
-            ('繁荫农圃的露西', 'nursery', self.move_for_luxi, JUU_EXPRESS_LUXI_INTERACT, ROUTE_THREE_OPTION_COMPLETE),
-        ]
-
-    def _business_delivery_steps(self):
-        return [
-            ('港口商区的阿莫玛', 'port_business', self.move_for_amoma, BUSINESS_DELIVERY_AMOMA_INTERACT, ROUTE_THREE_OPTION_COMPLETE),
-            ('栖风原野的奥布莱恩', 'mine_forest', self.move_for_aobulaien, BUSINESS_DELIVERY_TWO_OPTION_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            ('集会岛的莉莎', 'assembly', self.move_for_lisha, BUSINESS_DELIVERY_TWO_OPTION_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            ('繁荫农圃的拉科尼娅', 'nursery', self.move_for_lakeniya, BUSINESS_DELIVERY_THREE_OPTION_INTERACT, ROUTE_THREE_OPTION_COMPLETE),
-            ('繁荫农圃的露西', 'nursery', self.move_for_luxi, BUSINESS_DELIVERY_THREE_OPTION_INTERACT, ROUTE_THREE_OPTION_COMPLETE),
-            ('港口的帕特莉', 'port', self.move_for_pateli, BUSINESS_DELIVERY_TWO_OPTION_INTERACT, ROUTE_TWO_OPTION_COMPLETE),
-            ('啾咖啡餐厅的布莱梅', 'port', self.move_for_bulaimei, BUSINESS_DELIVERY_THREE_OPTION_INTERACT, ROUTE_THREE_OPTION_COMPLETE),
-            ('晨露农场的赫莫', 'farm', self.move_for_hemo, BUSINESS_DELIVERY_THREE_OPTION_INTERACT, ROUTE_THREE_OPTION_COMPLETE),
-        ]
-
-    def _enter_development_plan(self):
-        """
-        从岛屿手机页面进入开发计划页面。
-
-        Pages:
-            in: page_island_phone
-            out: ISLAND_DEVELOPMENT_PLAN_CHECK
-        """
-        from module.island_daily_interact.assets import ISLAND_DEVELOPMENT_PLAN_CHECK, ISLAND_PHONE_DEVELOPMENT_PLAN
-
-        self.ui_goto(page_island_phone, get_ship=False)
-        for _ in self.loop(timeout=15):
-            if self.appear(ISLAND_DEVELOPMENT_PLAN_CHECK):
+    def _interact_once(self, target, max_attempts=20):
+        """执行一次通用 NPC 交互。"""
+        for attempt in range(max_attempts):
+            if self.appear(INTERACT_BUTTON, offset=(40, 40)):
+                logger.info('[Остров — ежедневные взаимодействия] Нажатие кнопки взаимодействия')
+                self.device.click(INTERACT_BUTTON)
+                self.device.sleep(0.5)
                 return True
-            if self.appear_then_click(ISLAND_PHONE_DEVELOPMENT_PLAN, interval=2):
+            target_button = self._detect_target(target)
+            if target_button:
+                logger.info(f'[Остров — ежедневные взаимодействия] Цель обнаружена: {target_button}')
+                self.device.click(target_button)
+                self.device.sleep(0.5)
                 continue
-            if self._handle_island_reward_once():
-                continue
-
-        logger.warning('[岛屿-每日周任务] 进入开发计划页面超时')
+            logger.info(f'[Остров — ежедневные взаимодействия] Цель не найдена, попытка {attempt + 1}/{max_attempts}')
+            self.island_up(500)
         return False
 
-    def _start_development_plan_template_task(self, task_template, task_check, tab_button, tab_check, tab_label, label):
-        """
-        进入开发计划页面后先切换到目标页签，再通过模板搜索启动指定任务。
-
-        Args:
-            task_template: 开发计划任务列表中的任务图标模板。
-            task_check: 点击任务图标后的确认按钮。
-            tab_button: 目标页签的切换按钮。
-            tab_check: 目标页签切换后的激活检测按钮。
-            tab_label: 目标页签日志名称。
-            label: 日志名称。
-
-        Returns:
-            bool: 是否需要继续执行任务流程。
-        """
-        if not self._enter_development_plan():
-            return False
-
-        if not self._switch_development_plan_tab(tab_button=tab_button, tab_check=tab_check, label=tab_label):
-            return False
-
-        self.device.screenshot()
-        task_button = self._match_development_plan_task_template(task_template)
-        if task_button is None:
-            return False
-
-        logger.info(f'[岛屿-每日周任务] 检测到{label}，点击任务图标')
-        self.device.click(task_button)
-        for _ in self.loop(timeout=8):
-            if self.appear_then_click(task_check, offset=(20, 20), interval=2):
-                logger.info(f'[岛屿-每日周任务] {label}确认成功')
+    def _handle_dialog(self, end_button=None, max_loops=30):
+        """处理交互对话。"""
+        for _ in range(max_loops):
+            self.device.screenshot()
+            if end_button and self.appear(end_button, offset=(20, 20)):
+                logger.info('[Остров — ежедневные взаимодействия] Обнаружено завершение диалога')
                 return True
-            if self._handle_island_reward_once():
+            if self.appear_then_click(DIALOG_CONTINUE, offset=(40, 40), interval=1):
                 continue
-
-        logger.warning(f'[岛屿-每日周任务] {label}确认按钮等待超时')
+            if self.appear_then_click(DIALOG_SKIP, offset=(40, 40), interval=1):
+                continue
+            if self.appear_then_click(DIALOG_CONFIRM, offset=(40, 40), interval=1):
+                continue
+            if self.handle_popup_confirm('ISLAND_INTERACT'):
+                continue
+            if self.handle_get_items():
+                continue
+            if self.ui_additional(get_ship=False):
+                continue
+            self.device.click(DIALOG_SAFE_AREA)
+            self.device.sleep(0.3)
         return False
 
-    def _detect_development_plan_template_task(self, task_template, tab_button, tab_check, tab_label, label):
-        """
-        进入开发计划页面后只检测指定任务图标，不点击任务确认按钮。
-
-        Args:
-            task_template: 开发计划任务列表中的任务图标模板。
-            tab_button: 目标页签的切换按钮。
-            tab_check: 目标页签切换后的激活检测按钮。
-            tab_label: 目标页签日志名称。
-            label: 日志名称。
-
-        Returns:
-            bool: 是否检测到目标任务图标。
-        """
-        if not self._enter_development_plan():
+    def interact_akashi(self):
+        """与明石交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Akashi', level=2)
+        if not self._interact_model_available(INTERACT_AKASHI, 'INTERACT_AKASHI'):
             return False
-
-        if not self._switch_development_plan_tab(tab_button=tab_button, tab_check=tab_check, label=tab_label):
+        self.goto_npc('Akashi')
+        if not self._move_to_target(INTERACT_AKASHI):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Akashi')
             return False
-
-        self.device.screenshot()
-        if self._match_development_plan_task_template(task_template) is None:
+        if not self._interact_once(INTERACT_AKASHI):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Akashi')
             return False
-
-        logger.info(f'[岛屿-每日周任务] 检测到{label}任务图标')
+        self._handle_dialog()
         return True
 
-    def _switch_development_plan_tab(self, tab_button, tab_check, label):
-        """切换到开发计划目标页签，并确认页签已激活。"""
-        logger.info(f'[岛屿-每日周任务] 切换到{label}页签')
-        for _ in self.loop(timeout=12):
-            if self.appear(tab_check):
-                logger.info(f'[岛屿-每日周任务] {label}页签已激活')
-                return True
-            if self.appear_then_click(tab_button, interval=2):
-                continue
-            if self._handle_island_reward_once():
-                continue
+    def interact_august(self):
+        """与奥古斯特交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: August', level=2)
+        if not self._interact_model_available(INTERACT_AUGUST, 'INTERACT_AUGUST'):
+            return False
+        self.goto_npc('August')
+        if not self._move_to_target(INTERACT_AUGUST):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к August')
+            return False
+        if not self._interact_once(INTERACT_AUGUST):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с August')
+            return False
+        self._handle_dialog()
+        return True
 
-        logger.warning(f'[岛屿-每日周任务] 切换到{label}页签超时')
-        return False
+    def interact_william(self):
+        """与威廉·D·波特交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: WilliamDPorter', level=2)
+        if not self._interact_model_available(INTERACT_WILLIAM, 'INTERACT_WILLIAM'):
+            return False
+        self.goto_npc('WilliamDPorter')
+        if not self._move_to_target(INTERACT_WILLIAM):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к WilliamDPorter')
+            return False
+        if not self._interact_once(INTERACT_WILLIAM):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с WilliamDPorter')
+            return False
+        self._handle_dialog()
+        return True
 
-    def _match_development_plan_task_template(self, task_template):
-        """在开发计划任务列表区域内匹配任务图标模板。"""
-        region = crop(self.device.image, DEVELOPMENT_PLAN_TASK_LIST_AREA, copy=False)
-        matches = task_template.match_multi(
-            region,
-            similarity=0.85,
-            threshold=5,
-            name='DEVELOPMENT_PLAN_TASK_TEMPLATE',
-        )
-        if not matches:
-            return None
+    def interact_queen_elizabeth(self):
+        """与伊丽莎白女王交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: QueenElizabeth', level=2)
+        if not self._interact_model_available(INTERACT_QUEEN_ELIZABETH, 'INTERACT_QUEEN_ELIZABETH'):
+            return False
+        self.goto_npc('QueenElizabeth')
+        if not self._move_to_target(INTERACT_QUEEN_ELIZABETH):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к QueenElizabeth')
+            return False
+        if not self._interact_once(INTERACT_QUEEN_ELIZABETH):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с QueenElizabeth')
+            return False
+        self._handle_dialog()
+        return True
 
-        matches.sort(key=lambda button: (button.area[1], button.area[0]))
-        return matches[0].move(DEVELOPMENT_PLAN_TASK_LIST_AREA[:2])
+    def interact_yixian(self):
+        """与逸仙交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Yixian', level=2)
+        if not self._interact_model_available(INTERACT_YIXIAN, 'INTERACT_YIXIAN'):
+            return False
+        self.goto_npc('Yixian')
+        if not self._move_to_target(INTERACT_YIXIAN):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Yixian')
+            return False
+        if not self._interact_once(INTERACT_YIXIAN):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Yixian')
+            return False
+        self._handle_dialog()
+        return True
 
-    def _run_weekly_photo_once(self):
-        from module.island_daily_interact.assets import (
-            WEEKLY_PHOTO_CAMERA,
-            WEEKLY_PHOTO_IDLE,
-        )
+    def interact_takao(self):
+        """与高雄交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Takao', level=2)
+        if not self._interact_model_available(INTERACT_TAKAO, 'INTERACT_TAKAO'):
+            return False
+        self.goto_npc('Takao')
+        if not self._move_to_target(INTERACT_TAKAO):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Takao')
+            return False
+        if not self._interact_once(INTERACT_TAKAO):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Takao')
+            return False
+        self._handle_dialog()
+        return True
 
-        for index in range(3):
-            logger.info(f'[岛屿-每日周任务] 每周照相第{index + 1}轮')
-            self._click_weekly_photo_button(WEEKLY_PHOTO_CAMERA, '照相按钮')
-            self._click_weekly_photo_button(WEEKLY_PHOTO_IDLE, '空闲按钮')
+    def interact_eugen(self):
+        """与欧根亲王交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Eugen', level=2)
+        if not self._interact_model_available(INTERACT_EUGEN, 'INTERACT_EUGEN'):
+            return False
+        self.goto_npc('Eugen')
+        if not self._move_to_target(INTERACT_EUGEN):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Eugen')
+            return False
+        if not self._interact_once(INTERACT_EUGEN):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Eugen')
+            return False
+        self._handle_dialog()
+        return True
 
-        for _ in self.loop(timeout=12):
-            if self._handle_island_reward_once():
-                continue
-            if self.appear_then_click(ISLAND_BACK, interval=2):
-                return True
+    def interact_hood(self):
+        """与胡德交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Hood', level=2)
+        if not self._interact_model_available(INTERACT_HOOD, 'INTERACT_HOOD'):
+            return False
+        self.goto_npc('Hood')
+        if not self._move_to_target(INTERACT_HOOD):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Hood')
+            return False
+        if not self._interact_once(INTERACT_HOOD):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Hood')
+            return False
+        self._handle_dialog()
+        return True
 
-        logger.warning('[岛屿-每日周任务] 每周照相通用奖励或返回按钮等待超时')
-        return False
+    def interact_javelin(self):
+        """与标枪交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Javelin', level=2)
+        if not self._interact_model_available(INTERACT_JAVELIN, 'INTERACT_JAVELIN'):
+            return False
+        self.goto_npc('Javelin')
+        if not self._move_to_target(INTERACT_JAVELIN):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Javelin')
+            return False
+        if not self._interact_once(INTERACT_JAVELIN):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Javelin')
+            return False
+        self._handle_dialog()
+        return True
 
-    def _click_weekly_photo_button(self, button, label):
-        """每周照相页面按钮位置固定，直接点击，不做出现检测。"""
-        self.device.screenshot()
-        logger.info(f'[岛屿-每日周任务] 点击{label}')
-        self.device.click(button)
+    def interact_laffey(self):
+        """与拉菲交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Laffey', level=2)
+        if not self._interact_model_available(INTERACT_LAFFEY, 'INTERACT_LAFFEY'):
+            return False
+        self.goto_npc('Laffey')
+        if not self._move_to_target(INTERACT_LAFFEY):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Laffey')
+            return False
+        if not self._interact_once(INTERACT_LAFFEY):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Laffey')
+            return False
+        self._handle_dialog()
+        return True
 
-    def _click_optional_interact(self, button, label, timeout=8):
-        for _ in self.loop(timeout=timeout):
-            if self.appear_then_click(button, interval=2):
-                logger.info(f'[岛屿-每日周任务] 点击{label}')
-                return True
-            if self._handle_island_reward_once():
-                continue
+    def interact_feiyun(self):
+        """与飞云交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: FeiYun', level=2)
+        if not self._interact_model_available(INTERACT_FEIYUN, 'INTERACT_FEIYUN'):
+            return False
+        self.goto_npc('FeiYun')
+        if not self._move_to_target(INTERACT_FEIYUN):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к FeiYun')
+            return False
+        if not self._interact_once(INTERACT_FEIYUN):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с FeiYun')
+            return False
+        self._handle_dialog()
+        return True
 
-        return False
+    def interact_explorer(self):
+        """与探索者交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Explorer', level=2)
+        if not self._interact_model_available(INTERACT_EXPLORER, 'INTERACT_EXPLORER'):
+            return False
+        self.goto_npc('Explorer')
+        if not self._move_to_target(INTERACT_EXPLORER):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Explorer')
+            return False
+        if not self._interact_once(INTERACT_EXPLORER):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Explorer')
+            return False
+        self._handle_dialog()
+        return True
 
-    def _click_optional_interact_or_complete(self, interact_button, complete_button, label, timeout=8):
-        for _ in self.loop(timeout=timeout):
-            if self.appear_then_click(interact_button, interval=2):
-                logger.info(f'[岛屿-每日周任务] 点击{label}')
-                return 'clicked'
-            if self.appear(complete_button, offset=(20, 20)):
-                logger.info(f'[岛屿-每日周任务] {label}已完成，进入下一步')
-                return 'complete'
-            if self._handle_island_reward_once():
-                continue
+    def interact_navigator(self):
+        """与领航员交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: Navigator', level=2)
+        if not self._interact_model_available(INTERACT_NAVIGATOR, 'INTERACT_NAVIGATOR'):
+            return False
+        self.goto_npc('Navigator')
+        if not self._move_to_target(INTERACT_NAVIGATOR):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к Navigator')
+            return False
+        if not self._interact_once(INTERACT_NAVIGATOR):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с Navigator')
+            return False
+        self._handle_dialog()
+        return True
 
-        return 'missing'
+    def interact_ocean_crosser(self):
+        """与远洋者交互。"""
+        logger.hr('Остров — ежедневное взаимодействие: OceanCrosser', level=2)
+        if not self._interact_model_available(INTERACT_OCEAN_CROSSER, 'INTERACT_OCEAN_CROSSER'):
+            return False
+        self.goto_npc('OceanCrosser')
+        if not self._move_to_target(INTERACT_OCEAN_CROSSER):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось приблизиться к OceanCrosser')
+            return False
+        if not self._interact_once(INTERACT_OCEAN_CROSSER):
+            logger.warning('[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с OceanCrosser')
+            return False
+        self._handle_dialog()
+        return True
 
-    def _handle_island_reward_optional(self, timeout=6):
-        handled = False
-        for _ in self.loop(timeout=timeout):
-            if self._handle_island_reward_once():
-                handled = True
-                continue
-        return handled
+    def interact_location(self, location, target, label):
+        """通用地点 NPC 交互。"""
+        logger.hr(f'Остров — ежедневное взаимодействие: {label}', level=2)
+        if not self._interact_model_available(target, label):
+            return False
+        self.goto_npc(location)
+        if not self._move_to_target(target):
+            logger.warning(f'[Остров — ежедневные взаимодействия] Не удалось приблизиться к {label}')
+            return False
+        if not self._interact_once(target):
+            logger.warning(f'[Остров — ежедневные взаимодействия] Не удалось начать взаимодействие с {label}')
+            return False
+        self._handle_dialog()
+        return True
 
-    def _handle_island_reward_once(self):
-        if self.appear(GET_ITEMS_ISLAND, offset=(20, 20)):
-            logger.info('[岛屿-每日周任务] 检测到岛屿奖励页面，点击安全区域关闭')
-            self.device.click(ISLAND_CLICK_SAFE_AREA)
+    def run(self):
+        """执行岛屿每日交互。"""
+        self.island_error = False
+        self.ui_ensure(page_island)
+
+        interactions = []
+        if self.config.IslandDailyInteract_Akashi:
+            interactions.append(('Akashi', self.interact_akashi))
+        if self.config.IslandDailyInteract_August:
+            interactions.append(('August', self.interact_august))
+        if self.config.IslandDailyInteract_WilliamDPorter:
+            interactions.append(('WilliamDPorter', self.interact_william))
+        if self.config.IslandDailyInteract_QueenElizabeth:
+            interactions.append(('QueenElizabeth', self.interact_queen_elizabeth))
+        if self.config.IslandDailyInteract_Yixian:
+            interactions.append(('Yixian', self.interact_yixian))
+        if self.config.IslandDailyInteract_Takao:
+            interactions.append(('Takao', self.interact_takao))
+        if self.config.IslandDailyInteract_Eugen:
+            interactions.append(('Eugen', self.interact_eugen))
+        if self.config.IslandDailyInteract_Hood:
+            interactions.append(('Hood', self.interact_hood))
+        if self.config.IslandDailyInteract_Javelin:
+            interactions.append(('Javelin', self.interact_javelin))
+        if self.config.IslandDailyInteract_Laffey:
+            interactions.append(('Laffey', self.interact_laffey))
+        if self.config.IslandDailyInteract_FeiYun:
+            interactions.append(('FeiYun', self.interact_feiyun))
+        if self.config.IslandDailyInteract_Explorer:
+            interactions.append(('Explorer', self.interact_explorer))
+        if self.config.IslandDailyInteract_Navigator:
+            interactions.append(('Navigator', self.interact_navigator))
+        if self.config.IslandDailyInteract_OceanCrosser:
+            interactions.append(('OceanCrosser', self.interact_ocean_crosser))
+
+        if self.config.IslandDailyInteract_Harbor:
+            interactions.append((
+                'Harbor',
+                lambda: self.interact_location('Harbor', INTERACT_HARBOR, 'Harbor')
+            ))
+        if self.config.IslandDailyInteract_Mine:
+            interactions.append((
+                'Mine',
+                lambda: self.interact_location('Mine', INTERACT_MINE, 'Mine')
+            ))
+        if self.config.IslandDailyInteract_LoggingCamp:
+            interactions.append((
+                'LoggingCamp',
+                lambda: self.interact_location('LoggingCamp', INTERACT_LOGGING_CAMP, 'LoggingCamp')
+            ))
+        if self.config.IslandDailyInteract_SunnyRanch:
+            interactions.append((
+                'SunnyRanch',
+                lambda: self.interact_location('SunnyRanch', INTERACT_SUNNY_RANCH, 'SunnyRanch')
+            ))
+        if self.config.IslandDailyInteract_Hometown:
+            interactions.append((
+                'Hometown',
+                lambda: self.interact_location('Hometown', INTERACT_HOMETOWN, 'Hometown')
+            ))
+        if self.config.IslandDailyInteract_Farm:
+            interactions.append((
+                'Farm',
+                lambda: self.interact_location('Farm', INTERACT_FARM, 'Farm')
+            ))
+
+        if not interactions:
+            logger.info('[Остров — ежедневные взаимодействия] Взаимодействия не настроены; задача завершена')
+            self.config.task_delay(server_update=True)
             return True
-        if self.appear(ISLAND_GET, offset=(20, 20)):
-            logger.info('[岛屿-每日周任务] 检测到岛屿领取页面，点击安全区域关闭')
-            self.device.click(ISLAND_CLICK_SAFE_AREA)
-            return True
-        return False
 
-    def _click_safe_area_twice(self):
-        for _ in range(2):
-            self.device.screenshot()
-            self.device.click(ISLAND_CLICK_SAFE_AREA)
+        completed = 0
+        for name, func in interactions:
+            logger.info(f'[Остров — ежедневные взаимодействия] Выполнение: {name}')
+            try:
+                if func():
+                    completed += 1
+            except Exception as exc:
+                logger.warning(f'[Остров — ежедневные взаимодействия] Сбой {name}: {exc}')
+                continue
 
-    def _back_to_island_phone_from_development_plan(self):
-        logger.info('[岛屿-每日周任务] 退出开发计划页面')
-        for _ in self.loop(timeout=8):
-            if self.appear(ISLAND_PHONE_CHECK):
-                return True
-            if self.appear_then_click(ISLAND_BACK, interval=2):
-                continue
-            if self._handle_island_reward_once():
-                continue
-        logger.warning('[岛屿-每日周任务] 退出开发计划页面超时')
-        return False
+        total = len(interactions)
+        logger.info(f'[Остров — ежедневные взаимодействия] Выполнено: {completed}/{total}')
+        self.config.task_delay(server_update=True)
 
-    def _back_to_island_phone(self):
-        logger.info('[岛屿-每日周任务] 返回岛屿手机页面')
-        for _ in self.loop(timeout=20):
-            if self.appear(ISLAND_PHONE_CHECK):
-                return True
-            if self.appear_then_click(ISLAND_BACK, interval=2):
-                continue
-            if self._handle_island_reward_once():
-                continue
-        logger.warning('[岛屿-每日周任务] 返回岛屿手机页面超时')
-        return False
+        if self.island_error:
+            from module.exception import GameBugError
+            raise GameBugError('Обнаружен Island ERROR1; требуется перезапуск')
 
-    def _delay_to_next_day(self):
-        target = current_time().replace(hour=3, minute=0, second=0, microsecond=0)
-        if target <= current_time():
-            target += timedelta(days=1)
-        self.config.task_delay(target=target)
-        logger.info(f'[岛屿-每日周任务] 下次岛屿每日互动运行时间: {target}')
+        return completed == total
