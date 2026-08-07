@@ -50,7 +50,7 @@ class MeowfficerBuy(MeowfficerBase):
             bool: If success.
         """
         remain, bought, total = MEOWFFICER.ocr(self.device.image)
-        logger.attr('指挥喵剩余次数', remain)
+        logger.attr('Мяуфицер — осталось покупок', remain)
 
         # 检查购买状态
         if total != BUY_MAX:
@@ -87,7 +87,7 @@ class MeowfficerBuy(MeowfficerBase):
         """
         # Here uses a simple click, to avoid clicking MEOWFFICER_BUY multiple times.
         # Retry logic is in meow_buy()
-        logger.hr('确认购买')
+        logger.hr('Подтверждение покупки')
         executed = False
         with self.stat.new(
                 genre="meowfficer_buy",
@@ -132,7 +132,7 @@ class MeowfficerBuy(MeowfficerBase):
             in: page_meowfficer
             out: page_meowfficer
         """
-        logger.hr('指挥喵购买', level=1)
+        logger.hr('Мяуфицер — покупка', level=1)
 
         for _ in range(3):
             if self.meow_choose(count=self.config.Meowfficer_BuyAmount):
@@ -162,8 +162,8 @@ class MeowfficerBuy(MeowfficerBase):
 
         # OCR识别剩余购买次数
         remain, bought, total = MEOWFFICER.ocr(self.device.image)
-        logger.attr('指挥喵剩余次数', remain)
-        logger.attr('指挥喵已购买次数', bought)
+        logger.attr('Мяуфицер — осталось покупок', remain)
+        logger.attr('Мяуфицер — уже куплено', bought)
 
         # 每日限制检查
         if total != BUY_MAX:
@@ -177,7 +177,7 @@ class MeowfficerBuy(MeowfficerBase):
 
         # OCR识别金币
         coins = MEOWFFICER_COINS.ocr(self.device.image)
-        logger.attr('指挥喵金币', coins)
+        logger.attr('Мяуфицер — монеты', coins)
 
         if coins <= overflow_coins:
             logger.info(f'[Мяуфицер — избыток] Монеты {coins} <= порога {overflow_coins}; пропуск')
