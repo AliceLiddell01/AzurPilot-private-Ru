@@ -159,7 +159,7 @@ class ShopItemGrid_250814(ShopItemGrid):
             item = self.item_class(image, button)
             if not item.is_valid:
                 count += 1
-        logger.attr('物品售罄数', count)
+        logger.attr('Количество распроданных товаров', count)
         return count
 
 
@@ -261,15 +261,15 @@ class ShopBase(UI):
         # 获取 ShopItemGrid
         shop_items = self.shop_items()
         if shop_items is None:
-            logger.warning('期望 ShopItemGrid 类型但实际为 None')
+            logger.warning('Ожидался ShopItemGrid, но получен None')
             return []
 
         if self.config.SHOP_EXTRACT_TEMPLATE:
             if self.shop_template_folder:
-                logger.info(f'提取物品模板到 {self.shop_template_folder}')
+                logger.info(f'Извлечение шаблонов товаров в {self.shop_template_folder}')
                 shop_items.extract_template(image, self.shop_template_folder)
             else:
-                logger.warning('SHOP_EXTRACT_TEMPLATE 已启用但 shop_template_folder 未设置，跳过提取')
+                logger.warning('SHOP_EXTRACT_TEMPLATE включён, но shop_template_folder не задан; извлечение пропущено')
 
         shop_items.predict(
             image,
@@ -286,12 +286,12 @@ class ShopBase(UI):
         if len(items):
             min_row = grids[0, 0].area[1]
             row = [str(item) for item in items if item.button[1] == min_row]
-            logger.info(f'[商店] 第1行: {row}')
+            logger.info(f'[Магазин] Ряд 1: {row}')
             row = [str(item) for item in items if item.button[1] != min_row]
-            logger.info(f'[商店] 第2行: {row}')
+            logger.info(f'[Магазин] Ряд 2: {row}')
             return items
         else:
-            logger.info('未找到商店物品')
+            logger.info('Товары магазина не найдены')
             return []
 
     def shop_obstruct_handle(self):
@@ -306,18 +306,18 @@ class ShopBase(UI):
         """
         # 处理商店遮挡物
         if self.appear(GET_SHIP, interval=1):
-            logger.info(f'商店遮挡: {GET_SHIP} -> {SHOP_CLICK_SAFE_AREA}')
+            logger.info(f'Перекрытие магазина: {GET_SHIP} -> {SHOP_CLICK_SAFE_AREA}')
             self.device.click(SHOP_CLICK_SAFE_AREA)
             return True
         # 锁定新获得的舰船
         if self.handle_popup_confirm('SHOP_OBSTRUCT'):
             return True
         if self.appear(GET_ITEMS_1, interval=1):
-            logger.info(f'商店遮挡: {GET_ITEMS_1} -> {SHOP_CLICK_SAFE_AREA}')
+            logger.info(f'Перекрытие магазина: {GET_ITEMS_1} -> {SHOP_CLICK_SAFE_AREA}')
             self.device.click(SHOP_CLICK_SAFE_AREA)
             return True
         if self.appear(GET_ITEMS_3, interval=1):
-            logger.info(f'商店遮挡: {GET_ITEMS_3} -> {SHOP_CLICK_SAFE_AREA}')
+            logger.info(f'Перекрытие магазина: {GET_ITEMS_3} -> {SHOP_CLICK_SAFE_AREA}')
             self.device.click(SHOP_CLICK_SAFE_AREA)
             return True
 
@@ -339,7 +339,7 @@ class ShopBase(UI):
         # 获取 ShopItemGrid
         shop_items = self.shop_items()
         if shop_items is None:
-            logger.warning('期望 ShopItemGrid 类型但实际为 None')
+            logger.warning('Ожидался ShopItemGrid, но получен None')
             return []
 
         # 循环预测以确保物品已加载且可被准确读取
@@ -357,10 +357,10 @@ class ShopBase(UI):
 
             if self.config.SHOP_EXTRACT_TEMPLATE:
                 if self.shop_template_folder:
-                    logger.info(f'提取物品模板到 {self.shop_template_folder}')
+                    logger.info(f'Извлечение шаблонов товаров в {self.shop_template_folder}')
                     shop_items.extract_template(self.device.image, self.shop_template_folder)
                 else:
-                    logger.warning('SHOP_EXTRACT_TEMPLATE 已启用但 shop_template_folder 未设置，跳过提取')
+                    logger.warning('SHOP_EXTRACT_TEMPLATE включён, но shop_template_folder не задан; извлечение пропущено')
 
             shop_items.predict(
                 self.device.image,
@@ -372,13 +372,13 @@ class ShopBase(UI):
             )
 
             if timeout.reached():
-                logger.warning('物品加载超时，继续并假设已加载')
+                logger.warning('Тайм-аут загрузки товаров; продолжаем, предполагая, что загрузка завершена')
                 break
 
             # 检查未加载的物品，因为游戏加载物品速度较慢
             items = shop_items.items
             known = len([item for item in items if item.is_known_item])
-            logger.attr('已检测物品数', known)
+            logger.attr('Обнаружено товаров', known)
             if known == 0 or known != record:
                 record = known
                 continue
@@ -395,12 +395,12 @@ class ShopBase(UI):
         if len(items):
             min_row = grids[0, 0].area[1]
             row = [str(item) for item in items if item.button[1] == min_row]
-            logger.info(f'[商店] 第1行: {row}')
+            logger.info(f'[Магазин] Ряд 1: {row}')
             row = [str(item) for item in items if item.button[1] != min_row]
-            logger.info(f'[商店] 第2行: {row}')
+            logger.info(f'[Магазин] Ряд 2: {row}')
             return items
         else:
-            logger.info('未找到商店物品')
+            logger.info('Товары магазина не найдены')
             return []
 
     def shop_check_item(self, item):
@@ -459,6 +459,6 @@ class ShopBase(UI):
 
         if not filtered:
             return None
-        logger.attr('物品排序', ' > '.join([str(item) for item in filtered]))
+        logger.attr('Сортировка товаров', ' > '.join([str(item) for item in filtered]))
 
         return filtered[0]
