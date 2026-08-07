@@ -45,10 +45,10 @@ class TestGameNotRunningErrorHandling(unittest.TestCase):
         self.assertEqual('recoverable', result)
         script.config.task_call.assert_called_once_with('Restart')
         error_context_mock.assert_called_once_with(
-            title='游戏进程未运行',
-            reason='任务执行前未检测到碧蓝航线游戏进程。',
-            impact='当前任务跳过，调度器将自动安排 Restart 任务。',
-            action='通常无需处理；若反复发生，请检查游戏包名、模拟器状态和登录流程。',
+            title='Игровой процесс не запущен',
+            reason='Перед выполнением задачи процесс Azur Lane не обнаружен.',
+            impact='Текущая задача пропущена; планировщик автоматически назначит задачу Restart.',
+            action='Обычно действие не требуется. При повторении проверьте имя пакета игры, состояние эмулятора и процедуру входа.',
             exc=error,
             level=30,
             with_traceback=False,
