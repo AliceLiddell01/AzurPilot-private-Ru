@@ -246,10 +246,10 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
         if not host:
             raise ParseError("Хост SSH-сервера для перенаправления не задан")
         if _is_private_redirect_host(host):
-            raise ParseError(f"Refuse redirect to private host [{host}]")
+            raise ParseError(f"Перенаправление на приватный хост запрещено [{host}]")
         allowed_hosts = [item.lower() for item in self._redirect_hosts(primary_host)]
         if allowed_hosts and not any(fnmatch.fnmatch(host, pattern) for pattern in allowed_hosts):
-            raise ParseError(f"Refuse redirect to untrusted host [{host}], allowed hosts: {allowed_hosts}")
+            raise ParseError(f"Перенаправление на недоверенный хост запрещено [{host}], разрешённые хосты: {allowed_hosts}")
         return host, port
 
     def _terminate_process(self) -> None:
