@@ -79,7 +79,7 @@ class GuildBase(UI):
         """
         if self._guild_side_navbar.get_total(main=self) == 6:
             if upper == 3 or bottom == 4:
-                logger.warning('[大舰队-导航] 不支持切换到"申请"页面')
+                logger.warning('[Гильдия — навигация] Переключение на страницу "Заявки" не поддерживается')
                 return False
 
         if self._guild_side_navbar.set(self, upper=upper, bottom=bottom):

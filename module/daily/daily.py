@@ -63,14 +63,14 @@ class Daily(Combat):
 
     def next(self):
         self.daily_current += 1
-        logger.info(f'[每日任务] 切换到 {self.daily_current}')
+        logger.info(f'[Ежедневные задания] Переключение на {self.daily_current}')
         self.device.click(DAILY_NEXT)
         self._wait_daily_switch()
         self.device.screenshot()
 
     def prev(self):
         self.daily_current -= 1
-        logger.info(f'[每日任务] 切换到 {self.daily_current}')
+        logger.info(f'[Ежедневные задания] Переключение на {self.daily_current}')
         self.device.click(DAILY_PREV)
         self._wait_daily_switch()
         self.device.screenshot()

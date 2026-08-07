@@ -82,7 +82,7 @@ class DatedDuration(Ocr):
             result = [int(s) for s in result.groups()]
             return datetime.timedelta(days=result[0], hours=result[1], minutes=result[2], seconds=result[3])
         else:
-            logger.warning(f'[演习-OCR] 无效的带日期时长: {string}')
+            logger.warning(f'[Учения — OCR] Недопустимая продолжительность с датой: {string}')
             return datetime.timedelta(days=0, hours=0, minutes=0, seconds=0)
 
 
@@ -132,7 +132,7 @@ class Exercise(ExerciseCombat):
 
         点击刷新按钮获取新的对手，并记录当天的刷新次数。
         """
-        logger.info('[演习-对手] 刷新对手')
+        logger.info('[Учения — противник] Обновление списка противников')
         self.appear_then_click(NEW_OPPONENT)
         self.opponent_change_count += 1
 
@@ -214,12 +214,12 @@ class Exercise(ExerciseCombat):
                 return success
             else:
                 if self.opponent_change_count < 5:
-                    logger.info("[演习-对手] 无法击败最简单对手，刷新")
+                    logger.info("[Учения — противник] Не удалось победить самого простого противника; обновление")
                     self._new_opponent()
                     self._opponent_fleet_check_all()
                     continue
                 else:
-                    logger.info("[演习-对手] 无法击败最简单对手，切换最大经验")
+                    logger.info("[Учения — противник] Не удалось победить самого простого противника; переключение на максимальный опыт")
                     method = "max_exp"
                     threshold = 0
 
@@ -299,21 +299,21 @@ class Exercise(ExerciseCombat):
         self.preserve, admiral_interval = self._get_exercise_strategy()
 
         remain_time = OCR_PERIOD_REMAIN.ocr(self.device.image)
-        logger.info(f'[演习-调度] 演习赛季剩余时间: {remain_time}')
+        logger.info(f'[Учения — планировщик] До конца сезона учений: {remain_time}')
 
         if admiral_interval is not None and remain_time:
             admiral_start, admiral_end = admiral_interval
 
             if admiral_start > int(remain_time.total_seconds() // 3600) >= admiral_end:  # 达到将军试炼设定时间
-                logger.info('[演习-调度] 达到将军试炼设定时间，消耗所有次数')
+                logger.info('[Учения — планировщик] Наступило заданное время адмиральского испытания; расходуем все попытки')
                 self.preserve = 0
                 forced_run =True
             elif int(remain_time.total_seconds() // 3600) < 6:  # 未设置为 "sun18" 时，仍在周日 18 点前消耗
-                logger.info('[演习-调度] 演习赛季剩余不足6小时，消耗所有次数')
+                logger.info('[Учения — планировщик] До конца сезона учений меньше 6 часов; расходуем все попытки')
                 self.preserve = 0
                 forced_run = True
             else:
-                logger.info(f'[演习-调度] 保留 {self.preserve} 次演习')
+                logger.info(f'[Учения — планировщик] Сохраняем {self.preserve} попыток учений')
                 forced_run = False
         else:
             forced_run = False
@@ -322,8 +322,8 @@ class Exercise(ExerciseCombat):
         if ((get_server_next_update(server_update) - current_time()).seconds >
             3600 * self.config.Exercise_DelayUntilHoursBeforeNextUpdate)\
                 and not forced_run:
-            logger.warning(f'[演习-调度] 应在下次更新前 {self.config.Exercise_DelayUntilHoursBeforeNextUpdate} '
-                           f'小时执行，延迟任务')
+            logger.warning(f'[Учения — планировщик] Выполнить следует за {self.config.Exercise_DelayUntilHoursBeforeNextUpdate} '
+                           f'ч. до следующего обновления; задача отложена')
             run = False
         else:
             run = True
@@ -339,7 +339,7 @@ class Exercise(ExerciseCombat):
             else:
                 success = self._exercise_once()
             if not success:
-                logger.info('[演习-对手] 对手刷新次数耗尽')
+                logger.info('[Учения — противник] Попытки обновления противников исчерпаны')
                 break
 
         # self.equipment_take_off_when_finished()

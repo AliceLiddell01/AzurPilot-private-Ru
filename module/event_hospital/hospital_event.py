@@ -142,7 +142,7 @@ class HospitalEvent(Hospital, RaidRun):
         mode = mode if mode else self.config.HospitalEvent_Mode
         stage = stage if stage else self.config.HospitalEvent_Stage
         if not name or not mode or not stage:
-            raise ScriptError(f'RaidRun arguments unfilled. name={name}, mode={mode}, stage={stage}')
+            raise ScriptError(f'Не заполнены аргументы RaidRun. name={name}, mode={mode}, stage={stage}')
 
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount

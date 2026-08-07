@@ -52,9 +52,9 @@ class CampaignABCD(EventBase):
             self.config.task_stop()
 
         # 从上次执行到的关卡继续，避免重复刷已完成的关卡
-        logger.info(f'[活动-关卡] 上次关卡 {self.config.EventDaily_LastStage}，记录于 {self.config.Scheduler_NextRun}')
+        logger.info(f'[Событие — этап] Предыдущий этап {self.config.EventDaily_LastStage}, записан в {self.config.Scheduler_NextRun}')
         if get_server_last_update(self.config.Scheduler_ServerUpdate) >= self.config.Scheduler_NextRun:
-            logger.info('[活动-关卡] 上次关卡记录过期，重置')
+            logger.info('[Событие — этап] Запись предыдущего этапа устарела; сброс')
             self.config.EventDaily_LastStage = 0
         else:
             last = str(self.config.EventDaily_LastStage).lower()

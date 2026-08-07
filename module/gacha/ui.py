@@ -46,7 +46,7 @@ class GachaUI(UI):
 
             # 超时异常——资源加载未完成
             if ensure_timeout.reached():
-                logger.warning('[建造-UI] 等待资源加载超时，加载未完成')
+                logger.warning('[Строительство — UI] Тайм-аут ожидания загрузки ресурсов; загрузка не завершена')
                 return False
 
     @cached_property
@@ -98,7 +98,7 @@ class GachaUI(UI):
         """
         retire_upper = 5 if self._gacha_side_navbar.get_total(main=self) == 5 else 4
         if upper == retire_upper or bottom == 1:
-            logger.warning('[建造-UI] 不支持跳转到退役页面')
+            logger.warning('[Строительство — UI] Переход на страницу списания не поддерживается')
             return False
 
         if self._gacha_side_navbar.set(self, upper=upper, bottom=bottom) \
@@ -201,7 +201,7 @@ class GachaUI(UI):
         gacha_bottom_navbar = self._gacha_bottom_navbar(is_build)
         if is_build and gacha_bottom_navbar.get_total(main=self) == 3:
             if left == 1 or right == 4:
-                logger.info('[建造-UI] 限时建造不可用，切换到轻型建造')
+                logger.info('[Строительство — UI] Ограниченный пул недоступен; переключение на лёгкое строительство')
                 left = 1
                 right = None
             if left == 4:

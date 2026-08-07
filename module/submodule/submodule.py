@@ -11,7 +11,7 @@ from module.submodule.utils import *
 def load_mod(name):
     dir_name = get_mod_dir(name)
     if dir_name is None:
-        logger.critical("[Submodule] 杂鱼杂鱼~ 对应的功能模块离家出走了啦，大叔你真逊❤")
+        logger.critical("[Submodule] Модуль нужной функции куда-то сбежал. Вот же незадача, дядя ❤")
         return
 
     return importlib.import_module('.' + name, 'submodule.' + dir_name)

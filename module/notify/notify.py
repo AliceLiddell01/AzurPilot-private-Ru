@@ -86,7 +86,7 @@ def handle_notify(_config: str, **kwargs) -> bool:
                     if return_data["status"] == "failed":
                         logger.warning("推送通知失败!")
                         logger.warning(
-                            f"Return message:{return_data['wording']}")
+                            f"Ответ сервера:{return_data['wording']}")
                         return False
     except OnePushException:
         logger.error("推送通知失败")

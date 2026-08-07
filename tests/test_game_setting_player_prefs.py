@@ -219,7 +219,10 @@ class TestPlayerPrefsPrivacy(unittest.TestCase):
             result = manager.apply()
 
         self.assertFalse(result)
-        warning.assert_called_once_with('[GameSettings] 已跳过游戏本地设置自动配置（安全检查未通过）')
+        warning.assert_called_once_with(
+            '[GameSettings] Автоматическая настройка локальных параметров игры пропущена: '
+            'проверка безопасности не пройдена'
+        )
 
 
 class TestPlayerPrefsRootModes(unittest.TestCase):

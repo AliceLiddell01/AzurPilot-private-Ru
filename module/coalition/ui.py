@@ -62,7 +62,7 @@ class CoalitionUI(Combat):
             mode_switch.add_state('story', NEONCITY_MODE_STORY)
             mode_switch.add_state('battle', NEONCITY_MODE_BATTLE)
         elif event == 'coalition_20251120':
-            logger.info('[联动-UI] 联动活动 coalition_20251120 无模式切换')
+            logger.info('[Коалиция — UI] В событии coalition_20251120 нет переключения режима')
             return
         elif event == 'coalition_20260122':
             mode_switch = Switch('CoalitionMode', offset=(20, 20))
@@ -70,10 +70,10 @@ class CoalitionUI(Combat):
             mode_switch.add_state('battle', FASHION_MODE_BATTLE)
         elif event == 'coalition_20260723':
             # 常规活动入口直接进入作战页面，无需切换剧情模式。
-            logger.info('[联动-UI] 恐怖故事活动无模式切换')
+            logger.info('[Коалиция — UI] В событии Horror Story нет переключения режима')
             return
         else:
-            logger.error(f'[联动-UI] MODE_SWITCH未定义在活动中 {event}')
+            logger.error(f'[Коалиция — UI] MODE_SWITCH не определён для события {event}')
             raise ScriptError
 
         if mode == 'story':
@@ -115,7 +115,7 @@ class CoalitionUI(Combat):
             fleet_switch.add_state('single', MYSTERY_RECORD_SWITCH_SINGLE)
             fleet_switch.add_state('multi', MYSTERY_RECORD_SWITCH_MULTI)
         else:
-            logger.error(f'[联动-UI] FLEET_SWITCH未定义在活动中 {event}')
+            logger.error(f'[Коалиция — UI] FLEET_SWITCH не определён для события {event}')
             raise ScriptError
 
         if fleet_switch.get(main=self) == mode:
@@ -309,7 +309,7 @@ class CoalitionUI(Combat):
         elif event == 'coalition_20260723':
             return MYSTERY_RECORD_FLEET_PREPARATION
         else:
-            logger.error(f'[联动-UI] FLEET_PREPARATION未定义在活动中 {event}')
+            logger.error(f'[Коалиция — UI] FLEET_PREPARATION не определён для события {event}')
             raise ScriptError
 
     def handle_fleet_preparation(self, event, stage, mode):
@@ -341,16 +341,16 @@ class CoalitionUI(Combat):
         clicked = self.coalition_set_fleet(event, mode)
 
         if self.appear(FLEET_NOT_PREPARED, offset=(20, 20)):
-            logger.critical('[联动] 舰队未就绪')
-            logger.critical('[联动] 请先就绪舰队')
+            logger.critical('[Коалиция] Флот не готов')
+            logger.critical('[Коалиция] Сначала подготовьте флот')
             raise RequestHumanTakeover
         if self.appear(EMPTY_FLAGSHIP, offset=(20, 20)):
-            logger.critical('[联动] 舰队未就绪')
-            logger.critical('[联动] 请先就绪舰队')
+            logger.critical('[Коалиция] Флот не готов')
+            logger.critical('[Коалиция] Сначала подготовьте флот')
             raise RequestHumanTakeover
         if self.appear(EMPTY_VANGUARD, offset=(20, 20)):
-            logger.critical('[联动] 舰队未就绪')
-            logger.critical('[联动] 请先就绪舰队')
+            logger.critical('[Коалиция] Флот не готов')
+            logger.critical('[Коалиция] Сначала подготовьте флот')
             raise RequestHumanTakeover
 
         return clicked
@@ -408,17 +408,17 @@ class CoalitionUI(Combat):
         for _ in self.loop():
             # Check errors
             if campaign_click > 5:
-                logger.critical(f"[联动] 无法进入 {button}，点击次数过多")
-                logger.critical("[联动] 可能的原因1: 你还没有通关前置关卡，无法解锁该关卡。")
+                logger.critical(f"[Коалиция] Не удалось войти в {button}: слишком много попыток нажатия")
+                logger.critical("[Коалиция] Возможная причина 1: предыдущий этап ещё не пройден, поэтому этот этап не разблокирован.")
                 raise RequestHumanTakeover
             if campaign_difficulty_click > 5:
-                logger.critical(f"[联动] 无法进入 {button_difficulty}，点击次数过多")
-                logger.critical("[联动] 可能的原因1: 难度资源的图片不正确。")
+                logger.critical(f"[Коалиция] Не удалось войти в {button_difficulty}: слишком много попыток нажатия")
+                logger.critical("[Коалиция] Возможная причина 1: изображение ресурса сложности некорректно.")
                 raise RequestHumanTakeover
             if fleet_click > 5:
-                logger.critical(f"[联动] 无法进入 {button}，点击次数过多")
-                logger.critical("[联动] 可能的原因1: 你的舰队未达到该关卡的属性要求。")
-                logger.critical("[联动] 可能的原因2: 该关卡每天只能进入一次，但这是你第二次尝试进入。")
+                logger.critical(f"[Коалиция] Не удалось войти в {button}: слишком много попыток нажатия")
+                logger.critical("[Коалиция] Возможная причина 1: флот не соответствует требованиям этапа по характеристикам.")
+                logger.critical("[Коалиция] Возможная причина 2: этап можно проходить только один раз в день, а это вторая попытка входа.")
                 raise RequestHumanTakeover
 
             # End

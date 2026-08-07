@@ -108,7 +108,7 @@ class RewardShipyard(ShipyardUI):
             else:
                 return 6000
         else:
-            raise ScriptError(f'Invalid rarity in _shipyard_get_cost: {rarity}')
+            raise ScriptError(f'Недопустимая редкость в _shipyard_get_cost: {rarity}')
 
     def _shipyard_calculate(self, start, count, pay=False):
         """

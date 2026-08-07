@@ -59,7 +59,7 @@ class MaritimeEscort(MapOperation, CampaignEvent):
         except CampaignEnd:
             pass
 
-        logger.info('[活动-护航] 海上护卫完成')
+        logger.info('[Событие — эскорт] Морской эскорт завершён')
 
     def run(self):
         """执行海上护卫主流程。
@@ -79,6 +79,6 @@ class MaritimeEscort(MapOperation, CampaignEvent):
         if current > 0:
             self.run_escort()
         else:
-            logger.info('[活动-护航] 海上护卫今日已完成')
+            logger.info('[Событие — эскорт] Морской эскорт на сегодня уже завершён')
 
         self.config.task_delay(server_update=True)

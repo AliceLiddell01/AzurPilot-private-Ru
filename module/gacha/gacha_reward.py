@@ -88,8 +88,8 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
         # 检查是否异常提前退出，并设置正确的提交数量
         if ocr_submit is None:
-            raise ScriptError('[建造-准备] 无法识别OCR资产，'
-                              '无法继续准备工作')
+            raise ScriptError('[Строительство — подготовка] Не удалось распознать OCR-ресурс; '
+                              'подготовка не может быть продолжена')
         area = ocr_submit.buttons[0]
         ocr_submit.buttons = [(BUILD_MINUS.button[2] + 3, area[1], BUILD_PLUS.button[0] - 3, area[3])]
         self.ui_ensure_index(target, letter=ocr_submit, prev_button=BUILD_MINUS,
@@ -157,21 +157,21 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
         # 根据需要导航到 target_pool，并更新 target_pool 的实际值
         if target_pool == 'wishing_well':
             if self._gacha_side_navbar.get_total(main=self) != 5:
-                logger.warning('\'wishing_well\' is not available, '
-                               'default to \'light\' pool')
+                logger.warning('\'wishing_well\' недоступен; '
+                               'используется пул \'light\'')
                 target_pool = 'light'
             else:
                 self.gacha_side_navbar_ensure(upper=2)
                 if self.appear(BUILD_WW_CHECK):
-                    raise ScriptError('\'wishing_well\' must be configured '
-                                      'manually by user, cannot continue '
-                                      'gacha_goto_pool')
+                    raise ScriptError('\'wishing_well\' должен быть настроен '
+                                      'пользователем вручную; продолжить '
+                                      'gacha_goto_pool невозможно')
         elif target_pool == 'event':
             gacha_bottom_navbar = self._gacha_bottom_navbar(is_build=True)
             total = gacha_bottom_navbar.get_total(main=self)
             if total == 3:
-                logger.warning('\'event\' is not available, default '
-                               'to \'light\' pool')
+                logger.warning('\'event\' недоступен; используется '
+                               'пул \'light\'')
                 target_pool = 'light'
             else:
                 # 活动池可用时位于最左侧标签。

@@ -53,7 +53,7 @@ class LogRes:
                             instance_name = getattr(self.config, 'config_name', 'default')
                             cl1_db.async_add_yellow_coin_snapshot(instance_name, int(value), source='dashboard')
                         except Exception:
-                            logger.exception('[日志资源] 保存金币快照失败')
+                            logger.exception('[Ресурсы журнала] Не удалось сохранить снимок монет')
                     # 记录全量资源快照
                     self._record_all_resource_snapshot({key: value})
             elif isinstance(value, dict):
@@ -90,7 +90,7 @@ class LogRes:
                     else:
                         self._record_all_resource_snapshot()
         else:
-            logger.info('[日志资源] 仪表盘中无此资源')
+            logger.info('[Ресурсы журнала] Такого ресурса нет на панели мониторинга')
             super().__setattr__(name=key, value=value)
 
     def _record_all_resource_snapshot(self, overrides=None):
@@ -117,7 +117,7 @@ class LogRes:
                         pass
             record_resource_snapshot(instance_name, resources)
         except Exception:
-            logger.exception('[日志资源] 记录资源快照失败')
+            logger.exception('[Ресурсы журнала] Не удалось записать снимок ресурсов')
 
     def group(self, name):
         return deep_get(self.config.data, f'Dashboard.{name}')

@@ -47,7 +47,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
             fleet_1.recommend()
             return True
         else:
-            logger.error('[医院-战斗] 舰队未就绪且未启用自动推荐，请在运行前手动编队')
+            logger.error('[Госпиталь — бой] Флот не готов, а автоматическая рекомендация отключена; сформируйте флот вручную перед запуском')
             raise RequestHumanTakeover
 
     def combat_preparation(self, balance_hp=False, emotion_reduce=False, auto='combat_auto', fleet_index=1):

@@ -214,7 +214,7 @@ class CoalitionScuttleCombat(CoalitionCombat):
         from module.base.timer import Timer
         from module.os_ash.assets import BATTLE_STATUS
 
-        logger.info('[联动-扫荡] 联动自沉战斗重新进入')
+        logger.info('[Коалиция — зачистка] Повторный вход в бой после затопления')
         status_clicked = False
         click_timer = Timer(0.3)
         click_last = Timer(2)
@@ -281,8 +281,8 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
             Fleet_FleetOrder='fleet1_all_fleet2_standby',
         )
         if self.config.Coalition_Fleet == 'single' and self.config.Emotion_Fleet1Control == 'prevent_red_face':
-            logger.warning('AL does not allow single coalition with emotion < 30, '
-                           'emotion control is forced to prevent_yellow_face')
+            logger.warning('Azur Lane не допускает коалицию с одной флотилией при морали < 30; '
+                           'управление моралью принудительно переключено на prevent_yellow_face')
             self.config.override(Emotion_Fleet1Control='prevent_yellow_face')
         if stage == 'sp':
             self.config.override(Coalition_Fleet='multi')
@@ -334,7 +334,7 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
         mode = mode if mode else self.config.Coalition_Mode
         fleet = fleet if fleet else self.config.Coalition_Fleet
         if not event or not mode or not fleet:
-            raise ScriptError(f'CoalitionScuttle arguments unfilled. name={event}, mode={mode}, fleet={fleet}')
+            raise ScriptError(f'Не заполнены аргументы CoalitionScuttle. name={event}, mode={mode}, fleet={fleet}')
 
         event, mode = self.handle_stage_name(event, mode)
         self.run_count = 0
@@ -390,7 +390,7 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
             # SP关卡仅S评价视为已通过，延迟至服务器刷新
             # A/B/C/D评价均视为未通过，继续出击
             if mode == 'sp' and self._is_s_rank and not self._is_shipwreck:
-                logger.info('SP以S评价通过')
+                logger.info('SP пройден с оценкой S')
                 self.config.task_delay(server_update=True)
                 self.config.task_stop()
 

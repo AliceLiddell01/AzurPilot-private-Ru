@@ -130,9 +130,9 @@ class MeowfficerEnhance(MeowfficerBase):
             reset_max_feed_level = 30
 
         if -1 != reset_max_feed_level:
-            logger.warning(f"[指挥喵-强化] 条件 '1 <= MeowfficerTrain_MaxFeedLevel <= 30' 需要满足, "
-                           f'now MeowfficerTrain_MaxFeedLevel is {self.config.MeowfficerTrain_MaxFeedLevel}, '
-                           f'reset to {reset_max_feed_level}')
+            logger.warning(f"[Мяуфицер — усиление] Необходимо выполнить условие '1 <= MeowfficerTrain_MaxFeedLevel <= 30'; "
+                           f'текущее MeowfficerTrain_MaxFeedLevel = {self.config.MeowfficerTrain_MaxFeedLevel}, '
+                           f'сброс до {reset_max_feed_level}')
             self.config.MeowfficerTrain_MaxFeedLevel = reset_max_feed_level
 
         # Get all the cat levels ready for enhance
@@ -163,7 +163,7 @@ class MeowfficerEnhance(MeowfficerBase):
             # button is clickable
             clickable.append(button)
 
-        logger.info(f'[指挥喵-强化] 找到强化材料总数: {len(clickable)}')
+        logger.info(f'[Мяуфицер — усиление] Всего найдено материалов усиления: {len(clickable)}')
         return clickable
 
     def meow_feed_select(self):
@@ -216,11 +216,11 @@ class MeowfficerEnhance(MeowfficerBase):
         # Use current to pass appropriate button for ui_click
         # route back to MEOWFFICER_ENHANCE
         if current:
-            logger.info(f'[指挥喵-强化] 确认选择的强化材料, 总数: {current} / 10')
+            logger.info(f'[Мяуфицер — усиление] Подтверждение выбранных материалов усиления, всего: {current} / 10')
             self.ui_click(MEOWFFICER_FEED_CONFIRM, check_button=MEOWFFICER_ENHANCE_CONFIRM,
                           offset=(20, 20), skip_first_screenshot=True)
         else:
-            logger.info('[指挥喵-强化] 强化材料不足，取消强化')
+            logger.info('[Мяуфицер — усиление] Недостаточно материалов усиления; усиление отменено')
             self.ui_click(MEOWFFICER_FEED_CANCEL, check_button=MEOWFFICER_ENHANCE_CONFIRM,
                           offset=(10, 10), skip_first_screenshot=True)
         return current
@@ -257,8 +257,8 @@ class MeowfficerEnhance(MeowfficerBase):
                 if confirm_timer.reached():
                     return True
             if click_count >= 3:
-                logger.warning('[指挥喵-强化] 无法进入指挥喵喂养, '
-                               'probably because the meowfficer to enhance has reached LV.30')
+                logger.warning('[Мяуфицер — усиление] Не удалось перейти к кормлению мяуфицера; '
+                               'вероятно, усиливаемый мяуфицер уже достиг LV.30')
                 return False
 
     def meow_enhance_confirm(self, skip_first_screenshot=True):
@@ -318,7 +318,7 @@ class MeowfficerEnhance(MeowfficerBase):
             if self.appear(MEOWFFICER_FEED_ENTER, offset=(20, 20)):
                 return True
             if count > 3:
-                logger.warning('[指挥喵-强化] MEOWFFICER_ENHANCE_ENTER 点击次数过多，指挥喵可能在战斗中')
+                logger.warning('[Мяуфицер — усиление] Слишком много нажатий MEOWFFICER_ENHANCE_ENTER; возможно, мяуфицер находится в бою')
                 return False
 
             if self.appear_then_click(MEOWFFICER_ENHANCE_ENTER, offset=(20, 20), interval=3):
@@ -340,7 +340,7 @@ class MeowfficerEnhance(MeowfficerBase):
         """
         level = OCR_MEOWFFICER_ENHANCE_LEVEL.ocr(self.device.image)
         if level > 30:
-            logger.warning(f'[指挥喵-强化] 无效的指挥喵等级: {level}')
+            logger.warning(f'[Мяуфицер — усиление] Некорректный уровень мяуфицера: {level}')
         return level
 
     def _meow_enhance(self):
@@ -363,14 +363,14 @@ class MeowfficerEnhance(MeowfficerBase):
         # - Config at least > 0 but less than or equal to 12
         # - Coins at least > 1000
         if not (1 <= self.config.MeowfficerTrain_EnhanceIndex <= 12):
-            logger.warning(f'[指挥喵-强化] 强化索引={self.config.MeowfficerTrain_EnhanceIndex} '
-                           f'is out of bounds. Please limit to 1~12, skip')
+            logger.warning(f'[Мяуфицер — усиление] Индекс усиления={self.config.MeowfficerTrain_EnhanceIndex} '
+                           f'вне допустимого диапазона. Ограничьте значение до 1~12; пропуск')
             return 'invalid'
 
         coins = MEOWFFICER_COINS.ocr(self.device.image)
         if coins < 1000:
-            logger.info(f'[指挥喵-强化] 物资 ({coins}) < 1000, 物资不足无法完成 '
-                        f'enhancement, skip')
+            logger.info(f'[Мяуфицер — усиление] Монеты ({coins}) < 1000; недостаточно монет для '
+                        f'усиления, пропуск')
             return 'coin_limit'
 
         for _ in range(2):
@@ -379,7 +379,7 @@ class MeowfficerEnhance(MeowfficerBase):
             self._meow_select()
 
             if self._meow_get_level() >= 30:
-                logger.info('[指挥喵-强化] 当前指挥喵已满级')
+                logger.info('[Мяуфицер — усиление] Текущий мяуфицер уже максимального уровня')
                 return 'leveled_max'
 
             # Transition to MEOWFFICER_FEED after
@@ -414,8 +414,8 @@ class MeowfficerEnhance(MeowfficerBase):
 
             coins = MEOWFFICER_COINS.ocr(self.device.image)
             if coins < 1000:
-                logger.info(f'[指挥喵-强化] 剩余物资 ({coins}) < 1000, 物资不足以进行下次 '
-                            f'enhancement, skip')
+                logger.info(f'[Мяуфицер — усиление] Осталось монет ({coins}) < 1000; недостаточно для следующего '
+                            f'усиления, пропуск')
                 break
 
         # Exit back into page_meowfficer
@@ -437,9 +437,9 @@ class MeowfficerEnhance(MeowfficerBase):
             # Only for 'leveled_max'
             if self.config.MeowfficerTrain_EnhanceIndex < 12:
                 self.config.MeowfficerTrain_EnhanceIndex += 1
-                logger.info(f'[指挥喵-强化] 强化索引增加至 {self.config.MeowfficerTrain_EnhanceIndex}')
+                logger.info(f'[Мяуфицер — усиление] Индекс усиления увеличен до {self.config.MeowfficerTrain_EnhanceIndex}')
                 continue
             else:
-                logger.warning('[指挥喵-强化] 第12只指挥喵达到30级，禁用指挥喵训练')
+                logger.warning('[Мяуфицер — усиление] 12-й мяуфицер достиг 30-го уровня; обучение мяуфицеров отключено')
                 self.config.MeowfficerTrain_Enable = False
                 break

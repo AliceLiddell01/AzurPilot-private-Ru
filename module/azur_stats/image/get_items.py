@@ -111,9 +111,9 @@ class GetItems(ImageBase):
                 item = self.revise_item(item)
                 after = str(item)
                 if before != after:
-                    logger.info(f'[统计-物品] 物品 {before} 修正为 {after}')
+                    logger.info(f'[Статистика — предметы] Предмет {before} исправлен на {after}')
                 if item.amount == 0:
-                    raise ZeroAmountError(f'Invalid item amount: {item}')
+                    raise ZeroAmountError(f'Некорректное количество предмета: {item}')
                 yield item
 
     def extract_item_template(self, image, folder=None):
@@ -130,7 +130,7 @@ class GetItems(ImageBase):
             new = self.item_grid.extract_template(image, folder=folder)
             new = len(new.keys())
             if not GetItems.ALLOW_TOO_MANY_NEW_TEMPLATE and new >= 2:
-                raise TooManyNewTemplate(f'Extracted {new} new templates')
+                raise TooManyNewTemplate(f'Извлечено новых шаблонов: {new}')
 
     def before_revise_items(self, items: t.List[Item]) -> t.List[Item]:
         return items
@@ -153,7 +153,7 @@ class GetItems(ImageBase):
         elif self.classify_server(GET_ITEMS_3, image, offset=(5, 0)):
             self.item_grid.grids = ITEM_GRIDS_3
         else:
-            raise GetItemsInvalid('Stat image is not a get_items image')
+            raise GetItemsInvalid('Изображение статистики не является экраном получения предметов')
 
     def drop_has_get_items(self, images):
         """

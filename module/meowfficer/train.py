@@ -90,7 +90,7 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
             if self.appear(MEOWFFICER_TRAIN_FILL_QUEUE, offset=(20, 20)):
                 return True
             if self.info_bar_count():
-                logger.info('[指挥喵-训练] 没有更多训练栏位，退出')
+                logger.info('[Мяуфицер — обучение] Больше нет слотов обучения; выход')
                 return False
 
     def _meow_nqueue(self, skip_first_screenshot=True):
@@ -198,7 +198,7 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
 
         # Check remains
         if sum(self._box_count) <= 0:
-            logger.info('[指挥喵-训练] 没有更多猫箱可训练')
+            logger.info('[Мяуфицер — обучение] Больше нет ящиков для обучения')
             return
 
         # Choose appropriate queue func based on
@@ -207,14 +207,14 @@ class MeowfficerTrain(MeowfficerCollect, MeowfficerEnhance):
         # - > 20, high stock; queue common boxes first
         if ascending:
             if common_sum > 20:
-                logger.info('[指挥喵-训练] 升序队列 (蓝 > 紫 > 金)')
+                logger.info('[Мяуфицер — обучение] Очередь по возрастанию (синий > фиолетовый > золотой)')
                 self._meow_rqueue()
             else:
-                logger.info('[指挥喵-训练] 普通猫箱库存不足')
-                logger.info('[指挥喵-训练] 降序队列 (金 > 紫 > 蓝)')
+                logger.info('[Мяуфицер — обучение] Недостаточный запас обычных ящиков')
+                logger.info('[Мяуфицер — обучение] Очередь по убыванию (золотой > фиолетовый > синий)')
                 self._meow_nqueue()
         else:
-            logger.info('[指挥喵-训练] 降序队列 (金 > 紫 > 蓝)')
+            logger.info('[Мяуфицер — обучение] Очередь по убыванию (золотой > фиолетовый > синий)')
             self._meow_nqueue()
 
     def meow_train(self):

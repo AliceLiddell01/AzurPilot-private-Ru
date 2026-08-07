@@ -79,7 +79,7 @@ class OpsiZone(ImageBase):
         try:
             zone = self._opsi_zone_manager.name_to_zone(prefix)
         except ScriptError:
-            raise OpsiZoneInvalid(f'Unknown zone name: {name}')
+            raise OpsiZoneInvalid(f'Неизвестное название зоны: {name}')
 
         return DataOpsiZone(
             zone=zone.en,

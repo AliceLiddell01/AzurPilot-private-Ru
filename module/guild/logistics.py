@@ -147,21 +147,21 @@ class GuildLogistics(GuildBase):
         r, g, b = get_color(self.device.image, GUILD_MISSION.area)
         if g > max(r, b) - 10:
             # Green tick at the bottom right corner if guild mission finished
-            logger.info('[大舰队-后勤] 本周大舰队任务已完成')
+            logger.info('[Гильдия — логистика] Задание гильдии на эту неделю завершено')
             self._guild_logistics_mission_finished = True
             return False
         # 0/300 in EN is bold and pure white, and Collect rewards is blue white, so reverse the if condition
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=235, count=100):
 
-            logger.info('[大舰队-后勤] 大舰队任务按钮未激活')
+            logger.info('[Гильдия — логистика] Кнопка задания гильдии неактивна')
             return False
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=50):
             # white pixels less than 50, but has blue-white pixels
-            logger.info('[大舰队-后勤] 大舰队任务按钮已激活')
+            logger.info('[Гильдия — логистика] Кнопка задания гильдии активна')
             return True
         else:
             # No guild mission counter
-            logger.info('[大舰队-后勤] 未找到大舰队任务，本周任务可能未开始')
+            logger.info('[Гильдия — логистика] Задание гильдии не найдено; возможно, задание этой недели ещё не началось')
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
             #     # Guild mission choose available if user is guild master
@@ -190,20 +190,20 @@ class GuildLogistics(GuildBase):
         r, g, b = get_color(self.device.image, GUILD_MISSION.area)
         if g > max(r, b) - 10:
             # Green tick at the bottom right corner if guild mission finished
-            logger.info('[大舰队-后勤] 本周大舰队任务已完成')
+            logger.info('[Гильдия — логистика] Задание гильдии на эту неделю завершено')
             self._guild_logistics_mission_finished = True
             return False
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=254, count=50):
             # 0/300 in JP is (255, 255, 255)
-            logger.info('[大舰队-后勤] 大舰队任务按钮未激活')
+            logger.info('[Гильдия — логистика] Кнопка задания гильдии неактивна')
             return False
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=400):
             # (255, 255, 255) less than 50, but has many blue-white pixels
-            logger.info('[大舰队-后勤] 大舰队任务按钮已激活')
+            logger.info('[Гильдия — логистика] Кнопка задания гильдии активна')
             return True
         elif not self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=50):
             # No guild mission counter
-            logger.info('[大舰队-后勤] 未找到大舰队任务，本周任务可能未开始')
+            logger.info('[Гильдия — логистика] Задание гильдии не найдено; возможно, задание этой недели ещё не началось')
             # Guild mission choose in JP server disabled until we get the screenshot.
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
@@ -214,7 +214,7 @@ class GuildLogistics(GuildBase):
             #     logger.info('Guild mission choose not found')
             #     return False
         else:
-            logger.info('[大舰队-后勤] 未知的大舰队任务条件，跳过')
+            logger.info('[Гильдия — логистика] Неизвестное состояние задания гильдии; пропуск')
             return False
 
     @Config.when(SERVER=None)
@@ -236,16 +236,16 @@ class GuildLogistics(GuildBase):
         r, g, b = get_color(self.device.image, GUILD_MISSION.area)
         if g > max(r, b) - 10:
             # Green tick at the bottom right corner if guild mission finished
-            logger.info('[大舰队-后勤] 本周大舰队任务已完成')
+            logger.info('[Гильдия — логистика] Задание гильдии на эту неделю завершено')
             self._guild_logistics_mission_finished = True
             return False
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=400):
             # Unfinished mission accept/collect range from about 240 to 322
-            logger.info('[大舰队-后勤] 大舰队任务按钮已激活')
+            logger.info('[Гильдия — логистика] Кнопка задания гильдии активна')
             return True
         elif not self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=50):
             # No guild mission counter
-            logger.info('[大舰队-后勤] 未找到大舰队任务，本周任务可能未开始')
+            logger.info('[Гильдия — логистика] Задание гильдии не найдено; возможно, задание этой недели ещё не началось')
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
             #     # Guild mission choose available if user is guild master
@@ -255,7 +255,7 @@ class GuildLogistics(GuildBase):
             #     logger.info('Guild mission choose not found')
             #     return False
         else:
-            logger.info('[大舰队-后勤] 大舰队任务按钮未激活')
+            logger.info('[Гильдия — логистика] Кнопка задания гильдии неактивна')
             return False
 
     def _guild_logistics_supply_available(self):
@@ -277,10 +277,10 @@ class GuildLogistics(GuildBase):
         if np.max(color) > np.mean(color) + 25:
             # For members, click to receive supply
             # For leaders, click to buy supply and receive supply
-            logger.info('[大舰队-后勤] 大舰队补给按钮已激活')
+            logger.info('[Гильдия — логистика] Кнопка снабжения гильдии активна')
             return True
         else:
-            logger.info('[大舰队-后勤] 大舰队补给按钮未激活')
+            logger.info('[Гильдия — логистика] Кнопка снабжения гильдии неактивна')
             return False
 
     def _handle_guild_fleet_mission_start(self):
@@ -347,7 +347,7 @@ class GuildLogistics(GuildBase):
             return True
 
         if state['click_count'] >= GUILD_SUPPLY_MAX_RETRY:
-            logger.warning('[大舰队-后勤] 重试后大舰队补给仍可用，本次跳过')
+            logger.warning('[Гильдия — логистика] После повторных попыток снабжение гильдии всё ещё доступно; пропуск в этом запуске')
             self._guild_logistics_supply_check_finished(state)
             return False
 
@@ -374,8 +374,8 @@ class GuildLogistics(GuildBase):
         # To fix this, you have to enter guild logistics once, then restart.
         # If exchange for 5 times, this bug is considered to be triggered.
         logger.warning(
-            'Unable to do guild exchange, probably because the timer in game was bugged')
-        raise GameBugError('Triggered guild logistics refresh bug')
+            'Не удалось выполнить обмен гильдии; вероятно, таймер в игре работает некорректно')
+        raise GameBugError('Обнаружена ошибка обновления логистики гильдии')
 
     def _guild_logistics_timer_reset(self, confirm_timer, exchange_interval=None):
         """
@@ -547,7 +547,7 @@ class GuildLogistics(GuildBase):
             item.enough = not self.image_color_count(area, color=(255, 93, 90), threshold=221, count=20)
 
         text = [str(item.name) if item.enough else f'{item.name} (not enough)' for item in items]
-        logger.info(f'[大舰队-后勤] 兑换物品: {", ".join(text)}')
+        logger.info(f'[Гильдия — логистика] Предметы обмена: {", ".join(text)}')
         return items
 
     def _guild_exchange(self):
@@ -578,7 +578,7 @@ class GuildLogistics(GuildBase):
             self.device.click(button)
             return True
         else:
-            logger.warning('[大舰队-后勤] 没有符合当前筛选条件的兑换物品，或资源不足')
+            logger.warning('[Гильдия — логистика] Нет предметов обмена, соответствующих текущему фильтру, либо недостаточно ресурсов')
             return False
 
     def guild_logistics(self):
@@ -597,5 +597,5 @@ class GuildLogistics(GuildBase):
         self._guild_logistics_ensure()
 
         result = self._guild_logistics_collect()
-        logger.info(f'[大舰队-后勤] 后勤运行成功: {result}')
+        logger.info(f'[Гильдия — логистика] Логистика выполнена успешно: {result}')
         return result

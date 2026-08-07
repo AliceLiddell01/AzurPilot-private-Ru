@@ -131,7 +131,7 @@ class CampaignSos(CampaignRun, CampaignBase):
         Returns:
             bool: whether select successful
         """
-        logger.hr(f'[SOS] 选择第 {chapter} 章信号 ')
+        logger.hr(f'[SOS] Выбор сигнала главы {chapter}')
         self.ui_click(SIGNAL_SEARCH_ENTER, appear_button=CAMPAIGN_CHECK, check_button=SIGNAL_LIST_CHECK,
                       skip_first_screenshot=True)
 
@@ -166,7 +166,7 @@ class CampaignSos(CampaignRun, CampaignBase):
         Returns:
             bool: whether select successful
         """
-        logger.hr(f'[SOS] 选择第 {chapter} 章信号 ')
+        logger.hr(f'[SOS] Выбор сигнала главы {chapter}')
         self.ui_click(SIGNAL_SEARCH_ENTER, appear_button=CAMPAIGN_CHECK, check_button=SIGNAL_LIST_CHECK,
                       skip_first_screenshot=True)
         if chapter in [3, 4, 5]:
@@ -176,14 +176,14 @@ class CampaignSos(CampaignRun, CampaignBase):
         elif chapter in [8, 9, 10]:
             positions = [1.0, 0.5, 0.0]
         else:
-            logger.warning(f'[SOS] 未知的SOS章节: {chapter}')
+            logger.warning(f'[SOS] Неизвестная глава SOS: {chapter}')
             positions = [0.0, 0.5, 1.0]
 
         for scroll_position in positions:
             if self._sos_scroll.appear(main=self):
                 self._sos_scroll.set(scroll_position, main=self, distance_check=False)
             else:
-                logger.info('SOS信号滚动条未出现，跳过设置滚动位置')
+                logger.info('[SOS] Полоса прокрутки сигналов SOS не появилась; настройка позиции прокрутки пропущена')
             target_button = self._find_target_chapter(chapter)
             if target_button is not None:
                 self._sos_signal_confirm(entrance=target_button)
@@ -244,7 +244,7 @@ class CampaignSos(CampaignRun, CampaignBase):
         while 1:
             # End
             remain = OCR_SOS_SIGNAL.ocr(self.device.image)
-            logger.attr('SOS信号', remain)
+            logger.attr('Сигнал SOS', remain)
             if remain <= 0:
                 logger.info(f'所有SOS信号已清除')
                 break

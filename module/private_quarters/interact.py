@@ -114,14 +114,14 @@ class PQInteract(UI):
         """
         target_title = target_ship.title().replace('_', ' ')
         if target_ship not in self.available_targets:
-            logger.error(f'[私人休息室-互动] 不支持的目标舰娘: {target_title}，无法继续子任务')
+            logger.error(f'[Личные покои — взаимодействие] Неподдерживаемый целевой корабль: {target_title}; подзадачу продолжить невозможно')
             return False
         elif len(self.available_targets[target_ship]) < 2:
-            logger.error(f'[私人休息室-互动] 目标舰娘 {target_title} 缺少页面位置信息，无法继续子任务')
+            logger.error(f'[Личные покои — взаимодействие] Для целевого корабля {target_title} отсутствует информация о расположении страницы; подзадачу продолжить невозможно')
             return False
 
         page_btn = self.available_targets[target_ship][1]
-        logger.hr(f'[私人休息室-互动] 寻找 {target_title} 页面', level=2)
+        logger.hr(f'[Личные покои — взаимодействие] Поиск страницы {target_title}', level=2)
 
         # Depending on current page position
         # Search left then right or reverse order
@@ -142,7 +142,7 @@ class PQInteract(UI):
 
                 # End, success
                 if self.appear(page_btn, offset=(20, 20)):
-                    logger.info(f'[私人休息室-互动] 已到达 {target_title} 页面')
+                    logger.info(f'[Личные покои — взаимодействие] Достигнута страница {target_title}')
                     return True
 
                 # Enable interval delay to confirm page after click
@@ -155,7 +155,7 @@ class PQInteract(UI):
                 if settle_timer.reached():
                     break
 
-        logger.warning(f'[私人休息室-互动] 未找到 {target_title} 页面')
+        logger.warning(f'[Личные покои — взаимодействие] Страница {target_title} не найдена')
         return False
 
     def _pq_goto_room_check(self):
@@ -183,10 +183,10 @@ class PQInteract(UI):
         # prompt appears after click
         target_title = target_ship.title().replace('_', ' ')
         if target_ship not in self.available_targets:
-            logger.error(f'[私人休息室-互动] 不支持的目标舰娘: {target_title}，无法继续子任务')
+            logger.error(f'[Личные покои — взаимодействие] Неподдерживаемый целевой корабль: {target_title}; подзадачу продолжить невозможно')
             return False
         elif len(self.available_targets[target_ship]) < 1:
-            logger.error(f'[私人休息室-互动] 目标舰娘 {target_title} 缺少房间入口信息，无法继续子任务')
+            logger.error(f'[Личные покои — взаимодействие] Для целевого корабля {target_title} отсутствует информация о входе в комнату; подзадачу продолжить невозможно')
             return False
 
         target_btn = self.available_targets[target_ship][0]
@@ -200,7 +200,7 @@ class PQInteract(UI):
         # If was download asset popup
         # Terminate the run
         if self.handle_popup_cancel('PRIVATE_QUARTERS_DOWNLOAD_ASSET', offset=(20, 20)):
-            logger.error(f'[私人休息室-互动] 无法进入 {target_title} 的房间，请先下载所需资源')
+            logger.error(f'[Личные покои — взаимодействие] Не удалось войти в комнату {target_title}; сначала загрузите необходимые ресурсы')
             return False
 
         # Fully enter into target's room
@@ -211,7 +211,7 @@ class PQInteract(UI):
         # Terminate the run
         if self.appear(PRIVATE_QUARTERS_ROOM_TARGET_INTIMACY_MAX, offset=(20, 20)):
             logger.warning(
-                f'[私人休息室-互动] {target_title} 好感度已满，请更换目标或关闭子任务')
+                f'[Личные покои — взаимодействие] У {target_title} максимальная близость; выберите другую цель или отключите подзадачу')
             return False
 
         return True
@@ -245,7 +245,7 @@ class PQInteract(UI):
         Parameters identified as stable and server transparent
         """
         # Click target ship girl for 1st stage sequence
-        logger.hr(f'[私人休息室-互动] 互动开始', level=2)
+        logger.hr(f'[Личные покои — взаимодействие] Начало взаимодействия', level=2)
         interact_offset = (-10, 0, 0, 65)
         click_timer = Timer(1.5, count=3).start()
         skip_first_screenshot = True
@@ -265,7 +265,7 @@ class PQInteract(UI):
 
         # Repeat 2nd and 3rd stage sequence 3 times
         for i in range(1, 4):
-            logger.hr(f'[私人休息室-互动] 互动循环 {i}/3', level=3)
+            logger.hr(f'[Личные покои — взаимодействие] Цикл взаимодействия {i}/3', level=3)
             self.interval_clear([PRIVATE_QUARTERS_INTERACT_CHECK,
                                  PRIVATE_QUARTERS_INTERACT])
             skip_first_screenshot = True
@@ -297,7 +297,7 @@ class PQInteract(UI):
                     self.device.click(PRIVATE_QUARTERS_ROOM_BACK)
                     continue
 
-        logger.hr(f'[私人休息室-互动] 互动结束', level=2)
+        logger.hr(f'[Личные покои — взаимодействие] Взаимодействие завершено', level=2)
         self._pq_goto_room_exit()
 
     def pq_goto_room(self, target_ship, retry=3):
@@ -315,7 +315,7 @@ class PQInteract(UI):
         """
         success = False
         target_title = target_ship.title().replace('_', ' ')
-        logger.hr(f'[私人休息室-互动] 进入 {target_title} 房间', level=1)
+        logger.hr(f'[Личные покои — взаимодействие] Вход в комнату {target_title}', level=1)
 
         if not self._pq_goto_room_seek(target_ship):
             return success
@@ -325,10 +325,10 @@ class PQInteract(UI):
                 break
 
             if self._pq_target_appear():
-                logger.info(f'[私人休息室-互动] {target_title} 正在等待你的到来！')
+                logger.info(f'[Личные покои — взаимодействие] {target_title} ждёт вашего прихода!')
                 success = True
                 break
-            logger.warning(f'[私人休息室-互动] {target_title} 未就绪，退出重试; 剩余次数={retry - (_ + 1)}')
+            logger.warning(f'[Личные покои — взаимодействие] {target_title} не готов; выход и повторная попытка. Осталось попыток={retry - (_ + 1)}')
 
             self._pq_goto_room_exit()
 
