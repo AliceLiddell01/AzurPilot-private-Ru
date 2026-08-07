@@ -164,13 +164,13 @@ class EventStory(CampaignUI, Combat, LoginHandler):
 
             # 结束条件检测
             if self.is_combat_executing() or self.is_combat_loading():
-                logger.info('[活动剧情] 剧情结束于战斗')
+                logger.info('[Сюжет события] Сюжет завершился переходом в бой')
                 return 'battle'
             if self.match_template_color(STORY_FINISHED, offset=(20, 20), interval=3):
-                logger.info('[活动剧情] 剧情结束于 STORY_FINISHED')
+                logger.info('[Сюжет события] Сюжет завершён на STORY_FINISHED')
                 return 'finish'
             if self.appear(REWARD_GOT, offset=(50, 30)):
-                logger.info('[活动剧情] 剧情结束于 REWARD_GOT')
+                logger.info('[Сюжет события] Сюжет завершён на REWARD_GOT')
                 return 'finish'
 
             # 剧情跳过处理
@@ -290,7 +290,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
             # 该活动的剧情入口在活动小游戏内，不在常规剧情页面
             'event_20260226_cn',
         ]:
-            logger.info(f'[活动剧情] 当前活动 ({event}) 没有活动剧情，停止')
+            logger.info(f'[Сюжет события] У текущего события ({event}) нет сюжетной цепочки; остановка')
             return
 
         if not self.device.app_is_running():
