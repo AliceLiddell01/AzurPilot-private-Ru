@@ -30,13 +30,13 @@ class BattlePass(Combat, UI):
             # 此处不使用 self.appear()，因为红点是透明的，颜色会随背景变化。
             r, _, _ = get_color(self.device.image, BATTLE_PASS_RED_DOT.button)
             if r > BATTLE_PASS_RED_DOT.color[0] - 40:
-                logger.info('[免费福利-通行证] 发现战斗通行证红点')
+                logger.info('[Бонусы — боевой пропуск] Найдена красная точка боевого пропуска')
                 return True
             else:
-                logger.info('[免费福利-通行证] 没有战斗通行证红点')
+                logger.info('[Бонусы — боевой пропуск] Красная точка боевого пропуска отсутствует')
                 return False
         else:
-            logger.warning('[免费福利-通行证] 没有战斗通行证入口')
+            logger.warning('[Бонусы — боевой пропуск] Вход в боевой пропуск не найден')
             return False
 
     def handle_battle_pass_popup(self):
@@ -71,7 +71,7 @@ class BattlePass(Combat, UI):
             in: page_battle_pass
             out: page_battle_pass
         """
-        logger.hr('领取战斗通行证奖励', level=1)
+        logger.hr('Получение наград боевого пропуска', level=1)
         self.battle_status_click_interval = 2
         confirm_timer = Timer(1, count=3).start()
         received = False
@@ -124,7 +124,7 @@ class BattlePass(Combat, UI):
             else:
                 confirm_timer.reset()
 
-        logger.info(f'[免费福利-通行证] 战斗通行证奖励领取完成, received={received}')
+        logger.info(f'[Бонусы — боевой пропуск] Получение наград завершено, получено={received}')
         return received
 
     def run(self):
