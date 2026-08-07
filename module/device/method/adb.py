@@ -107,18 +107,18 @@ def load_screencap(data):
     """
     # 加载数据
     if data is None or len(data) < 12:
-        raise ImageTruncated('Empty or incomplete screencap data')
+        raise ImageTruncated('Пустые или неполные данные screencap')
 
     header = np.frombuffer(data[0:12], dtype=np.uint32)
     channel = 4  # screencap 发送 RGBA 格式图像
     width, height, _ = header  # 通常为 1280, 720, 1
 
     if data is None or len(data) == 0:
-        raise ImageTruncated('Empty image data from screencap')
+        raise ImageTruncated('Пустые данные изображения от screencap')
 
     image = np.frombuffer(data, dtype=np.uint8)
     if image is None or image.size == 0:
-        raise ImageTruncated('Empty image after reading from buffer')
+        raise ImageTruncated('Пустое изображение после чтения из буфера')
 
     try:
         image = image[-int(width * height * channel):].reshape(height, width, channel)
@@ -128,7 +128,7 @@ def load_screencap(data):
 
     image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
     if image is None:
-        raise ImageTruncated('Empty image after cv2.cvtColor')
+        raise ImageTruncated('Пустое изображение после cv2.cvtColor')
 
     return image
 
@@ -151,19 +151,19 @@ class Adb(Connection):
         screenshot = remove_screenshot_warning(screenshot)
 
         if screenshot is None or len(screenshot) == 0:
-            raise ImageTruncated('Empty screenshot payload in __load_screenshot')
+            raise ImageTruncated('Пустые данные снимка экрана в __load_screenshot')
 
         image = np.frombuffer(screenshot, np.uint8)
         if image is None or image.size == 0:
-            raise ImageTruncated('Empty image after reading from buffer')
+            raise ImageTruncated('Пустое изображение после чтения из буфера')
 
         image = cv2.imdecode(image, cv2.IMREAD_COLOR)
         if image is None:
-            raise ImageTruncated('Empty image after cv2.imdecode')
+            raise ImageTruncated('Пустое изображение после cv2.imdecode')
 
         cv2.cvtColor(image, cv2.COLOR_BGR2RGB, dst=image)
         if image is None:
-            raise ImageTruncated('Empty image after cv2.cvtColor')
+            raise ImageTruncated('Пустое изображение после cv2.cvtColor')
 
         return image
 
