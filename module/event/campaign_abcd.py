@@ -43,7 +43,7 @@ class CampaignABCD(EventBase):
         STAGE_FILTER.load(self.config.EventDaily_StageFilter)
         self.convert_stages(STAGE_FILTER)
         stages = [str(stage) for stage in STAGE_FILTER.apply(stages)]
-        logger.attr('过滤排序', ' > '.join(stages))
+        logger.attr('Порядок фильтрации', ' > '.join(stages))
 
         # 过滤后无可用关卡，禁用调度器并停止任务
         if not stages:
@@ -62,7 +62,7 @@ class CampaignABCD(EventBase):
             if last in stages:
                 # 跳到上次关卡之后的下一个关卡
                 stages = stages[stages.index(last) + 1:]
-                logger.attr('过滤排序', ' > '.join(stages))
+                logger.attr('Порядок фильтрации', ' > '.join(stages))
             else:
                 logger.info('Начинаем с начала')
 
