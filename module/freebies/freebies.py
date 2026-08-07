@@ -31,18 +31,18 @@ class Freebies(ModuleBase):
         运行所有免费福利相关模块。
         """
         if self.config.BattlePass_Collect:
-            logger.hr('战斗通行证', level=1)
+            logger.hr('Боевой пропуск', level=1)
             BattlePass(self.config, self.device).run()
 
         if self.config.DataKey_Collect:
-            logger.hr('数据钥匙', level=1)
+            logger.hr('Ключи данных', level=1)
             DataKey(self.config, self.device).run()
 
-        logger.hr('邮件', level=1)
+        logger.hr('Почта', level=1)
         MailWhite(self.config, self.device).run()
 
         if self.config.SupplyPack_Collect:
-            logger.hr('补给包', level=1)
+            logger.hr('Наборы снабжения', level=1)
             SupplyPack_250814(self.config, self.device).run()
 
         self.config.task_delay(server_update=True)
