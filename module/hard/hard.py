@@ -34,7 +34,7 @@ class CampaignHard(CampaignRun):
     campaign: Campaign
 
     def run(self):
-        logger.hr('困难战役', level=1)
+        logger.hr('Сложная кампания', level=1)
         name = to_map_file_name(self.config.Hard_HardStage)
         self.config.override(
             Campaign_Mode='hard',
@@ -61,7 +61,7 @@ class CampaignHard(CampaignRun):
 
         # 执行
         remain = OCR_HARD_REMAIN.ocr(self.device.image)
-        logger.attr('剩余次数', remain)
+        logger.attr('Осталось попыток', remain)
         for n in range(remain):
             self.campaign.run()
 
