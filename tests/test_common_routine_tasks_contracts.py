@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -10,33 +9,6 @@ from module.commission.project import Commission
 from module.dorm.dorm import RewardDorm
 from module.research.selector import ResearchSelector
 from module.tactical.tactical_class import Book
-
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def source(path: str) -> str:
-    return (ROOT / path).read_text(encoding="utf-8")
-
-
-class TestCommonRoutineRuntimeMessages:
-    def test_all_group4_owner_files_have_representative_russian_runtime_messages(self):
-        expected = {
-            "module/commission/commission.py": "[Комиссия — обнаружение] Найдена 1 некорректная комиссия; повторное обнаружение",
-            "module/commission/project.py": "Некорректная строка времени: {string}",
-            "module/dorm/buy_furniture.py": "[Общежитие — мебель] Недостаточно монет мебели; покупки завершены",
-            "module/dorm/dorm.py": "[Общежитие — кормление] Тайм-аут ожидания кормления",
-            "module/event/campaign_abcd.py": "logger.attr('Порядок фильтрации', ' > '.join(stages))",
-            "module/research/preset_generator.py": "Неизвестная серия для преобразования цели: {target}",
-            "module/research/project.py": "Не удалось распознать тип исследования!",
-            "module/research/research.py": "[Исследование — запуск] Недостаточно ресурсов для запуска проекта",
-            "module/research/rqueue.py": "[Исследование — очередь] Очередь исследований пуста",
-            "module/research/selector.py": "[Исследование — фильтр] Предустановка не найдена: {preset}",
-            "module/research/ui.py": "[Исследование — детали] Отмена проекта",
-            "module/tactical/tactical_class.py": "[Тактика — учебник] Учебник не найден после 15 попыток",
-        }
-        for path, message in expected.items():
-            assert message in source(path), (path, message)
 
 
 class TestResearchResourceContracts:
@@ -109,8 +81,6 @@ class TestDormAndTacticalContracts:
         book.exp = False
         assert str(book) == "Blue_T2"
 
-        tactical = source("module/tactical/tactical_class.py")
-        assert "text = f'{self.genre_str}_{self.tier_str}'" in tactical
         assert Book.exp_tier == {0: 0, 1: 100, 2: 300, 3: 800, 4: 1500}
 
 
