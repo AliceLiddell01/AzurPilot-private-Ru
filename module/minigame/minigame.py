@@ -74,10 +74,10 @@ class MinigameRun(UI):
         Return:
             False if unable or unnecessary to play
         """
-        logger.hr('[小游戏] 运行', level=1)
+        logger.hr('[Мини-игра] Запуск', level=1)
 
         # page_game_room main_page -> MINIGAME_SCROLL
-        logger.info("[小游戏] 进入小游戏")
+        logger.info("[Мини-игра] Вход в мини-игру")
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -96,14 +96,14 @@ class MinigameRun(UI):
                 # that won't enter any minigame on the minigame list page
                 continue
 
-        logger.info("[小游戏] 选择小游戏")
+        logger.info("[Мини-игра] Выбор мини-игры")
         self.choose_game()
         # try to add coins, if failed, skip play
         add_coin_result = self.use_coin()
         if add_coin_result:
-            logger.hr("[小游戏] 游玩", level=2)
+            logger.hr("[Мини-игра] Игра", level=2)
             self.play_game()
-        logger.info("[小游戏] 退出小游戏")
+        logger.info("[Мини-игра] Выход из мини-игры")
         self.exit_game()
         return add_coin_result
 
@@ -195,7 +195,7 @@ class Minigame(UI):
             in: page_game_room main_page/choose_game_page
             out: page_game_room main_page
         """
-        logger.info('[小游戏] 前往主页')
+        logger.info('[Мини-игра] Переход на главную страницу')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -283,7 +283,7 @@ class Minigame(UI):
                 break
             # ocr to get coin count and ticket count
             coin_count = self.get_coin_amount()
-            logger.info(f"[小游戏] 硬币数量: {coin_count}")
+            logger.info(f"[Мини-игра] Количество монет: {coin_count}")
             # collect coins
             if coin_count <= 30 and not coin_collected:
                 coin_collected = True
@@ -291,15 +291,15 @@ class Minigame(UI):
                     continue
             # no coin left
             if coin_count == 0:
-                logger.info(f"[小游戏] 硬币数量: {coin_count}, 游玩结束")
+                logger.info(f"[Мини-игра] Количество монет: {coin_count}; игра завершена")
                 break
-            logger.info("[小游戏] 硬币数量 > 0，消费")
+            logger.info("[Мини-игра] Количество монет > 0; расходуем")
             # specific game logic
             if minigame_instance is not None and minigame_instance.minigame_run():
                 play_count += 1
                 continue
             elif minigame_instance is None:
-                logger.error(f"[小游戏] 未知的游戏名称 {specific_game_name}")
+                logger.error(f"[Мини-игра] Неизвестное имя игры {specific_game_name}")
                 break
             else:
                 break
