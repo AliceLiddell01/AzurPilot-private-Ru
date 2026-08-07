@@ -67,7 +67,7 @@ class AzurLaneDaemon(DaemonBase, OSFleet, PortHandler):
                     self.port_dock_repair()
                     self.port_quit()
                     self.interval_reset(PORT_ENTER)
-                    logger.info('[守护-大世界] 港口维修完成，请在 30 秒内将舰队移出港口以避免重复维修')
+                    logger.info('[Daemon-Operation Siren] Ремонт в порту завершён; переместите флот из порта в течение 30 секунд, чтобы избежать повторного ремонта')
 
             # 自动选择最近敌人
             if self.config.OpsiDaemon_SelectEnemy:

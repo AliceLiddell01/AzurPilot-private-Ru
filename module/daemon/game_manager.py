@@ -10,9 +10,9 @@ from module.logger import logger
 
 class GameManager(LoginHandler):
     def run(self):
-        logger.hr('强制停止碧蓝航线', level=1)
+        logger.hr('Принудительная остановка Azur Lane', level=1)
         self.device.app_stop()
-        logger.info('[守护-管理] 强制停止完成')
+        logger.info('[Daemon-Управление] Принудительная остановка завершена')
 
         if self.config.GameManager_AutoRestart:
             LoginHandler(config=self.config, device=self.device).app_restart()

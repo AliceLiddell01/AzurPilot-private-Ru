@@ -672,7 +672,7 @@ def exception_context(title, exc, impact, action, level=logging.ERROR):
     """输出未知异常的统一错误信息并保留完整堆栈。"""
     error_context(
         title=title,
-        reason=f'程序抛出了 {type(exc).__name__}，具体原因需要结合下方堆栈定位。',
+        reason=f'Программа вызвала исключение {type(exc).__name__}; точную причину определите по трассировке ниже.',
         impact=impact,
         action=action,
         exc=exc,

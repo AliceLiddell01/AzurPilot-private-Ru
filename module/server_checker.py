@@ -80,10 +80,10 @@ class ServerChecker:
                 j = resp.json()
                 if j['state'] != 1:
                     self._state.append(True)
-                    logger.info(f'[服务器检查] 服务器 "{self._server}" 可用。')
+                    logger.info(f'[Проверка состояния сервера] Сервер "{self._server}" доступен.')
                 else:
                     self._state.append(False)
-                    logger.info(f'[服务器检查] 服务器 "{self._server}" 维护中。')
+                    logger.info(f'[Проверка состояния сервера] Сервер "{self._server}" находится на техническом обслуживании.')
 
                 # 检查 API 服务端是否已停止更新
                 if j['last_update'] > self._timestamp:
@@ -92,28 +92,28 @@ class ServerChecker:
                 else:
                     self._expired += 1
                     if self._expired > 3:
-                        logger.warning(f'[服务器检查] 时间戳 {self._timestamp} 已3次未更新。')
+                        logger.warning(f'[Проверка состояния сервера] Метка времени {self._timestamp} не обновлялась 3 раза.')
             elif resp.status_code == 404:
                 # API 数据库可能未收录新增服务器（如"长弓计划"），
                 # 检查本地服务器列表确认该服务器是否真实存在
                 if self._server_in_local_list():
                     self._state.append(True)
-                    logger.info(f'[服务器检查] 服务器 "{self._server}" 可用（本地已验证，API未知）。')
+                    logger.info(f'[Проверка состояния сервера] Сервер "{self._server}" доступен (подтверждено локально, API не содержит данных).')
                 else:
                     self._state.append(False)
-                    raise ScriptError(f'Server "{self._server}" does not exist!')
+                    raise ScriptError(f'Сервер "{self._server}" не существует!')
             else:
-                raise ScriptError(f'Get status_code {resp.status_code}. Response is {resp.text}')
+                raise ScriptError(f'Получен HTTP-код {resp.status_code}. Ответ: {resp.text}')
         except (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout) as e:
             logger.error(e)
-            logger.error('连接服务器检查API超时。')
+            logger.error('Превышено время ожидания API проверки состояния сервера.')
             if self._retry:
                 self._state.append(False)
             else:
                 self._state.append(self.fast_retry())
         except JSONDecodeError:
             self._state.append(False)
-            raise ScriptError(f'Response "{resp.text}" seems not to be a JSON.')
+            raise ScriptError(f'Ответ "{resp.text}" не является корректным JSON.')
         except Exception as e:
             logger.error(e)
             self._state.append(False)
@@ -141,12 +141,12 @@ class ServerChecker:
             else:
                 if self._timer.limit < 600:
                     self._timer.limit += 120
-                logger.info(f'服务器检查er will retry after {self._timer.limit}s')
+                logger.info(f'Проверка состояния сервера повторится через {self._timer.limit} с')
             self._timer.reset()
         except ScriptError as e:
             logger.warning(str(e))
-            logger.warning('服务器检查可能有问题。')
-            logger.warning('请联系开发者修复。')
+            logger.warning('Возможна ошибка проверки состояния сервера.')
+            logger.warning('Свяжитесь с разработчиком для исправления.')
             self.reset()
             self._server = 'disabled'
             self._recover = True
@@ -224,21 +224,21 @@ class ServerChecker:
 
         logger.attr('network_available', network_available)
         if network_available:
-            logger.info('触发快速重试。')
+            logger.info('Запущена быстрая повторная попытка.')
             last = self._state.copy()
             for _ in range(3):
-                logger.info(f'重试 {_ + 1} times ...')
+                logger.info(f'Повторная попытка {_ + 1}...')
                 self._load_server()
                 if self._state[0]:
                     self._retry = False
                     self._state.extend(last)
                     return True
 
-            logger.error('无法连接API. Please check you network or disable server checker.')
+            logger.error('Не удалось подключиться к API. Проверьте сеть или отключите проверку состояния сервера.')
             self._retry = False
             self._state.extend(last)
             return False
         else:
             self._retry = False
-            logger.error('网络不可用. Please check your network status.')
+            logger.error('Сеть недоступна. Проверьте сетевое подключение.')
             return False

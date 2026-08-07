@@ -132,7 +132,7 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
         for index, interval in enumerate(intervals, 1):
             self.device.stuck_record_clear()
             logger.info(
-                f"[Screenshot benchmark] {phase} {index}/{len(intervals)}: "
+                f"[Бенчмарк снимков экрана] {phase} {index}/{len(intervals)}: "
                 f"интервал {interval:g} с"
             )
             result = _benchmark_interval(
@@ -144,21 +144,21 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
             )
             results.append(result)
             logger.info(
-                f"[Screenshot benchmark] {interval:g} с: "
+                f"[Бенчмарк снимков экрана] {interval:g} с: "
                 f"{result.achieved_fps:.1f} FPS, p95={result.interval_p95_ms:.1f} мс, "
                 f"пропуски={result.deadline_miss_ratio * 100:.0f}%, "
                 f"стабильно={'да' if result.stable else 'нет'}"
             )
             if result.error:
                 logger.warning(
-                    f"[Screenshot benchmark] Ошибка кандидата {interval:g} с: "
+                    f"[Бенчмарк снимков экрана] Ошибка кандидата {interval:g} с: "
                     f"{result.error}"
                 )
         return results
 
     def _prepare_normal_scene(self) -> None:
         logger.info(
-            "[Screenshot benchmark] Переход на экран основной кампании для обычной фазы"
+            "[Бенчмарк снимков экрана] Переход на экран основной кампании для обычной фазы"
         )
         self.ui_ensure(page_campaign)
         self.device.screenshot()
@@ -189,7 +189,7 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
 
     def _enter_current_target(self) -> None:
         self._ensure_meta_showdown()
-        logger.info("[Screenshot benchmark] Открытие Current Target")
+        logger.info("[Бенчмарк снимков экрана] Открытие Current Target")
         self.device.click(META_MAIN_BEACON_ENTRANCE)
 
         self._wait_until(
@@ -199,7 +199,7 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
         )
         if self.appear(BEACON_EMPTY, offset=(20, 20)):
             logger.info(
-                "[Screenshot benchmark] Активных META-боссов нет; "
+                "[Бенчмарк снимков экрана] Активных META-боссов нет; "
                 "бесплатная Battle Simulation остаётся доступной"
             )
 
@@ -237,7 +237,7 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
                 "обычная атака не запускалась."
             )
         logger.info(
-            f"[Screenshot benchmark] Найдена кнопка '{text}' "
+            f"[Бенчмарк снимков экрана] Найдена кнопка '{text}' "
             f"({score:.2f}) в ({center_x}, {center_y})"
         )
         return center_x, center_y
@@ -268,7 +268,7 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
 
         self._enter_current_target()
         self._wait_for_simulation_button()
-        logger.info("[Screenshot benchmark] Запуск бесплатной Battle Simulation")
+        logger.info("[Бенчмарк снимков экрана] Запуск бесплатной Battle Simulation")
         self.device.click(ASH_START)
 
         self._wait_until(
@@ -292,12 +292,12 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
                 "Battle Simulation не перешла в активный бой."
             )
         self._benchmark_combat = combat
-        logger.info("[Screenshot benchmark] Battle Simulation активна")
+        logger.info("[Бенчмарк снимков экрана] Battle Simulation активна")
         return combat
 
     def _finish_meta_simulation(self, combat: AshCombat) -> None:
         logger.info(
-            "[Screenshot benchmark] Ожидание естественного завершения "
+            "[Бенчмарк снимков экрана] Ожидание естественного завершения "
             "Battle Simulation"
         )
         self.device.screenshot_interval_set("combat")
@@ -305,14 +305,14 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
         def expected_end() -> bool:
             if self.appear(BATTLE_PREPARATION, offset=(30, 30), interval=2):
                 logger.info(
-                    "[Screenshot benchmark] После боя открыт Formation; "
+                    "[Бенчмарк снимков экрана] После боя открыт Formation; "
                     "возврат на экран META"
                 )
                 self.device.click(BACK_ARROW)
                 return False
             if self._in_meta_page():
                 logger.info(
-                    "[Screenshot benchmark] Battle Simulation завершена; "
+                    "[Бенчмарк снимков экрана] Battle Simulation завершена; "
                     "экран META подтверждён"
                 )
                 return True
@@ -356,13 +356,13 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
             normal_intervals = [forced_interval]
             combat_intervals = [forced_interval]
 
-        logger.hr("Benchmark интервалов снимков экрана", level=1)
+        logger.hr("Бенчмарк интервалов снимков экрана", level=1)
         logger.info(
-            f"[Screenshot benchmark] Backend={screenshot_backend}, "
+            f"[Бенчмарк снимков экрана] Backend={screenshot_backend}, "
             f"текущие интервалы={current_normal:g}/{current_combat:g} с"
         )
         logger.info(
-            "[Screenshot benchmark] Настройки профиля автоматически не изменяются"
+            "[Бенчмарк снимков экрана] Настройки профиля автоматически не изменяются"
         )
 
         combat: AshCombat | None = None
@@ -391,7 +391,7 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
                 returned_to_main = True
             except Exception as exc:  # noqa: BLE001 - cleanup must not hide result.
                 logger.warning(
-                    "[Screenshot benchmark] Ошибка естественного завершения боя "
+                    "[Бенчмарк снимков экрана] Ошибка естественного завершения боя "
                     "или возврата на главный экран: "
                     f"{_safe_text(exc)}"
                 )
@@ -403,16 +403,16 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
         config_unchanged = config_hash_before == config_hash_after
         if not config_unchanged:
             raise ScreenshotIntervalBenchmarkError(
-                "Benchmark обнаружил изменение постоянного profile config."
+                "Бенчмарк обнаружил изменение постоянной конфигурации профиля."
             )
         if not returned_to_main:
             raise ScreenshotIntervalBenchmarkError(
-                "Benchmark завершил измерения, но не подтвердил естественное завершение "
+                "Бенчмарк завершил измерения, но не подтвердил естественное завершение "
                 "Battle Simulation и возврат на главный экран."
             )
         if not normal_results or not combat_results:
             raise ScreenshotIntervalBenchmarkError(
-                "Benchmark не завершил обе измерительные фазы."
+                "Бенчмарк не завершил обе измерительные фазы."
             )
 
         recommendations = _recommend_profiles(
@@ -471,12 +471,12 @@ class AutomatedScreenshotIntervalBenchmark(OpsiAshBeacon):
         selected_name = recommendations["recommended_profile"]
         selected = recommendations["profiles"][selected_name]
         logger.info(
-            "[Screenshot benchmark] Рекомендация: "
+            "[Бенчмарк снимков экрана] Рекомендация: "
             f"Optimization_ScreenshotInterval={selected['normal_s']}, "
             f"Optimization_CombatScreenshotInterval={selected['combat_s']}"
         )
-        logger.info(f"[Screenshot benchmark] JSON: {DEFAULT_REPORT}")
-        logger.info(f"[Screenshot benchmark] Markdown: {DEFAULT_MARKDOWN_REPORT}")
+        logger.info(f"[Бенчмарк снимков экрана] JSON: {DEFAULT_REPORT}")
+        logger.info(f"[Бенчмарк снимков экрана] Markdown: {DEFAULT_MARKDOWN_REPORT}")
         return report
 
 
@@ -485,5 +485,5 @@ def run_screenshot_interval_benchmark(config: Any, device: Any) -> bool:
         AutomatedScreenshotIntervalBenchmark(config=config, device=device).run()
         return True
     except ScreenshotIntervalBenchmarkError as exc:
-        logger.error(f"[Screenshot benchmark] {exc}")
+        logger.error(f"[Бенчмарк снимков экрана] {exc}")
         return False
