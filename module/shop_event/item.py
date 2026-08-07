@@ -176,7 +176,7 @@ class EventShopItem(Item):
             elif self.name.isdigit():
                 logger.warning(f'[Магазин события — товар] Неопознанный товар, цена {self.price}, всего {self.total_count}; '
                                # f'defaulting to EquipSSR')
-                               f'saving image for analysis.')
+                               f'изображение сохранено для анализа.')
                 import os
                 from module.base.utils import save_image
                 os.mkdir('assets/shop/event/new_templates/') if not os.path.exists('assets/shop/event/new_templates/') else None
