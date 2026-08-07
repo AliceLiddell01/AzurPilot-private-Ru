@@ -66,11 +66,10 @@ class Opponent:
         self.power = self.get_power(image=main_image)
         self.level = self.get_level(image=fleet_image)
 
-        # [OPPONENT_1] ( 8256) 120 120 120 | (12356) 100  80  80
         level = [str(x).rjust(3, ' ') for x in self.level]
         power = ['(' + str(x).rjust(5, ' ') + ')' for x in self.power]
         logger.attr(
-            '对手_%s' % index,
+            'Противник_%s' % index,
             ' '.join([power[0]] + level[:3] + ['|'] + [power[1]] + level[3:])
         )
 
@@ -141,11 +140,6 @@ class OpponentChoose(UI):
     opponents = []
 
     def _opponent_fleet_check_all(self):
-        """
-        依次检查所有 4 个对手的舰队信息。
-
-        通过点击每个对手进入演习准备界面，OCR 识别等级和战力后返回。
-        """
         self.opponents = []
         self.main_image = self.device.image
 
@@ -159,14 +153,6 @@ class OpponentChoose(UI):
                           appear_button=EXERCISE_PREPARATION, skip_first_screenshot=True)
 
     def _opponent_sort(self, method="max_exp"):
-        """
-        Args:
-            method: EXERCISE_CHOOSE_MODE
-
-        Returns:
-            list[int]: List of opponent index, such as [2, 1, 0, 3].
-                       Attack one by one.
-        """
         order = np.argsort([- x.get_priority(method) for x in self.opponents])
-        logger.attr('出战顺序', str(order))
+        logger.attr('Порядок выхода в бой', str(order))
         return order
