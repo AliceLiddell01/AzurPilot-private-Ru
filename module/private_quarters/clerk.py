@@ -94,7 +94,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
             out: 私人宿舍商店
         """
         for _ in range(12):
-            logger.hr('商店购买', level=2)
+            logger.hr('Покупки в магазине', level=2)
             # 先获取商品列表，再读取货币以获得更准确的 OCR 结果
             items = self.shop_get_items()
             self.shop_currency()
