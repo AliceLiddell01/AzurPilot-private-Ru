@@ -155,7 +155,7 @@ class PrivateQuarters(PQInteract, PQShop):
             in: 私人宿舍主页
             out: 私人宿舍主页
         """
-        logger.hr(f'[私人休息室] 获取每周物品', level=2)
+        logger.hr(f'[Личные покои] Получение еженедельных предметов', level=2)
 
         # 进入商店
         self._pq_shop_enter()
@@ -182,7 +182,7 @@ class PrivateQuarters(PQInteract, PQShop):
         # 校验目标是否可选
         target_title = target_ship.title().replace('_', ' ')
         if target_ship not in self.available_targets:
-            logger.error(f'Unsupported target ship: {target_title}, cannot continue subtask')
+            logger.error(f'Неподдерживаемый целевой корабль: {target_title}; подзадачу продолжить невозможно')
             return
 
         # 进入目标房间，最多重试 3 次
@@ -210,24 +210,24 @@ class PrivateQuarters(PQInteract, PQShop):
         """
         logger.hr(f'私人休息室运行', level=1)
         target_title = target_ship.title().replace('_', ' ')
-        logger.info(f'[私人休息室] 任务配置: 买玫瑰={buy_roses}, '
-                    f'买蛋糕={buy_cake}, '
-                    f'舰娘互动={target_interact}, '
-                    f'目标舰娘={target_title}')
+        logger.info(f'[Личные покои] Конфигурация задачи: покупать розы={buy_roses}, '
+                    f'покупать торт={buy_cake}, '
+                    f'взаимодействовать с кораблём={target_interact}, '
+                    f'целевой корабль={target_title}')
 
         # 进入商店购买每周物品
         if self.shop_filter:
             if server.server not in ['tw']:
                 self.pq_shop_weekly_items()
             else:
-                logger.info(f'[私人休息室] {server.server} 服务器不支持商店功能')
+                logger.info(f'[Личные покои] Сервер {server.server} не поддерживает функцию магазина')
 
         # 执行舰娘互动
         if target_interact:
             # Ensure target is supported for server
             # Update `not_supported_filter` to enable a target
             if target_ship in self.not_supported_filter[server.server]:
-                logger.info(f'[私人休息室] 目标舰娘 {target_ship} 在 {server.server} 服务器不可用')
+                logger.info(f'[Личные покои] Целевой корабль {target_ship} недоступен на сервере {server.server}')
                 return
 
             # 获取每日剩余次数，为 0 则退出
