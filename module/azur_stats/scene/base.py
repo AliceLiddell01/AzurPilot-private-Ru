@@ -55,7 +55,7 @@ class SceneBase(ImageBase):
         elif isinstance(file, np.ndarray):
             self.images = unpack(file)
         else:
-            raise ImageError(f'Unknown image file: {file}')
+            raise ImageError(f'Неизвестный файл изображения: {file}')
 
     def clear_cache(self):
         super().clear_cache()
