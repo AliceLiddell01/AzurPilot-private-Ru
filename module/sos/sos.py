@@ -100,7 +100,7 @@ class CampaignSos(CampaignRun, CampaignBase):
         sos_confirm_buttons = TEMPLATE_SIGNAL_CONFIRM.match_multi(self.device.image)
         all_buttons = sos_goto_buttons + signal_search_buttons + sos_confirm_buttons
         if not len(all_buttons):
-            logger.info('未找到SOS章节')
+            logger.info('Главы SOS не найдены')
             return None
 
         chapter_buttons = [button.crop(self._sos_chapter_crop) for button in all_buttons]
@@ -109,10 +109,10 @@ class CampaignSos(CampaignRun, CampaignBase):
         if not isinstance(chapter_list, list):
             chapter_list = [chapter_list]
         if chapter in chapter_list:
-            logger.info('找到目标SOS章节')
+            logger.info('Целевая глава SOS найдена')
             return all_buttons[chapter_list.index(chapter)]
         else:
-            logger.info('未找到目标SOS章节')
+            logger.info('Целевая глава SOS не найдена')
             return None
 
     @Config.when(SERVER='en')
@@ -234,11 +234,11 @@ class CampaignSos(CampaignRun, CampaignBase):
             out: page_campaign
         """
         if self.config.SERVER in ['cn', 'en', 'jp']:
-            logger.warning('碧蓝航线不再有SOS地图，禁用任务')
+            logger.warning('В Azur Lane больше нет карт SOS; задача отключена')
             self.config.Scheduler_Enable = False
             self.config.task_stop()
 
-        logger.hr('战役SOS', level=1)
+        logger.hr('Кампания SOS', level=1)
         self.ui_ensure(page_campaign)
 
         while 1:
@@ -246,7 +246,7 @@ class CampaignSos(CampaignRun, CampaignBase):
             remain = OCR_SOS_SIGNAL.ocr(self.device.image)
             logger.attr('Сигнал SOS', remain)
             if remain <= 0:
-                logger.info(f'所有SOS信号已清除')
+                logger.info('Все сигналы SOS очищены')
                 break
 
             # Run
@@ -261,7 +261,7 @@ class CampaignSos(CampaignRun, CampaignBase):
             else:
                 self.ui_click(SIGNAL_SEARCH_CLOSE, appear_button=SIGNAL_LIST_CHECK, check_button=CAMPAIGN_CHECK,
                               skip_first_screenshot=True)
-                logger.warning(f'清除SOS信号失败，无法定位章节 {self.config.Sos_Chapter}')
+                logger.warning(f'Не удалось очистить сигнал SOS: глава {self.config.Sos_Chapter} не найдена')
                 break
 
         # Scheduler
