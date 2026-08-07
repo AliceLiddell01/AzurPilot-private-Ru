@@ -45,7 +45,7 @@ class RaidScuttleCombat(RaidCombat):
             self.device.click(OPTS_INFO_D)
             return True
         if super().handle_battle_status(drop=drop):
-            logger.warning("触发正常结束")
+            logger.warning("Сработало обычное завершение")
             self.triggered_normal_end = True
             return True
 
