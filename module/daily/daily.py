@@ -53,9 +53,9 @@ class Daily(Combat):
         color = (np.max(color) + np.min(color)) / 2
         active = color > 30
         if active:
-            logger.attr(f'每日任务_{self.daily_current}', '活跃')
+            logger.attr(f'Ежедневное задание_{self.daily_current}', 'активно')
         else:
-            logger.attr(f'每日任务_{self.daily_current}', '未活跃')
+            logger.attr(f'Ежедневное задание_{self.daily_current}', 'неактивно')
         return active
 
     def _wait_daily_switch(self):
@@ -160,7 +160,7 @@ class Daily(Combat):
         stage = stages[self.daily_current]
 
         if stage not in dic:
-            logger.warning(f'未知的每日关卡 `{stage}` from daily_current={self.daily_current}')
+            logger.warning(f'Неизвестный ежедневный этап `{stage}` из daily_current={self.daily_current}')
         stage = dic.get(stage, 0)
         return int(stage), int(fleet)
 
@@ -194,8 +194,8 @@ class Daily(Combat):
             in: page_daily
             out: page_daily
         """
-        logger.hr(f'每日任务 {self.daily_current}', level=2)
-        logger.info(f'remain={remain}, stage={stage}, fleet={fleet}')
+        logger.hr(f'Ежедневное задание {self.daily_current}', level=2)
+        logger.info(f'осталось={remain}, этап={stage}, флот={fleet}')
 
         def daily_enter_check():
             return self.appear(DAILY_ENTER_CHECK, threshold=30)
@@ -208,19 +208,19 @@ class Daily(Combat):
         self.ui_click(click_button=DAILY_ENTER, check_button=daily_enter_check, appear_button=DAILY_CHECK,
                       skip_first_screenshot=True)
         if self.appear(DAILY_LOCKED):
-            logger.info('每日锁定')
+            logger.info('Ежедневное задание заблокировано')
             self.ui_click(click_button=BACK_ARROW, check_button=DAILY_CHECK)
             self.device.sleep((1, 1.2))
             return False
 
         button = DAILY_MISSION_LIST[stage - 1]
         for n in range(remain):
-            logger.hr(f'计数 {n + 1}')
+            logger.hr(f'Счётчик {n + 1}')
             result = self.daily_enter(button)
             if not result:
                 break
             if self.daily_current == self.supply_line_disruption_index:
-                logger.info('潜艇每日跳过未解锁，跳过')
+                logger.info('Ежедневный пропуск подлодок не разблокирован; пропуск')
                 self.ui_click(click_button=BACK_ARROW, check_button=daily_enter_check, skip_first_screenshot=True)
                 break
             # 执行经典每日任务
@@ -290,11 +290,11 @@ class Daily(Combat):
         if not n:
             n = self.daily_current
         self.daily_checked.append(n)
-        logger.info(f'已检查每日 {n}')
-        logger.info(f'已检查列表: {self.daily_checked}')
+        logger.info(f'Ежедневное задание {n} проверено')
+        logger.info(f'Список проверенных: {self.daily_checked}')
 
     def daily_run_one(self):
-        logger.hr('每日运行一次', level=1)
+        logger.hr('Один проход ежедневных заданий', level=1)
         self.ui_ensure(page_daily)
         self.device.sleep(0.2)
         self.device.screenshot()
@@ -302,7 +302,7 @@ class Daily(Combat):
         self.emergency_module_development = self.appear(ENTRANCE_EMERGENCY_MODULE_DEVELOPMENT, offset=(25, 50))
         logger.attr('emergency_module_development', self.emergency_module_development)
 
-        logger.info(f'已检查列表: {self.daily_checked}')
+        logger.info(f'Список проверенных: {self.daily_checked}')
         for _ in range(max(self.daily_checked)):
             self.next()
 
@@ -310,23 +310,23 @@ class Daily(Combat):
             if self.daily_current > 7:
                 break
             if self.daily_current == self.empty_index:
-                logger.info('此每日当前未开放')
+                logger.info('Это ежедневное задание сейчас недоступно')
                 self.daily_check()
                 self.next()
                 continue
             stage, fleet = self.get_daily_stage_and_fleet()
             if self.daily_current == self.supply_line_disruption_index and not self.config.Daily_UseDailySkip:
-                logger.info('如UseDailySkip禁用则跳过补给线破坏')
+                logger.info('Supply Line Disruption пропущен, так как UseDailySkip отключён')
                 self.daily_check()
                 self.next()
                 continue
             if not stage:
-                logger.info(f'daily_current未设置关卡，跳过: {self.daily_current}, skip')
+                logger.info(f'Для daily_current не задан этап; пропуск: {self.daily_current}')
                 self.daily_check()
                 self.next()
                 continue
             if self.daily_current != self.supply_line_disruption_index and not fleet:
-                logger.info(f'daily_current未设置舰队，跳过: {self.daily_current}, skip')
+                logger.info(f'Для daily_current не задан флот; пропуск: {self.daily_current}')
                 self.daily_check()
                 self.next()
                 continue
@@ -356,7 +356,7 @@ class Daily(Combat):
                 self.daily_checked = [0]
 
             if max(self.daily_checked) >= 7:
-                logger.info('每日清除完成')
+                logger.info('Очистка ежедневных заданий завершена')
                 break
 
     def run(self):
