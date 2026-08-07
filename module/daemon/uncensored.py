@@ -18,7 +18,7 @@ Localization_skin = true
 
 class AzurLaneUncensored(LoginHandler):
     def create_level1_uncensored(self):
-        logger.info('创建1级未审查')
+        logger.info('Создание файла локализации без цензуры первого уровня')
         folder = './files'
         try:
             shutil.rmtree(folder)
@@ -37,7 +37,7 @@ class AzurLaneUncensored(LoginHandler):
         """
         folder = './.venv/AzurLaneUncensored'
 
-        logger.hr('准备 AzurLane 未审查文件', level=1)
+        logger.hr('Подготовка файлов Azur Lane без цензуры', level=1)
         os.makedirs(folder, exist_ok=True)
         previous_folder = os.getcwd()
 
@@ -45,22 +45,22 @@ class AzurLaneUncensored(LoginHandler):
             os.chdir(folder)
             self.create_level1_uncensored()
 
-            logger.hr('推送未审查文件', level=1)
-            logger.info('[守护-无删减] 推送需要几秒钟')
+            logger.hr('Отправка файлов без цензуры', level=1)
+            logger.info('[Daemon-Без цензуры] Отправка займёт несколько секунд')
             command = ['push', 'files', f'/sdcard/Android/data/{self.device.package}']
-            logger.info(f'[守护-无删减] 命令: {command}')
+            logger.info(f'[Daemon-Без цензуры] Команда: {command}')
             self.device.adb_command(command, timeout=30)
-            logger.info('[守护-无删减] 推送成功')
+            logger.info('[Daemon-Без цензуры] Файлы успешно отправлены')
         finally:
             os.chdir(previous_folder)
 
-        logger.hr('重启碧蓝航线', level=1)
+        logger.hr('Перезапуск Azur Lane', level=1)
         self.config.override(Error_HandleError=True)
         self.device.app_stop()
         self.device.app_start()
         self.handle_app_login()
 
-        logger.info('[守护-无删减] 完成')
+        logger.info('[Daemon-Без цензуры] Готово')
 
 
 if __name__ == '__main__':
