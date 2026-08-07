@@ -81,7 +81,7 @@ class BeaconReward(Combat, UI):
             in: page_meta or REWARD_CHECK
             out: REWARD_CHECK
         """
-        logger.hr('领取META奖励', level=1)
+        logger.hr('Получение наград META', level=1)
         confirm_timer = Timer(1, count=3).start()
         received = False
         while 1:
@@ -164,11 +164,11 @@ class BeaconReward(Combat, UI):
 
             if self.config.SERVER == 'en':
                 if self.appear(SYNC_ENTER, offset=(20, 20)):
-                    logger.info(f'meta_sync_receive ends at SYNC_ENTER')
+                    logger.info('meta_sync_receive завершён на SYNC_ENTER')
                     break
                 elif self.appear(SYNC_ENTER2, offset=(20, 20)):
                     if not self.meta_sync_notice_appear():
-                        logger.info(f'meta_sync_receive ends at SYNC_ENTER2')
+                        logger.info('meta_sync_receive завершён на SYNC_ENTER2')
                         break
             else:
                 if self.appear(SYNC_ENTER, offset=(20, 20)):
@@ -331,7 +331,7 @@ class DossierReward(Combat, UI):
             in: DOSSIER_REWARD_CHECK
             out: DOSSIER_REWARD_CHECK
         """
-        logger.hr('档案奖励领取', level=1)
+        logger.hr('Получение наград архива', level=1)
         confirm_timer = Timer(1, count=3).start()
         received = False
         while 1:
