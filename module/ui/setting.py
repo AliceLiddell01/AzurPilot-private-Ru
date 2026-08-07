@@ -53,8 +53,8 @@ class Setting:
             self.settings[(setting, option_name)] = option
 
         if option_default not in option_names:
-            raise ScriptError(f'Define option_default="{option_default}", '
-                              f'but default is not in option_names={option_names}')
+            raise ScriptError(f'Не удалось задать option_default="{option_default}": '
+                              f'значение отсутствует в option_names={option_names}')
         self.settings_default[setting] = option_default
 
     def is_option_active(self, option: Button) -> bool:
@@ -138,7 +138,7 @@ class Setting:
         """
         status = self._product_setting_status(**kwargs)
 
-        logger.info(f'[UI-设置] 设置选项 {self.name}, {dict_to_kv(kwargs)}')
+        logger.info(f'[UI — Настройки] {self.name}: установка параметров {dict_to_kv(kwargs)}')
         skip_first_screenshot = True
         retry = Timer(1, count=2)
         timeout = Timer(10, count=20).start()
@@ -149,7 +149,8 @@ class Setting:
                 self.main.device.screenshot()
 
             if timeout.reached():
-                logger.warning(f'[UI] 设置 {self.name} 选项超时，假定当前选项已正确。')
+                logger.warning(f'[UI] Превышено время ожидания установки параметров {self.name}; '
+                               f'считаем, что текущие значения уже корректны.')
                 return False
 
             self.show_active_buttons()
