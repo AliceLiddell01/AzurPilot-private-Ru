@@ -85,7 +85,7 @@ class MailWhite(UI):
             in: page_main_white 或 MAIL_MANAGE
             out: MAIL_BATCH_CLAIM
         """
-        logger.info('进入邮件')
+        logger.info('Вход в почту')
         self.interval_clear([
             MAIL_MANAGE
         ])
@@ -99,15 +99,15 @@ class MailWhite(UI):
 
             # End
             if self.appear(MAIL_BATCH_CLAIM, offset=(20, 20)):
-                logger.info('进入邮件ed')
+                logger.info('Почта открыта')
                 return True
             if self.appear(MAIL_WHITE_EMPTY, offset=(20, 20)):
-                logger.info('邮件为空')
+                logger.info('Почта пуста')
                 return False
             if not has_mail and self.appear(GOTO_MAIN_WHITE, offset=(20, 20)):
                 timeout.start()
                 if timeout.reached():
-                    logger.info('邮件为空, wait GOTO_MAIN_WHITE timeout')
+                    logger.info('Почта пуста: тайм-аут ожидания GOTO_MAIN_WHITE')
                     return False
 
             # Click
@@ -127,7 +127,7 @@ class MailWhite(UI):
             in: page_mail 中的任意页面
             out: page_main_white
         """
-        logger.info('退出邮件')
+        logger.info('Выход из почты')
         self.interval_clear([
             MAIL_BATCH_CLAIM,
             GOTO_MAIN_WHITE,
@@ -143,7 +143,7 @@ class MailWhite(UI):
 
             # End
             if self.is_in_main():
-                logger.info('退出邮件 to main')
+                logger.info('Выход из почты на главную страницу')
                 break
 
             # Click
@@ -218,7 +218,7 @@ class MailWhite(UI):
                 continue
 
         success = self.info_bar_count() > 0
-        logger.info(f'邮件领取成功: {success}')
+        logger.info(f'Получение наград из почты успешно: {success}')
         return success
 
     def _mail_delete(self, skip_first_screenshot=True):
@@ -281,12 +281,12 @@ class MailWhite(UI):
             return
 
         if merit:
-            logger.hr('邮件功勋', level=2)
+            logger.hr('Почта: заслуги', level=2)
             self._mail_enter()
             self.mail_select_setting.set(contains=['merit'])
             self._mail_claim_execute()
         if maintenance:
-            logger.hr('邮件维护', level=2)
+            logger.hr('Почта: компенсация за обслуживание', level=2)
             self._mail_enter()
             self.mail_select_setting.set(contains=['coins', 'oil'])
             self._mail_claim_execute()
@@ -294,12 +294,12 @@ class MailWhite(UI):
             self.mail_select_setting.set(contains=['coins', 'oil', 'gems'])
             self._mail_claim_execute()
         if trade_license:
-            logger.hr('邮件贸易许可', level=2)
+            logger.hr('Почта: торговая лицензия', level=2)
             self._mail_enter()
             self.mail_select_setting.set(contains=['coins', 'oil', 'cube'])
             self._mail_claim_execute()
         if delete:
-            logger.hr('邮件删除', level=2)
+            logger.hr('Удаление почты', level=2)
             self._mail_enter()
             self.mail_select_all_setting.set(contains=['all'])
             self._mail_delete()
@@ -311,22 +311,22 @@ class MailWhite(UI):
         maintenance = self.config.Mail_ClaimMaintenance
         trade_license = self.config.Mail_ClaimTradeLicense
         delete = self.config.Mail_DeleteCollected
-        logger.info(f'[免费福利-邮件] 邮件奖励: 功勋={merit}, 维护补偿={maintenance}, '
-                    f'贸易许可={trade_license}, 删除={delete}')
+        logger.info(f'[Бонусы — почта] Награды: заслуги={merit}, компенсация за обслуживание={maintenance}, '
+                    f'торговая лицензия={trade_license}, удаление={delete}')
         if not merit and not maintenance and not trade_license:
-            logger.warning('无内容可领取')
+            logger.warning('Нечего получать')
             return False
 
         # 必须使用白色主题 UI
         self.ui_ensure(page_main)
         if self.appear(page_main_white.check_button, offset=(30, 30)):
-            logger.info('在白色主页')
+            logger.info('Открыта светлая главная страница')
             pass
         elif self.appear(page_main.check_button, offset=(5, 5)):
-            logger.info('在主页')
+            logger.info('Открыта главная страница')
             pass
         else:
-            logger.warning('[免费福利-邮件] 未知的主页面，无法进入邮件页面')
+            logger.warning('[Бонусы — почта] Неизвестная главная страница; невозможно открыть почту')
             return False
 
         # 领取
