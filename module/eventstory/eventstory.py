@@ -67,11 +67,11 @@ class EventStory(CampaignUI, Combat, LoginHandler):
             timeout = Timer(2, count=6).start()
             for _ in self.loop():
                 state = self.get_event_story_state()
-                logger.attr('活动剧情状态', state)
+                logger.attr('Состояние сюжета события', state)
                 if state != 'unknown':
                     break
                 if timeout.reached():
-                    logger.warning('等待活动剧情状态超时')
+                    logger.warning('Тайм-аут ожидания состояния сюжета события')
                     break
             if state == 'unknown':
                 # 剧情页面被滑动过，找不到剧情入口
@@ -155,7 +155,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
         Returns:
             str: 'battle'（进入战斗）或 'finish'（剧情结束）
         """
-        logger.hr('活动剧情', level=1)
+        logger.hr('Сюжет события', level=1)
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -230,7 +230,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
             result = self.event_story()
             if result == 'battle':
                 # 通过重启游戏跳过活动战斗，比等待战斗结束快得多
-                logger.hr('活动剧情战斗', level=2)
+                logger.hr('Бой сюжета события', level=2)
                 self.config.override(Error_HandleError=True)
                 self.app_stop()
                 self.device.sleep(2)
@@ -238,7 +238,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
                 continue
             if result == 'finish':
                 # 剧情结束后返回主界面再进入，以关闭可能残留的 GET_ITEMS 弹窗
-                logger.hr('活动剧情 finish', level=2)
+                logger.hr('Сюжет события — завершение', level=2)
                 self.ui_goto_main()
                 self.ui_goto_event_story()
 
@@ -294,7 +294,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
             return
 
         if not self.device.app_is_running():
-            logger.warning('游戏未运行，启动中')
+            logger.warning('Игра не запущена; запуск')
             self.app_start()
 
         self.run_event_story()
