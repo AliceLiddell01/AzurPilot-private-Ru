@@ -82,7 +82,7 @@ class LogRes:
                                 source=source,
                             )
                         except Exception:
-                            logger.exception('保存行动力快照失败')
+                            logger.exception('Не удалось сохранить снимок очков действия')
                     # 记录全量资源快照
                     value_to_record = value.get('Value') if isinstance(value, dict) else None
                     if value_to_record is not None:
