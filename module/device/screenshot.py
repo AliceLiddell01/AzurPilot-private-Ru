@@ -319,10 +319,10 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 return True
             else:
                 logger.error_context(
-                    title='设备分辨率不受支持',
-                    reason=f'当前截图分辨率为 {width}x{height}，项目只支持 1280x720。',
-                    impact='无法可靠识别游戏界面，任务将停止。',
-                    action='将模拟器和游戏窗口调整为 1280x720 后重新连接设备。',
+                    title='Разрешение экрана не поддерживается',
+                    reason=f'Текущее разрешение снимка экрана — {width}x{height}; проект поддерживает только 1280x720.',
+                    impact='Надёжное распознавание игрового интерфейса невозможно; задача будет остановлена.',
+                    action='Установите разрешение эмулятора и окна игры 1280x720, затем повторно подключите устройство.',
                     level=50,
                 )
                 raise RequestHumanTakeover
