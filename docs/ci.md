@@ -44,13 +44,35 @@ Translation structural step получает SHA из `pull_request.base.sha` и
 `pull_request.head.sha`, сравнивает changed production Python через локальный
 `git diff` и запрещает translation PR менять workflow, verifier или его tests.
 В production scope входят точки входа, `module/**/*.py` и `campaign/**/*.py`.
-Проверка разрешает изменение строк только в статически однозначных
-operator-facing logger/exception positions (включая `logger.exception`),
-безопасные строковые
-конкатенации, `%`-подстановки и вызовы `strip`; строковые позиции сверяются в
-UTF-8 byte coordinates, используемых Python AST. Все неизвестные string
-contexts и любые структурные изменения блокируются. Верхнеуровневый required
-context при этом остаётся `Python` — отдельный status context не создаётся.
+
+Все строковые значения verifier считает exact-by-default. Изменение допускается
+только для статически однозначных operator-facing prose-позиций конкретных
+sinks: первого message/label argument поддерживаемых `logger.*` вызовов и
+keyword values `title=`/`content=` прямого `handle_notify(...)`. Строки в
+`raise`/exception constructors, неизвестных calls/keywords и machine-sensitive
+контекстах остаются exact. Call target, call shape, dynamic expressions,
+placeholders, conversion и format specification должны совпадать.
+
+Для обычных `STRING` сохраняются prefix и точный вид quote delimiter. Для
+f-string verifier использует token contract текущего Python runtime:
+`FSTRING_START` и `FSTRING_END` exact, replacement-field tokens exact, а
+`FSTRING_MIDDLE` нормализуется только когда его byte range принадлежит
+одобренному outer prose literal. `FSTRING_MIDDLE` внутри
+`FormattedValue.format_spec` остаётся exact. Template-string tokens `TSTRING_*`
+не входят в translation allowlist и exact-by-default. Строковые диапазоны
+сверяются в UTF-8 byte coordinates, используемых Python AST.
+
+CI загружает implementation verifier командой вида
+`git show "${PR_BASE_SHA}:dev_tools/translation_structural_gate.py"` только из
+динамического текущего PR base. Этот `git show` разрешён исключительно для
+получения trusted verifier implementation. Его нельзя использовать для
+historical production baseline, whole-file freeze, committed before-tree
+snapshot, approved-delta history или permanent assertion против старой
+production revision. Проверяемая модель — dynamic current base + verifier из
+этой базы + exact current head как source data.
+
+Верхнеуровневый required context при этом остаётся `Python` — отдельный status
+context не создаётся.
 
 ## Windows
 
