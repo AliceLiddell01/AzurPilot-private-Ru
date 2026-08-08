@@ -23,6 +23,7 @@ PROTECTED_PATHS = {
 }
 ENTRY_POINTS = {"alas.py", "gui.py", "mcp_server_sse.py"}
 LOGGER_METHODS = {"info", "warning", "error", "critical", "exception", "hr"}
+HANDLE_NOTIFY_PROSE_KEYWORDS = {"title", "content"}
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
     r"(?:hh|h|ll|l|L|j|z|t)?[diouxXeEfFgGcrsa%]"
@@ -172,14 +173,12 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         ]
         for literal in literals:
             literal._translation_prose = True
-
-        for template in templates:
-            if not hasattr(template, "lineno") or not hasattr(template, "end_lineno"):
+            if not hasattr(literal, "lineno") or not hasattr(literal, "end_lineno"):
                 continue
             self.ranges.append(
                 SourceRange(
-                    (template.lineno, template.col_offset),
-                    (template.end_lineno, template.end_col_offset),
+                    (literal.lineno, literal.col_offset),
+                    (literal.end_lineno, literal.end_col_offset),
                 )
             )
 
@@ -215,11 +214,13 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                 )
             elif name[1] == "attr":
                 self._approve(node.args[0], "logger.attr label")
-        self.generic_visit(node)
-
-    def visit_Raise(self, node: ast.Raise) -> None:
-        if isinstance(node.exc, ast.Call) and node.exc.args:
-            self._approve(node.exc.args[0], "exception message")
+        elif name == ("handle_notify",):
+            for keyword in node.keywords:
+                if keyword.arg in HANDLE_NOTIFY_PROSE_KEYWORDS:
+                    self._approve(
+                        keyword.value,
+                        f"handle_notify.{keyword.arg}",
+                    )
         self.generic_visit(node)
 
 
@@ -244,7 +245,7 @@ def _string_token_signature(value: str) -> str:
     if match is None:
         return "STRING"
     prefix, quote = match.groups()
-    return f"STRING:{prefix.lower()}:{len(quote)}"
+    return f"STRING:{prefix}:{quote}"
 
 
 def _token_stream(source: str, ranges: Iterable[SourceRange]) -> list[tuple[str, str]]:
@@ -258,8 +259,7 @@ def _token_stream(source: str, ranges: Iterable[SourceRange]) -> list[tuple[str,
         return line, len(lines[line - 1][:column].encode("utf-8"))
 
     result: list[tuple[str, str]] = []
-    fstring_middle = getattr(token, "FSTRING_MIDDLE", -1)
-    string_tokens = {token.STRING, fstring_middle}
+    fstring_middle = getattr(token, "FSTRING_MIDDLE", None)
     ignored = {tokenize.ENCODING, tokenize.ENDMARKER}
 
     for item in tokenize.tokenize(io.BytesIO(source.encode("utf-8")).readline):
@@ -268,14 +268,17 @@ def _token_stream(source: str, ranges: Iterable[SourceRange]) -> list[tuple[str,
         value = item.string
         start = byte_position(item.start)
         end = byte_position(item.end)
-        if item.type in string_tokens and any(
+        in_approved_literal = any(
             source_range.contains(start, end) for source_range in allowed
+        )
+        if item.type == token.STRING and in_approved_literal:
+            value = _string_token_signature(value)
+        elif (
+            fstring_middle is not None
+            and item.type == fstring_middle
+            and in_approved_literal
         ):
-            value = (
-                "<OPERATOR_PROSE>"
-                if item.type == fstring_middle
-                else _string_token_signature(value)
-            )
+            value = "<OPERATOR_PROSE>"
         result.append((token.tok_name[item.type], value))
     return result
 
