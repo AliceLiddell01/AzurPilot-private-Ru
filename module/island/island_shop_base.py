@@ -767,7 +767,7 @@ class IslandShopBase(Island, WarehouseOCR):
                         logger.info(f"[Остров]   Для {product} не хватает сырья: {material} (запас: {material_stock})")
                         return 0
                 max_producible = min(max_producible, max_by_material)
-                logger.info(f"[Остров]   Сырьё {material} для {product}: запас {material_stock}, требуется на единицу {quantity_per}, максимум производства {max_by_material}")
+                logger.info(f"[Остров]   Для {product}: сырьё {material}, запас {material_stock}, требуется на единицу {quantity_per}, максимум производства {max_by_material}")
 
         # 2. 检查岗位数量限制
         max_producible = min(max_producible, self.POST_PRODUCE_LIMIT)
