@@ -595,7 +595,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
                 continue
 
         logger.warning('[Кампания] Ошибка имени кампании')
-        raise ScriptEnd('Ошибка имени кампании')
+        raise ScriptEnd('Campaign name error')
 
     def commission_notice_show_at_campaign(self):
         """

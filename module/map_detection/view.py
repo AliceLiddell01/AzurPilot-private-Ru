@@ -98,7 +98,7 @@ class View(MapDetector):
                 x = max(self.center_loca[0] - self.shape[0], 0) if self.center_loca[0] > 0 else self.center_loca[0]
                 y = max(self.center_loca[1] - self.shape[1], 0) if self.center_loca[1] > 0 else self.center_loca[1]
                 self.center_offset = offset - self.center_loca
-                raise MapDetectionError(f'Камера за пределами карты: offset=({x}, {y})')
+                raise MapDetectionError(f'Camera outside map: смещение=({x}, {y})')
             break
 
     def predict(self):
