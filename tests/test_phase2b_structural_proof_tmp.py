@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import io
+import re
 import subprocess
 import tokenize
 import warnings
@@ -70,35 +71,38 @@ PRODUCTION_FILES = (
     "module/tactical/tactical_class.py",
 )
 
+_STRING_TOKEN_HEAD = re.compile(r"(?i)^([rubf]*)(\'\'\'|\"\"\"|\'|\")")
+
 
 def _git(*args: str) -> str:
-    result = subprocess.run(
+    return subprocess.run(
         ["git", *args],
         check=True,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )
-    return result.stdout
+    ).stdout
 
 
 def _source_at(ref: str, path: str) -> str:
     return _git("show", f"{ref}:{path}")
 
 
+def _dump_optional(node: ast.AST | None) -> str | None:
+    return None if node is None else ast.dump(node, include_attributes=False)
+
+
 def _docstrings(tree: ast.AST) -> list[tuple[str, str, str | None]]:
     holders = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-    result: list[tuple[str, str, str | None]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, holders):
-            result.append(
-                (
-                    type(node).__name__,
-                    getattr(node, "name", "<module>"),
-                    ast.get_docstring(node, clean=False),
-                )
-            )
-    return result
+    return [
+        (
+            type(node).__name__,
+            getattr(node, "name", "<module>"),
+            ast.get_docstring(node, clean=False),
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, holders)
+    ]
 
 
 def _comments(source: str) -> list[str]:
@@ -117,28 +121,23 @@ def _imports(tree: ast.AST) -> list[str]:
     ]
 
 
-def _definitions(tree: ast.AST) -> list[tuple[str, str, str]]:
-    result: list[tuple[str, str, str]] = []
+def _definitions(tree: ast.AST) -> list[tuple[str, str, tuple[str, ...], str | None, str | None, tuple[str, ...]]]:
+    result = []
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            positional = [*node.args.posonlyargs, *node.args.args]
             result.append(
                 (
                     type(node).__name__,
                     node.name,
-                    ast.dump(node.args, include_attributes=False),
+                    tuple(arg.arg for arg in positional),
+                    node.args.vararg.arg if node.args.vararg else None,
+                    node.args.kwarg.arg if node.args.kwarg else None,
+                    tuple(arg.arg for arg in node.args.kwonlyargs),
                 )
             )
         elif isinstance(node, ast.ClassDef):
-            result.append(
-                (
-                    "ClassDef",
-                    node.name,
-                    ast.dump(
-                        ast.Tuple(elts=[*node.bases, *[kw.value for kw in node.keywords]], ctx=ast.Load()),
-                        include_attributes=False,
-                    ),
-                )
-            )
+            result.append(("ClassDef", node.name, (), None, None, ()))
     return result
 
 
@@ -162,6 +161,20 @@ def _numeric_literals(tree: ast.AST) -> list[object]:
         and isinstance(node.value, (int, float, complex))
         and not isinstance(node.value, bool)
     ]
+
+
+def _percent_placeholder_signatures(tree: ast.AST) -> list[tuple[str, ...]]:
+    pattern = re.compile(r"%(?:\([^)]+\))?[#0\- +]*(?:\d+|\*)?(?:\.\d+|\.\*)?[hlL]?[diouxXeEfFgGcrsa%]")
+    result = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, ast.Mod)
+            and isinstance(node.left, ast.Constant)
+            and isinstance(node.left.value, str)
+        ):
+            result.append(tuple(pattern.findall(node.left.value)))
+    return result
 
 
 def _assert_ast_equal_except_string_values(left: ast.AST, right: ast.AST, path: str = "root") -> None:
@@ -192,9 +205,7 @@ def _assert_ast_equal_except_string_values(left: ast.AST, right: ast.AST, path: 
                     raise AssertionError(f"f-string expression changed at {child_path}")
                 if l_value.conversion != r_value.conversion:
                     raise AssertionError(f"f-string conversion changed at {child_path}")
-                if ast.dump(l_value.format_spec, include_attributes=False) != ast.dump(
-                    r_value.format_spec, include_attributes=False
-                ):
+                if _dump_optional(l_value.format_spec) != _dump_optional(r_value.format_spec):
                     raise AssertionError(f"f-string format_spec changed at {child_path}")
                 continue
             _assert_ast_equal_except_string_values(l_value, r_value, child_path)
@@ -223,6 +234,13 @@ def _assert_ast_equal_except_string_values(left: ast.AST, right: ast.AST, path: 
             raise AssertionError(f"AST scalar changed at {child_path}: {l_value!r} != {r_value!r}")
 
 
+def _string_token_shape(value: str) -> tuple[str, str]:
+    match = _STRING_TOKEN_HEAD.match(value)
+    if not match:
+        raise AssertionError(f"Cannot parse string token prefix/quote: {value[:20]!r}")
+    return match.group(1).lower(), match.group(2)
+
+
 def _assert_token_structure(left: str, right: str, path: str) -> None:
     left_tokens = list(tokenize.generate_tokens(io.StringIO(left).readline))
     right_tokens = list(tokenize.generate_tokens(io.StringIO(right).readline))
@@ -230,16 +248,16 @@ def _assert_token_structure(left: str, right: str, path: str) -> None:
         raise AssertionError(f"Token count changed in {path}: {len(left_tokens)} != {len(right_tokens)}")
 
     fstring_middle = getattr(tokenize, "FSTRING_MIDDLE", None)
-    allowed_value_token_types = {tokenize.STRING}
-    if fstring_middle is not None:
-        allowed_value_token_types.add(fstring_middle)
-
     for index, (l_token, r_token) in enumerate(zip(left_tokens, right_tokens, strict=True)):
         if l_token.type != r_token.type:
             raise AssertionError(
                 f"Token type changed in {path} at #{index}: {tokenize.tok_name[l_token.type]} != {tokenize.tok_name[r_token.type]}"
             )
-        if l_token.type in allowed_value_token_types:
+        if l_token.type == tokenize.STRING:
+            if _string_token_shape(l_token.string) != _string_token_shape(r_token.string):
+                raise AssertionError(f"String prefix/quote changed in {path} at token #{index}")
+            continue
+        if fstring_middle is not None and l_token.type == fstring_middle:
             continue
         if l_token.string != r_token.string:
             raise AssertionError(
@@ -289,6 +307,9 @@ def test_phase2b_allowlisted_structural_parity() -> None:
         assert _definitions(base_tree) == _definitions(head_tree), f"Symbol/signature structure changed: {path}"
         assert _call_shapes(base_tree) == _call_shapes(head_tree), f"Call target/shape changed: {path}"
         assert _numeric_literals(base_tree) == _numeric_literals(head_tree), f"Numeric literal changed: {path}"
+        assert _percent_placeholder_signatures(base_tree) == _percent_placeholder_signatures(head_tree), (
+            f"Percent-format placeholder signature changed: {path}"
+        )
 
         _assert_ast_equal_except_string_values(base_tree, head_tree, path)
         _assert_token_structure(base_source, head_source, path)
@@ -296,8 +317,8 @@ def test_phase2b_allowlisted_structural_parity() -> None:
 
     assert verified == 58
     warnings.warn(
-        "PHASE2B_STRUCTURAL_PROOF_PASS: 58/58 production files; only string literal values differ; "
-        "f-string expressions/conversions/format-specs, imports, symbols/signatures, calls, numeric literals, "
-        "comments/docstrings, token structure and EOF parity preserved",
+        "PHASE2B_STRUCTURAL_PROOF_PASS: 58/58 production files; AST mismatches are limited to string literal values; "
+        "f-string expressions/conversions/format-specs, imports, symbols/signatures, call shapes, numeric literals, "
+        "percent placeholders, comments/docstrings, token structure and EOF parity preserved",
         stacklevel=1,
     )
