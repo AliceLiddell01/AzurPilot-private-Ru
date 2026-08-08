@@ -47,10 +47,11 @@ Translation structural step получает SHA из `pull_request.base.sha` и
 
 Все строковые значения verifier считает exact-by-default. Изменение допускается
 только для статически однозначных operator-facing prose-позиций конкретных
-sinks: первого message/label argument поддерживаемых `logger.*` вызовов и
-keyword values `title=`/`content=` прямого `handle_notify(...)`. Строки в
-`raise`/exception constructors, неизвестных calls/keywords и machine-sensitive
-контекстах остаются exact. Call target, call shape, dynamic expressions,
+sinks: первого message/label argument поддерживаемых прямых `logger.*` и точных
+method-call `self.logger.*` вызовов, а также keyword values `title=`/`content=`
+прямого `handle_notify(...)`. Соседние аргументы и неизвестные keywords,
+строки в `raise`/exception constructors, неизвестных calls/keywords и
+machine-sensitive контекстах остаются exact. Call target, call shape, dynamic expressions,
 placeholders, conversion и format specification должны совпадать.
 
 Для обычных `STRING` сохраняются prefix и точный вид quote delimiter. Для
