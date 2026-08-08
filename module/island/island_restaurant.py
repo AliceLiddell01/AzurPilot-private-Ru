@@ -38,7 +38,8 @@ RESTAURANT_SEASONAL_DISHES = {
         'post_action': POST_AMARANTH_RICE_BALL, 'cn_name': '苋菜饭团'
     },
     'tomato_egg': {
-        'name': 'tomato_egg', 'template': TEMPLATE_TOMATO_EGG, 'selection': SELECT_TOMATO_EGG, 'selection_check': SELECT_TOMATO_EGG_CHECK,
+        'name': 'tomato_egg', 'template': TEMPLATE_TOMATO_EGG,
+        'selection': SELECT_TOMATO_EGG, 'selection_check': SELECT_TOMATO_EGG_CHECK,
         'post_action': POST_TOMATO_EGG, 'cn_name': '番茄炒蛋'
     },
 }
