@@ -1086,6 +1086,7 @@ function Add-PathEntry {
         [System.Collections.Generic.List[string]]$Entries,
 
         [Parameter(Mandatory)]
+        [AllowEmptyString()]
         [string]$Entry
     )
 
