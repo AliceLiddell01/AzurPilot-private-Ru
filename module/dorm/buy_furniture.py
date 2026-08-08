@@ -190,7 +190,7 @@ class BuyFurniture(UI):
             logger.info(f"[Общежитие — мебель] Монет мебели достаточно; покупка {buy_option}")
             buy_successful = True
         else:
-            logger.info("[Общежитие — мебель] Недостаточно монет мебели; покупки завершены")
+            logger.info(f"[Общежитие — мебель] Недостаточно монет мебели; покупки завершены")
             buy_successful = False
         self.buy_furniture_confirm(skip_first_screenshot=True)
         self.furniture_details_page_quit(skip_first_screenshot=True)
