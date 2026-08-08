@@ -116,8 +116,8 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.config.Scheduler_Enable = False
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config.config_name}> campaign finished",
-                content=f"<{self.config.config_name}> {self.name} reached run count limit"
+                title=f"AzurPilot <{self.config.config_name}>: кампания завершена",
+                content=f"<{self.config.config_name}> {self.name}: достигнут лимит запусков"
             )
             return True
         # 等级限制
@@ -126,8 +126,8 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.config.Scheduler_Enable = False
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config.config_name}> campaign finished",
-                content=f"<{self.config.config_name}> {self.name} reached level limit"
+                title=f"AzurPilot <{self.config.config_name}>: кампания завершена",
+                content=f"<{self.config.config_name}> {self.name}: достигнут лимит уровня"
             )
             return True
         # 石油限制
@@ -155,8 +155,8 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.config.Scheduler_Enable = False
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config.config_name}> campaign finished",
-                content=f"<{self.config.config_name}> {self.name} got new ship"
+                title=f"AzurPilot <{self.config.config_name}>: кампания завершена",
+                content=f"<{self.config.config_name}> {self.name}: получен новый корабль"
             )
             return True
         # 活动限制
@@ -380,7 +380,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
                 logger.info('[Кампания — запуск] Непрерывная зачистка отключена')
                 self.config.override(StopCondition_MapAchievement='non_stop')
                 self.config.override(StopCondition_StageIncrease=False)
-        # 如果模式为 hard 且文件存在，将 campaign_main 转换为 campaign_hard
+        # 如果在困难模式，检查剩余次数
         if mode == 'hard' and folder == 'campaign_main' and name in map_files('campaign_hard'):
             folder = 'campaign_hard'
         # event_20240912_cn 没有 "威胁：安全" 指示器，回退 MapAchievement
