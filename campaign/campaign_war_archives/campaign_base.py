@@ -100,7 +100,7 @@ class CampaignBase(CampaignBase_):
             else:
                 break
 
-        logger.warning('Failed to find archives entrance')
+        logger.warning('Не удалось найти вход в Архивы')
         return None
 
     def ui_goto_archives_campaign(self, mode='ex'):
@@ -123,7 +123,7 @@ class CampaignBase(CampaignBase_):
                 self.ui_click(entrance, appear_button=WAR_ARCHIVES_CHECK, check_button=WAR_ARCHIVES_CAMPAIGN_CHECK,
                               skip_first_screenshot=True)
             else:
-                logger.critical('[战役] 当前服务器可能不支持该活动，请稍后再试')
+                logger.critical('[Кампания] Возможно, текущий сервер не поддерживает это событие. Повторите попытку позже')
                 raise RequestHumanTakeover
 
         # Subsequent runs all set False

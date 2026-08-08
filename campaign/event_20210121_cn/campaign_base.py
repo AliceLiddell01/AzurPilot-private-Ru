@@ -35,7 +35,7 @@ class CampaignBase(CampaignBase_):
             self.campaign_ensure_chapter(chapter)
 
         else:
-            logger.warning(f'Unknown campaign chapter: {name}')
+            logger.warning(f'Неизвестная глава кампании: {name}')
 
     @staticmethod
     def _campaign_get_chapter_index(name):

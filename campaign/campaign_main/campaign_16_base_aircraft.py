@@ -35,7 +35,7 @@ class CampaignBase(CampaignBase_):
         attack_grid = self.convert_global_to_local(location)
         attack_grid.__str__ = location
 
-        logger.info('Select grid to air strike')
+        logger.info('Выбор клетки для авиаудара')
         skip_first_screenshot = True
         interval = Timer(5, count=10)
         for _ in self.loop(skip_first=skip_first_screenshot):
@@ -51,7 +51,7 @@ class CampaignBase(CampaignBase_):
                 interval.reset()
                 continue
 
-        logger.info('Confirm air strike')
+        logger.info('Подтверждение авиаудара')
         skip_first_screenshot = True
         interval = Timer(3, count=6)
         MAP_AIR_STRIKE.load_color(self.device.image)
@@ -82,11 +82,11 @@ class CampaignBase(CampaignBase_):
         """
         location = location_ensure(location)
         if self.map[location].is_land:
-            logger.warning(f'Air strike location {location} is on land, will abandon attacking')
+            logger.warning(f'Цель авиаудара {location} находится на суше; атака отменена')
             return False
         self.strategy_open()
         if not self.strategy_has_air_strike():
-            logger.warning(f'No remain air strike trials, will abandon attacking')
+            logger.warning(f'Попытки авиаудара исчерпаны; атака отменена')
             self.strategy_close()
             return False
         self.strategy_air_strike_enter()

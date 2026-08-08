@@ -20,7 +20,7 @@ class CampaignBase(CampaignBase_):
             self.event_20230817_story()
             return True
         else:
-            logger.info('No event_20230817_story')
+            logger.info('Сюжет event_20230817_story отсутствует')
             return False
 
     def get_story_button(self):
@@ -53,7 +53,7 @@ class CampaignBase(CampaignBase_):
         return None
 
     def event_20230817_story(self, skip_first_screenshot=True):
-        logger.hr('event_20230817_story', level=2)
+        logger.hr('Сюжет event_20230817_story', level=2)
         confirm = Timer(1, count=3).start()
         while 1:
             if skip_first_screenshot:

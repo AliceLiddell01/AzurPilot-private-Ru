@@ -11,7 +11,7 @@ EVENT_ANIMATION = Button(area=(49, 229, 119, 400), color=(118, 215, 240), button
 class CampaignBase(CampaignBase_):
     def ui_goto_event(self):
         if self.appear(EVENT_20260417_PT_ICON, offset=(40, 20)) and self.ui_page_appear(page_event):
-            logger.info('Already at EVENT_20260417')
+            logger.info('Уже открыто событие EVENT_20260417')
             return True
         self.ui_ensure(page_campaign_menu)
         if self.is_event_entrance_available():
@@ -43,7 +43,7 @@ class CampaignBase(CampaignBase_):
         """
         appear = self.appear(EVENT_ANIMATION)
         if appear:
-            logger.info('DOA animation, waiting')
+            logger.info('Выполняется анимация DOA; ожидаю')
         return appear
 
     def event_animation_end(self):

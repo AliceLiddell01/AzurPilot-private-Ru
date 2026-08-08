@@ -34,7 +34,7 @@ class ModeSwitch(Switch):
 
     def handle_additional(self, main):
         if main.appear(WITHDRAW, offset=(30, 30)):
-            logger.warning(f'模式切换: 出现撤退按钮')
+            logger.warning(f'Переключение режима: появилась кнопка отступления')
             raise CampaignNameError
 
 
@@ -115,7 +115,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
         isdigit = is_digit_chapter(chapter)
 
         # 复用 ui_ensure_index 的逻辑。
-        logger.hr("UI确保索引")
+        logger.hr("Проверка номера главы в UI")
         retry = Timer(1, count=2)
         error_confirm = Timer(0.2, count=0)
         while 1:
@@ -130,7 +130,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
             current = self.get_chapter_index()
             current_isdigit = is_digit_chapter(self.campaign_chapter)
 
-            logger.attr("当前索引", current)
+            logger.attr("Текущий номер", current)
             diff = index - current
             if diff == 0:
                 break
@@ -176,13 +176,13 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
         if switch_2 == 'unknown':
             if mode == 'ex':
-                logger.warning('尝试前往EX，但无EX模式切换')
+                logger.warning('Запрошен переход в EX, но переключатель режима EX отсутствует')
             elif mode == 'normal':
                 MODE_SWITCH_1.set('hard', main=self)
             elif mode == 'hard':
                 MODE_SWITCH_1.set('normal', main=self)
             else:
-                logger.warning(f'未知的战役模式: {mode}')
+                logger.warning(f'Неизвестный режим кампании: {mode}')
         else:
             if mode == 'ex':
                 MODE_SWITCH_2.set('hard', main=self)
@@ -193,7 +193,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
                 MODE_SWITCH_2.set('ex', main=self)
                 MODE_SWITCH_1.set('normal', main=self)
             else:
-                logger.warning(f'未知的战役模式: {mode}')
+                logger.warning(f'Неизвестный режим кампании: {mode}')
 
     def campaign_ensure_mode_20241219(self, mode='combat'):
         """
@@ -207,7 +207,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
         elif mode in ['story']:
             MODE_SWITCH_20241219.set('story', main=self)
         else:
-            logger.warning(f'未知的战役模式: {mode}')
+            logger.warning(f'Неизвестный режим кампании: {mode}')
 
     def campaign_ensure_aside_20241219(self, chapter):
         """
@@ -225,7 +225,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
         elif chapter in ['ex', 'ex_ex']:
             ASIDE_SWITCH_20241219.set('ex', main=self)
         else:
-            logger.warning(f'未知的战役旁白: {chapter}')
+            logger.warning(f'Неизвестная вкладка кампании: {chapter}')
 
     def campaign_ensure_aside_20260326(self, chapter):
         """
@@ -239,7 +239,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
         elif chapter in ['sp', 'ex_sp']:
             ASIDE_SWITCH_20260326.set('sp', main=self)
         else:
-            logger.warning(f'未知的战役旁白: {chapter}')
+            logger.warning(f'Неизвестная вкладка кампании: {chapter}')
 
     def campaign_get_mode_names(self, name):
         """
@@ -295,7 +295,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
         search_name = name
         if name == 'd3_3':
             search_name = 'd3'
-            logger.info(f'[战役-UI] 关卡 {name} 在UI中使用入口 {search_name}')
+            logger.info(f'[Кампания — UI] Для этапа {name} в UI используется вход {search_name}')
 
         if self.config.MAP_HAS_MODE_SWITCH:
             for mode_name in self.campaign_get_mode_names(search_name):
@@ -303,7 +303,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
                     search_name = mode_name
 
         if search_name not in self.stage_entrance:
-            logger.warning(f'关卡未找到: {search_name}')
+            logger.warning(f'Этап не найден: {search_name}')
             raise CampaignNameError
 
         entrance = self.stage_entrance[search_name]
@@ -544,7 +544,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
         elif self.campaign_set_chapter_sp(chapter, mode):
             pass
         else:
-            logger.warning(f'[战役-UI] 未知的战役章节: {name}')
+            logger.warning(f'[Кампания — UI] Неизвестная глава кампании: {name}')
 
     def handle_campaign_ui_additional(self):
         """
@@ -594,7 +594,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
             if self.handle_campaign_ui_additional():
                 continue
 
-        logger.warning('[战役] 战役名称错误')
+        logger.warning('[Кампания] Ошибка имени кампании')
         raise ScriptEnd('Campaign name error')
 
     def commission_notice_show_at_campaign(self):

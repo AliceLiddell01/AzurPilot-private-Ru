@@ -213,11 +213,11 @@ class GridPredictor:
         scaling_dic = self.config.MAP_ENEMY_GENRE_DETECTION_SCALING
         for name, template in self.template_enemy_genre.items():
             if template is None:
-                logger.warning(f'[MapDetection] 敌人识别模板未找到: {name}')
-                logger.warning('[MapDetection] 请使用 dev_tools/relative_record.py 或 dev_tools/relative_crop.py 创建模板，'
-                               '然后放置到 ./assets/<server>/template 目录下')
-                logger.warning('[MapDetection] 未找到精英敌人的识别模板。通常是活动地图还未完全适配，请等待 AzurPilot 更新。')
-                raise ScriptError(f'敌人识别模板未找到: {name}')
+                logger.warning(f'[Распознавание карты] Шаблон распознавания противника не найден: {name}')
+                logger.warning('[Распознавание карты] Создайте шаблон с помощью dev_tools/relative_record.py или dev_tools/relative_crop.py '
+                               'и поместите его в каталог ./assets/<server>/template')
+                logger.warning('[Распознавание карты] Шаблон распознавания элитного противника не найден. Обычно это означает, что карта события ещё не полностью поддерживается; дождитесь обновления AzurPilot.')
+                raise ScriptError(f'Шаблон распознавания противника не найден: {name}')
 
             short_name = name[6:] if name.startswith('Siren_') else name
             scaling = scaling_dic.get(short_name, 1)

@@ -13,7 +13,7 @@ class CampaignBase(CampaignBase_):
     def fleet_preparation(self):
         if self.appear(FLEET_SUPPORT_EMPTY, offset=(5, 5)):
             self.use_support_fleet = False
-        logger.attr("use_support_fleet", self.use_support_fleet)
+        logger.attr("Использовать флот поддержки", self.use_support_fleet)
         super().fleet_preparation()
 
     def _map_swipe(self, vector, box=(239, 159, 1175, 628)):

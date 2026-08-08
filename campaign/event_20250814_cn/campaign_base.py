@@ -16,7 +16,7 @@ class CampaignBase(CampaignBase_):
             elif stage in ['4', '5', '6']:
                 ASIDE_SWITCH_20241219.set('part2', main=self)
             else:
-                logger.warning(f'Stage {chapter}{stage} is not in event')
+                logger.warning(f'Этап {chapter}{stage} отсутствует в событии')
             self.campaign_ensure_chapter(chapter)
             return True
 

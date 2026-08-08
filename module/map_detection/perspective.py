@@ -115,9 +115,9 @@ class Perspective:
         self.horizontal = horizontal
         self.vertical = vertical
         if not self.horizontal:
-            raise MapDetectionError('No horizontal line detected')
+            raise MapDetectionError('Горизонтальные линии не обнаружены')
         if not self.vertical:
-            raise MapDetectionError('No vertical line detected')
+            raise MapDetectionError('Вертикальные линии не обнаружены')
 
         # 计算透视
         self.crossings = self.horizontal.cross(self.vertical)
@@ -127,7 +127,7 @@ class Perspective:
         logger.attr_align('灭点', point2str(*self.vanish_point, length=5))
         logger.attr_align('远点', point2str(*self.distant_point, length=5))
         if np.linalg.norm(np.subtract(self.vanish_point, self.distant_point)) < 10:
-            raise MapDetectionError('Vanish point and distant point too close')
+            raise MapDetectionError('Точка схода и дальняя точка расположены слишком близко')
 
         # 重新生成线段。在 mid_cleanse 函数添加后已无用。
         # self.horizontal = self.crossings.link(None, is_horizontal=True).group()
@@ -152,11 +152,11 @@ class Perspective:
 
         # Log
         time_cost = round(time.time() - start_time, 3)
-        logger.info('[地图-透视] %ss  %s   水平: %s (%s 内部, %s 边缘)' % (
+        logger.info('[Карта — перспектива] %s с  %s   Горизонтальные: %s (%s внутренних, %s краевых)' % (
             float2str(time_cost), '_' if self.lower_edge else ' ',
             len(self.horizontal), len(horizontal), len(edge_h))
                     )
-        logger.info('[地图-透视] 边缘: %s%s%s    垂直: %s (%s 内部, %s 边缘)' % (
+        logger.info('[Карта — перспектива] Края: %s%s%s    Вертикальные: %s (%s внутренних, %s краевых)' % (
             '/' if self.left_edge else ' ', '_' if self.upper_edge else ' ',
             '\\' if self.right_edge else ' ', len(self.vertical), len(vertical), len(edge_v))
                     )
@@ -363,8 +363,8 @@ class Perspective:
 
         diff = np.max([mid_diff_range[0] - coincident_point[1], coincident_point[1] - mid_diff_range[1]])
         if diff > 0:
-            logger.info('[地图-透视] %s 重合点异常: %s' % (
-                '水平' if is_horizontal else '垂直',
+            logger.info('[Карта — перспектива] Неожиданная точка пересечения (%s): %s' % (
+                'горизонталь' if is_horizontal else 'вертикаль',
                 str(coincident_point)))
 
         # 检测区域的边界

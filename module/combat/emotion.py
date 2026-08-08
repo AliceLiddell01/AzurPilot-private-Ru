@@ -193,14 +193,14 @@ class FleetEmotion:
             datetime.datetime: 情绪 >= 控制阈值的时间。如果已经恢复，则返回过去的时间。
         """
         if self.control == 'keep_exp_bonus' and self.recover == 'not_in_dormitory':
-            logger.critical(f'[战斗] 舰队 {self.fleet} 的情绪控制设置为"保持开心加成"，且恢复地点设置为"港区"，两者不能同时使用，请检查情绪设置')
+            logger.critical(f'[Бой] Для флота {self.fleet} одновременно выбраны контроль настроения "сохранять бонус счастья" и восстановление "в порту". Эти настройки несовместимы; проверьте параметры настроения')
             raise RequestHumanTakeover
         # 在 14-4 使用双倍经验书时，预期情绪减少为 32，无法保持开心加成（>120）
         # 否则会导致无限任务延迟
         if self.control == 'keep_exp_bonus' and expected_reduce >= 29:
             expected_reduce = 29
-            logger.info(f'[情绪-舰队] 舰队 {self.fleet} 预期扣减限制为29 '
-                        f'当情绪控制="保持快乐奖励"时')
+            logger.info(f'[Настроение — флот] Для флота {self.fleet} ожидаемое снижение ограничено значением 29, '
+                        f'когда контроль настроения="сохранять бонус счастья"')
 
         emotion_needed = self.limit + expected_reduce - self.current
         if emotion_needed <= 0:
@@ -312,11 +312,11 @@ class Emotion:
     def show(self):
         """显示当前计算的心情值（含时间恢复），而非上次保存值。"""
         if self.using_public:
-            logger.attr(f'情绪公海舰队', self.public_fleet.current)
+            logger.attr(f'Настроение флота в открытом море', self.public_fleet.current)
             return
 
         for fleet in self.fleets:
-            logger.attr(f'情绪舰队_{fleet.fleet}', fleet.current)
+            logger.attr(f'Настроение флота {fleet.fleet}', fleet.current)
 
     @property
     def reduce_per_battle(self):
@@ -347,7 +347,7 @@ class Emotion:
         """
         if self.using_public:
             reduce = battle * self.reduce_per_battle_before_entering
-            logger.info(f'[情绪-检查] 预期情绪扣减: {reduce}')
+            logger.info(f'[Настроение — проверка] Ожидаемое снижение настроения: {reduce}')
 
             self.update()
             self.record()
@@ -367,10 +367,10 @@ class Emotion:
         elif method == 'fleet1_standby_fleet2_all':
             battle = (0, battle)
         else:
-            raise ScriptError(f'Unknown fleet order: {method}')
+            raise ScriptError(f'Неизвестный порядок флотов: {method}')
 
         battle = tuple(np.array(battle) * self.reduce_per_battle_before_entering)
-        logger.info(f'[情绪-检查] 预期情绪扣减: {battle}')
+        logger.info(f'[Настроение — проверка] Ожидаемое снижение настроения: {battle}')
 
         self.update()
         self.record()
@@ -393,9 +393,9 @@ class Emotion:
 
         recovered, delay = self._check_reduce(battle)
         if delay:
-            logger.info('[情绪-延迟] 延迟当前任务以防止未来的情绪控制问题')
+            logger.info('[Настроение — задержка] Текущая задача отложена, чтобы избежать проблем с контролем настроения')
             self.config.task_delay(target=recovered)
-            raise ScriptEnd('[情绪-延迟] 情绪控制')
+            raise ScriptEnd('[Настроение — задержка] Контроль настроения')
 
     def wait(self, fleet_index):
         """等待指定舰队的情绪恢复。应在进入任何战斗之前调用。
@@ -413,17 +413,17 @@ class Emotion:
 
         recovered = fleet.get_recovered(expected_reduce=self.reduce_per_battle)
         if recovered > current_time():
-            logger.hr('情绪等待')
+            logger.hr('Ожидание восстановления настроения')
             if self.using_public:
-                logger.info(f'[情绪-等待] 公海舰队情绪将恢复到 {fleet.limit}，时间 {recovered}')
+                logger.info(f'[Настроение — ожидание] Настроение флота в открытом море восстановится до {fleet.limit} к {recovered}')
             else:
-                logger.info(f'[情绪-等待] 舰队 {fleet_index} 情绪将恢复到 {fleet.limit}，时间 {recovered}')
+                logger.info(f'[Настроение — ожидание] Настроение флота {fleet_index} восстановится до {fleet.limit} к {recovered}')
 
             while 1:
                 if current_time() > recovered:
                     break
 
-                logger.attr('等待直到', recovered)
+                logger.attr('Ожидание до', recovered)
                 sleep(60)
 
     def reduce(self, fleet_index, shipwreck=False):
@@ -434,7 +434,7 @@ class Emotion:
             fleet_index (int): 舰队编号，1 或 2。
             shipwreck (bool): 舰队是否遭遇船难。
         """
-        logger.hr('情绪扣减')
+        logger.hr('Снижение настроения')
         self.update()
 
         if self.using_public:
@@ -467,10 +467,10 @@ class Emotion:
         """检测碧蓝航线客户端情绪计算 bug。
         客户端在长时间运行后无法正确计算情绪，需要重启游戏客户端使其更新。
         """
-        logger.attr('情绪Bug', f'{self.total_reduced}/{self.bug_threshold}')
+        logger.attr('Ошибка настроения', f'{self.total_reduced}/{self.bug_threshold}')
         if self.total_reduced >= self.bug_threshold:
-            logger.info('[情绪-Bug] 碧蓝航线客户端未正确计算情绪，这是一个Bug。'
-                        '长时间运行后，需要重启游戏客户端让客户端更新情绪。')
+            logger.info('[Настроение — ошибка] Клиент Azur Lane неправильно рассчитал настроение. '
+                        'После длительной работы нужно перезапустить игровой клиент, чтобы обновить настроение.')
             self.total_reduced = 0
             self.bug_threshold_reset()
             return True

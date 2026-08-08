@@ -9,7 +9,7 @@ class Campaign(CampaignBase):
     MAP = MAP
 
     def run(self):
-        logger.hr('Ambush Farming on 1-1', level=2)
+        logger.hr('Фарм засад на 1-1', level=2)
         
         # Enter map
         self.map_get_info()
@@ -21,7 +21,7 @@ class Campaign(CampaignBase):
         self.map_init(self.MAP)
 
         # Start ambush loop
-        logger.hr('Start Ambush Loop', level=2)
+        logger.hr('Запуск цикла засад', level=2)
         locations = ['B1','C1']
         loc_index = 0
         
@@ -29,7 +29,7 @@ class Campaign(CampaignBase):
 
         while True:
             target = locations[loc_index]
-            logger.info(f'Moving to {target} to farm ambush.')
+            logger.info(f'Перемещение в {target} для фарма засад.')
             loc_index = (loc_index + 1) % len(locations)
             
             # Use self.goto to move. It will handle ambush automatically.
@@ -39,7 +39,7 @@ class Campaign(CampaignBase):
             self.device.click_record_clear()
             
             if run_limit > 0 and self.battle_count >= run_limit:
-                logger.hr(f'Reached target run count: {run_limit}', level=2)
+                logger.hr(f'Достигнуто целевое число запусков: {run_limit}', level=2)
                 break
             
             # If run_limit == 0, it means infinite runs.
@@ -50,7 +50,7 @@ class Campaign(CampaignBase):
                 pass
 
         # Withdraw
-        logger.info('Farming finished. Withdrawing...')
+        logger.info('Фарм завершён. Отступаю...')
         from module.exception import CampaignEnd
         try:
             self.withdraw()

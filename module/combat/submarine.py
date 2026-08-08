@@ -54,7 +54,7 @@ class SubmarineCall(ModuleBase):
                 self.submarine_call_flag = True
                 return False
         if self.submarine_call_timer.reached():
-            logger.info('潜艇呼叫计时器到达')
+            logger.info('Сработал таймер вызова подлодки')
             self.submarine_call_flag = True
             return False
 
@@ -62,13 +62,13 @@ class SubmarineCall(ModuleBase):
             return False
 
         if self.appear(SUBMARINE_CALLED):
-            logger.info('潜艇已呼叫')
+            logger.info('Подлодка уже вызвана')
             self.submarine_call_flag = True
             return False
         elif self.submarine_call_click_timer.reached():
             if not self.appear_then_click(SUBMARINE_READY):
-                logger.info('错误的潜艇图标')
+                logger.info('Неверный значок подлодки')
                 self.device.click(SUBMARINE_READY)
-            logger.info('呼叫潜艇')
+            logger.info('Вызов подлодки')
             self.submarine_call_click_timer.reset()
             return True

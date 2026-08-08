@@ -86,7 +86,7 @@ class Campaign(CampaignBase):
             elif boss == H5:
                 road_boss = [road_h5]
             else:
-                logger.warning(f'Unexpected boss grid: {boss}')
+                logger.warning(f'Неожиданная клетка босса: {boss}')
                 road_boss = roads
 
             if not self.check_accessibility(boss, fleet='boss'):

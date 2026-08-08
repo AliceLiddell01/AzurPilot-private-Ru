@@ -80,7 +80,7 @@ class Campaign(CampaignBase):
         # soo many enemies coming from 3 sides
         if self.config.MAP_CLEAR_ALL_THIS_TIME:
             remain = self.map.select(is_enemy=True)
-            logger.info(f'Enemy remain: {remain}')
+            logger.info(f'Осталось противников: {remain}')
             if remain:
                 if self.fleet_2_protect():
                     return True
@@ -88,9 +88,9 @@ class Campaign(CampaignBase):
                     return True
         if not self.map_is_clear_mode:
             remain = self.map.select(is_enemy=True)
-            logger.info(f'Enemy remain: {remain}')
+            logger.info(f'Осталось противников: {remain}')
             boss = self.map.select(is_boss=True)
-            logger.info(f'Boss appear: {boss}')
+            logger.info(f'Появление босса: {boss}')
             if not boss:
                 if self.fleet_2_protect():
                     return True

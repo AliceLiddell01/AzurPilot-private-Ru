@@ -95,7 +95,7 @@ actions = {
 
 def parse_move(movement: str, step: int):
     if step % len(movement) != 0:
-        raise ScriptError('Invalid movement')
+        raise ScriptError('Недопустимое перемещение')
 
     movement = movement * int(step / len(movement))
     dx, dy = 0, 0
@@ -134,11 +134,11 @@ class Campaign(CampaignBase):
                 fleet_location = self.__getattribute__(f'fleet_{fleet_index}_location')
                 if fleet_location not in [src, dst]:
                     raise RequestHumanTakeover(
-                        f'Fleet{fleet_index} fail to move {src} -> {dst}, now on {fleet_location}')
+                        f'Флот {fleet_index} не смог переместиться {src} -> {dst}; текущая позиция: {fleet_location}')
                 elif fleet_location == dst:
                     break
                 else:
-                    logger.warning(f'Fleet{fleet_index} did not move, retry')
+                    logger.warning(f'Флот {fleet_index} не переместился; повторяю попытку')
 
         return True
 

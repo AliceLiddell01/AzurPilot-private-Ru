@@ -76,7 +76,7 @@ class GemsEmotion(Emotion):
         recovered, delay = self._check_reduce(battle)
         if delay:
             self.config.GEMS_EMOTION_TRIGGERED = True
-            logger.info('[钻石打捞] 检测到低情绪，暂停当前任务')
+            logger.info('[Фарм самоцветов] Обнаружено низкое настроение; текущая задача приостановлена')
             raise CampaignEnd('Emotion control')
 
     def wait(self, fleet_index):
@@ -106,7 +106,7 @@ class GemsCampaignOverride(CampaignBase):
 
         if self.handle_popup_cancel('IGNORE_LOW_EMOTION'):
             self.config.GEMS_EMOTION_TRIGGERED = True
-            logger.hr('[战役-紧急委托] 情绪撤退')
+            logger.hr('[Фарм самоцветов] Отступление из-за настроения')
 
             while 1:
                 self.device.screenshot()
@@ -191,7 +191,7 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
             if not self.appear(EMPTY_SHIP_R):
                 break
             else:
-                logger.info('[战役-紧急委托] 等待舰船图标加载。')
+                logger.info('[Фарм самоцветов] Ожидание загрузки значков кораблей.')
 
         if TEMPLATE_BOGUE.match(self.device.image, scaling=1.46):  # image has rotation
             return 'bogue'
@@ -217,7 +217,7 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
         """
         success = self.code_clear()
         if not success:
-            logger.warning('[战役-紧急委托] 装备码导出失败，停止换船以避免装备状态丢失。')
+            logger.warning('[Фарм самоцветов] Не удалось экспортировать код снаряжения; замена кораблей остановлена, чтобы не потерять состояние снаряжения.')
             raise RequestHumanTakeover
         return success
 
@@ -240,7 +240,7 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
         else:
             success = self._code_apply(code=code)
         if not success:
-            logger.warning('[战役-紧急委托] 装备码应用失败，请人工检查当前舰队装备。')
+            logger.warning('[Фарм самоцветов] Не удалось применить код снаряжения; проверьте снаряжение текущего флота вручную.')
             raise RequestHumanTakeover
         return success
 
@@ -279,7 +279,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         对应的旗舰/先锋进入按钮。
         """
         if self.campaign.config.Campaign_Mode == 'hard':
-            logger.info('[钻石打捞] 在困难模式，切换换船方式')
+            logger.info('[Фарм самоцветов] Сложный режим: меняю способ замены кораблей')
             self.hard_mode = True
             self._ship_detail_enter = self._ship_detail_enter_hard
             self._fleet_detail_enter = self._fleet_detail_enter_hard
@@ -469,20 +469,20 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             bool: 是否成功更换旗舰。
         """
 
-        logger.hr('更换旗舰', level=1)
-        logger.attr('更换旗舰', self.config.GemsFarming_ChangeFlagship)
+        logger.hr('Замена флагмана', level=1)
+        logger.attr('Замена флагмана', self.config.GemsFarming_ChangeFlagship)
         self._fleet_detail_enter(self.fleet_to_attack)
         if self.change_flagship_equip:
-            logger.hr('卸下旗舰装备', level=2)
+            logger.hr('Снятие снаряжения флагмана', level=2)
             self._ship_detail_enter(self.fleet_detail_enter_flagship)
             self.clear_all_equip()
             self._fleet_back()
 
-        logger.hr('更换旗舰', level=2)
+        logger.hr('Замена флагмана', level=2)
         success = self.flagship_change_execute()
 
         if self.change_flagship_equip:
-            logger.hr('装备旗舰装备', level=2)
+            logger.hr('Установка снаряжения флагмана', level=2)
             self._ship_detail_enter(self.fleet_detail_enter_flagship)
             self.apply_equip_code()
             self._fleet_back()
@@ -496,20 +496,20 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         Returns:
             bool: 是否成功更换先锋。
         """
-        logger.hr('更换前排', level=1)
-        logger.attr('更换前排', self.config.GemsFarming_ChangeVanguard)
+        logger.hr('Замена авангарда', level=1)
+        logger.attr('Замена авангарда', self.config.GemsFarming_ChangeVanguard)
         self._fleet_detail_enter(self.fleet_to_attack)
         if self.change_vanguard_equip:
-            logger.hr('卸下前排装备', level=2)
+            logger.hr('Снятие снаряжения авангарда', level=2)
             self._ship_detail_enter(self.fleet_detail_enter)
             self.clear_all_equip()
             self._fleet_back()
 
-        logger.hr('更换前排', level=2)
+        logger.hr('Замена авангарда', level=2)
         success = self.vanguard_change_execute()
 
         if self.change_vanguard_equip:
-            logger.hr('装备前排装备', level=2)
+            logger.hr('Установка снаряжения авангарда', level=2)
             self._ship_detail_enter(self.fleet_detail_enter)
             self.apply_equip_code()
             self._fleet_back()
@@ -554,7 +554,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         self.dock_filter_set(
             index='cv', rarity='common', faction=faction, extra=extra, sort='total')
 
-        logger.hr('[战役-紧急委托] 查找旗舰')
+        logger.hr('[Фарм самоцветов] Поиск флагмана')
 
         if self.config.GemsFarming_AllowHighFlagshipLevel:
             if self.config.SERVER in ['cn']:
@@ -587,7 +587,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 if candidates:
                     return [candidates[0]]
 
-                logger.info('[战役-紧急委托] 未找到指定航母，尝试倒序排列。')
+                logger.info('[Фарм самоцветов] Указанный авианосец не найден; пробую обратный порядок.')
                 self.dock_sort_method_dsc_set(True)
                 candidates = self.find_all_backline_candidates(scanner, common_ship)
                 if candidates:
@@ -595,7 +595,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
                 # 恢复排序方式，因为已更改但未找到结果
                 self.dock_sort_method_dsc_set(False)
-            logger.info('[战役-紧急委托] UseEmotionFirst 未找到候选舰船，回退到原始选择方法')
+            logger.info('[Фарм самоцветов] UseEmotionFirst не нашёл подходящих кораблей; возвращаюсь к исходному способу выбора')
 
         scanner = ShipScanner(
             level=(min_level, max_level), emotion=(emotion_lower_bound, 150), fleet=fleet, status='free')
@@ -629,7 +629,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 # 更换为指定舰船
                 return candidates
 
-            logger.info('[战役-紧急委托] 未找到指定航母，尝试倒序排列。')
+            logger.info('[Фарм самоцветов] Указанный авианосец не найден; пробую обратный порядок.')
             self.dock_sort_method_dsc_set(True)
 
             candidates = [ship for ship in scanner.scan(self.device.image)
@@ -664,15 +664,15 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         elif self.config.GemsFarming_CommonDD in ['aulick_or_foote', 'cassin_or_downes']:
             faction = 'eagle'
         else:
-            logger.error(f'[钻石打捞] 无效的通用驱逐舰设置: {self.config.GemsFarming_CommonDD}')
-            raise ScriptError('Invalid GemsFarming_CommonDD')
+            logger.error(f'[Фарм самоцветов] Недопустимая настройка обычного эсминца: {self.config.GemsFarming_CommonDD}')
+            raise ScriptError('Недопустимое значение GemsFarming_CommonDD')
         favourite = self.config.GemsFarming_CommonDD == 'favourite'
         self.dock_favourite_set(favourite, wait_loading=False)
         self.dock_sort_method_dsc_set(True, wait_loading=False)
         self.dock_filter_set(
             index='dd', rarity=rarity, faction=faction, extra=extra)
 
-        logger.hr('[战役-紧急委托] 查找先锋')
+        logger.hr('[Фарм самоцветов] Поиск авангарда')
 
         min_level, max_level = self.config.GemsFarming_VanguardLevelMin, self.config.GemsFarming_VanguardLevelMax
         
@@ -717,7 +717,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 if candidates:
                     return candidates
 
-                logger.info('[战役-紧急委托] 未找到指定驱逐舰，尝试倒序排列。')
+                logger.info('[Фарм самоцветов] Указанный эсминец не найден; пробую обратный порядок.')
                 self.dock_sort_method_dsc_set(False)
                 candidates = self.find_all_vanguard_candidates(scanner, common_ship)
                 if not candidates and self.config.GemsFarming_CommonDD == 'custom':
@@ -749,7 +749,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 # 更换为指定舰船
                 return candidates
 
-            logger.info('[战役-紧急委托] 未找到指定驱逐舰，尝试倒序排列。')
+            logger.info('[Фарм самоцветов] Указанный эсминец не найден; пробую обратный порядок.')
             self.dock_sort_method_dsc_set(False)
 
             # 更换为指定舰船
@@ -815,11 +815,11 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             ship_type (str): 'cv' 或 'dd'。
         """
         if ship_type.lower() not in ['cv', 'dd']:
-            logger.warning(f'[钻石打捞] 无效的舰船类型: {ship_type}')
+            logger.warning(f'[Фарм самоцветов] Недопустимый тип корабля: {ship_type}')
             return []
 
         ship_type = ship_type.upper()
-        logger.info(f'[战役-紧急委托] 搜索普通 {ship_type}。')
+        logger.info(f'[Фарм самоцветов] Поиск {ship_type} обычной редкости.')
         if ship_type.lower() == 'cv' and self.config.GemsFarming_CommonCV != 'custom':
             filter_string = self.config.COMMON_CV_FILTER
         else:
@@ -837,12 +837,12 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             if find_first:
                 find_first = False
                 if candidates:
-                    logger.info(f'[钻石打捞] 找到通用 {ship_type} {name}')
+                    logger.info(f'[Фарм самоцветов] Найден подходящий {ship_type}: {name}')
                     return candidates
 
             common_ship_candidates[name] = candidates
 
-        logger.info(f'[战役-紧急委托] 未找到合适的 {ship_type}，尝试倒序排列。')
+        logger.info(f'[Фарм самоцветов] Подходящий {ship_type} не найден; пробую обратный порядок.')
         self.dock_sort_method_dsc_set(not sort_dsc_first)
 
         for name in common_ship:
@@ -850,10 +850,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             candidates = self.find_candidates(template, scanner)
 
             if candidates:
-                logger.info(f'[钻石打捞] 找到通用驱逐舰 {name}')
+                logger.info(f'[Фарм самоцветов] Найден подходящий корабль: {name}')
                 return candidates
             elif common_ship_candidates[name]:
-                logger.info(f'[钻石打捞] 找到通用驱逐舰 {name}')
+                logger.info(f'[Фарм самоцветов] Найден подходящий корабль: {name}')
                 self.dock_sort_method_dsc_set(sort_dsc_first, wait_loading=False)
                 return common_ship_candidates[name]
 
@@ -891,8 +891,8 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 TEMPLATE_DOWNES_1, TEMPLATE_DOWNES_2
             ]
         else:
-            logger.error(f'[钻石打捞] 无效的通用驱逐舰设置: {common_dd}')
-            raise ScriptError(f'Invalid CommonDD setting: {common_dd}')
+            logger.error(f'[Фарм самоцветов] Недопустимая настройка обычного эсминца: {common_dd}')
+            raise ScriptError(f'Недопустимая настройка CommonDD: {common_dd}')
 
     def ship_down_hard(self):
         """困难模式下将舰船从舰队中移除。
@@ -959,10 +959,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         ship = self.get_common_rarity_cv()
         if ship:
             self.flagship_change_with_emotion(ship)
-            logger.info('[战役-紧急委托] 更换旗舰成功')
+            logger.info('[Фарм самоцветов] Флагман успешно заменён')
             return True
         else:
-            logger.info('[战役-紧急委托] 更换旗舰失败，没有普通稀有度航母。')
+            logger.info('[Фарм самоцветов] Не удалось заменить флагман: авианосец обычной редкости не найден.')
 
             if self.config.SERVER in ['cn']:
                 max_level = 100
@@ -1008,10 +1008,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         ship = self.get_common_rarity_dd()
         if ship:
             self.vanguard_change_with_emotion(ship)
-            logger.info('[战役-紧急委托] 更换先锋舰船成功')
+            logger.info('[Фарм самоцветов] Корабль авангарда успешно заменён')
             return True
         else:
-            logger.info('[战役-紧急委托] 更换先锋舰船失败，没有普通稀有度驱逐舰。')
+            logger.info('[Фарм самоцветов] Не удалось заменить корабль авангарда: эсминец обычной редкости не найден.')
             ship = self.get_common_rarity_dd(emotion=0)
             if ship and self.hard_mode:
                 self.vanguard_change_with_emotion(ship)
@@ -1043,12 +1043,12 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 self.change_flagship and self.campaign.config.LV32_TRIGGERED
                 and not self.config.GemsFarming_AllowHighFlagshipLevel):
             self._trigger_lv32 = True
-            logger.hr('[战役-打捞] 触发等级32限制')
+            logger.hr('[Кампания — фарм] Сработало ограничение 32-го уровня')
             return True
 
         if self.campaign.config.GEMS_EMOTION_TRIGGERED:
             self._trigger_emotion = True
-            logger.hr('[战役-打捞] 触发情绪限制')
+            logger.hr('[Кампания — фарм] Сработало ограничение настроения')
             return True
 
         return super().triggered_stop_condition(oil_check=oil_check)
@@ -1148,7 +1148,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 success = vanguard_success and flagship_success
 
                 if is_limit and self.config.StopCondition_RunCount <= 0:
-                    logger.hr('触发停止条件: 运行次数')
+                    logger.hr('Сработало условие остановки: число запусков')
                     self.config.StopCondition_RunCount = 0
                     self.config.Scheduler_Enable = False
                     break

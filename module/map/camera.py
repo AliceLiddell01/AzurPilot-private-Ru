@@ -107,7 +107,7 @@ class Camera(MapOperation):
         Returns:
             bool: 相机是否移动了。
         """
-        logger.info('[地图-摄像机] 地图滑动: %s' % str(vector))
+        logger.info('[Карта — камера] Сдвиг карты: %s' % str(vector))
         self._prev_view = copy.copy(self.view)
         self._prev_swipe = vector
         vector = np.array(vector)
@@ -126,7 +126,7 @@ class Camera(MapOperation):
         if not tolerance:
             tolerance = self.config.MAP_GRID_CENTER_TOLERANCE
         if np.any(np.abs(self.view.center_offset - 0.5) > tolerance):
-            logger.info('[地图-摄像机] 重新聚焦到格子中心')
+            logger.info('[Карта — камера] Повторная фокусировка на центре клетки')
             return self.map_swipe((0, 0))
 
         return False
@@ -144,53 +144,53 @@ class Camera(MapOperation):
                     and not self.is_in_strategy_submarine_move() \
                     and not self.is_in_strategy_mob_move() \
                     and not self.is_in_strategy_air_strike():
-                logger.warning('[地图-摄像机] 待检测图像不在地图中')
-                raise MapDetectionError('Image to detect is not in_map')
+                logger.warning('[Карта — камера] Проверяемое изображение не относится к карте')
+                raise MapDetectionError('Проверяемое изображение не находится в состоянии in_map')
             self.view.load(self.device.image)
         except MapDetectionError as e:
             if self.info_bar_count():
-                logger.warning('[地图-摄像机] 信息栏导致透视错误')
+                logger.warning('[Карта — камера] Панель уведомлений вызвала ошибку перспективы')
                 self.handle_info_bar()
                 return False
             elif self.appear(GET_ITEMS_1, offset=5):
-                logger.warning('[地图-摄像机] 获取物品导致透视错误')
+                logger.warning('[Карта — камера] Экран получения предметов вызвал ошибку перспективы')
                 # 此处不要使用 handle_mystery()，因为大世界会覆盖它。
                 self.device.click(GET_ITEMS_1)
                 return False
             elif self.appear(GET_ITEMS_1_RYZA, offset=(-20, -100, 20, 20)):
-                logger.warning('[地图-摄像机] GET_ITEMS_1_RYZA导致透视错误')
+                logger.warning('[Карта — камера] GET_ITEMS_1_RYZA вызвал ошибку перспективы')
                 self.device.click(GET_ITEMS_1_RYZA)
                 return False
             elif self.appear(GET_ADAPTABILITY, offset=(20, 20)):
-                logger.warning('[地图-摄像机] 适应性弹窗导致透视错误')
+                logger.warning('[Карта — камера] Всплывающее окно адаптации вызвало ошибку перспективы')
                 self.device.click(GET_ADAPTABILITY)
                 return False
             elif self.handle_story_skip():
-                logger.warning('[地图-摄像机] 剧情导致透视错误')
+                logger.warning('[Карта — камера] Сюжетная сцена вызвала ошибку перспективы')
                 self.ensure_no_story(skip_first_screenshot=False)
                 return False
             elif self.appear(GET_MISSION, offset=(20, 20)):
-                logger.warning('[地图-摄像机] 任务弹窗导致透视错误')
+                logger.warning('[Карта — камера] Всплывающее окно задачи вызвало ошибку перспективы')
                 self.device.click(GET_MISSION)
                 return False
             elif self.is_in_stage():
-                logger.warning('[地图-摄像机] 图像在关卡选择界面')
-                raise CampaignEnd('Image is in stage')
+                logger.warning('[Карта — камера] Изображение относится к экрану выбора этапа')
+                raise CampaignEnd('Изображение относится к экрану этапа')
             elif self.appear(MAP_PREPARATION, offset=(20, 20)):
-                logger.warning('[地图-摄像机] 图像在地图准备界面')
+                logger.warning('[Карта — камера] Изображение относится к экрану подготовки карты')
                 self.enter_map_cancel()
-                raise CampaignEnd('Image is in MAP_PREPARATION')
+                raise CampaignEnd('Изображение находится в состоянии MAP_PREPARATION')
             elif self.appear(AUTO_SEARCH_MENU_CONTINUE, offset=self._auto_search_menu_offset):
-                logger.warning('[地图-摄像机] 图像在自动搜索菜单')
+                logger.warning('[Карта — камера] Изображение относится к меню автопоиска')
                 self.ensure_auto_search_exit()
-                raise CampaignEnd('Image is in auto search menu')
+                raise CampaignEnd('Изображение относится к меню автопоиска')
             elif self.appear(GLOBE_GOTO_MAP, offset=(20, 20)):
                 logger.warning('[地图-摄像机] 图像在大世界地球仪地图')
                 self.ui_click(GLOBE_GOTO_MAP, check_button=self.is_in_map, offset=(20, 20),
                               retry_wait=3, skip_first_screenshot=True)
                 return False
             elif self.appear(AUTO_SEARCH_REWARD, offset=(50, 50)):
-                logger.warning('[地图-摄像机] 自动搜索奖励导致透视错误')
+                logger.warning('[Карта — камера] Награда автопоиска вызвала ошибку перспективы')
                 if hasattr(self, 'os_auto_search_quit'):
                     self.os_auto_search_quit()
                     return False
@@ -211,14 +211,14 @@ class Camera(MapOperation):
                     return False
             elif 'opsi' in self.config.task.command.lower() and self.handle_popup_confirm('OPSI'):
                 # 在大世界中始终确认弹窗，与 os_map_goto_globe() 中的弹窗相同
-                logger.warning('[地图-摄像机] 弹窗导致透视错误')
+                logger.warning('[Карта — камера] Всплывающее окно вызвало ошибку перспективы')
                 return False
             elif self.appear(PORT_SUPPLY_CHECK, offset=(20, 20)):
-                logger.warning('[地图-摄像机] 明石商店导致透视错误')
+                logger.warning('[Карта — камера] Магазин Акаси вызвал ошибку перспективы')
                 self.device.click(BACK_ARROW)
                 return False
             elif self.appear(GAME_TIPS, offset=(20, 20)):
-                logger.warning('[地图-摄像机] 游戏提示导致透视错误')
+                logger.warning('[Карта — камера] Игровая подсказка вызвала ошибку перспективы')
                 self.device.click(GAME_TIPS)
                 return False
             elif 'Camera outside map' in str(e):
@@ -228,7 +228,7 @@ class Camera(MapOperation):
                 self._map_swipe((-int(x.strip()), -int(y.strip())))
             # 最后检查游戏是否在运行
             elif not self.device.app_is_running():
-                logger.error('[地图-摄像机] 尝试更新摄像机但游戏已退出')
+                logger.error('[Карта — камера] Попытка обновить камеру после выхода из игры')
                 raise GameNotRunningError
             else:
                 raise e
@@ -290,9 +290,9 @@ class Camera(MapOperation):
             try:
                 prev_center_offset = self._prev_view.center_offset
             except AttributeError:
-                logger.warning('[地图-摄像机] Camera.update(wait_swipe=True) 但摄像机无_prev_view')
+                logger.warning('[Карта — камера] Вызван Camera.update(wait_swipe=True), но у камеры нет _prev_view')
                 prev_center_offset = None
-            logger.attr('之前中心偏移', prev_center_offset)
+            logger.attr('Предыдущее смещение центра', prev_center_offset)
         else:
             prev_center_offset = None
 
@@ -326,7 +326,7 @@ class Camera(MapOperation):
                 success = self._update_view()
                 if not success:
                     continue
-                logger.attr('视图中心偏移', self.view.center_offset)
+                logger.attr('Смещение центра обзора', self.view.center_offset)
                 if wait_swipe and not swipe_wait_timeout.reached() and success:
                     # 如果第一张截图仍然是之前的视图
                     # 必须先离开格子中心再重新聚焦
@@ -378,7 +378,7 @@ class Camera(MapOperation):
         Returns:
             list[tuple]: 滑动记录。
         """
-        logger.info(f'[地图-摄像机] 确保边缘在视野内')
+        logger.info(f'[Карта — камера] Проверка видимости края карты')
         record = []
         x_swipe, y_swipe = np.multiply(swipe_limit, random_direction(self.config.MAP_ENSURE_EDGE_INSIGHT_CORNER))
 
@@ -403,7 +403,7 @@ class Camera(MapOperation):
                 break
 
         if reverse:
-            logger.info('[地图-摄像机] 反向滑动')
+            logger.info('[Карта — камера] Обратный сдвиг')
             for vector in record[::-1]:
                 x, y = vector
                 if x != 0 or y != 0:
@@ -419,7 +419,7 @@ class Camera(MapOperation):
             swipe_limit (tuple): (x, y)。滑动限制在 (-x, -y, x, y) 范围内。
         """
         location = location_ensure(location)
-        logger.info('[地图-摄像机] 聚焦到: %s' % location2node(location))
+        logger.info('[Карта — камера] Фокусировка на: %s' % location2node(location))
 
         while 1:
             vector = np.array(location) - self.camera
@@ -442,7 +442,7 @@ class Camera(MapOperation):
             carrier_count (int): 航母计数。
             mode (str): 扫描模式，如 'init'、'normal'、'carrier'、'movable'。
         """
-        logger.info(f'[地图-摄像机] 全图扫描开始, 模式={mode}')
+        logger.info(f'[Карта — камера] Начато сканирование всей карты, режим={mode}')
         self.map.reset_fleet()
 
         queue = queue if queue else self.map.camera_data
@@ -452,10 +452,10 @@ class Camera(MapOperation):
         while len(queue) > 0:
             if self.map.missing_is_none(battle_count, mystery_count, siren_count, carrier_count, mode):
                 if must_scan and queue.count != queue.delete(must_scan).count:
-                    logger.info('[地图-摄像机] 继续扫描')
+                    logger.info('[Карта — камера] Сканирование продолжается')
                     pass
                 else:
-                    logger.info('[地图-摄像机] 找到所有出生点，提前停止')
+                    logger.info('[Карта — камера] Все точки появления найдены; сканирование остановлено досрочно')
                     break
 
             queue = queue.sort_by_camera_distance(self.camera)
@@ -479,7 +479,7 @@ class Camera(MapOperation):
             sight (tuple): 视野范围，如 (-3, -1, 3, 2)。
         """
         location = location_ensure(location)
-        logger.info('[地图-摄像机] 在视野内: %s' % location2node(location))
+        logger.info('[Карта — камера] В области обзора: %s' % location2node(location))
         if sight is None:
             sight = self.map.camera_sight
 
@@ -511,7 +511,7 @@ class Camera(MapOperation):
         location = location_ensure(location)
 
         local = np.array(location) - self.camera + self.view.center_loca
-        logger.info('[地图-摄像机] 全局 %s (摄像机=%s) -> 局部 %s (中心=%s)' % (
+        logger.info('[Карта — камера] Глобальные координаты %s (камера=%s) -> локальные %s (центр=%s)' % (
             location2node(location),
             location2node(self.camera),
             location2node(local),
@@ -520,7 +520,7 @@ class Camera(MapOperation):
         if local in self.view:
             return self.view[local]
         else:
-            logger.warning('[地图-摄像机] 全局转局部坐标失败')
+            logger.warning('[Карта — камера] Не удалось преобразовать глобальные координаты в локальные')
             self.focus_to(location)
             local = np.array(location) - self.camera + self.view.center_loca
             return self.view[local]
@@ -538,7 +538,7 @@ class Camera(MapOperation):
         location = location_ensure(location)
 
         global_ = np.array(location) + self.camera - self.view.center_loca
-        logger.info('[地图-摄像机] 全局 %s (摄像机=%s) <- 局部 %s (中心=%s)' % (
+        logger.info('[Карта — камера] Глобальные координаты %s (камера=%s) <- локальные %s (центр=%s)' % (
             location2node(global_),
             location2node(self.camera),
             location2node(location),
@@ -548,13 +548,13 @@ class Camera(MapOperation):
         if global_ in self.map:
             return self.map[global_]
         else:
-            logger.warning('[地图-摄像机] 局部转全局坐标失败')
+            logger.warning('[Карта — камера] Не удалось преобразовать локальные координаты в глобальные')
             self.ensure_edge_insight(reverse=True)
             global_ = np.array(location) + self.camera - self.view.center_loca
             return self.map[global_]
 
     def full_scan_find_boss(self):
-        logger.info('[地图-摄像机] 全图扫描找到Boss')
+        logger.info('[Карта — камера] При сканировании всей карты найден босс')
         self.map.reset_fleet()
 
         queue = self.map.select(may_boss=True)
@@ -567,11 +567,11 @@ class Camera(MapOperation):
             boss = self.map.select(is_boss=True)
             boss = boss.add(self.map.select(may_boss=True, is_enemy=True))
             if boss:
-                logger.info(f'[地图-摄像机] 找到Boss: {boss}')
+                logger.info(f'[Карта — камера] Найден босс: {boss}')
                 self.map.show()
                 return True
 
-        logger.warning('[地图-摄像机] 未找到Boss')
+        logger.warning('[Карта — камера] Босс не найден')
         return False
 
     def get_swipe_area_opt(self, map_vector):

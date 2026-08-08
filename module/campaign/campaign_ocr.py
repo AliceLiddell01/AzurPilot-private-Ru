@@ -370,7 +370,7 @@ class CampaignOcr(ModuleBase):
             bool: 是否进行了点击操作。
         """
         if self.appear(WITHDRAW, offset=(30, 30)):
-            logger.warning(f'[战役-OCR] 获取章节索引时出现撤退按钮')
+            logger.warning(f'[Кампания — OCR] При определении номера главы появилась кнопка отступления')
             raise CampaignNameError
 
     def get_chapter_index(self, skip_first_screenshot=True):

@@ -89,7 +89,7 @@ class FleetOperator:
             mean = get_color(image, area)
             if np.std(mean, ddof=1) > self.FLEET_BAR_ACTIVE_STD:
                 result.append(index + 1)
-        logger.info('[地图-编队] 当前选择: %s' % str(result))
+        logger.info('[Карта — построение] Текущий выбор: %s' % str(result))
         return result
 
     def get_button(self, index):
@@ -150,8 +150,8 @@ class FleetOperator:
     def raise_hard_not_satisfied(self):
         if self.is_hard_satisfied() is False:
             stage = self.main.config.Campaign_Name
-            logger.critical(f'[Map] 关卡 "{stage}" 是困难模式，'
-                            f'请在运行 Alas 之前在游戏中准备好您的舰队 "{str(self)}"')
+            logger.critical(f'[Карта] Этап "{stage}" относится к сложному режиму; '
+                            f'подготовьте флот "{str(self)}" в игре перед запуском Alas')
             raise HardNotSatisfied
 
     def clear(self, skip_first_screenshot=True):
@@ -338,15 +338,15 @@ class FleetPreparation(InfoHandler):
         Returns:
             bool: 是否进行了更换。
         """
-        logger.info(f'[地图-编队] 使用舰队: {[self.config.Fleet_Fleet1, self.config.Fleet_Fleet2, self.config.Submarine_Fleet]}')
+        logger.info(f'[Карта — построение] Используются флоты: {[self.config.Fleet_Fleet1, self.config.Fleet_Fleet2, self.config.Submarine_Fleet]}')
         if self.map_fleet_checked:
             return False
 
         # 跳过编队检测：信任游戏内当前预选的舰队，不操作下拉菜单
         # 适用于舰队槽位未完全解锁的账号，避免下拉菜单检测卡死
         if self.config.Fleet_SkipPreparation:
-            logger.info('[地图-编队] 跳过舰队准备 (Fleet_SkipPreparation=True), '
-                        'use current pre-selected fleet in game')
+            logger.info('[Карта — построение] Подготовка флота пропущена (Fleet_SkipPreparation=True); '
+                        'используется заранее выбранный в игре флот')
             return True
 
         if self.appear(FLEET_1_CLEAR, offset=FleetOperator.OFFSET):
@@ -363,7 +363,7 @@ class FleetPreparation(InfoHandler):
             in_use=FLEET_1_IN_USE, hard_satisfied=FLEET_1_HARD_SATIESFIED, main=self)
         y = FLEET_1_CLEAR.button[1] - FLEET_1_CLEAR.area[1]
         if y < -10:
-            logger.info('[地图-编队] FLEET_1_CLEAR上移，加载W15资源')
+            logger.info('[Карта — построение] FLEET_1_CLEAR перемещён выше; загружены ресурсы W15')
             in_use = FLEET_2_IN_USE_W15
         else:
             in_use = FLEET_2_IN_USE
@@ -376,7 +376,7 @@ class FleetPreparation(InfoHandler):
 
         # Check if ship is prepared in hard mode
         h1, h2, h3 = fleet_1.is_hard_satisfied(), fleet_2.is_hard_satisfied(), submarine.is_hard_satisfied()
-        logger.info(f'[地图-编队] 困难满足: 舰队1: {h1}, 舰队2: {h2}, 潜艇: {h3}')
+        logger.info(f'[Карта — построение] Требования сложного режима: флот 1: {h1}, флот 2: {h2}, подлодка: {h3}')
         if self.config.SERVER in ['cn', 'en', 'jp']:
             if self.config.Fleet_Fleet1:
                 fleet_1.raise_hard_not_satisfied()
@@ -388,7 +388,7 @@ class FleetPreparation(InfoHandler):
         # Skip fleet preparation in hard mode
         self.map_is_hard_mode = h1 is not None or h2 is not None or h3 is not None
         if self.map_is_hard_mode:
-            logger.info('[地图-编队] 困难战役，无需舰队准备')
+            logger.info('[Карта — построение] Сложная кампания: подготовка флота не требуется')
             # Clear submarine if user did not set a submarine fleet
             if submarine.allow():
                 if self.config.Submarine_Fleet:
@@ -403,7 +403,7 @@ class FleetPreparation(InfoHandler):
         # cache submarine.allow() to avoid inconsistency after setting fleet_2
         # because the expanded fleet_2 may cover submarine buttons
         map_allow_submarine = submarine.allow()
-        logger.attr('允许潜艇', map_allow_submarine)
+        logger.attr('Подлодки разрешены', map_allow_submarine)
         if map_allow_submarine:
             if self.config.Submarine_Fleet:
                 if fleet_2.allow():

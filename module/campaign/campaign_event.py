@@ -47,7 +47,7 @@ class CampaignEvent(CampaignStatus):
                 continue
             name = self.config.cross_get(keys=f'{task}.Campaign.Name', default='2-4')
             if not self.stage_is_main(name):
-                logger.info(f'[活动战役] 重置钻石打捞为2-4')
+                logger.info(f'[Кампания события] Фарм самоцветов сброшен на 2-4')
                 self.config.cross_set(keys=f'{task}.Campaign.Name', value='2-4')
                 self.config.cross_set(keys=f'{task}.Campaign.Event', value='campaign_main')
 
@@ -64,7 +64,7 @@ class CampaignEvent(CampaignStatus):
                 if task in GEMS_FARMINGS:
                     continue
                 keys = f'{task}.Scheduler.Enable'
-                logger.info(f'[活动战役] 禁用任务 `{task}`')
+                logger.info(f'[Кампания события] Задача `{task}` отключена')
                 self.config.cross_set(keys=keys, value=False)
                 keys = f'{task}.Emotion.Fleet1Onsen'
                 self.config.cross_set(keys=keys, value=False)
@@ -74,7 +74,7 @@ class CampaignEvent(CampaignStatus):
             # 重置 GemsFarming
             self._reset_gems_farming(tasks)
 
-            logger.info(f'[活动战役] 重置活动时间限制')
+            logger.info(f'[Кампания события] Ограничение времени события сброшено')
             self.config.cross_set(keys='EventGeneral.EventGeneral.TimeLimit', value=DEFAULT_TIME)
 
     def event_pt_limit_triggered(self):
@@ -102,8 +102,8 @@ class CampaignEvent(CampaignStatus):
 
         pt = self.get_event_pt()
         if pt >= limit and limit > 0:
-            logger.attr('活动PT限制', f'{pt}/{limit}')
-            logger.hr(f'达到活动PT上限: {limit}')
+            logger.attr('Лимит очков события', f'{pt}/{limit}')
+            logger.hr(f'Достигнут лимит очков события: {limit}')
             self._disable_tasks(tasks)
             return True
         else:
@@ -125,12 +125,12 @@ class CampaignEvent(CampaignStatus):
         coin = self.get_coin()
         if coin == 0:
             # 避免 OCR 识别错误/返回零值
-            logger.warning('[活动战役] 未找到物资')
+            logger.warning('[Кампания события] Монеты не найдены')
             return False
 
-        logger.attr('物资限制', f'{coin}/{limit}')
+        logger.attr('Лимит монет', f'{coin}/{limit}')
         if coin >= limit:
-            logger.hr(f'达到物资上限: {limit}')
+            logger.hr(f'Достигнут лимит монет: {limit}')
             self.config.task_delay(minute=(120, 240))
             handle_notify(
                 self.config.Error_OnePushConfig,
@@ -160,9 +160,9 @@ class CampaignEvent(CampaignStatus):
             return False
 
         now = current_time().replace(microsecond=0)
-        logger.attr('活动时间限制', f'{now} -> {limit}')
+        logger.attr('Ограничение времени события', f'{now} -> {limit}')
         if now > limit:
-            logger.hr(f'达到活动时间限制: {limit}')
+            logger.hr(f'Достигнуто ограничение времени события: {limit}')
             self._disable_tasks(tasks)
             return True
         else:
@@ -181,17 +181,17 @@ class CampaignEvent(CampaignStatus):
         from module.config.deep import deep_get
         limit = self.config.TaskBalancer_CoinLimit
         coin = deep_get(self.config.data, 'Dashboard.Coin.Value')
-        logger.attr('物资数量', coin)
+        logger.attr('Количество монет', coin)
 
         # 检查金币
         if coin == 0:
             # 避免 OCR 识别错误/返回零值
-            logger.warning('[活动战役] 未找到物资')
+            logger.warning('[Кампания события] Монеты не найдены')
             return False
         else:
             if self.is_balancer_task():
                 if coin < limit:
-                    logger.hr('达到物资上限')
+                    logger.hr('Достигнут лимит монет')
                     return True
                 else:
                     return False
@@ -202,7 +202,7 @@ class CampaignEvent(CampaignStatus):
         if self.config.TaskBalancer_Enable and self.triggered_task_balancer():
             self.config.task_delay(minute=5)
             next_task = self.config.TaskBalancer_TaskCall
-            logger.hr(f'任务均衡器触发，切换任务到 {next_task}')
+            logger.hr(f'Сработал балансировщик задач; переключаюсь на {next_task}')
             self.config.task_call(next_task)
             self.config.task_stop()
 
@@ -217,22 +217,22 @@ class CampaignEvent(CampaignStatus):
             TaskEnd: 不可用时抛出。
         """
         if self.appear(CAMPAIGN_MENU_NO_EVENT, offset=(20, 20)):
-            logger.info('[活动战役] 活动不可用，禁用任务')
+            logger.info('[Кампания события] Событие недоступно; задача отключена')
             tasks = EVENTS + RAIDS + COALITIONS + GEMS_FARMINGS + HOSPITAL
             self._disable_tasks(tasks)
             self.config.task_stop()
         else:
-            logger.info('[活动战役] 活动可用')
+            logger.info('[Кампания события] Событие доступно')
             return True
 
     def ui_goto_event(self):
         # 已在 page_event，跳过活动检查。
         if self.ui_get_current_page() == page_event:
             if self.appear(WAR_ARCHIVES_CAMPAIGN_CHECK, offset=(20, 20)):
-                logger.info('[活动战役] 在作战档案')
+                logger.info('[Кампания события] Открыты Архивы')
                 self.ui_goto_main()
             else:
-                logger.info('[活动战役] 已在活动页面')
+                logger.info('[Кампания события] Уже на странице события')
                 return True
         self.ui_goto(page_campaign_menu)
         # 检查活动是否可用
@@ -244,10 +244,10 @@ class CampaignEvent(CampaignStatus):
         # 已在 page_sp，跳过活动检查。
         if self.ui_get_current_page() == page_sp:
             if self.appear(WAR_ARCHIVES_CAMPAIGN_CHECK, offset=(20, 20)):
-                logger.info('[活动战役] 在作战档案')
+                logger.info('[Кампания события] Открыты Архивы')
                 self.ui_goto_main()
             else:
-                logger.info('[活动战役] 已在SP页面')
+                logger.info('[Кампания события] Уже на странице SP')
                 return True
         self.ui_goto(page_campaign_menu)
         # 检查活动是否可用
@@ -258,7 +258,7 @@ class CampaignEvent(CampaignStatus):
     def ui_goto_coalition(self):
         # 已在 page_coalition，跳过活动检查。
         if self.ui_get_current_page() == page_coalition:
-            logger.info('[活动战役] 已在联动页面')
+            logger.info('[Кампания события] Уже на странице коллаборации')
             return True
         else:
             self.ui_goto(page_campaign_menu)
@@ -280,7 +280,7 @@ class CampaignEvent(CampaignStatus):
         tasks = RAIDS + COALITIONS + MARITIME_ESCORTS
         tasks = [t for t in tasks if self.config.is_task_enabled(t)]
         if tasks:
-            logger.info('[活动战役] 新活动进行中，禁用旧突袭活动任务')
+            logger.info('[Кампания события] Идёт новое событие; задача старого рейда отключена')
             self._disable_tasks(tasks)
             return True
         else:
@@ -298,7 +298,7 @@ class CampaignEvent(CampaignStatus):
         gems = [t for t in GEMS_FARMINGS if self.config.is_task_enabled(t)]
         with self.config.multi_set():
             if events:
-                logger.info('[活动战役] 新突袭活动进行中，禁用旧活动任务')
+                logger.info('[Кампания события] Идёт новый рейд; задача старого события отключена')
                 self._disable_tasks(events)
             if gems:
                 self._reset_gems_farming(gems)

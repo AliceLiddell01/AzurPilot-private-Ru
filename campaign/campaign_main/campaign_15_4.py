@@ -83,7 +83,7 @@ class Campaign(CampaignBase):
         if self.battle_count in [3, 6] \
                 or (self.battle_count in [0, 1] and not self.map_is_clear_mode):
             func = self.FUNCTION_NAME_BASE + str(self.battle_count)
-            logger.info(f'Using function: {func}')
+            logger.info(f'Используется функция: {func}')
             func = self.__getattribute__(func)
             result = func()
             return result

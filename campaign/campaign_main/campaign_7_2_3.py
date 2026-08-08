@@ -75,7 +75,7 @@ class Campaign(CampaignBase):
             self.clear_all_mystery(nearby=False)
 
         if self.map.select(is_mystery=True, is_accessible=False):
-            logger.info('Roadblock blocks mystery.')
+            logger.info('Препятствие блокирует таинственную клетку.')
             if self.fleet_1.clear_roadblocks([ROAD_MAIN]):
                 return True
 

@@ -64,11 +64,11 @@ class CampaignBase(CampaignBase_):
             self.campaign_ensure_chapter(chapter)
 
         else:
-            logger.warning(f'Unknown campaign chapter: {name}')
+            logger.warning(f'Неизвестная глава кампании: {name}')
 
     def is_event_animation(self):
         appear = self.image_color_count((286, 342, 994, 422), color=(255, 255, 255), count=10000)
         if appear:
-            logger.info('Live start!')
+            logger.info('Анимация события началась')
 
         return appear

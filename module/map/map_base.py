@@ -191,7 +191,7 @@ class CampaignMap:
                              清理模式（正确名称）== 快进模式（旧版 Alas）== loop（lua 文件中）
         """
         has_loop = bool(len(self.map_data_loop))
-        logger.info(f'[地图-数据] 加载地图数据, 有回路={has_loop}, 使用回路={use_loop}')
+        logger.info(f'[Карта — данные] Загрузка данных карты: цикл={has_loop}, использовать цикл={use_loop}')
         if has_loop and use_loop:
             self._load_map_data(self.map_data_loop)
         else:
@@ -379,7 +379,7 @@ class CampaignMap:
             fortress (bool): 是否加载堡垒机制。
             bouncing_enemy (bool): 是否加载弹跳敌人机制。
         """
-        logger.info(f'[地图-数据] 加载机制, land_base={land_based}, maze={maze}, fortress={fortress}, '
+        logger.info(f'[Карта — данные] Загрузка механизмов: land_base={land_based}, maze={maze}, fortress={fortress}, '
                     f'bouncing_enemy={bouncing_enemy}')
         if land_based:
             self._load_land_base_data(self.land_based_data)
@@ -399,7 +399,7 @@ class CampaignMap:
         Returns:
             bool: 是否使用了墙壁数据。
         """
-        logger.info(f'[地图-连接] 格子连接: 墙壁={wall}, 传送门={portal}')
+        logger.info(f'[Карта — связи] Связи клеток: стены={wall}, порталы={portal}')
 
         # 生成格子连接关系
         total = set([grid for grid in self.grids.keys()])
@@ -459,7 +459,7 @@ class CampaignMap:
                 continue
             for upper in self.grid_covered(grid, location=[(0, -1)]):
                 if upper.is_submarine_spawn_point:
-                    logger.info(f'[地图-潜艇] 修正潜艇出生点, 舰队={grid} -> 潜艇={upper}')
+                    logger.info(f'[Карта — подлодка] Исправлена точка появления: флот={grid} -> подлодка={upper}')
                     grid.is_fleet = False
                     grid.is_current_fleet = False
                     upper.is_submarine = True
@@ -475,7 +475,7 @@ class CampaignMap:
         以文本表格形式打印整个地图，使用格子的 ``str`` 属性表示每个格子的状态。
         """
         # logger.info('Showing grids:')
-        logger.info('[地图-显示] ' + ' '.join([' ' + chr(x + 64 + 1) for x in range(self.shape[0] + 1)]))
+        logger.info('[Карта — отображение] ' + ' '.join([' ' + chr(x + 64 + 1) for x in range(self.shape[0] + 1)]))
         for y in range(self.shape[1] + 1):
             text = str(y + 1).rjust(2) + ' ' + ' '.join(
                 [self[(x, y)].str if (x, y) in self else '  ' for x in range(self.shape[0] + 1)])
@@ -505,7 +505,7 @@ class CampaignMap:
                 if self.ignore_prediction_match(globe=loca, local=grid):
                     continue
                 if not copy.copy(self.grids[loca]).merge(grid, mode=mode):
-                    logger.warning(f'[地图-预测] 预测错误. {self.grids[loca]} = "{grid.str}"')
+                    logger.warning(f'[Карта — прогноз] Ошибка прогноза. {self.grids[loca]} = "{grid.str}"')
                     failed_count += 1
 
         # 如果错误预测少于 2 个，执行实际合并
@@ -520,7 +520,7 @@ class CampaignMap:
                 self.fixup_submarine_fleet()
             return True
         else:
-            logger.warning('[地图-预测] 预测错误过多')
+            logger.warning('[Карта — прогноз] Слишком много ошибок прогноза')
             return False
 
     def reset(self):
@@ -610,7 +610,7 @@ class CampaignMap:
             use_loop (bool): 是否使用快进模式的刷新数据。
         """
         has_loop = bool(len(self._spawn_data_loop))
-        logger.info(f'[地图-数据] 加载出生点数据, 有回路={has_loop}, 使用回路={use_loop}')
+        logger.info(f'[Карта — данные] Загрузка точек появления: цикл={has_loop}, использовать цикл={use_loop}')
         if has_loop and use_loop:
             self._spawn_data_use_loop = True
             self._load_spawn_data(self._spawn_data_loop)
@@ -722,7 +722,7 @@ class CampaignMap:
 
     def show_connection(self):
         """在日志中显示地图各格子的寻路连接关系。"""
-        logger.info('[地图-显示] ' + ' '.join([' ' + chr(x + 64 + 1) for x in range(self.shape[0] + 1)]))
+        logger.info('[Карта — отображение] ' + ' '.join([' ' + chr(x + 64 + 1) for x in range(self.shape[0] + 1)]))
         for y in range(self.shape[1] + 1):
             text = str(y + 1).rjust(2) + ' ' + ' '.join(
                 [location2node(self[(x, y)].connection) if (x, y) in self and self[(x, y)].connection else '  ' for x in
@@ -807,7 +807,7 @@ class CampaignMap:
         while 1:
             location = self[location].connection
             if len(res) > 30:
-                logger.warning('[地图-路径] 路径过长')
+                logger.warning('[Карта — маршрут] Маршрут слишком длинный')
                 logger.warning(res)
                 # exit(1)
             if location is not None:
@@ -817,7 +817,7 @@ class CampaignMap:
         res.reverse()
 
         if len(res) == 0:
-            logger.warning('[地图-路径] 未找到路径。目的地: %s' % str(location))
+            logger.warning('[Карта — маршрут] Маршрут не найден. Цель: %s' % str(location))
             return [location, location]
 
         return res
@@ -845,7 +845,7 @@ class CampaignMap:
                 if not self[route[index]].is_fleet:
                     res.append(index)
                 else:
-                    logger.info(f'[地图-路径] 避让路径节点: {self[route[index]]}')
+                    logger.info(f'[Карта — маршрут] Обход узла маршрута: {self[route[index]]}')
                     if (index > 1) and (index - 1 not in indexes):
                         res.append(index - 1)
                     if (index < len(route) - 2) and (index + 1 not in indexes):
@@ -867,7 +867,7 @@ class CampaignMap:
             for index in list(range(left, right, step))[1:]:
                 way_node = self[route[index]]
                 if way_node.is_fleet or way_node.is_portal or way_node.is_flare:
-                    logger.info(f'[地图-路径] 避让路径节点: {way_node}')
+                    logger.info(f'[Карта — маршрут] Обход узла маршрута: {way_node}')
                     if (index > 1) and (index - 1 not in res):
                         inserted.append(index - 1)
                     if (index < len(route) - 2) and (index + 1 not in res):
@@ -897,9 +897,9 @@ class CampaignMap:
 
         path = self._find_path(location)
         if path is None or not len(path):
-            logger.warning('[地图-路径] 未找到路径，返回目的地')
+            logger.warning('[Карта — маршрут] Маршрут не найден; возвращаю целевую клетку')
             return [location]
-        logger.info('[地图-路径] 完整路径: %s' % '[' + ', ' .join([location2node(grid) for grid in path]) + ']')
+        logger.info('[Карта — маршрут] Полный маршрут: %s' % '[' + ', ' .join([location2node(grid) for grid in path]) + ']')
 
         portal_path = []
         index = [0]
@@ -917,7 +917,7 @@ class CampaignMap:
             local_path = path[start:end + 1]
             local_path = self._find_route_node(local_path, step=step, turning_optimize=turning_optimize)
             portal_path += local_path
-            logger.info('[地图-路径] 路径: %s' % '[' + ', ' .join([location2node(grid) for grid in local_path]) + ']')
+            logger.info('[Карта — маршрут] Маршрут: %s' % '[' + ', ' .join([location2node(grid) for grid in local_path]) + ']')
         path = portal_path
 
         return path
@@ -987,9 +987,9 @@ class CampaignMap:
             if upper.may_carrier:
                 may['carrier'] += 1
 
-        logger.attr('缺失敌人',
+        logger.attr('Пропавшие противники',
                     ', '.join([f'{k[:2].upper()}:{str(v).rjust(2)}' for k, v in missing.items() if k != 'battle']))
-        logger.attr('可能敌人',
+        logger.attr('Возможные противники',
                     ', '.join([f'{k[:2].upper()}:{str(v).rjust(2)}' for k, v in may.items()]))
         return may, missing
 
@@ -1039,11 +1039,11 @@ class CampaignMap:
         for upper in self.map_covered:
             for attr in ['enemy', 'mystery', 'siren', 'boss']:
                 if upper.__getattribute__('may_' + attr) and missing[attr] > 0 and missing[attr] == may[attr]:
-                    logger.info('[地图-预测] 预测 %s 为 %s' % (location2node(upper.location), attr))
+                    logger.info('[Карта — прогноз] Клетка %s предположительно является %s' % (location2node(upper.location), attr))
                     upper.__setattr__('is_' + attr, True)
             if carrier_count:
                 if upper.may_carrier and missing['carrier'] > 0 and missing['carrier'] == may['carrier']:
-                    logger.info('[地图-预测] 预测 %s 为敌舰' % location2node(upper.location))
+                    logger.info('[Карта — прогноз] Клетка %s предположительно содержит вражеский флот' % location2node(upper.location))
                     upper.__setattr__('is_enemy', True)
 
     def select(self, **kwargs):

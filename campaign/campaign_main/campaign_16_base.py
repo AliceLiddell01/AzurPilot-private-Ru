@@ -71,7 +71,7 @@ class CampaignBase(CampaignBase_):
     def fleet_preparation(self, skip_first_screenshot=True):
         if self.appear(FLEET_SUPPORT_EMPTY, offset=(5, 5)):
             self.has_support_fleet = False
-        logger.attr('Has support fleet', self.has_support_fleet)
+        logger.attr('Наличие флота поддержки', self.has_support_fleet)
         return super().fleet_preparation(skip_first_screenshot=skip_first_screenshot)
 
     def strategy_set_execute(self, formation=None, sub_view=None, sub_hunt=None):
@@ -80,7 +80,7 @@ class CampaignBase(CampaignBase_):
             sub_view=sub_view,
             sub_hunt=sub_hunt,
         )
-        logger.attr("Map has air strike", self.strategy_has_air_strike())
+        logger.attr("На карте доступен авиаудар", self.strategy_has_air_strike())
 
     def _map_swipe(self, vector, box=(239, 159, 1175, 628)):
         # Left border to 239, avoid swiping on support fleet
@@ -103,17 +103,17 @@ class CampaignBase(CampaignBase_):
         attackable = True
 
         try:
-            logger.info(f'location: {self.map[location]}')
+            logger.info(f'Позиция: {self.map[location]}')
         except KeyError as e:
-            logger.exception(f'Given coordinates are outside the map.')
+            logger.exception(f'Указанные координаты находятся за пределами карты.')
             raise e
 
         if self.map[location].is_land:
-            logger.error(f'{self.map[location]} is a land grid.')
+            logger.error(f'{self.map[location]} является наземной клеткой.')
             attackable = False
 
         if not attackable:
-            logger.error(f'Cannot air attack at {self.map[location]}.')
+            logger.error(f'Невозможно нанести авиаудар по {self.map[location]}.')
 
         return attackable
 
@@ -137,7 +137,7 @@ class CampaignBase(CampaignBase_):
         grid = self.convert_global_to_local(location)
         grid.__str__ = location
 
-        logger.info('Select mob to move')
+        logger.info('Выбор клетки для авиаудара')
         skip_first_screenshot = True
         interval = Timer(2, count=4)
         clicked_count = 0
@@ -179,7 +179,7 @@ class CampaignBase(CampaignBase_):
 
         self.strategy_open()
         if not self.strategy_has_air_strike():
-            logger.warning(f'No remain air attack trials, will abandon attacking')
+            logger.warning(f'Попытки авиаудара исчерпаны; атака отменена')
             self.strategy_close()
             return False
         self.strategy_air_strike_enter()
@@ -199,13 +199,13 @@ class CampaignBase(CampaignBase_):
             bool: False
         """
         if land_base_grid in self.destroyed_land_base:
-            logger.info(f'Land base {land_base_grid} already destroyed')
+            logger.info(f'Наземная база в {land_base_grid} уже уничтожена')
         elif goto_grid.is_accessible:
-            logger.info(f'Destroy land base on {land_base_grid}')
+            logger.info(f'Уничтожение наземной базы в {land_base_grid}')
             self.goto(goto_grid, turning_optimize=self.config.MAP_WALK_TURNING_OPTIMIZE)
             if self.air_attack(attack_grid):
                 self.destroyed_land_base.append(land_base_grid)
         else:
-            logger.info(f'Land base {land_base_grid} not accessible, will check in next battle')
+            logger.info(f'Наземная база в {land_base_grid} недоступна; проверю в следующем бою')
 
         return False

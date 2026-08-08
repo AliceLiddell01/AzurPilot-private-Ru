@@ -75,19 +75,19 @@ class CampaignStatus(UI):
         res = re.search(r'X(\d+)', pt)
         if res:
             pt = int(res.group(1))
-            logger.attr('活动PT', pt)
+            logger.attr('Очки события', pt)
             LogRes(self.config).Pt = pt
         else:
             # 回退：若 OCR 返回纯数字也接受（保留警告以便回溯）
             res2 = re.search(r'(\d+)', pt)
             if res2:
                 num = int(res2.group(1))
-                logger.warning(f"无效的PT结果格式 (missing 'X'): {pt}; fallback to digits: {num}")
-                logger.attr('活动PT_回退', num)
+                logger.warning(f"Недопустимый формат результата PT (нет 'X'): {pt}; использую только цифры: {num}")
+                logger.attr('Очки события — резервное значение', num)
                 LogRes(self.config).Pt = num
                 pt = num
             else:
-                logger.warning(f'无效的PT结果: {pt}')
+                logger.warning(f'Недопустимый результат PT: {pt}')
                 pt = 0
         if update:
             self.config.update()
@@ -109,7 +109,7 @@ class CampaignStatus(UI):
                 self.device.screenshot()
 
             if timeout.reached():
-                logger.warning('获取物资超时')
+                logger.warning('Истекло время получения количества монет')
                 break
 
             _coin = {
@@ -142,7 +142,7 @@ class CampaignStatus(UI):
             # 带黑色遮罩
             ocr = Digit(_button, name=name, letter=(165, 165, 165), threshold=128)
         else:
-            logger.warning('[战役-状态] 意外的OCR_OIL_CHECK颜色')
+            logger.warning('[Кампания — состояние] Неожиданный цвет OCR_OIL_CHECK')
             ocr = Digit(_button, name=name, letter=(247, 247, 247), threshold=128)
 
         return ocr.ocr(self.device.image)
@@ -163,11 +163,11 @@ class CampaignStatus(UI):
                 self.device.screenshot()
 
             if not self.appear(OCR_OIL_CHECK, offset=(10, 2)):
-                logger.info('无石油图标')
+                logger.info('Значок нефти отсутствует')
                 self.device.sleep(1)
 
             if timeout.reached():
-                logger.warning('获取石油超时')
+                logger.warning('Истекло время получения количества нефти')
                 break
 
             _oil = {

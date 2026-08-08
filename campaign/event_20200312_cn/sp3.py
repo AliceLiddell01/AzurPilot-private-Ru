@@ -87,7 +87,7 @@ class Campaign(CampaignBase):
         so overwrite handle_in_stage method in module.map.map_operation.
         """
         if self.appear(CAMPAIGN_GOTO_DAILY) and self.appear(ENTRANCE):
-            logger.info('In stage.')
+            logger.info('Открыт экран этапа.')
             self.ensure_no_info_bar(timeout=0.6)
             return True
         else:

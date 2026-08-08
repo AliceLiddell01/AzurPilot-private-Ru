@@ -28,4 +28,4 @@ class CampaignBase(CampaignBase_):
         #     new[0] = max(new[0] - 1, 0)
         # self.enemy_round = new
         # from module.logger import logger
-        logger.info(f'Enemy round: {self.enemy_round}')
+        logger.info(f'Ход противника: {self.enemy_round}')

@@ -88,11 +88,11 @@ class Campaign(CampaignBase):
     bored_visited_H2 = False
 
     def find_current_fleet(self):
-        logger.hr('Find current fleet')
-        logger.info('No fleet scan, assume fleet_1 at D5')
+        logger.hr('Поиск текущего флота')
+        logger.info('Сканирование флота недоступно; предполагаю, что fleet_1 находится в D5')
         self.fleet_1 = D5.location
         if self.config.FLEET_2:
-            logger.info('No fleet scan, assume fleet_2 at F5')
+            logger.info('Сканирование флота недоступно; предполагаю, что fleet_2 находится в F5')
             self.fleet_2 = F5.location
 
     def map_data_init(self, map_):
@@ -126,7 +126,7 @@ class Campaign(CampaignBase):
                 .add(self.map.select(is_siren=True)) \
                 .add(self.map.select(is_fortress=True)) \
                 .delete(self.map.select(is_boss=True))
-            logger.info(f'Enemy remain: {remain}')
+            logger.info(f'Осталось противников: {remain}')
             logger.info(f'bored_visited_G3: {self.bored_visited_G3}, bored_visited_H2: {self.bored_visited_H2}')
             if remain.count > 0:
                 if self.clear_siren():
@@ -150,7 +150,7 @@ class Campaign(CampaignBase):
             if self.clear_chosen_enemy(E7, expected='siren'):
                 return True
 
-        logger.warning(f'A1.battle_0() did not cleared siren')
+        logger.warning(f'A1.battle_0() не устранил Сирену')
         return self.battle_default()
 
     def battle_1(self):
