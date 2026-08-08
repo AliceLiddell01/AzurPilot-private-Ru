@@ -119,6 +119,23 @@ class PowerShellContractTests(unittest.TestCase):
             self.sources["scripts/Start-AzurPilot.ps1"],
         )
 
+    def test_start_path_entry_accepts_empty_path_segments(self) -> None:
+        source = self.sources["scripts/Start-AzurPilot.ps1"]
+        function_match = re.search(
+            r"function Add-PathEntry\s*\{(?P<body>.*?)\n\}\n\nfunction Invoke-AzurPilotBackendStart",
+            source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(function_match)
+        body = function_match.group("body")
+        self.assertRegex(
+            body,
+            r"\[Parameter\(Mandatory\)\]\s*"
+            r"\[AllowEmptyString\(\)\]\s*"
+            r"\[string\]\$Entry",
+        )
+        self.assertIn("if ([string]::IsNullOrWhiteSpace($Entry))", body)
+
     def test_utf8_text_has_no_mojibake(self) -> None:
         mojibake = ("Р ", "РЎ", "Рџ", "СЂ", "вЂ", "пїЅ", "\ufffd")
         for relative_path, source in self.sources.items():
