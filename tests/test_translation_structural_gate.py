@@ -45,6 +45,22 @@ def assert_blocked(base: str, head: str) -> None:
             'logger.info("Enemy %s: %.1f", enemy, hp)\n',
             'logger.info("Противник %s: %.1f", enemy, hp)\n',
         ),
+        (
+            'logger.attr("活动PT限制", f"{pt}/{limit}")\n',
+            'logger.attr("Лимит очков события", f"{pt}/{limit}")\n',
+        ),
+        (
+            'logger.info(f"Arrive {target} now".strip())\n',
+            'logger.info(f"Прибытие в {target} подтверждено".strip())\n',
+        ),
+        (
+            'logger.info("Map: " + " ".join(values))\n',
+            'logger.info("Карта: " + " ".join(values))\n',
+        ),
+        (
+            'logger.info("Direction %s: %s" % ("horizontal" if flag else "vertical", point))\n',
+            'logger.info("Направление %s: %s" % ("горизонталь" if flag else "вертикаль", point))\n',
+        ),
     ],
 )
 def test_operator_prose_changes_pass(base: str, head: str) -> None:
@@ -159,6 +175,18 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
         ('logger.info("A\\nB")\n', 'logger.info("А B")\n'),
         ('logger.info("A\\tB")\n', 'logger.info("А B")\n'),
         ('logger.info("Start")\n', 'logger.warning("Старт")\n'),
+        (
+            'logger.info(f"Arrive {target}".strip())\n',
+            'logger.info(f"Прибытие {target}".rstrip())\n',
+        ),
+        (
+            'logger.info("Map: " + " ".join(values))\n',
+            'logger.info("Карта: " + ", ".join(values))\n',
+        ),
+        (
+            'logger.info("Direction %s" % ("horizontal" if flag else "vertical"))\n',
+            'logger.info("Направление %s" % ("горизонталь" if other else "вертикаль"))\n',
+        ),
     ],
 )
 def test_structural_or_machine_changes_fail(base: str, head: str) -> None:
@@ -188,22 +216,27 @@ def repository(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.mark.parametrize("root", ["campaign", "module"])
 @pytest.mark.parametrize("operation", ["add", "delete", "rename", "copy"])
-def test_production_file_topology_changes_fail(repository: Path, operation: str) -> None:
-    module = repository / "module"
-    module.mkdir()
-    original = module / "original.py"
+def test_production_file_topology_changes_fail(
+    repository: Path, operation: str, root: str
+) -> None:
+    production_root = repository / root
+    production_root.mkdir()
+    original = production_root / "original.py"
     original.write_text("pass\n", encoding="utf-8")
     base = _commit(repository, "base")
 
     if operation == "add":
-        (module / "added.py").write_text("pass\n", encoding="utf-8")
+        (production_root / "added.py").write_text("pass\n", encoding="utf-8")
     elif operation == "delete":
         original.unlink()
     elif operation == "rename":
-        original.rename(module / "renamed.py")
+        original.rename(production_root / "renamed.py")
     else:
-        (module / "copied.py").write_text(original.read_text(encoding="utf-8"), encoding="utf-8")
+        (production_root / "copied.py").write_text(
+            original.read_text(encoding="utf-8"), encoding="utf-8"
+        )
     head = _commit(repository, operation)
 
     blockers = run_gate(repository, base, head)
@@ -229,6 +262,24 @@ def test_protected_path_changes_fail(repository: Path, protected_path: str) -> N
     head = _commit(repository, "head")
 
     assert run_gate(repository, base, head)
+
+
+@pytest.mark.parametrize("root", ["campaign", "module"])
+def test_repository_translation_with_unicode_passes(
+    repository: Path, root: str
+) -> None:
+    path = repository / root / "example.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        'logger.attr("活动PT限制", f"{pt}/{limit}")\n', encoding="utf-8"
+    )
+    base = _commit(repository, "base")
+    path.write_text(
+        'logger.attr("Лимит очков события", f"{pt}/{limit}")\n', encoding="utf-8"
+    )
+    head = _commit(repository, "head")
+
+    assert run_gate(repository, base, head) == []
 
 
 def test_syntax_error_fails() -> None:
