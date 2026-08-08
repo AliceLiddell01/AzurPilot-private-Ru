@@ -22,7 +22,7 @@ PROTECTED_PATHS = {
     "tests/test_translation_structural_gate.py",
 }
 ENTRY_POINTS = {"alas.py", "gui.py", "mcp_server_sse.py"}
-LOGGER_METHODS = {"info", "warning", "error", "critical", "hr"}
+LOGGER_METHODS = {"info", "warning", "error", "critical", "exception", "hr"}
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
     r"(?:hh|h|ll|l|L|j|z|t)?[diouxXeEfFgGcrsa%]"
