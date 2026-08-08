@@ -132,8 +132,16 @@ def _definitions(tree: ast.AST) -> list[tuple[str, str]]:
     ]
 
 
+def _call_target_shape(node: ast.AST) -> str:
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+        receiver = ast.Constant(value="<STRING>", kind=node.value.kind)
+        normalized = ast.Attribute(value=receiver, attr=node.attr, ctx=node.ctx)
+        return ast.dump(normalized, include_attributes=False)
+    return ast.dump(node, include_attributes=False)
+
+
 def _call_shapes(tree: ast.AST) -> list[tuple[str, int, tuple[str | None, ...]]]:
-    return [(ast.dump(node.func, include_attributes=False), len(node.args), tuple(keyword.arg for keyword in node.keywords)) for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    return [(_call_target_shape(node.func), len(node.args), tuple(keyword.arg for keyword in node.keywords)) for node in ast.walk(tree) if isinstance(node, ast.Call)]
 
 
 def _numeric_literals(tree: ast.AST) -> list[object]:
