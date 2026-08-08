@@ -68,9 +68,9 @@ class IslandShopBase(Island, WarehouseOCR):
         self.season_name = self.season_config.season_name
 
         if self.season_config.is_seasonal_enabled:
-            logger.info(f"[岛屿] 当前季节: {self.season_name}，季节限定已启用")
+            logger.info(f"[Остров] Текущий сезон: {self.season_name}; сезонные ограничения включены")
         else:
-            logger.info("[岛屿] 季节限定未启用")
+            logger.info("[Остров] Сезонные ограничения отключены")
 
     def is_seasonal_item_enabled(self, item_name):
         """
@@ -101,7 +101,7 @@ class IslandShopBase(Island, WarehouseOCR):
             from module.island.island_season import SEASONAL_ITEMS
             other_items = SEASONAL_ITEMS.get(season_key, {}).get(self.shop_type, [])
             if item_name in other_items:
-                logger.info(f"[岛屿] 物品 [{item_name}] 是 {season_key} 的限定品，当前 {self.season_name} 不可用")
+                logger.info(f"[Остров] Предмет [{item_name}] относится к сезону {season_key}; в текущем сезоне {self.season_name} недоступен")
                 return False
         return True
     def produce_check(self):
@@ -200,20 +200,20 @@ class IslandShopBase(Island, WarehouseOCR):
         """餐品选择失败后退出岗位，重新进入同一岗位走完整派遣流程。"""
         if failed_count >= self.PRODUCT_SELECT_RETRY_LIMIT:
             raise GameStuckError(
-                f"{product}生产选择餐品时连续{failed_count}次未识别到 {failed_product}"
+                f"При выборе блюда для производства {product} {failed_count} раз подряд не удалось распознать {failed_product}"
             )
 
         logger.warning(
-            f"{product}生产选择餐品时未识别到 {failed_product}，"
-            f"退出岗位后重新进入 ({failed_count}/{self.PRODUCT_SELECT_RETRY_LIMIT})"
+            f"При выборе блюда для производства {product} не удалось распознать {failed_product}; "
+            f"выход из позиции и повторный вход ({failed_count}/{self.PRODUCT_SELECT_RETRY_LIMIT})"
         )
         if not self.back_to_postmanage_from_dispatch():
-            raise GameStuckError(f"{product}生产选择餐品失败后无法返回岗位管理页")
+            raise GameStuckError(f"После ошибки выбора блюда для производства {product} не удалось вернуться к управлению позициями")
 
         self.post_manage_mode(POST_MANAGE_PRODUCTION)
         self.post_manage_swipe(self.post_manage_swipe_count)
         if not self.post_open(post_button):
-            raise GameStuckError(f"{product}生产选择餐品失败后无法重新打开岗位")
+            raise GameStuckError(f"После ошибки выбора блюда для производства {product} не удалось повторно открыть позицию")
         self.device.sleep(0.5)
 
     def increase_product_selection_failure(self, product_select_failures, failed_product):
@@ -248,7 +248,7 @@ class IslandShopBase(Island, WarehouseOCR):
                         self.back_to_postmanage_from_dispatch()
                         return 0
                 else:
-                    logger.warning(f"[岛屿] {product}生产派遣无可用角色: {character_filter}")
+                    logger.warning(f"[Остров] Для производственного задания {product} нет доступных персонажей: {character_filter}")
                     self.back_to_postmanage_from_dispatch()
                     return 0
                 continue
@@ -256,7 +256,7 @@ class IslandShopBase(Island, WarehouseOCR):
                 if self.select_product(selection, selection_check):
                     self.device.sleep(0.5)
                     if self.produce_check():
-                        logger.warning(f"[岛屿] 原料不足，无法生产 {product}")
+                        logger.warning(f"[Остров] Недостаточно сырья; невозможно произвести {product}")
                         self.device.sleep(0.5)
                         if product == self.special_food:
                             if product2:
@@ -272,7 +272,7 @@ class IslandShopBase(Island, WarehouseOCR):
                                     continue
                                 self.device.sleep(0.5)
                                 if self.produce_check():
-                                    logger.warning(f"[岛屿] 原料不足，无法生产 {product2}")
+                                    logger.warning(f"[Остров] Недостаточно сырья; невозможно произвести {product2}")
                                     self.device.click(ISLAND_BACK)
                                     self.device.sleep(0.5)
                                     return 0  # 返回0表示原料不足
@@ -308,7 +308,7 @@ class IslandShopBase(Island, WarehouseOCR):
                     )
                 continue
         else:
-            raise GameStuckError(f"{product}生产派遣流程超时")
+            raise GameStuckError(f"Истекло время производственного задания {product}")
         self.wait_until_appear(ISLAND_POSTMANAGE_CHECK)
         self.device.sleep(0.5)
         self.post_manage_swipe(self.post_manage_swipe_count)
@@ -325,7 +325,7 @@ class IslandShopBase(Island, WarehouseOCR):
         self.posts[post_id]['status'] = 'working'
         # 扣除前置材料（子类可覆盖）
         self.deduct_materials(product, actual_number)
-        logger.info(f"[岛屿] 已安排生产：{product} x{actual_number}")
+        logger.info(f"[Остров] Производство запланировано: {product} x{actual_number}")
         self.post_close()
         # 返回实际生产数量
         return actual_number
@@ -340,7 +340,7 @@ class IslandShopBase(Island, WarehouseOCR):
                 material_needed = number * quantity_per
                 if material in self.warehouse_counts:
                     self.warehouse_counts[material] -= material_needed
-                    logger.info(f"[岛屿] 扣除原材料：{material} -{material_needed} (用于制作 {product})")
+                    logger.info(f"[Остров] Списано сырьё: {material} -{material_needed} (для приготовления {product})")
 
     def get_idle_posts(self):
         """获取空闲的岗位ID列表（通用）"""
@@ -380,7 +380,7 @@ class IslandShopBase(Island, WarehouseOCR):
                         角色被占）时使用，让本轮不再停留在这个缺口上。
         """
         # ============ 基础需求计算 ============
-        logger.info("[岛屿] 阶段：基础需求" + ("（严格模式）" if check_materials else ""))
+        logger.info("[Остров] Этап: базовые потребности" + ("（严格模式）" if check_materials else ""))
 
         self.to_post_products = {}
         virtual_totals = dict(self.current_totals)
@@ -392,14 +392,14 @@ class IslandShopBase(Island, WarehouseOCR):
             current = virtual_totals.get(name, 0)
             if current < target:
                 if name in force_skip:
-                    logger.info(f"[岛屿] 槽位{idx + 1} {name} 本轮已尝试失败，强制跳过")
+                    logger.info(f"[Остров] Слот {idx + 1} {name} уже не удалось обработать в этом цикле; принудительный пропуск")
                     continue
                 deficit = target - current
                 # check_materials=True 时严格检查零库存，用于跳过无法生产的缺口
                 if self.get_max_producible(
                         name, min(self.POST_PRODUCE_LIMIT, deficit),
                         skip_zero_materials=not check_materials) <= 0:
-                    logger.info(f"[岛屿] 槽位{idx + 1} {name} 材料完全不足，本轮跳过")
+                    logger.info(f"[Остров] В слоте {idx + 1} для {name} полностью отсутствуют материалы; пропуск в этом цикле")
                     continue
                 self.to_post_products[name] = deficit
                 virtual_totals[name] = target
@@ -452,23 +452,23 @@ class IslandShopBase(Island, WarehouseOCR):
                 self.current_totals[item] = self.post_check_meal.get(item, 0) + self.warehouse_counts.get(item, 0)
 
             # ============ 调试信息 ============
-            logger.info(f"[岛屿] === 调试信息 ===")
-            logger.info(f"[岛屿] 仓库库存: {self.warehouse_counts}")
-            logger.info(f"[岛屿] 生产中库存: {self.post_check_meal}")
-            logger.info(f"[岛屿] 当前总库存: {self.current_totals}")
-            logger.info(f"[岛屿] 基础需求配置（共{len(self.post_products)}个槽位）: {self.post_products}")
+            logger.info(f"[Остров] === Отладочная информация ===")
+            logger.info(f"[Остров] Запасы на складе: {self.warehouse_counts}")
+            logger.info(f"[Остров] Запасы в производстве: {self.post_check_meal}")
+            logger.info(f"[Остров] Текущий общий запас: {self.current_totals}")
+            logger.info(f"[Остров] Конфигурация базовых потребностей ({len(self.post_products)} слотов): {self.post_products}")
             logger.info("===============")
 
             # 保存原始库存，retry 时恢复
             _orig_totals = dict(self.current_totals)
             self._compute_base_demands()
 
-            logger.info(f"[岛屿] 待完成备餐: {self.to_post_products}")
-            logger.info(f"[岛屿] 当前剩余库存: {self.current_totals}")
+            logger.info(f"[Остров] Ожидающие приготовления: {self.to_post_products}")
+            logger.info(f"[Остров] Текущий остаток запасов: {self.current_totals}")
             # ============ 处理套餐分解 ============
             if self.to_post_products:
                 self.to_post_products = self.process_meal_requirements(self.to_post_products)
-                logger.info(f"[岛屿] 基础需求生产计划: {self.to_post_products}")
+                logger.info(f"[Остров] План производства базовых потребностей: {self.to_post_products}")
 
             # ============ 安排基础需求生产（循环直到无空岗或无缺口） ============
             _produced_pass = {}  # 本次 run() 调用中已生产的累计
@@ -480,7 +480,7 @@ class IslandShopBase(Island, WarehouseOCR):
             while self.get_idle_posts():
                 _loop_count += 1
                 if _loop_count > self._MAX_FILL_LOOP:
-                    logger.warning(f"[岛屿] [循环] 已达最大迭代次数 {self._MAX_FILL_LOOP}，强制退出")
+                    logger.warning(f"[Остров] [Цикл] Достигнуто максимальное число итераций {self._MAX_FILL_LOOP}; принудительный выход")
                     break
                 self.current_totals = dict(_orig_totals)
                 for name, qty in _produced_pass.items():
@@ -488,18 +488,18 @@ class IslandShopBase(Island, WarehouseOCR):
 
                 self._compute_base_demands(force_skip=_force_skip_run)
                 if not self.to_post_products:
-                    logger.info("[岛屿] 所有槽位需求已满足")
+                    logger.info("[Остров] Потребности всех слотов удовлетворены")
                     break
 
                 self.to_post_products = self.process_meal_requirements(self.to_post_products)
-                logger.info(f"[岛屿] 基础需求生产计划: {self.to_post_products}")
+                logger.info(f"[Остров] План производства базовых потребностей: {self.to_post_products}")
 
                 prev_pass_total = sum(_produced_pass.values())
                 self._schedule_and_track(_produced_pass)
 
                 if sum(_produced_pass.values()) == prev_pass_total and self.to_post_products:
                     # 先切严格模式（绕"原料真没有"的坎儿）
-                    logger.info("[岛屿] [循环] 当前缺口排产失败，切换严格模式扫描")
+                    logger.info("[Остров] [Цикл] Не удалось распределить текущий дефицит; переход к строгому сканированию")
                     self.to_post_products = {}
                     self.current_totals = dict(_orig_totals)
                     for name, qty in _produced_pass.items():
@@ -508,7 +508,7 @@ class IslandShopBase(Island, WarehouseOCR):
                     if not self.to_post_products:
                         break
                     self.to_post_products = self.process_meal_requirements(self.to_post_products)
-                    logger.info(f"[岛屿] 基础需求生产计划（严格模式）: {self.to_post_products}")
+                    logger.info(f"[Остров] План производства базовых потребностей (строгий режим): {self.to_post_products}")
 
                     strict_prev_total = sum(_produced_pass.values())
                     self._schedule_and_track(_produced_pass)
@@ -516,7 +516,7 @@ class IslandShopBase(Island, WarehouseOCR):
                     if sum(_produced_pass.values()) == strict_prev_total and self.to_post_products:
                         # 严格模式也无产出 → 非原料原因（角色被占等），强制跳过
                         stuck_now = set(self.to_post_products.keys())
-                        logger.info(f"[岛屿] [循环] 严格模式也无产出，强制跳过: {stuck_now}")
+                        logger.info(f"[Остров] [Цикл] Строгий режим также не дал результата; принудительный пропуск: {stuck_now}")
                         _force_skip_run.update(stuck_now)
                         self.to_post_products = {}
                     continue
@@ -538,7 +538,7 @@ class IslandShopBase(Island, WarehouseOCR):
                              away_cook in self.name_to_config)
 
             if idle_posts_after_basic and (has_special_food or has_away_cook):
-                logger.info(f"[岛屿] 基础需求完成后，还有 {len(idle_posts_after_basic)} 个空闲岗位")
+                logger.info(f"[Остров] После базовых потребностей осталось свободных позиций: {len(idle_posts_after_basic)}")
 
                 # 根据不同情况安排生产
                 for post_id in idle_posts_after_basic:
@@ -547,8 +547,8 @@ class IslandShopBase(Island, WarehouseOCR):
 
                     if has_special_food and has_away_cook:
                         # 情况1：既有特殊餐品又有常驻餐品
-                        logger.info(f"[岛屿] 同时有特殊餐品 {special_food} 和常驻餐品 {away_cook}")
-                        logger.info(f"[岛屿] 优先尝试生产特殊餐品，如果原料不足则生产常驻餐品")
+                        logger.info(f"[Остров] Настроены и особое блюдо {special_food}, и постоянное блюдо {away_cook}")
+                        logger.info(f"[Остров] Сначала пробуем произвести особое блюдо; при нехватке сырья — постоянное")
 
                         # 尝试生产特殊餐品（如果原料不足会自动尝试常驻餐品）
                         result = self.post_produce(
@@ -561,14 +561,14 @@ class IslandShopBase(Island, WarehouseOCR):
 
                         if result == 0:
                             # 特殊餐品和常驻餐品都原料不足
-                            logger.info(f"[岛屿] 特殊餐品 {special_food} 和常驻餐品 {away_cook} 都原料不足，保持岗位空闲")
+                            logger.info(f"[Остров] Недостаточно сырья и для особого блюда {special_food}, и для постоянного {away_cook}; позиция остаётся свободной")
                             break
                         else:
-                            logger.info(f"[岛屿] 已为岗位 {post_id} 安排生产")
+                            logger.info(f"[Остров] Для позиции {post_id} назначено производство")
 
                     elif has_special_food and not has_away_cook:
                         # 情况2：只有特殊餐品，没有常驻餐品
-                        logger.info(f"[岛屿] 只有特殊餐品 {special_food}，没有常驻餐品")
+                        logger.info(f"[Остров] Настроено только особое блюдо {special_food}; постоянное блюдо не задано")
 
                         result = self.post_produce(
                             post_id,
@@ -579,14 +579,14 @@ class IslandShopBase(Island, WarehouseOCR):
 
                         if result == 0:
                             # 特殊餐品原料不足
-                            logger.info(f"[岛屿] 特殊餐品 {special_food} 原料不足，保持岗位空闲")
+                            logger.info(f"[Остров] Недостаточно сырья для особого блюда {special_food}; позиция остаётся свободной")
                             break
                         else:
-                            logger.info(f"[岛屿] 已为岗位 {post_id} 安排生产特殊餐品")
+                            logger.info(f"[Остров] Для позиции {post_id} назначено производство особого блюда")
 
                     elif not has_special_food and has_away_cook:
                         # 情况3：只有常驻餐品，没有特殊餐品
-                        logger.info(f"[岛屿] 只有常驻餐品 {away_cook}，没有特殊餐品")
+                        logger.info(f"[Остров] Настроено только постоянное блюдо {away_cook}; особое блюдо не задано")
 
                         # 检查材料限制
                         batch_size = self.POST_PRODUCE_LIMIT
@@ -601,22 +601,22 @@ class IslandShopBase(Island, WarehouseOCR):
                             )
 
                             if result == 0:
-                                logger.info(f"[岛屿] 常驻餐品 {away_cook} 原料不足，保持岗位空闲")
+                                logger.info(f"[Остров] Недостаточно сырья для постоянного блюда {away_cook}; позиция остаётся свободной")
                                 break
                             else:
-                                logger.info(f"[岛屿] 已为岗位 {post_id} 安排常驻餐品 {away_cook} x{batch_size}")
+                                logger.info(f"[Остров] Для позиции {post_id} назначено постоянное блюдо {away_cook} x{batch_size}")
                         else:
-                            logger.info(f"[岛屿] 生产 {away_cook} 的材料不足，跳过岗位 {post_id}")
+                            logger.info(f"[Остров] Недостаточно материалов для производства {away_cook}; позиция {post_id} пропущена")
                             break
 
                     else:
                         # 情况4：既没有特殊餐品也没有常驻餐品
-                        logger.info("[岛屿] 未设置特殊餐品或常驻餐品，保持空闲")
+                        logger.info("[Остров] Особое или постоянное блюдо не задано; позиция остаётся свободной")
                         break  # 退出循环，不再处理其他空闲岗位
 
             elif idle_posts_after_basic:
                 # 有空闲岗位但没有设置特殊餐品或常驻餐品
-                logger.info(f"[岛屿] 有 {len(idle_posts_after_basic)} 个空闲岗位，但未设置特殊餐品或常驻餐品，保持空闲")
+                logger.info(f"[Остров] Есть свободные позиции ({len(idle_posts_after_basic)}), но особое или постоянное блюдо не задано; позиции остаются свободными")
 
         # ============ 设置任务延迟 ============
         finish_times = []
@@ -630,12 +630,12 @@ class IslandShopBase(Island, WarehouseOCR):
         self.config.task_delay(target=finish_times)
         if self.island_error:
             from module.exception import GameBugError
-            raise GameBugError("检测到岛屿ERROR1，需要重启")
+            raise GameBugError("Обнаружена ошибка острова ERROR1; требуется перезапуск")
 
     def process_meal_requirements(self, source_products):
         """处理套餐需求（修正版）"""
-        logger.info(f"[岛屿] === 进入process_meal_requirements ===")
-        logger.info(f"[岛屿] 传入的需求: {source_products}")
+        logger.info(f"[Остров] === Вход в process_meal_requirements ===")
+        logger.info(f"[Остров] Входные потребности: {source_products}")
 
         result = {}
 
@@ -648,20 +648,20 @@ class IslandShopBase(Island, WarehouseOCR):
                 continue
             if product in self.meal_compositions:
                 meal_demands[product] = quantity
-                logger.info(f"[岛屿]   识别为套餐: {product} x{quantity}")
+                logger.info(f"[Остров]   Распознано как набор: {product} x{quantity}")
             else:
                 base_demands[product] = quantity
-                logger.info(f"[岛屿]   识别为基础餐品: {product} x{quantity}")
+                logger.info(f"[Остров]   Распознано как базовое блюдо: {product} x{quantity}")
 
-        logger.info(f"[岛屿] 套餐需求: {meal_demands}")
-        logger.info(f"[岛屿] 基础需求: {base_demands}")
+        logger.info(f"[Остров] Потребность в наборах: {meal_demands}")
+        logger.info(f"[Остров] Базовая потребность: {base_demands}")
 
         # 2. 处理套餐需求 - 直接加入结果（套餐可以直接生产）
         # 注意：这里传入的已经是净需求，不需要再扣除库存
         for meal, meal_quantity in meal_demands.items():
             if meal_quantity > 0:
                 result[meal] = meal_quantity
-                logger.info(f"[岛屿]   套餐直接生产: {meal} x{meal_quantity}")
+                logger.info(f"[Остров]   Набор производится напрямую: {meal} x{meal_quantity}")
 
         # 3. 处理基础需求（这些可能是套餐的原材料）
         material_needs = {}
@@ -673,13 +673,13 @@ class IslandShopBase(Island, WarehouseOCR):
                 for material in composition['required']:
                     needed = meal_quantity * composition.get('quantity_per', 1)
                     material_needs[material] = material_needs.get(material, 0) + needed
-                    logger.info(f"[岛屿]   套餐 {meal} 需要原材料: {material} x{needed}")
+                    logger.info(f"[Остров]   Для набора {meal} требуется сырьё: {material} x{needed}")
 
-        logger.info(f"[岛屿] 原材料总需求: {material_needs}")
+        logger.info(f"[Остров] Общая потребность в сырье: {material_needs}")
 
         # 4. 处理基础需求，并考虑原材料需求
         for base_product, base_quantity in base_demands.items():
-            logger.info(f"[岛屿]   处理基础餐品 {base_product}: 基础需求={base_quantity}")
+            logger.info(f"[Остров]   Обработка базового блюда {base_product}: базовая потребность={base_quantity}")
 
             # 总需求 = 基础需求（已经是净需求） + 套餐原材料需求
             total_needed = base_quantity
@@ -691,46 +691,46 @@ class IslandShopBase(Island, WarehouseOCR):
 
                 # 检查原材料库存
                 current_stock = self.current_totals.get(base_product, 0)
-                logger.info(f"[岛屿]     原材料需求: +{raw_material_needed}, 当前库存: {current_stock}")
+                logger.info(f"[Остров]     Потребность в сырье: +{raw_material_needed}, текущий запас: {current_stock}")
 
                 # 计算原材料净需求
                 net_raw_needed = max(0, raw_material_needed - current_stock)
                 total_needed += net_raw_needed
 
-                logger.info(f"[岛屿]     原材料净需求: {net_raw_needed}, 总需求: {total_needed}")
+                logger.info(f"[Остров]     Чистая потребность в сырье: {net_raw_needed}, общая потребность: {total_needed}")
 
                 # 从material_needs中移除，避免重复计算
                 del material_needs[base_product]
             else:
                 # 不是原材料，直接使用基础需求
-                logger.info(f"[岛屿]     总需求: {total_needed}")
+                logger.info(f"[Остров]     Общая потребность: {total_needed}")
 
             if total_needed > 0:
                 result[base_product] = total_needed
-                logger.info(f"[岛屿]     添加到生产计划: {base_product} x{total_needed}")
+                logger.info(f"[Остров]     Добавлено в план производства: {base_product} x{total_needed}")
             else:
-                logger.info(f"[岛屿]     不需要生产")
+                logger.info(f"[Остров]     Производство не требуется")
 
         # 5. 处理剩余的原材料需求（这些基础餐品不在基础需求列表中）
         for material, material_quantity in material_needs.items():
-            logger.info(f"[岛屿]   处理剩余原材料 {material}: 需求={material_quantity}")
+            logger.info(f"[Остров]   Обработка оставшегося сырья {material}: потребность={material_quantity}")
 
             current_stock = self.current_totals.get(material, 0)
-            logger.info(f"[岛屿]     当前总库存: {current_stock}")
+            logger.info(f"[Остров]     Текущий общий запас: {current_stock}")
 
             net_needed = max(0, material_quantity - current_stock)
             if net_needed > 0:
                 result[material] = net_needed
-                logger.info(f"[岛屿]     添加到生产计划: {material} x{net_needed}")
+                logger.info(f"[Остров]     Добавлено в план производства: {material} x{net_needed}")
             else:
-                logger.info(f"[岛屿]     库存充足，不需要生产")
+                logger.info(f"[Остров]     Запаса достаточно; производство не требуется")
 
-        logger.info(f"[岛屿] 无特殊材料限制下的生产计划: {result}")
+        logger.info(f"[Остров] План производства без учёта ограничений особого сырья: {result}")
         # 6. 考虑特殊材料限制
         result = self.apply_special_material_constraints(result)
 
-        logger.info(f"[岛屿] 最终生产计划: {result}")
-        logger.info(f"[岛屿] === 离开process_meal_requirements ===")
+        logger.info(f"[Остров] Итоговый план производства: {result}")
+        logger.info(f"[Остров] === Выход из process_meal_requirements ===")
 
         return result
 
@@ -745,7 +745,7 @@ class IslandShopBase(Island, WarehouseOCR):
                                  排产阶段为 False，严格检查避免游戏层拒绝导致 stalled。
         """
         max_producible = requested_quantity
-        logger.info(f"[岛屿] 检查 {product} 的最大可生产数量，需求: {requested_quantity}")
+        logger.info(f"[Остров] Проверка максимального количества для производства {product}; потребность: {requested_quantity}")
 
         # 1. 如果是套餐，检查原材料库存
         if product in self.meal_compositions:
@@ -760,22 +760,22 @@ class IslandShopBase(Island, WarehouseOCR):
                 if max_by_material <= 0:
                     if skip_zero_materials and material_stock == 0:
                         # 需求计算阶段且真零库存：不阻断，留给 process_meal_requirements 分解
-                        logger.info(f"[岛屿]   {product} 原材料 {material} 库存为 0，需求计算阶段跳过此原料限制")
+                        logger.info(f"[Остров]   У {product} запас сырья {material} равен 0; ограничение пропущено на этапе расчёта потребности")
                         continue
                     else:
                         # 排产阶段 或 有但不满足一批：严格处理
-                        logger.info(f"[岛屿]   {product} 缺少原材料: {material} (库存: {material_stock})")
+                        logger.info(f"[Остров]   Для {product} не хватает сырья: {material} (запас: {material_stock})")
                         return 0
                 max_producible = min(max_producible, max_by_material)
-                logger.info(f"[岛屿]   {product} 原材料 {material}: 库存 {material_stock}，每个需要 {quantity_per}，最大生产 {max_by_material}")
+                logger.info(f"[Остров]   Сырьё {material} для {product}: запас {material_stock}, требуется на единицу {quantity_per}, максимум производства {max_by_material}")
 
         # 2. 检查岗位数量限制
         max_producible = min(max_producible, self.POST_PRODUCE_LIMIT)
-        logger.info(f"[岛屿] 岗位限制: 最多生产{self.POST_PRODUCE_LIMIT}个，当前限制后: {max_producible}")
+        logger.info(f"[Остров] Ограничение позиции: максимум {self.POST_PRODUCE_LIMIT}, после ограничения: {max_producible}")
 
         # 3. 检查特殊材料（被子类覆盖）
         max_producible = self.check_special_materials(product, max_producible)
-        logger.info(f"[岛屿] 特殊材料检查后: {max_producible}")
+        logger.info(f"[Остров] После проверки особого сырья: {max_producible}")
 
         return max_producible
 
@@ -797,24 +797,24 @@ class IslandShopBase(Island, WarehouseOCR):
         # 检查 away_cook 是否有效
         if away_cook and away_cook != "None" and away_cook in self.name_to_config:
             self.to_post_products = {away_cook: 9999}
-            logger.info(f"[岛屿] 常驻餐品模式：生产 {away_cook}")
+            logger.info(f"[Остров] Режим постоянного блюда: производство {away_cook}")
         else:
             self.to_post_products = {}
             if away_cook is None or away_cook == "None":
-                logger.info("[岛屿] 未设置常驻餐品，保持空闲")
+                logger.info("[Остров] Постоянное блюдо не задано; позиция остаётся свободной")
             elif away_cook not in self.name_to_config:
-                logger.info(f"[岛屿] 常驻餐品 '{away_cook}' 不在商品列表中，保持空闲")
+                logger.info(f"[Остров] Постоянное блюдо '{away_cook}' отсутствует в списке товаров; позиция остаётся свободной")
 
     def schedule_production(self):
         """安排生产，利用所有空闲岗位"""
         if not self.to_post_products:
-            logger.info("[岛屿] 没有需要生产的餐品")
+            logger.info("[Остров] Нет блюд, требующих производства")
             return
 
         # 获取空闲岗位
         idle_posts = self.get_idle_posts()
         if not idle_posts:
-            logger.info("[岛屿] 没有空闲的岗位")
+            logger.info("[Остров] Нет свободных позиций")
             return
 
         # 检查是否为常驻餐品模式（无限数量生产）
@@ -827,7 +827,7 @@ class IslandShopBase(Island, WarehouseOCR):
                 break
 
         if is_away_cook_mode:
-            logger.info(f"[岛屿] 常驻餐品模式：为所有空闲岗位安排生产 {away_cook_product}")
+            logger.info(f"[Остров] Режим постоянного блюда: назначение {away_cook_product} на все свободные позиции")
             # 为每个空闲岗位安排生产
             for post_id in idle_posts:
                 # 检查材料限制
@@ -835,7 +835,7 @@ class IslandShopBase(Island, WarehouseOCR):
                 batch_size = self.get_max_producible(away_cook_product, batch_size)
 
                 if batch_size <= 0:
-                    logger.info(f"[岛屿] 生产 {away_cook_product} 的前置材料不足，跳过岗位 {post_id}")
+                    logger.info(f"[Остров] Недостаточно исходных материалов для производства {away_cook_product}; позиция {post_id} пропущена")
                     continue
 
                 # 分配生产
@@ -843,7 +843,7 @@ class IslandShopBase(Island, WarehouseOCR):
                 time_var_name = f'{self.time_prefix}{post_num}'
                 self.post_produce(post_id, away_cook_product, batch_size, time_var_name)
 
-            logger.info("[岛屿] 常驻餐品模式：已为所有空闲岗位安排生产")
+            logger.info("[Остров] Режим постоянного блюда: производство назначено на все свободные позиции")
             return
 
         # 非常驻餐品模式：处理所有产品需求
@@ -898,7 +898,7 @@ class IslandShopBase(Island, WarehouseOCR):
             if remaining_need <= 0:
                 continue
 
-            logger.info(f"[岛屿] 尝试安排生产 {product}，需求: {remaining_need}")
+            logger.info(f"[Остров] Попытка назначить производство {product}; потребность: {remaining_need}")
 
             # 为每个空闲岗位分配生产（直到需求满足或没有空闲岗位）
             while remaining_need > 0 and post_index < total_idle_posts:
@@ -909,7 +909,7 @@ class IslandShopBase(Island, WarehouseOCR):
                     product, min(self.POST_PRODUCE_LIMIT, remaining_need))
 
                 if max_producible <= 0:
-                    logger.info(f"[岛屿] 生产 {product} 的材料暂时不足，保留在计划中等待下一轮")
+                    logger.info(f"[Остров] Материалов для производства {product} временно недостаточно; потребность сохранена до следующего цикла")
                     break  # 跳过当前产品，但保留在 to_post_products 中
 
                 # 分配生产
@@ -921,7 +921,7 @@ class IslandShopBase(Island, WarehouseOCR):
 
                 # 如果实际生产数量为0，说明原料不足
                 if actual_number == 0:
-                    logger.info(f"[岛屿] 生产 {product} 时检测到原料不足，保留在计划中等待下一轮")
+                    logger.info(f"[Остров] При производстве {product} обнаружена нехватка сырья; потребность сохранена до следующего цикла")
                     break  # 跳过当前产品，但保留在 to_post_products 中
 
                 # 记录已产出（部分生产不算停滞）
@@ -943,9 +943,9 @@ class IslandShopBase(Island, WarehouseOCR):
                 break
 
         if self.to_post_products:
-            logger.info(f"[岛屿] 生产安排完成，剩余需求: {self.to_post_products}")
+            logger.info(f"[Остров] Распределение производства завершено; оставшаяся потребность: {self.to_post_products}")
         else:
-            logger.info("[岛屿] 所有可安排的产品已安排生产")
+            logger.info("[Остров] Все доступные продукты назначены в производство")
 
     def check_special_materials(self, product, batch_size):
         """检查特殊材料（子类可覆盖）"""
