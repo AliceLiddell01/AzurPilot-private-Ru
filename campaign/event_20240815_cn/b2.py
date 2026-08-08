@@ -83,7 +83,7 @@ class Campaign(CampaignBase):
 
     def before_boss(self):
         # Handle giant boss at A8
-        logger.info('B2 before boss')
+        logger.info('B2 перед боссом')
         grid = SelectedGrids([B6, C7]).sort('weight', 'cost')[0]
         self.fleet_boss.goto(grid)
         self.fleet_boss.goto(B8)

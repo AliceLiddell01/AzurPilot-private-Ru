@@ -5,7 +5,7 @@ class CampaignBase(CampaignBase_):
     def campaign_set_chapter_sp(self, chapter, mode='normal'):
         # SP event but has an `event` UI
         from module.logger import logger
-        logger.info('Set chapter SP')
+        logger.info('Выбрана глава SP')
         if chapter in ['sp', 'sp_sp']:
             self.ui_goto_event()
             self.campaign_ensure_chapter(chapter)

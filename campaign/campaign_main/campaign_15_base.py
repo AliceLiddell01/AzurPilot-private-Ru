@@ -51,7 +51,7 @@ class CampaignBase(CampaignBase_):
             sub_view=sub_view,
             sub_hunt=sub_hunt,
         )
-        logger.attr("Map has mob move", self.strategy_has_mob_move())
+        logger.attr("На карте есть перемещение противников", self.strategy_has_mob_move())
 
     def mob_movable(self, location, target):
         """
@@ -74,25 +74,25 @@ class CampaignBase(CampaignBase_):
         movable = True
 
         try:
-            logger.info(f'location: {self.map[location]}, target: {self.map[target]}')
+            logger.info(f'Позиция: {self.map[location]}, цель: {self.map[target]}')
         except KeyError as e:
             logger.exception(f'Given coordinates are outside the map.')
             raise e
 
         if abs(location[0] - target[0]) + abs(location[1] - target[1]) != 1:
-            logger.error(f'{self.map[target]} is not adjacent from {self.map[location]}.')
+            logger.error(f'{self.map[target]} не соседствует с {self.map[location]}.')
             movable = False
 
         if not self.map[location].is_enemy:
-            logger.error(f'{self.map[location]} is not a mob fleet.')
+            logger.error(f'{self.map[location]} не является обычным вражеским флотом.')
             movable = False
 
         if not self.map[target].is_sea:
-            logger.error(f'{self.map[target]} is not a sea grid.')
+            logger.error(f'{self.map[target]} не является морской клеткой.')
             movable = False
 
         if not movable:
-            logger.error(f'Cannot move from {self.map[location]} to {self.map[target]}.')
+            logger.error(f'Невозможно переместиться из {self.map[location]} в {self.map[target]}.')
 
         return movable
 
@@ -122,7 +122,7 @@ class CampaignBase(CampaignBase_):
         target_grid = self.convert_global_to_local(target)
         target_grid.__str__ = target
 
-        logger.info('Select mob to move')
+        logger.info('Выбор противника для перемещения')
         skip_first_screenshot = True
         interval = Timer(2, count=4)
         while 1:
@@ -142,7 +142,7 @@ class CampaignBase(CampaignBase_):
                 interval.reset()
                 continue
 
-        logger.info('Select target grid')
+        logger.info('Выбор целевой клетки')
         skip_first_screenshot = True
         interval = Timer(2, count=4)
         while 1:
@@ -195,7 +195,7 @@ class CampaignBase(CampaignBase_):
 
         self.strategy_open()
         if not self.strategy_has_mob_move():
-            logger.warning(f'No remain mob move trials, will abandon moving')
+            logger.warning(f'Попытки перемещения противника исчерпаны; перемещение отменено')
             self.strategy_close()
             return False
         self.strategy_mob_move_enter()

@@ -91,7 +91,7 @@ class Campaign(CampaignBase):
 
     def handle_in_stage(self):
         if self.appear(ENTRANCE):
-            logger.info('In stage.')
+            logger.info('Открыт экран этапа.')
             # self.device.sleep(0.5)
             self.ensure_no_info_bar(timeout=0.6)
             return True

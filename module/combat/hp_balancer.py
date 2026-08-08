@@ -120,7 +120,7 @@ class HPBalancer(ModuleBase):
         weight = self.config.HpControl_HpBalanceWeight
         if '，' in self.config.HpControl_HpBalanceWeight:
             weight = self.config.HpControl_HpBalanceWeight.replace('，', ',')
-            logger.info(f'[血量-平衡] 血量平衡权重 {self.config.HpControl_HpBalanceWeight} 修正为 {weight}')
+            logger.info(f'[Здоровье — баланс] Вес балансировки {self.config.HpControl_HpBalanceWeight} скорректирован до {weight}')
             self.config.HpControl_HpBalanceWeight = weight
 
         hp = [self._calculate_hp(button.area) for button in self._hp_grid().buttons]
@@ -131,10 +131,10 @@ class HPBalancer(ModuleBase):
         if self.fleet_current_index not in self._hp_has_ship:
             self.hp_has_ship = [bool(hp > 0.3) for hp in self.hp]
 
-        logger.attr('血量', ' '.join(
+        logger.attr('Здоровье', ' '.join(
             [str(int(data * 100)).rjust(3) + '%' if use else '____' for data, use in zip(hp, self.hp_has_ship)]))
         if np.sum(np.abs(np.diff(weight))) > 0:
-            logger.attr('血量权重', ' '.join([str(int(data * 100)).rjust(3) + '%' for data in self.hp]))
+            logger.attr('Вес здоровья', ' '.join([str(int(data * 100)).rjust(3) + '%' for data in self.hp]))
 
         return self.hp
 
@@ -150,7 +150,7 @@ class HPBalancer(ModuleBase):
             p1 (int): 原始位置 [0, 2]。
             p2 (int): 目标位置 [0, 2]。
         """
-        logger.info('[血量-平衡] 侦察位置交换 (%s, %s)' % (p1, p2))
+        logger.info('[Здоровье — баланс] Перестановка позиций авангарда (%s, %s)' % (p1, p2))
         self.device.drag(p1=SCOUT_POSITION[p1], p2=SCOUT_POSITION[p2], segments=3)
 
     def _expected_scout_order(self, hp):
@@ -185,7 +185,7 @@ class HPBalancer(ModuleBase):
             # 80% 0% 0%
             order = [0, 1, 2]
         else:
-            logger.warning(f'[血量-平衡] 血量无效: {hp}')
+            logger.warning(f'[Здоровье — баланс] Недопустимое значение здоровья: {hp}')
             order = [0, 1, 2]
 
         return order
@@ -262,7 +262,7 @@ class HPBalancer(ModuleBase):
         if self.config.HpControl_UseLowHpRetreat:
             hp = np.array(self.hp)[self.hp_has_ship]
             if np.any(hp < self.config.HpControl_LowHpRetreatThreshold):
-                logger.info('[血量-撤退] 低血量撤退触发')
+                logger.info('[Здоровье — отступление] Сработало отступление из-за низкого здоровья')
                 return True
 
         return False

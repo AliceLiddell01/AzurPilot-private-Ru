@@ -49,7 +49,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         if self.clear_enemy():
             return True
 
-        logger.warning('[战役-基础] 未执行战斗')
+        logger.warning('[Кампания — основное] Бой не выполнен')
         return False
 
     def battle_boss(self):
@@ -63,7 +63,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         if self.brute_clear_boss():
             return True
 
-        logger.warning('[战役-基础] 未执行战斗')
+        logger.warning('[Кампания — основное] Бой не выполнен')
         return False
 
     @Config.when(POOR_MAP_DATA=True, MAP_CLEAR_ALL_THIS_TIME=False)
@@ -77,7 +77,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         Returns:
             bool: True 表示成功执行战斗，False 表示没有执行任何战斗。
         """
-        logger.info('[战役-基础] 使用函数: battle_with_poor_map_data')
+        logger.info('[Кампания — основное] Используется функция: battle_with_poor_map_data')
         if self.fleet_2_break_siren_caught():
             return True
         self.clear_all_mystery()
@@ -105,7 +105,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         Returns:
             bool: True 表示成功执行战斗，False 表示没有执行任何战斗。
         """
-        logger.info('[战役-基础] 使用函数: clear_all')
+        logger.info('[Кампания — основное] Используется функция: clear_all')
         if self.fleet_2_break_siren_caught():
             return True
         self.clear_all_mystery()
@@ -117,7 +117,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
             .add(self.map.select(is_siren=True)) \
             .add(self.map.select(is_fortress=True)) \
             .delete(self.map.select(is_boss=True))
-        logger.info(f'[战役-基础] 剩余敌舰: {remain}')
+        logger.info(f'[Кампания — основное] Осталось вражеских флотов: {remain}')
         if remain.count > 0:
             if self.config.MAP_HAS_MOVABLE_NORMAL_ENEMY:
                 if self.clear_any_enemy(sort=('cost_2',)):
@@ -152,7 +152,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
                 func = self.FUNCTION_NAME_BASE + str(self.battle_count - extra_battle)
                 break
 
-        logger.info(f'[战役-基础] 使用函数: {func}')
+        logger.info(f'[Кампания — основное] Используется функция: {func}')
         func = self.__getattribute__(func)
 
         result = func()
@@ -187,12 +187,12 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
                     continue
 
         if not result:
-            logger.warning('[战役-基础] 脚本错误，未执行战斗')
+            logger.warning('[Кампания — основное] Ошибка сценария: бой не выполнен')
             if self.config.Error_HandleError:
-                logger.warning('[战役-基础] 脚本错误，未执行战斗，撤退中')
+                logger.warning('[Кампания — основное] Ошибка сценария: бой не выполнен; отступаю')
                 self.withdraw()
             else:
-                raise ScriptError('No combat executed.')
+                raise ScriptError('Бой не выполнен.')
 
         return result
 
@@ -217,7 +217,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
 
         # 进入地图
         self.map_get_info()
-        logger.attr('地图战斗次数', self._map_battle)
+        logger.attr('Число боёв на карте', self._map_battle)
         self.emotion.check_reduce(self._map_battle)
         self.ENTRANCE.area = self.ENTRANCE.button
         self.enter_map(self.ENTRANCE, mode=self.config.Campaign_Mode)
@@ -241,19 +241,19 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
                 else:
                     self.auto_search_execute_a_battle()
             except CampaignEnd:
-                logger.hr('战役结束')
+                logger.hr('Кампания завершена')
                 return True
 
         # 异常处理
-        logger.warning('[战役-基础] 战斗函数已耗尽')
+        logger.warning('[Кампания — основное] Функции боя исчерпаны')
         if self.config.Error_HandleError:
-            logger.warning('[战役-基础] 脚本错误，战斗函数已耗尽，撤退中')
+            logger.warning('[Кампания — основное] Ошибка сценария: функции боя исчерпаны; отступаю')
             try:
                 self.withdraw()
             except CampaignEnd:
                 pass
         else:
-            raise ScriptError('战斗函数已耗尽。')
+            raise ScriptError('Функции боя исчерпаны.')
 
     @cached_property
     @Config.when(MAP_CLEAR_ALL_THIS_TIME=False)
@@ -269,9 +269,9 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
                 if 'battle' in data:
                     return data['battle'] + 1
                 else:
-                    logger.warning('[战役-基础] 出生点数据中无战斗计数')
+                    logger.warning('[Кампания — основное] В данных точек появления отсутствует счётчик боёв')
 
-        logger.warning('[战役-基础] 出生点数据中未找到Boss数据')
+        logger.warning('[Кампания — основное] В данных точек появления не найдены данные босса')
         return 0
 
     @cached_property
@@ -290,7 +290,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
                     if k != 'battle':
                         battle_count += v
             else:
-                logger.warning('[战役-基础] 出生点数据中无战斗计数')
+                logger.warning('[Кампания — основное] В данных точек появления отсутствует счётчик боёв')
 
         return battle_count
 

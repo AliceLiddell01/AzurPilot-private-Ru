@@ -122,7 +122,7 @@ class Homography:
             perspective_.load(image_)
             self.load_homography(perspective=perspective_)
         else:
-            raise MapDetectionError('No data feed to load_homography, please input at least one.')
+            raise MapDetectionError('Для load_homography не переданы данные; укажите хотя бы один набор.')
 
     def find_homography(self, size, src_pts, overflow=True):
         """计算单应性变换矩阵。
@@ -133,7 +133,7 @@ class Homography:
             overflow (bool): True 获取完整变换图像，False 仅获取有效区域。
         """
         self.homo_storage = (size, [(x, y) for x, y in np.round(src_pts, 3)])
-        logger.attr('单应存储', self.homo_storage)
+        logger.attr('Сохранение гомографии', self.homo_storage)
 
         # 生成透视变换数据
         src_pts = np.array(src_pts) - self.config.DETECTING_AREA[:2]
@@ -192,7 +192,7 @@ class Homography:
         elif self.search_tile_rectangle(image_edge, threshold=self.config.HOMO_RECTANGLE_THRESHOLD):
             pass
         else:
-            raise MapDetectionError('Failed to find a free tile')
+            raise MapDetectionError('Не удалось найти свободную клетку')
 
         self.homo_loca %= self.config.HOMO_TILE
 
@@ -211,11 +211,11 @@ class Homography:
 
         # 日志输出
         time_cost = round(time.time() - start_time, 3)
-        logger.info('[地图-单应性] %ss  %s   边缘线: %s 水平, %s 垂直' % (
+        logger.info('[Карта — гомография] %s с  %s   Линии краёв: %s горизонтальных, %s вертикальных' % (
             float2str(time_cost), '_' if self.lower_edge else ' ',
             self._map_edge_count[1], self._map_edge_count[0])
                     )
-        logger.info('[地图-单应性] 边缘: %s%s%s   单应位置: %s' % (
+        logger.info('[Карта — гомография] Края: %s%s%s   Позиция гомографии: %s' % (
             '/' if self.left_edge else ' ', '_' if self.upper_edge else ' ', '\\' if self.right_edge else ' ',
             point2str(*self.homo_loca, length=3))
                     )

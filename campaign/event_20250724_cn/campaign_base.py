@@ -10,7 +10,7 @@ from module.ui.page import page_campaign_menu, page_event
 class CampaignBaseT(CampaignBase_):
     def ui_goto_event(self):
         if self.appear(EVENT_20250724_PT_ICON, offset=(20, 20)) and self.ui_page_appear(page_event):
-            logger.info('Already at EVENT_20250724')
+            logger.info('Уже открыто событие EVENT_20250724')
             return True
         self.ui_ensure(page_campaign_menu)
         # Check event availability

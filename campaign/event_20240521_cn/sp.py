@@ -107,7 +107,7 @@ class Campaign(CampaignBase):
 
     def battle_0(self):
         self.is_left = self.fleet_current == B10.location
-        logger.attr('is_left', self.is_left)
+        logger.attr('Левая сторона', self.is_left)
         self.goto(C9)
         self.clear_chosen_enemy(C8, expected='siren')
         return True

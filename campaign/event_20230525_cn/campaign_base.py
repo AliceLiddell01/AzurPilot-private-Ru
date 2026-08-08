@@ -70,7 +70,7 @@ class CampaignBase(CampaignBase_):
             # Get stage
             self.campaign_ensure_chapter(1)
         else:
-            logger.warning(f'Unknown campaign chapter: {name}')
+            logger.warning(f'Неизвестная глава кампании: {name}')
 
     def _campaign_ball_get(self):
         """
@@ -85,7 +85,7 @@ class CampaignBase(CampaignBase_):
         elif index == 2:
             return 'blue'
         else:
-            logger.warning(f'Unknown campaign ball color: {color}')
+            logger.warning(f'Неизвестный цвет индикатора кампании: {color}')
             return 'unknown'
 
     def _campaign_ball_set(self, status):
@@ -101,7 +101,7 @@ class CampaignBase(CampaignBase_):
                 self.device.screenshot()
 
             current = self._campaign_ball_get()
-            logger.attr('Campaign_ball', current)
+            logger.attr('Индикатор кампании', current)
 
             if current == status:
                 break

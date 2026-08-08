@@ -72,7 +72,7 @@ class View(MapDetector):
         # 处理网格偏移
         offset = list(grids.keys())
         if not len(offset):
-            raise MapDetectionError('No map grids found')
+            raise MapDetectionError('Клетки карты не найдены')
         offset = np.min(offset, axis=0)
         if np.sum(np.abs(offset)) > 0:
             logger.attr_align('grids_offset', tuple(offset.tolist()))
@@ -98,7 +98,7 @@ class View(MapDetector):
                 x = max(self.center_loca[0] - self.shape[0], 0) if self.center_loca[0] > 0 else self.center_loca[0]
                 y = max(self.center_loca[1] - self.shape[1], 0) if self.center_loca[1] > 0 else self.center_loca[1]
                 self.center_offset = offset - self.center_loca
-                raise MapDetectionError(f'Camera outside map: offset=({x}, {y})')
+                raise MapDetectionError(f'Камера за пределами карты: offset=({x}, {y})')
             break
 
     def predict(self):
@@ -171,8 +171,8 @@ class View(MapDetector):
                 diff = np.subtract(current_fleet[0].location, previous_fleet[0].location) - offset
                 # print(current_fleet[0].location, previous_fleet[0].location, offset, diff)
                 diff = tuple(diff.tolist())
-                logger.info(f'[地图检测-视图] 地图滑动预测: {diff} ({float2str(time.time() - start_time) + "s"}'
-                            f', 当前舰队匹配)')
+                logger.info(f'[Распознавание карты — обзор] Прогноз сдвига карты: {diff} ({float2str(time.time() - start_time) + "s"}'
+                            f', совпадение текущего флота)')
                 return diff
 
         if with_sea_grids:
@@ -190,11 +190,11 @@ class View(MapDetector):
             # print(diff)
             if len(diff) == 1 \
                     or len(diff) >= 2 and diff[0][1] > diff[1][1]:
-                logger.info(f'[地图检测-视图] 地图滑动预测: {diff[0][0]} '
-                            f'({float2str(time.time() - start_time) + "s"}, {diff[0][1]} 次匹配)')
+                logger.info(f'[Распознавание карты — обзор] Прогноз сдвига карты: {diff[0][0]} '
+                            f'({float2str(time.time() - start_time) + "s"}, совпадений: {diff[0][1]})')
                 return diff[0][0]
 
         # 无法预测
-        logger.info(f'[地图检测-视图] 地图滑动预测: 无 '
-                    f'({float2str(time.time() - start_time) + "s"}, 无匹配)')
+        logger.info(f'[Распознавание карты — обзор] Прогноз сдвига карты отсутствует '
+                    f'({float2str(time.time() - start_time) + "s"}, совпадений нет)')
         return None

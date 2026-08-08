@@ -64,7 +64,7 @@ class CombatAuto(ModuleBase):
         if self.auto_mode_checked:
             return False
         if self.auto_mode_click_timer.reached():
-            logger.info('[战斗-自动] 自动模式检查计时器到达')
+            logger.info('[Бой — автобой] Сработал таймер проверки автоматического режима')
             self.auto_mode_checked = True
             return False
         if not self.auto_skip_timer.reached():

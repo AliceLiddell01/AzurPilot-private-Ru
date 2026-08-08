@@ -75,19 +75,19 @@ class Campaign(CampaignBase):
     ENEMY_FILTER = '1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C'
 
     def battle_0(self):
-        logger.info('Attempting to clear fixed siren at F5 (first battle)')
+        logger.info('Попытка устранить фиксированную Сирену в F5 (первый бой)')
         self.clear_chosen_enemy(F5, expected='siren')
         return True
 
     def battle_1(self):
-        logger.info('Attempting to clear fixed siren at D4 (second battle)')
+        logger.info('Попытка устранить фиксированную Сирену в D4 (второй бой)')
         self.clear_chosen_enemy(D4, expected='siren')
         return True
 
     def battle_2(self):
-        logger.info('Attempting to clear fixed siren at H4 (third battle)')
+        logger.info('Попытка устранить фиксированную Сирену в H4 (третий бой)')
         self.clear_chosen_enemy(H4, expected='siren')
-        logger.info('Third battle finished. Withdrawing immediately.')
+        logger.info('Третий бой завершён. Немедленно отступаю.')
         self.withdraw()
         return True
 

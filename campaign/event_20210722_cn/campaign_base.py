@@ -94,7 +94,7 @@ class CampaignBase(CampaignBase_):
             self.campaign_ensure_chapter(chapter)
 
         else:
-            logger.warning(f'Unknown campaign chapter: {name}')
+            logger.warning(f'Неизвестная глава кампании: {name}')
 
     def campaign_get_entrance(self, name):
         if name == 'sp':
@@ -110,7 +110,7 @@ class CampaignBase(CampaignBase_):
         """
         for button in [ANIMATION_PINK, ANIMATION_ORANGE, ANIMATION_BLUE]:
             if self.appear(button):
-                logger.info('Idol Master animation, waiting')
+                logger.info('Выполняется анимация Idol Master; ожидаю')
                 return True
 
         return False

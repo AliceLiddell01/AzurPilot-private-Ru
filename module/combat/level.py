@@ -88,7 +88,7 @@ class Level(ModuleBase):
 
         ocr = LevelOcr(self._lv_grid().buttons, name='LevelOcr')
         self.lv = ocr.ocr(self.device.image)
-        logger.attr('等级', ', '.join(str(data) for data in self.lv))
+        logger.attr('Уровень', ', '.join(str(data) for data in self.lv))
 
         if after_battle:
             self.lv_triggered()
@@ -104,15 +104,15 @@ class Level(ModuleBase):
         for i in range(6):
             before, after = self._lv_before_battle[i], self.lv[i]
             if after > before > 0:
-                logger.info(f'[等级-检测] 位置 {i} 等级.{before} -> 等级.{after}')
+                logger.info(f'[Уровень — проверка] Позиция {i}: ур.{before} -> ур.{after}')
             if after >= limit > before > 0:
                 if after - before == 1 or after < 35:
-                    logger.info(f'[等级-检测] 位置 {i} 等级.{limit} 已达到')
+                    logger.info(f'[Уровень — проверка] На позиции {i} достигнут ур.{limit}.')
                     self.config.LV_TRIGGERED = True
                     return True
                 else:
-                    logger.warning(f'[等级-检测] {before} 和 {after} 之间的等级差距过大。'
-                                   f'这不会被视为触发条件')
+                    logger.warning(f'[Уровень — проверка] Слишком большая разница уровней между {before} и {after}. '
+                                   f'Это не считается выполнением условия')
 
         return False
 
@@ -121,7 +121,7 @@ class Level(ModuleBase):
             return False
 
         if self.lv[0] >= 32:
-            logger.info('[等级-检测] 位置 0 等级.32 已达到')
+            logger.info('[Уровень — проверка] На позиции 0 достигнут ур.32')
             self.config.LV32_TRIGGERED = True
             return True
 

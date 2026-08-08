@@ -16,7 +16,7 @@ class CampaignBase(CampaignBase_):
 
     def ui_goto_event(self):
         if self.appear(EVENT_20221124_PT_ICON, offset=(20, 20)) and self.ui_page_appear(page_event):
-            logger.info('Already at EVENT_20221124')
+            logger.info('Уже открыто событие EVENT_20221124')
             return True
         self.ui_ensure(page_campaign_menu)
         if self.is_event_entrance_available():
@@ -87,7 +87,7 @@ class CampaignBase(CampaignBase_):
         if super().handle_mystery_items(button, drop=drop):
             return True
         if self.appear(GET_ITEMS_1_RYZA, offset=(-20, -100, 20, 20)):
-            logger.attr('Mystery', 'Get item')
+            logger.attr('Таинственная клетка', 'Get item')
             if drop:
                 drop.add(self.device.image)
             self.device.click(MYSTERY_ITEM)
@@ -110,6 +110,6 @@ class CampaignBase(CampaignBase_):
             grids = [grids]
         grids = SelectedGrids(grids).sort('cost')
         for grid in grids:
-            logger.hr('Clear map item')
-            logger.info(f'Clear map item on {grid}')
+            logger.hr('Зачистка объекта карты')
+            logger.info(f'Зачистка объекта карты в {grid}')
             self.goto(grid)

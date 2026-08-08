@@ -41,18 +41,18 @@ class Campaign(CampaignBase):
     def clear_boss(self):
         grids = self.map.select(is_boss=True)
         grids = grids.add(self.map.select(may_boss=True, is_enemy=True))
-        logger.info('May boss: %s' % self.map.select(may_boss=True))
-        logger.info('May boss and is enemy: %s' % self.map.select(may_boss=True, is_enemy=True))
-        logger.info('Is boss: %s' % self.map.select(is_boss=True))
+        logger.info('Возможный босс: %s' % self.map.select(may_boss=True))
+        logger.info('Возможный босс, распознанный как противник: %s' % self.map.select(may_boss=True, is_enemy=True))
+        logger.info('Кандидаты в боссы: %s' % self.map.select(is_boss=True))
         # logger.info('Grids: %s' % grids)
         if grids:
-            logger.hr('Clear BOSS')
+            logger.hr('Устранение босса')
             grids = grids.sort('weight', 'cost')
-            logger.info('Grids: %s' % str(grids))
+            logger.info('Клетки: %s' % str(grids))
             self._goto(grids[0], expected='boss')
-            raise CampaignEnd('BOSS Clear.')
+            raise CampaignEnd('Босс устранён.')
 
-        logger.warning('BOSS not detected, trying all boss spawn point.')
+        logger.warning('Босс не обнаружен; проверяю все точки его появления.')
         self.clear_potential_boss()
 
         return False

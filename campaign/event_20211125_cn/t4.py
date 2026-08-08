@@ -91,7 +91,7 @@ class Campaign(CampaignBase):
         if super().catch_camera_repositioning(destination):
             return True
         if not self.map_is_clear_mode and destination.is_fortress:
-            logger.info('Catch camera re-positioning after fortress cleared')
+            logger.info('Обработка смещения камеры после зачистки крепости')
             # Poor implementation to wait camera move
             self.device.sleep(3)
             return True

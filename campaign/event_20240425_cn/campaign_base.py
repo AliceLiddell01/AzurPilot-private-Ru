@@ -46,11 +46,11 @@ class CampaignBase(CampaignBase_):
     def is_event_animation(self):
         # Blue banner
         if self.image_color_count((1180, 285, 1280, 335), color=(140, 215, 255), count=1000):
-            logger.info('Live start!')
+            logger.info('Начало трансляции!')
             return True
         # Red-black banner with white bottom border
         if self.image_color_count((1193, 428, 1273, 436), color=(255, 255, 255), count=500):
-            logger.info('Live start!')
+            logger.info('Начало трансляции!')
             return True
 
         return False

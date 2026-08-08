@@ -12,7 +12,7 @@ class CampaignBase(CampaignBase_):
 
     def full_scan_movable(self, *args, **kwargs):
         self.dace = self.map.select(enemy_genre='Siren_Dace')
-        logger.attr('Submarine_Dace', self.dace)
+        logger.attr('Подлодка Dace', self.dace)
 
         super().full_scan_movable(*args, **kwargs)
 
@@ -20,7 +20,7 @@ class CampaignBase(CampaignBase_):
         super().full_scan(*args, **kwargs)
 
         if self.dace is not None:
-            logger.attr('Submarine_Dace', self.dace)
+            logger.attr('Подлодка Dace', self.dace)
             for grid in self.dace:
                 grid.is_siren = True
                 grid.enemy_genre = 'Siren_Dace'

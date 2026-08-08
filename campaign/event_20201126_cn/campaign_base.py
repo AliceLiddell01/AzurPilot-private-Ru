@@ -26,7 +26,7 @@ class CampaignBase(CampaignBase_):
 
     def ui_goto_event(self):
         if self.is_event_20201126():
-            logger.info('Already at EVENT_20201126')
+            logger.info('Уже открыто событие EVENT_20201126')
             return True
 
         if self.config.SERVER == 'tw':
@@ -106,5 +106,5 @@ class CampaignBase(CampaignBase_):
         """
         appear = self.appear(EVENT_ANIMATION)
         if appear:
-            logger.info('DOA animation, waiting')
+            logger.info('Выполняется анимация DOA; ожидаю')
         return appear

@@ -62,7 +62,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         """
         if self.is_in_stage():
             if self._auto_search_in_stage_timer.reached():
-                logger.info('捕获自动搜索菜单缺失')
+                logger.info('Перехвачено отсутствие меню автопоиска')
                 return True
         else:
             self._auto_search_in_stage_timer.reset()
@@ -114,12 +114,12 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         if self.fleet_current_index == prev:
             # Same as current, only print once
             if not checked:
-                logger.info(f'[自动搜索-舰队] 舰队: {self.fleet_show_index}, 当前舰队索引: {self.fleet_current_index}')
+                logger.info(f'[Автопоиск — флот] Отображаемый флот: {self.fleet_show_index}, индекс текущего флота: {self.fleet_current_index}')
                 checked = True
                 self.lv_get(after_battle=True)
         else:
             # Fleet changed
-            logger.info(f'[自动搜索-舰队] 舰队: {self.fleet_show_index}, 当前舰队索引: {self.fleet_current_index}')
+            logger.info(f'[Автопоиск — флот] Отображаемый флот: {self.fleet_show_index}, индекс текущего флота: {self.fleet_current_index}')
             checked = True
             self.lv_get(after_battle=False)
 
@@ -133,15 +133,15 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         if not checked:
             oil = self.get_oil()
             if oil == 0:
-                logger.warning('未找到石油')
+                logger.warning('Нефть не найдена')
             else:
                 if oil < max(500, self.config.StopCondition_OilLimit):
-                    logger.info('达到石油上限')
+                    logger.info('Достигнут лимит нефти')
                     self.auto_search_oil_limit_triggered = True
                 else:
                     if self.auto_search_oil_limit_triggered:
-                        logger.warning('[自动搜索-石油] 石油限制已触发但石油已恢复，'
-                                       '可能是因为之前的OCR结果错误')
+                        logger.warning('[Автопоиск — нефть] Лимит нефти сработал, но её запас восстановился; '
+                                       'вероятно, предыдущий результат OCR был ошибочным')
                     self.auto_search_oil_limit_triggered = False
                 checked = True
 
@@ -156,19 +156,19 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             limit = self.config.TaskBalancer_CoinLimit
             coin = self.get_coin()
             if coin == 0:
-                logger.warning('未找到物资')
+                logger.warning('Монеты не найдены')
             else:
                 if self.is_balancer_task():
                     if coin < limit:
-                        logger.info('达到物资上限')
+                        logger.info('Достигнут лимит монет')
                         self.auto_search_coin_limit_triggered = True
                     else:
                         # Enough coin
                         self.auto_search_coin_limit_triggered = False
                 else:
                     if self.auto_search_coin_limit_triggered:
-                        logger.warning('auto_search_coin_limit_triggered but coin recovered, '
-                                       'probably because of wrong OCR result before')
+                        logger.warning('Лимит монет в автопоиске сработал, но их запас восстановился; '
+                                       'вероятно, предыдущий результат OCR был ошибочным')
                     self.auto_search_coin_limit_triggered = False
                 checked = True
 
@@ -190,7 +190,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             if self.is_in_map():
                 break
             if timeout.reached():
-                logger.warning('[自动搜索-地图] 等待退役后进入地图超时，假设已在地图中')
+                logger.warning('[Автопоиск — карта] Истекло время входа на карту после списания; предполагаю, что карта уже открыта')
                 break
 
     def auto_search_moving(self, skip_first_screenshot=True):
@@ -199,7 +199,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             in: map
             out: is_combat_loading()
         """
-        logger.info('自动搜索移动中')
+        logger.info('Автопоиск перемещается по карте')
         self.device.stuck_record_clear()
         checked_fleet = False
         checked_oil = False
@@ -231,7 +231,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             if self.is_combat_loading():
                 break
             if self.is_combat_executing():
-                logger.info('[自动搜索-战斗] 战斗执行中')
+                logger.info('[Автопоиск — бой] Бой выполняется')
                 break
             if self.is_in_auto_search_menu() or self._handle_auto_search_menu_missing():
                 raise CampaignEnd
@@ -247,7 +247,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             in: is_combat_loading()
             out: combat status
         """
-        logger.info('自动搜索战斗加载中')
+        logger.info('Загрузка боя в автопоиске')
         self.device.stuck_record_clear()
         self.device.click_record_clear()
         self.device.screenshot_interval_set('combat')
@@ -265,10 +265,10 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                 raise CampaignEnd
             pause = self.is_combat_executing()
             if pause:
-                logger.attr('战斗UI', pause)
+                logger.attr('Боевой UI', pause)
                 break
 
-        logger.info('[自动搜索-战斗] 战斗执行')
+        logger.info('[Автопоиск — бой] Выполнение боя')
         self.submarine_call_reset()
         submarine_mode = 'do_not_use'
         if self.config.Submarine_Fleet:
@@ -335,7 +335,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             if confirm_timer.reached():
                 # 结算确认超时：不扣心情、不盲目点击OPTS_INFO_D
                 # 只设置_withdraw让status处理，status中检测到OPTS_INFO_D才扣心情
-                logger.warning('[自动搜索-战斗] 结算确认超时，进入status处理')
+                logger.warning('[Автопоиск — бой] Истекло время подтверждения результатов; перехожу к обработке status')
                 self._withdraw = True
                 confirm_timer.reset()
                 break
@@ -393,7 +393,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             if self.appear_then_click(SWITCH_OVER, interval=2):
                 continue
             if timeout.reached():
-                logger.warning('舰队切换超时，改为撤退')
+                logger.warning('Истекло время переключения флота; вместо этого отступаю')
                 self.withdraw()
                 break
         self.fleet_alive_multiple = False
@@ -405,7 +405,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             in: any
             out: is_auto_search_running()
         """
-        logger.info('[自动搜索-结算] 战斗结算')
+        logger.info('[Автопоиск — результаты] Подведение итогов боя')
         self.device.stuck_record_clear()
         self.device.click_record_clear()
         exp_info = False  # This is for the white screen bug in game
@@ -418,7 +418,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                 self._auto_search_status_confirm = False
                 # 战斗正常结束（非战败），重置连续战败计数
                 if self._defeat_count > 0:
-                    logger.info('战斗胜利，重置失败计数')
+                    logger.info('Бой выигран; счётчик поражений сброшен')
                     self._defeat_count = 0
                 break
             if self.is_in_auto_search_menu() or self._handle_auto_search_menu_missing():
@@ -457,7 +457,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                     if defeat_withdraw == 'withdraw_stop':
                         # 撤退后关闭任务：连续3次战败才关闭任务
                         self._defeat_count += 1
-                        logger.attr('战败计数', f'{self._defeat_count}/3')
+                        logger.attr('Счётчик поражений', f'{self._defeat_count}/3')
                         if self._defeat_count >= 3:
                             # 连续3次战败，关闭任务
                             # withdraw()内部抛出CampaignEnd，
@@ -521,7 +521,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             # 只有OPTS_INFO_D出现才确认是真正的D评价并扣心情
             # S/A/B/C转场误匹配BATTLE_STATUS_D不会出现OPTS_INFO_D，不会扣心情
             if self.appear(OPTS_INFO_D, offset=(30, 30)):
-                logger.info('[自动搜索-结算] 检测到沉船弹窗，进入撤退处理')
+                logger.info('[Автопоиск — результаты] Обнаружено окно потери корабля; перехожу к обработке отступления')
                 if self._auto_search_emotion_reduce and not self._shipwreck_emotion_reduced:
                     self.emotion.reduce(self._auto_search_fleet_index, shipwreck=True)
                     self._shipwreck_emotion_reduced = True
@@ -558,4 +558,4 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         self.auto_search_combat_execute(emotion_reduce=emotion_reduce, fleet_index=fleet_index, battle=battle)
         self.auto_search_combat_status()
 
-        logger.info('[自动搜索-战斗] 战斗结束')
+        logger.info('[Автопоиск — бой] Бой завершён')
