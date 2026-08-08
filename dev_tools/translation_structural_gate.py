@@ -158,9 +158,9 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
             and expression.func.attr == "format"
             and values
         ):
-            format_contract = _format_placeholders(values[0])
+            format_contract = _format_placeholders("".join(values))
         elif isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Mod) and values:
-            percent_contract = tuple(PERCENT_PLACEHOLDER.findall(values[0]))
+            percent_contract = tuple(PERCENT_PLACEHOLDER.findall("".join(values)))
 
         self.contracts.append(
             SiteContract(kind, values, format_contract, percent_contract)
@@ -346,14 +346,31 @@ def _read_blob(repository: Path, revision: str, path: str) -> str:
 
 
 def _changed_files(repository: Path, base: str, head: str) -> list[tuple[str, ...]]:
-    output = str(
-        _git(repository, "diff", "--name-status", "-M", "-C", base, head, "--")
+    output = _git(
+        repository,
+        "diff",
+        "--name-status",
+        "-z",
+        "--find-renames",
+        "--find-copies",
+        "--find-copies-harder",
+        base,
+        head,
+        "--",
+        text=False,
     )
+    assert isinstance(output, bytes)
+    records = [record.decode("utf-8", errors="strict") for record in output.split(b"\0") if record]
     changes: list[tuple[str, ...]] = []
-    for line in output.splitlines():
-        fields = tuple(line.split("\t"))
-        if fields:
-            changes.append(fields)
+    index = 0
+    while index < len(records):
+        status = records[index]
+        path_count = 2 if status.startswith(("R", "C")) else 1
+        paths = tuple(records[index + 1 : index + 1 + path_count])
+        if len(paths) != path_count:
+            raise ValueError(f"truncated diff record for status {status!r}")
+        changes.append((status, *paths))
+        index += path_count + 1
     return changes
 
 
@@ -372,9 +389,9 @@ def run_gate(repository: Path, base: str, head: str) -> list[str]:
 
         if status.startswith(("R", "C")):
             if any(_is_production_python(path) for path in paths):
+                operation = "renamed" if status.startswith("R") else "copied"
                 blockers.append(
-                    f"BLOCKER: production file {status[0].lower()} operation: "
-                    + " -> ".join(paths)
+                    f"BLOCKER: production file {operation}: " + " -> ".join(paths)
                 )
             continue
 
@@ -412,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
         blockers = run_gate(arguments.repository.resolve(), arguments.base, arguments.head)
-    except (OSError, subprocess.CalledProcessError, UnicodeError) as exc:
+    except (OSError, subprocess.CalledProcessError, UnicodeError, ValueError) as exc:
         print(f"BLOCKER: verifier could not complete: {exc}", file=sys.stderr)
         return 2
 

@@ -201,7 +201,10 @@ def test_production_file_topology_changes_fail(repository: Path, operation: str)
         (module / "copied.py").write_text(original.read_text(encoding="utf-8"), encoding="utf-8")
     head = _commit(repository, operation)
 
-    assert run_gate(repository, base, head)
+    blockers = run_gate(repository, base, head)
+    assert blockers
+    if operation == "copy":
+        assert any("production file copied:" in blocker for blocker in blockers)
 
 
 @pytest.mark.parametrize(
