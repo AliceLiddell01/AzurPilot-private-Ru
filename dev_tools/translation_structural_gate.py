@@ -57,7 +57,9 @@ class ParsedSource:
 def _is_production_python(path: str) -> bool:
     pure = PurePosixPath(path)
     return path in ENTRY_POINTS or (
-        len(pure.parts) > 1 and pure.parts[0] == "module" and pure.suffix == ".py"
+        len(pure.parts) > 1
+        and pure.parts[0] in {"campaign", "module"}
+        and pure.suffix == ".py"
     )
 
 
@@ -73,11 +75,28 @@ def _call_name(node: ast.expr) -> tuple[str, ...] | None:
     return tuple(reversed(parts))
 
 
-def _safe_template(node: ast.AST) -> ast.AST | None:
+def _display_value_templates(node: ast.AST) -> list[ast.AST]:
+    if (
+        isinstance(node, ast.IfExp)
+        and isinstance(node.body, ast.Constant)
+        and isinstance(node.body.value, str)
+        and isinstance(node.orelse, ast.Constant)
+        and isinstance(node.orelse.value, str)
+    ):
+        return [node.body, node.orelse]
+    if isinstance(node, (ast.List, ast.Tuple)):
+        result: list[ast.AST] = []
+        for element in node.elts:
+            result.extend(_display_value_templates(element))
+        return result
+    return []
+
+
+def _safe_templates(node: ast.AST) -> list[ast.AST]:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node
+        return [node]
     if isinstance(node, ast.JoinedStr):
-        return node
+        return [node]
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -86,16 +105,26 @@ def _safe_template(node: ast.AST) -> ast.AST | None:
     ):
         template = node.func.value
         if isinstance(template, ast.Constant) and not isinstance(template.value, str):
-            return None
-        return template
+            return []
+        return [template]
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"strip", "lstrip", "rstrip"}
+        and not node.args
+        and not node.keywords
+    ):
+        return _safe_templates(node.func.value)
     if (
         isinstance(node, ast.BinOp)
         and isinstance(node.op, ast.Mod)
         and isinstance(node.left, ast.Constant)
         and isinstance(node.left.value, str)
     ):
-        return node.left
-    return None
+        return [node.left, *_display_value_templates(node.right)]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return [*_safe_templates(node.left), *_safe_templates(node.right)]
+    return []
 
 
 def _literal_nodes(template: ast.AST) -> list[ast.Constant]:
@@ -134,22 +163,25 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
     def _approve(
         self, expression: ast.AST, kind: str, *, logger_percent_arguments: bool = False
     ) -> None:
-        template = _safe_template(expression)
-        if template is None:
+        templates = _safe_templates(expression)
+        if not templates:
             return
 
-        literals = _literal_nodes(template)
+        literals = [
+            literal for template in templates for literal in _literal_nodes(template)
+        ]
         for literal in literals:
             literal._translation_prose = True
 
-        if not hasattr(template, "lineno") or not hasattr(template, "end_lineno"):
-            return
-        self.ranges.append(
-            SourceRange(
-                (template.lineno, template.col_offset),
-                (template.end_lineno, template.end_col_offset),
+        for template in templates:
+            if not hasattr(template, "lineno") or not hasattr(template, "end_lineno"):
+                continue
+            self.ranges.append(
+                SourceRange(
+                    (template.lineno, template.col_offset),
+                    (template.end_lineno, template.end_col_offset),
+                )
             )
-        )
 
         values = tuple(literal.value for literal in literals)
         format_contract: tuple[tuple[str, str | None, str], ...] = ()
@@ -217,6 +249,14 @@ def _string_token_signature(value: str) -> str:
 
 def _token_stream(source: str, ranges: Iterable[SourceRange]) -> list[tuple[str, str]]:
     allowed = tuple(ranges)
+    lines = source.splitlines(keepends=True)
+
+    def byte_position(position: tuple[int, int]) -> tuple[int, int]:
+        line, column = position
+        if line < 1 or line > len(lines):
+            return position
+        return line, len(lines[line - 1][:column].encode("utf-8"))
+
     result: list[tuple[str, str]] = []
     fstring_middle = getattr(token, "FSTRING_MIDDLE", -1)
     string_tokens = {token.STRING, fstring_middle}
@@ -226,8 +266,10 @@ def _token_stream(source: str, ranges: Iterable[SourceRange]) -> list[tuple[str,
         if item.type in ignored:
             continue
         value = item.string
+        start = byte_position(item.start)
+        end = byte_position(item.end)
         if item.type in string_tokens and any(
-            source_range.contains(item.start, item.end) for source_range in allowed
+            source_range.contains(start, end) for source_range in allowed
         ):
             value = (
                 "<OPERATOR_PROSE>"
@@ -336,12 +378,21 @@ def verify_source_pair(base_source: str, head_source: str, path: str) -> list[st
 
 
 def _git(repository: Path, *arguments: str, text: bool = True) -> str | bytes:
-    completed = subprocess.run(
-        ["git", "-C", str(repository), *arguments],
-        check=True,
-        capture_output=True,
-        text=text,
-    )
+    if text:
+        completed = subprocess.run(
+            ["git", "-C", str(repository), *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+    else:
+        completed = subprocess.run(
+            ["git", "-C", str(repository), *arguments],
+            check=True,
+            capture_output=True,
+            text=False,
+        )
     return completed.stdout
 
 

@@ -43,10 +43,13 @@ Job `Python` не содержит ручного реестра модулей:
 Translation structural step получает SHA из `pull_request.base.sha` и
 `pull_request.head.sha`, сравнивает changed production Python через локальный
 `git diff` и запрещает translation PR менять workflow, verifier или его tests.
+В production scope входят точки входа, `module/**/*.py` и `campaign/**/*.py`.
 Проверка разрешает изменение строк только в статически однозначных
-operator-facing logger/exception positions; все неизвестные string contexts и
-любые структурные изменения блокируются. Верхнеуровневый required context при
-этом остаётся `Python` — отдельный status context не создаётся.
+operator-facing logger/exception positions, включая безопасные строковые
+конкатенации, `%`-подстановки и вызовы `strip`; строковые позиции сверяются в
+UTF-8 byte coordinates, используемых Python AST. Все неизвестные string
+contexts и любые структурные изменения блокируются. Верхнеуровневый required
+context при этом остаётся `Python` — отдельный status context не создаётся.
 
 ## Windows
 
