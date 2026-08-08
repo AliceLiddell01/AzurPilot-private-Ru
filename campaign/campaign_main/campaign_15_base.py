@@ -76,7 +76,7 @@ class CampaignBase(CampaignBase_):
         try:
             logger.info(f'Позиция: {self.map[location]}, цель: {self.map[target]}')
         except KeyError as e:
-            logger.exception(f'Given coordinates are outside the map.')
+            logger.exception(f'Указанные координаты находятся за пределами карты.')
             raise e
 
         if abs(location[0] - target[0]) + abs(location[1] - target[1]) != 1:

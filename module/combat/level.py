@@ -104,10 +104,10 @@ class Level(ModuleBase):
         for i in range(6):
             before, after = self._lv_before_battle[i], self.lv[i]
             if after > before > 0:
-                logger.info(f'[Уровень — проверка] Позиция {i}: ур.{before} -> ур.{after}')
+                logger.info(f'[Уровень — проверка] Позиция {i}: ур. {before} -> ур. {after}')
             if after >= limit > before > 0:
                 if after - before == 1 or after < 35:
-                    logger.info(f'[Уровень — проверка] На позиции {i} достигнут ур.{limit}.')
+                    logger.info(f'[Уровень — проверка] На позиции {i} достигнут ур. {limit}.')
                     self.config.LV_TRIGGERED = True
                     return True
                 else:
@@ -121,7 +121,7 @@ class Level(ModuleBase):
             return False
 
         if self.lv[0] >= 32:
-            logger.info('[Уровень — проверка] На позиции 0 достигнут ур.32')
+            logger.info('[Уровень — проверка] На позиции 0 достигнут ур. 32')
             self.config.LV32_TRIGGERED = True
             return True
 

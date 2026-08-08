@@ -69,6 +69,6 @@ class CampaignBase(CampaignBase_):
     def is_event_animation(self):
         appear = self.image_color_count((286, 342, 994, 422), color=(255, 255, 255), count=10000)
         if appear:
-            logger.info('Начало трансляции!')
+            logger.info('Анимация события началась')
 
         return appear

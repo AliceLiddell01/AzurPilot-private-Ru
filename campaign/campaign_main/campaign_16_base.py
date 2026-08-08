@@ -105,7 +105,7 @@ class CampaignBase(CampaignBase_):
         try:
             logger.info(f'Позиция: {self.map[location]}')
         except KeyError as e:
-            logger.exception(f'Given coordinates are outside the map.')
+            logger.exception(f'Указанные координаты находятся за пределами карты.')
             raise e
 
         if self.map[location].is_land:
@@ -137,7 +137,7 @@ class CampaignBase(CampaignBase_):
         grid = self.convert_global_to_local(location)
         grid.__str__ = location
 
-        logger.info('Выбор противника для перемещения')
+        logger.info('Выбор клетки для авиаудара')
         skip_first_screenshot = True
         interval = Timer(2, count=4)
         clicked_count = 0

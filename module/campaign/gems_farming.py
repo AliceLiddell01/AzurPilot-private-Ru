@@ -106,7 +106,7 @@ class GemsCampaignOverride(CampaignBase):
 
         if self.handle_popup_cancel('IGNORE_LOW_EMOTION'):
             self.config.GEMS_EMOTION_TRIGGERED = True
-            logger.hr('[Кампания — срочная комиссия] Отступление из-за настроения')
+            logger.hr('[Фарм самоцветов] Отступление из-за настроения')
 
             while 1:
                 self.device.screenshot()
@@ -191,7 +191,7 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
             if not self.appear(EMPTY_SHIP_R):
                 break
             else:
-                logger.info('[Кампания — срочная комиссия] Ожидание загрузки значков кораблей.')
+                logger.info('[Фарм самоцветов] Ожидание загрузки значков кораблей.')
 
         if TEMPLATE_BOGUE.match(self.device.image, scaling=1.46):  # image has rotation
             return 'bogue'
@@ -217,7 +217,7 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
         """
         success = self.code_clear()
         if not success:
-            logger.warning('[Кампания — срочная комиссия] Не удалось экспортировать код снаряжения; замена кораблей остановлена, чтобы не потерять состояние снаряжения.')
+            logger.warning('[Фарм самоцветов] Не удалось экспортировать код снаряжения; замена кораблей остановлена, чтобы не потерять состояние снаряжения.')
             raise RequestHumanTakeover
         return success
 
@@ -240,7 +240,7 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
         else:
             success = self._code_apply(code=code)
         if not success:
-            logger.warning('[Кампания — срочная комиссия] Не удалось применить код снаряжения; проверьте снаряжение текущего флота вручную.')
+            logger.warning('[Фарм самоцветов] Не удалось применить код снаряжения; проверьте снаряжение текущего флота вручную.')
             raise RequestHumanTakeover
         return success
 
@@ -554,7 +554,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         self.dock_filter_set(
             index='cv', rarity='common', faction=faction, extra=extra, sort='total')
 
-        logger.hr('[Кампания — срочная комиссия] Поиск флагмана')
+        logger.hr('[Фарм самоцветов] Поиск флагмана')
 
         if self.config.GemsFarming_AllowHighFlagshipLevel:
             if self.config.SERVER in ['cn']:
@@ -587,7 +587,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 if candidates:
                     return [candidates[0]]
 
-                logger.info('[Кампания — срочная комиссия] Указанный авианосец не найден; пробую обратный порядок.')
+                logger.info('[Фарм самоцветов] Указанный авианосец не найден; пробую обратный порядок.')
                 self.dock_sort_method_dsc_set(True)
                 candidates = self.find_all_backline_candidates(scanner, common_ship)
                 if candidates:
@@ -595,7 +595,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
                 # 恢复排序方式，因为已更改但未找到结果
                 self.dock_sort_method_dsc_set(False)
-            logger.info('[Кампания — срочная комиссия] UseEmotionFirst не нашёл подходящих кораблей; возвращаюсь к исходному способу выбора')
+            logger.info('[Фарм самоцветов] UseEmotionFirst не нашёл подходящих кораблей; возвращаюсь к исходному способу выбора')
 
         scanner = ShipScanner(
             level=(min_level, max_level), emotion=(emotion_lower_bound, 150), fleet=fleet, status='free')
@@ -629,7 +629,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 # 更换为指定舰船
                 return candidates
 
-            logger.info('[Кампания — срочная комиссия] Указанный авианосец не найден; пробую обратный порядок.')
+            logger.info('[Фарм самоцветов] Указанный авианосец не найден; пробую обратный порядок.')
             self.dock_sort_method_dsc_set(True)
 
             candidates = [ship for ship in scanner.scan(self.device.image)
@@ -672,7 +672,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         self.dock_filter_set(
             index='dd', rarity=rarity, faction=faction, extra=extra)
 
-        logger.hr('[Кампания — срочная комиссия] Поиск авангарда')
+        logger.hr('[Фарм самоцветов] Поиск авангарда')
 
         min_level, max_level = self.config.GemsFarming_VanguardLevelMin, self.config.GemsFarming_VanguardLevelMax
         
@@ -717,7 +717,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 if candidates:
                     return candidates
 
-                logger.info('[Кампания — срочная комиссия] Указанный эсминец не найден; пробую обратный порядок.')
+                logger.info('[Фарм самоцветов] Указанный эсминец не найден; пробую обратный порядок.')
                 self.dock_sort_method_dsc_set(False)
                 candidates = self.find_all_vanguard_candidates(scanner, common_ship)
                 if not candidates and self.config.GemsFarming_CommonDD == 'custom':
@@ -749,7 +749,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 # 更换为指定舰船
                 return candidates
 
-            logger.info('[Кампания — срочная комиссия] Указанный эсминец не найден; пробую обратный порядок.')
+            logger.info('[Фарм самоцветов] Указанный эсминец не найден; пробую обратный порядок.')
             self.dock_sort_method_dsc_set(False)
 
             # 更换为指定舰船
@@ -819,7 +819,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             return []
 
         ship_type = ship_type.upper()
-        logger.info(f'[Кампания — срочная комиссия] Поиск {ship_type} обычной редкости.')
+        logger.info(f'[Фарм самоцветов] Поиск {ship_type} обычной редкости.')
         if ship_type.lower() == 'cv' and self.config.GemsFarming_CommonCV != 'custom':
             filter_string = self.config.COMMON_CV_FILTER
         else:
@@ -842,7 +842,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
             common_ship_candidates[name] = candidates
 
-        logger.info(f'[Кампания — срочная комиссия] Подходящий {ship_type} не найден; пробую обратный порядок.')
+        logger.info(f'[Фарм самоцветов] Подходящий {ship_type} не найден; пробую обратный порядок.')
         self.dock_sort_method_dsc_set(not sort_dsc_first)
 
         for name in common_ship:
@@ -850,10 +850,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             candidates = self.find_candidates(template, scanner)
 
             if candidates:
-                logger.info(f'[Фарм самоцветов] Найден подходящий эсминец: {name}')
+                logger.info(f'[Фарм самоцветов] Найден подходящий корабль: {name}')
                 return candidates
             elif common_ship_candidates[name]:
-                logger.info(f'[Фарм самоцветов] Найден подходящий эсминец: {name}')
+                logger.info(f'[Фарм самоцветов] Найден подходящий корабль: {name}')
                 self.dock_sort_method_dsc_set(sort_dsc_first, wait_loading=False)
                 return common_ship_candidates[name]
 
@@ -959,10 +959,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         ship = self.get_common_rarity_cv()
         if ship:
             self.flagship_change_with_emotion(ship)
-            logger.info('[Кампания — срочная комиссия] Флагман успешно заменён')
+            logger.info('[Фарм самоцветов] Флагман успешно заменён')
             return True
         else:
-            logger.info('[Кампания — срочная комиссия] Не удалось заменить флагман: авианосец обычной редкости не найден.')
+            logger.info('[Фарм самоцветов] Не удалось заменить флагман: авианосец обычной редкости не найден.')
 
             if self.config.SERVER in ['cn']:
                 max_level = 100
@@ -1008,10 +1008,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         ship = self.get_common_rarity_dd()
         if ship:
             self.vanguard_change_with_emotion(ship)
-            logger.info('[Кампания — срочная комиссия] Корабль авангарда успешно заменён')
+            logger.info('[Фарм самоцветов] Корабль авангарда успешно заменён')
             return True
         else:
-            logger.info('[Кампания — срочная комиссия] Не удалось заменить корабль авангарда: эсминец обычной редкости не найден.')
+            logger.info('[Фарм самоцветов] Не удалось заменить корабль авангарда: эсминец обычной редкости не найден.')
             ship = self.get_common_rarity_dd(emotion=0)
             if ship and self.hard_mode:
                 self.vanguard_change_with_emotion(ship)

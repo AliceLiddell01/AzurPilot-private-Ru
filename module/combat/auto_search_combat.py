@@ -62,7 +62,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         """
         if self.is_in_stage():
             if self._auto_search_in_stage_timer.reached():
-                logger.info('Перехвачено отсутствие меню автопоиска')
+                logger.info('Обнаружено отсутствие меню автопоиска')
                 return True
         else:
             self._auto_search_in_stage_timer.reset()
@@ -335,7 +335,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             if confirm_timer.reached():
                 # 结算确认超时：不扣心情、不盲目点击OPTS_INFO_D
                 # 只设置_withdraw让status处理，status中检测到OPTS_INFO_D才扣心情
-                logger.warning('[Автопоиск — бой] Истекло время подтверждения результатов; перехожу к обработке status')
+                logger.warning('[Автопоиск — бой] Истекло время подтверждения результатов; перехожу к обработке статуса')
                 self._withdraw = True
                 confirm_timer.reset()
                 break

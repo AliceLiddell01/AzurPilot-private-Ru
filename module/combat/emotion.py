@@ -316,7 +316,7 @@ class Emotion:
             return
 
         for fleet in self.fleets:
-            logger.attr(f'Настроение флота_{fleet.fleet}', fleet.current)
+            logger.attr(f'Настроение флота {fleet.fleet}', fleet.current)
 
     @property
     def reduce_per_battle(self):
