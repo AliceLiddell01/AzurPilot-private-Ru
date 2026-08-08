@@ -21,6 +21,10 @@ def assert_blocked(base: str, head: str) -> None:
     [
         ('logger.info("Starting battle")\n', 'logger.info("Начало боя")\n'),
         (
+            'logger.exception("Given coordinates are outside the map.")\n',
+            'logger.exception("Указанные координаты находятся за пределами карты.")\n',
+        ),
+        (
             'logger.info(f"Enemy: {enemy}")\n',
             'logger.info(f"Противник: {enemy}")\n',
         ),
@@ -175,6 +179,7 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
         ('logger.info("A\\nB")\n', 'logger.info("А B")\n'),
         ('logger.info("A\\tB")\n', 'logger.info("А B")\n'),
         ('logger.info("Start")\n', 'logger.warning("Старт")\n'),
+        ('logger.exception("Failure")\n', 'logger.error("Failure")\n'),
         (
             'logger.info(f"Arrive {target}".strip())\n',
             'logger.info(f"Прибытие {target}".rstrip())\n',
