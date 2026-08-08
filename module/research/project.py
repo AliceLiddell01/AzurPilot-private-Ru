@@ -351,7 +351,7 @@ def get_research_genre_jp(image):
             genre = button.name.split("_")[2]
             break
     if not genre:
-        logger.warning('Не удалось распознать тип исследования!')
+        logger.warning(f'Не удалось распознать тип исследования!')
     return genre
 
 
@@ -425,7 +425,7 @@ def get_research_ship_jp(image):
             similarity = sim
             ship = name
     if ship == '':
-        logger.warning('Не удалось распознать корабль')
+        logger.warning(f'Не удалось распознать корабль')
     return ship
 
 
