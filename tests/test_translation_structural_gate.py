@@ -41,6 +41,10 @@ def assert_blocked(base: str, head: str) -> None:
             'logger.info("Enemy %s: %.1f" % (enemy, hp))\n',
             'logger.info("Противник %s: %.1f" % (enemy, hp))\n',
         ),
+        (
+            'logger.info("Enemy %s: %.1f", enemy, hp)\n',
+            'logger.info("Противник %s: %.1f", enemy, hp)\n',
+        ),
     ],
 )
 def test_operator_prose_changes_pass(base: str, head: str) -> None:
@@ -149,6 +153,7 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
         ('def f(label="Battle"):\n    pass\n', 'def f(label="Бой"):\n    pass\n'),
         ('logger.info("Enemy {}".format(enemy))\n', 'logger.info("Противник {0}".format(enemy))\n'),
         ('logger.info("Enemy %s" % enemy)\n', 'logger.info("Противник %r" % enemy)\n'),
+        ('logger.info("Enemy %s", enemy)\n', 'logger.info("Противник %d", enemy)\n'),
         ('logger.info("{}".format("value"))\n', 'logger.info("{}".format(r"value"))\n'),
         ('# Battle\nlogger.info("Start")\n', '# Бой\nlogger.info("Старт")\n'),
         ('logger.info("A\\nB")\n', 'logger.info("А B")\n'),

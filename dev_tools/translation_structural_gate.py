@@ -131,7 +131,9 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         self.ranges: list[SourceRange] = []
         self.contracts: list[SiteContract] = []
 
-    def _approve(self, expression: ast.AST, kind: str) -> None:
+    def _approve(
+        self, expression: ast.AST, kind: str, *, logger_percent_arguments: bool = False
+    ) -> None:
         template = _safe_template(expression)
         if template is None:
             return
@@ -159,7 +161,11 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
             and values
         ):
             format_contract = _format_placeholders("".join(values))
-        elif isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Mod) and values:
+        elif (
+            logger_percent_arguments
+            or isinstance(expression, ast.BinOp)
+            and isinstance(expression.op, ast.Mod)
+        ) and values:
             percent_contract = tuple(PERCENT_PLACEHOLDER.findall("".join(values)))
 
         self.contracts.append(
@@ -170,7 +176,11 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         name = _call_name(node.func)
         if name and len(name) == 2 and name[0] == "logger" and node.args:
             if name[1] in LOGGER_METHODS:
-                self._approve(node.args[0], f"logger.{name[1]}")
+                self._approve(
+                    node.args[0],
+                    f"logger.{name[1]}",
+                    logger_percent_arguments=len(node.args) > 1,
+                )
             elif name[1] == "attr":
                 self._approve(node.args[0], "logger.attr label")
         self.generic_visit(node)
