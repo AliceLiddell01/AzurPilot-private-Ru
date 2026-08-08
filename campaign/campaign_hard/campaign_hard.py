@@ -43,7 +43,7 @@ class Campaign(CampaignBase):
         grids = grids.add(self.map.select(may_boss=True, is_enemy=True))
         logger.info('Возможный босс: %s' % self.map.select(may_boss=True))
         logger.info('Возможный босс, распознанный как противник: %s' % self.map.select(may_boss=True, is_enemy=True))
-        logger.info('Кандидаты в боссы: %s' % self.map.select(is_boss=True))
+        logger.info('Подтверждённые боссы: %s' % self.map.select(is_boss=True))
         # logger.info('Grids: %s' % grids)
         if grids:
             logger.hr('Устранение босса')
