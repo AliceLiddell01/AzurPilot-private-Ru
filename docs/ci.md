@@ -20,6 +20,9 @@ Workflow публикует три стабильных status contexts:
 
 Job выполняется на `ubuntu-24.04` с Python `3.14.6` и проверяет:
 
+- для PR из веток `codex/translate-*` — fail-closed structural parity фактического
+  `base→head` через `dev_tools/translation_structural_gate.py`, загруженный из
+  точного PR base;
 - `uv lock --check` и `uv sync --locked --group ci`;
 - Ruff для ошибок выполнения и импорта;
 - компиляцию основных Python entry points и каталогов;
@@ -36,6 +39,14 @@ uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 ```
 
 Job `Python` не содержит ручного реестра модулей: `pytest` автоматически собирает весь каталог `tests/`. Тесты, которым требуется реальное устройство, эмулятор или игровой аккаунт, должны проверять только локальный контракт либо оставаться в `tools/acceptance/`.
+
+Translation structural step получает SHA из `pull_request.base.sha` и
+`pull_request.head.sha`, сравнивает changed production Python через локальный
+`git diff` и запрещает translation PR менять workflow, verifier или его tests.
+Проверка разрешает изменение строк только в статически однозначных
+operator-facing logger/exception positions; все неизвестные string contexts и
+любые структурные изменения блокируются. Верхнеуровневый required context при
+этом остаётся `Python` — отдельный status context не создаётся.
 
 ## Windows
 

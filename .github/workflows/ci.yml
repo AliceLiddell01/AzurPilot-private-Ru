@@ -48,6 +48,23 @@ jobs:
         with:
           python-version: "3.14.6"
 
+      - name: Verify translation-only structure from PR base
+        if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'codex/translate-') }}
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+          git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+          verifier="${RUNNER_TEMP}/translation_structural_gate.py"
+          git show "${PR_BASE_SHA}:dev_tools/translation_structural_gate.py" > "$verifier"
+          python "$verifier" \
+            --repository "$GITHUB_WORKSPACE" \
+            --base "$PR_BASE_SHA" \
+            --head "$PR_HEAD_SHA"
+
       - name: Validate environment
         shell: bash
         run: |
