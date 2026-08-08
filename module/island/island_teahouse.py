@@ -60,11 +60,11 @@ class IslandTeahouse(IslandShopBase):
 
             if self.seasonal_high_priority_drink:
                 self.special_food = self.seasonal_high_priority_drink['name']
-                logger.info(f"[岛屿-白熊饮品] 季节高优先级饮品: {self.seasonal_high_priority_drink['cn_name']}")
+                logger.info(f"[Остров — напитки Белого Медведя] Приоритетный сезонный напиток: {self.seasonal_high_priority_drink['cn_name']}")
             else:
                 self.special_food = 'spring_flower_tea'
         else:
-            logger.info("[岛屿-白熊饮品] 迎春花茶优先生产已关闭，跳过季节限定饮品")
+            logger.info("[Остров — напитки Белого Медведя] Приоритетное производство весеннего цветочного чая отключено; сезонный напиток пропущен")
 
         # 设置商品列表
         self.shop_items = []
@@ -173,8 +173,8 @@ class IslandTeahouse(IslandShopBase):
                         for name, target in self.post_products
                     ]
                     logger.info(
-                        f"季节餐品自动切换: {spring_item}({cn_name}) -> {seasonal_item}"
-                        f"（当前季节: {self.season_config.season_name}）"
+                        f"Автопереключение сезонного блюда: {spring_item}({cn_name}) -> {seasonal_item}"
+                        f" (текущий сезон: {self.season_config.season_name})"
                     )
             else:
                 self.post_products = [
@@ -182,8 +182,8 @@ class IslandTeahouse(IslandShopBase):
                     if name != spring_item
                 ]
                 logger.info(
-                    f"季节餐品自动移除: {spring_item}({cn_name})"
-                    f"（{self.season_config.season_name} 无对应槽位的季节餐品）"
+                    f"Автоудаление сезонного блюда: {spring_item}({cn_name})"
+                    f" ({self.season_config.season_name}: для этого слота нет сезонного блюда)"
                 )
 
     def get_warehouse_counts(self):
@@ -195,7 +195,7 @@ class IslandTeahouse(IslandShopBase):
         self.warehouse_filter('basic','other_from')
         image = self.device.screenshot()
         self.fresh_honey = self.ocr_item_quantity(image, TEMPLATE_FRESH_HONEY)
-        logger.info(f"[岛屿-白熊饮品] 蜂蜜数量: {self.fresh_honey}")
+        logger.info(f"[Остров — напитки Белого Медведя] Количество мёда: {self.fresh_honey}")
 
         # 将蜂蜜库存存入warehouse_counts，便于统一处理
         self.warehouse_counts['fresh_honey'] = self.fresh_honey
@@ -248,7 +248,7 @@ class IslandTeahouse(IslandShopBase):
                             self.back_to_postmanage_from_dispatch()
                             return 0
                     else:
-                        logger.warning(f"[岛屿-白熊饮品] {product}生产派遣无可用角色: {self.chef_config}")
+                        logger.warning(f"[Остров — напитки Белого Медведя] Для производственного задания {product} нет доступных персонажей: {self.chef_config}")
                         self.back_to_postmanage_from_dispatch()
                         return 0
                     continue
@@ -264,7 +264,7 @@ class IslandTeahouse(IslandShopBase):
                 self.device.sleep(0.3)
             # 检查材料并下单
             if self.produce_check():
-                logger.warning(f"[岛屿-白熊饮品] 原料不足，无法生产 spring_flower_tea")
+                logger.warning(f"[Остров — напитки Белого Медведя] Недостаточно сырья; spring_flower_tea невозможно произвести")
                 self.device.click(ISLAND_BACK)
                 self.device.sleep(0.5)
                 return 0
@@ -287,7 +287,7 @@ class IslandTeahouse(IslandShopBase):
             setattr(self, time_var_name, finish_time)
             self.posts[post_id]['status'] = 'working'
             self.deduct_materials(product, actual_number)
-            logger.info(f"[岛屿-白熊饮品] 已安排生产：{product} x{actual_number}")
+            logger.info(f"[Остров — напитки Белого Медведя] Производство запланировано: {product} x{actual_number}")
             self.post_close()
             return actual_number
 
@@ -333,24 +333,24 @@ class IslandTeahouse(IslandShopBase):
                 self.current_totals[item] = self.post_check_meal.get(item, 0) + self.warehouse_counts.get(item, 0)
 
             # ============ 调试信息 ============
-            logger.info(f"[岛屿-白熊饮品] === 调试信息 ===")
-            logger.info(f"[岛屿-白熊饮品] 仓库库存: {self.warehouse_counts}")
-            logger.info(f"[岛屿-白熊饮品] 生产中库存: {self.post_check_meal}")
-            logger.info(f"[岛屿-白熊饮品] 当前总库存: {self.current_totals}")
-            logger.info(f"[岛屿-白熊饮品] 基础需求配置（共{len(self.post_products)}个槽位）: {self.post_products}")
+            logger.info(f"[Остров — напитки Белого Медведя] === Отладочная информация ===")
+            logger.info(f"[Остров — напитки Белого Медведя] Запасы на складе: {self.warehouse_counts}")
+            logger.info(f"[Остров — напитки Белого Медведя] В производстве: {self.post_check_meal}")
+            logger.info(f"[Остров — напитки Белого Медведя] Текущий общий запас: {self.current_totals}")
+            logger.info(f"[Остров — напитки Белого Медведя] Базовая конфигурация требований ({len(self.post_products)} слотов): {self.post_products}")
             logger.info("===============")
 
             # 保存原始库存，retry 时恢复
             _orig_totals = dict(self.current_totals)
             self._compute_base_demands()
 
-            logger.info(f"[岛屿-白熊饮品] 待完成备餐: {self.to_post_products}")
-            logger.info(f"[岛屿-白熊饮品] 当前剩余库存: {self.current_totals}")
+            logger.info(f"[Остров — напитки Белого Медведя] Ожидающие приготовления: {self.to_post_products}")
+            logger.info(f"[Остров — напитки Белого Медведя] Текущий остаток запасов: {self.current_totals}")
 
             # ============ 处理套餐分解 ============
             if self.to_post_products:
                 self.to_post_products = self.process_meal_requirements(self.to_post_products)
-                logger.info(f"[岛屿-白熊饮品] 基础需求生产计划: {self.to_post_products}")
+                logger.info(f"[Остров — напитки Белого Медведя] План производства базовых требований: {self.to_post_products}")
 
             # ================================================================
             #  阶段：高优先级季节饮品（受「迎春花茶」开关控制）
@@ -360,18 +360,18 @@ class IslandTeahouse(IslandShopBase):
             if self.seasonal_high_priority_drink:
                 drink_name = self.seasonal_high_priority_drink['name']
                 drink_cn = self.seasonal_high_priority_drink['cn_name']
-                logger.info(f"[岛屿-白熊饮品] 阶段：高优先级季节饮品 — {drink_cn}")
+                logger.info(f"[Остров — напитки Белого Медведя] Этап: приоритетный сезонный напиток — {drink_cn}")
                 temp_products = self.to_post_products.copy()
                 self.to_post_products = {drink_name: self.POST_PRODUCE_LIMIT}
-                logger.info(f"[岛屿-白熊饮品] 单独安排{drink_cn}生产: {self.to_post_products}")
+                logger.info(f"[Остров — напитки Белого Медведя] Отдельно запланировано производство {drink_cn}: {self.to_post_products}")
 
                 self.schedule_production()
 
                 # 恢复剩余的基础需求生产计划
                 self.to_post_products = temp_products
-                logger.info(f"[岛屿-白熊饮品] 剩余基础需求生产计划: {self.to_post_products}")
+                logger.info(f"[Остров — напитки Белого Медведя] Оставшийся план базового производства: {self.to_post_products}")
             else:
-                logger.info("[岛屿-白熊饮品] 迎春花茶优先生产已关闭，直接处理基础需求")
+                logger.info("[Остров — напитки Белого Медведя] Приоритетное производство весеннего цветочного чая отключено; переход непосредственно к базовым требованиям")
 
             # ============ 安排基础需求生产（循环直到无空岗或无缺口） ============
             _produced_pass = {}
@@ -383,7 +383,7 @@ class IslandTeahouse(IslandShopBase):
             while self.get_idle_posts():
                 _loop_count += 1
                 if _loop_count > self._MAX_FILL_LOOP:
-                    logger.warning(f"[岛屿-白熊饮品] [循环] 已达最大迭代次数 {self._MAX_FILL_LOOP}，强制退出")
+                    logger.warning(f"[Остров — напитки Белого Медведя] [Цикл] Достигнут максимум итераций {self._MAX_FILL_LOOP}; принудительный выход")
                     break
                 self.current_totals = dict(_orig_totals)
                 for name, qty in _produced_pass.items():
@@ -391,17 +391,17 @@ class IslandTeahouse(IslandShopBase):
 
                 self._compute_base_demands(force_skip=_force_skip_run)
                 if not self.to_post_products:
-                    logger.info("[岛屿-白熊饮品] 所有槽位需求已满足")
+                    logger.info("[Остров — напитки Белого Медведя] Требования всех слотов удовлетворены")
                     break
 
                 self.to_post_products = self.process_meal_requirements(self.to_post_products)
-                logger.info(f"[岛屿-白熊饮品] 基础需求生产计划: {self.to_post_products}")
+                logger.info(f"[Остров — напитки Белого Медведя] План производства базовых требований: {self.to_post_products}")
 
                 prev_pass_total = sum(_produced_pass.values())
                 self._schedule_and_track(_produced_pass)
 
                 if sum(_produced_pass.values()) == prev_pass_total and self.to_post_products:
-                    logger.info("[岛屿-白熊饮品] [循环] 当前缺口排产失败，切换严格模式扫描")
+                    logger.info("[Остров — напитки Белого Медведя] [Цикл] Не удалось распределить текущий дефицит; переход к строгому сканированию")
 
                     self.to_post_products = {}
                     self.current_totals = dict(_orig_totals)
@@ -411,14 +411,14 @@ class IslandTeahouse(IslandShopBase):
                     if not self.to_post_products:
                         break
                     self.to_post_products = self.process_meal_requirements(self.to_post_products)
-                    logger.info(f"[岛屿-白熊饮品] 基础需求生产计划（严格模式）: {self.to_post_products}")
+                    logger.info(f"[Остров — напитки Белого Медведя] План базового производства (строгий режим): {self.to_post_products}")
 
                     strict_prev_total = sum(_produced_pass.values())
                     self._schedule_and_track(_produced_pass)
 
                     if sum(_produced_pass.values()) == strict_prev_total and self.to_post_products:
                         stuck_now = set(self.to_post_products.keys())
-                        logger.info(f"[岛屿-白熊饮品] [循环] 严格模式也无产出，强制跳过: {stuck_now}")
+                        logger.info(f"[Остров — напитки Белого Медведя] [Цикл] Строгий режим также не дал результата; принудительный пропуск: {stuck_now}")
                         _force_skip_run.update(stuck_now)
                         self.to_post_products = {}
                     continue
@@ -430,11 +430,11 @@ class IslandTeahouse(IslandShopBase):
                              away_cook in self.name_to_config)
 
             if idle_posts_after_basic and has_away_cook:
-                logger.info(f"[岛屿-白熊饮品] 基础需求完成后，还有 {len(idle_posts_after_basic)} 个空闲岗位")
+                logger.info(f"[Остров — напитки Белого Медведя] После базовых требований осталось свободных позиций: {len(idle_posts_after_basic)}")
                 for post_id in idle_posts_after_basic:
                     post_num = post_id[-1]
                     time_var_name = f'{self.time_prefix}{post_num}'
-                    logger.info(f"[岛屿-白熊饮品] 尝试生产常驻餐品 {away_cook}")
+                    logger.info(f"[Остров — напитки Белого Медведя] Попытка произвести постоянное блюдо {away_cook}")
                     batch_size = self.POST_PRODUCE_LIMIT
                     batch_size = self.get_max_producible(away_cook, batch_size)
                     if batch_size > 0:
@@ -443,15 +443,15 @@ class IslandTeahouse(IslandShopBase):
                             time_var_name=time_var_name
                         )
                         if result == 0:
-                            logger.info(f"[岛屿-白熊饮品] 常驻餐品 {away_cook} 原料不足，保持岗位空闲")
+                            logger.info(f"[Остров — напитки Белого Медведя] Недостаточно сырья для постоянного блюда {away_cook}; позиция остаётся свободной")
                             break
                         else:
-                            logger.info(f"[岛屿-白熊饮品] 已为岗位 {post_id} 安排常驻餐品 {away_cook} x{batch_size}")
+                            logger.info(f"[Остров — напитки Белого Медведя] Для позиции {post_id} назначено постоянное блюдо {away_cook} x{batch_size}")
                     else:
-                        logger.info(f"[岛屿-白熊饮品] 生产 {away_cook} 的材料不足，跳过岗位 {post_id}")
+                        logger.info(f"[Остров — напитки Белого Медведя] Недостаточно материалов для {away_cook}; позиция {post_id} пропущена")
                         break
             elif idle_posts_after_basic:
-                logger.info(f"[岛屿-白熊饮品] 有 {len(idle_posts_after_basic)} 个空闲岗位，但未设置常驻餐品，保持空闲")
+                logger.info(f"[Остров — напитки Белого Медведя] Есть свободные позиции ({len(idle_posts_after_basic)}), но постоянное блюдо не задано; позиции остаются свободными")
 
         # ============ 设置任务延迟 ============
         finish_times = []
@@ -465,7 +465,7 @@ class IslandTeahouse(IslandShopBase):
         self.config.task_delay(target=finish_times)
         if self.island_error:
             from module.exception import GameBugError
-            raise GameBugError("检测到岛屿ERROR1，需要重启")
+            raise GameBugError("Обнаружена ошибка острова ERROR1; требуется перезапуск")
 
     def deduct_materials(self, product, number):
         """覆盖：扣除前置材料，包括蜂蜜和套餐原材料"""
@@ -483,12 +483,12 @@ class IslandTeahouse(IslandShopBase):
             # 优先扣除蜂蜜
             if self.fresh_honey >= honey_needed:
                 self.fresh_honey -= honey_needed
-                logger.info(f"[岛屿-白熊饮品] 扣除蜂蜜：fresh_honey -{honey_needed} (用于制作sunny_honey)")
+                logger.info(f"[Остров — напитки Белого Медведя] Списан мёд: fresh_honey -{honey_needed} (для sunny_honey)")
             else:
                 # 蜂蜜不足，扣除honey_lemon
                 remaining_needed = honey_needed - self.fresh_honey
                 if self.fresh_honey > 0:
-                    logger.info(f"[岛屿-白熊饮品] 扣除蜂蜜：fresh_honey -{self.fresh_honey} (用于制作sunny_honey)")
+                    logger.info(f"[Остров — напитки Белого Медведя] Списан мёд: fresh_honey -{self.fresh_honey} (для sunny_honey)")
                     self.fresh_honey = 0
 
                 # 扣除honey_lemon库存
@@ -496,7 +496,7 @@ class IslandTeahouse(IslandShopBase):
                     available_honey_lemon = min(remaining_needed, self.warehouse_counts['honey_lemon'])
                     if available_honey_lemon > 0:
                         self.warehouse_counts['honey_lemon'] -= available_honey_lemon
-                        logger.info(f"[岛屿-白熊饮品] 扣除honey_lemon：honey_lemon -{available_honey_lemon} (用于制作sunny_honey)")
+                        logger.info(f"[Остров — напитки Белого Медведя] Списан honey_lemon: honey_lemon -{available_honey_lemon} (для sunny_honey)")
 
     def apply_special_material_constraints(self, requirements):
         """覆盖：根据蜂蜜库存调整需求"""
@@ -508,7 +508,7 @@ class IslandTeahouse(IslandShopBase):
             max_honey_lemon = min(honey_lemon_needed, self.fresh_honey)
 
             if max_honey_lemon < honey_lemon_needed:
-                logger.info(f"[岛屿-白熊饮品] 蜂蜜不足：honey_lemon需求从{honey_lemon_needed}调整为{max_honey_lemon}")
+                logger.info(f"[Остров — напитки Белого Медведя] Недостаточно мёда: потребность honey_lemon изменена с {honey_lemon_needed} на {max_honey_lemon}")
 
             result['honey_lemon'] = max_honey_lemon
 
@@ -528,7 +528,7 @@ class IslandTeahouse(IslandShopBase):
             max_sunny_honey = min(sunny_honey_needed, honey_remaining)
 
             if max_sunny_honey < sunny_honey_needed:
-                logger.info(f"[岛屿-白熊饮品] 蜂蜜不足：sunny_honey需求从{sunny_honey_needed}调整为{max_sunny_honey}")
+                logger.info(f"[Остров — напитки Белого Медведя] Недостаточно мёда: потребность sunny_honey изменена с {sunny_honey_needed} на {max_sunny_honey}")
 
             result['sunny_honey'] = max_sunny_honey
 

@@ -94,7 +94,7 @@ class ResearchUI(UI):
             in: is_in_queue
             out: is_in_research, project stabled
         """
-        logger.info('[科研-队列] 退出队列')
+        logger.info('[Исследование — очередь] Выход из очереди')
         for _ in self.loop():
             if self.is_in_research():
                 break
@@ -104,11 +104,11 @@ class ResearchUI(UI):
             # handle get_items
             # get_items should be handled when receiving, but sometimes just slow network
             if self.appear(GET_ITEMS_1, offset=(20, 20), interval=3):
-                logger.info(f'[科研-队列] {GET_ITEMS_1} -> {GET_ITEMS_RESEARCH_SAVE}')
+                logger.info(f'[Исследование — очередь] {GET_ITEMS_1} -> {GET_ITEMS_RESEARCH_SAVE}')
                 self.device.click(GET_ITEMS_RESEARCH_SAVE)
                 continue
             if self.appear(GET_ITEMS_2, offset=(20, 20), interval=3):
-                logger.info(f'[科研-队列] {GET_ITEMS_1} -> {GET_ITEMS_RESEARCH_SAVE}')
+                logger.info(f'[Исследование — очередь] {GET_ITEMS_1} -> {GET_ITEMS_RESEARCH_SAVE}')
                 self.device.click(GET_ITEMS_RESEARCH_SAVE)
                 continue
 
@@ -169,7 +169,7 @@ class ResearchUI(UI):
             else:
                 out.append('unknown')
 
-        logger.info(f'[科研-状态] 科研状态: {out}')
+        logger.info(f'[Исследование — состояние] Состояние исследования: {out}')
         return out
 
     def is_research_stabled(self):
@@ -193,7 +193,7 @@ class ResearchUI(UI):
         Args:
             skip_first_screenshot (bool): 是否跳过首次截图。
         """
-        logger.info('[科研-详情] 退出科研详情')
+        logger.info('[Исследование — детали] Выход из деталей проекта')
         click_timer = Timer(10)
         while 1:
             if skip_first_screenshot:
@@ -221,7 +221,7 @@ class ResearchUI(UI):
         Args:
             skip_first_screenshot (bool): 是否跳过首次截图。
         """
-        logger.info('[科研-详情] 取消科研项目')
+        logger.info('[Исследование — детали] Отмена проекта')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False

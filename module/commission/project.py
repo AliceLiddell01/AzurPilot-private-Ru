@@ -480,7 +480,7 @@ class Commission:
         string = string.replace('D', '0')
         result = re.search(r'(\d+):(\d+):(\d+)', string)
         if not result:
-            logger.warning(f'无效的时间字符串: {string}')
+            logger.warning(f'Некорректная строка времени: {string}')
             self.valid = False
             return None
         else:
@@ -506,7 +506,7 @@ class Commission:
                 if keyword in string:
                     return key
 
-        logger.warning(f'未知类型的名称: {string}')
+        logger.warning(f'Неизвестный тип названия: {string}')
         self.valid = False
         return ''
 
@@ -539,7 +539,7 @@ class Commission:
         if min_distance < 3:
             return min_key
 
-        logger.warning(f'未知类型的名称: {string}')
+        logger.warning(f'Неизвестный тип названия: {string}')
         self.valid = False
         return ''
 
@@ -562,7 +562,7 @@ class Commission:
                 if keyword in string:
                     return key
 
-        logger.warning(f'未知类型的名称: {string}')
+        logger.warning(f'Неизвестный тип названия: {string}')
         self.valid = False
         return ''
 
@@ -585,7 +585,7 @@ class Commission:
                 if keyword in string:
                     return key
 
-        logger.warning(f'未知类型的名称: {string}')
+        logger.warning(f'Неизвестный тип названия: {string}')
         self.valid = False
         return ''
 

@@ -121,8 +121,8 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
             if count < threshold:
                 deficit = threshold - count
                 fry_needed = (deficit + yield_amount - 1) // yield_amount  # 向上取整
-                logger.info(f"[岛屿-渔场] {item_name}: 库存{count}<阈值{threshold}, 缺{deficit}, "
-                            f"每苗产{yield_amount}, 需购买{fry_needed}个鱼苗")
+                logger.info(f"[Остров — рыбное хозяйство] {item_name}: запас {count} < порога {threshold}, дефицит {deficit}, "
+                            f"выход с одного малька {yield_amount}, требуется купить мальков: {fry_needed}")
                 for _ in range(fry_needed):
                     self.to_plant_list.append(item_name)
 
@@ -161,8 +161,8 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
             supply_post_counts[product] = supply_post_counts.get(product, 0) + post_to_use
             remaining_idle -= post_to_use
             logger.info(
-                f"{product}: 需养殖{fry_needed}个鱼苗，每岗容量{post_capacity}，"
-                f"本轮占用{post_to_use}个岗位"
+                f"{product}: требуется выращивать {fry_needed} мальков, вместимость позиции {post_capacity}, "
+                f"в этом цикле занято позиций: {post_to_use}"
             )
 
             if remaining_idle <= 0:
@@ -179,7 +179,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
             post_number = post_info.get('runs') or 1
             removed = self._remove_plant_demand(product_name, post_number)
             if removed:
-                logger.info(f"[岛屿-渔场] 已在养殖中的{product_name}扣除补种需求: {removed}/{post_number} ({post_id})")
+                logger.info(f"[Остров — рыбное хозяйство] Уже выращиваемый {product_name}: потребность уменьшена на {removed}/{post_number} ({post_id})")
 
     @staticmethod
     def _post_available_for_dispatch(post_info):
@@ -225,7 +225,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
             return ISLAND_FISH_FRY_SHOP_SEAWATER_CHECK, ISLAND_FISH_FRY_SHOP_SEAWATER
         if target_tab == 'other':
             return ISLAND_FISH_FRY_SHOP_OTHER_CHECK, ISLAND_FISH_FRY_SHOP_OTHER
-        logger.warning(f"[岛屿-渔场] 未知页签: {target_tab}")
+        logger.warning(f"[Остров — рыбное хозяйство] Неизвестная вкладка: {target_tab}")
         return None, None
 
     def decided_lists(self, post_button, post_id, post_index):
@@ -268,12 +268,12 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                 self.posts[post_id]['state'] = 'idle'
                 if post_index < len(self.fishery_times):
                     self.fishery_times[post_index] = None
-                logger.warning(f"[岛屿-渔场] {post_id}: 收取后状态未识别，按收取前完成态视为空闲")
+                logger.warning(f"[Остров — рыбное хозяйство] {post_id}: состояние после сбора не распознано; позиция считается свободной по предыдущему завершённому состоянию")
             else:
                 self.posts[post_id]['crop'] = 'unknown'
                 self.posts[post_id]['runs'] = 0
                 self.posts[post_id]['state'] = 'working'
-                logger.warning(f"[岛屿-渔场] {post_id}: 岗位状态未识别，按工作中处理")
+                logger.warning(f"[Остров — рыбное хозяйство] {post_id}: состояние позиции не распознано; позиция считается работающей")
         self.post_close()
         return collected
 
@@ -293,11 +293,11 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                 continue
             if self.appear(ISLAND_SELECT_CHARACTER_CHECK, offset=1):
                 if self.select_character(character_list=self.rancher_filter):
-                    if not self.confirm_selected_character(f"{product}养殖派遣"):
+                    if not self.confirm_selected_character(f"{product} — выращивание"):
                         self.back_to_postmanage_from_dispatch()
                         return False
                 else:
-                    logger.warning(f"[岛屿-渔场] {product}养殖派遣无可用角色: {self.rancher_filter}")
+                    logger.warning(f"[Остров — рыбное хозяйство] Для выращивания {product} нет доступных персонажей: {self.rancher_filter}")
                     self.back_to_postmanage_from_dispatch()
                     return False
                 continue
@@ -307,13 +307,13 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                             item_button=item_config['shop'],
                             required_quantity=required_quantity,
                             shop_check=ISLAND_FRY_SHOP_CHECK,
-                            item_name=f"{product}鱼苗",
+                            item_name=f"мальки {product}",
                             tab_check=tab_check,
                             tab_button=tab_button,
                     ):
                         continue
                     self.device.sleep(0.3)
-                    if not self.confirm_post_add_order(f"{product}养殖派遣"):
+                    if not self.confirm_post_add_order(f"{product} — выращивание"):
                         self.back_to_postmanage_from_dispatch()
                         return False
                     break
@@ -342,7 +342,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                 break
         if product in self.to_plant_list:
             removed = self._remove_plant_demand(product, post_number)
-            logger.info(f"[岛屿-渔场] 已安排养殖{product}扣除补种需求: {removed}/{post_number}")
+            logger.info(f"[Остров — рыбное хозяйство] Для запланированного выращивания {product} потребность уменьшена на {removed}/{post_number}")
 
         # 关闭详情弹窗，防止后续操作被弹窗遮挡
         self.post_close()
@@ -360,8 +360,8 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                 product, count, supply_post_counts, default_post_counts
             )
             logger.info(
-                f"{product}鱼苗补货计划，补种需求{supply_demand}个，排产{count}岗，"
-                f"本轮目标{total_purchase}个，每岗上限{buy_max}个"
+                f"План пополнения мальков {product}: потребность {supply_demand}, позиций {count}, "
+                f"цель в этом цикле {total_purchase}, лимит на позицию {buy_max}"
             )
             remaining = total_purchase
             quantities = []
@@ -406,7 +406,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
         idle_posts = []
         collected_posts = []
 
-        logger.info("[岛屿-渔场] 首轮检查渔场岗位，收取已完成鱼获并记录工作中岗位")
+        logger.info("[Остров — рыбное хозяйство] Первичная проверка позиций: сбор готового улова и фиксация работающих позиций")
         for i in range(self.fishery_positions):
             post_id = f'ISLAND_FISHERY_POST{i + 1}'
             button = post_id_to_button[post_id]
@@ -422,24 +422,24 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                 })
 
         if collected_posts:
-            logger.info(f"[岛屿-渔场] 首轮渔场岗位检查已收取完成鱼获: {collected_posts}")
+            logger.info(f"[Остров — рыбное хозяйство] На первичной проверке собран готовый улов: {collected_posts}")
         else:
-            logger.info("[岛屿-渔场] 首轮渔场岗位检查没有发现可收取鱼获")
+            logger.info("[Остров — рыбное хозяйство] На первичной проверке готовый улов не найден")
 
         self.check_inventory_and_prepare_list()
         self._remove_working_fishery_demand()
 
-        logger.info("[岛屿-渔场] \n当前库存统计:")
-        logger.info(f"[岛屿-渔场] 渔场库存: {self.inventory_counts}")
+        logger.info("[Остров — рыбное хозяйство] \nТекущие запасы:")
+        logger.info(f"[Остров — рыбное хозяйство] Запасы рыбного хозяйства: {self.inventory_counts}")
 
         self.goto_postmanage()
         self.post_manage_mode(POST_MANAGE_PRODUCTION)
         self.post_close()
 
-        logger.info(f"[岛屿-渔场] \n空闲岗位统计: {len(idle_posts)}个空闲岗位")
+        logger.info(f"[Остров — рыбное хозяйство] \nСвободных позиций: {len(idle_posts)}")
 
         if not idle_posts:
-            logger.info("[岛屿-渔场] 没有空闲岗位，跳过养殖")
+            logger.info("[Остров — рыбное хозяйство] Свободных позиций нет; выращивание пропущено")
         else:
             # 确定需要养殖的产品
             products_to_plant, remaining_idle, supply_post_counts = self._build_supply_plant_products(len(idle_posts))
@@ -452,7 +452,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                 if self.posts[post_id]['crop'] == 'yellowfin_tuna':
                     already_planted_default += 1
 
-            logger.info(f"[岛屿-渔场] 已有{already_planted_default}个岗位养殖了黄鳍金枪鱼，配置要求{self.plant_yellowfin_tuna}个")
+            logger.info(f"[Остров — рыбное хозяйство] Уже занято yellowfin_tuna: {already_planted_default} поз.; по конфигурации требуется {self.plant_yellowfin_tuna}")
 
             need_default = max(0, self.plant_yellowfin_tuna - already_planted_default)
 
@@ -463,7 +463,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                     default_post_counts['yellowfin_tuna'] = default_post_counts.get('yellowfin_tuna', 0) + 1
 
             if products_to_plant:
-                logger.info(f"[岛屿-渔场] \n需要养殖的产品: {products_to_plant}")
+                logger.info(f"[Остров — рыбное хозяйство] \nТребуется выращивать: {products_to_plant}")
                 fry_quantity_queue = self._build_fry_quantity_queue(
                     products_to_plant,
                     supply_post_counts,
@@ -473,12 +473,12 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                 # 养殖
                 for i, post_info in enumerate(idle_posts):
                     if i >= len(products_to_plant):
-                        logger.info(f"[岛屿-渔场] 跳过渔场岗位{post_info['post_id']}: 没有需要养殖的产品")
+                        logger.info(f"[Остров — рыбное хозяйство] Позиция {post_info['post_id']} пропущена: нет требуемого продукта")
                         continue
 
                     product_to_plant = products_to_plant[i]
                     required_quantity = fry_quantity_queue[i]
-                    logger.info(f"[岛屿-渔场] 尝试养殖渔场岗位{post_info['post_id']}: {product_to_plant}")
+                    logger.info(f"[Остров — рыбное хозяйство] Попытка выращивания на позиции {post_info['post_id']}: {product_to_plant}")
 
                     success = self.post_plant(
                         post_info['button'],
@@ -488,9 +488,9 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                     )
 
                     if success:
-                        logger.info(f"[岛屿-渔场] 养殖渔场岗位{post_info['post_id']}成功: {product_to_plant}")
+                        logger.info(f"[Остров — рыбное хозяйство] Выращивание на позиции {post_info['post_id']} успешно: {product_to_plant}")
 
-        logger.info("[岛屿-渔场] \n渔场管理完成！")
+        logger.info("[Остров — рыбное хозяйство] \nУправление рыбным хозяйством завершено")
 
         # 设置下次运行时间：合并牧场和渔场的计时器，取最早的时间
         future_finish = []
@@ -499,16 +499,16 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
         # 合并牧场的结束时间（如果传入了的话）
         if ranch_finish_times:
             future_finish.extend(ranch_finish_times)
-            logger.info(f'[岛屿-渔场] 合并牧场 {len(ranch_finish_times)} 个计时器')
+            logger.info(f'[Остров — рыбное хозяйство] Добавлено таймеров ранчо: {len(ranch_finish_times)}')
         # === 修复：添加渔场自身的完成时间 ===
         fishery_finish_times = [t for t in self.fishery_times if t is not None]
         if fishery_finish_times:
             future_finish.extend(fishery_finish_times)
-            logger.info(f'[岛屿-渔场] 合并渔场 {len(fishery_finish_times)} 个计时器')
+            logger.info(f'[Остров — рыбное хозяйство] Добавлено таймеров рыбного хозяйства: {len(fishery_finish_times)}')
         future_finish.sort()
         self.config.task_delay(target=future_finish)
-        logger.info(f'[岛屿-渔场] 渔场任务完成，合并后总共 {len(future_finish)} 个计时器，下次运行时间: {future_finish[0]}')
+        logger.info(f'[Остров — рыбное хозяйство] Задача завершена, всего таймеров: {len(future_finish)}, следующий запуск: {future_finish[0]}')
 
         if self.island_error:
             from module.exception import GameBugError
-            raise GameBugError("检测到岛屿ERROR1，需要重启")
+            raise GameBugError("Обнаружен Island ERROR1; требуется перезапуск")

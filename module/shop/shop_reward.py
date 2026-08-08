@@ -32,7 +32,7 @@ class RewardShop(ShopUI):
         if self.config.GeneralShop_Enable:
             GeneralShop_250814(self.config, self.device).run()
         else:
-            logger.info('[商店-通用] 通用商店已禁用，跳过')
+            logger.info('[Магазин — общий] Общий магазин отключён; пропуск')
 
         self.config.task_delay(server_update=True)
 
@@ -51,7 +51,7 @@ class RewardShop(ShopUI):
         if self.config.MeritShop_Enable:
             MeritShop_250814(self.config, self.device).run()
         else:
-            logger.info('[商店-军需] 军需商店已禁用，跳过')
+            logger.info('[Магазин — снабжение] Магазин снабжения отключён; пропуск')
 
         self.device.click_record_clear()
         self.shop_nav_250814.set(NAV_GENERAL, main=self)
@@ -59,7 +59,7 @@ class RewardShop(ShopUI):
         if self.config.GuildShop_Enable:
             GuildShop_250814(self.config, self.device).run()
         else:
-            logger.info('[商店-舰队] 舰队商店已禁用，跳过')
+            logger.info('[Магазин — гильдия] Магазин гильдии отключён; пропуск')
 
         # 核心限定、核心月度、勋章、原型
         self.device.click_record_clear()
@@ -68,7 +68,7 @@ class RewardShop(ShopUI):
         if self.config.CoreShop_Enable:
             CoreShop_250814(self.config, self.device).run()
         else:
-            logger.info('[商店-核心] 核心商店已禁用，跳过')
+            logger.info('[Магазин — ядра] Магазин ядер отключён; пропуск')
 
         self.device.click_record_clear()
         self.shop_nav_250814.set(NAV_MONTHLY, main=self)
@@ -76,7 +76,7 @@ class RewardShop(ShopUI):
         if self.config.MedalShop2_Enable:
             MedalShop2_250814(self.config, self.device).run()
         else:
-            logger.info('[商店-勋章] 勋章商店已禁用，跳过')
+            logger.info('[Магазин — медали] Магазин медалей отключён; пропуск')
 
         self.config.task_delay(server_update=True)
 

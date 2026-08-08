@@ -68,7 +68,7 @@ class VoucherShop(ShopClerk, ShopStatus):
         left_column = self.image_crop((305, 306, 1256, 646), copy=False)
         vouchers = TEMPLATE_VOUCHER_ICON.match_multi(left_column, similarity=0.75, threshold=5)
         vouchers = Points([(0., v.area[1]) for v in vouchers]).group(threshold=5)
-        logger.attr('代币图标数', len(vouchers))
+        logger.attr('Количество значков жетонов', len(vouchers))
         return vouchers
 
     def wait_until_voucher_appear(self, skip_first_screenshot=True):
@@ -107,7 +107,7 @@ class VoucherShop(ShopClerk, ShopStatus):
         vouchers = self._get_vouchers()
         count = len(vouchers)
         if count == 0:
-            logger.warning('未找到代币图标，假设商品列表在顶部')
+            logger.warning('Значки жетонов не найдены; предполагается, что список товаров находится сверху')
             origin_y = 200
             delta_y = 191
             row = 2
@@ -125,7 +125,7 @@ class VoucherShop(ShopClerk, ShopStatus):
             delta_y = abs(y1 - y2)
             row = 2
         else:
-            logger.warning(f'意外的代币图标匹配结果: {[v.area for v in vouchers]}')
+            logger.warning(f'Неожиданный результат сопоставления значков жетонов: {[v.area for v in vouchers]}')
             origin_y = 200
             delta_y = 191
             row = 2
@@ -185,7 +185,7 @@ class VoucherShop(ShopClerk, ShopStatus):
             int: 凭证数量
         """
         self._currency = self.status_get_voucher()
-        logger.info(f'凭证: {self._currency}')
+        logger.info(f'Жетоны: {self._currency}')
         return self._currency
 
     def shop_interval_clear(self):
@@ -291,8 +291,8 @@ class VoucherShop(ShopClerk, ShopStatus):
                 return True
 
         logger.warning(
-            f'[{DATA_LOGGER_NAME}] purchase state machine timed out after '
-            f'{timeout_seconds} seconds'
+            f'[{DATA_LOGGER_NAME}] тайм-аут автомата покупки через '
+            f'{timeout_seconds} секунд'
         )
         return False
 
@@ -326,7 +326,7 @@ class VoucherShop(ShopClerk, ShopStatus):
         shop_items = self.shop_items()
         target_template = shop_items.templates.get(DATA_LOGGER_ITEM_NAME)
         if target_template is None:
-            logger.warning(f'[{DATA_LOGGER_NAME}] 缺少商品模板 {DATA_LOGGER_ITEM_NAME}')
+            logger.warning(f'[{DATA_LOGGER_NAME}] отсутствует шаблон товара {DATA_LOGGER_ITEM_NAME}')
             return DataLoggerShopState.UNKNOWN, None, 'target_template_missing'
 
         best_similarity = 0.0
@@ -361,7 +361,7 @@ class VoucherShop(ShopClerk, ShopStatus):
         for _ in range(12):
             items = self.shop_get_items()
             state, item, reason = self._data_logger_page_inspection(items)
-            logger.info(f'[{DATA_LOGGER_NAME}] shop state={state.value}, reason={reason}')
+            logger.info(f'[{DATA_LOGGER_NAME}] состояние магазина={state.value}, причина={reason}')
             if state is DataLoggerShopState.AVAILABLE:
                 return state, item, reason
             if state is DataLoggerShopState.SOLD_OUT:
@@ -372,8 +372,8 @@ class VoucherShop(ShopClerk, ShopStatus):
                     self._data_logger_page_inspection(confirm_items)
                 )
                 logger.info(
-                    f'[{DATA_LOGGER_NAME}] repeated shop state='
-                    f'{confirm_state.value}, reason={confirm_reason}'
+                    f'[{DATA_LOGGER_NAME}] повторное состояние магазина='
+                    f'{confirm_state.value}, причина={confirm_reason}'
                 )
                 if confirm_state is DataLoggerShopState.AVAILABLE:
                     return confirm_state, confirm_item, confirm_reason
@@ -447,7 +447,7 @@ class VoucherShop(ShopClerk, ShopStatus):
             return
 
         # 调用时应已在凭证商店界面
-        logger.hr('[商店-代币] 代币商店', level=1)
+        logger.hr('[Магазин — жетоны] Магазин жетонов', level=1)
         self.wait_until_voucher_appear()
 
         # 执行购买操作
@@ -455,7 +455,7 @@ class VoucherShop(ShopClerk, ShopStatus):
         while 1:
             self.shop_buy()
             if VOUCHER_SHOP_SCROLL.at_bottom(main=self):
-                logger.info('[商店-代币] 代币商店到达底部，停止')
+                logger.info('[Магазин — жетоны] Достигнут конец магазина жетонов; остановка')
                 break
             else:
                 VOUCHER_SHOP_SCROLL.next_page(main=self)
@@ -475,21 +475,21 @@ class VoucherShop(ShopClerk, ShopStatus):
         self.shop_filter = 'LoggerArchive'
 
         # 调用时应已在凭证商店界面
-        logger.hr('[商店-代币] 代币商店单次购买', level=1)
+        logger.hr('[Магазин — жетоны] Разовая покупка в магазине жетонов', level=1)
         self.wait_until_voucher_appear()
 
         # 执行购买操作
         items = self.shop_get_items()
         self.shop_currency()
         if self._currency <= 0:
-            logger.warning(f'[商店-代币] 当前资金: {self._currency}，停止')
+            logger.warning(f'[Магазин — жетоны] Текущие средства: {self._currency}; остановка')
             return False
 
         item = self.shop_get_item_to_buy(items)
         if item is None:
-            logger.info('[商店-代币] 无记录仪档案可购买')
+            logger.info('[Магазин — жетоны] Нет архивов регистратора для покупки')
             return False
         self.shop_buy_execute(item)
 
-        logger.info('已购买单个记录仪档案')
+        logger.info('Куплен один архив регистратора')
         return True

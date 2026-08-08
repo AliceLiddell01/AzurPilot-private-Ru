@@ -48,7 +48,7 @@ class ResearchQueue(ResearchUI):
             in: RESEARCH_QUEUE_ADD (is_in_research, DETAIL_NEXT)
             out: is_in_research and stabled
         """
-        logger.hr('加入科研队列')
+        logger.hr('Добавление в очередь исследований')
         # POPUP_CONFIRM has just been clicked in research_project_start()
         self.popup_interval_clear()
         self.interval_clear([RESEARCH_QUEUE_ADD])
@@ -67,7 +67,7 @@ class ResearchQueue(ResearchUI):
                     self.device.click(RESEARCH_QUEUE_ADD)
                     continue
                 else:
-                    logger.info('[科研-队列] 项目条件未满足，取消')
+                    logger.info('[Исследование — очередь] Условия проекта не выполнены; отмена')
                     self.research_detail_cancel()
                     return False
 
@@ -153,7 +153,7 @@ class ResearchQueue(ResearchUI):
                 return 'running'
             else:
                 return 'empty'
-        logger.warning(f'[科研-队列] 未知的队列状态，来自 {button}，假设为运行中')
+        logger.warning(f'[Исследование — очередь] Неизвестное состояние очереди из {button}; считаем выполняющимся')
         return 'running'
 
     def get_queue_slot(self):
@@ -165,14 +165,14 @@ class ResearchQueue(ResearchUI):
             in: is_in_queue
         """
         status = [self._queue_status_detect(button) for button in self.queue_status_grids.buttons]
-        logger.info(f'[科研-队列] 科研队列: {status}')
+        logger.info(f'[Исследование — очередь] Очередь исследований: {status}')
         status = status[::-1]
         for index, s in enumerate(status):
             if s != 'empty':
-                logger.attr('科研队列槽位', index)
+                logger.attr('Слот очереди исследований', index)
                 return index
         index = len(status)
-        logger.attr('科研队列槽位', index)
+        logger.attr('Слот очереди исследований', index)
         return index
 
     def get_research_ended(self):
@@ -187,14 +187,14 @@ class ResearchQueue(ResearchUI):
             GameBugError:
         """
         if self.image_color_count(QUEUE_REMAIN, color=(123, 125, 123), threshold=235, count=100):
-            logger.error('[科研-队列] 队列中第一个科研未运行，'
-                         '可能是游戏bug，'
-                         '重启游戏应该能修复。')
+            logger.error('[Исследование — очередь] Первый проект в очереди не запущен; '
+                         'возможно, это ошибка игры. '
+                         'Перезапуск игры должен помочь.')
             raise GameBugError
         if not self.image_color_count(QUEUE_REMAIN, color=(255, 255, 255), threshold=221, count=100):
-            logger.info('[科研-队列] 科研队列为空')
+            logger.info('[Исследование — очередь] Очередь исследований пуста')
             return current_time()
 
         end_time = current_time() + OCR_QUEUE_REMAIN.ocr(self.device.image)
-        logger.info(f'[科研-队列] 第一个科研结束时间: {end_time}')
+        logger.info(f'[Исследование — очередь] Время завершения первого проекта: {end_time}')
         return end_time

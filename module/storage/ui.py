@@ -53,7 +53,7 @@ class StorageUI(UI):
             in: page_storage, any
             out: page_storage, material, MATERIAL_CHECK
         """
-        logger.info('仓库进入材料')
+        logger.info('Переход в материалы хранилища')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -69,13 +69,13 @@ class StorageUI(UI):
                 continue
             # equipment -> material
             if self.appear(DISASSEMBLE, offset=(20, 20), interval=3):
-                logger.info('[存储-UI] 拆解 -> 材料进入')
+                logger.info('[Хранилище — UI] Разбор -> переход в материалы')
                 self.device.click(MATERIAL_ENTER)
                 self.interval_reset(STORAGE_CHECK)
                 continue
             # design -> material
             if self.appear(STORAGE_CHECK, offset=(20, 20), interval=3):
-                logger.info('[存储-UI] 拆解 -> 材料进入')
+                logger.info('[Хранилище — UI] Разбор -> переход в материалы')
                 self.device.click(MATERIAL_ENTER)
                 continue
 
@@ -87,7 +87,7 @@ class StorageUI(UI):
             in: page_storage, any
             out: page_storage, equipment, DISASSEMBLE
         """
-        logger.info('仓库进入装备')
+        logger.info('Переход в снаряжение хранилища')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -109,7 +109,7 @@ class StorageUI(UI):
                 continue
             # design -> equipment
             if self.appear(STORAGE_CHECK, offset=(20, 20), interval=3):
-                logger.info('[存储-UI] 存储检查 -> 装备进入')
+                logger.info('[Хранилище — UI] Проверка хранилища -> переход в снаряжение')
                 self.device.click(EQUIPMENT_ENTER)
                 continue
 
@@ -121,7 +121,7 @@ class StorageUI(UI):
             in: page_storage, any
             out: page_storage, disassemble, DISASSEMBLE_CANCEL
         """
-        logger.info('仓库进入拆解')
+        logger.info('Переход к разбору в хранилище')
         self.appear(STORAGE_CHECK, interval=3)
         while 1:
             if skip_first_screenshot:
@@ -145,14 +145,14 @@ class StorageUI(UI):
                 continue
             # design -> equipment
             if self.appear(STORAGE_CHECK, offset=(20, 20), interval=3):
-                logger.info('[存储-UI] 存储检查 -> 装备进入')
+                logger.info('[Хранилище — UI] Проверка хранилища -> переход в снаряжение')
                 self.device.click(EQUIPMENT_ENTER)
                 continue
 
         self.interval_clear(STORAGE_CHECK)
 
     def _equipment_filter_enter(self):
-        logger.info('装备筛选进入')
+        logger.info('Открытие фильтра снаряжения')
         self.interval_clear(STORAGE_CHECK)
         for _ in self.loop():
             if self.appear(EQUIPMENT_FILTER_CONFIRM, offset=(20, 20)):
@@ -170,7 +170,7 @@ class StorageUI(UI):
                 continue
 
     def _equipment_filter_confirm(self):
-        logger.info('装备筛选确认')
+        logger.info('Подтверждение фильтра снаряжения')
         self.interval_clear(EQUIPMENT_FILTER_CONFIRM)
         self.ui_click(EQUIPMENT_FILTER_CONFIRM, check_button=STORAGE_CHECK, skip_first_screenshot=True)
         self._wait_until_storage_stable()

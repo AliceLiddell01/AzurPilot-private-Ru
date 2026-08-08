@@ -21,7 +21,7 @@ class DataKey(UI):
             in: page_archives
             out: page_archives, DATA_KEY_COLLECTED
         """
-        logger.hr('数据钥匙收集')
+        logger.hr('Сбор ключей данных')
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -43,7 +43,7 @@ class DataKey(UI):
 
             # End
             if self.appear(WAR_ARCHIVES_CHECK, offset=(20, 20)) and self.appear(DATA_KEY_COLLECTED, offset=(20, 20)):
-                logger.info('[免费福利-钥匙] 数据钥匙收集完成')
+                logger.info('[Бонусы — ключи] Сбор ключей данных завершён')
                 break
 
     def data_key_collect(self):
@@ -57,13 +57,13 @@ class DataKey(UI):
             in: page_archives
         """
         if self.appear(DATA_KEY_COLLECTED, offset=(20, 20)):
-            logger.info('[免费福利-钥匙] 数据钥匙已收集')
+            logger.info('[Бонусы — ключи] Ключи данных уже собраны')
             return False
 
         current, remain, total = DATA_KEY.ocr(self.device.image)
-        logger.info(f'[免费福利-钥匙] 背包: {current} / {total}, 剩余: {remain}')
+        logger.info(f'[Бонусы — ключи] Инвентарь: {current} / {total}, свободно: {remain}')
         if not self.config.DataKey_ForceCollect and remain <= 0:
-            logger.info('[免费福利-钥匙] 没有更多空间存放数据钥匙')
+            logger.info('[Бонусы — ключи] Нет свободного места для дополнительных ключей данных')
             return False
 
         self._data_key_collect()

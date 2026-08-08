@@ -141,7 +141,7 @@ class Island(SelectCharacter):
             if self.appear_then_click(FILTER_RESET, interval=1):
                 continue
         else:
-            raise GameStuckError("仓库筛选器重置超时")
+            raise GameStuckError("Истекло время сброса фильтра склада")
 
         # 处理第一个按钮
         # 确定按钮属于哪个网格并获取按钮对象
@@ -150,7 +150,7 @@ class Island(SelectCharacter):
         elif button1 in from_map:
             button_obj = self.warehouse_filter_from[from_map[button1]]
         else:
-            raise ValueError(f"未知的按钮名称: {button1}")
+            raise ValueError(f"Неизвестное имя кнопки: {button1}")
 
         click_timer = Timer(1)
         for _ in self.loop(timeout=8, skip_first=False):
@@ -163,7 +163,7 @@ class Island(SelectCharacter):
                 click_timer.reset()
                 continue
         else:
-            raise GameStuckError(f"仓库筛选按钮选择超时: {button1}")
+            raise GameStuckError(f"Истекло время выбора кнопки фильтра склада: {button1}")
 
         # 处理第二个按钮（如果有）
         if button2:
@@ -173,7 +173,7 @@ class Island(SelectCharacter):
             elif button2 in from_map:
                 button2_obj = self.warehouse_filter_from[from_map[button2]]
             else:
-                raise ValueError(f"未知的按钮名称: {button2}")
+                raise ValueError(f"Неизвестное имя кнопки: {button2}")
 
             click_timer = Timer(1)
             for _ in self.loop(timeout=8, skip_first=False):
@@ -186,7 +186,7 @@ class Island(SelectCharacter):
                     click_timer.reset()
                     continue
             else:
-                raise GameStuckError(f"仓库筛选按钮选择超时: {button2}")
+                raise GameStuckError(f"Истекло время выбора кнопки фильтра склада: {button2}")
         self.appear_then_click(FILTER_CONFIRM)
         self.device.sleep(1)
 
@@ -218,7 +218,7 @@ class Island(SelectCharacter):
                 if self.ui_additional(get_ship=False):
                     continue
             else:
-                raise GameStuckError("进入岛屿管理页面超时")
+                raise GameStuckError("Истекло время входа на страницу управления островом")
             if self.appear(ISLAND_SEASON_CHECK, offset=1):
                 self.ui_goto(page_island_management, get_ship=False)
 
@@ -240,39 +240,39 @@ class Island(SelectCharacter):
         self.device.sleep(3)
         for _ in self.loop(timeout=30, skip_first=False):
             if self.is_in_friend_island():
-                logger.info("[岛屿] 二次检测拜访状态......")
+                logger.info("[Остров] Повторная проверка состояния посещения...")
                 # 在等待的过程中, 先后会出现黑底黄鸡loading、UI(一闪而过)、白底沙漏loading
 				# 因此等待1s后进行二次确认, 避免中间UI一闪而过时出现误判
                 self.device.sleep(1)
                 self.device.screenshot()
                 if self.is_in_friend_island():
                     self._island_expect_friend = True
-                    logger.info("[岛屿] 成功进入好友岛屿")
+                    logger.info("[Остров] Успешный вход на остров друга")
                     return True
             if self.appear(CANT_ACCESS, offset=(20, 20)):
-                logger.info("[岛屿] 好友不可访问")
+                logger.info("[Остров] Остров друга недоступен")
                 return False
             if click_timer.reached():
                 self.device.click(visit_button)
                 click_timer.reset()
             if self.ui_additional():
                 continue
-        logger.warning("[岛屿] 拜访好友超时")
+        logger.warning("[Остров] Истекло время посещения друга")
         return False
 
     def exit_friend_island(self):
         """退出好友岛屿。"""
-        logger.info("[岛屿] 退出好友岛屿")
+        logger.info("[Остров] Выход с острова друга")
         self._island_expect_friend = False
         for _ in self.loop(timeout=30):
             if self.appear_then_click(AIR_DROP_RUN_AWAY, offset=(20, 20), interval=2):
                 continue
             if self.appear(ISLAND_GOTO_MAP):
-                logger.info("[岛屿] 成功退出好友岛屿")
+                logger.info("[Остров] Успешный выход с острова друга")
                 return True
             if self.ui_additional():
                 continue
-        logger.warning("[岛屿] 退出好友岛屿超时")
+        logger.warning("[Остров] Истекло время выхода с острова друга")
         return False
 
     def _wait_island_map_entry(self, timeout=3):
@@ -303,7 +303,7 @@ class Island(SelectCharacter):
         }
 
     def goto_island_map(self):
-        logger.hr("岛屿-前往地图", level=2)
+        logger.hr("Остров — переход к карте", level=2)
         expect_friend = bool(getattr(self, "_island_expect_friend", False))
         status = self._wait_island_map_entry(timeout=10 if expect_friend else 3)
         in_map = status["in_map"]
@@ -312,23 +312,23 @@ class Island(SelectCharacter):
         access_map = status["access_map"]
         if not in_map and not in_friend and not home_map and not access_map:
             if expect_friend:
-                logger.warning("[岛屿] 预期已进入好友岛，但暂未识别到地图入口，继续等待好友岛入口")
+                logger.warning("[Остров] Ожидался вход на остров друга, но вход на карту пока не распознан; ожидание продолжается")
             else:
-                logger.info("[岛屿] 当前不在岛屿地图或好友岛，先导航到本岛")
+                logger.info("[Остров] Текущая страница не является картой острова или островом друга; сначала переход на свой остров")
                 self.ui_goto(page_island,get_ship=False)
 
         for _ in self.loop(timeout=30 if expect_friend else 20, skip_first=False):
             if self.appear(ISLAND_MAP_CHECK):
-                logger.info("[岛屿] 已进入岛屿地图")
+                logger.info("[Остров] Карта острова открыта")
                 return True
             if self.appear_then_click(ISLAND_GOTO_MAP):
-                logger.info("[岛屿] 点击本岛地图入口")
+                logger.info("[Остров] Нажат вход на карту своего острова")
                 continue
             if self.appear_then_click(ISLAND_ACCESS_MAP, offset=(20, 20)):
-                logger.info("[岛屿] 点击好友岛右上角地图入口")
+                logger.info("[Остров] Нажат вход на карту острова друга в правом верхнем углу")
                 continue
         else:
-            logger.warning("[岛屿] 进入岛屿地图超时")
+            logger.warning("[Остров] Истекло время входа на карту острова")
             return False
 
     def island_map_goto(self,destination):
@@ -345,14 +345,14 @@ class Island(SelectCharacter):
                 return ISLAND_MAP_PORT, ISLAND_MAP_PORT_CHECK
             if name == 'port_business':
                 return ISLAND_MAP_PORT_BUSINESS, ISLAND_MAP_PORT_BUSINESS_CHECK
-            raise ValueError(f"未知的岛屿地图目的地: {name}")
+            raise ValueError(f"Неизвестная точка назначения на карте острова: {name}")
 
         def get_friend_destination_check_button(name):
             if name == 'assembly':
                 return ISLAND_MAP_ASSEMBLY_FRIEND_CHECK
             if name == 'port':
                 return ISLAND_MAP_PORT_FRIEND_CHECK
-            raise ValueError(f"好友岛地图不支持目的地: {name}")
+            raise ValueError(f"Карта острова друга не поддерживает точку назначения: {name}")
 
         destination_button, check_button = get_destination_buttons(destination)
         in_friend = bool(getattr(self, "_island_expect_friend", False))
@@ -365,13 +365,13 @@ class Island(SelectCharacter):
         for _ in self.loop(timeout=20, skip_first=False):
             if not destination_clicked:
                 if self.appear_then_click(destination_button, interval=1):
-                    logger.info(f"[岛屿] 点击岛屿地图目的地: {destination}")
+                    logger.info(f"[Остров] Нажата точка назначения на карте: {destination}")
                     destination_clicked = True
                 continue
 
             if self.appear(check_button, offset=(20, 20)):
                 logger.info(
-                    f"[岛屿] 岛屿地图目的地详情已识别: {destination} "
+                    f"[Остров] Распознаны сведения о точке назначения на карте: {destination} "
                     f"({check_button.name})"
                 )
                 self.device.click(ISLAND_MAP_CONFIRM)
@@ -381,7 +381,7 @@ class Island(SelectCharacter):
                 continue
 
         if not confirmed:
-            logger.warning(f"[岛屿] 岛屿地图目的地选择超时: {destination}")
+            logger.warning(f"[Остров] Истекло время выбора точки назначения на карте: {destination}")
             return False
 
         confirm_wait = Timer(ISLAND_MAP_CONFIRM_WAIT).start()
@@ -401,10 +401,10 @@ class Island(SelectCharacter):
                     or (in_friend and self.is_in_friend_island())
             ):
                 self.device.sleep(1)
-                logger.info(f"[岛屿] 岛屿地图进入成功: {destination}")
+                logger.info(f"[Остров] Успешный вход в точку назначения на карте: {destination}")
                 return True
 
-        logger.warning(f"[岛屿] 岛屿地图进入目的地超时: {destination}")
+        logger.warning(f"[Остров] Истекло время входа в точку назначения на карте: {destination}")
         return False
     def post_manage_mode(self, post_manage_mode):
         post_manage_button = POST_MANAGE_BUSINESS if post_manage_mode == POST_MANAGE_PRODUCTION else POST_MANAGE_PRODUCTION
@@ -421,7 +421,7 @@ class Island(SelectCharacter):
                     self.device.click(post_manage_button)
                     direct_click_timer.reset()
                     continue
-        raise GameStuckError(f"切换岗位管理页签超时: {post_manage_mode}")
+        raise GameStuckError(f"Истекло время переключения вкладки управления позициями: {post_manage_mode}")
 
     def post_manage_mode_collection(self):
         """
@@ -433,7 +433,7 @@ class Island(SelectCharacter):
                 return True
             if self.appear_then_click(ISLAND_GATHER_COLLECT, interval=1):
                 continue
-        raise GameStuckError("切换采集页签超时")
+        raise GameStuckError("Истекло время переключения на вкладку сбора")
 
     def select_product(self, product_selection, product_selection_check):
         # 清理之前可能残留的滑动记录，避免多次调用累积触发单按钮死循环检测
@@ -465,7 +465,7 @@ class Island(SelectCharacter):
 
     def _handle_select_product_failure(self, product):
         """select_product 失败时的统一处理：记录警告、关闭岗位面板、返回 False"""
-        logger.warning(f"[岛屿] select_product 失败：未能找到产品 {product} 的选择项")
+        logger.warning(f"[Остров] select_product: не удалось найти вариант выбора продукта {product}")
         self.device.click(POST_CLOSE)
         return False
 
@@ -479,7 +479,7 @@ class Island(SelectCharacter):
             if self.is_post_detail_visible():
                 self.device.click(POST_CLOSE)
                 continue
-        logger.warning("[岛屿] 关闭岗位详情超时")
+        logger.warning("[Остров] Истекло время закрытия сведений о позиции")
         return False
 
     def is_post_detail_visible(self):
@@ -515,7 +515,7 @@ class Island(SelectCharacter):
             if self.is_post_detail_visible() and not self.appear(POST_GET, offset=(50, 0)):
                 self.device.click(POST_CLOSE)
                 continue
-        logger.warning("[岛屿] 收取并关闭岗位详情超时")
+        logger.warning("[Остров] Истекло время получения и закрытия сведений о позиции")
         return False
 
     def post_get_stay(self):
@@ -538,7 +538,7 @@ class Island(SelectCharacter):
                 continue
             if (self.is_post_detail_visible() or self.ui_page_appear(page_island_postmanage)):
                 return True
-        logger.warning("[岛屿] 收取当前岗位产物超时")
+        logger.warning("[Остров] Истекло время получения продукции текущей позиции")
         return False
 
     def post_get_and_add(self,product_selection,product_selection_check):
@@ -564,18 +564,18 @@ class Island(SelectCharacter):
                 continue
             if self.appear(ISLAND_SELECT_CHARACTER_CHECK,offset=1):
                 if self.select_character():
-                    if not self.confirm_selected_character("岗位追加派遣"):
+                    if not self.confirm_selected_character("Дополнительное назначение на позицию"):
                         self.back_to_postmanage_from_dispatch()
                         return False
                 else:
-                    logger.warning("[岛屿] 岗位追加派遣无可用角色")
+                    logger.warning("[Остров] Нет доступных персонажей для дополнительного назначения на позицию")
                     self.back_to_postmanage_from_dispatch()
                     return False
                 continue
             if self.appear(ISLAND_SELECT_PRODUCT_CHECK,offset=1):
                 if self.select_product(product_selection,product_selection_check):
                     self.device.sleep(0.3)
-                    if not self.confirm_post_add_order("岗位派遣"):
+                    if not self.confirm_post_add_order("Назначение на позицию"):
                         self.back_to_postmanage_from_dispatch()
                         return False
                 else:
@@ -595,7 +595,7 @@ class Island(SelectCharacter):
                     and not self.is_post_detail_visible()
             ):
                 return True
-        logger.warning("[岛屿] 收取并追加岗位派遣超时")
+        logger.warning("[Остров] Истекло время получения и дополнительного назначения на позицию")
         return False
 
     def back_to_postmanage_from_dispatch(self):
@@ -622,10 +622,10 @@ class Island(SelectCharacter):
                 self.device.click(POST_CLOSE)
                 continue
 
-        logger.warning("[岛屿] 从派遣流程返回岗位管理页超时")
+        logger.warning("[Остров] Истекло время возврата к управлению позициями из процесса назначения")
         return False
 
-    def confirm_post_add_order(self, context="岗位派遣"):
+    def confirm_post_add_order(self, context="Назначение на позицию"):
         """材料确认足够后，点击最大数量并确认派遣。"""
         clicked = False
         max_clicked = False
@@ -659,7 +659,7 @@ class Island(SelectCharacter):
                 unavailable_timer.reset()
                 if not clicked or retry_confirm_timer.reached():
                     if clicked:
-                        logger.info(f"[岛屿] {context}确认后仍停留在产品选择页，重试确认")
+                        logger.info(f"[Остров] После подтверждения «{context}» всё ещё открыта страница выбора продукта; повтор подтверждения")
                     self.device.click(POST_ADD_ORDER)
                     clicked = True
                     retry_confirm_timer.reset()
@@ -668,23 +668,23 @@ class Island(SelectCharacter):
             if not clicked and unavailable_timer.reached():
                 current, required = self.ocr_select_product_material_counter()
                 if required and current < required:
-                    logger.warning(f"[岛屿] {context}材料不足，确认按钮不可用: {current}/{required}")
+                    logger.warning(f"[Остров] Для «{context}» недостаточно материалов; кнопка подтверждения недоступна: {current}/{required}")
                 else:
-                    logger.warning(f"[岛屿] {context}材料已确认足够，但确认按钮不可用，可能角色体力不足")
+                    logger.warning(f"[Остров] Для «{context}» материалов достаточно, но кнопка подтверждения недоступна; возможно, не хватает выносливости персонажа")
                 return False
 
         if clicked or button_seen:
-            logger.warning(f"[岛屿] {context}确认后仍停留在产品选择页")
+            logger.warning(f"[Остров] После подтверждения «{context}» всё ещё открыта страница выбора продукта")
             return False
 
         current, required = self.ocr_select_product_material_counter()
         if required and current < required:
-            logger.warning(f"[岛屿] {context}材料不足，确认按钮不可用: {current}/{required}")
+            logger.warning(f"[Остров] Для «{context}» недостаточно материалов; кнопка подтверждения недоступна: {current}/{required}")
         else:
-            logger.warning(f"[岛屿] {context}材料已确认足够，但确认按钮不可用，可能角色体力不足")
+            logger.warning(f"[Остров] Для «{context}» материалов достаточно, но кнопка подтверждения недоступна; возможно, не хватает выносливости персонажа")
         return False
 
-    def confirm_selected_character(self, context="岗位派遣"):
+    def confirm_selected_character(self, context="Назначение на позицию"):
         """确认角色选择，并等待角色选择页切换到下一步。"""
         if not self.click_selected_character_confirm(context=context):
             return False
@@ -706,10 +706,10 @@ class Island(SelectCharacter):
                 if self.appear_then_click(SELECT_UI_CONFIRM, interval=1):
                     continue
 
-        logger.warning(f"[岛屿] {context}确认后未进入下一步")
+        logger.warning(f"[Остров] После подтверждения «{context}» переход к следующему шагу не выполнен")
         return False
 
-    def confirm_selected_character_closed(self, context="角色选择", timeout=8):
+    def confirm_selected_character_closed(self, context="Выбор персонажа", timeout=8):
         """确认角色选择，并等待角色选择页关闭。"""
         if not self.click_selected_character_confirm(context=context):
             return False
@@ -720,10 +720,10 @@ class Island(SelectCharacter):
             if self.appear_then_click(SELECT_UI_CONFIRM, interval=1):
                 continue
 
-        logger.warning(f"[岛屿] {context}确认后仍停留在角色选择页")
+        logger.warning(f"[Остров] После подтверждения «{context}» страница выбора персонажа всё ещё открыта")
         return False
 
-    def click_selected_character_confirm(self, context="角色选择", timeout=5):
+    def click_selected_character_confirm(self, context="Выбор персонажа", timeout=5):
         """等待角色确认按钮出现并点击。"""
         self.interval_clear([SELECT_UI_CONFIRM])
         for _ in self.loop(timeout=timeout, skip_first=False):
@@ -733,7 +733,7 @@ class Island(SelectCharacter):
                 return True
 
         if self.appear(ISLAND_SELECT_CHARACTER_CHECK, offset=1):
-            logger.warning(f"[岛屿] {context}确认按钮未出现")
+            logger.warning(f"[Остров] Для «{context}» кнопка подтверждения не появилась")
             return False
         return True
 
@@ -764,7 +764,7 @@ class Island(SelectCharacter):
                     and retry_swipe_timer.reached()
             ):
                 retry_swipe_used += 1
-                logger.info(f"[岛屿] 未识别到岗位按钮 {post}，第{retry_swipe_used + 1}次滑动定位岗位列表")
+                logger.info(f"[Остров] Кнопка позиции {post} не распознана; попытка {retry_swipe_used + 1} определить позицию прокруткой списка")
                 self.post_manage_swipe(getattr(self, 'post_manage_swipe_count', 1))
                 retry_swipe_timer.reset()
                 continue
@@ -776,7 +776,7 @@ class Island(SelectCharacter):
                 if full_retry_used < getattr(self, 'post_open_full_retry_limit', 1):
                     full_retry_used += 1
                     logger.warning(
-                        f"[岛屿] 岗位按钮 {post} 连续{retry_swipe_used + 1}次滑动定位失败，重新进入岗位管理页重试"
+                        f"[Остров] Кнопка позиции {post} не найдена после {retry_swipe_used + 1} попыток прокрутки; повторный вход в управление позициями"
                     )
                     self.post_close()
                     self.goto_postmanage()
@@ -785,8 +785,8 @@ class Island(SelectCharacter):
                     retry_swipe_used = 0
                     retry_swipe_timer.reset()
                     continue
-                raise GameStuckError(f"岗位按钮 {post} 完整重试后仍未识别")
-        raise GameStuckError(f"打开岗位详情超时: {post}")
+                raise GameStuckError(f"Кнопка позиции {post} не распознана после полного цикла повторных попыток")
+        raise GameStuckError(f"Истекло время открытия сведений о позиции: {post}")
     def post_manage_up_swipe(self,distance):
         self.device.swipe_vector(vector=(0, -distance), box=(688, 69, 725, 656), name="PostUpSwipe")
         self.device.click(POST_MANAGE_SWIPE_STOP, control_check=False)
@@ -850,16 +850,16 @@ class Island(SelectCharacter):
         for _ in self.loop(timeout=8, skip_first=False):
             if self.appear(tab_check, offset=1, threshold=30):
                 if click_count:
-                    logger.info(f"[岛屿] 商店页签检测成功: {tab_check}，点击 {click_count} 次")
+                    logger.info(f"[Остров] Вкладка магазина распознана: {tab_check}; нажатий: {click_count}")
                 return True
             if self.appear(tab_button, threshold=30):
                 click_count += 1
-                logger.info(f"[岛屿] 商店页签检测失败，点击页签: {tab_button} -> {tab_check}，第 {click_count} 次")
+                logger.info(f"[Остров] Вкладка магазина не распознана; нажатие вкладки: {tab_button} -> {tab_check}, попытка {click_count}")
                 self.device.click(tab_button)
                 self.device.sleep(1)
                 continue
 
-        logger.warning(f"[岛屿] 切换商店页签超时: tab={tab_button}, check={tab_check}, clicked={click_count}")
+        logger.warning(f"[Остров] Истекло время переключения вкладки магазина: tab={tab_button}, check={tab_check}, clicked={click_count}")
         return False
 
     def buy_shop_item(self, item_button, quantity, shop_check, item_name=None,
@@ -871,7 +871,7 @@ class Island(SelectCharacter):
                 return False
 
         if item_name:
-            logger.info(f"[岛屿] 购买 {item_name} x{quantity}")
+            logger.info(f"[Остров] Покупка {item_name} x{quantity}")
 
         for _ in self.loop(timeout=10, skip_first=False):
             if self.appear(ISLAND_SHOPPING_CHECK):
@@ -879,7 +879,7 @@ class Island(SelectCharacter):
             if self.appear_then_click(item_button, interval=1.2):
                 continue
         else:
-            logger.warning(f"[岛屿] 打开购买弹窗超时: {item_name or item_button}")
+            logger.warning(f"[Остров] Истекло время открытия окна покупки: {item_name or item_button}")
             return False
 
         if self.appear(ISLAND_SHOPPING_CHECK):
@@ -899,7 +899,7 @@ class Island(SelectCharacter):
                 self.device.click(ISLAND_SHOP_CONFIRM)
                 continue
         else:
-            logger.warning(f"[岛屿] 确认购买超时: {item_name or item_button}")
+            logger.warning(f"[Остров] Истекло время подтверждения покупки: {item_name or item_button}")
             return False
 
         if self.appear(ISLAND_SHOP_GET):
@@ -918,12 +918,12 @@ class Island(SelectCharacter):
 
             if not in_select_product and tab_check is not None and in_tab:
                 if tab_click_count:
-                    logger.info(f"[岛屿] 补货商店页签检测成功: {tab_check}，点击 {tab_click_count} 次")
+                    logger.info(f"[Остров] Вкладка магазина пополнения распознана: {tab_check}; нажатий: {tab_click_count}")
                 return True
             if not in_select_product and tab_button is not None and in_shop:
                 tab_click_count += 1
                 logger.info(
-                    f"[岛屿] 补货商店页签检测失败，点击页签: {tab_button} -> {tab_check}，第 {tab_click_count} 次"
+                    f"[Остров] Вкладка магазина пополнения не распознана; нажатие вкладки: {tab_button} -> {tab_check}, попытка {tab_click_count}"
                 )
                 self.device.click(tab_button)
                 self.device.sleep(1)
@@ -946,7 +946,7 @@ class Island(SelectCharacter):
                 self.device.sleep(0.5)
                 continue
 
-        logger.warning("[岛屿] 从岗位产品选择页进入补货商店超时")
+        logger.warning("[Остров] Истекло время входа в магазин пополнения со страницы выбора продукта")
         return False
 
     @staticmethod
@@ -1088,10 +1088,10 @@ class Island(SelectCharacter):
 
         current = self.parse_select_product_material_current(result)
         if current is not None:
-            logger.warning(f"[岛屿] 岗位派遣页材料数量未识别到分隔符，使用兜底结果: {result}")
+            logger.warning(f"[Остров] В количестве материалов на странице назначения не распознан разделитель; используется резервный результат: {result}")
             return current, str(current)
 
-        logger.warning(f"[岛屿] 岗位派遣页材料数量识别失败: {result}")
+        logger.warning(f"[Остров] Не удалось распознать количество материалов на странице назначения: {result}")
         return 0, '0'
 
     def ocr_select_product_material(self, expected_quantity=None):
@@ -1110,7 +1110,7 @@ class Island(SelectCharacter):
             required = sum(required_numbers)
 
         if current is None:
-            logger.warning(f"[岛屿] 岗位派遣页材料数量识别失败: {result}")
+            logger.warning(f"[Остров] Не удалось распознать количество материалов на странице назначения: {result}")
         return current, required
 
     def back_to_select_product_after_shop(self, back_button=ISLAND_BACK):
@@ -1127,7 +1127,7 @@ class Island(SelectCharacter):
             if self.appear_then_click(back_button, offset=(20, 20), interval=1):
                 continue
 
-        logger.warning("[岛屿] 从补货商店返回岗位产品选择页超时")
+        logger.warning("[Остров] Истекло время возврата из магазина пополнения на страницу выбора продукта")
         return False
 
     def ensure_select_product_material(self, item_button, required_quantity, shop_check,
@@ -1140,14 +1140,14 @@ class Island(SelectCharacter):
         """
         required_quantity = max(1, int(required_quantity))
         current_quantity, counter_text = self.ocr_select_product_material_detail(expected_quantity=required_quantity)
-        display_name = item_name or getattr(item_button, 'name', '材料')
-        logger.info(f"[岛屿] {display_name}页面材料: {counter_text}，当前库存: {current_quantity}，目标库存: {required_quantity}")
+        display_name = item_name or getattr(item_button, 'name', 'Материал')
+        logger.info(f"[Остров] {display_name}: материалы на странице — {counter_text}; текущий запас: {current_quantity}; целевой запас: {required_quantity}")
 
         if current_quantity >= required_quantity:
             return False
 
         buy_quantity = required_quantity - current_quantity
-        logger.info(f"[岛屿] {display_name}数量不足，进入商店补买 {buy_quantity} 个")
+        logger.info(f"[Остров] Недостаточно {display_name}; переход в магазин для покупки {buy_quantity} шт.")
         if not self.goto_shop_from_select_product(
             shop_check=shop_check,
             tab_check=tab_check,
@@ -1168,7 +1168,7 @@ class Island(SelectCharacter):
 
     def goto_mill(self, max_attempts=3):
         for attempt in range(max_attempts):
-            logger.info(f"[岛屿] 尝试前往磨坊，第{attempt + 1}次尝试")
+            logger.info(f"[Остров] Попытка перейти к мельнице: {attempt + 1}")
             if not self.island_map_goto('farm'):
                 continue
             self.island_up(800)
@@ -1180,8 +1180,8 @@ class Island(SelectCharacter):
                 if self.appear_then_click(ISLAND_MILL, interval=1):
                     continue
                 if self.appear(ISLAND_MILL_CHECK):
-                    logger.info("[岛屿] 成功到达磨坊")
+                    logger.info("[Остров] Мельница достигнута")
                     return True
-            logger.info("[岛屿] 超时，重新尝试")
-        logger.info(f"[岛屿] 尝试{max_attempts}次后仍然失败")
+            logger.info("[Остров] Истекло время; повторная попытка")
+        logger.info(f"[Остров] Не удалось после {max_attempts} попыток")
         return False

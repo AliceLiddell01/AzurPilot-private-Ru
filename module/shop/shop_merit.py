@@ -68,7 +68,7 @@ class MeritShop_250814(ShopClerk, ShopUI, ShopStatus):
             int: 功勋数量
         """
         self._currency = self.status_get_merit()
-        logger.info(f'[商店-功勋] 功勋: {self._currency}')
+        logger.info(f'[Магазин — заслуги] Заслуги: {self._currency}')
         return self._currency
 
     def run(self):
@@ -83,7 +83,7 @@ class MeritShop_250814(ShopClerk, ShopUI, ShopStatus):
             return
 
         # 调用时应已在功勋商店界面
-        logger.hr('[商店-功勋] 功勋商店', level=1)
+        logger.hr('[Магазин — заслуги] Магазин заслуг', level=1)
 
         # 执行购买操作，启用刷新时最多尝试 2 次
         refresh = self.config.MeritShop_Refresh

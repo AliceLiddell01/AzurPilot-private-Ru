@@ -44,13 +44,13 @@ class IslandDailyGather(Island):
         now = current_time()
 
         # 无论何时运行，都执行采集
-        logger.info(f"[岛屿-每日采集] 开始执行每日采集 (当前时间: {now.strftime('%H:%M')})")
+        logger.info(f"[Остров — ежедневный сбор] Начало ежедневного сбора (текущее время: {now.strftime('%H:%M')})")
         self.dispatch_collection()
 
         # 调度下次运行时间
         next_run = self._schedule_next_run(now)
         self.config.task_delay(target=next_run)
-        logger.info(f"[岛屿-每日采集] 下次运行时间: {next_run}")
+        logger.info(f"[Остров — ежедневный сбор] Следующий запуск: {next_run}")
 
     def _schedule_next_run(self, now):
         """
@@ -82,50 +82,50 @@ class IslandDailyGather(Island):
         """
         完整的UI模拟点击采集流程
         """
-        logger.info("[岛屿-每日采集] === 开始UI模拟点击采集流程 ===")
+        logger.info("[Остров — ежедневный сбор] === Начало процесса сбора через UI ===")
 
         # 1. 进入管理界面
-        logger.info("[岛屿-每日采集] 步骤1: 进入管理界面")
+        logger.info("[Остров — ежедневный сбор] Шаг 1: вход в управление")
         self.goto_management()
 
         # 2. 进入管理 → 切换到"采集"页签
-        logger.info("[岛屿-每日采集] 步骤2: 切换到采集页签")
+        logger.info("[Остров — ежедневный сбор] Шаг 2: переключение на вкладку сбора")
         self.ui_goto(page_island_postmanage, get_ship=False)
         self.post_manage_mode_collection()
 
         # 3. 检查并领取已有采集奖励（如果有的话）
-        logger.info("[岛屿-每日采集] 步骤3: 检查并领取已有采集奖励")
+        logger.info("[Остров — ежедневный сбор] Шаг 3: проверка и получение доступных наград")
         self._claim_existing_rewards()
 
         # 4. 点击"选择采集目标"按钮 → 切换开关 → 点击确定
         #    如果所有采集物已采集完毕，确定时会弹出提示弹窗
-        logger.info("[岛屿-每日采集] 步骤4: 处理选择采集目标确认")
+        logger.info("[Остров — ежедневный сбор] Шаг 4: подтверждение выбора целей сбора")
         if self._handle_target_selection():
             worker_list = self._daily_gather_worker_list()
             # 如果成功选择了采集目标，继续后续流程
             # 5. 依次点击三个"+"按钮并选择角色
             character_selected = True
             for i in range(3):
-                logger.info(f"[岛屿-每日采集] 步骤5-{i+1}: 点击第{i+1}个+按钮并选择角色")
+                logger.info(f"[Остров — ежедневный сбор] Шаг 5-{i+1}: нажатие кнопки + в слоте {i+1} и выбор персонажа")
                 if not self._click_plus_and_select_character(i, worker_list):
-                    logger.warning(f"[岛屿-每日采集] 第{i + 1}个槽位角色选择失败，终止本次采集派遣")
+                    logger.warning(f"[Остров — ежедневный сбор] Не удалось выбрать персонажа для слота {i + 1}; текущее назначение сбора прекращено")
                     character_selected = False
                     break
 
             if character_selected:
                 # 6. 点击"出发"按钮
-                logger.info("[岛屿-每日采集] 步骤6: 点击出发按钮")
+                logger.info("[Остров — ежедневный сбор] Шаг 6: нажатие кнопки отправления")
                 self._click_depart()
 
                 # 7. 处理采集完成页面
-                logger.info("[岛屿-每日采集] 步骤7: 等待采集完成并关闭完成页面")
+                logger.info("[Остров — ежедневный сбор] Шаг 7: ожидание завершения сбора и закрытие страницы")
                 self._handle_collection_complete()
         else:
-            logger.info("[岛屿-每日采集] 所有采集物已采集完毕，跳过后续步骤")
+            logger.info("[Остров — ежедневный сбор] Все ресурсы уже собраны; последующие шаги пропущены")
 
         # 8. 退出管理界面
         self._exit_management()
-        logger.info("[岛屿-每日采集] === UI模拟点击采集流程完成 ===")
+        logger.info("[Остров — ежедневный сбор] === Процесс сбора через UI завершён ===")
 
     # ==================== 步骤方法 ====================
 
@@ -137,7 +137,7 @@ class IslandDailyGather(Island):
         for _ in range(max_attempts):
             self.device.screenshot()
             if self.appear(ISLAND_GET, offset=30):
-                logger.info("[岛屿-每日采集] 检测到可领取的奖励，正在领取")
+                logger.info("[Остров — ежедневный сбор] Обнаружена доступная награда; получение")
                 self.device.click(ISLAND_POST_SAFE_AREA)
                 self.device.sleep(0.5)
                 continue
@@ -157,7 +157,7 @@ class IslandDailyGather(Island):
             self.device.screenshot()
             # 检查弹窗是否已经出现
             if self.appear(ISLAND_GATHER_TARGET_POPUP, offset=30):
-                logger.info("[岛屿-每日采集] 选择采集目标弹窗已出现")
+                logger.info("[Остров — ежедневный сбор] Окно выбора целей сбора появилось")
                 break
             # 点击选择采集目标按钮
             if self.appear_then_click(ISLAND_GATHER_SELECT_TARGET, offset=30):
@@ -170,8 +170,8 @@ class IslandDailyGather(Island):
         将弹窗中的两个toggle开关切换至激活状态
         """
         for toggle_name, toggle_on, toggle_off in [
-            ("开关A", ISLAND_GATHER_TOGGLE_A_ON, ISLAND_GATHER_TOGGLE_A_OFF),
-            ("开关B", ISLAND_GATHER_TOGGLE_B_ON, ISLAND_GATHER_TOGGLE_B_OFF),
+            ("Переключатель A", ISLAND_GATHER_TOGGLE_A_ON, ISLAND_GATHER_TOGGLE_A_OFF),
+            ("Переключатель B", ISLAND_GATHER_TOGGLE_B_ON, ISLAND_GATHER_TOGGLE_B_OFF),
         ]:
             self._ensure_toggle_active(toggle_name, toggle_on, toggle_off)
 
@@ -190,12 +190,12 @@ class IslandDailyGather(Island):
 
             # 检查是否已激活
             if self.appear(toggle_on, offset=10):
-                logger.info(f"[岛屿-每日采集] {toggle_name} 已处于激活状态")
+                logger.info(f"[Остров — ежедневный сбор] {toggle_name} уже активен")
                 return True
 
             # 检查是否未激活，点击切换
             if self.appear(toggle_off, offset=10):
-                logger.info(f"[岛屿-每日采集] {toggle_name} 未激活，点击切换")
+                logger.info(f"[Остров — ежедневный сбор] {toggle_name} не активен; переключение")
                 self.device.click(toggle_off)
                 self.device.sleep(0.3)
                 continue
@@ -204,7 +204,7 @@ class IslandDailyGather(Island):
             self.device.click(toggle_off)
             self.device.sleep(0.3)
 
-        logger.warning(f"[岛屿-每日采集] {toggle_name} 切换超时")
+        logger.warning(f"[Остров — ежедневный сбор] Истекло время переключения: {toggle_name}")
         return False
 
     def _confirm_selection(self):
@@ -218,7 +218,7 @@ class IslandDailyGather(Island):
 
             # 检查是否已全部采集弹窗出现
             if self.appear(ISLAND_GATHER_ALREADY_COLLECTED, offset=30):
-                logger.info("[岛屿-每日采集] 检测到「已全部采集」提示弹窗")
+                logger.info("[Остров — ежедневный сбор] Обнаружено окно «всё уже собрано»")
                 return False
 
             if self.appear_then_click(ISLAND_GATHER_CONFIRM, offset=30):
@@ -227,7 +227,7 @@ class IslandDailyGather(Island):
 
             # 弹窗关闭后检测采集页签是否恢复
             if not self.appear(ISLAND_GATHER_TARGET_POPUP, offset=30):
-                logger.info("[岛屿-每日采集] 弹窗已关闭，确定成功")
+                logger.info("[Остров — ежедневный сбор] Окно закрыто; подтверждение успешно")
                 return True
 
             self.device.sleep(0.3)
@@ -235,11 +235,11 @@ class IslandDailyGather(Island):
         # 尝试3次后还未关闭，可能是已全部采集弹窗遮盖了目标弹窗
         self.device.screenshot()
         if self.appear(ISLAND_GATHER_ALREADY_COLLECTED, offset=30):
-            logger.info("[岛屿-每日采集] 检测到「已全部采集」提示弹窗")
+            logger.info("[Остров — ежедневный сбор] Обнаружено окно «всё уже собрано»")
             return False
         # 也可能是目标弹窗仍然开着但确定按钮失效
         if self.appear(ISLAND_GATHER_TARGET_POPUP, offset=30):
-            logger.warning("[岛屿-每日采集] 确定按钮点击超时，目标弹窗仍未关闭")
+            logger.warning("[Остров — ежедневный сбор] Истекло время нажатия подтверждения; окно выбора целей всё ещё открыто")
             # 尝试通过安全区域关闭
             self.device.click(ISLAND_GATHER_SAFE_AREA)
             self.device.sleep(0.3)
@@ -265,13 +265,13 @@ class IslandDailyGather(Island):
             filtered.append(character)
 
         if ignored_worker:
-            logger.warning("[岛屿-每日采集] 每日采集不能选择 WorkerJuu，已自动忽略")
+            logger.warning("[Остров — ежедневный сбор] WorkerJuu недоступен для ежедневного сбора и автоматически проигнорирован")
 
         if len(filtered) > 3:
-            logger.warning(f"[岛屿-每日采集] 每日采集最多指定 3 个有效角色，已忽略后续角色: {filtered[3:]}")
+            logger.warning(f"[Остров — ежедневный сбор] Можно указать не более 3 действительных персонажей; последующие проигнорированы: {filtered[3:]}")
             filtered = filtered[:3]
 
-        logger.info(f"[岛屿-每日采集] 每日采集自定义角色: {filtered}")
+        logger.info(f"[Остров — ежедневный сбор] Пользовательские персонажи: {filtered}")
         return filtered
 
     def _click_plus_and_select_character(self, index, worker_list=None):
@@ -288,13 +288,13 @@ class IslandDailyGather(Island):
 
         # 点击"+"按钮，若页面动画或点击未生效则重试，避免无限等待。
         for attempt in range(3):
-            logger.info(f"[岛屿-每日采集] 点击第{index + 1}个+按钮")
+            logger.info(f"[Остров — ежедневный сбор] Нажатие кнопки + для слота {index + 1}")
             self.device.click(plus_button)
             if self._wait_for_character_select(timeout=6):
                 break
-            logger.warning(f"[岛屿-每日采集] 第{index + 1}个槽位角色选择界面未出现，重试 {attempt + 1}/3")
+            logger.warning(f"[Остров — ежедневный сбор] Экран выбора персонажа для слота {index + 1} не появился; повтор {attempt + 1}/3")
         else:
-            logger.warning(f"[岛屿-每日采集] 第{index + 1}个槽位无法打开角色选择界面")
+            logger.warning(f"[Остров — ежедневный сбор] Не удалось открыть экран выбора персонажа для слота {index + 1}")
             return False
 
         # 按"生活等级"进行升序排序
@@ -304,24 +304,24 @@ class IslandDailyGather(Island):
         selected = False
         if index < len(worker_list):
             character = worker_list[index]
-            logger.info(f"[岛屿-每日采集] 第{index + 1}个槽位尝试选择指定角色: {character}")
+            logger.info(f"[Остров — ежедневный сбор] Слот {index + 1}: попытка выбрать заданного персонажа: {character}")
             selected = self.select_specific_character(character, min_stamina=GATHER_STAMINA_THRESHOLD)
             if not selected:
-                logger.warning(f"[岛屿-每日采集] 第{index + 1}个槽位指定角色不可用，回退旧逻辑: {character}")
+                logger.warning(f"[Остров — ежедневный сбор] Слот {index + 1}: заданный персонаж недоступен; возврат к прежней логике: {character}")
 
         if not selected and not self._select_character_with_stamina_check():
-            logger.warning(f"[岛屿-每日采集] 第{index + 1}个槽位未找到可用角色，跳过")
+            logger.warning(f"[Остров — ежедневный сбор] Для слота {index + 1} не найден доступный персонаж; пропуск")
             self.device.click(SELECT_UI_BACK)
             self.device.sleep(0.3)
             return False
 
         # 点击确认按钮完成选择
         self.device.sleep(0.3)
-        if not self.confirm_selected_character_closed(f"每日采集第{index + 1}个槽位"):
+        if not self.confirm_selected_character_closed(f"Ежедневный сбор, слот {index + 1}"):
             self.device.click(SELECT_UI_BACK)
             self.device.sleep(0.3)
             return False
-        logger.info(f"[岛屿-每日采集] 第{index + 1}个槽位角色选择完成")
+        logger.info(f"[Остров — ежедневный сбор] Выбор персонажа для слота {index + 1} завершён")
         return True
 
     def _wait_for_character_select(self, timeout=8):
@@ -330,7 +330,7 @@ class IslandDailyGather(Island):
         """
         for _ in self.loop(timeout=timeout, skip_first=False):
             if self.appear(ISLAND_SELECT_CHARACTER_CHECK, offset=1):
-                logger.info("[岛屿-每日采集] 角色选择界面已出现")
+                logger.info("[Остров — ежедневный сбор] Экран выбора персонажа появился")
                 return True
 
         return False
@@ -345,11 +345,11 @@ class IslandDailyGather(Island):
         self.device.screenshot()
         sort_area = crop(self.device.image, ISLAND_GATHER_SORT_LIFE.area)
         if TEMPLATE_GATHER_SORT_LIFE_ASC.match(sort_area, similarity=0.8):
-            logger.info("[岛屿-每日采集] 当前已是生活等级升序排序，无需操作")
+            logger.info("[Остров — ежедневный сбор] Уже используется сортировка по уровню жизни по возрастанию")
             return
 
         # 不是升序，点击排序按钮切换到升序
-        logger.info("[岛屿-每日采集] 点击生活等级排序按钮切换为升序")
+        logger.info("[Остров — ежедневный сбор] Нажатие сортировки по уровню жизни для переключения на возрастание")
         self.device.click(ISLAND_GATHER_SORT_LIFE)
         self.device.sleep(0.3)
 
@@ -357,13 +357,13 @@ class IslandDailyGather(Island):
         self.device.screenshot()
         sort_area = crop(self.device.image, ISLAND_GATHER_SORT_LIFE.area)
         if TEMPLATE_GATHER_SORT_LIFE_ASC.match(sort_area, similarity=0.8):
-            logger.info("[岛屿-每日采集] 成功切换为生活等级升序排序")
+            logger.info("[Остров — ежедневный сбор] Сортировка по уровню жизни по возрастанию включена")
         else:
-            logger.warning("[岛屿-每日采集] 升序切换可能未生效，尝试再次点击")
+            logger.warning("[Остров — ежедневный сбор] Переключение на возрастание могло не сработать; повторное нажатие")
             self.device.click(ISLAND_GATHER_SORT_LIFE)
             self.device.sleep(0.3)
 
-        logger.info("[岛屿-每日采集] 生活等级升序排序完成")
+        logger.info("[Остров — ежедневный сбор] Сортировка по уровню жизни по возрастанию завершена")
 
     def _select_character_with_stamina_check(self):
         """
@@ -394,24 +394,24 @@ class IslandDailyGather(Island):
                 continue
 
             if char_info.get("stamina", 0) >= GATHER_STAMINA_THRESHOLD:
-                return self._click_character(char_info, f"体力达标 >= {GATHER_STAMINA_THRESHOLD}")
+                return self._click_character(char_info, f"выносливость >= {GATHER_STAMINA_THRESHOLD}")
 
             available.append(char_info)
 
         if not detected:
-            logger.warning("[岛屿-每日采集] 未检测到任何角色")
+            logger.warning("[Остров — ежедневный сбор] Персонажи не обнаружены")
             return False
 
         if not available:
-            logger.warning("[岛屿-每日采集] 所有角色均在工作中或已被选中，无法选择空闲角色")
+            logger.warning("[Остров — ежедневный сбор] Все персонажи работают или уже выбраны; свободного персонажа выбрать нельзя")
             return False
 
         best_char = max(available, key=lambda item: item.get("stamina", 0))
         logger.warning(
-            f"未找到体力达标角色，回退选择当前页体力最高角色: "
+            f"Персонаж с достаточной выносливостью не найден; выбирается персонаж с максимальной выносливостью на текущей странице: "
             f"{best_char['character_name']} ({best_char.get('stamina', 0)})"
         )
-        return self._click_character(best_char, "体力最高回退")
+        return self._click_character(best_char, "максимальная выносливость")
 
     def _click_character(self, char_info, reason):
         """
@@ -427,8 +427,8 @@ class IslandDailyGather(Island):
         row, col = char_info["grid_position"]
         stamina = char_info.get("stamina", 0)
         logger.info(
-            f"选择角色: {char_info['character_name']} "
-            f"(位置: {row},{col}, 体力: {stamina}, 原因: {reason})"
+            f"Выбор персонажа: {char_info['character_name']} "
+            f"(позиция: {row},{col}, выносливость: {stamina}, причина: {reason})"
         )
         button = self.select_character_grid[row, col]
         self.device.click(button)
@@ -444,9 +444,9 @@ class IslandDailyGather(Island):
 
         for char_info in characters:
             if not char_info["is_working"] and not char_info["is_selected"]:
-                return self._click_character(char_info, "空闲且未选中")
+                return self._click_character(char_info, "свободен и не выбран")
 
-        logger.warning("[岛屿-每日采集] 所有角色均在工作中或已被选中，无法选择空闲角色")
+        logger.warning("[Остров — ежедневный сбор] Все персонажи работают или уже выбраны; свободного персонажа выбрать нельзя")
         return False
 
     def _click_depart(self):
@@ -458,11 +458,11 @@ class IslandDailyGather(Island):
             self.device.screenshot()
             if self.appear_then_click(ISLAND_GATHER_DEPART, offset=30):
                 self.device.sleep(0.5)
-                logger.info("[岛屿-每日采集] 点击出发按钮成功")
+                logger.info("[Остров — ежедневный сбор] Кнопка отправления нажата успешно")
                 return True
             self.device.sleep(0.3)
 
-        logger.warning("[岛屿-每日采集] 出发按钮点击超时")
+        logger.warning("[Остров — ежедневный сбор] Истекло время нажатия кнопки отправления")
         return False
 
     def _handle_target_selection(self):
@@ -484,12 +484,12 @@ class IslandDailyGather(Island):
 
         if not confirm_result:
             # 检测到已全部采集弹窗，点击安全区域关闭
-            logger.info("[岛屿-每日采集] 点击安全区域关闭提示弹窗")
+            logger.info("[Остров — ежедневный сбор] Нажатие безопасной области для закрытия уведомления")
             self.device.click(ISLAND_GATHER_SAFE_AREA)
             self.device.sleep(0.5)
             return False
 
-        logger.info("[岛屿-每日采集] 采集目标选择成功")
+        logger.info("[Остров — ежедневный сбор] Цели сбора выбраны успешно")
         return True
 
     def _handle_collection_complete(self):
@@ -500,20 +500,20 @@ class IslandDailyGather(Island):
         for i in range(max_wait):
             self.device.screenshot()
             if self.appear(ISLAND_GATHER_COMPLETE, offset=30):
-                logger.info("[岛屿-每日采集] 采集完成页面已出现，点击安全区域关闭")
+                logger.info("[Остров — ежедневный сбор] Страница завершения сбора появилась; закрытие через безопасную область")
                 self.device.click(ISLAND_GATHER_SAFE_AREA)
                 self.device.sleep(0.5)
                 return True
             self.device.sleep(1)
 
-        logger.warning("[岛屿-每日采集] 采集完成页面等待超时")
+        logger.warning("[Остров — ежедневный сбор] Истекло время ожидания страницы завершения сбора")
         return False
 
     def _exit_management(self):
         """
         退出管理界面，返回到小岛主界面
         """
-        logger.info("[岛屿-每日采集] 退出管理界面")
+        logger.info("[Остров — ежедневный сбор] Выход из управления")
         # 先点击安全区域关闭可能残留的弹窗
         for _ in range(3):
             self.device.screenshot()
@@ -526,7 +526,7 @@ class IslandDailyGather(Island):
                 break
         # 使用ui_goto导航回小岛页面
         self.ui_goto(page_island, get_ship=False)
-        logger.info("[岛屿-每日采集] 已回到小岛主界面")
+        logger.info("[Остров — ежедневный сбор] Возврат на главную страницу острова завершён")
         return True
 
 

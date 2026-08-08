@@ -34,8 +34,8 @@ class Reward(UI):
         if not oil and not coin and not exp:
             return False
 
-        logger.hr('领取奖励')
-        logger.info(f'[奖励-领取] 石油={oil}, 金币={coin}, 经验={exp}')
+        logger.hr('Получение наград')
+        logger.info(f'[Награды — получение] Нефть={oil}, монеты={coin}, опыт={exp}')
         confirm_timer = Timer(1, count=3).start()
         # 设置点击间隔为 0.3 秒，因为游戏无法响应过快的点击。
         click_timer = Timer(0.3)
@@ -57,7 +57,7 @@ class Reward(UI):
             if confirm_timer.reached():
                 break
 
-        logger.info('[奖励-领取] 奖励领取结束')
+        logger.info('[Награды — получение] Получение наград завершено')
         return True
 
     def _reward_get_state(self):
@@ -111,7 +111,7 @@ class Reward(UI):
             in: 未知弹窗
             out: page_mission
         """
-        logger.info('[奖励-任务] 领取任务奖励')
+        logger.info('[Награды — задания] Получение награды за задание')
         timeout = Timer(2, count=6).start()
         for _ in self.loop():
             if self.ui_page_appear(page_mission):
@@ -119,7 +119,7 @@ class Reward(UI):
                 if state:
                     return state
                 if timeout.reached():
-                    logger.warning('[奖励-任务] 等待任务领取超时')
+                    logger.warning('[Награды — задания] Тайм-аут ожидания получения награды')
                     return 'timeout'
             else:
                 timeout.reset()
@@ -165,14 +165,14 @@ class Reward(UI):
         """
         state = self._reward_wait_mission_list()
         while 1:
-            logger.attr('任务状态', state)
+            logger.attr('Состояние задания', state)
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             if state == 'timeout':
-                logger.warning('[奖励-任务] 等待任务列表超时')
+                logger.warning('[Награды — задания] Тайм-аут ожидания списка заданий')
                 return state
             if state in [MISSION_EMPTY, MISSION_UNFINISH]:
-                logger.info('[奖励-任务] 任务收集完成')
+                logger.info('[Награды — задания] Сбор наград за задания завершён')
                 break
             elif state in [MISSION_MULTI, MISSION_SINGLE]:
                 # 清除以下资源的已有间隔计时器
@@ -181,7 +181,7 @@ class Reward(UI):
                 state = self._reward_mission_claim_receive()
                 continue
             else:
-                logger.warning('[奖励-任务] 空任务状态，任务收集完成')
+                logger.warning('[Награды — задания] Пустое состояние задания; сбор завершён')
 
         return state
 
@@ -203,7 +203,7 @@ class Reward(UI):
             bool: 是否已处理。
         """
         if not self.image_color_count(MISSION_WEEKLY_RED_DOT, color=(206, 81, 66), threshold=221, count=20):
-            logger.info('[奖励-任务] 没有每周任务红点')
+            logger.info('[Награды — задания] Красная точка еженедельных заданий отсутствует')
             return False
 
         self.reward_side_navbar_ensure(upper=5)
@@ -220,10 +220,10 @@ class Reward(UI):
             in: page_main
         """
         if self.appear(MISSION_NOTICE):
-            logger.info('[奖励-任务] 发现任务提示 MISSION_NOTICE')
+            logger.info('[Награды — задания] Обнаружено уведомление MISSION_NOTICE')
             return True
         if self.image_color_count(MISSION_NOTICE_WHITE, color=(214, 117, 99), threshold=221, count=20):
-            logger.info('[奖励-任务] 发现任务提示 MISSION_NOTICE_WHITE')
+            logger.info('[Награды — задания] Обнаружено уведомление MISSION_NOTICE_WHITE')
             return True
 
         return False
@@ -245,7 +245,7 @@ class Reward(UI):
         """
         if not daily and not weekly:
             return False
-        logger.hr('任务奖励')
+        logger.hr('Награды за задания')
         if not self.reward_mission_notice():
             return False
 

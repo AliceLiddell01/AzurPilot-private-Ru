@@ -68,7 +68,7 @@ class CoreShop_250814(ShopClerk, ShopStatus):
             int: 核心数据数量
         """
         self._currency = self.status_get_core()
-        logger.info(f'[商店-核心] 核心数据: {self._currency}')
+        logger.info(f'[Магазин — ядра] Данные ядра: {self._currency}')
         return self._currency
 
     def shop_interval_clear(self):
@@ -107,7 +107,7 @@ class CoreShop_250814(ShopClerk, ShopStatus):
         if not self.shop_filter:
             return
 
-        logger.hr('[商店-核心] 核心商店', level=1)
+        logger.hr('[Магазин — ядра] Магазин ядер', level=1)
 
         # 执行购买操作
         self.shop_buy()

@@ -82,7 +82,7 @@ class IslandGrill(IslandShopBase):
         self.island_error = False
         self.post_get_and_close()
         if self.island_error:
-            logger.info('[岛屿-烧烤] 错误1')
+            logger.info('[Остров — гриль] Ошибка 1')
 
 
 if __name__ == "__main__":

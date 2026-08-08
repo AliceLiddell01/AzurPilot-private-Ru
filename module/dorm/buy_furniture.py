@@ -187,10 +187,10 @@ class BuyFurniture(UI):
         # Successful or failed buy will have popup and back to furniture details page,
         # produce the result from furniture coin compare to furniture price.
         if coin >= price > 0:
-            logger.info(f"[宿舍-家具] 家具币充足，购买 {buy_option}")
+            logger.info(f"[Общежитие — мебель] Монет мебели достаточно; покупка {buy_option}")
             buy_successful = True
         else:
-            logger.info(f"[宿舍-家具] 家具币不足，购买结束")
+            logger.info(f"[Общежитие — мебель] Недостаточно монет мебели; покупки завершены")
             buy_successful = False
         self.buy_furniture_confirm(skip_first_screenshot=True)
         self.furniture_details_page_quit(skip_first_screenshot=True)
@@ -206,15 +206,15 @@ class BuyFurniture(UI):
         """
         self.enter_first_furniture_details_page()
         if self.match_template_color(DORM_FURNITURE_COUNTDOWN, offset=(20, 20)):
-            logger.info("[宿舍-家具] 发现限时家具可购买")
+            logger.info("[Общежитие — мебель] Найдена доступная временная мебель")
 
             if self.buy_furniture_once(self.config.BuyFurniture_BuyOption):
-                logger.info("[宿舍-家具] 查找下一个限时家具")
+                logger.info("[Общежитие — мебель] Поиск следующего временного предмета мебели")
                 return True  # continue
             else:
                 return False  # break
         else:
-            logger.info("[宿舍-家具] 未找到限时家具")
+            logger.info("[Общежитие — мебель] Временная мебель не найдена")
             return False  # break
 
     def buy_furniture_run(self):
@@ -223,14 +223,14 @@ class BuyFurniture(UI):
             in: DORM_FURNITURE_DETAILS_ENTER (furniture shop page)
             out: page_dorm
         """
-        logger.info("[宿舍-家具] 开始购买家具")
+        logger.info("[Общежитие — мебель] Начало покупки мебели")
         while 1:
             if self._buy_furniture_run():
                 continue
             else:
                 break
         # Quit to page_dorm
-        logger.info("[宿舍-家具] 回退到宿舍页面")
+        logger.info("[Общежитие — мебель] Возврат на страницу общежития")
         self.furniture_details_page_quit(skip_first_screenshot=True)
         self.furniture_shop_quit(skip_first_screenshot=True)
         self.config.BuyFurniture_LastRun = current_time().replace(microsecond=0)
@@ -239,14 +239,14 @@ class BuyFurniture(UI):
         """
         Run Buy Furniture
         """
-        logger.attr("上次运行时间", self.config.BuyFurniture_LastRun)
-        logger.attr("检查间隔", CHECK_INTERVAL)
+        logger.attr("Последний запуск", self.config.BuyFurniture_LastRun)
+        logger.attr("Интервал проверки", CHECK_INTERVAL)
 
         time_run = self.config.BuyFurniture_LastRun + timedelta(days=CHECK_INTERVAL)
-        logger.info(f"[宿舍-家具] 任务运行时间: {time_run}")
+        logger.info(f"[Общежитие — мебель] Время запуска задачи: {time_run}")
 
         if current_time().replace(microsecond=0) < time_run:
-            logger.info("[宿舍-家具] 未到运行时间，跳过")
+            logger.info("[Общежитие — мебель] Время запуска ещё не наступило; пропуск")
             return
 
         self.buy_furniture_run()

@@ -55,7 +55,7 @@ class EventShopClerk(EventShopUI):
             y = points[0][1] + DETECT_AREA[1]
             delta_y = 215
         else:
-            logger.warning(f"[活动商店-购买] 行数异常: {row}，假设滚动条在顶部")
+            logger.warning(f"[Магазин события — покупка] Некорректное число рядов: {row}; предполагается, что полоса прокрутки сверху")
             y = 1 + DETECT_AREA[1]  # Start position is 1 pixel lower than detect area
             delta_y = 215
 
@@ -84,19 +84,19 @@ class EventShopClerk(EventShopUI):
         if len(shop_items):
             min_row = self.event_shop_items.grids[0, 0].area[1]
             row = [str(item) for item in shop_items if item.button[1] == min_row]
-            logger.info(f'[活动商店-购买] 第1行: {row}')
+            logger.info(f'[Магазин события — покупка] Ряд 1: {row}')
             row = [str(item) for item in shop_items if item.button[1] != min_row]
-            logger.info(f'[活动商店-购买] 第2行: {row}')
+            logger.info(f'[Магазин события — покупка] Ряд 2: {row}')
             return shop_items
         else:
-            logger.info('未找到商店物品')
+            logger.info('Товары магазина не найдены')
             return []
 
     def scan_all(self):
         items = []
         self.device.click_record_clear()
 
-        logger.hr('活动商店扫描', level=2)
+        logger.hr('Сканирование магазина события', level=2)
         EVENT_SHOP_SCROLL.set_top(main=self)
         while 1:
             new_items = self.event_shop_get_items(scroll_pos=EVENT_SHOP_SCROLL.cal_position(main=self))
@@ -106,14 +106,14 @@ class EventShopClerk(EventShopUI):
                 new_second_row = [item for item in new_items if item.button[1] != new_items[0].button[1]]
                 if len(old_last_row) == len(new_first_row) and all(
                         old.name == new.name for old, new in zip(old_last_row, new_first_row)):
-                    logger.info('[活动商店-购买] 忽略重复物品')
+                    logger.info('[Магазин события — покупка] Повторяющиеся товары пропущены')
                     items += new_second_row
                 else:
                     items += new_items
             else:
                 items += new_items
             if EVENT_SHOP_SCROLL.at_bottom(main=self):
-                logger.info('活动商店到达底部')
+                logger.info('Достигнут конец магазина события')
                 break
             else:
                 EVENT_SHOP_SCROLL.next_page(main=self, page=0.66)
@@ -127,11 +127,11 @@ class EventShopClerk(EventShopUI):
         items = [item for item in items if item.name == item_to_buy.name
                  and item.count == item_to_buy.count and item.price == item_to_buy.price]
         if len(items) == 0:
-            logger.error(f'[活动商店-购买] 物品 {item_to_buy} 在滚动位置 {scroll_pos} 未找到')
-            logger.warning(f'[活动商店-购买] 将尝试重新运行任务')
+            logger.error(f'[Магазин события — покупка] Товар {item_to_buy} не найден в позиции прокрутки {scroll_pos}')
+            logger.warning(f'[Магазин события — покупка] Будет предпринята попытка повторного запуска задачи')
             raise ItemNotFoundError(f'Item {item_to_buy} not found at scroll position {scroll_pos}')
         elif len(items) > 1:
-            logger.warning(f'[活动商店-购买] 在滚动位置 {scroll_pos} 找到多个物品 {item_to_buy}，购买第一个')
+            logger.warning(f'[Магазин события — покупка] В позиции прокрутки {scroll_pos} найдено несколько товаров {item_to_buy}; покупается первый')
         item = items[0]
         # For ship items, while it may have multiple stock, can only buy one at a time.
         if getattr(item, 'is_ship', False):
@@ -188,15 +188,15 @@ class EventShopClerk(EventShopUI):
         if self.handle_get_meowfficer():
             return True
         if self.appear(GET_SHIP, offset=(20, 20), interval=2):
-            logger.info(f'商店遮挡: {GET_SHIP} -> {SHOP_CLICK_SAFE_AREA}')
+            logger.info(f'Перекрытие магазина: {GET_SHIP} -> {SHOP_CLICK_SAFE_AREA}')
             self.device.click(SHOP_CLICK_SAFE_AREA)
             return True
         if self.appear(GET_ITEMS_1, offset=(20, 20), interval=2):
-            logger.info(f'商店遮挡: {GET_ITEMS_1} -> {SHOP_CLICK_SAFE_AREA}')
+            logger.info(f'Перекрытие магазина: {GET_ITEMS_1} -> {SHOP_CLICK_SAFE_AREA}')
             self.device.click(SHOP_CLICK_SAFE_AREA)
             return True
         if self.appear(GET_ITEMS_3, offset=(20, 20), interval=2):
-            logger.info(f'商店遮挡: {GET_ITEMS_3} -> {SHOP_CLICK_SAFE_AREA}')
+            logger.info(f'Перекрытие магазина: {GET_ITEMS_3} -> {SHOP_CLICK_SAFE_AREA}')
             self.device.click(SHOP_CLICK_SAFE_AREA)
             return True
         return False

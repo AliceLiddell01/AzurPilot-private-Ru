@@ -84,7 +84,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         """
         index = get_research_finished(self.device.image)
         if index is not None:
-            logger.attr('科研已完成', index)
+            logger.attr('Исследование завершено', index)
             self._research_finished_index = index
             return True
         else:
@@ -105,10 +105,10 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             bool: 重置是否成功执行。若重置功能不可用则返回 False。
         """
         if not self.appear(RESET_AVAILABLE, threshold=10):
-            logger.info('[科研-重置] 科研重置不可用')
+            logger.info('[Исследование — сброс] Сброс исследований недоступен')
             return False
 
-        logger.info('[科研-重置] 科研重置')
+        logger.info('[Исследование — сброс] Сброс исследований')
         drop.add(self.device.image)
         executed = False
         while 1:
@@ -148,7 +148,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             bool: 是否成功选择项目。
         """
         if not self.enforce:
-            logger.info('[科研-强制] 强制选择科研项目')
+            logger.info('[Исследование — принудительно] Принудительный выбор проекта')
             self.enforce = True
             return self.research_select(self.research_sort_filter(self.enforce),
                                         drop=drop, add_queue=add_queue)
@@ -167,7 +167,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             bool: 如果已重置则返回 False
         """
         if not len(priority):
-            logger.info('[科研-选择] 没有符合当前筛选条件的科研项目')
+            logger.info('[Исследование — выбор] Нет проектов, соответствующих текущему фильтру')
             return self.research_enforce(drop=drop, add_queue=add_queue)
         for project in priority:
             # 优先级示例：['reset', 'shortest']
@@ -186,7 +186,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                     self.research_select(self.research_sort_cheapest(self.enforce),
                                          drop=drop, add_queue=add_queue)
                 else:
-                    logger.warning(f'[科研-选择] 未知的选择方法: {project}')
+                    logger.warning(f'[Исследование — выбор] Неизвестный метод выбора: {project}')
                 return True
             elif project.genre.upper() in ['C', 'T'] and not self.enforce:
                 return self.research_enforce(drop=drop, add_queue=add_queue)
@@ -196,15 +196,15 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 if ret:
                     return True
                 elif ret is not None and self.config.Research_RemainingCommissions > 0:
-                    logger.info('[科研-延迟] 因T类科研延迟研究')
+                    logger.info('[Исследование — задержка] Исследование отложено из-за проекта типа T')
                     return True
                 elif ret is not None and self.research_delay_check():
-                    logger.info('[科研-延迟] 资源不足且队列未空，延迟研究')
+                    logger.info('[Исследование — задержка] Недостаточно ресурсов, а очередь не пуста; исследование отложено')
                     return True
                 else:
                     continue
 
-        logger.info('[科研-选择] 没有启动科研项目')
+        logger.info('[Исследование — выбор] Исследовательский проект не запущен')
         return self.research_enforce(drop=drop, add_queue=add_queue)
 
     def research_delay_check(self):
@@ -244,16 +244,16 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             in: is_in_research
             out: is_in_research
         """
-        logger.hr('开始科研项目', level=2)
-        logger.info(f'[科研-启动] 科研项目: {project}')
+        logger.hr('Запуск исследовательского проекта', level=2)
+        logger.info(f'[Исследование — запуск] Проект: {project}')
         if isinstance(project, int):
             index = project
         elif project in self.projects:
             index = self.projects.index(project)
         else:
-            logger.warning(f'[科研-启动] 要启动的项目: {project} 不在已知项目列表中')
+            logger.warning(f'[Исследование — запуск] Проект для запуска {project} отсутствует в списке известных проектов')
             return None
-        logger.info(f'[科研-启动] 科研项目索引: {index}')
+        logger.info(f'[Исследование — запуск] Индекс проекта: {index}')
         self.interval_clear([RESEARCH_START])
         self.popup_interval_clear()
         available = False
@@ -270,7 +270,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             # 此处不使用 interval，RESEARCH_CHECK 已在 5 秒前出现过
             if click_timer.reached() and self.is_in_research():
                 i = (index - self._research_project_offset) % 5
-                logger.info(f'[科研-启动] 项目偏移: {self._research_project_offset}, 项目 {index} 位于 {i}')
+                logger.info(f'[Исследование — запуск] Смещение проекта: {self._research_project_offset}, проект {index} находится в {i}')
                 self.device.click(RESEARCH_ENTRANCE[i])
                 self.ensure_research_stable()
                 click_count += 1
@@ -284,9 +284,9 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
             # 结束条件
             if click_count >= 3:
-                logger.error('[科研-启动] 尝试3次后仍无法启动科研项目，'
-                             '可能是因为已有科研在运行但条件未满足，'
-                             '或科研已完成')
+                logger.error('[Исследование — запуск] Не удалось запустить проект после 3 попыток; '
+                             'возможно, уже выполняется проект с невыполненными условиями '
+                             'или исследование завершено')
                 raise GameTooManyClickError
             if self.appear(RESEARCH_STOP, offset=(20, 20)):
                 # RESEARCH_STOP 是半透明按钮，颜色会随背景变化
@@ -303,7 +303,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 return True
             if not available and max_rgb <= 235 \
                     and self.appear(RESEARCH_UNAVAILABLE, offset=(5, 20)):
-                logger.info('[科研-启动] 资源不足，无法启动此项目')
+                logger.info('[Исследование — запуск] Недостаточно ресурсов для запуска проекта')
                 self.research_detail_quit()
                 self.research_project_started = None
                 self._research_project_offset = (index - 2) % 5
@@ -330,8 +330,8 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         if isinstance(project, int):
             return self.research_project_start(project, add_queue=add_queue)
         elif project.genre == 'E' and project.equipment_amount > 0:
-            logger.info(f'[科研-E系列] 准备启动E系列科研: {project} '
-                        f'并拆解 {project.equipment_amount} 个装备')
+            logger.info(f'[Исследование — серия E] Подготовка к запуску проекта {project} '
+                        f'с разбором оборудования: {project.equipment_amount}')
             # 启动项目
             self.research_project_start(project, add_queue=False)
             # 拆解装备
@@ -342,10 +342,10 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             # 加入队列
             result = self.research_project_start(project, add_queue=add_queue)
             if result is None:
-                logger.error('[科研-E系列] 拆解装备后科研项目丢失')
+                logger.error('[Исследование — серия E] После разбора оборудования исследовательский проект исчез')
             return result
         elif project.genre == 'T':
-            logger.info(f'[科研-T系列] 准备启动T系列科研: {project}')
+            logger.info(f'[Исследование — серия T] Подготовка к запуску проекта: {project}')
             self.research_project_start(project, add_queue=False)
             self.config.Research_RemainingCommissions = project.commission_amount
             self.research_project_started = None
@@ -372,7 +372,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             bool: 成功领取奖励返回 True。
                   项目条件未满足返回 False。
         """
-        logger.hr('领取科研奖励', level=3)
+        logger.hr('Получение награды за исследование', level=3)
         with self.stat.new(
                 genre='research', method=self.config.DropRecord_ResearchRecord
         ) as record:
@@ -393,7 +393,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                         self.device.click(RESEARCH_ENTRANCE[self._research_finished_index])
 
                 if self.appear(RESEARCH_STOP, offset=(20, 20)):
-                    logger.info('[科研-领取] 科研时间已到，但条件未满足')
+                    logger.info('[Исследование — получение] Время исследования истекло, но условия не выполнены')
                     self.research_project_started = None
                     self.research_detail_quit()
                     return False
@@ -408,7 +408,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                         if confirm_timer.reached():
                             break
                     else:
-                        logger.info(f'{appear_button} appeared')
+                        logger.info(f'{appear_button} появился')
                         record_button = appear_button
                         confirm_timer.reset()
 
@@ -437,7 +437,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         Returns:
             int: 领取奖励的科研项目数量。
         """
-        logger.hr('领取队列奖励', level=1)
+        logger.hr('Получение наград очереди', level=1)
         total = 0
         with self.stat.new(
                 genre='research', method=self.config.DropRecord_ResearchRecord
@@ -478,7 +478,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                                 total += 1
                                 continue
                         else:
-                            logger.info(f'[科研-领取] {appear_button} 出现')
+                            logger.info(f'[Исследование — получение] Появился {appear_button}')
                             record_button = appear_button
                             item_confirm.reset()
                     else:
@@ -501,7 +501,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             if total <= 0:
                 drop.clear()
 
-        logger.info(f'[科研-队列] 从 {total} 个项目领取了奖励')
+        logger.info(f'[Исследование — очередь] Получены награды из проектов: {total}')
         return total
 
     def queue_quit(self, *args, **kwargs):
@@ -542,7 +542,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         self.research_project_started = None
         project_record = None
         for _ in range(2):
-            logger.hr('选择科研项目', level=2)
+            logger.hr('Выбор исследовательского проекта', level=2)
             self.research_project_list_init(from_queue=True)
             project_record = self.device.image
             priority = self.research_sort_filter()
@@ -567,7 +567,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         Pages:
             in: is_in_research
         """
-        logger.hr('填充科研队列', level=1)
+        logger.hr('Заполнение очереди исследований', level=1)
         total = 0
         with self.stat.new(
                 genre='research', method=self.config.DropRecord_ResearchRecord
@@ -578,7 +578,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                     if success:
                         total += 1
                     else:
-                        logger.info(f'[科研-队列] 无法启动项目，停止填充队列，已添加: {total}')
+                        logger.info(f'[Исследование — очередь] Не удалось запустить проект; заполнение очереди прекращено, добавлено: {total}')
                         return total
                 else:
                     break
@@ -586,12 +586,12 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             # 运行第 6 个项目
             status = self.get_research_status(self.device.image)
             if 'waiting' not in status:
-                logger.info('[科研-第6个] 选择第6个科研')
+                logger.info('[Исследование — шестой] Выбор шестого проекта')
                 self.research_queue_append(drop=drop, add_queue=False)
             else:
-                logger.info('[科研-第6个] 第6个科研已在等待中')
+                logger.info('[Исследование — шестой] Шестой проект уже ожидает')
 
-            logger.info(f'[科研-队列] 科研队列已填满，已添加: {total}')
+            logger.info(f'[Исследование — очередь] Очередь исследований заполнена, добавлено: {total}')
             return total
 
     def receive_6th_research(self, skip_first_screenshot=True):
@@ -599,7 +599,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         Returns:
             bool: 是否成功
         """
-        logger.hr('领取第6个科研', level=2)
+        logger.hr('Получение шестого проекта', level=2)
 
         # 等待动画
         timeout = Timer(2, count=6).start()
@@ -610,7 +610,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 self.device.screenshot()
 
             if timeout.reached():
-                logger.warning('[科研-第6个] 等待超时')
+                logger.warning('[Исследование — шестой] Тайм-аут ожидания')
                 break
 
             status = self.get_research_status(self.device.image)
@@ -631,12 +631,12 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
         # 检查是否已完成
         if self.research_has_finished():
-            logger.info(f'[科研-第6个] 第6个科研已完成，位置: {self._research_finished_index}')
+            logger.info(f'[Исследование — шестой] Шестой проект завершён, позиция: {self._research_finished_index}')
             success = self.research_receive()
             if not success:
                 return False
         else:
-            logger.info('[科研-第6个] 没有科研完成')
+            logger.info('[Исследование — шестой] Завершённых проектов нет')
 
         # 检查是否处于等待或运行状态
         status = self.get_research_status(self.device.image)
@@ -644,12 +644,12 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             if self.get_queue_slot() > 0:
                 self.research_project_start(status.index('waiting'))
             else:
-                logger.info('[科研-第6个] 队列已满，停止追加等待中的科研')
+                logger.info('[Исследование — шестой] Очередь заполнена; добавление ожидающего проекта прекращено')
         if 'running' in status:
             if self.get_queue_slot() > 0:
                 self.research_project_start(status.index('running'))
             else:
-                logger.info('[科研-第6个] 队列已满，停止追加运行中的科研')
+                logger.info('[Исследование — шестой] Очередь заполнена; добавление выполняющегося проекта прекращено')
 
         return True
 
@@ -673,14 +673,14 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         slot = self.get_queue_slot()
         add_queue = slot > 0
         if not self.research_project_start(2, add_queue=add_queue):
-            logger.warning('[科研-T系列] 启动挂起的T类科研失败')
+            logger.warning('[Исследование — серия T] Не удалось запустить отложенный проект типа T')
             return False
 
         if add_queue:
             self.config.Research_RemainingCommissions = -1
             return True
 
-        logger.info('[科研-T系列] T类科研正在队列外运行')
+        logger.info('[Исследование — серия T] Проект типа T выполняется вне очереди')
         return False
 
     def run(self):

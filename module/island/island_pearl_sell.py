@@ -53,7 +53,7 @@ class IslandPearlSell(Island):
     PHASE_DELAYED = "delayed"
 
     def run(self):
-        logger.hr("岛屿珍珠出售运行", level=1)
+        logger.hr("Продажа жемчуга на острове", level=1)
         now = current_time().replace(microsecond=0)
 
         pearl_trade_time = self._get_next_pearl_trade_time(now=now)
@@ -61,14 +61,14 @@ class IslandPearlSell(Island):
         # 判断当前触发类型
         trade_due = self._trade_due(now=now, next_time=pearl_trade_time)
         refresh_due = False if trade_due else self._refresh_due(now=now)
-        logger.attr("下次调度运行", self.config.Scheduler_NextRun)
-        logger.attr("珍珠交易时间", pearl_trade_time)
-        logger.attr("珍珠交易到期", trade_due)
-        logger.attr("珍珠刷新到期", refresh_due)
+        logger.attr("Следующий запуск планировщика", self.config.Scheduler_NextRun)
+        logger.attr("Время торговли жемчугом", pearl_trade_time)
+        logger.attr("Срок торговли жемчугом наступил", trade_due)
+        logger.attr("Срок обновления жемчуга наступил", refresh_due)
 
         if not trade_due and not refresh_due:
             target = self._next_run(now=now)
-            logger.info(f"[岛屿-珍珠采购] 未到珍珠任务触发时间，下次运行: {target}")
+            logger.info(f"[Остров — жемчуг] Время запуска задачи жемчуга ещё не наступило; следующий запуск: {target}")
             self.config.task_delay(target=target)
             self.config.save()
             return
@@ -79,9 +79,9 @@ class IslandPearlSell(Island):
         if trade_due:
             buy_status = self.run_buy_phase()
             if buy_status == self.PHASE_DONE:
-                logger.info("[岛屿-珍珠采购] 采购流程完成，继续执行本周珍珠售卖")
+                logger.info("[Остров — жемчуг] Этап покупки завершён; продолжается продажа жемчуга этой недели")
             else:
-                logger.info("[岛屿-珍珠采购] 采购流程跳过或延迟，继续执行本周珍珠售卖")
+                logger.info("[Остров — жемчуг] Этап покупки пропущен или отложен; продажа жемчуга этой недели продолжается")
 
             sell_status = self.run_sell_phase()
             if sell_status == self.PHASE_DELAYED:
@@ -93,9 +93,9 @@ class IslandPearlSell(Island):
             )
             next_run = self._delay_to_next_trade(next_trade, now=now)
             if sell_status == self.PHASE_DONE:
-                logger.info(f"[岛屿-珍珠采购] 售卖完成，下次珍珠任务时间: {next_run}")
+                logger.info(f"[Остров — жемчуг] Продажа завершена; следующая задача жемчуга: {next_run}")
             else:
-                logger.info(f"[岛屿-珍珠采购] 当前无可售珍珠，下次珍珠任务时间: {next_run}")
+                logger.info(f"[Остров — жемчуг] Сейчас нет жемчуга для продажи; следующая задача жемчуга: {next_run}")
             self.config.save()
             return
 
@@ -104,7 +104,7 @@ class IslandPearlSell(Island):
             self.run_price_refresh()
             next_run = self._next_run(now=now)
             self.config.task_delay(target=next_run)
-            logger.info(f"[岛屿-珍珠采购] 珍珠价格刷新完成，下次任务时间: {next_run}")
+            logger.info(f"[Остров — жемчуг] Обновление цены жемчуга завершено; следующая задача: {next_run}")
             self.config.save()
             return
 
@@ -112,19 +112,19 @@ class IslandPearlSell(Island):
 
     def run_buy_phase(self):
         """执行采购阶段。"""
-        logger.hr("珍珠购买阶段", level=2)
+        logger.hr("Этап покупки жемчуга", level=2)
         self._purchase_quota_exhausted = False
 
         # 检查购买延时——如果还没到购买时间则跳过采购，让售卖正常执行
         if not self._buy_next_run_due():
-            logger.info("[岛屿-珍珠采购] 采购延时未到，跳过采购")
+            logger.info("[Остров — жемчуг] Задержка покупки ещё не истекла; покупка пропущена")
             return self.PHASE_SKIPPED
 
         for attempt in range(1, self.BUY_MAX_ATTEMPTS + 1):
             status, retry_reason = self.run_buy_phase_once()
             if retry_reason and attempt < self.BUY_MAX_ATTEMPTS:
                 logger.warning(
-                    f"{retry_reason}，重新执行采购流程 "
+                    f"{retry_reason}; повтор этапа покупки "
                     f"({attempt + 1}/{self.BUY_MAX_ATTEMPTS})"
                 )
                 continue
@@ -138,47 +138,47 @@ class IslandPearlSell(Island):
         buy_price_limit = int(self.config.IslandPearlSell_BuyPrice)
 
         if not self._enter_home_pearl_shop("assembly"):
-            return self.PHASE_SKIPPED, "未进入本岛珍珠商店"
+            return self.PHASE_SKIPPED, "Не удалось войти в магазин жемчуга своего острова"
         home_price = self.ocr_pearl_price(kind="sell")
         if home_price is None:
-            self._delay_buy_to_next_day_1am("本岛珍珠价格 OCR 失败")
+            self._delay_buy_to_next_day_1am("Ошибка OCR цены жемчуга своего острова")
             self.back_to_pearl_shop_or_map()
             return self.PHASE_SKIPPED, None
 
         in_friend_island = False
         if home_price > buy_price_limit:
             logger.info(
-                f"本岛价格 {home_price} 高于采购价 {buy_price_limit}，查找好友低价"
+                f"Цена своего острова {home_price} выше цены покупки {buy_price_limit}; поиск низкой цены у друзей"
             )
             self._rank_visit_target_selected = False
             if not self.visit_friend_by_rank(mode="buy", threshold=buy_price_limit):
                 self.back_to_pearl_shop_or_map()
                 if self._rank_visit_target_selected:
-                    return self.PHASE_SKIPPED, "未进入好友岛"
-                self._delay_buy_to_next_day_1am("好友排名未找到低于采购价的目标")
+                    return self.PHASE_SKIPPED, "Не удалось войти на остров друга"
+                self._delay_buy_to_next_day_1am("В рейтинге друзей не найдена цель ниже цены покупки")
                 return self.PHASE_SKIPPED, None
             in_friend_island = True
         else:
-            logger.info(f"[岛屿-珍珠采购] 本岛价格命中采购价 {home_price}")
+            logger.info(f"[Остров — жемчуг] Цена своего острова подходит для покупки: {home_price}")
             self.back_to_pearl_shop_or_map()
 
         if not self._goto_pearl_shop_at("port"):
             if in_friend_island:
                 self.exit_friend_island()
-            return self.PHASE_SKIPPED, "未进入港口珍珠采购页面"
+            return self.PHASE_SKIPPED, "Не удалось открыть портовую страницу покупки жемчуга"
         raw_price = self.ocr_pearl_price(kind="buy")
         if raw_price is None:
-            self._delay_buy_to_next_day_1am("港口采购价格 OCR 失败")
+            self._delay_buy_to_next_day_1am("Ошибка OCR портовой цены покупки")
             self.back_to_pearl_shop_or_map()
             if in_friend_island:
                 self.exit_friend_island()
             return self.PHASE_SKIPPED, None
 
         buy_price = raw_price / self.PEARL_BUY_PRICE_RATE
-        logger.info(f"[岛屿-珍珠采购] 港口采购侧价格: {raw_price}，折算售卖价: {buy_price:.1f}")
+        logger.info(f"[Остров — жемчуг] Цена со стороны покупки в порту: {raw_price}; пересчитанная цена продажи: {buy_price:.1f}")
         if buy_price > buy_price_limit:
             self._delay_buy_to_next_day_1am(
-                f"港口采购价格 {buy_price:.1f} 高于配置 {buy_price_limit}"
+                f"Портовая цена покупки {buy_price:.1f} выше настроенного значения {buy_price_limit}"
             )
             self.back_to_pearl_shop_or_map()
             if in_friend_island:
@@ -187,14 +187,14 @@ class IslandPearlSell(Island):
 
         purchasable = self.ocr_weekly_purchase_count()
         if purchasable is None:
-            logger.warning("[岛屿-珍珠采购] 本周可采购数量 OCR 失败，仅推迟到下一天")
+            logger.warning("[Остров — жемчуг] Ошибка OCR доступного количества покупок на этой неделе; перенос только на следующий день")
             self.back_to_pearl_shop_or_map()
             if in_friend_island:
                 self.exit_friend_island()
-            self._delay_buy_to_next_day_1am("本周可采购数量 OCR 失败")
+            self._delay_buy_to_next_day_1am("Ошибка OCR доступного количества покупок на этой неделе")
             return self.PHASE_SKIPPED, None
         if purchasable <= 0:
-            logger.info(f"[岛屿-珍珠采购] 本周可采购数量为 {purchasable}，跳过采购")
+            logger.info(f"[Остров — жемчуг] Доступное количество покупок на этой неделе: {purchasable}; покупка пропущена")
             self._purchase_quota_exhausted = True
             self.config.IslandPearlSell_BuyNextRun = self._nearest_future_schedule()
             self.back_to_pearl_shop_or_map()
@@ -208,65 +208,65 @@ class IslandPearlSell(Island):
                 self.exit_friend_island()
             else:
                 self.back_to_pearl_shop_or_map()
-            self._delay_buy_to_next_day_1am("珍珠采购未完成")
+            self._delay_buy_to_next_day_1am("Покупка жемчуга не завершена")
             return self.PHASE_SKIPPED, None
         self.back_to_pearl_shop_or_map()
         if in_friend_island:
             self.exit_friend_island()
         self.config.IslandPearlSell_BuyNextRun = self._nearest_future_schedule()
-        logger.info("[岛屿-珍珠采购] 采购完成")
+        logger.info("[Остров — жемчуг] Покупка завершена")
         return self.PHASE_DONE, None
 
     def run_sell_phase(self):
         """执行售卖阶段。"""
-        logger.hr("珍珠出售阶段", level=2)
+        logger.hr("Этап продажи жемчуга", level=2)
         sell_price_limit = int(self.config.IslandPearlSell_SellPrice)
 
         if not self._enter_home_pearl_shop("assembly"):
-            self._delay_to_next_day_1am("进入本岛珍珠商店失败")
+            self._delay_to_next_day_1am("Не удалось войти в магазин жемчуга своего острова")
             return self.PHASE_DELAYED
         current_pearl = self.ocr_current_pearl_count()
         if current_pearl <= 0:
-            logger.info(f"[岛屿-珍珠采购] 当前珍珠数量为 {current_pearl}，跳过售卖")
+            logger.info(f"[Остров — жемчуг] Текущее количество жемчуга: {current_pearl}; продажа пропущена")
             self.back_to_pearl_shop_or_map()
             if self._purchase_quota_exhausted:
-                logger.info("[岛屿-珍珠采购] 本周采购配额已用尽且无珍珠可售，直接等待下周")
+                logger.info("[Остров — жемчуг] Недельная квота покупок исчерпана и продавать нечего; ожидание следующей недели")
                 return self.PHASE_SKIPPED
-            self._delay_to_next_day_1am("当前珍珠数量为 0")
+            self._delay_to_next_day_1am("Текущее количество жемчуга равно 0")
             return self.PHASE_DELAYED
 
         sell_price = self.ocr_pearl_price(kind="sell")
         if sell_price is None:
             self.back_to_pearl_shop_or_map()
-            self._delay_to_next_day_1am("珍珠售卖价格 OCR 失败")
+            self._delay_to_next_day_1am("Ошибка OCR цены продажи жемчуга")
             return self.PHASE_DELAYED
 
         in_friend_island = False
         if sell_price < sell_price_limit:
             logger.info(
-                f"本岛价格 {sell_price} 低于售卖价 {sell_price_limit}，查找好友高价"
+                f"Цена своего острова {sell_price} ниже цены продажи {sell_price_limit}; поиск высокой цены у друзей"
             )
             if not self.visit_friend_by_rank(mode="sell", threshold=sell_price_limit):
                 self.back_to_pearl_shop_or_map()
-                self._delay_to_next_day_1am("好友排名未找到高于售卖价的目标")
+                self._delay_to_next_day_1am("В рейтинге друзей не найдена цель выше цены продажи")
                 return self.PHASE_DELAYED
             in_friend_island = True
             if not self._goto_pearl_shop_at("assembly", use_map=False):
                 self.exit_friend_island()
-                self._delay_to_next_day_1am("进入好友岛珍珠商店失败")
+                self._delay_to_next_day_1am("Не удалось войти в магазин жемчуга острова друга")
                 return self.PHASE_DELAYED
             current_pearl = self.ocr_current_pearl_count()
             if current_pearl <= 0:
-                logger.info(f"[岛屿-珍珠采购] 好友岛当前珍珠数量为 {current_pearl}，跳过售卖")
+                logger.info(f"[Остров — жемчуг] Текущее количество жемчуга на острове друга: {current_pearl}; продажа пропущена")
                 self.back_to_pearl_shop_or_map()
                 self.exit_friend_island()
                 if self._purchase_quota_exhausted:
-                    logger.info("[岛屿-珍珠采购] 本周采购配额已用尽且无珍珠可售，直接等待下周")
+                    logger.info("[Остров — жемчуг] Недельная квота покупок исчерпана и продавать нечего; ожидание следующей недели")
                     return self.PHASE_SKIPPED
-                self._delay_to_next_day_1am("好友岛珍珠数量为 0")
+                self._delay_to_next_day_1am("Количество жемчуга на острове друга равно 0")
                 return self.PHASE_DELAYED
         else:
-            logger.info(f"[岛屿-珍珠采购] 本岛价格满足售卖要求: {sell_price}")
+            logger.info(f"[Остров — жемчуг] Цена своего острова удовлетворяет условию продажи: {sell_price}")
 
         if not self.sell_all_current_pearls(current_pearl):
             if in_friend_island:
@@ -274,12 +274,12 @@ class IslandPearlSell(Island):
                 self.exit_friend_island()
             else:
                 self.back_to_pearl_shop_or_map()
-            self._delay_to_next_day_1am("珍珠售卖未完成")
+            self._delay_to_next_day_1am("Продажа жемчуга не завершена")
             return self.PHASE_DELAYED
         self.back_to_pearl_shop_or_map()
         if in_friend_island:
             self.exit_friend_island()
-        logger.info("[岛屿-珍珠采购] 售卖完成")
+        logger.info("[Остров — жемчуг] Продажа завершена")
         return self.PHASE_DONE
 
     # ==================== 地图与路线 ====================
@@ -298,7 +298,7 @@ class IslandPearlSell(Island):
         elif destination == "port":
             self.move_to_port_role_b()
         else:
-            raise ValueError(f"未知珍珠商店地点: {destination}")
+            raise ValueError(f"Неизвестное местоположение магазина жемчуга: {destination}")
         enter_button = self.pearl_shop_enter_button(destination)
         check_button = self.pearl_shop_check_button(destination)
         self._pearl_shop_check_button = check_button
@@ -322,12 +322,12 @@ class IslandPearlSell(Island):
         if getattr(self, "_island_expect_friend", False):
             if destination in ("assembly", "port"):
                 return ISLAND_PEARL_SHOP_FRIEND_ENTER
-            raise ValueError(f"好友岛珍珠商店不支持地点: {destination}")
+            raise ValueError(f"Магазин жемчуга острова друга не поддерживает местоположение: {destination}")
         if destination == "assembly":
             return ISLAND_PEARL_SHOP_SELL_ENTER
         if destination == "port":
             return ISLAND_PEARL_SHOP_BUY_ENTER
-        raise ValueError(f"未知珍珠商店入口地点: {destination}")
+        raise ValueError(f"Неизвестное местоположение входа в магазин жемчуга: {destination}")
 
     @staticmethod
     def pearl_shop_check_button(destination):
@@ -335,14 +335,14 @@ class IslandPearlSell(Island):
             return ISLAND_PEARL_SHOP_SELL_CHECK
         if destination == "port":
             return ISLAND_PEARL_SHOP_BUY_CHECK
-        raise ValueError(f"未知珍珠商店检查地点: {destination}")
+        raise ValueError(f"Неизвестное местоположение проверки магазина жемчуга: {destination}")
 
     def current_pearl_shop_check_button(self):
         return getattr(self, "_pearl_shop_check_button", ISLAND_PEARL_SHOP_SELL_CHECK)
 
     def enter_pearl_shop(self, enter_button, check_button):
         """进入珍珠商店。"""
-        logger.info(f"[岛屿-珍珠采购] 进入珍珠商店: {check_button.name}")
+        logger.info(f"[Остров — жемчуг] Вход в магазин жемчуга: {check_button.name}")
         for _ in self.loop(timeout=15):
             if self.appear(check_button, offset=(20, 20)):
                 return True
@@ -350,12 +350,12 @@ class IslandPearlSell(Island):
                 continue
             if self.ui_additional():
                 continue
-        logger.warning("[岛屿-珍珠采购] 进入珍珠商店超时")
+        logger.warning("[Остров — жемчуг] Истекло время входа в магазин жемчуга")
         return False
 
     def back_to_pearl_shop_or_map(self):
         """从购买/售卖弹窗或珍珠商店返回到上级页面。"""
-        logger.info("[岛屿-珍珠采购] 退出珍珠交易界面")
+        logger.info("[Остров — жемчуг] Выход из интерфейса торговли жемчугом")
         check_button = self.current_pearl_shop_check_button()
         for _ in self.loop(timeout=10):
             if not self.appear(check_button, offset=(20, 20)):
@@ -389,24 +389,24 @@ class IslandPearlSell(Island):
             return False
 
         self._rank_visit_target_selected = True
-        logger.info(f"[岛屿-珍珠采购] 选择好友珍珠价格 {target['price']}")
+        logger.info(f"[Остров — жемчуг] Выбрана цена жемчуга друга: {target['price']}")
         return self.check_visit_friend_island(target["visit_button"])
 
     def switch_to_friend_rank_tab(self):
         """切换到好友排名页签。"""
-        logger.info("[岛屿-珍珠采购] 切换到好友排名页签")
+        logger.info("[Остров — жемчуг] Переключение на вкладку рейтинга друзей")
         for _ in self.loop(timeout=10):
             if self.appear_then_click(ISLAND_PEARL_FRIEND_RANK_TAB, interval=2):
                 self.wait_friend_rank_loaded()
                 return True
             if self.ui_additional():
                 continue
-        logger.warning("[岛屿-珍珠采购] 切换好友排名页签超时")
+        logger.warning("[Остров — жемчуг] Истекло время переключения на вкладку рейтинга друзей")
         return False
 
     def wait_friend_rank_loaded(self):
         """切换好友排名后等待网络数据拉取。"""
-        logger.info(f"[岛屿-珍珠采购] 等待好友排名数据加载 {self.RANK_TAB_WAIT}s")
+        logger.info(f"[Остров — жемчуг] Ожидание загрузки данных рейтинга друзей: {self.RANK_TAB_WAIT}s")
         wait = Timer(self.RANK_TAB_WAIT).start()
         for _ in self.loop(timeout=self.RANK_TAB_WAIT + 1, skip_first=False):
             if wait.reached():
@@ -419,8 +419,8 @@ class IslandPearlSell(Island):
     def swipe_friend_rank_to_bottom(self):
         """采购阶段固定滑动好友排名到底部附近。"""
         logger.info(
-            f"固定滑动好友排名 {self.RANK_FIXED_SWIPE_COUNT} 次，"
-            f"单次距离 {self.RANK_FIXED_SWIPE_DISTANCE}px"
+            f"Фиксированная прокрутка рейтинга друзей: {self.RANK_FIXED_SWIPE_COUNT} раз; "
+            f"расстояние за раз: {self.RANK_FIXED_SWIPE_DISTANCE}px"
         )
         for _ in range(self.RANK_FIXED_SWIPE_COUNT):
             self.device.screenshot()
@@ -436,8 +436,8 @@ class IslandPearlSell(Island):
     def stabilize_friend_rank_price_area(self):
         """等待滑动惯性停止，并点击价格区域稳定好友排名列表。"""
         logger.info(
-            f"等待好友排名滑动惯性停止 {self.RANK_PRICE_STABILIZE_WAIT}s，"
-            "点击价格区域后再检测"
+            f"Ожидание остановки инерции прокрутки рейтинга друзей: {self.RANK_PRICE_STABILIZE_WAIT}s; "
+            "после нажатия области цены выполняется повторная проверка"
         )
         self.device.sleep(self.RANK_PRICE_STABILIZE_WAIT)
         self.device.click(
@@ -453,7 +453,7 @@ class IslandPearlSell(Island):
         """通过拜访按钮模板匹配查找满足价格条件的好友。"""
         candidates = self.find_rank_visit_candidates()
         if not candidates:
-            logger.info("[岛屿-珍珠采购] 当前好友排名区域未识别到拜访按钮")
+            logger.info("[Остров — жемчуг] В текущей области рейтинга друзей кнопки посещения не распознаны")
             return None
 
         valid = []
@@ -465,7 +465,7 @@ class IslandPearlSell(Island):
                 valid.append(item)
 
         if not valid:
-            logger.info("[岛屿-珍珠采购] 当前好友排名区域没有满足条件的价格")
+            logger.info("[Остров — жемчуг] В текущей области рейтинга друзей нет подходящей цены")
             return None
         if mode == "buy":
             return min(valid, key=lambda item: item["price"])
@@ -494,7 +494,7 @@ class IslandPearlSell(Island):
             price_button = self.rank_price_button_from_visit(visit_button, index=index)
             price = self._ocr_digit(price_button, name="pearl_rank_price")
             if price:
-                logger.info(f"[岛屿-珍珠采购] 好友排名拜访按钮 {index} 对应珍珠价格: {price}")
+                logger.info(f"[Остров — жемчуг] Кнопке посещения #{index} в рейтинге друзей соответствует цена жемчуга: {price}")
                 candidates.append(
                     {
                         "visit_button": visit_button,
@@ -502,7 +502,7 @@ class IslandPearlSell(Island):
                     }
                 )
             else:
-                logger.warning(f"[岛屿-珍珠采购] 好友排名拜访按钮 {index} 对应价格 OCR 无效: {price}")
+                logger.warning(f"[Остров — жемчуг] Для кнопки посещения #{index} в рейтинге друзей OCR цены недействителен: {price}")
         return candidates
 
     def offset_rank_visit_button(self, button):
@@ -530,9 +530,9 @@ class IslandPearlSell(Island):
             self.device.screenshot()
             price = self._ocr_digit(OCR_ISLAND_PEARL_PRICE, name="pearl_price")
             if valid_range[0] <= price <= valid_range[1]:
-                logger.info(f"[岛屿-珍珠采购] 珍珠价格: {price}")
+                logger.info(f"[Остров — жемчуг] Цена жемчуга: {price}")
                 return price
-            logger.warning(f"[岛屿-珍珠采购] 珍珠价格 OCR 无效: {price}")
+            logger.warning(f"[Остров — жемчуг] Некорректная цена жемчуга по OCR: {price}")
         return None
 
     def ocr_weekly_purchase_count(self):
@@ -547,9 +547,9 @@ class IslandPearlSell(Island):
             )
             count = self.parse_weekly_purchase_count(text)
             if count is not None:
-                logger.info(f"[岛屿-珍珠采购] 本周可采购数量: {count}/200")
+                logger.info(f"[Остров — жемчуг] Доступное количество покупок на этой неделе: {count}/200")
                 return count
-            logger.warning(f"[岛屿-珍珠采购] 本周可采购数量 OCR 无效: {text}")
+            logger.warning(f"[Остров — жемчуг] Некорректный OCR доступного количества покупок на этой неделе: {text}")
         return None
 
     @staticmethod
@@ -560,7 +560,7 @@ class IslandPearlSell(Island):
         count = int(digits[:-3] or "0")
         if 0 <= count <= 200:
             if "/" not in text:
-                logger.info(f"[岛屿-珍珠采购] 本周可采购数量 OCR 缺少斜杠，按 {count}/200 处理")
+                logger.info(f"[Остров — жемчуг] В OCR доступного количества покупок отсутствует косая черта; значение трактуется как {count}/200")
             return count
         return None
 
@@ -590,7 +590,7 @@ class IslandPearlSell(Island):
         count = self._ocr_digit(
             OCR_ISLAND_PEARL_CURRENT_COUNT, name="pearl_current_count"
         )
-        logger.info(f"[岛屿-珍珠采购] 当前珍珠数量: {count}")
+        logger.info(f"[Остров — жемчуг] Текущее количество жемчуга: {count}")
         return count
 
     def ocr_trade_count(self):
@@ -620,7 +620,7 @@ class IslandPearlSell(Island):
     def sell_all_current_pearls(self, current_pearl):
         """售卖后复检珍珠数量，直到识别为 0 或达到最大轮次。"""
         for round_index in range(1, self.SELL_UNTIL_ZERO_MAX_ROUNDS + 1):
-            logger.info(f"[岛屿-珍珠采购] 珍珠售卖轮次 {round_index}: {current_pearl}")
+            logger.info(f"[Остров — жемчуг] Раунд продажи жемчуга {round_index}: {current_pearl}")
             if current_pearl <= 0:
                 return True
             if not self.trade_pearl(action="sell", count=current_pearl):
@@ -630,30 +630,30 @@ class IslandPearlSell(Island):
             if current_pearl <= 0:
                 return True
             if round_index < self.SELL_UNTIL_ZERO_MAX_ROUNDS:
-                logger.warning(f"[岛屿-珍珠采购] 珍珠售卖后剩余数量为 {current_pearl}，继续售卖")
+                logger.warning(f"[Остров — жемчуг] После продажи осталось жемчуга: {current_pearl}; продажа продолжается")
 
-        logger.warning("[岛屿-珍珠采购] 珍珠售卖复检超过最大轮次，停止售卖")
+        logger.warning("[Остров — жемчуг] Повторная проверка продажи превысила максимальное число раундов; продажа остановлена")
         return False
 
     def trade_pearl(self, action, count):
         """执行购买或售卖。"""
         if count <= 0:
-            logger.info(f"[岛屿-珍珠采购] 珍珠{self._action_name(action)}数量为 0，跳过")
+            logger.info(f"[Остров — жемчуг] Количество для операции «{self._action_name(action)}» равно 0; пропуск")
             return False
 
-        logger.info(f"[岛屿-珍珠采购] 开始珍珠{self._action_name(action)}: {count}")
+        logger.info(f"[Остров — жемчуг] Начало операции «{self._action_name(action)}»: {count}")
         for _ in self.loop(timeout=10):
             if self.appear_then_click(ISLAND_PEARL_TRADE, offset=(20, 20), interval=2):
                 break
             if self.ui_additional():
                 continue
         else:
-            logger.warning(f"[岛屿-珍珠采购] 打开珍珠{self._action_name(action)}弹窗超时")
+            logger.warning(f"[Остров — жемчуг] Истекло время открытия окна операции «{self._action_name(action)}»")
             return False
 
         self.device.sleep(0.5)
         if not self.adjust_trade_count(count):
-            logger.warning(f"[岛屿-珍珠采购] 珍珠{self._action_name(action)}数量未调整到目标: {count}")
+            logger.warning(f"[Остров — жемчуг] Количество операции «{self._action_name(action)}» не приведено к целевому: {count}")
             return False
         if not self.confirm_trade(action=action):
             return False
@@ -667,7 +667,7 @@ class IslandPearlSell(Island):
         for _ in range(self.TRADE_COUNT_MAX_CLICKS):
             self.device.screenshot()
             current = self.ocr_trade_count()
-            logger.info(f"[岛屿-珍珠采购] 珍珠交易数量: {current}/{target}")
+            logger.info(f"[Остров — жемчуг] Количество сделки с жемчугом: {current}/{target}")
             if current == target:
                 return True
             if current == last_count:
@@ -675,13 +675,13 @@ class IslandPearlSell(Island):
             else:
                 stable_count = 0
             if stable_count >= self.TRADE_COUNT_RETRY:
-                logger.warning("[岛屿-珍珠采购] 交易数量 OCR 多次未变化，停止调整")
+                logger.warning("[Остров — жемчуг] Значение OCR количества сделки несколько раз не изменилось; настройка остановлена")
                 return False
             last_count = current
 
             for button in self.trade_count_adjust_buttons(current, target):
                 self.device.click(button)
-        logger.warning("[岛屿-珍珠采购] 交易数量调整超出最大点击次数")
+        logger.warning("[Остров — жемчуг] Настройка количества сделки превысила максимальное число нажатий")
         return False
 
     @staticmethod
@@ -713,7 +713,7 @@ class IslandPearlSell(Island):
             return ISLAND_PEARL_TRADE_BUY_CONFIRM
         if action == "sell":
             return ISLAND_PEARL_TRADE_SELL_CONFIRM
-        raise ValueError(f"未知珍珠交易类型: {action}")
+        raise ValueError(f"Неизвестный тип сделки с жемчугом: {action}")
 
     def confirm_trade(self, action):
         """确认购买/售卖。"""
@@ -737,7 +737,7 @@ class IslandPearlSell(Island):
             if self.ui_additional():
                 confirm_timer.reset()
                 continue
-        logger.warning("[岛屿-珍珠采购] 确认珍珠交易超时")
+        logger.warning("[Остров — жемчуг] Истекло время подтверждения сделки с жемчугом")
         return False
 
     def handle_pearl_get_items(self):
@@ -747,19 +747,19 @@ class IslandPearlSell(Island):
 
     @staticmethod
     def _action_name(action):
-        return "采购" if action == "buy" else "售卖"
+        return "покупка" if action == "buy" else "продажа"
 
     # ==================== 价格刷新 ====================
 
     def run_price_refresh(self):
         """每日 03:00 进入珍珠售卖商店后立即退出，刷新价格显示。"""
-        logger.hr("珍珠价格刷新", level=2)
+        logger.hr("Обновление цены жемчуга", level=2)
         if not self._enter_home_pearl_shop("assembly"):
-            logger.warning("[岛屿-珍珠采购] 价格刷新：进入珍珠商店失败")
+            logger.warning("[Остров — жемчуг] Обновление цены: не удалось войти в магазин жемчуга")
             return False
-        logger.info("[岛屿-珍珠采购] 价格刷新：已进入珍珠商店")
+        logger.info("[Остров — жемчуг] Обновление цены: магазин жемчуга открыт")
         self.back_to_pearl_shop_or_map()
-        logger.info("[岛屿-珍珠采购] 价格刷新完成")
+        logger.info("[Остров — жемчуг] Обновление цены завершено")
         return True
 
     # ==================== 时间与延时 ====================
@@ -870,13 +870,13 @@ class IslandPearlSell(Island):
 
     def _delay_to_next_day_1am(self, reason):
         target = self.next_day_1am()
-        logger.info(f"[岛屿-珍珠采购] {reason}，延迟到 {target}")
+        logger.info(f"[Остров — жемчуг] {reason}; задержка до {target}")
         self._delay_to_next_trade(target)
 
     def _delay_buy_to_next_day_1am(self, reason):
         """设置采购延时到次日凌晨 1 点，仅影响采购不干扰售卖。"""
         target = self.next_day_1am()
-        logger.info(f"[岛屿-珍珠采购] {reason}，采购延迟到 {target}")
+        logger.info(f"[Остров — жемчуг] {reason}; покупка отложена до {target}")
         self.config.IslandPearlSell_BuyNextRun = target
         if target < self._get_next_pearl_trade_time():
             self.config.IslandPearlSell_NextPearlTradeTime = target

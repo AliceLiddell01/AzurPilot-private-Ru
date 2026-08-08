@@ -25,10 +25,10 @@ class SupplyPack(CampaignStatus):
         Returns:
             bool: If bought.
         """
-        logger.hr('购买补给包')
+        logger.hr('Покупка набора снабжения')
         [self.interval_clear(asset) for asset in [GET_ITEMS_1, GET_ITEMS_2, supply_pack, BUY_CONFIRM]]
 
-        logger.info(f'[免费福利-补给] 购买 {supply_pack}')
+        logger.info(f'[Бонусы — снабжение] Покупка {supply_pack}')
         executed = False
         click_count = 0
         confirm_timer = Timer(1, count=3).start()
@@ -40,7 +40,7 @@ class SupplyPack(CampaignStatus):
 
             if self.appear(supply_pack, offset=(200, 20), interval=3):
                 if click_count >= 3:
-                    logger.warning(f'[免费福利-补给] 购买 {supply_pack} 尝试3次后失败，可能达到资源限制，跳过')
+                    logger.warning(f'[Бонусы — снабжение] Не удалось купить {supply_pack} после 3 попыток; возможно, достигнут лимит ресурса, пропуск')
                     break
                 self.device.click(supply_pack)
                 click_count += 1
@@ -67,7 +67,7 @@ class SupplyPack(CampaignStatus):
             else:
                 confirm_timer.reset()
 
-        logger.info(f'购买补给包 finished, executed={executed}')
+        logger.info(f'Покупка набора снабжения завершена, выполнено={executed}')
         return executed
 
     def goto_supply_pack(self, skip_first_screenshot=True):
@@ -93,9 +93,9 @@ class SupplyPack(CampaignStatus):
             if server_today >= target:
                 self.supply_pack_buy(FREE_SUPPLY_PACK)
             else:
-                logger.info(f'[免费福利-补给] 将免费周补给包延迟到 {target_name}')
+                logger.info(f'[Бонусы — снабжение] Бесплатный еженедельный набор отложен до {target_name}')
         else:
-            logger.info('石油超限，无法购买免费周补给包')
+            logger.info('Лимит нефти превышен; бесплатный еженедельный набор купить нельзя')
 
 
 class SupplyPack_250814(SupplyPack):
@@ -113,11 +113,11 @@ class SupplyPack_250814(SupplyPack):
                 self.device.screenshot()
 
             if timeout.reached():
-                logger.warning('获取石油超时')
+                logger.warning('Тайм-аут получения количества нефти')
                 break
 
             if not self.appear(SHOP_OCR_OIL_CHECK, offset=(10, 2)):
-                logger.info('无石油图标')
+                logger.info('Значок нефти отсутствует')
                 continue
             ocr = Digit(SHOP_OCR_OIL, name='OCR_OIL', letter=(247, 247, 247), threshold=128)
             amount = ocr.ocr(self.device.image)
@@ -132,11 +132,11 @@ class SupplyPack_250814(SupplyPack):
             in: page_shop
             out: page_supply_pack, supply pack tab
         """
-        logger.info('前往补给包')
+        logger.info('Переход к наборам снабжения')
         for _ in self.loop():
 
             if self.match_template_color(page_supply_pack.check_button, offset=(20, 20)):
-                logger.info('在补给包')
+                logger.info('Открыта страница наборов снабжения')
                 break
 
             elif self.appear_then_click(page_supply_pack.check_button, offset=(20, 20), interval=3):

@@ -77,10 +77,10 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         while 1:
             self._currency = self.status_get_gold_coins()
             self.gems = self.status_get_gems()
-            logger.info(f'[商店-货币] 金币: {self._currency}, 钻石: {self.gems}')
+            logger.info(f'[Магазин — валюта] Монеты: {self._currency}, гемы: {self.gems}')
 
             if self.currency_rechecked >= 3:
-                logger.warning('[商店-货币] 无法修复通用商店货币bug，跳过')
+                logger.warning('[Магазин — валюта] Не удалось исправить ошибку валюты общего магазина; пропуск')
                 break
 
             break
@@ -132,7 +132,7 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         if self.config.GeneralShop_BuySkinBox:
             if (not item.is_known_item()) and item.amount == 1 and item.cost == 'Coins' and item.price == 7000:
                 # 装备外观箱无法通过模板匹配识别（颜色和外观持续变化）
-                logger.info(f'[商店-商品] 物品 {item} 被认为是装备外观箱')
+                logger.info(f'[Магазин — товар] Товар {item} считается ящиком внешнего вида снаряжения')
                 if self._currency >= item.price:
                     return True
 
@@ -154,8 +154,8 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         """
         if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 600000:
             return value
-        logger.warning(f'[商店-配置] {name}={value}，无效值（期望0-600000的整数），'
-                       f'设置为0以禁用功能')
+        logger.warning(f'[Магазин — конфигурация] {name}={value}: некорректное значение '
+                       f'(ожидается целое число 0–600000); установлено 0 для отключения функции')
         return 0
 
     def _meowfficer_overflow_buy(self):
@@ -177,11 +177,11 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         # 重新OCR识别金币（购买消耗物资后金币可能已变化）
         self.shop_currency()
         if self._currency <= overflow_coins:
-            logger.info(f'[商店-溢出] 金币 {self._currency} <= 溢出阈值 {overflow_coins}，跳过指挥喵溢出购买')
+            logger.info(f'[Магазин — избыток] Монеты {self._currency} <= порога избытка {overflow_coins}; покупка Мяуфицеров из избытка пропущена')
             return
 
-        logger.hr('指挥喵溢出购买', level=1)
-        logger.info(f'[商店-溢出] 金币 {self._currency} > 溢出阈值 {overflow_coins}，触发指挥喵溢出购买')
+        logger.hr('Покупка Мяуфицеров из избытка', level=1)
+        logger.info(f'[Магазин — избыток] Монеты {self._currency} > порога избытка {overflow_coins}; запуск покупки Мяуфицеров из избытка')
 
         # 导航到指挥喵界面
         self.ui_goto(page_meowfficer)
@@ -226,7 +226,7 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         if not self.shop_filter:
             return
 
-        logger.hr('通用商店', level=1)
+        logger.hr('Общий магазин', level=1)
 
         # 执行购买操作，启用刷新时最多尝试 2 次
         refresh = self.config.GeneralShop_Refresh
