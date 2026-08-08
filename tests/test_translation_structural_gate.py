@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import subprocess
+import token
 from pathlib import Path
 
 import pytest
 
-from dev_tools.translation_structural_gate import run_gate, verify_source_pair
+from dev_tools.translation_structural_gate import (
+    _parse_source,
+    _token_stream,
+    run_gate,
+    verify_source_pair,
+)
 
 
 def assert_passes(base: str, head: str) -> None:
@@ -20,10 +26,14 @@ def assert_blocked(base: str, head: str) -> None:
     ("base", "head"),
     [
         ('logger.info("Starting battle")\n', 'logger.info("Начало боя")\n'),
+        ('logger.warning("Battle warning")\n', 'logger.warning("Предупреждение боя")\n'),
+        ('logger.error("Battle error")\n', 'logger.error("Ошибка боя")\n'),
+        ('logger.critical("Battle critical")\n', 'logger.critical("Критическая ошибка боя")\n'),
         (
             'logger.exception("Given coordinates are outside the map.")\n',
             'logger.exception("Указанные координаты находятся за пределами карты.")\n',
         ),
+        ('logger.hr("Battle")\n', 'logger.hr("Бой")\n'),
         (
             'logger.info(f"Enemy: {enemy}")\n',
             'logger.info(f"Противник: {enemy}")\n',
@@ -33,10 +43,6 @@ def assert_blocked(base: str, head: str) -> None:
             'logger.info("""Бой начат\nФлот готов""")\n',
         ),
         ('logger.attr("Enemy", enemy)\n', 'logger.attr("Противник", enemy)\n'),
-        (
-            'raise RuntimeError("Battle failed")\n',
-            'raise RuntimeError("Бой не выполнен")\n',
-        ),
         (
             'logger.info("Enemy {name!r}: {hp:.1f}".format(name=name, hp=hp))\n',
             'logger.info("Противник {name!r}: {hp:.1f}".format(name=name, hp=hp))\n',
@@ -64,6 +70,22 @@ def assert_blocked(base: str, head: str) -> None:
         (
             'logger.info("Direction %s: %s" % ("horizontal" if flag else "vertical", point))\n',
             'logger.info("Направление %s: %s" % ("горизонталь" if flag else "вертикаль", point))\n',
+        ),
+        (
+            'handle_notify(config, title=f"AzurPilot <{name}> campaign finished")\n',
+            'handle_notify(config, title=f"AzurPilot <{name}>: кампания завершена")\n',
+        ),
+        (
+            'handle_notify(config, content=f"<{name}> {stage} reached run count limit")\n',
+            'handle_notify(config, content=f"<{name}> {stage}: достигнут лимит запусков")\n',
+        ),
+        (
+            'handle_notify(config, title=f"AzurPilot <{name}> campaign finished", content=f"<{name}> {stage} reached run count limit")\n',
+            'handle_notify(config, title=f"AzurPilot <{name}>: кампания завершена", content=f"<{name}> {stage}: достигнут лимит запусков")\n',
+        ),
+        (
+            'logger.info(f"Enemy {{slot}}: {enemy}")\n',
+            'logger.info(f"Противник {{slot}}: {enemy}")\n',
         ),
     ],
 )
@@ -122,6 +144,22 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
         ("def f():\n    pass\n", "def f():\n    raise ValueError\n"),
         ("def f():\n    raise ValueError\n", "def f():\n    pass\n"),
         ("raise ValueError('failed')\n", "raise TypeError('ошибка')\n"),
+        (
+            'raise RuntimeError("Battle failed")\n',
+            'raise RuntimeError("Бой не выполнен")\n',
+        ),
+        (
+            'raise MapDetectionError("Camera outside map: offset=(1, 2)")\n',
+            'raise MapDetectionError("Камера вне карты: offset=(1, 2)")\n',
+        ),
+        (
+            'raise ScriptEnd("DefeatWithdraw=withdraw_stop")\n',
+            'raise ScriptEnd("Отступление=остановка")\n',
+        ),
+        (
+            'raise RuntimeError(f"State={state}")\n',
+            'raise RuntimeError(f"Состояние={state}")\n',
+        ),
         ("for x in xs:\n    pass\n", "for x in xs:\n    break\n"),
         ("for x in xs:\n    break\n", "for x in xs:\n    pass\n"),
         ("for x in xs:\n    pass\n", "for x in xs:\n    continue\n"),
@@ -152,6 +190,10 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
         ('if state == "battle":\n    run()\n', 'if state == "бой":\n    run()\n'),
         ('state = "running"\n', 'state = "выполняется"\n'),
         ('mapping["boss"]\n', 'mapping["босс"]\n'),
+        (
+            'payload = {"state": "running"}\n',
+            'payload = {"state": "выполняется"}\n',
+        ),
         (
             'if mode in {"normal", "boss"}:\n    run()\n',
             'if mode in {"normal", "босс"}:\n    run()\n',
@@ -192,10 +234,62 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
             'logger.info("Direction %s" % ("horizontal" if flag else "vertical"))\n',
             'logger.info("Направление %s" % ("горизонталь" if other else "вертикаль"))\n',
         ),
+        ('logger.info("Start")\n', "logger.info('Старт')\n"),
+        ('logger.info(r"Start")\n', 'logger.info("Старт")\n'),
+        ('logger.info(f"Enemy: {enemy}")\n', 'logger.info(rf"Противник: {enemy}")\n'),
+        ("logger.info(f'Enemy: {enemy}')\n", 'logger.info(f"Противник: {enemy}")\n'),
+        ('logger.attr("Enemy", "battle")\n', 'logger.attr("Противник", "бой")\n'),
+        ('other(title="Done")\n', 'other(title="Готово")\n'),
+        (
+            'handle_notify(config, title="Done")\n',
+            'other_notify(config, title="Готово")\n',
+        ),
+        (
+            'handle_notify(config, title="Done")\n',
+            'handle_notify(other_config, title="Готово")\n',
+        ),
+        (
+            'handle_notify(config, "Done")\n',
+            'handle_notify(config, "Готово")\n',
+        ),
+        (
+            'handle_notify(config, title="Done")\n',
+            'handle_notify(config, heading="Готово")\n',
+        ),
+        (
+            'handle_notify(config, channel="discord")\n',
+            'handle_notify(config, channel="дискорд")\n',
+        ),
+        (
+            'handle_notify(config, title=f"Done {stage}")\n',
+            'handle_notify(config, title=f"Готово {other_stage}")\n',
+        ),
+        (
+            'handle_notify(config, title="Done", **{"channel": "discord"})\n',
+            'handle_notify(config, title="Готово", **{"channel": "дискорд"})\n',
+        ),
     ],
 )
 def test_structural_or_machine_changes_fail(base: str, head: str) -> None:
     assert_blocked(base, head)
+
+
+def test_fstring_format_spec_middle_is_exact() -> None:
+    source = 'logger.info(f"Enemy: {enemy:.1f}")\n'
+    parsed = _parse_source(source, "module/example.py")
+    stream = _token_stream(source, parsed.ranges)
+
+    assert ("FSTRING_MIDDLE", "<OPERATOR_PROSE>") in stream
+    assert ("FSTRING_MIDDLE", ".1f") in stream
+
+
+def test_tstrings_are_exact_by_default() -> None:
+    if not hasattr(token, "TSTRING_START"):
+        pytest.skip("t-strings require Python 3.14+")
+    assert_blocked(
+        'logger.info(t"Battle {state}")\n',
+        'logger.info(t"Бой {state}")\n',
+    )
 
 
 def _git(repository: Path, *args: str) -> str:
