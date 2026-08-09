@@ -103,6 +103,14 @@ def assert_blocked(base: str, head: str) -> None:
             'self.logger.attr("Simulation state", state)\n',
             'self.logger.attr("Состояние симуляции", state)\n',
         ),
+        (
+            'logger.attr("Search mode", "continue")\n',
+            'logger.attr("Режим поиска", "продолжить")\n',
+        ),
+        (
+            'self.logger.attr("Simulation", f"Attempt {attempt}")\n',
+            'self.logger.attr("Симуляция", f"Попытка {attempt}")\n',
+        ),
     ],
 )
 def test_operator_prose_changes_pass(base: str, head: str) -> None:
@@ -254,7 +262,7 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
         ('logger.info(r"Start")\n', 'logger.info("Старт")\n'),
         ('logger.info(f"Enemy: {enemy}")\n', 'logger.info(rf"Противник: {enemy}")\n'),
         ("logger.info(f'Enemy: {enemy}')\n", 'logger.info(f"Противник: {enemy}")\n'),
-        ('logger.attr("Enemy", "battle")\n', 'logger.attr("Противник", "бой")\n'),
+        ('logger.attr("Enemy", state)\n', 'logger.attr("Противник", other_state)\n'),
         ('other(title="Done")\n', 'other(title="Готово")\n'),
         (
             'handle_notify(config, title="Done")\n',
@@ -310,7 +318,27 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
         ),
         (
             'self.logger.attr("Simulation state", "runtime_state")\n',
-            'self.logger.attr("Состояние симуляции", "состояние_выполнения")\n',
+            'self.logger.attr("Состояние симуляции", other_state)\n',
+        ),
+        (
+            'other.logger.attr("Simulation", "continue")\n',
+            'other.logger.attr("Симуляция", "продолжить")\n',
+        ),
+        (
+            'logger.attr("Search mode", f"Attempt {attempt}")\n',
+            'logger.attr("Режим поиска", f"Попытка {other_attempt}")\n',
+        ),
+        (
+            'logger.attr("Search mode", "continue", "runtime_state")\n',
+            'logger.attr("Режим поиска", "продолжить", "состояние_выполнения")\n',
+        ),
+        (
+            'logger.attr("Search mode", "continue", channel="runtime")\n',
+            'logger.attr("Режим поиска", "продолжить", channel="выполнение")\n',
+        ),
+        (
+            'logger.attr("Search mode", "continue")\n',
+            'logger.attr("Режим поиска")\n',
         ),
     ],
 )
