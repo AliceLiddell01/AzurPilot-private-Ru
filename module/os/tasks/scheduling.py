@@ -138,7 +138,7 @@ class CoinTaskMixin:
                     keys=f'{self.TASK_NAME_SCHEDULING}.Scheduler.ServerUpdate',
                     default='00:00',
                 )
-            logger.info('[Операция «Сирена» — умное планирование+] Перенос подзадачи сопоставлен задаче «Умное планирование+»')
+            logger.info('[Операция «Сирена» — умное планирование+] Перенос подзадачи сопоставлен задаче «Умного планирования+»')
             self.config.task_delay(
                 *args,
                 task=self.TASK_NAME_SCHEDULING,
@@ -747,6 +747,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
             return func(*args, **kwargs)
         finally:
             self.config.task = previous_task
+
             if previous_context is None:
                 if hasattr(self, '_smart_scheduling_context'):
                     delattr(self, '_smart_scheduling_context')
