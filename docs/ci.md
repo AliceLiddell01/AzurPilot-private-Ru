@@ -59,11 +59,25 @@ label точного `logger.attr_align(name, text, ...)`, а также keyword
 `module/os/tasks/hazard_leveling.py`. `notify_push.title` остаётся exact, потому
 что `_format_launcher_notification()` анализирует title и использует его для
 ветвления. Позиционный content, произвольные `obj.notify_push`, другие файлы и
-`self.logger.attr_align` не входят в allowlist. В
-`CoinTaskMixin.check_and_notify_action_point_threshold()` разрешены только
-строковые RHS локальной переменной `content`, которая затем передаётся в
-`self.notify_push(..., content=content)`; это точечный contract для фактического
-consumer flow, а не generic-разрешение строковых assignments.
+`self.logger.attr_align` не входят в allowlist.
+
+Локальная строковая переменная может считаться частью `notify_push.content`
+только для явно доказанного path/function/variable contract, если verifier
+подтверждает единственное чтение этой переменной внутри exact keyword
+`content=` и fail-closed reaching-definition связь с этим sink. Любое другое
+чтение, неподдерживаемая запись или control-flow с отслеживаемой переменной
+снимает такое разрешение. Это покрывает как локальный `content` в
+`check_and_notify_action_point_threshold()`, так и `coin_status` в
+`_handle_smart_scheduling_no_task()`, не создавая generic-разрешения локальных
+assignments.
+
+Для доказанного display-builder
+`OpsiHazard1Leveling._format_check_report()` разрешены только непустые безопасные
+строковые templates в exact `lines.append(...)`. Локальные `status` и
+`time_str` разрешаются лишь когда все их чтения принадлежат этим append-display
+expressions, а записи являются простыми assignments. Разделитель
+`"\n".join(lines)`, вычисления, ключи/идентификаторы и любые другие строки
+helper остаются exact.
 
 Остальные соседние аргументы и неизвестные keywords, строки в
 `raise`/exception constructors, неизвестных calls/keywords и machine-sensitive
