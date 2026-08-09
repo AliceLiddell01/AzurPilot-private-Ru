@@ -56,7 +56,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 _previous_ap_insufficient = True
                 self.notify_push(
                     title="[AzurPilot info] 侵蚀 1 - 行动力低于最低保留",
-                    content=f"总行动力 {self._action_point_total} 低于最低保留 {min_reserve}，已推迟任务",
+                    content=f"Всего очков действия {self._action_point_total} ниже минимального резерва {min_reserve}, задача отложена",
                 )
             else:
                 logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] При последней проверке очки действия были ниже минимального резерва, уведомление пропущено")
@@ -294,7 +294,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 )
                 self.notify_push(
                     title="练级检查通过",
-                    content=f"<{self.config.config_name}> {self.config.task} 已达到等级限制 {target_level}。",
+                    content=f"<{self.config.config_name}> {self.config.task} достиг ограничения уровня {target_level}.",
                 )
                 
                 if self.config.OpsiFleetAutoChange_Enable:
@@ -354,19 +354,19 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             str: 格式化的报告文本
         """
         lines = []
-        lines.append("【舰船经验检测报告】")
+        lines.append("【Отчёт о проверке опыта кораблей】")
         lines.append("")
         
         if error_msg:
-            lines.append("检测状态: 失败")
-            lines.append(f"错误信息: {error_msg}")
+            lines.append("Статус проверки: ошибка")
+            lines.append(f"Ошибка: {error_msg}")
             return "\n".join(lines)
         
-        lines.append("检测状态: 成功")
-        lines.append(f"检测舰队: 第 {fleet_index} 舰队")
-        lines.append(f"目标等级: Lv.{target_level}")
+        lines.append("Статус проверки: успешно")
+        lines.append(f"Проверяемый флот: {fleet_index}.")
+        lines.append(f"Целевой уровень: Lv.{target_level}")
         if custom_positions:
-            lines.append(f"检测舰位: {', '.join(map(str, custom_positions))}")
+            lines.append(f"Проверяемые позиции: {', '.join(map(str, custom_positions))}")
         lines.append("")
         
         target_exp = LIST_SHIP_EXP[target_level - 1] if 1 <= target_level <= 125 else 0
@@ -397,8 +397,8 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 progress_str = "100%"
             
             if total_exp >= target_exp:
-                status = "已满"
-                time_str = "0分钟"
+                status = "Опыт заполнен"
+                time_str = "0 мин"
             else:
                 status = progress_str
                 exp_needed = target_exp - total_exp
@@ -408,26 +408,26 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                     hours = int(time_seconds // 3600)
                     minutes = int((time_seconds % 3600) // 60)
                     if hours > 0:
-                        time_str = f"{hours}小时{minutes}分钟"
+                        time_str = f"{hours} ч {minutes} мин"
                     else:
-                        time_str = f"{minutes}分钟"
+                        time_str = f"{minutes} мин"
                 else:
-                    time_str = "未知"
+                    time_str = "Неизвестно"
             
-            lines.append(f"舰位{position}: Lv.{level} | 经验：{current_exp:,} | 进度：{status} │ 预计时间：{time_str}")
+            lines.append(f"Позиция {position}: Lv.{level} | Опыт: {current_exp:,} | Прогресс: {status} │ Примерное время: {time_str}")
             lines.append("")
         
         all_full = all(ship.get('total_exp', 0) >= target_exp for ship in ships_to_report)
         if all_full:
             if custom_positions:
-                lines.append(f"★ 指定舰位 {', '.join(map(str, custom_positions))} 已满经验！")
+                lines.append(f"★ Позиции {', '.join(map(str, custom_positions))} набрали максимальный опыт!")
             else:
-                lines.append("★ 所有舰船已满经验！")
+                lines.append("★ Все корабли набрали максимальный опыт!")
         else:
             not_full = [s for s in ships_to_report if s.get('total_exp', 0) < target_exp]
-            lines.append(f"未满经验舰位: {len(not_full)} 艘")
+            lines.append(f"Позиций без максимального опыта: {len(not_full)} шт.")
         
-        lines.append(f"检测时间: {current_time().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"Время проверки: {current_time().strftime('%Y-%m-%d %H:%M:%S')}")
         
         return "\n".join(lines)
 
@@ -696,7 +696,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             )
             self.notify_push(
                 title="自定义舰位练级检查通过",
-                content=f"<{self.config.config_name}> 自定义舰位 {', '.join(positions_full)} 已达到等级限制 {target_level}。",
+                content=f"<{self.config.config_name}> Пользовательские позиции {', '.join(positions_full)} достигли ограничения уровня {target_level}.",
             )
             
             if self.config.OpsiFleetAutoChange_Enable:
