@@ -1,28 +1,21 @@
-"""Общая подсистема Game Settings Scanner.
-
-Stage 2 добавляет только reusable-навигацию до Settings/Options и обратно.
-Чтение/изменение игровых настроек по-прежнему принадлежит следующим этапам.
-"""
+"""UI-capable граница сканирования игровых настроек."""
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 from module.exception import GamePageUnknownError, RequestHumanTakeover
+from module.game_settings.model import GameSettingsScanResult
 from module.game_settings.navigation import page_settings, page_settings_options
 from module.ui.page import page_main, page_main_white
 from module.ui.ui import UI
 
 
-_ScanResultT = TypeVar("_ScanResultT")
-
-
-class GameSettingsScanner(UI, ABC, Generic[_ScanResultT]):
+class GameSettingsScanner(UI, ABC):
     """UI-capable граница для общих сканеров игровых настроек.
 
     Consumer-модули должны зависеть от этой подсистемы, а не наоборот.
     """
 
-    def scan_game_settings(self) -> _ScanResultT:
+    def scan_game_settings(self) -> GameSettingsScanResult:
         """Запустить реализацию сканирования через стабильный public entry point."""
         return self._scan_game_settings()
 
@@ -71,6 +64,6 @@ class GameSettingsScanner(UI, ABC, Generic[_ScanResultT]):
         return changed
 
     @abstractmethod
-    def _scan_game_settings(self) -> _ScanResultT:
-        """Реализовать конкретное сканирование на следующем этапе."""
+    def _scan_game_settings(self) -> GameSettingsScanResult:
+        """Вернуть результат, заполненный конкретной реализацией scanner-а."""
         raise NotImplementedError
