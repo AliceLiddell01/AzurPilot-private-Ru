@@ -57,17 +57,17 @@ def test_attr_align_non_label_or_unknown_target_changes_fail(
 
 
 def test_self_notify_push_inline_content_translation_passes() -> None:
-    assert_passes(
-        "module/os/tasks/hazard_leveling.py",
-        """self.notify_push(\n"
-        "    title=\"[AzurPilot info] 侵蚀 1 - 行动力低于最低保留\",\n"
-        "    content=f\"总行动力 {total_ap} 低于最低保留 {min_reserve}\",\n"
-        ")\n""",
-        """self.notify_push(\n"
-        "    title=\"[AzurPilot info] 侵蚀 1 - 行动力低于最低保留\",\n"
-        "    content=f\"Всего очков действия: {total_ap}; минимальный резерв: {min_reserve}\",\n"
-        ")\n""",
-    )
+    base = """self.notify_push(
+    title="[AzurPilot info] 侵蚀 1 - 行动力低于最低保留",
+    content=f"总行动力 {total_ap} 低于最低保留 {min_reserve}",
+)
+"""
+    head = """self.notify_push(
+    title="[AzurPilot info] 侵蚀 1 - 行动力低于最低保留",
+    content=f"Всего очков действия: {total_ap}; минимальный резерв: {min_reserve}",
+)
+"""
+    assert_passes("module/os/tasks/hazard_leveling.py", base, head)
 
 
 def test_scheduling_local_content_prose_translation_passes() -> None:
