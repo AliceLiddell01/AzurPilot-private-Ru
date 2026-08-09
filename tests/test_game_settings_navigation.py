@@ -14,6 +14,7 @@ from module.game_settings.assets import (
     GAME_SETTINGS_OPTIONS_UNSELECTED,
 )
 from module.game_settings.navigation import page_settings, page_settings_options
+from module.game_settings.model import GameSettingsScanResult
 from module.game_settings.scanner import GameSettingsScanner
 from module.ui.assets import GOTO_MAIN
 from module.ui.page import Page, page_campaign, page_main, page_main_white
@@ -77,7 +78,7 @@ def _scope_signals(text: str) -> tuple[list[str], set[str]]:
     return imported_modules, call_names
 
 
-class _FakeNavigationScanner(GameSettingsScanner[str]):
+class _FakeNavigationScanner(GameSettingsScanner):
     def __init__(
         self,
         current_page,
@@ -91,8 +92,8 @@ class _FakeNavigationScanner(GameSettingsScanner[str]):
         self.goto_main_calls = 0
         self.current_page_calls = 0
 
-    def _scan_game_settings(self) -> str:
-        return "stage-2-contract"
+    def _scan_game_settings(self) -> GameSettingsScanResult:
+        return GameSettingsScanResult()
 
     def ui_get_current_page(self, skip_first_screenshot=True):
         self.current_page_calls += 1
