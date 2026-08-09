@@ -135,7 +135,7 @@ class OSTargetHandler(OSTarget, Combat, UI):
         Returns:
             bool: 是否领取成功。
         """
-        logger.hr('大世界成就奖励领取', level=2)
+        logger.hr('Получение наград за достижения Операции «Сирена»', level=2)
         TARGET_SWITCH.set('all', main=self)
         received = False
         if self.appear(TARGET_RECEIVE_ALL):
@@ -143,9 +143,9 @@ class OSTargetHandler(OSTarget, Combat, UI):
         elif self.find_unreceived_zone():
             received = self._receive_reward_single()
         if received:
-            logger.info(f'大世界成就奖励已领取')
+            logger.info(f'Награды за достижения Операции «Сирена» получены')
         else:
-            logger.info(f'无大世界成就奖励可用')
+            logger.info(f'Нет доступных наград за достижения Операции «Сирена»')
         return received
     
     def _is_finished(self, area):
@@ -169,7 +169,7 @@ class OSTargetHandler(OSTarget, Combat, UI):
         """
         zone_id = ZONE_ID.ocr(self.device.image)
         finished = [self._is_finished(button.area) for button in self._star_grid().buttons]
-        logger.info(f'[大世界处理-成就] 海域 {zone_id} 目标进度: {str(finished)}')
+        logger.info(f'[Операция «Сирена» — достижения] Зона {zone_id}, прогресс целей: {str(finished)}')
         return zone_id, finished
 
     def find_unfinished_safe_star_zone(self, skip_first_screenshot=True):
@@ -197,13 +197,13 @@ class OSTargetHandler(OSTarget, Combat, UI):
                 for index in range(1, 5):
                     if not finished[index]:
                         if self.is_file(zone_id, index):
-                            logger.info(f'[大世界处理-成就] 区域 {zone_id} 第 {index+1} 项是文件目标，跳过')
+                            logger.info(f'[Операция «Сирена» — достижения] Зона {zone_id}: цель {index+1} относится к архиву, пропуск')
                             continue
                         elif self.is_safe(zone_id, index):
-                            logger.info(f'[大世界处理-成就] 区域 {zone_id} 第 {index+1} 项对指挥喵安全')
+                            logger.info(f'[Операция «Сирена» — достижения] Зона {zone_id}: цель {index+1} безопасна для фарма командирским мяуфицером')
                             return zone_id
                         else:
-                            logger.info(f"[大世界处理-成就] 区域 {zone_id} 第 {index+1} 项只能在危险区域完成，跳过")
+                            logger.info(f"[Операция «Сирена» — достижения] Зона {zone_id}: цель {index+1} выполнима только в опасной зоне, пропуск")
                             continue
             if self.appear(TARGET_NEXT_ZONE):
                 self.device.click(TARGET_NEXT_ZONE)
@@ -212,7 +212,7 @@ class OSTargetHandler(OSTarget, Combat, UI):
                 info_timer.reset()
                 continue
             else:
-                logger.info(f'所有剩余星星只能在危险区域完成。')
+                logger.info(f'Все оставшиеся звёзды можно получить только в опасных зонах')
                 return 0
 
     def run(self):
@@ -220,11 +220,11 @@ class OSTargetHandler(OSTarget, Combat, UI):
         zone = self.find_unfinished_safe_star_zone()
         with self.config.multi_set():
             if zone == 0:
-                logger.info('禁用安全目标刷取')
+                logger.info('Фарм безопасных целей отключён')
                 self.config.OpsiTarget_TargetZone = 0
                 self.config.OpsiTarget_TargetFarming = False
             else:
-                logger.info(f'成功找到安全目标区域, zone_id={zone}')
+                logger.info(f'Успешно найдена безопасная целевая зона, zone_id={zone}')
                 self.config.OpsiTarget_TargetZone = zone
         TARGET_SWITCH.set('all', main=self)
             

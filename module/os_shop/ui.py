@@ -60,7 +60,7 @@ class OSShopUI(UI):
             if self.appear(OS_SHOP_CHECK):
                 return True
             else:
-                logger.warning('大世界商店+未出现，正在重试')
+                logger.warning('Магазин Операции «Сирена»+ не появился, повторная попытка')
 
             # 异常处理
             if ensure_timeout.reached():
@@ -103,7 +103,7 @@ class OSShopUI(UI):
             in: PORT_SUPPLY_CHECK
             out: PORT_SUPPLY_CHECK
         """
-        logger.info(f'大世界商店+侧边栏切换到 {upper or bottom}')
+        logger.info(f'Боковая панель магазина Операции «Сирена»+ переключена на {upper or bottom}')
         self.os_shop_load_ensure()
         self._os_shop_side_navbar.set(self, upper=upper, bottom=bottom)
 
@@ -119,12 +119,12 @@ class OSShopUI(UI):
             GameStuckError: 滚动操作失败时抛出。
         """
         if not OS_SHOP_SCROLL.appear(main=self):
-            logger.warning('大世界商店+滚动条未出现，尝试修复')
+            logger.warning('Полоса прокрутки магазина Операции «Сирена»+ не появилась, попытка восстановления')
             self.rescue_slider()
         retry = Timer(0, count=3)
         retry.start()
         while not OS_SHOP_SCROLL.at_top(main=self):
-            logger.info('大世界商店+滚动条不在顶部，尝试滚动')
+            logger.info('Полоса прокрутки магазина Операции «Сирена»+ не вверху, попытка прокрутки')
             OS_SHOP_SCROLL.set_top(main=self)
             if retry.reached():
                 raise GameStuckError('大世界商店+滚动条拖动页面失败')
@@ -162,19 +162,19 @@ class OSShopUI(UI):
             GameStuckError: 滚动重试失败时抛出。
         """
         if pre_pos == cur_pos:
-            logger.warning('大世界商店+滚动条拖动页面失败')
+            logger.warning('Не удалось перетащить полосу прокрутки магазина Операции «Сирена»+')
             if not OS_SHOP_SCROLL.appear(main=self):
-                logger.warning('大世界商店+滚动条未出现，尝试修复')
+                logger.warning('Полоса прокрутки магазина Операции «Сирена»+ не появилась, попытка восстановления')
                 self.rescue_slider()
                 OS_SHOP_SCROLL.set(cur_pos, main=self)
             retry = Timer(0, count=3)
             retry.start()
             while True:
-                logger.warning('大世界商店+滚动条拖动未成功，正在重试')
+                logger.warning('Не удалось перетащить полосу прокрутки магазина Операции «Сирена»+, повторная попытка')
                 OS_SHOP_SCROLL.next_page(main=self, page=0.5, skip_first_screenshot=False)
                 cur_pos = OS_SHOP_SCROLL.cal_position(main=self)
                 if pre_pos != cur_pos:
-                    logger.info(f'大世界商店+滚动条已拖动到 {cur_pos}')
+                    logger.info(f'Полоса прокрутки магазина Операции «Сирена»+ перемещена в {cur_pos}')
                     return cur_pos
                 if retry.reached():
                     raise GameStuckError('大世界商店+滚动条拖动页面失败')

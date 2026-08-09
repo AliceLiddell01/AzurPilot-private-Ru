@@ -36,7 +36,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         cl1_preserve = self.config.OpsiHazard1Leveling_OperationCoinsPreserve
         if yellow_coins < cl1_preserve:
             logger.info(
-                f"作战补给凭证不足 ({yellow_coins} < {cl1_preserve})，推迟侵蚀 1 任务至次日"
+                f"Недостаточно ваучеров боевого снабжения ({yellow_coins} < {cl1_preserve}), прокачка в зоне коррозии 1 отложена до следующего дня"
             )
             self.config.task_delay(server_update=True)
             self.config.task_stop()
@@ -46,7 +46,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         min_reserve = self.config.OS_ACTION_POINT_PRESERVE
         if self._action_point_total < min_reserve:
             logger.warning(
-                f"行动力低于最低保留 ({self._action_point_total} < {min_reserve})"
+                f"Очки действия ниже минимального резерва ({self._action_point_total} < {min_reserve})"
             )
 
             _previous_ap_insufficient = getattr(
@@ -59,9 +59,9 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                     content=f"总行动力 {self._action_point_total} 低于最低保留 {min_reserve}，已推迟任务",
                 )
             else:
-                logger.info("[大世界-侵蚀1练级] 上次检查行动力低于最低保留，跳过推送通知")
+                logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] При последней проверке очки действия были ниже минимального резерва, уведомление пропущено")
 
-            logger.info("[大世界-侵蚀1练级] 推迟侵蚀 1 任务 50 分钟")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Задача отложена на 50 минут")
             self.config.task_delay(minute=50)
             self.config.OpsiHazard1_PreviousApInsufficient = _previous_ap_insufficient
             self.config.task_stop()
@@ -74,7 +74,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         search_completed = self.run_strategic_search()
 
         if not search_completed and search_completed is not None:
-            logger.warning("[大世界-侵蚀1练级] 战略搜索返回 False，可能已被提前中断")
+            logger.warning("[Операция «Сирена» — прокачка в зоне коррозии 1] Стратегический поиск вернул False: возможно, выполнение было прервано досрочно")
 
         # 第一次重扫：检查是否还有事件
         self._solved_map_event = set()
@@ -103,7 +103,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
 
     def run_hazard1_leveling(self):
         """执行大世界侵蚀 1 练级任务。"""
-        logger.hr("大世界-侵蚀1练级", level=1)
+        logger.hr("Операция «Сирена» — прокачка в зоне коррозии 1", level=1)
 
         while True:
             self.run_hazard1_leveling_once()
@@ -128,7 +128,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             and not self._ash_fully_collected
             and self.config.OpsiAshBeacon_EnsureFullyCollected
         ):
-            logger.info("[大世界-侵蚀1练级] 余烬信标未收集满，暂时忽略行动力限制")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Координаты маяка META ещё не собраны полностью, ограничение очков действия временно отключено")
             self.config.OS_ACTION_POINT_PRESERVE = 0
         logger.attr(
             "OS_ACTION_POINT_PRESERVE", self.config.OS_ACTION_POINT_PRESERVE
@@ -138,8 +138,8 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         try:
             self.get_current_zone()
         except MapDetectionError as e:
-            logger.error("[大世界-侵蚀1练级] OS地图区域识别失败，请确保游戏已进入OS海域地图界面")
-            logger.error(f"[大世界-侵蚀1练级] OCR识别错误: {e}")
+            logger.error("[Операция «Сирена» — прокачка в зоне коррозии 1] Не удалось распознать зону: убедитесь, что в игре открыта карта Операции «Сирена»")
+            logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Ошибка распознавания OCR: {e}")
             raise
 
         # 侵蚀 1 练级时，行动力优先用于此任务，而非耄耋相接。
@@ -168,11 +168,11 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             try:
                 sea_miles = self.detect_and_record_sea_miles()
                 if sea_miles is not None:
-                    logger.info(f"[大世界-侵蚀1练级] 海里数检测完成: {sea_miles}")
+                    logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Морские мили определены: {sea_miles}")
                 else:
-                    logger.warning("[大世界-侵蚀1练级] 海里数检测失败，但不影响后续流程")
+                    logger.warning("[Операция «Сирена» — прокачка в зоне коррозии 1] Не удалось определить морские мили, дальнейшее выполнение продолжится")
             except Exception as e:
-                logger.error(f"[大世界-侵蚀1练级] 海里数检测异常: {e}，但不影响后续流程")
+                logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Ошибка при определении морских миль: {e}; дальнейшее выполнение продолжится")
 
         # ===== 货币与体力记录（始终执行，包含海里数）=====
         self._record_ap_and_coins(sea_miles=sea_miles)
@@ -182,28 +182,28 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
 
     def os_check_leveling(self):
         """检查大世界阵容练级进度。"""
-        logger.hr("大世界-侵蚀1练级检查", level=1)
-        logger.attr("大世界危险海域上次运行", self.config.OpsiCheckLeveling_LastRun)
+        logger.hr("Проверка прокачки в зоне коррозии 1", level=1)
+        logger.attr("Последняя проверка прокачки в Операции «Сирена»", self.config.OpsiCheckLeveling_LastRun)
         
         check_interval = self.config.OpsiCheckLeveling_CheckInterval
         if not isinstance(check_interval, int) or check_interval < 1:
             check_interval = 24
-            logger.warning("[大世界-侵蚀1练级] 检测间隔无效，使用默认值 24 小时")
+            logger.warning("[Операция «Сирена» — прокачка в зоне коррозии 1] Недопустимый интервал проверки, используется значение по умолчанию: 24 часа")
         
         time_run = self.config.OpsiCheckLeveling_LastRun + timedelta(hours=check_interval)
-        logger.info(f"[大世界-侵蚀1练级] 练级检查下次运行时间: {time_run}")
+        logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Время следующей проверки: {time_run}")
         if current_time().replace(microsecond=0) < time_run:
-            logger.info("[大世界-侵蚀1练级] 未到运行时间，跳过")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Время запуска ещё не наступило, пропуск")
             return
         target_level = self.config.OpsiCheckLeveling_TargetLevel
         if not isinstance(target_level, int) or target_level < 0 or target_level > 125:
-            logger.error(f"[大世界-侵蚀1练级] 目标等级无效: {target_level}，必须是 0 到 125 之间的整数")
+            logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Недопустимый целевой уровень: {target_level}; требуется целое число от 0 до 125")
             raise ScriptError(f"Invalid opsi ship target level: {target_level}")
         if target_level == 0:
-            logger.info("[大世界-侵蚀1练级] 目标等级为 0，跳过")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Целевой уровень равен 0, пропуск")
             return
 
-        logger.attr("[大世界-侵蚀1练级] 待检查舰队", self.config.OpsiFleet_Fleet)
+        logger.attr("[Операция «Сирена» — прокачка в зоне коррозии 1] Флот для проверки", self.config.OpsiFleet_Fleet)
         
         enable_custom_check = self.config.OpsiCheckLeveling_EnableCustomCheck
         custom_positions_value = self.config.OpsiCheckLeveling_CustomCheckPositions
@@ -214,16 +214,16 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 custom_positions = [int(p.strip()) for p in custom_positions_str.split(',') if p.strip()]
                 invalid_positions = [p for p in custom_positions if p < 1 or p > 6]
                 if invalid_positions:
-                    logger.warning(f"[大世界-侵蚀1练级] 自定义舰位包含无效值: {invalid_positions}，有效范围为1-6，将检测所有舰船")
+                    logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Пользовательский список содержит недопустимые позиции: {invalid_positions}; допустимый диапазон — 1–6, будут проверены все корабли")
                     custom_positions = []
                 else:
-                    logger.info(f"[大世界-侵蚀1练级] 自定义检测舰位: {custom_positions}")
+                    logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Пользовательские позиции для проверки: {custom_positions}")
             except (ValueError, AttributeError):
-                logger.warning(f"[大世界-侵蚀1练级] 自定义舰位格式错误: {custom_positions_str}，将检测所有舰船")
+                logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Неверный формат пользовательских позиций: {custom_positions_str}; будут проверены все корабли")
                 custom_positions = []
         
         if not self._check_auto_change_prerequisite(enable_custom_check, custom_positions):
-            logger.info("[大世界-侵蚀1练级] 自动配队前置条件不满足，禁用自动配队")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Условия автоподбора флота не выполнены, функция отключена")
             self.config.OpsiFleetAutoChange_Enable = False
         
         if enable_custom_check and custom_positions:
@@ -233,7 +233,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         
         if ship_data_result['ships'] is None:
             error_msg = ship_data_result['error'] or "未知错误"
-            logger.error(f"[大世界-侵蚀1练级] 舰船数据收集失败: {error_msg}")
+            logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Не удалось собрать данные кораблей: {error_msg}")
             report = self._format_check_report(
                 None, target_level, self.config.OpsiFleet_Fleet, error_msg=error_msg
             )
@@ -242,7 +242,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 content=f"<{self.config.config_name}>\n\n{report}",
             )
             self.config.OpsiCheckLeveling_LastRun = current_time().replace(microsecond=0)
-            logger.info("[大世界-侵蚀1练级] 检测失败，下次检测时间设为24小时后")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Проверка не удалась, следующая назначена через 24 часа")
             return
         
         ships = ship_data_result['ships']
@@ -269,7 +269,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 instance_name=instance_name,
             )
         except Exception as e:
-            logger.warning(f"[大世界-侵蚀1练级] 保存舰船经验数据失败: {e}")
+            logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Не удалось сохранить данные об опыте кораблей: {e}")
 
         report = self._format_check_report(
             ships, target_level, self.config.OpsiFleet_Fleet, custom_positions=custom_positions if enable_custom_check else None
@@ -290,7 +290,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             )
             if all_full_exp:
                 logger.info(
-                    f"舰队 {self.config.OpsiFleet_Fleet} 的所有舰船均已满经验（等级 {target_level} 或更高）"
+                    f"Все корабли флота {self.config.OpsiFleet_Fleet} достигли предела опыта (уровень {target_level} или выше)"
                 )
                 self.notify_push(
                     title="练级检查通过",
@@ -298,17 +298,17 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 )
                 
                 if self.config.OpsiFleetAutoChange_Enable:
-                    logger.info("[大世界-侵蚀1练级] 检测到自动配队已启用，开始执行自动配队")
+                    logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Автоподбор флота включён, запуск")
                     try:
                         from module.os.tasks.fleet_auto_change import OpsiFleetAutoChange
                         auto_change = OpsiFleetAutoChange(config=self.config, device=self.device)
                         auto_change.run()
-                        logger.info("[大世界-侵蚀1练级] 自动配队执行完成")
+                        logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Автоподбор флота завершён")
                     except Exception as e:
-                        logger.error(f"[大世界-侵蚀1练级] 自动配队执行失败: {e}")
+                        logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Не удалось выполнить автоподбор флота: {e}")
                 
                 if self.config.OpsiCheckLeveling_DelayAfterFull:
-                    logger.info("[大世界-侵蚀1练级] 所有舰船满经验后延迟任务")
+                    logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Все корабли достигли предела опыта, задача будет отложена")
                     self.delay_opsi_active_task(server_update=True, task='OpsiHazard1Leveling')
                     self.config.task_stop()
         
@@ -329,14 +329,14 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             return True
         
         if not enable_custom_check:
-            logger.warning("[大世界-侵蚀1练级] 自动配队需要启用自定义舰船检测，将禁用自动配队")
+            logger.warning("[Операция «Сирена» — прокачка в зоне коррозии 1] Для автоподбора требуется пользовательская проверка кораблей; автоподбор будет отключён")
             return False
         
         if not custom_positions:
-            logger.warning("[大世界-侵蚀1练级] 自动配队需要有效的自定义舰位配置，将禁用自动配队")
+            logger.warning("[Операция «Сирена» — прокачка в зоне коррозии 1] Для автоподбора требуется корректный список позиций кораблей; автоподбор будет отключён")
             return False
         
-        logger.info(f"[大世界-侵蚀1练级] 自动配队前置条件满足: 启用自定义检测，舰位 {custom_positions}")
+        logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Условия автоподбора выполнены: пользовательская проверка включена, позиции: {custom_positions}")
         return True
 
     def _format_check_report(self, ship_data_list, target_level, fleet_index, error_msg=None, custom_positions=None):
@@ -453,7 +453,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             OS_FLEET_SLOT_NAV_6_BUTTON,
         )
         
-        logger.info(f"[大世界-侵蚀1练级] 开始收集指定舰位数据: {custom_positions}")
+        logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Сбор данных по заданным позициям кораблей: {custom_positions}")
         
         slot_buttons = {
             1: OS_FLEET_SLOT_NAV_1_BUTTON,
@@ -471,10 +471,10 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         for position in sorted(custom_positions):
             button = slot_buttons.get(position)
             if not button:
-                logger.warning(f"[大世界-侵蚀1练级] 无效的舰位: {position}")
+                logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Недопустимая позиция корабля: {position}")
                 continue
             
-            logger.info(f"[大世界-侵蚀1练级] 检测舰位 {position}")
+            logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Проверка корабля на позиции {position}")
             
             self.equip_enter(button, check_button=EQUIPMENT_OPEN, long_click=True)
             
@@ -482,7 +482,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             level, exp = ship_info_get_level_exp(main=self)
             
             if level < 1 or level > len(LIST_SHIP_EXP):
-                logger.warning(f"[大世界-侵蚀1练级] 舰位 {position} 等级识别异常: {level}")
+                logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Некорректно распознан уровень корабля на позиции {position}: {level}")
                 ship_data_list.append({
                     "position": position,
                     "level": level,
@@ -492,7 +492,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             else:
                 total_exp = LIST_SHIP_EXP[level - 1] + exp
                 logger.info(
-                    f"舰位 {position}: 等级 {level}, 经验 {exp}, 总经验 {total_exp}"
+                    f"Позиция {position}: уровень {level}, опыт {exp}, общий опыт {total_exp}"
                 )
                 ship_data_list.append({
                     "position": position,
@@ -507,7 +507,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         if not ship_data_list:
             return {'ships': None, 'error': '未收集到任何舰船数据'}
         
-        logger.info(f"[大世界-侵蚀1练级] 指定舰位数据收集完成，共 {len(ship_data_list)} 艘")
+        logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Сбор данных по заданным позициям завершён, кораблей: {len(ship_data_list)}.")
         return {'ships': ship_data_list, 'error': None}
 
     def _collect_ship_data_with_retry(self, target_level):
@@ -525,7 +525,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         max_retry = 3
         non_standard_retry_count = 0
         for attempt in range(max_retry):
-            logger.info(f"[大世界-侵蚀1练级] 开始收集舰船数据 (尝试 {attempt + 1}/{max_retry})")
+            logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Сбор данных кораблей (попытка {attempt + 1}/{max_retry})")
             
             self.fleet_set(self.config.OpsiFleet_Fleet)
             self.equip_enter(FLEET_FLAGSHIP)
@@ -537,7 +537,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 self.device.screenshot()
                 level, exp = ship_info_get_level_exp(main=self)
                 if level < 1 or level > len(LIST_SHIP_EXP):
-                    logger.warning(f"[大世界-侵蚀1练级] 舰船等级识别异常: {level}")
+                    logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Некорректно распознан уровень корабля: {level}")
                     ship_data_list.append(
                         {
                             "position": position,
@@ -552,7 +552,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                     continue
                 total_exp = LIST_SHIP_EXP[level - 1] + exp
                 logger.info(
-                    f"位置: {position}, 等级: {level}, 经验: {exp}, 总经验: {total_exp}, 目标经验: {LIST_SHIP_EXP[target_level - 1]}"
+                    f"Позиция: {position}, уровень: {level}, опыт: {exp}, общий опыт: {total_exp}, целевой опыт: {LIST_SHIP_EXP[target_level - 1]}"
                 )
 
                 ship_data_list.append(
@@ -577,31 +577,31 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                     non_standard_retry_count += 1
                     
                     if non_standard_retry_count >= 3:
-                        logger.info(f"[大世界-侵蚀1练级] 非标准舰船数量({current_ship_count}艘)已重试3次，使用当前检测结果")
+                        logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Нестандартное количество кораблей ({current_ship_count}) подтверждено тремя попытками, используются текущие результаты")
                         return {'ships': ship_data_list, 'error': None}
                     
-                    logger.warning(f"[大世界-侵蚀1练级] 舰船数量非标准({current_ship_count}艘)，重试确认 ({non_standard_retry_count}/3)")
+                    logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Нестандартное количество кораблей ({current_ship_count}), повторная проверка ({non_standard_retry_count}/3)")
                     if attempt < max_retry - 1:
-                        logger.info("[大世界-侵蚀1练级] 等待1秒后重试...")
+                        logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Ожидание 1 секунду перед повторной попыткой...")
                         self.device.click_record_clear()
                         import time
                         time.sleep(1)
                     else:
-                        logger.info(f"[大世界-侵蚀1练级] 已达到最大重试次数，使用当前检测结果({current_ship_count}艘)")
+                        logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Достигнуто максимальное число попыток, используются текущие результаты ({current_ship_count} кораблей)")
                         return {'ships': ship_data_list, 'error': None}
                 else:
-                    logger.info("[大世界-侵蚀1练级] 舰船数据验证通过")
+                    logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Данные кораблей прошли проверку")
                     return {'ships': ship_data_list, 'error': None}
             else:
-                logger.warning(f"[大世界-侵蚀1练级] 舰船数据验证失败: {validation_result['reason']}")
+                logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Данные кораблей не прошли проверку: {validation_result['reason']}")
                 last_error = validation_result['reason']
                 if attempt < max_retry - 1:
-                    logger.info("[大世界-侵蚀1练级] 等待1秒后重试...")
+                    logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Ожидание 1 секунду перед повторной попыткой...")
                     self.device.click_record_clear()
                     import time
                     time.sleep(1)
                 else:
-                    logger.error("[大世界-侵蚀1练级] 已达到最大重试次数，舰船数据收集失败")
+                    logger.error("[Операция «Сирена» — прокачка в зоне коррозии 1] Достигнуто максимальное число попыток, собрать данные кораблей не удалось")
                     return {'ships': None, 'error': f"验证失败: {last_error}"}
         
         return {'ships': None, 'error': "未知错误"}
@@ -667,7 +667,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         
         for position in custom_positions:
             if position not in detected_positions:
-                logger.warning(f"[大世界-侵蚀1练级] 舰位 {position} 不存在于当前舰队中，已检测到的舰位: {detected_positions}")
+                logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Позиция {position} отсутствует в текущем флоте; обнаружены позиции: {detected_positions}")
                 positions_not_exist.append(str(position))
                 continue
             
@@ -675,24 +675,24 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                 if ship['position'] == position:
                     if ship['total_exp'] >= target_exp:
                         positions_full.append(str(position))
-                        logger.info(f"[大世界-侵蚀1练级] 舰位 {position} 已满经验")
+                        logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Корабль на позиции {position} достиг предела опыта")
                     else:
                         positions_not_full.append(str(position))
-                        logger.info(f"[大世界-侵蚀1练级] 舰位 {position} 未满经验")
+                        logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Корабль на позиции {position} ещё не достиг предела опыта")
                     break
         
         if positions_not_exist:
-            logger.warning(f"[大世界-侵蚀1练级] 以下舰位不存在: {', '.join(positions_not_exist)}")
+            logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Следующие позиции отсутствуют: {', '.join(positions_not_exist)}")
         
         if positions_not_full:
             logger.info(
-                f"自定义舰位未满经验: {', '.join(positions_not_full)}"
+                f"Корабли на пользовательских позициях ещё не достигли предела опыта: {', '.join(positions_not_full)}"
             )
         elif positions_not_exist:
-            logger.warning("[大世界-侵蚀1练级] 存在未检测到的自定义舰位，本次不判定为满经验")
+            logger.warning("[Операция «Сирена» — прокачка в зоне коррозии 1] Некоторые пользовательские позиции не обнаружены; достижение предела опыта не подтверждено")
         else:
             logger.info(
-                f"所有自定义舰位均已满经验: {', '.join(positions_full)}"
+                f"Все корабли на пользовательских позициях достигли предела опыта: {', '.join(positions_full)}"
             )
             self.notify_push(
                 title="自定义舰位练级检查通过",
@@ -700,17 +700,17 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             )
             
             if self.config.OpsiFleetAutoChange_Enable:
-                logger.info("[大世界-侵蚀1练级] 检测到自动配队已启用，开始执行自动配队")
+                logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Автоподбор флота включён, запуск")
                 try:
                     from module.os.tasks.fleet_auto_change import OpsiFleetAutoChange
                     auto_change = OpsiFleetAutoChange(config=self.config, device=self.device)
                     auto_change.run()
-                    logger.info("[大世界-侵蚀1练级] 自动配队执行完成")
+                    logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Автоподбор флота завершён")
                 except Exception as e:
-                    logger.error(f"[大世界-侵蚀1练级] 自动配队执行失败: {e}")
+                    logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Не удалось выполнить автоподбор флота: {e}")
             
             if self.config.OpsiCheckLeveling_DelayAfterFull:
-                logger.info("[大世界-侵蚀1练级] 自定义舰位满经验后延迟任务")
+                logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Корабли на пользовательских позициях достигли предела опыта, задача будет отложена")
                 self.delay_opsi_active_task(server_update=True, task='OpsiHazard1Leveling')
                 self.config.task_stop()
 
@@ -731,7 +731,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                     distance=sea_miles,
                 )
 
-            logger.info("[大世界-侵蚀1练级] 读取当前货币")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Чтение текущей валюты")
             yellow_coins = self.get_yellow_coins()
             from module.statistics.cl1_database import db as cl1_db
             from module.statistics.opsi_month import get_coins_timeline
@@ -751,7 +751,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             )
             self.config.save()
         except Exception as e:
-            logger.error(f"[大世界-侵蚀1练级] 体力/货币记录异常: {e}")
+            logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Ошибка записи очков действия или валюты: {e}")
 
     def detect_and_record_sea_miles(self):
         """
@@ -760,15 +760,15 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         Returns:
             int: 海里数，失败时返回None
         """
-        logger.info("[大世界-侵蚀1练级] 开始海里数检测")
+        logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Начало определения морских миль")
         
         try:
-            logger.info("[大世界-侵蚀1练级] 确保在大世界地图上")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Проверка наличия карты Операции «Сирена»")
             if not self.is_in_map():
-                logger.info("[大世界-侵蚀1练级] 当前不在大世界地图，返回大世界地图")
+                logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Карта Операции «Сирена» не открыта, возврат на карту")
                 self.ui_back(check_button=self.is_in_map)
             
-            logger.info("[大世界-侵蚀1练级] 进入情报页面")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Переход на страницу разведданных")
             skip_first_screenshot = True
             confirm_timer = Timer(3, count=6).start()
             while 1:
@@ -781,23 +781,23 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                     break
                 
                 if confirm_timer.reached():
-                    logger.warning("[大世界-侵蚀1练级] 进入情报页面超时")
+                    logger.warning("[Операция «Сирена» — прокачка в зоне коррозии 1] Истекло время перехода на страницу разведданных")
                     return None
                 
                 if self.appear_then_click(MISSION_ENTER, offset=(200, 5), interval=3):
                     continue
             
-            logger.info("[大世界-侵蚀1练级] 识别海里数")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Распознавание морских миль")
             self.device.screenshot()
             sea_miles = OCR_SEA_MILES_DIGIT.ocr(self.device.image)
             
             if sea_miles <= 0:
-                logger.warning(f"[大世界-侵蚀1练级] 海里数识别异常: {sea_miles}")
+                logger.warning(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Некорректно распознано количество морских миль: {sea_miles}")
                 return None
             
-            logger.info(f"[大世界-侵蚀1练级] 海里数识别成功: {sea_miles}")
+            logger.info(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Морские мили успешно распознаны: {sea_miles}")
 
-            logger.info("[大世界-侵蚀1练级] 退出情报页面")
+            logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Выход со страницы разведданных")
             self.ui_click(
                 MISSION_QUIT,
                 check_button=self.is_in_map,
@@ -808,7 +808,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             return sea_miles
             
         except Exception as e:
-            logger.error(f"[大世界-侵蚀1练级] 海里数检测失败: {e}")
+            logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Не удалось определить морские мили: {e}")
             try:
                 if self.appear(MISSION_CHECK, offset=(20, 20)):
                     self.ui_click(

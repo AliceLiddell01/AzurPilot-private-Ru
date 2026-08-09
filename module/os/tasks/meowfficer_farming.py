@@ -63,7 +63,7 @@ class MeowfficerTargetZoneMixin:
         if not tokens:
             if require_target:
                 message = '已启用 StayInZone 但未设置 TargetZone'
-                logger.warning(f'[大世界-耄耋相接] {message}，跳过本次任务')
+                logger.warning(f'[Операция «Сирена» — фарм мяуфицеров] {message}; текущая задача пропущена')
                 if self.is_running_smart_scheduling_task():
                     self._handle_coin_task_no_content('耄耋相接', message)
                     return []
@@ -114,14 +114,14 @@ class MeowfficerTargetZoneMixin:
         if errors:
             self._meow_target_zone_error(f'耄耋相接指定海域输入错误 ({raw_value}): {"; ".join(errors)}')
 
-        logger.attr('目标海域列表', [zone.zone_id for zone in zones])
+        logger.attr('Список целевых зон', [zone.zone_id for zone in zones])
         return zones
 
     def _meow_target_zone_at(self, zones, index):
         """按顺序循环获取本轮目标海域。"""
         zone_index = index % len(zones)
         zone = zones[zone_index]
-        logger.attr('目标海域索引', f'{zone_index + 1}/{len(zones)}')
+        logger.attr('Индекс целевых зон', f'{zone_index + 1}/{len(zones)}')
         return zone, zone_index + 1
 
 
@@ -142,9 +142,9 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
         if self.config.is_task_enabled('OpsiAshBeacon') \
                 and not self._ash_fully_collected \
                 and self.config.OpsiAshBeacon_EnsureFullyCollected:
-            logger.info('[大世界-耄耋相接] 余烬信标未收集满，暂时忽略行动力限制')
+            logger.info('[Операция «Сирена» — фарм мяуфицеров] Координаты маяка META ещё не собраны полностью, ограничение очков действия временно отключено')
             self.config.OS_ACTION_POINT_PRESERVE = 0
-        logger.attr('大世界行动力保留', self.config.OS_ACTION_POINT_PRESERVE)
+        logger.attr('Резерв очков действия Операции «Сирена»', self.config.OS_ACTION_POINT_PRESERVE)
 
         if not ap_checked:
             # 行动力前置检查，确保明日每日任务有足够行动力
@@ -172,7 +172,7 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
         return ap_checked
 
     def _meow_handle_traditional_zone(self, zone):
-        logger.hr(f'大世界-耄耋相接, zone_id={zone.zone_id}', level=1)
+        logger.hr(f'Операция «Сирена» — фарм мяуфицеров, zone_id={zone.zone_id}', level=1)
         self.globe_goto(zone, types='SAFE', refresh=True)
         self.fleet_set(self.config.OpsiFleet_Fleet)
         self.meow_search_metrics_start()
@@ -188,7 +188,7 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
         self.config.check_task_switch()
 
     def _meow_handle_stay_in_zone(self, zone):
-        logger.hr(f'大世界-耄耋相接（指定海域循环）, zone_id={zone.zone_id}', level=1)
+        logger.hr(f'Операция «Сирена» — фарм мяуфицеров (цикл в указанной зоне), zone_id={zone.zone_id}', level=1)
         self.get_current_zone()
         if self.zone.zone_id != zone.zone_id or not self.is_zone_name_hidden:
             self.globe_goto(zone, types='SAFE', refresh=True)
@@ -205,7 +205,7 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
             except (TaskEnd, GameStuckError, GameTooManyClickError, RequestHumanTakeover):
                 raise
             except Exception as e:
-                logger.warning(f'[大世界-耄耋相接] 战略搜索异常: {e}')
+                logger.warning(f'[Операция «Сирена» — фарм мяуфицеров] Ошибка стратегического поиска: {e}')
 
             if search_completed:
                 self._solved_map_event = set()
@@ -218,7 +218,7 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
             except (TaskEnd, GameStuckError, GameTooManyClickError, RequestHumanTakeover):
                 raise
             except Exception:
-                logger.exception('[大世界-耄耋相接] handle_after_auto_search 发生异常')
+                logger.exception('[Операция «Сирена» — фарм мяуфицеров] Ошибка в handle_after_auto_search')
         finally:
             self.meow_search_metrics_end()
 
@@ -226,7 +226,7 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
 
     def _meow_handle_target_zone_search(self, zone):
         """按普通耄耋相接流程清理指定海域。"""
-        logger.hr(f'大世界-耄耋相接, zone_id={zone.zone_id}', level=1)
+        logger.hr(f'Операция «Сирена» — фарм мяуфицеров, zone_id={zone.zone_id}', level=1)
 
         self.globe_goto(zone)
 
@@ -251,11 +251,11 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
 
         if not zones:
             message = f'普通搜索模式未找到符合条件的海域 (侵蚀等级 {hazard_level})'
-            logger.warning(f'[大世界-耄耋相接] {message}')
+            logger.warning(f'[Операция «Сирена» — фарм мяуфицеров] {message}')
             self._handle_coin_task_no_content('耄耋相接', message)
             return False
 
-        logger.hr(f'大世界-耄耋相接, zone_id={zones[0].zone_id}', level=1)
+        logger.hr(f'Операция «Сирена» — фарм мяуфицеров, zone_id={zones[0].zone_id}', level=1)
 
         self.globe_goto(zones[0])
 
@@ -277,10 +277,10 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
 
     def _prepare_meowfficer_farming(self, ap_preserve=None):
         """准备耄耋相接运行环境。"""
-        logger.hr(f'大世界-耄耋相接, hazard_level={self.config.OpsiMeowfficerFarming_HazardLevel}', level=1)
+        logger.hr(f'Операция «Сирена» — фарм мяуфицеров, hazard_level={self.config.OpsiMeowfficerFarming_HazardLevel}', level=1)
 
         if ap_preserve is None and self.is_cl1_mode_enabled and self.config.OpsiMeowfficerFarming_ActionPointPreserve < 500:
-            logger.info('[大世界-耄耋相接] 启用侵蚀 1 练级时，最低行动力保留自动调整为 500')
+            logger.info('[Операция «Сирена» — фарм мяуфицеров] При включённой прокачке в зоне коррозии 1 минимальный резерв очков действия автоматически установлен на 500')
             self.config.OpsiMeowfficerFarming_ActionPointPreserve = 500
 
         if ap_preserve is None:
@@ -301,16 +301,16 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
                 OpsiFleet_Submarine=False,
             )
             cd = self.nearest_task_cooling_down
-            logger.attr('[大世界-耄耋相接] 最近冷却中的任务', cd)
+            logger.attr('[Операция «Сирена» — фарм мяуфицеров] Ближайшая задача на перезарядке', cd)
 
             remain = get_os_reset_remain()
             if cd is not None and remain > 0:
-                logger.info(f'[大世界-耄耋相接] 存在冷却中的任务，延迟耄耋相接任务至 {cd.next_run} 后执行')
+                logger.info(f'[Операция «Сирена» — фарм мяуфицеров] Обнаружена задача на перезарядке, фарм мяуфицеров отложен до {cd.next_run}.')
                 self.delay_opsi_active_task(target=cd.next_run)
                 self.config.task_stop()
 
         if self.is_in_opsi_explore():
-            logger.warning(f'[大世界-耄耋相接] 每月开荒+正在运行，无法执行 {self.config.task.command}')
+            logger.warning(f'[Операция «Сирена» — фарм мяуфицеров] Выполняется «Ежемесячное исследование+», невозможно выполнить {self.config.task.command}')
             self.delay_opsi_active_task(server_update=True)
             self.config.task_stop()
 
@@ -320,7 +320,7 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
                 if hasattr(self, '_os_target'):
                     self._os_target()
             else:
-                logger.info(f'服务器 {self.config.SERVER} 暂不支持海域成就，请联系开发者')
+                logger.info(f'Сервер {self.config.SERVER} пока не поддерживает достижения морских зон; обратитесь к разработчику')
 
         target_zone_tokens = self._meow_target_zone_tokens()
         self._meow_target_zone_list = []

@@ -142,7 +142,7 @@ class Combat(Combat_, MapEventHandler):
             auto (str): 自动战斗模式。
             fleet_index (int): 舰队索引。
         """
-        logger.info('战斗准备。')
+        logger.info('Подготовка к бою')
         self.device.stuck_record_clear()
         self.device.click_record_clear()
         skip_first_screenshot = True
@@ -168,7 +168,7 @@ class Combat(Combat_, MapEventHandler):
             # 结束
             pause = self.is_combat_executing()
             if pause:
-                logger.attr('战斗界面', pause)
+                logger.attr('Интерфейс боя', pause)
                 break
 
     def _get_exp_info_sleep(self):
@@ -336,13 +336,13 @@ class Combat(Combat_, MapEventHandler):
         for count in range(3):
             self._clear_battle_status_s_timer()
             if count >= 2:
-                logger.warning('[大世界战斗] 连续战斗过多')
+                logger.warning('[Операция «Сирена» — бой] Слишком много последовательных боёв')
 
             try:
                 super().combat(*args, save_get_items=save_get_items, **kwargs)
                 break
             except ContinuousCombat:
-                logger.info('[大世界战斗] 检测到连续战斗')
+                logger.info('[Операция «Сирена» — бой] Обнаружен последовательный бой')
                 continue
             finally:
                 self._clear_battle_status_s_timer()
@@ -364,9 +364,9 @@ class Combat(Combat_, MapEventHandler):
         """
         if self.appear(status_button, interval=self.battle_status_click_interval):
             if status_letter == 'S':
-                logger.info(f'[大世界战斗] 战斗评价 {status_letter}')
+                logger.info(f'[Операция «Сирена» — бой] Оценка боя {status_letter}')
             else:
-                logger.warning(f'[大世界战斗] 战斗评价 {status_letter}')
+                logger.warning(f'[Операция «Сирена» — бой] Оценка боя {status_letter}')
             if drop:
                 drop.handle_add(self)
             else:
@@ -494,7 +494,7 @@ class Combat(Combat_, MapEventHandler):
         
         cl1_combat_timer = Timer(300, count=300)
         
-        logger.info('[大世界战斗] 自动搜索战斗加载中')
+        logger.info('[Операция «Сирена» — бой] Загрузка боя автопоиска')
         self.device.stuck_record_clear()
         self.device.click_record_clear()
         self.device.screenshot_interval_set('combat')
@@ -510,12 +510,12 @@ class Combat(Combat_, MapEventHandler):
                 break
             pause = self.is_combat_executing()
             if pause:
-                logger.attr('战斗UI', pause)
+                logger.attr('Интерфейс боя', pause)
                 break
             if self.is_in_map():
                 break
 
-        logger.info('[大世界战斗] 自动搜索战斗执行')
+        logger.info('[Операция «Сирена» — бой] Выполнение боя автопоиска')
         self.submarine_call_reset()
         self.device.stuck_record_clear()
         self.device.click_record_clear()
@@ -532,7 +532,7 @@ class Combat(Combat_, MapEventHandler):
             self.device.screenshot()
 
             if battle_timer_source == 'cl1' and cl1_combat_timer.reached():
-                logger.warning('[大世界战斗] CL1 战斗超时（5 分钟限制）')
+                logger.warning('[Операция «Сирена» — бой] Истекло время боя CL1 (ограничение: 5 минут)')
                 raise GameBugError('CL1 combat timeout')
 
             if self.handle_submarine_call(submarine_mode):
@@ -561,7 +561,7 @@ class Combat(Combat_, MapEventHandler):
                 battle_status_s_timer.clear()
                 continue
             
-        logger.info('战斗结束。')
+        logger.info('Бой окончен')
         
         # 通过相同的指标源结束，避免 CL1 和 short-meow 样本意外共享存储键。
         finish_battle_timer(self.config, battle_timer_source)

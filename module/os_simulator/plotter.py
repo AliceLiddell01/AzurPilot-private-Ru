@@ -32,7 +32,7 @@ class OSSimulatorPlotter:
         """
         绘制单样本轨迹图。
         """
-        self.logger.info("[大世界模拟器] 正在生成单样本轨迹图...")
+        self.logger.info("[Симулятор Операции «Сирена»] Создание траектории для одной выборки...")
         
         fig, ax1 = plt.subplots(figsize=(18, 6))
         
@@ -92,7 +92,7 @@ class OSSimulatorPlotter:
         """
         多样本模式：绘制所有样本的平均值和标准差随时间变化的轨迹图。
         """
-        self.logger.info("[大世界模拟器] 正在生成多样本平均轨迹图...")
+        self.logger.info("[Симулятор Операции «Сирена»] Создание усреднённой траектории для нескольких выборок...")
         
         fig, ax1 = plt.subplots(figsize=(18, 6))
         
@@ -138,6 +138,6 @@ class OSSimulatorPlotter:
         os.makedirs('./log/oss/figures', exist_ok=True)
         self.result_figure_path = f'./log/oss/figures/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{name}.png'
         plt.savefig(self.result_figure_path)
-        self.logger.info(f"[大世界模拟器] 图表已保存至: {self.result_figure_path}")
+        self.logger.info(f"[Симулятор Операции «Сирена»] График сохранён: {self.result_figure_path}")
         plt.close()
         return self.result_figure_path

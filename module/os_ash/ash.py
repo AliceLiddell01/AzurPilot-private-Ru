@@ -102,13 +102,13 @@ class AshCombat(Combat):
         if self.handle_get_items():
             return True
         if self.appear(BEACON_REWARD):
-            logger.info("[META作战] 信标已完成")
+            logger.info("[META — бой] Маяк завершён")
             raise AshBeaconFinished
         if self.appear(BEACON_EMPTY, offset=(20, 20)):
-            logger.info("[META作战] 信标为空")
+            logger.info("[META — бой] Маяк пуст")
             raise AshBeaconFinished
         if self.appear(ASH_SHOWDOWN, offset=(20, 20)):
-            logger.info("[META作战] 已在 META 对决页面")
+            logger.info("[META — бой] Уже открыт экран противостояния META")
             raise AshBeaconFinished
 
         return False
@@ -152,30 +152,30 @@ class OSAsh(UI, MapEventHandler):
         if self._ash_fully_collected:
             return 0
         if self.image_color_count(ASH_COLLECT_STATUS, color=(235, 235, 235), threshold=221, count=20):
-            logger.info('[META作战] 信标状态：可收集')
+            logger.info('[META — бой] Состояние маяка: данные можно собрать')
             ocr_collect = DigitCounter(
                 ASH_COLLECT_STATUS, letter=(235, 235, 235), threshold=160, name='OCR_ASH_COLLECT_STATUS')
             ocr_daily = DailyDigitCounter(
                 ASH_DAILY_STATUS, letter=(235, 235, 235), threshold=160, name='OCR_ASH_DAILY_STATUS')
         elif self.image_color_count(ASH_COLLECT_STATUS, color=(140, 142, 140), threshold=221, count=20):
-            logger.info('[META作战] 信标状态：未收集满')
+            logger.info('[META — бой] Состояние маяка: данные собраны не полностью')
             ocr_collect = DigitCounter(
                 ASH_COLLECT_STATUS, letter=(140, 142, 140), threshold=160, name='OCR_ASH_COLLECT_STATUS')
             ocr_daily = DailyDigitCounter(
                 ASH_DAILY_STATUS, letter=(140, 142, 140), threshold=160, name='OCR_ASH_DAILY_STATUS')
         else:
             # 大世界每日+任务领取或完成时，弹窗会遮挡信标状态
-            logger.info('[META作战] 信标状态被遮挡，下次再检查')
+            logger.info('[META — бой] Состояние маяка перекрыто, повторная проверка позже')
             return 0
 
         status, _, _ = ocr_collect.ocr(self.device.image)
         daily, _, _ = ocr_daily.ocr(self.device.image)
 
         if daily >= 200:
-            logger.info('[META作战] 今日信标数据已收集满')
+            logger.info('[META — бой] Все данные маяка на сегодня собраны')
             self._ash_fully_collected = True
         elif status >= 200:
-            logger.info('[META作战] 信标数据达到持有上限')
+            logger.info('[META — бой] Достигнут предел хранения данных маяка')
             self._ash_fully_collected = True
 
         if status < 0:

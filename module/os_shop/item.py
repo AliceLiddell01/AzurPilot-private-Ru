@@ -25,7 +25,7 @@ class PriceOcr(DigitYuv):
         prev = result
         if result.startswith('0'):
             result = '1' + result
-            logger.warning(f'大世界商店+数量 {prev} 已修正为 {result}')
+            logger.warning(f'Количество в магазине Операции «Сирена» исправлено: {prev} -> {result}')
 
         result = super().after_process(result)
         return result
@@ -62,13 +62,13 @@ class CounterOcr(Ocr):
             parsed = []
             for i in result_list:
                 if not i or '/' not in i:
-                    logger.warning(f'计数器 OCR 结果格式无效: {i}')
+                    logger.warning(f'Недопустимый формат результата OCR счётчика: {i}')
                     parsed.append([0, 0])
                     continue
 
                 parts = i.split('/')
                 if len(parts) != 2:
-                    logger.warning(f'计数器格式无效: {i}')
+                    logger.warning(f'Формат счетчика неверный: {i}')
                     parsed.append([0, 0])
                     continue
                 parsed.append([int(j) for j in parts])
@@ -76,12 +76,12 @@ class CounterOcr(Ocr):
             return parsed
         else:
             if not result_list or '/' not in result_list:
-                logger.warning(f'计数器 OCR 结果无效: {result_list}')
+                logger.warning(f'Результаты счётчика OCR неверны: {result_list}')
                 return [0, 0]
 
             parts = result_list.split('/')
             if len(parts) != 2:
-                logger.warning(f'计数器格式无效: {result_list}')
+                logger.warning(f'Формат счётчика неверен: {result_list}')
                 return [0, 0]
 
             return [int(i) for i in parts]

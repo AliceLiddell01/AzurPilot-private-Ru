@@ -265,8 +265,8 @@ class Radar:
         for port in self.select(is_port=True):
             for grid in self.select(is_question=True):
                 if np.sum(np.abs(np.subtract(port.location, grid.location))) == 1:
-                    logger.warning(f'[大世界-雷达] 雷达预测错误 is_question {grid.location} {grid.encode()} '
-                                   f'靠近 {port.location} {port.encode()}')
+                    logger.warning(f'[Операция «Сирена» — радар] Ошибочный прогноз радара is_question: {grid.location} {grid.encode()} '
+                                   f'рядом с портом {port.location} {port.encode()}')
                     grid.is_question = False
 
     def select(self, **kwargs):

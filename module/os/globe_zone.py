@@ -164,7 +164,7 @@ class ZoneManager:
                     if len(name) == len(parsed) + 1 and name.startswith(parsed):
                         from module.logger import logger
                         logger.warning(
-                            f'Zone fuzzy match: OCR={name}, Zone={lang_name}'
+                            f'Нечёткое сопоставление зоны: OCR={name}, зона={lang_name}'
                         )
                         return zone
             # Normal arbiter, Hard ar

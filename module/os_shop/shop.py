@@ -95,7 +95,7 @@ class OSShop(PortShop, AkashiShop):
                 amount_finish = self.shop_buy_amount_handler(button)
                 set_amount_retry += 1
                 if not amount_finish and set_amount_retry > 3:
-                    logger.warning(f'[大世界商店] 物品 {button.name} 无法识别购买数量')
+                    logger.warning(f'[Магазин Операции «Сирена»] Не удалось распознать количество для покупки предмета {button.name}.')
                     self.close_shop_buy_confirm_amount(skip_first_screenshot)
                     break
                 continue
@@ -110,7 +110,7 @@ class OSShop(PortShop, AkashiShop):
             if not success and self.appear(PORT_SUPPLY_CHECK, offset=(20, 20), interval=5):
                 buy_retry += 1
                 if buy_retry > buy_retry_limit:
-                    logger.warning(f'[大世界商店] 物品 {button.name} 达到购买重试上限，可能货币不足')
+                    logger.warning(f'[Магазин Операции «Сирена»] Достигнут предел попыток покупки предмета {button.name}; возможно, недостаточно валюты')
                     break
                 amount_finish = False
                 self.device.click(button)
@@ -140,7 +140,7 @@ class OSShop(PortShop, AkashiShop):
         for _ in range(12):
             button = select_func()
             if button is None:
-                logger.info('[大世界商店] 大世界商店+购买完成')
+                logger.info('[Магазин Операции «Сирена»] Покупки в магазине+ завершены')
                 return count
             else:
                 self.os_shop_buy_execute(button)
@@ -168,16 +168,16 @@ class OSShop(PortShop, AkashiShop):
                                     count=int(amount),
                                     source='akashi'
                                 )
-                                logger.info('[大世界商店] 已记录明石行动力购买数据到数据库')
+                                logger.info('[Магазин Операции «Сирена»] Данные о покупке очков действия у Акаши записаны в базу данных')
                             except Exception:
-                                logger.exception('[大世界商店] 保存明石行动力购买数据失败')
+                                logger.exception('[Магазин Операции «Сирена»] Не удалось сохранить данные о покупке очков действия у Акаши')
                 except Exception:
-                    logger.exception('[大世界商店] 记录明石购买数据时发生异常')
+                    logger.exception('[Магазин Операции «Сирена»] Ошибка при записи данных о покупке у Акаши')
 
                 count += 1
                 continue
 
-        logger.warning('[大世界商店] 待购买物品过多，停止购买')
+        logger.warning('[Магазин Операции «Сирена»] Слишком много предметов в очереди покупки, покупки остановлены')
         return count
 
     def close_shop_buy_confirm_amount(self, skip_first_screenshot=True):
@@ -232,7 +232,7 @@ class OSShop(PortShop, AkashiShop):
             limit = OCR_SHOP_AMOUNT.ocr(self.device.image)
 
             if limit == 0:
-                logger.warning('[大世界商店] OCR_SHOP_AMOUNT 识别为 0，正在重试')
+                logger.warning('[Магазин Операции «Сирена»] OCR_SHOP_AMOUNT распознано как 0, повторная попытка')
                 self.close_shop_buy_confirm_amount()
                 return False
 
@@ -240,7 +240,7 @@ class OSShop(PortShop, AkashiShop):
                 break
 
             if retry.reached():
-                logger.critical('[大世界商店+] OCR_SHOP_AMOUNT 识别结果错误，请检查资源文件')
+                logger.critical('[Магазин Операции «Сирена»+] Ошибка распознавания OCR_SHOP_AMOUNT, проверьте файл ресурсов')
                 raise ScriptError
         retry.reset()
 
@@ -289,14 +289,14 @@ class OSShop(PortShop, AkashiShop):
             # AMOUNT_MAX点击后数量仍为1，说明按钮可能被游戏禁用（如商品只能逐个购买）
             amount_max_stall += 1
             if amount_max_stall >= amount_max_stall_limit:
-                logger.info(f'[大世界商店] AMOUNT_MAX 点击 {amount_max_stall} 次后数量仍为 {current_amount}，改用 AMOUNT_PLUS')
+                logger.info(f'[Магазин Операции «Сирена»] После {amount_max_stall} нажатий AMOUNT_MAX количество осталось равным {current_amount}; переход к AMOUNT_PLUS')
                 break
 
         # 仅在已点击AMOUNT_MAX且数量成功增加时，才能读取游戏端实际允许的最大数量
         if set_to_max:
             game_max = OCR_SHOP_AMOUNT.ocr(self.device.image)
             if game_max > 1 and limit > game_max:
-                logger.info(f'计算购买上限 {limit} 超过游戏上限 {game_max}，使用游戏上限')
+                logger.info(f'Расчётный предел покупки {limit} превышает игровой предел {game_max}; используется игровой предел')
                 limit = game_max
 
         self.ui_ensure_index(limit, letter=OCR_SHOP_AMOUNT, prev_button=AMOUNT_MINUS, next_button=AMOUNT_PLUS,
@@ -317,42 +317,42 @@ class OSShop(PortShop, AkashiShop):
         self.os_shop_get_coins()
         items = self.scan_all()
         if not len(items):
-            logger.warning('大世界商店+为空')
+            logger.warning('Магазин Операции «Сирена»+ пуст')
             return False
         items = self.items_filter_in_os_shop(items)
         if not len(items):
-            logger.warning('大世界商店+没有可购买物品')
+            logger.warning('В магазине Операции «Сирена»+ нет доступных для покупки предметов')
             return False
         skip_get_coins = True
         items.reverse()
         count = 0
         while len(items):
-            logger.hr('大世界商店+购买', level=2)
+            logger.hr('Покупки в магазине Операции «Сирена»+', level=2)
             item = items.pop()
             if not skip_get_coins:
                 self.os_shop_get_coins()
             if item.price > self.get_currency_coins(item):
-                logger.info(f'货币不足，无法购买物品 {item.name}，跳过')
+                logger.info(f'Недостаточно валюты для покупки предмета {item.name}, пропуск')
                 if self.is_coins_both_not_enough():
-                    logger.info('货币不足，无法购买任何物品，停止购买')
+                    logger.info('Валюты недостаточно для покупки любых предметов, покупки остановлены')
                     break
                 continue
-            logger.info(f'购买物品 {item.name}，商店 {item.shop_index + 1}，位置 {item.scroll_pos:.2f}')
+            logger.info(f'Покупка предмета {item.name}: магазин {item.shop_index + 1}, позиция {item.scroll_pos:.2f}')
             self.os_shop_side_navbar_ensure(upper=item.shop_index + 1)
             OS_SHOP_SCROLL.set(item.scroll_pos, main=self, skip_first_screenshot=False)
             _item = self.os_shop_get_items_to_buy(name=item.name, price=item.price)
             if _item is None:
-                logger.warning(f'商店 {item.shop_index + 1} 的位置 {item.scroll_pos:.2f} 未找到物品 {item.name}，跳过')
+                logger.warning(f'В магазине {item.shop_index + 1} на позиции {item.scroll_pos:.2f} не найден предмет {item.name}, пропуск')
                 continue
             if not self.check_item_count(_item):
-                logger.warning(f'物品 {_item.name} 数量识别错误，跳过')
+                logger.warning(f'Ошибка распознавания количества предмета {_item.name}, пропуск')
                 continue
             if self.os_shop_buy_execute(_item):
-                logger.info(f'已购买物品 {_item.name}')
+                logger.info(f'Приобретён предмет {_item.name}')
                 skip_get_coins = False
                 count += 1
             else:
-                logger.warning(f'物品 {_item.name} 无法购买，跳过')
+                logger.warning(f'Не удалось приобрести предмет {_item.name}, пропуск')
             self.device.click_record.clear()
         logger.info(f'港口商店已购买 {count} 个物品' if count else '港口商店未购买任何物品')
         return True

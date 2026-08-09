@@ -233,12 +233,12 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
             ScriptError: 脚本错误时抛出。
         """
         name = self.get_zone_name()
-        logger.info(f'[大世界-地图操作] 地图名称已处理: {name}')
+        logger.info(f'[Операция «Сирена» — действия на карте] Название карты обработано: {name}')
         try:
             self.zone = self.name_to_zone(name)
         except ScriptError as e:
             raise MapDetectionError(*e.args) from e
-        logger.attr('海域', self.zone)
+        logger.attr('Зона', self.zone)
         self.zone_config_set()
         return self.zone
 
@@ -268,9 +268,9 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
         Raises:
             MapDetectionError: 解析海域名称失败时抛出。
         """
-        logger.hr('[大世界-地图操作] 区域初始化')
+        logger.hr('[Операция «Сирена» — действия на карте] Инициализация зоны')
         self.wait_os_map_buttons()
-        logger.info('[大世界-地图操作] 获取区域名称')
+        logger.info('[Операция «Сирена» — действия на карте] Получение названия зоны')
         timeout = Timer(1.5, count=5).start()
         for _ in self.loop():
             # 处理弹窗
@@ -297,7 +297,7 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
                 continue
 
             if timeout.reached():
-                logger.warning('[大世界-地图操作] 区域初始化超时')
+                logger.warning('[Операция «Сирена» — действия на карте] Истекло время инициализации зоны')
                 break
             if self.is_in_map():
                 try:
@@ -308,13 +308,13 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
                 timeout.reset()
 
         if fallback_init:
-            logger.warning('[大世界-地图] 无法获取区域名称，从地球仪获取当前区域')
+            logger.warning('[Операция «Сирена» — карта] Не удалось получить название зоны; текущая зона определяется по глобусу')
             if hasattr(self, 'get_current_zone_from_globe'):
                 return self.get_current_zone_from_globe()
             else:
-                logger.warning('[大世界-地图] OperationSiren.get_current_zone_from_globe() 不存在')
+                logger.warning('[Операция «Сирена» — карта] Метод OperationSiren.get_current_zone_from_globe() отсутствует')
                 if not self.is_in_map():
-                    logger.warning('[大世界-地图操作] 尝试获取区域名称，但不在大世界地图中')
+                    logger.warning('[Операция «Сирена» — действия на карте] Запрошено название зоны вне карты Операции «Сирена»')
                 return self.get_current_zone()
 
     def is_in_special_zone(self):
@@ -332,7 +332,7 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
             in: is_in_map
             out: is_in_map, 来源海域
         """
-        logger.hr('[大世界-地图操作] 地图退出')
+        logger.hr('[Операция «Сирена» — действия на карте] Выход с карты')
         confirm_timer = Timer(1, count=2)
         changed = False
         for _ in self.loop():

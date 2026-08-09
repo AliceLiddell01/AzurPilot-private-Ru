@@ -30,11 +30,11 @@ class OpsiShop(OSMap):
             in: page_os, 大世界地图
             out: page_os, 大世界地图
         """
-        logger.hr('大世界-大世界商店+', level=1)
+        logger.hr('Операция «Сирена» — магазин+', level=1)
         today = current_time().day
         limit = self.config.OpsiShop_DisableBeforeDate
         if today <= limit:
-            logger.info(f'大世界商店+延迟运行，今日日期 {today} <= 限制日期 {limit}')
+            logger.info(f'Запуск магазина Операции «Сирена»+ отложен: текущая дата {today} <= предельной даты {limit}')
             self.config.task_delay(server_update=True)
             self.config.task_stop()
 
@@ -47,12 +47,12 @@ class OpsiShop(OSMap):
         if self.appear(OS_SHOP_CHECK):
             not_empty = self.handle_port_supply_buy()
             next_reset = self._os_shop_delay(not_empty)
-            logger.info('大世界商店+已完成，延迟到下次重置')
-            logger.attr('大世界商店下次重置', next_reset)
+            logger.info('Магазин Операции «Сирена»+ завершён, задержан до следующего сброса')
+            logger.attr('Следующий сброс магазина Операции «Сирена»', next_reset)
         else:
             next_reset = get_os_next_reset()
-            logger.warning('[大世界-商店] 港口中没有商店，跳到下个月')
-            logger.attr('大世界商店下次重置', next_reset)
+            logger.warning('[Операция «Сирена» — магазин] В порту нет магазина, задача перенесена на следующий месяц')
+            logger.attr('Следующий сброс магазина Операции «Сирена»', next_reset)
 
         self.port_shop_quit()
         self.port_quit()

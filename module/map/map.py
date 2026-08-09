@@ -392,7 +392,7 @@ class Map(Fleet):
             logger.info('[Карта] Клетки: %s' % str(grids))
             self.clear_chosen_enemy(grids[0])
 
-        logger.warning('[地图-Boss] 检测到大世界捕获，撤退中')
+        logger.warning('[Карта — Boss] Обнаружен флот, захваченный Сиреной; отступление')
         self.withdraw()
 
     def clear_potential_boss(self):

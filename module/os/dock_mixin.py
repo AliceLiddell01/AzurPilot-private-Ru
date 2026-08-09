@@ -35,7 +35,7 @@ class DockMixin(Dock):
             bool: 是否成功选择舰船
         """
         if grid_index < 0 or grid_index >= 14:
-            logger.warning(f"[大世界] 无效的网格索引: {grid_index}")
+            logger.warning(f"[Операция «Сирена»] Недопустимый индекс клетки: {grid_index}")
             return False
         
         if grid_index < 7:
@@ -47,5 +47,5 @@ class DockMixin(Dock):
         
         button = CARD_GRIDS[(x, y)]
         self.device.click(button)
-        logger.info(f"[大世界] 选择船坞第 {y+1} 排第 {x+1} 艘舰船")
+        logger.info(f"[Операция «Сирена»] Выбран корабль в доке: ряд {y+1}, позиция {x+1} корабля")
         return True

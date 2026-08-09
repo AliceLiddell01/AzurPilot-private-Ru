@@ -185,7 +185,7 @@ class Camera(MapOperation):
                 self.ensure_auto_search_exit()
                 raise CampaignEnd('Изображение относится к меню автопоиска')
             elif self.appear(GLOBE_GOTO_MAP, offset=(20, 20)):
-                logger.warning('[地图-摄像机] 图像在大世界地球仪地图')
+                logger.warning('[Карта — камера] Изображение относится к карте глобуса Операции «Сирена»')
                 self.ui_click(GLOBE_GOTO_MAP, check_button=self.is_in_map, offset=(20, 20),
                               retry_wait=3, skip_first_screenshot=True)
                 return False
@@ -195,17 +195,17 @@ class Camera(MapOperation):
                     self.os_auto_search_quit()
                     return False
                 else:
-                    logger.warning('[地图-摄像机] 未找到os_auto_search_quit()方法，使用ui_click()代替')
+                    logger.warning('[Карта — камера] Метод os_auto_search_quit() не найден; используется ui_click()')
                     self.ui_click(AUTO_SEARCH_REWARD, check_button=self.is_in_map, offset=(50, 50),
                                   retry_wait=3, skip_first_screenshot=True)
                     return False
             elif self.appear(OPSI_MISSION_CHECK, offset=(20, 20)):
-                logger.warning('[地图-摄像机] 大世界任务检查导致透视错误')
+                logger.warning('[Карта — камера] Проверка задачи Операции «Сирена» вызвала ошибку перспективы')
                 if hasattr(self, 'os_mission_quit'):
                     self.os_mission_quit()
                     return False
                 else:
-                    logger.warning('[地图-摄像机] 未找到os_mission_quit()方法，使用ui_click()代替')
+                    logger.warning('[Карта — камера] Метод os_mission_quit() не найден; используется ui_click()')
                     self.ui_click(OPSI_MISSION_CHECK, check_button=self.is_in_map, offset=(200, 5),
                                   skip_first_screenshot=True)
                     return False

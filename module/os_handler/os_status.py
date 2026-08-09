@@ -126,13 +126,13 @@ class OSStatus(UI):
 
             current_value = OCR_SHOP_YELLOW_COINS.ocr(self.device.image)
             if timeout.reached():
-                logger.warning('[大世界处理-状态] 获取黄币超时')
+                logger.warning('[Операция «Сирена» — состояние] Истекло время получения жёлтых монет')
                 break
 
             if current_value == 0:
                 # OCR may get 0 when amount is not immediately loaded
                 # Or when popups are obscuring the top bar
-                logger.info('[大世界处理-状态] 黄币为 0，可能是 OCR 错误或界面未加载')
+                logger.info('[Операция «Сирена» — состояние] Жёлтые монеты равны 0: возможно, ошибка OCR или экран ещё не загрузился')
                 continue
             else:
                 # 验证识别稳定性：连续两次识别相同才确认
@@ -149,14 +149,14 @@ class OSStatus(UI):
         # 如果最终仍未获取到有效数值，使用上次缓存的值（线程安全）
         with self._cache_lock:
             if yellow_coins == 0:
-                logger.info(f'[大世界处理-状态] 使用缓存的黄币值: {self._last_yellow_coins}')
+                logger.info(f'[Операция «Сирена» — состояние] Используется кэшированное значение жёлтых монет: {self._last_yellow_coins}')
                 yellow_coins = self._last_yellow_coins
             
             # 缓存当前值用于降级
             self._last_yellow_coins = yellow_coins
         
         LogRes(self.config).YellowCoin = yellow_coins
-        logger.info(f'[大世界处理-状态] 黄币: {yellow_coins}')
+        logger.info(f'[Операция «Сирена» — состояние] Жёлтые монеты: {yellow_coins}')
 
         return yellow_coins
 
@@ -171,7 +171,7 @@ class OSStatus(UI):
     def os_shop_get_coins(self):
         self._shop_yellow_coins = self.get_yellow_coins()
         self._shop_purple_coins = self.get_purple_coins()
-        logger.info(f'[大世界处理-状态] 黄币: {self._shop_yellow_coins}, 紫币: {self._shop_purple_coins}')
+        logger.info(f'[Операция «Сирена» — состояние] Жёлтые монеты: {self._shop_yellow_coins}, фиолетовые монеты: {self._shop_purple_coins}')
 
         # 记录凭证快照到数据库（用于 WebUI 凭证变化曲线图）
         try:
@@ -187,4 +187,4 @@ class OSStatus(UI):
             # LogRes 已将值写入 config.modified，在此持久化
             self.config.save()
         except Exception:
-            logger.exception('[大世界处理-状态] 记录凭证快照失败')
+            logger.exception('[Операция «Сирена» — состояние] Не удалось записать снимок ваучеров')

@@ -50,7 +50,7 @@ class FleetSelector:
             if self.main.appear(button, offset=(20, 20), similarity=0.75):
                 return index + 1
 
-        logger.info('[大世界-舰队选择] 未知的大世界舰队')
+        logger.info('[Операция «Сирена» — выбор флота] Не удалось определить текущий флот')
         return 0
 
     def bar_opened(self):
@@ -77,7 +77,7 @@ class FleetSelector:
             if np.std(mean, ddof=1) > self.FLEET_BAR_ACTIVE_STD:
                 result.append(4 - index)
 
-        logger.info(f'[大世界-舰队选择] 当前选择: {result}')
+        logger.info(f'[Операция «Сирена» — выбор флота] Текущий выбор: {result}')
         return result
 
     def selected(self):
@@ -195,15 +195,15 @@ class FleetSelector:
 
             current = self.get()
             if current == index:
-                logger.info(f'[大世界-舰队选择] 当前已是舰队 {index}')
+                logger.info(f'[Операция «Сирена» — выбор флота] Уже выбран флот {index}')
                 return False
             elif current > 0:
-                logger.info(f'[大世界-舰队选择] 切换到舰队 {index}')
+                logger.info(f'[Операция «Сирена» — выбор флота] Переход на флот {index}')
                 self.open()
                 self.click(index)
                 return True
 
-        logger.warning('[大世界-舰队选择] 未知的大世界舰队, 使用当前舰队')
+        logger.warning('[Операция «Сирена» — выбор флота] Не удалось определить флот; используется текущий')
         return False
 
 class StorageFleetSelector(FleetSelector):

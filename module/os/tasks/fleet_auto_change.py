@@ -79,7 +79,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         注意：此方法由经验检测触发，不需要重新收集舰船数据
         """
         if not self._check_cooldown():
-            logger.info("[大世界-自动配队] 自动配队冷却中，跳过")
+            logger.info("[Операция «Сирена» — автоподбор флота] Автоподбор флота ещё на перезарядке, пропуск")
             return
         
         try:
@@ -87,18 +87,18 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             
             custom_positions = self._parse_custom_positions()
             
-            logger.info(f"[大世界-自动配队] 开始执行自动配队，舰位: {custom_positions}")
+            logger.info(f"[Операция «Сирена» — автоподбор флота] Запуск автоподбора, позиции кораблей: {custom_positions}")
             self._execute_fleet_auto_change(custom_positions)
             
             self._set_cooldown()
-            logger.info("[大世界-自动配队] 自动配队完成")
+            logger.info("[Операция «Сирена» — автоподбор флота] Автоподбор флота завершён")
             
             self._run_exp_check_after_auto_change(custom_positions)
             
             self._notify_auto_change_complete(custom_positions)
             
         except Exception as e:
-            logger.error(f"[大世界-自动配队] 自动配队执行失败: {e}")
+            logger.error(f"[Операция «Сирена» — автоподбор флота] Не удалось выполнить автоподбор флота: {e}")
             self._handle_auto_change_error(str(e))
             raise
     
@@ -109,10 +109,10 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         Args:
             custom_positions: 自定义舰位列表
         """
-        logger.info("[大世界-自动配队] 自动配队后运行经验检测")
+        logger.info("[Операция «Сирена» — автоподбор флота] Проверка опыта после автоподбора")
         
         if not self._ensure_return_to_os_map():
-            logger.warning("[大世界-自动配队] 无法返回大世界地图，尝试回到主界面")
+            logger.warning("[Операция «Сирена» — автоподбор флота] Не удалось вернуться на карту Операции «Сирена», попытка перейти на главный экран")
             self._return_to_main_page()
         
         try:
@@ -120,9 +120,9 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             
             leveling = OpsiHazard1Leveling(config=self.config, device=self.device)
             leveling.os_check_leveling()
-            logger.info("[大世界-自动配队] 经验检测完成")
+            logger.info("[Операция «Сирена» — автоподбор флота] Проверка опыта завершена")
         except Exception as e:
-            logger.warning(f"[大世界-自动配队] 经验检测失败: {e}")
+            logger.warning(f"[Операция «Сирена» — автоподбор флота] Не удалось проверить опыт: {e}")
     
     def _ensure_return_to_os_map(self):
         """
@@ -136,29 +136,29 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             self.device.screenshot()
             
             if self.appear(PORT_GOTO_SUPPLY, offset=(20, 20)):
-                logger.info("[大世界-自动配队] 检测到仍在港口界面，退出港口")
+                logger.info("[Операция «Сирена» — автоподбор флота] Обнаружен экран порта, выход из порта")
                 self.port_quit(skip_first_screenshot=True)
                 self.wait_os_map_buttons()
                 continue
             
             if self.is_in_map():
                 if not self.appear(PORT_GOTO_SUPPLY, offset=(20, 20)):
-                    logger.info("[大世界-自动配队] 已确认返回大世界地图")
+                    logger.info("[Операция «Сирена» — автоподбор флота] Возврат на карту Операции «Сирена» подтверждён")
                     return True
         
-        logger.warning("[大世界-自动配队] 超时未能返回大世界地图")
+        logger.warning("[Операция «Сирена» — автоподбор флота] Не удалось вернуться на карту Операции «Сирена» за отведённое время")
         return False
     
     def _return_to_main_page(self):
         """回到主界面"""
         from module.ui.page import page_main
-        logger.info("[大世界-自动配队] 尝试回到主界面")
+        logger.info("[Операция «Сирена» — автоподбор флота] Попытка вернуться на главный экран")
         
         try:
             self.ui_goto(page_main)
-            logger.info("[大世界-自动配队] 已回到主界面")
+            logger.info("[Операция «Сирена» — автоподбор флота] Выполнен возврат на главный экран")
         except Exception as e:
-            logger.warning(f"[大世界-自动配队] 回到主界面失败: {e}")
+            logger.warning(f"[Операция «Сирена» — автоподбор флота] Не удалось вернуться на главный экран: {e}")
     
     def _notify_auto_change_complete(self, custom_positions):
         """
@@ -174,20 +174,20 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
                 content=f"<{self.config.config_name}>\n\n已更换舰位: {positions_str}\n\n自动配队冷却时间: {self.config.OpsiFleetAutoChange_CooldownHours} 小时"
             )
         except Exception as e:
-            logger.warning(f"[大世界-自动配队] 推送通知失败: {e}")
+            logger.warning(f"[Операция «Сирена» — автоподбор флота] Не удалось отправить уведомление: {e}")
     
     def _goto_azur_port(self):
         """前往最近的碧蓝航线港口"""
-        logger.info("[大世界-自动配队] 前往碧蓝航线港口")
+        logger.info("[Операция «Сирена» — автоподбор флота] Переход в ближайший порт Азур Лейн")
         
         if not hasattr(self, 'zone') or self.zone is None:
-            logger.info("[大世界-自动配队] 初始化当前区域信息")
+            logger.info("[Операция «Сирена» — автоподбор флота] Инициализация сведений о текущей зоне")
             self.zone_init()
         
         if not self.zone.is_azur_port:
             self.globe_goto(self.zone_nearest_azur_port(self.zone))
         
-        logger.info(f"[大世界-自动配队] 已到达港口: {self.zone}")
+        logger.info(f"[Операция «Сирена» — автоподбор флота] Прибытие в порт: {self.zone}")
     
     def _handle_auto_change_error(self, error_msg):
         """
@@ -196,10 +196,10 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         Args:
             error_msg: 错误信息
         """
-        logger.error(f"[大世界-自动配队] 自动配队发生错误: {error_msg}")
+        logger.error(f"[Операция «Сирена» — автоподбор флота] Ошибка автоподбора флота: {error_msg}")
         
         self.config.OpsiFleetAutoChange_Enable = False
-        logger.info("[大世界-自动配队] 已禁用大世界自动配队功能")
+        logger.info("[Операция «Сирена» — автоподбор флота] Автоподбор флота в Операции «Сирена» отключён")
         
         try:
             self.notify_push(
@@ -207,9 +207,9 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
                 content=f"<{self.config.config_name}>\n\n自动配队执行失败: {error_msg}\n\n已禁用自动配队功能，请检查后手动启用。"
             )
         except Exception as e:
-            logger.warning(f"[大世界-自动配队] 推送通知失败: {e}")
+            logger.warning(f"[Операция «Сирена» — автоподбор флота] Не удалось отправить уведомление: {e}")
         
-        logger.info("[大世界-自动配队] 尝试重启游戏以恢复状态")
+        logger.info("[Операция «Сирена» — автоподбор флота] Попытка восстановить состояние перезапуском игры")
         self.config.task_call('Restart')
     
     def _check_cooldown(self):
@@ -247,7 +247,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             positions = [int(p.strip()) for p in str(custom_str).split(',')]
             return [p for p in positions if 1 <= p <= 6]
         except:
-            logger.warning(f"[大世界-自动配队] 自定义舰位配置格式错误: {custom_str}")
+            logger.warning(f"[Операция «Сирена» — автоподбор флота] Неверный формат списка позиций кораблей: {custom_str}")
             return [1, 2, 3, 4, 5, 6]
     
     def _check_trigger_condition(self, ship_data_list, target_level, custom_positions):
@@ -271,10 +271,10 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
                 continue
             
             if ship['total_exp'] < target_exp:
-                logger.info(f"[大世界-自动配队] 舰位 {position} 未满经验，不触发自动配队")
+                logger.info(f"[Операция «Сирена» — автоподбор флота] Корабль на позиции {position} ещё не достиг предела опыта, автоподбор не требуется")
                 return False
         
-        logger.info(f"[大世界-自动配队] 所有指定舰位 {custom_positions} 已满经验，触发自动配队")
+        logger.info(f"[Операция «Сирена» — автоподбор флота] Все корабли на позициях {custom_positions} достигли предела опыта, запуск автоподбора")
         return True
     
     def _execute_fleet_auto_change(self, positions):
@@ -296,7 +296,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         Args:
             positions: 舰位列表，如 [1, 3, 5]
         """
-        logger.info(f"[大世界-自动配队] 取消舰位 {positions} 的常用标记")
+        logger.info(f"[Операция «Сирена» — автоподбор флота] Снятие отметки «Избранное» с кораблей на позициях {positions}.")
         
         slot_buttons = {
             1: OS_FLEET_SLOT_NAV_1_BUTTON,
@@ -310,19 +310,19 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         for position in positions:
             button = slot_buttons.get(position)
             if not button:
-                logger.warning(f"[大世界-自动配队] 无效的舰位: {position}")
+                logger.warning(f"[Операция «Сирена» — автоподбор флота] Недопустимая позиция корабля: {position}")
                 continue
             
-            logger.info(f"[大世界-自动配队] 长按舰位 {position} 进入详情界面")
+            logger.info(f"[Операция «Сирена» — автоподбор флота] Удержание позиции {position} для перехода к сведениям о корабле")
             
             self.equip_enter(button, check_button=EQUIPMENT_OPEN, long_click=True)
             
             if self.appear(FAVORITE_TEMPLATE, offset=(20, 20)):
                 self.device.click(FAVORITE_BUTTON)
-                logger.info(f"[大世界-自动配队] 已取消舰位 {position} 的常用标记")
+                logger.info(f"[Операция «Сирена» — автоподбор флота] С корабля на позиции {position} снята отметка «Избранное»")
                 self.device.sleep(0.5)
             else:
-                logger.info(f"[大世界-自动配队] 舰位 {position} 未设置常用标记")
+                logger.info(f"[Операция «Сирена» — автоподбор флота] Корабль на позиции {position} не отмечен как избранный")
             
             self.ui_back(check_button=self.is_in_map)
             self.device.sleep(0.5)
@@ -333,7 +333,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         Raises:
             ScriptError: 当无法进入舰队部署界面时抛出
         """
-        logger.info("[大世界-自动配队] 进入舰队部署界面")
+        logger.info("[Операция «Сирена» — автоподбор флота] Переход к экрану развёртывания флота")
         
         self.order_enter()
         
@@ -346,7 +346,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             self.device.screenshot()
             enter_timeout += 1
             if enter_timeout > timeout * 2:
-                logger.error("[大世界-自动配队] 无法进入舰队部署界面")
+                logger.error("[Операция «Сирена» — автоподбор флота] Не удалось открыть экран развёртывания флота")
                 raise ScriptError("无法进入舰队部署界面")
     
     def _select_ships_at_positions(self, positions):
@@ -368,7 +368,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             ScriptError: 当船坞中没有可用舰船时抛出
         """
         sorted_positions = sorted(positions)
-        logger.info(f"[大世界-自动配队] 在舰位 {sorted_positions} 选择舰船")
+        logger.info(f"[Операция «Сирена» — автоподбор флота] Выбор кораблей для позиций {sorted_positions}.")
         
         slot_buttons = {
             1: FLEET_SLOT_1_BUTTON,
@@ -382,19 +382,19 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         for index, position in enumerate(sorted_positions):
             button = slot_buttons.get(position)
             if button:
-                logger.info(f"[大世界-自动配队] 点击舰位 {position}")
+                logger.info(f"[Операция «Сирена» — автоподбор флота] Нажатие на позицию корабля {position}")
                 self.device.click(button)
                 self.device.screenshot()
                 
                 if self.appear(DOCK_EMPTY, offset=(20, 20)):
-                    logger.error("[大世界-自动配队] 船坞中没有可用的常用舰船")
+                    logger.error("[Операция «Сирена» — автоподбор флота] В доке нет доступных избранных кораблей")
                     raise ScriptError("船坞中没有可用的常用舰船，无法完成自动配队")
                 
                 self.dock_favourite_set(enable=True, wait_loading=False)
                 
                 self.device.screenshot()
                 if self.appear(DOCK_EMPTY, offset=(20, 20)):
-                    logger.error("[大世界-自动配队] 船坞中没有可用的常用舰船")
+                    logger.error("[Операция «Сирена» — автоподбор флота] В доке нет доступных избранных кораблей")
                     raise ScriptError("船坞中没有可用的常用舰船，无法完成自动配队")
                 
                 grid_index = index + 1
@@ -408,7 +408,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         Raises:
             ScriptError: 当无法确认舰船选择时抛出
         """
-        logger.info("[大世界-自动配队] 确认舰船选择")
+        logger.info("[Операция «Сирена» — автоподбор флота] Подтверждение выбора кораблей")
         
         timeout = 10
         confirm_timeout = 0
@@ -416,7 +416,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             self.device.screenshot()
             confirm_timeout += 1
             if confirm_timeout > timeout * 2:
-                logger.error("[大世界-自动配队] 无法找到确认按钮")
+                logger.error("[Операция «Сирена» — автоподбор флота] Не найдена кнопка подтверждения")
                 raise ScriptError("无法找到确认按钮，舰船选择失败")
         
         self.device.click(FLEET_SLOT_CONFIRM_BUTTON)
@@ -427,7 +427,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             self.device.screenshot()
             return_timeout += 1
             if return_timeout > timeout * 2:
-                logger.error("[大世界-自动配队] 确认舰船选择后未返回舰队部署界面")
+                logger.error("[Операция «Сирена» — автоподбор флота] После подтверждения выбора не открылся экран развёртывания флота")
                 raise ScriptError("确认舰船选择后未返回舰队部署界面")
     
     def _confirm_departure(self):
@@ -436,7 +436,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         Raises:
             ScriptError: 当无法完成出发确认时抛出
         """
-        logger.info("[大世界-自动配队] 确认出发")
+        logger.info("[Операция «Сирена» — автоподбор флота] Подтверждение выхода флота")
         
         self.device.click(DEPART_IMMEDIATELY_BUTTON)
         
@@ -446,13 +446,13 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             self.device.screenshot()
             
             if self.appear(DEPART_CONFIRM_TEMPLATE, offset=(20, 20)):
-                logger.info("[大世界-自动配队] 检测到出发确认弹窗，点击确认")
+                logger.info("[Операция «Сирена» — автоподбор флота] Обнаружено окно подтверждения выхода, нажатие кнопки подтверждения")
                 self.device.click(DEPART_CONFIRM_BUTTON)
                 break
             
             confirm_timeout += 1
         else:
-            logger.info("[大世界-自动配队] 未检测到出发确认弹窗，继续执行")
+            logger.info("[Операция «Сирена» — автоподбор флота] Окно подтверждения выхода не обнаружено, продолжение")
         
         for _ in range(5):
             self.device.screenshot()
@@ -462,23 +462,23 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             self.device.screenshot()
             
             if self.appear(PORT_GOTO_SUPPLY, offset=(20, 20)):
-                logger.info("[大世界-自动配队] 检测到进入港口界面，退出港口")
+                logger.info("[Операция «Сирена» — автоподбор флота] Обнаружен экран порта, выход из порта")
                 self.port_quit(skip_first_screenshot=True)
                 self.wait_os_map_buttons()
                 continue
             
             if self.is_in_map():
                 if not self.appear(PORT_GOTO_SUPPLY, offset=(20, 20)):
-                    logger.info("[大世界-自动配队] 已返回大世界地图")
+                    logger.info("[Операция «Сирена» — автоподбор флота] Выполнен возврат на карту Операции «Сирена»")
                     return
         
-        logger.error("[大世界-自动配队] 出发确认超时")
+        logger.error("[Операция «Сирена» — автоподбор флота] Истекло время ожидания подтверждения выхода")
         raise ScriptError("出发确认超时，无法返回大世界地图")
     
     def _set_cooldown(self):
         """设置冷却时间"""
         self.config.OpsiFleetAutoChange_LastRun = current_time().replace(microsecond=0)
-        logger.info(f"[大世界-自动配队] 已设置冷却时间，下次可运行时间: {self.config.OpsiFleetAutoChange_LastRun}")
+        logger.info(f"[Операция «Сирена» — автоподбор флота] Установлена перезарядка, следующий доступный запуск: {self.config.OpsiFleetAutoChange_LastRun}")
     
     def _collect_ship_data_with_retry(self, target_level):
         """
@@ -497,7 +497,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         last_error = None
         
         for attempt in range(max_retry):
-            logger.info(f"[大世界-自动配队] 开始收集舰船数据 (尝试 {attempt + 1}/{max_retry})")
+            logger.info(f"[Операция «Сирена» — автоподбор флота] Сбор данных кораблей (попытка {attempt + 1}/{max_retry})")
             
             self.fleet_set(self.config.OpsiFleet_Fleet)
             self.equip_enter(FLEET_FLAGSHIP)
@@ -510,7 +510,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
                 level, exp = ship_info_get_level_exp(main=self)
                 
                 if level < 1 or level > len(LIST_SHIP_EXP):
-                    logger.warning(f"[大世界-自动配队] 舰船等级识别异常: {level}")
+                    logger.warning(f"[Операция «Сирена» — автоподбор флота] Некорректно распознан уровень корабля: {level}")
                     ship_data_list.append({
                         "position": position,
                         "level": level,
@@ -524,7 +524,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
                 
                 total_exp = LIST_SHIP_EXP[level - 1] + exp
                 logger.info(
-                    f"位置: {position}, 等级: {level}, 经验: {exp}, 总经验: {total_exp}, 目标经验: {LIST_SHIP_EXP[target_level - 1]}"
+                    f"Позиция: {position}, уровень: {level}, опыт: {exp}, общий опыт: {total_exp}, целевой опыт: {LIST_SHIP_EXP[target_level - 1]}"
                 )
                 
                 ship_data_list.append({
@@ -547,29 +547,29 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
                     non_standard_retry_count += 1
                     
                     if non_standard_retry_count >= 3:
-                        logger.info(f"[大世界-自动配队] 非标准舰船数量({current_ship_count}艘)已重试3次，使用当前检测结果")
+                        logger.info(f"[Операция «Сирена» — автоподбор флота] Нестандартное количество кораблей ({current_ship_count}) подтверждено тремя попытками, используются текущие результаты")
                         return {'ships': ship_data_list, 'error': None}
                     
-                    logger.warning(f"[大世界-自动配队] 舰船数量非标准({current_ship_count}艘)，重试确认 ({non_standard_retry_count}/3)")
+                    logger.warning(f"[Операция «Сирена» — автоподбор флота] Нестандартное количество кораблей ({current_ship_count}), повторная проверка ({non_standard_retry_count}/3)")
                     if attempt < max_retry - 1:
-                        logger.info("[大世界-自动配队] 等待后重试...")
+                        logger.info("[Операция «Сирена» — автоподбор флота] Ожидание перед повторной попыткой...")
                         self.device.click_record_clear()
                         self.interval_reset()
                     else:
-                        logger.info(f"[大世界-自动配队] 已达到最大重试次数，使用当前检测结果({current_ship_count}艘)")
+                        logger.info(f"[Операция «Сирена» — автоподбор флота] Достигнуто максимальное число попыток, используются текущие результаты ({current_ship_count} кораблей)")
                         return {'ships': ship_data_list, 'error': None}
                 else:
-                    logger.info("[大世界-自动配队] 舰船数据验证通过")
+                    logger.info("[Операция «Сирена» — автоподбор флота] Данные кораблей прошли проверку")
                     return {'ships': ship_data_list, 'error': None}
             else:
-                logger.warning(f"[大世界-自动配队] 舰船数据验证失败: {validation_result['reason']}")
+                logger.warning(f"[Операция «Сирена» — автоподбор флота] Данные кораблей не прошли проверку: {validation_result['reason']}")
                 last_error = validation_result['reason']
                 if attempt < max_retry - 1:
-                    logger.info("[大世界-自动配队] 等待后重试...")
+                    logger.info("[Операция «Сирена» — автоподбор флота] Ожидание перед повторной попыткой...")
                     self.device.click_record_clear()
                     self.interval_reset()
                 else:
-                    logger.error("[大世界-自动配队] 已达到最大重试次数，舰船数据收集失败")
+                    logger.error("[Операция «Сирена» — автоподбор флота] Достигнуто максимальное число попыток, собрать данные кораблей не удалось")
                     return {'ships': None, 'error': f"验证失败: {last_error}"}
         
         return {'ships': None, 'error': f"未知错误: {last_error}"}

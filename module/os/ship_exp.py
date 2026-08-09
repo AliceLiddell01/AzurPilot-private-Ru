@@ -28,7 +28,7 @@ class ShipLevel(Digit):
     def after_process(self, result):
         result = super().after_process(result)
         if result < 1 or result > 125:
-            logger.warning('[大世界-经验] 意外的舰船等级')
+            logger.warning('[Операция «Сирена» — опыт] Неожиданный уровень корабля')
             result = 0
         return result
 
@@ -69,7 +69,7 @@ class ShipExp(Ocr):
             current = int(result[0])
             return current
         else:
-            logger.warning(f'[大世界-经验] 意外的OCR结果: {result_list}')
+            logger.warning(f'[Операция «Сирена» — опыт] Неожиданный результат OCR: {result_list}')
             return 0
 
 def ship_info_get_level_exp(main, skip_first_screenshot=True):
@@ -97,7 +97,7 @@ def ship_info_get_level_exp(main, skip_first_screenshot=True):
         exp = ocr_exp.ocr(main.device.image)
         
         if timeout.reached():
-            logger.warning('ship_info_get_level_exp timeout')
+            logger.warning('Истекло время выполнения ship_info_get_level_exp')
             return level, exp
         if level > 0:
             if exp > 0:

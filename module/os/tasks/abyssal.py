@@ -80,10 +80,10 @@ class OpsiAbyssal(CoinTaskMixin, OSMap):
             if next_run and next_run > now:
                 time_diff = next_run - now
                 if timedelta(0) < time_diff <= timedelta(minutes=60):
-                    logger.info(f'[大世界-深渊坐标] 检测到潜艇冷却：任务 {task_name} 的下次运行时间为 {next_run}')
+                    logger.info(f'[Операция «Сирена» — абиссальные координаты] Обнаружена перезарядка подлодки: следующий запуск задачи {task_name} — {next_run}')
                     return True, next_run
 
-        logger.info('[大世界-深渊坐标] 潜艇冷却检查通过，未检测到潜艇冷却')
+        logger.info('[Операция «Сирена» — абиссальные координаты] Проверка перезарядки подлодки пройдена, активная перезарядка не обнаружена')
         return False, None
 
     def _delay_until_submarine_cooldown_end(self, cooldown_end_time):
@@ -94,13 +94,13 @@ class OpsiAbyssal(CoinTaskMixin, OSMap):
             cooldown_end_time: 潜艇冷却结束的时间。
         """
         if self.is_running_smart_scheduling_task():
-            logger.info(f'[大世界-深渊坐标] 智能调度+代理执行中，深渊坐标潜艇冷却至 {cooldown_end_time}，本轮跳过深渊')
+            logger.info(f'[Операция «Сирена» — абиссальные координаты] Выполнение через диспетчер «Умного планирования+»: подлодка на перезарядке до {cooldown_end_time}, текущий цикл пропущен')
             self._smart_scheduling_no_content_task = 'OpsiAbyssal'
             return
 
-        logger.hr('检测到潜艇冷却', level=1)
-        logger.info(f'[大世界-深渊坐标] 潜艇冷却结束时间：{cooldown_end_time}')
-        logger.info('[大世界-深渊坐标] 延时深渊坐标任务到潜艇冷却结束')
+        logger.hr('Обнаружена перезарядка подлодки', level=1)
+        logger.info(f'[Операция «Сирена» — абиссальные координаты] Перезарядка подлодки завершится: {cooldown_end_time}')
+        logger.info('[Операция «Сирена» — абиссальные координаты] Задача отложена до завершения перезарядки подлодки')
 
         now = current_time()
         delay_seconds = int((cooldown_end_time - now).total_seconds())
@@ -108,7 +108,7 @@ class OpsiAbyssal(CoinTaskMixin, OSMap):
         if delay_minutes <= 0:
             delay_minutes = 1
 
-        logger.info(f'[大世界-深渊坐标] 延时 {delay_minutes} 分钟到潜艇冷却结束')
+        logger.info(f'[Операция «Сирена» — абиссальные координаты] До завершения перезарядки подлодки: {delay_minutes} мин')
         self.config.task_delay(minute=delay_minutes)
         self.config.task_stop()
 
@@ -121,14 +121,14 @@ class OpsiAbyssal(CoinTaskMixin, OSMap):
             submarine_enabled (bool): 舰队过滤器是否包含呼叫潜艇。
         """
         if not submarine_enabled:
-            logger.info('[大世界-深渊坐标] 本轮深渊过滤器不包含 CallSubmarine，不延迟')
+            logger.info('[Операция «Сирена» — абиссальные координаты] Фильтр текущего цикла не содержит CallSubmarine, перенос не требуется')
             return
 
         if self.is_running_smart_scheduling_task():
-            logger.info('[大世界-深渊坐标] 智能调度+代理执行中，跳过深渊坐标任务延迟')
+            logger.info('[Операция «Сирена» — абиссальные координаты] Выполнение через диспетчер «Умного планирования+», перенос задачи пропущен')
             return
 
-        logger.info('[大世界-深渊坐标] 本轮深渊过滤器包含 CallSubmarine，当前任务延迟 60 分钟后再运行')
+        logger.info('[Операция «Сирена» — абиссальные координаты] Фильтр текущего цикла содержит CallSubmarine, повторный запуск задачи через 60 минут')
         self.config.task_delay(minute=60)
         self.config.task_stop()
 
@@ -147,7 +147,7 @@ class OpsiAbyssal(CoinTaskMixin, OSMap):
             TaskEnd: 没有更多深渊日志仪。
             RequestHumanTakeover: 无法击败 Boss，舰队耗尽。
         """
-        logger.hr('大世界-深渊坐标', level=1)
+        logger.hr('Операция «Сирена» — абиссальные координаты', level=1)
         self.cl1_ap_preserve()
 
         submarine_enabled = self._has_call_submarine('OpsiAbyssal', self.config)
@@ -170,7 +170,7 @@ class OpsiAbyssal(CoinTaskMixin, OSMap):
         )
         self.zone_init()
 
-        logger.info('[大世界-深渊坐标] 进入深渊坐标地图，禁止所有任务切换')
+        logger.info('[Операция «Сирена» — абиссальные координаты] Выполнен вход на карту абиссальной зоны, переключение задач запрещено')
         with self.config.temporary(_disable_task_switch=True):
             result = self.run_abyssal()
             if not result:

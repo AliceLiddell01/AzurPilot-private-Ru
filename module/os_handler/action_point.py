@@ -209,7 +209,7 @@ class ActionPointHandler(UI, MapEventHandler):
         oil = box[0]
 
         LogRes(self.config).Oil = oil
-        logger.info(f'[大世界-行动点] 行动点: {current}({total}), 石油: {oil}')
+        logger.info(f'[Операция «Сирена» — очки действия] Очки действия: {current}({total}), топливо: {oil}')
         LogRes(self.config).ActionPoint = {'Value': current, 'Total': total}
         self.config.update()
         self._action_point_current = current
@@ -231,7 +231,7 @@ class ActionPointHandler(UI, MapEventHandler):
             if self.is_current_ap_visible():
                 break
             if timeout.reached():
-                logger.warning('[大世界-行动点] 获取行动点超时')
+                logger.warning('[Операция «Сирена» — очки действия] Истекло время получения очков действия')
                 break
             # 处理行动力弹窗上方的强制地图事件
             if self.handle_map_event():
@@ -247,7 +247,7 @@ class ActionPointHandler(UI, MapEventHandler):
                 self.device.screenshot()
 
             if timeout.reached():
-                logger.warning('[大世界-行动点] 获取行动点超时')
+                logger.warning('[Операция «Сирена» — очки действия] Истекло время получения очков действия')
                 break
             # 处理行动力弹窗上方的强制地图事件
             if self.handle_map_event():
@@ -297,7 +297,7 @@ class ActionPointHandler(UI, MapEventHandler):
         elif pinned == 'STRONGHOLD':
             cost = 200
         else:
-            logger.warning(f'[大世界-行动点] 无法获取行动点消耗, 区域={zone}, 固定={pinned}，假设消耗40')
+            logger.warning(f'[Операция «Сирена» — очки действия] Не удалось определить расход очков действия: zone={zone}, pinned={pinned}; предполагается расход 40')
             cost = 40
 
         if zone.is_port:
@@ -320,7 +320,7 @@ class ActionPointHandler(UI, MapEventHandler):
             if color[2] > 160:
                 return index
 
-        logger.warning('[大世界-行动点] 无法找到活动的行动点箱子按钮')
+        logger.warning('[Операция «Сирена» — очки действия] Не найдена активная кнопка контейнера с очками действия')
         return 1
 
     def action_point_set_button(self, index):
@@ -340,7 +340,7 @@ class ActionPointHandler(UI, MapEventHandler):
                 self.device.click(ACTION_POINT_GRID[index, 0])
                 self.device.sleep(0.3)
         else:
-            logger.warning('[大世界-行动点] 设置行动点按钮超时')
+            logger.warning('[Операция «Сирена» — очки действия] Истекло время настройки кнопки очков действия')
             return False
 
     def action_point_get_buy_remain(self):
@@ -364,7 +364,7 @@ class ActionPointHandler(UI, MapEventHandler):
 
             break
         else:
-            logger.warning('[大世界-行动点] 获取行动点购买剩余超时')
+            logger.warning('[Операция «Сирена» — очки действия] Истекло время получения остатка доступных покупок очков действия')
 
         return current
 
@@ -387,19 +387,19 @@ class ActionPointHandler(UI, MapEventHandler):
         buy_count = buy_max - current
         buy_limit = self.config.OpsiGeneral_BuyActionPointLimit
         if self._is_in_month_end_purchase_block_week():
-            logger.info('[大世界-行动点] 跳过本周购买行动点，因为是月末封锁周')
+            logger.info('[Операция «Сирена» — очки действия] Покупка очков действия на этой неделе пропущена: это последняя неделя месяца')
             return False
         if buy_count >= buy_limit:
-            logger.info('[大世界-行动点] 达到本周购买行动点上限')
+            logger.info('[Операция «Сирена» — очки действия] Достигнут недельный предел покупки очков действия')
             return False
         cost = ACTION_POINTS_BUY[current]
         oil = self._action_point_box[0]
-        logger.info(f'[大世界-行动点] 购买行动点将消耗 {cost}, 当前石油: {oil}, 保留: {preserve}')
+        logger.info(f'[Операция «Сирена» — очки действия] Покупка очков действия потребует {cost} нефти; текущая нефть: {oil}, резерв: {preserve}')
         if oil >= cost + preserve:
             self.action_point_use()
             return True
         else:
-            logger.info('[大世界-行动点] 石油不足无法购买')
+            logger.info('[Операция «Сирена» — очки действия] Недостаточно нефти для покупки')
             return False
 
     def action_point_quit(self):
@@ -458,14 +458,14 @@ class ActionPointHandler(UI, MapEventHandler):
             diff = get_server_next_update('00:00') - current_time()
             today_rest = int(diff.total_seconds() // 600)
             if self._action_point_current + today_rest >= 200:
-                logger.info('[大世界处理-行动力] 当前行动力与今日可获得的剩余行动力之和超过 200，跳过行动力检查')
-                logger.info(f'[大世界-行动点] 当前={self._action_point_current}  今日剩余={today_rest}')
+                logger.info('[Операция «Сирена» — очки действия] Сумма текущих и доступных сегодня очков действия превышает 200, проверка пропущена')
+                logger.info(f'[Операция «Сирена» — очки действия] Текущие={self._action_point_current}, доступно сегодня={today_rest}')
                 keep_current_ap = False
 
         # 先检查行动力
         if keep_current_ap:
             if self._action_point_total <= self.config.OS_ACTION_POINT_PRESERVE:
-                logger.info(f'[大世界-行动点] 达到行动点上限, 保留={self.config.OS_ACTION_POINT_PRESERVE}')
+                logger.info(f'[Операция «Сирена» — очки действия] Достигнут предел очков действия, резерв={self.config.OS_ACTION_POINT_PRESERVE}')
                 self.action_point_quit()
                 raise ActionPointLimit(
                     current=self._action_point_current,
@@ -476,7 +476,7 @@ class ActionPointHandler(UI, MapEventHandler):
         for _ in range(12):
             # 拥有足够的行动力
             if self._action_point_current >= cost:
-                logger.info('[大世界-行动点] 行动点充足')
+                logger.info('[Операция «Сирена» — очки действия] Очков действия достаточно')
                 self.action_point_quit()
                 return True
 
@@ -491,7 +491,7 @@ class ActionPointHandler(UI, MapEventHandler):
             # 重新检查总行动力是否小于消耗
             # 如果是，则跳过使用药剂
             if self._action_point_total < cost:
-                logger.info('[大世界-行动点] 行动点不足')
+                logger.info('[Операция «Сирена» — очки действия] Недостаточно очков действия')
                 self.action_point_quit()
                 raise ActionPointLimit(
                     current=self._action_point_current,
@@ -515,7 +515,7 @@ class ActionPointHandler(UI, MapEventHandler):
                     self.action_point_use()
                     continue
                 else:
-                    logger.info(f'[大世界-行动点] 达到行动点上限, 保留={self.config.OS_ACTION_POINT_PRESERVE}')
+                    logger.info(f'[Операция «Сирена» — очки действия] Достигнут предел очков действия, резерв={self.config.OS_ACTION_POINT_PRESERVE}')
                     self.action_point_quit()
                     raise ActionPointLimit(
                         current=self._action_point_current,
@@ -523,7 +523,7 @@ class ActionPointHandler(UI, MapEventHandler):
                         preserve=self.config.OS_ACTION_POINT_PRESERVE,
                     )
             else:
-                logger.info('[大世界-行动点] 没有更多行动点箱子')
+                logger.info('[Операция «Сирена» — очки действия] Контейнеров с очками действия больше нет')
                 self.action_point_quit()
                 raise ActionPointLimit(
                     current=self._action_point_current,
@@ -531,7 +531,7 @@ class ActionPointHandler(UI, MapEventHandler):
                     cost=cost,
                 )
 
-        logger.warning('[大世界-行动点] 尝试12次后仍无法获取行动点')
+        logger.warning('[Операция «Сирена» — очки действия] Не удалось получить очки действия за 12 попыток')
         return False
 
     def action_point_enter(self):
@@ -599,9 +599,9 @@ class ActionPointHandler(UI, MapEventHandler):
 
         enough = self._action_point_total > amount
         if enough:
-            logger.info(f'[大世界-行动点] 拥有 {amount} 行动点')
+            logger.info(f'[Операция «Сирена» — очки действия] Доступно {amount} очков действия')
         else:
-            logger.info(f'[大世界-行动点] 没有 {amount} 行动点')
+            logger.info(f'[Операция «Сирена» — очки действия] Нет {amount} очков действия')
 
         self.action_point_quit()
         for _ in self.loop():

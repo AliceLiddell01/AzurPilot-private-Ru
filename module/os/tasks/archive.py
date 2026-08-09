@@ -24,7 +24,7 @@ class OpsiArchive(OSMap):
         循环执行直到耗尽。建议每周运行一次，开发团队会在维护后添加新档案。
         """
         if self.is_in_opsi_explore():
-            logger.info('每月开荒+正在运行，停止档案坐标')
+            logger.info('Выполняется «Ежемесячное исследование+», задача архивных координат остановлена')
             self.config.task_delay(server_update=True)
             self.config.task_stop()
 
@@ -35,7 +35,7 @@ class OpsiArchive(OSMap):
                 skip_siren_mission=self.config.cross_get('OpsiDaily.OpsiDaily.SkipSirenResearchMission'),
                 question=False, rescan=False)
 
-            logger.hr('大世界-白票商店', level=1)
+            logger.hr('Операция «Сирена» — магазин ваучеров', level=1)
             self._os_voucher_enter()
             bought = shop.run_once()
             self._os_voucher_exit()
@@ -44,6 +44,6 @@ class OpsiArchive(OSMap):
 
         # 延迟到最近的周三重置
         next_reset = get_nearest_weekday_date(target=2)
-        logger.info('档案坐标已全部完成，延迟到下次重置')
-        logger.attr('大世界下次重置', next_reset)
+        logger.info('Архивные координаты завершены и отложены до следующего сброса')
+        logger.attr('Следующий сброс Операции «Сирена»', next_reset)
         self.config.task_delay(target=next_reset)

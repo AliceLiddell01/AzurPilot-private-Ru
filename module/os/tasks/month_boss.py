@@ -39,30 +39,30 @@ class OpsiMonthBoss(OSMap):
             out: page_os, 大世界地图
         """
         if self.is_in_opsi_explore():
-            logger.info('每月开荒+正在运行，停止月度Boss')
+            logger.info('Выполняется «Ежемесячное исследование+», задача ежемесячного босса остановлена')
             self.config.task_delay(server_update=True)
             self.config.task_stop()
 
-        logger.hr("大世界-月度Boss", level=1)
-        logger.hr("月度Boss预检查", level=2)
+        logger.hr("Операция «Сирена» — ежемесячный босс", level=1)
+        logger.hr("Предварительная проверка ежемесячного босса", level=2)
         checkout_offset = self.os_mission_enter(
             skip_siren_mission=self.config.cross_get('OpsiDaily.OpsiDaily.SkipSirenResearchMission'))
-        logger.attr('OpsiMonthBoss.模式', self.config.OpsiMonthBoss_Mode)
+        logger.attr('Режим OpsiMonthBoss', self.config.OpsiMonthBoss_Mode)
         if self.appear(OS_MONTHBOSS_NORMAL, offset=checkout_offset):
-            logger.attr('月度Boss难度', 'normal')
+            logger.attr('Сложность ежемесячного босса', 'normal')
             is_normal = True
         elif self.appear(OS_MONTHBOSS_HARD, offset=checkout_offset):
-            logger.attr('月度Boss难度', 'hard')
+            logger.attr('Сложность ежемесячного босса', 'hard')
             is_normal = False
         else:
-            logger.info("未找到普通/困难月度Boss，停止任务")
+            logger.info("Ежемесячный босс обычной или высокой сложности не найден, задача остановлена")
             self.os_mission_quit()
             self.month_boss_delay(is_normal=False, result=False)
             return True
         self.os_mission_quit()
 
         if not is_normal and self.config.OpsiMonthBoss_Mode == "normal":
-            logger.info("配置为只打普通月度Boss，但当前为困难月度Boss，跳过")
+            logger.info("Настроен бой только с обычным ежемесячным боссом, но доступен босс высокой сложности; пропуск")
             self.month_boss_delay(is_normal=False, result=True)
             self.config.task_stop()
             return True
@@ -71,20 +71,20 @@ class OpsiMonthBoss(OSMap):
             self.os_map_goto_globe(unpin=False)
             adaptability = self.get_adaptability()
             if (np.array(adaptability) < (203, 203, 156)).any():
-                logger.info("[大世界-月度Boss] 适应性低于压制等级，需要变强后再来")
+                logger.info("[Операция «Сирена» — ежемесячный босс] Адаптивность ниже уровня подавления, сначала необходимо усилить флот")
                 self.config.task_delay(server_update=True)
                 self.config.task_stop()
             # 无需退出，复用当前状态
 
         # 战斗
-        logger.hr("月度Boss前往", level=2)
+        logger.hr("Переход к ежемесячному боссу", level=2)
         with self.config.temporary(_disable_task_switch=True):
             self.globe_goto(154)
             self.go_month_boss_room(is_normal=is_normal)
             result = self.boss_clear(has_fleet_step=True, is_month=True)
 
             # 战斗结束
-            logger.hr("月度Boss维修", level=2)
+            logger.hr("Ремонт перед ежемесячным боссом", level=2)
             self.handle_fleet_repair_by_config(revert=False)
             self.handle_fleet_resolve(revert=False)
             self.month_boss_delay(is_normal=is_normal, result=result)
@@ -102,24 +102,24 @@ class OpsiMonthBoss(OSMap):
         if is_normal:
             if result:
                 if self.config.OpsiMonthBoss_Mode == 'normal_hard':
-                    logger.info('普通月度Boss已完成，接下来执行困难月度Boss')
+                    logger.info('Обычный ежемесячный босс побеждён, далее — босс высокой сложности')
                     self.config.task_stop()
                 else:
-                    logger.info('普通月度Boss已完成，停止任务')
+                    logger.info('Обычный ежемесячный босс побеждён, задача остановлена')
                     next_reset = get_os_next_reset()
                     self.config.task_delay(target=next_reset)
                     self.config.task_stop()
             else:
-                logger.info("无法清理普通月度Boss，稍后重试")
+                logger.info("Не удалось победить обычного ежемесячного босса, повторная попытка позже")
                 self.config.opsi_task_delay(recon_scan=False, submarine_call=True, ap_limit=False)
                 self.config.task_stop()
         else:
             if result:
-                logger.info('困难月度Boss已完成，停止任务')
+                logger.info('Ежемесячный босс высокой сложности побеждён, задача остановлена')
                 next_reset = get_os_next_reset()
                 self.config.task_delay(target=next_reset)
                 self.config.task_stop()
             else:
-                logger.info("无法清理困难月度Boss，明日重试")
+                logger.info("Не удалось победить ежемесячного босса высокой сложности, повторная попытка завтра")
                 self.config.task_delay(server_update=True)
                 self.config.task_stop()
