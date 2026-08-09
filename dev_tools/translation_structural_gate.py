@@ -24,6 +24,18 @@ PROTECTED_PATHS = {
 ENTRY_POINTS = {"alas.py", "gui.py", "mcp_server_sse.py"}
 LOGGER_METHODS = {"info", "warning", "error", "critical", "exception", "hr"}
 HANDLE_NOTIFY_PROSE_KEYWORDS = {"title", "content"}
+SELF_NOTIFY_PUSH_CONTENT_PATHS = {
+    "module/os/tasks/fleet_auto_change.py",
+    "module/os/tasks/hazard_leveling.py",
+    "module/os/tasks/scheduling.py",
+}
+SELF_NOTIFY_PUSH_LOCAL_PROSE = {
+    (
+        "module/os/tasks/scheduling.py",
+        "check_and_notify_action_point_threshold",
+        "content",
+    ),
+}
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
     r"(?:hh|h|ll|l|L|j|z|t)?[diouxXeEfFgGcrsa%]"
@@ -157,9 +169,11 @@ def _control_signature(value: str) -> tuple[str, ...]:
 
 
 class _ApprovedSiteCollector(ast.NodeVisitor):
-    def __init__(self) -> None:
+    def __init__(self, filename: str) -> None:
         self.ranges: list[SourceRange] = []
         self.contracts: list[SiteContract] = []
+        self.source_path = filename.rsplit("@", maxsplit=1)[0]
+        self.function_stack: list[str] = []
 
     def _approve(
         self, expression: ast.AST, kind: str, *, logger_percent_arguments: bool = False
@@ -203,6 +217,32 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
             SiteContract(kind, values, format_contract, percent_contract)
         )
 
+    def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self.function_stack.append(node.name)
+        self.generic_visit(node)
+        self.function_stack.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            target = node.targets[0]
+            function_name = self.function_stack[-1] if self.function_stack else None
+            if (
+                function_name is not None
+                and (self.source_path, function_name, target.id)
+                in SELF_NOTIFY_PUSH_LOCAL_PROSE
+            ):
+                self._approve(
+                    node.value,
+                    f"self.notify_push.content local {target.id}",
+                )
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
         name = _call_name(node.func)
         logger_target = None
@@ -225,12 +265,24 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                 self._approve(node.args[0], f"{logger_target}.attr label")
                 if len(node.args) > 1:
                     self._approve(node.args[1], f"{logger_target}.attr value")
+            elif logger_target == "logger" and logger_method == "attr_align":
+                self._approve(node.args[0], "logger.attr_align label")
         elif name == ("handle_notify",):
             for keyword in node.keywords:
                 if keyword.arg in HANDLE_NOTIFY_PROSE_KEYWORDS:
                     self._approve(
                         keyword.value,
                         f"handle_notify.{keyword.arg}",
+                    )
+        elif (
+            name == ("self", "notify_push")
+            and self.source_path in SELF_NOTIFY_PUSH_CONTENT_PATHS
+        ):
+            for keyword in node.keywords:
+                if keyword.arg == "content":
+                    self._approve(
+                        keyword.value,
+                        "self.notify_push.content",
                     )
         self.generic_visit(node)
 
@@ -244,7 +296,7 @@ class _ProseNormalizer(ast.NodeTransformer):
 
 def _parse_source(source: str, filename: str) -> ParsedSource:
     tree = ast.parse(source, filename=filename)
-    collector = _ApprovedSiteCollector()
+    collector = _ApprovedSiteCollector(filename)
     collector.visit(tree)
     normalized = _ProseNormalizer().visit(copy.deepcopy(tree))
     ast.fix_missing_locations(normalized)
