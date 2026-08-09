@@ -252,7 +252,7 @@ class Homography:
             message = 'bad match'
 
         # print(self.homo_loca % self.config.HOMO_TILE)
-        logger.attr_align('瓦片中心', f'{float2str(similarity)} ({message})')
+        logger.attr_align('Центры клеток', f'{float2str(similarity)} ({message})')
         return message != 'bad match'
 
     def search_tile_corner(self, image, threshold=0.8, encourage=1.0):
@@ -287,7 +287,7 @@ class Homography:
             message = 'bad match'
 
         # print(self.homo_loca % self.config.HOMO_TILE)
-        logger.attr_align('瓦片角点', f'{float2str(similarity)} ({message})')
+        logger.attr_align('Углы клеток', f'{float2str(similarity)} ({message})')
         return message != 'bad match'
 
     def search_tile_rectangle(self, image, threshold=10, encourage=5.1, close_kernel=(5, 10, 15, 20, 25)):
@@ -331,7 +331,7 @@ class Homography:
             message = 'bad match'
 
         # print(self.homo_loca % self.config.HOMO_TILE)
-        logger.attr_align('瓦片矩形', f'{len(location)} 个矩形 ({message})')
+        logger.attr_align('Прямоугольники клеток', f'{len(location)} прямоугольников ({message})')
         return message != 'bad match'
 
     def detect_edges(self, image, hough_th=120, theta_th=0.005, edge_th=9):

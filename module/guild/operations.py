@@ -26,7 +26,7 @@ class GuildOperations(GuildBase):
         Returns:
             bool: True 表示成功进入作战，False 表示资金不足。
         """
-        logger.attr('大舰队指挥官/官员', self.config.GuildOperation_SelectNewOperation)
+        logger.attr('Командир/офицер гильдии', self.config.GuildOperation_SelectNewOperation)
         confirm_timer = Timer(1.5, count=3).start()
         click_count = 0
         while 1:
@@ -152,8 +152,8 @@ class GuildOperations(GuildBase):
         """
         if self.appear(GUILD_OPERATIONS_INACTIVE_CHECK) and self.appear(GUILD_OPERATIONS_ACTIVE_CHECK):
             logger.info(
-                'Mode: Operations Inactive, please contact your Elite/Officer/Leader seniors to select '
-                'an operation difficulty')
+                'Режим: операции неактивны. Попросите элитного участника, офицера или командира '
+                'выбрать сложность операции')
             return 0
         elif self.appear(GUILD_OPERATIONS_ACTIVE_CHECK):
             logger.info('[Гильдия — операция] Режим: операция активна, доступны сканирование и отправка флота')

@@ -49,60 +49,60 @@ async def list_tools() -> List[Tool]:
     return [
         Tool(
             name="list_instances",
-            description="列出所有已配置的 AzurPilot 实例名称",
+            description="Перечислить все настроенные экземпляры AzurPilot",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="get_status",
-            description="获取所有 AzurPilot 实例的运行状态及详细状态 (state)",
+            description="Получить состояние и подробности state всех экземпляров AzurPilot",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="list_tasks",
-            description="列出所有顶级任务名称（如 Main, Event）",
+            description="Перечислить все имена задач верхнего уровня, например Main и Event",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="get_task_help",
-            description="获取指定任务的详细参数结构、中文名和帮助文档",
+            description="Получить структуру параметров, локализованное имя и справку указанной задачи",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "task_name": {"type": "string", "description": "任务名称"}
+                    "task_name": {"type": "string", "description": "Имя задачи"}
                 },
                 "required": ["task_name"]
             }
         ),
         Tool(
             name="get_resources",
-            description="获取指定实例的资源状态（油、金币、红尖尖等）",
+            description="Получить состояние ресурсов указанного экземпляра: нефть, монеты, самоцветы и другое",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "instance": {"type": "string", "description": "实例名称"}
+                    "instance": {"type": "string", "description": "Имя экземпляра"}
                 },
                 "required": ["instance"]
             }
         ),
         Tool(
             name="get_config",
-            description="获取指定实例的当前配置值",
+            description="Получить текущие значения конфигурации указанного экземпляра",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "instance": {"type": "string", "description": "实例名称"},
-                    "task": {"type": "string", "description": "可选，过滤特定任务"}
+                    "instance": {"type": "string", "description": "Имя экземпляра"},
+                    "task": {"type": "string", "description": "Необязательный фильтр по имени задачи"}
                 },
                 "required": ["instance"]
             }
         ),
         Tool(
             name="update_config",
-            description="修改指定实例的配置项。路径格式：task.group.arg",
+            description="Изменить параметр конфигурации указанного экземпляра. Формат пути: task.group.arg",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "instance": {"type": "string", "description": "实例名称"},
+                    "instance": {"type": "string", "description": "Имя экземпляра"},
                     "task": {"type": "string"},
                     "group": {"type": "string"},
                     "arg": {"type": "string"},
@@ -115,7 +115,7 @@ async def list_tools() -> List[Tool]:
                             {"type": "array"},
                             {"type": "null"}
                         ],
-                        "description": "新的配置值"
+                        "description": "Новое значение параметра"
                     }
                 },
                 "required": ["instance", "task", "group", "arg", "value"]
@@ -123,7 +123,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="get_recent_logs",
-            description="读取指定实例最近的日志内容 (默认为 50 行)",
+            description="Прочитать последние строки журнала указанного экземпляра; по умолчанию 50 строк",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -135,7 +135,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="start_instance",
-            description="启动 AzurPilot 实例的运行过程",
+            description="Запустить процесс указанного экземпляра AzurPilot",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -146,7 +146,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="stop_instance",
-            description="强制停止运行中的 AzurPilot 实例",
+            description="Принудительно остановить работающий экземпляр AzurPilot",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -157,38 +157,38 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="get_screenshot",
-            description="获取指定实例当前模拟器的画面截图。返回Base64编码。",
+            description="Получить снимок экрана эмулятора указанного экземпляра в кодировке Base64",
             inputSchema={"type": "object", "properties": {"instance": {"type": "string"}}, "required": ["instance"]}
         ),
         Tool(
             name="get_current_running_task",
-            description="精确获取当前实例正在执行的具体子任务（例如：正在打 12-4，正在收发远征，或者正在清退役）。",
+            description="Точно определить подзадачу, выполняемую текущим экземпляром",
             inputSchema={"type": "object", "properties": {"instance": {"type": "string"}}, "required": ["instance"]}
         ),
         Tool(
             name="get_scheduler_queue",
-            description="获取当前正在排队等待执行的任务列表及它们的预计执行时间。",
+            description="Получить очередь задач и ожидаемое время их выполнения",
             inputSchema={"type": "object", "properties": {"instance": {"type": "string"}}, "required": ["instance"]}
         ),
         Tool(
             name="trigger_task",
-            description="强制将某个任务（如 Event, Daily）立刻加入调度队列执行。",
+            description="Немедленно добавить задачу, например Event или Daily, в очередь планировщика",
             inputSchema={"type": "object", "properties": {"instance": {"type": "string"}, "task": {"type": "string"}}, "required": ["instance", "task"]}
         ),
         Tool(
             name="clear_scheduler_queue",
-            description="清空当前队列，通常用于卡死或需要紧急终止当前所有计划时。",
+            description="Очистить текущую очередь; обычно используется при зависании или экстренной остановке всех планов",
             inputSchema={"type": "object", "properties": {"instance": {"type": "string"}}, "required": ["instance"]}
         ),
         Tool(
             name="restart_emulator",
-            description="重启指定实例对应的模拟器进程。",
+            description="Перезапустить процесс эмулятора, связанного с указанным экземпляром",
             inputSchema={"type": "object", "properties": {"instance": {"type": "string"}}, "required": ["instance"]}
         ),
         Tool(
             name="restart_adb",
-            description="重启 ADB 服务，解决设备离线 (Device Offline) 的问题。",
-            inputSchema={"type": "object", "properties": {"instance": {"type": "string", "description": "可选"}}}
+            description="Перезапустить службу ADB для устранения состояния Device Offline",
+            inputSchema={"type": "object", "properties": {"instance": {"type": "string", "description": "Необязательно"}}}
         ),
     ]
 

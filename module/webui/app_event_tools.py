@@ -401,7 +401,7 @@ class EventToolsMixin(WebUIMixinBase):
                     with use_scope("figure_display", clear=True):
                         pass  # Clear the image
                 except Exception as e:
-                    logger.warning(f"[WebUI-活动工具] 更新模拟器图表失败: {e}")
+                    logger.warning(f"[WebUI — инструменты события] Не удалось обновить график симулятора: {e}")
             else:
                 with use_scope("figure_display", clear=True):
                     pass  # Clear the image

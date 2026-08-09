@@ -45,7 +45,7 @@ def start_battle_timer(config: Any) -> str | None:
         get_ship_exp_stats(instance_name=instance_name_from_config(config)).on_battle_start()
         return source
     except Exception:
-        logger.debug(f"[统计-大世界] 启动 {source} 战斗计时失败", exc_info=True)
+        logger.debug(f"[Статистика — Operation Siren] Не удалось запустить таймер боя {source}: ошибка", exc_info=True)
         return None
 
 
@@ -61,7 +61,7 @@ def finish_battle_timer(config: Any, source: str | None) -> float | None:
             instance_name=instance_name_from_config(config)
         ).on_battle_end(source=source)
     except Exception:
-        logger.debug(f"[统计-大世界] 结束 {source} 战斗计时失败", exc_info=True)
+        logger.debug(f"[Статистика — Operation Siren] Не удалось завершить замер боя {source}: ошибка", exc_info=True)
         return None
 
 
@@ -90,7 +90,7 @@ def record_ap_snapshot(config: Any, ap_current: int, source: str, distance: int 
             ap_total=ap_total,
         )
     except Exception:
-        logger.exception("保存行动力快照失败")
+        logger.exception("Не удалось сохранить снимок очков действия")
 
 
 def record_cl1_auto_search_battle(
@@ -105,7 +105,7 @@ def record_cl1_auto_search_battle(
 
         cl1_db.async_increment_battle_count(instance_name)
     except Exception:
-        logger.debug("[统计-大世界] 持久化月度 CL1 战斗次数失败", exc_info=True)
+        logger.debug("[Статистика — Operation Siren] Не удалось сохранить месячное число боёв CL1", exc_info=True)
 
     # 侵蚀1两场战斗消耗一次出击，奇数场代表新一轮开始。
     # 下一次奇数场到来时，上一轮的完整耗时就能闭合。
@@ -115,13 +115,13 @@ def record_cl1_auto_search_battle(
     now = time.time()
     if round_started_at:
         cost = round(now - float(round_started_at), 2)
-        logger.attr("CL1单轮耗时", f"{cost}s/round")
+        logger.attr("Длительность раунда CL1", f"{cost}s/round")
         try:
             from module.statistics.ship_exp_stats import get_ship_exp_stats
 
             get_ship_exp_stats(instance_name=instance_name).record_round_time(cost)
         except Exception:
-            logger.exception("[统计-大世界] 记录侵蚀1轮次耗时失败")
+            logger.exception("[Статистика — Operation Siren] Не удалось записать длительность раунда в зоне коррозии 1")
     return now
 
 
@@ -131,7 +131,7 @@ def meow_hazard_level_from_runtime(main: Any) -> int | None:
     try:
         hazard_level = getattr(getattr(main, "zone", None), "hazard_level", None)
     except Exception:
-        logger.debug("[统计-大世界] 从当前区域获取侵蚀等级失败")
+        logger.debug("[Статистика — Operation Siren] Не удалось получить уровень коррозии из текущей зоны")
 
     if hazard_level not in MEOW_HAZARD_LEVELS:
         try:
@@ -169,22 +169,22 @@ def record_meow_auto_search_battle(
 
         cl1_db.async_increment_meow_battle_count(instance_name, hazard_level)
     except Exception:
-        logger.debug("[统计-大世界] 持久化月度耄耋战斗次数失败", exc_info=True)
+        logger.debug("[Статистика — Operation Siren] Не удалось сохранить месячное число боёв фарма мяуфицеров", exc_info=True)
 
     now = time.time()
     if battle_started_at:
         battle_duration = round(now - float(battle_started_at), 2)
         if 5 < battle_duration < 600:
-            logger.attr("耄耋战斗耗时", f"{battle_duration:.1f}s")
+            logger.attr("Длительность боя фарма мяуфицеров", f"{battle_duration:.1f}s")
             try:
                 from module.statistics.cl1_database import db as cl1_db
 
                 cl1_db.async_add_meow_battle_time(instance_name, battle_duration, hazard_level)
             except Exception:
-                logger.debug("[统计-大世界] 记录耄耋战斗耗时失败", exc_info=True)
+                logger.debug("[Статистика — Operation Siren] Не удалось записать длительность боя фарма мяуфицеров", exc_info=True)
         else:
             logger.debug(
-                f"[统计-大世界] 耄耋战斗耗时 {battle_duration:.1f}s 超出范围，不记录"
+                f"[Статистика — Operation Siren] Длительность боя фарма мяуфицеров {battle_duration:.1f} с вне допустимого диапазона; запись пропущена"
             )
     return now
 
@@ -194,12 +194,12 @@ def start_meow_search_timer(main: Any) -> tuple[float, int | None]:
     try:
         refresh_action_point(main)
         start_ap = main._action_point_total
-        logger.debug(f"[统计-大世界] 耄耋搜索开始，行动力: {start_ap}")
+        logger.debug(f"[Статистика — Operation Siren] Начат поиск фарма мяуфицеров, очки действия: {start_ap}")
     except Exception:
         start_ap = None
-        logger.debug("[统计-大世界] 获取起始行动力失败")
+        logger.debug("[Статистика — Operation Siren] Не удалось получить начальное число очков действия")
 
-    logger.debug("[统计-大世界] 耄耋搜索开始，计时器重置")
+    logger.debug("[Статистика — Operation Siren] Начат поиск фарма мяуфицеров; таймер сброшен")
     return time.time(), start_ap
 
 
@@ -212,7 +212,7 @@ def finish_meow_search_timer(
     try:
         refresh_action_point(main)
     except Exception:
-        logger.debug("[统计-大世界] 获取结束行动力失败")
+        logger.debug("[Статистика — Operation Siren] Не удалось получить итоговое число очков действия")
     else:
         try:
             record_ap_snapshot(
@@ -222,12 +222,12 @@ def finish_meow_search_timer(
                 source="meow",
             )
         except Exception:
-            logger.debug("记录耄耋相接行动力快照失败", exc_info=True)
+            logger.debug("Не удалось записать снимок очков действия фарма мяуфицеров", exc_info=True)
 
     duration = time.time() - search_started_at
     hazard_level = meow_hazard_level_from_runtime(main)
     battles_per_round = meow_battles_per_round(hazard_level)
-    logger.debug(f"[统计-大世界] 侵蚀等级: {hazard_level}, 每轮战斗数: {battles_per_round}")
+    logger.debug(f"[Статистика — Operation Siren] Уровень коррозии: {hazard_level}, боёв за раунд: {battles_per_round}")
 
     # 一次海域搜索可能包含多场战斗，需要折算回单轮耗时。
     # WebUI 与调度逻辑都使用这个统一后的轮次单位。
@@ -235,15 +235,15 @@ def finish_meow_search_timer(
         rounds = battle_count / battles_per_round
         duration = duration / rounds
         logger.debug(
-            f"[统计-大世界] 耄耋搜索总耗时: {time.time() - search_started_at:.1f}s, "
-            f"战斗: {battle_count}, 轮次: {rounds}, 单轮: {duration:.1f}s"
+            f"[Статистика — Operation Siren] Общая длительность поиска фарма мяуфицеров: {time.time() - search_started_at:.1f} с, "
+            f"боёв: {battle_count}, раундов: {rounds}, на раунд: {duration:.1f} с"
         )
 
     if duration < 1 or duration > 1800:
-        logger.debug(f"[统计-大世界] 耄耋搜索耗时 {duration:.1f}s 超出范围，不记录")
+        logger.debug(f"[Статистика — Operation Siren] Длительность поиска фарма мяуфицеров {duration:.1f} с вне допустимого диапазона; запись пропущена")
         return None
 
-    logger.attr("耄耋搜索耗时", f"{duration:.1f}s")
+    logger.attr("Длительность поиска фарма мяуфицеров", f"{duration:.1f}s")
     try:
         from module.statistics.cl1_database import db as cl1_db
 
@@ -253,7 +253,7 @@ def finish_meow_search_timer(
             hazard_level,
         )
     except Exception:
-        logger.debug("[统计-大世界] 记录耄耋搜索耗时失败", exc_info=True)
+        logger.debug("[Статистика — Operation Siren] Не удалось записать длительность поиска фарма мяуфицеров", exc_info=True)
 
     return duration
 
@@ -269,10 +269,10 @@ def record_cl1_akashi_encounter(config: Any) -> int | None:
         future = cl1_db.async_get_stats(instance_name, month_key)
         data = future.result(timeout=5.0)
         encounters = int(data.get("akashi_encounters", 0))
-        logger.attr("侵蚀1明石月度次数", encounters)
+        logger.attr("Месячное число встреч с Акаси в зоне коррозии 1", encounters)
         return encounters
     except Exception:
-        logger.exception("[统计-大世界] 持久化侵蚀1明石月度次数失败")
+        logger.exception("[Статистика — Operation Siren] Не удалось сохранить месячное число встреч с Акаси в зоне коррозии 1")
         return None
 
 
@@ -292,6 +292,6 @@ def record_siren_research_device(main: Any) -> None:
             hazard_level=hazard_level,
         )
         label = "cl1" if source == "cl1" else f"meow-{hazard_level}"
-        logger.attr("塞壬研究装置", label)
+        logger.attr("Исследовательское устройство Сирен", label)
     except Exception:
-        logger.debug("[统计-大世界] 记录塞壬研究装置失败", exc_info=True)
+        logger.debug("[Статистика — Operation Siren] Не удалось записать исследовательское устройство Сирен", exc_info=True)

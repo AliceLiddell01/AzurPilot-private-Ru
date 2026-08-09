@@ -114,7 +114,7 @@ def test_runtime_messages_are_russian_and_technical_values_are_preserved():
 
     assert "Программа вызвала исключение" in logger
     assert "[bold]<<< {title} >>>[/bold]" in logger
-    assert "logger.info(r'大括号 { [ ( ) ] }')" in logger
+    assert "logger.info(r'Скобки { [ ( ) ] }')" in logger
     assert "logger.info(r'True, False, None')" in logger
     assert 'raise Exception("Exception")' in logger
 

@@ -297,7 +297,7 @@ class IslandJuuCoffee(IslandShopBase):
 
     def process_meal_requirements(self, source_products):
         """覆盖：处理套餐需求，添加调试信息"""
-        logger.info(f"=== IslandJuuCoffee.process_meal_requirements ===")
+        logger.info(f"=== IslandJuuCoffee: обработка требований к блюдам ===")
         logger.info(f"[Остров — Juu Coffee] Входные потребности: {source_products}")
 
         # 调用父类方法

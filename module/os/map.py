@@ -884,7 +884,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     self._auto_search_round_timer,
                 )
             except Exception:
-                logger.debug("Failed to update cl1 battle counter", exc_info=True)
+                logger.debug("Не удалось обновить счётчик боёв CL1", exc_info=True)
 
         # 耄耋相接任务数据收集
         if getattr(self, "_meow_searching_active", False) and getattr(
@@ -900,7 +900,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     getattr(self, "_meow_battle_timer", None),
                 )
             except Exception:
-                logger.debug("Failed to update meow battle counter", exc_info=True)
+                logger.debug("Не удалось обновить счётчик боёв фарма мяуфицеров", exc_info=True)
 
     def on_meow_search_start(self):
         """
@@ -943,7 +943,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
         start_time = getattr(self, "_meow_search_start_time", None)
         if start_time is None:
-            logger.debug("Meow search start time not recorded, skip")
+            logger.debug("Время начала поиска фарма мяуфицеров не записано; расчёт пропущен")
             return
 
         # 在写入数据库之前，将整个搜索时长转换为每轮采样。
@@ -1936,7 +1936,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                         self.map_init(map_=None)
                         self.update()
                     except Exception:
-                        logger.debug("[大世界] 重建视图失败（soft recovery）", exc_info=True)
+                        logger.debug("[Operation Siren] Не удалось перестроить обзор при мягком восстановлении", exc_info=True)
                     try:
                         clickable_grid = self.convert_global_to_local(
                             target_grid.location
@@ -1954,9 +1954,9 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                             logger.info("[Операция «Сирена»] Мягкое восстановление успешно; флот прибыл")
                             return True
                         except Exception:
-                            logger.debug("[大世界] 软恢复重试点击失败", exc_info=True)
+                            logger.debug("[Operation Siren] Не удалось повторить нажатие при мягком восстановлении", exc_info=True)
                 except Exception as rec_e:
-                    logger.debug(f"[大世界] 软恢复过程出现异常: {rec_e}")
+                    logger.debug(f"[Operation Siren] Исключение при мягком восстановлении: {rec_e}")
                 if try_idx == 1:
                     logger.warning("[Операция «Сирена»] Мягкое восстановление не удалось; попытка восстановить состояние перезапуском приложения")
                     try:
@@ -1971,7 +1971,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                             self.update()
                         except Exception:
                             logger.debug(
-                                "重建地图数据失败（app restart）", exc_info=True
+                                "Не удалось перестроить данные карты после перезапуска приложения", exc_info=True
                             )
                         try:
                             clickable_grid = self.convert_global_to_local(
@@ -2074,7 +2074,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     time.sleep(0.18)
             except Exception:
                 quick_ok = False
-                logger.debug("[大世界] 快速滑动复位遇到异常，尝试安全滑动")
+                logger.debug("[Operation Siren] Исключение при быстром сбросе прокрутки; выполняется безопасная прокрутка")
 
             if not quick_ok and not self.safe_swipe(
                 top_point, bottom_point, duration=0.55, retries=2
@@ -2144,7 +2144,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 ):
                     raise
                 except Exception as e:
-                    logger.debug(f"[大世界] 最终全图重扫出现异常，继续重试: {e}", exc_info=True)
+                    logger.debug(f"[Operation Siren] Исключение при итоговом полном сканировании карты; повтор: {e}", exc_info=True)
                     time.sleep(0.6)
         finally:
             backup.recover()

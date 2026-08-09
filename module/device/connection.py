@@ -1047,7 +1047,7 @@ class Connection(ConnectionAttr):
             logger.warning('[Устройство — соединение] Не удалось получить ориентацию устройства; используется обычная ориентация')
 
         self.orientation = o
-        logger.attr('Ориентация устройства', f'{o} ({Connection._orientation_description.get(o, "Unknown")})')
+        logger.attr('Ориентация устройства', f'{o} ({Connection._orientation_description.get(o, "Неизвестно")})')
         return o
 
     @retry

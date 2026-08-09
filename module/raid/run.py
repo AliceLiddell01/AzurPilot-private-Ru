@@ -122,7 +122,7 @@ class RaidRun(Raid, CampaignEvent):
             # EX 模式：检查是否有足够的突袭门票
             if mode == 'ex' and not self.is_raid_rpg():
                 if not self.get_remain(mode):
-                    logger.info('[突袭-运行] 触发停止条件: EX模式突袭门票为零')
+                    logger.info('[Рейд — запуск] Сработало условие остановки: билеты рейда EX закончились')
                     if self.config.task.command == 'Raid':
                         with self.config.multi_set():
                             self.config.StopCondition_RunCount = 0

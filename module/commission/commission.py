@@ -702,9 +702,9 @@ class RewardCommission(UI, InfoHandler):
                         text = f'Получено гемов * {gem_count}'
                         if reward_stats:
                             text += (
-                                f'\n\n今日累计: {reward_stats["today"].get("Gem", 0)}'
-                                f'\n本周累计: {reward_stats["week"].get("Gem", 0)}'
-                                f'\n本月累计: {reward_stats["month"].get("Gem", 0)}'
+                                f'\n\nИтого за сегодня: {reward_stats["today"].get("Gem", 0)}'
+                                f'\nИтого за неделю: {reward_stats["week"].get("Gem", 0)}'
+                                f'\nИтого за месяц: {reward_stats["month"].get("Gem", 0)}'
                             )
                         tracked.append(text)
                     if tracked:
@@ -776,7 +776,7 @@ class RewardCommission(UI, InfoHandler):
         Raises:
             OilMaxed: 石油溢出且喂食 3 次仍无法解决时抛出。
         """
-        logger.hr('领取奖励')
+        logger.hr('Получение наград')
 
         reward = False
         click_timer = Timer(1)

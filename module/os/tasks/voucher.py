@@ -425,8 +425,8 @@ class OpsiVoucher(OSMap):
                         >= DATA_LOGGER_ACTIVATION_ABSENT_FRAMES
                     ):
                         logger.info(
-                            f'[{DATA_LOGGER_NAME}] activation confirmed after Use, '
-                            'reward grace, and stable item disappearance'
+                            f'[{DATA_LOGGER_NAME}] Активация подтверждена после Use: '
+                            'истёк интервал ожидания награды, а предмет стабильно отсутствует'
                         )
                         return DataLoggerStorageState.ACTIVATED
                     continue

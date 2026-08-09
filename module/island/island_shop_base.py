@@ -244,7 +244,7 @@ class IslandShopBase(Island, WarehouseOCR):
                     selected = self.select_character(character_list=self.chef_config)
                     character_filter = self.chef_config
                 if selected:
-                    if not self.confirm_selected_character(f"{product}生产派遣"):
+                    if not self.confirm_selected_character(f"{product}: производственное назначение"):
                         self.back_to_postmanage_from_dispatch()
                         return 0
                 else:
@@ -380,7 +380,7 @@ class IslandShopBase(Island, WarehouseOCR):
                         角色被占）时使用，让本轮不再停留在这个缺口上。
         """
         # ============ 基础需求计算 ============
-        logger.info("[Остров] Этап: базовые потребности" + ("（严格模式）" if check_materials else ""))
+        logger.info("[Остров] Этап: базовые потребности" + (" (строгий режим)" if check_materials else ""))
 
         self.to_post_products = {}
         virtual_totals = dict(self.current_totals)

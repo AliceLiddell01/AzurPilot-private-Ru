@@ -317,7 +317,7 @@ class IslandRancher(Island, WarehouseOCR, LoginHandler):
                     logger.warning(f"[Остров — ранчо] Для позиции ранчо {post_id} не удалось выбрать персонажа для пополнения корма")
                     self.device.click(SELECT_UI_BACK)
                     return False
-                if not self.confirm_selected_character(f"牧场岗位{post_id}补饲料派遣"):
+                if not self.confirm_selected_character(f"Позиция ранчо {post_id}: назначение для пополнения корма"):
                     self.back_to_postmanage_from_dispatch()
                     return False
                 continue
@@ -359,7 +359,7 @@ class IslandRancher(Island, WarehouseOCR, LoginHandler):
                 continue
             if self.appear(ISLAND_SELECT_CHARACTER_CHECK, offset=1):
                 if self.select_character(character):
-                    if not self.confirm_selected_character(f"牧场岗位{post_id}派遣"):
+                    if not self.confirm_selected_character(f"Позиция ранчо {post_id}: назначение"):
                         self.back_to_postmanage_from_dispatch()
                         return False
                 else:
@@ -374,7 +374,7 @@ class IslandRancher(Island, WarehouseOCR, LoginHandler):
                     self.back_to_postmanage_after_feed_purchase()
                     return True
                 self.device.sleep(0.3)
-                if not self.confirm_post_add_order(f"牧场岗位{post_id}派遣"):
+                if not self.confirm_post_add_order(f"Позиция ранчо {post_id}: назначение"):
                     self.back_to_postmanage_from_dispatch()
                     return True
                 continue

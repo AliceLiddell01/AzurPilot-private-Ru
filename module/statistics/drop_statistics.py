@@ -84,7 +84,7 @@ class DropStatistics:
         """移除已存在的 CSV 文件，此方法仅执行一次。"""
         if DropStatistics.CSV_OVERWRITE:
             if os.path.exists(self.csv_file):
-                logger.info(f'移除现有CSV文件: {self.csv_file}')
+                logger.info(f'Удаление существующего CSV-файла: {self.csv_file}')
                 os.remove(self.csv_file)
         return True
 
@@ -127,7 +127,7 @@ class DropStatistics:
             campaign (str): 关卡名称。
         """
         print('')
-        logger.hr(f'提取模板自 {campaign}', level=1)
+        logger.hr(f'Извлечение шаблонов из {campaign}', level=1)
         for ts, file in tqdm(load_folder(self.drop_folder(campaign)).items()):
             try:
                 self.parse_template(file)
@@ -136,7 +136,7 @@ class DropStatistics:
                 continue
             except Exception as e:
                 logger.exception(e)
-                logger.warning(f'图像错误 {ts}')
+                logger.warning(f'Ошибка изображения {ts}')
                 continue
 
     def extract_drop(self, campaign):
@@ -146,7 +146,7 @@ class DropStatistics:
             campaign (str): 关卡名称。
         """
         print('')
-        logger.hr(f'提取掉落自 {campaign}', level=1)
+        logger.hr(f'Извлечение данных о наградах из {campaign}', level=1)
         _ = self.csv_overwrite_check
 
         with open(self.csv_file, 'a', newline='', encoding=DropStatistics.CSV_ENCODING) as csv_file:
@@ -160,7 +160,7 @@ class DropStatistics:
                     continue
                 except Exception as e:
                     logger.exception(e)
-                    logger.warning(f'图像错误 {ts}')
+                    logger.warning(f'Ошибка изображения {ts}')
                     continue
 
 
