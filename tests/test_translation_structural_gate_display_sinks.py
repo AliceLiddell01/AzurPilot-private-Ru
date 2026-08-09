@@ -254,6 +254,46 @@ def test_logger_attr_align_label_translation_passes() -> None:
     )
 
 
+def test_logger_debug_translation_passes() -> None:
+    assert_passes(
+        "module/os/map.py",
+        'logger.debug("Failed to update battle counter", exc_info=True)\n',
+        'logger.debug("Не удалось обновить счётчик боёв", exc_info=True)\n',
+    )
+
+
+def test_logger_debug_structure_stays_exact() -> None:
+    assert_blocked(
+        "module/os/map.py",
+        'logger.debug("Failed to update battle counter", exc_info=True)\n',
+        'logger.debug("Не удалось обновить счётчик боёв", exc_info=False)\n',
+    )
+
+
+def test_logger_attr_get_fallback_translation_passes() -> None:
+    assert_passes(
+        "module/device/connection.py",
+        '''def get_orientation(self):
+    logger.attr("Ориентация", f'{value} ({mapping.get(value, "Unknown")})')
+''',
+        '''def get_orientation(self):
+    logger.attr("Ориентация", f'{value} ({mapping.get(value, "Неизвестно")})')
+''',
+    )
+
+
+def test_logger_attr_get_fallback_contract_is_function_scoped() -> None:
+    assert_blocked(
+        "module/device/connection.py",
+        '''def other(self):
+    logger.attr("Ориентация", f'{value} ({mapping.get(value, "Unknown")})')
+''',
+        '''def other(self):
+    logger.attr("Ориентация", f'{value} ({mapping.get(value, "Неизвестно")})')
+''',
+    )
+
+
 def test_self_logger_attr_align_label_translation_passes() -> None:
     assert_passes(
         "module/os/globe_detection.py",
