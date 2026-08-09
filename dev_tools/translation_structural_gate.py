@@ -205,15 +205,24 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         name = _call_name(node.func)
-        if name and len(name) == 2 and name[0] == "logger" and node.args:
-            if name[1] in LOGGER_METHODS:
+        logger_target = None
+        logger_method = None
+        if name and len(name) == 2 and name[0] == "logger":
+            logger_target = "logger"
+            logger_method = name[1]
+        elif name and len(name) == 3 and name[:2] == ("self", "logger"):
+            logger_target = "self.logger"
+            logger_method = name[2]
+
+        if logger_target and logger_method and node.args:
+            if logger_method in LOGGER_METHODS:
                 self._approve(
                     node.args[0],
-                    f"logger.{name[1]}",
+                    f"{logger_target}.{logger_method}",
                     logger_percent_arguments=len(node.args) > 1,
                 )
-            elif name[1] == "attr":
-                self._approve(node.args[0], "logger.attr label")
+            elif logger_method == "attr":
+                self._approve(node.args[0], f"{logger_target}.attr label")
         elif name == ("handle_notify",):
             for keyword in node.keywords:
                 if keyword.arg in HANDLE_NOTIFY_PROSE_KEYWORDS:

@@ -87,6 +87,22 @@ def assert_blocked(base: str, head: str) -> None:
             'logger.info(f"Enemy {{slot}}: {enemy}")\n',
             'logger.info(f"Противник {{slot}}: {enemy}")\n',
         ),
+        (
+            'self.logger.info("Simulation started")\n',
+            'self.logger.info("Симуляция запущена")\n',
+        ),
+        (
+            'self.logger.warning(f"Simulation attempt: {attempt}")\n',
+            'self.logger.warning(f"Попытка симуляции: {attempt}")\n',
+        ),
+        (
+            'self.logger.info("Simulation %s", state, extra={"channel": "runtime"})\n',
+            'self.logger.info("Симуляция %s", state, extra={"channel": "runtime"})\n',
+        ),
+        (
+            'self.logger.attr("Simulation state", state)\n',
+            'self.logger.attr("Состояние симуляции", state)\n',
+        ),
     ],
 )
 def test_operator_prose_changes_pass(base: str, head: str) -> None:
@@ -267,6 +283,34 @@ def test_operator_prose_changes_pass(base: str, head: str) -> None:
         (
             'handle_notify(config, title="Done", **{"channel": "discord"})\n',
             'handle_notify(config, title="Готово", **{"channel": "дискорд"})\n',
+        ),
+        (
+            'other.logger.info("Simulation started")\n',
+            'other.logger.info("Симуляция запущена")\n',
+        ),
+        (
+            'self.audit_logger.info("Simulation started")\n',
+            'self.audit_logger.info("Симуляция запущена")\n',
+        ),
+        (
+            'self.logger.info("Simulation %s", state)\n',
+            'self.logger.info("Симуляция %s", other_state)\n',
+        ),
+        (
+            'self.logger.info("Simulation %s", "runtime_state")\n',
+            'self.logger.info("Симуляция %s", "состояние_выполнения")\n',
+        ),
+        (
+            'self.logger.info("Simulation", extra={"channel": "runtime"})\n',
+            'self.logger.info("Симуляция", extra={"channel": "выполнение"})\n',
+        ),
+        (
+            'self.logger.info("Simulation started")\n',
+            'self.logger.warning("Симуляция запущена")\n',
+        ),
+        (
+            'self.logger.attr("Simulation state", "runtime_state")\n',
+            'self.logger.attr("Состояние симуляции", "состояние_выполнения")\n',
         ),
     ],
 )
