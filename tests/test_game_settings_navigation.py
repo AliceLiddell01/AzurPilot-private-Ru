@@ -50,8 +50,9 @@ def _fixture_similarity(button, fixture_name: str) -> float:
 
 
 class _FakeNavigationScanner(GameSettingsScanner[str]):
-    def __init__(self, current_page) -> None:
+    def __init__(self, current_page, main_result_page=page_main_white) -> None:
         self.ui_current = current_page
+        self.main_result_page = main_result_page
         self.goto_calls = []
         self.goto_main_calls = 0
         self.current_page_calls = 0
@@ -76,7 +77,7 @@ class _FakeNavigationScanner(GameSettingsScanner[str]):
     def ui_goto_main(self):
         self.goto_main_calls += 1
         changed = self.ui_current not in (page_main, page_main_white)
-        self.ui_current = page_main_white
+        self.ui_current = self.main_result_page
         return changed
 
 
@@ -179,6 +180,18 @@ class GameSettingsNavigationTests(unittest.TestCase):
         self.assertEqual(scanner.goto_main_calls, 1)
         self.assertEqual(scanner.ui_current, page_main_white)
 
+    def test_return_to_main_fails_if_main_is_not_confirmed(self) -> None:
+        scanner = _FakeNavigationScanner(
+            page_settings_options,
+            main_result_page=page_campaign,
+        )
+
+        with self.assertRaises(GamePageUnknownError):
+            scanner.return_to_main()
+
+        self.assertEqual(scanner.goto_main_calls, 1)
+        self.assertEqual(scanner.ui_current, page_campaign)
+
     def test_navigation_has_no_blind_click_or_stage3_scope(self) -> None:
         files = [
             ROOT / "module" / "game_settings" / "scanner.py",
@@ -196,8 +209,10 @@ class GameSettingsNavigationTests(unittest.TestCase):
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     imported_modules.extend(alias.name for alias in node.names)
-                elif isinstance(node, ast.ImportFrom) and node.module is not None:
-                    imported_modules.append(node.module)
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module is not None:
+                        imported_modules.append(node.module)
+                    imported_modules.extend(alias.name for alias in node.names)
                 elif isinstance(node, ast.Call):
                     func = node.func
                     if isinstance(func, ast.Attribute):
