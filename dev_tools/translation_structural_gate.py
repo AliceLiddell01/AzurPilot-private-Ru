@@ -496,6 +496,7 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
     def visit_Assign(self, node: ast.Assign) -> None:
         if (
             self.class_stack
+            and not self.function_stack
             and len(node.targets) == 1
             and isinstance(node.targets[0], ast.Name)
             and isinstance(node.value, ast.Dict)
