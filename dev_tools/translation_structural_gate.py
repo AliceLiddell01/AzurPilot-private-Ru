@@ -107,8 +107,16 @@ EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS = {
         "module/os/tasks/meowfficer_farming.py",
         ("self", "_meow_target_zone_error"),
     ): 0,
+}
+EXACT_FUNCTION_DISPLAY_CALL_POSITIONAL_ARGUMENTS = {
     (
         "module/os/tasks/meowfficer_farming.py",
+        "_meow_target_zones",
+        ("self", "_handle_coin_task_no_content"),
+    ): 0,
+    (
+        "module/os/tasks/meowfficer_farming.py",
+        "_meow_handle_normal_search",
         ("self", "_handle_coin_task_no_content"),
     ): 0,
 }
@@ -853,13 +861,15 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                     )
 
         current_function = self.function_stack[-1] if self.function_stack else None
-        positional_index = (
-            EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS.get(
+        positional_index = None
+        if name and current_function is not None:
+            positional_index = EXACT_FUNCTION_DISPLAY_CALL_POSITIONAL_ARGUMENTS.get(
+                (self.source_path, current_function, name)
+            )
+        if positional_index is None and name:
+            positional_index = EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS.get(
                 (self.source_path, name)
             )
-            if name
-            else None
-        )
         if (
             positional_index is not None
             and current_function is not None

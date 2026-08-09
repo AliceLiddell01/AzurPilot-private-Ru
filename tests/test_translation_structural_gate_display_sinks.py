@@ -28,8 +28,13 @@ def assert_blocked(path: str, base: str, head: str) -> None:
         ),
         (
             "module/os/tasks/meowfficer_farming.py",
-            "def f(self):\n    self._handle_coin_task_no_content('耄耋相接', message)\n",
-            "def f(self):\n    self._handle_coin_task_no_content('Фарм мяуфицеров', message)\n",
+            "def _meow_target_zones(self):\n    self._handle_coin_task_no_content('耄耋相接', message)\n",
+            "def _meow_target_zones(self):\n    self._handle_coin_task_no_content('Фарм мяуфицеров', message)\n",
+        ),
+        (
+            "module/os/tasks/meowfficer_farming.py",
+            "def _meow_handle_normal_search(self):\n    self._handle_coin_task_no_content('耄耋相接', message)\n",
+            "def _meow_handle_normal_search(self):\n    self._handle_coin_task_no_content('Фарм мяуфицеров', message)\n",
         ),
         (
             "module/island/island_rancher.py",
@@ -71,6 +76,11 @@ def test_exact_display_call_argument_translation_passes(
             "module/os/tasks/scheduling.py",
             "other._delay_smart_scheduling_to_server_update('行动力不足')\n",
             "other._delay_smart_scheduling_to_server_update('Недостаточно очков действия')\n",
+        ),
+        (
+            "module/os/tasks/meowfficer_farming.py",
+            "def other(self):\n    self._handle_coin_task_no_content('耄耋相接', message)\n",
+            "def other(self):\n    self._handle_coin_task_no_content('Фарм мяуфицеров', message)\n",
         ),
     ],
 )
