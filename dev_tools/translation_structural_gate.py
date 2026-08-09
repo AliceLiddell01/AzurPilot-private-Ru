@@ -87,6 +87,16 @@ CLASS_DISPLAY_MAPPING_KEYS = {
 EXACT_DISPLAY_ASSIGNMENTS = {
     ("module/commission/commission.py", "_record_commission_income", "text"),
     ("module/logger.py", "error_context", "message"),
+    (
+        "module/os/tasks/meowfficer_farming.py",
+        "_meow_target_zones",
+        "message",
+    ),
+    (
+        "module/os/tasks/meowfficer_farming.py",
+        "_meow_handle_normal_search",
+        "message",
+    ),
 }
 EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS = {
     (
@@ -96,6 +106,10 @@ EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS = {
     (
         "module/os/tasks/meowfficer_farming.py",
         ("self", "_meow_target_zone_error"),
+    ): 0,
+    (
+        "module/os/tasks/meowfficer_farming.py",
+        ("self", "_handle_coin_task_no_content"),
     ): 0,
 }
 ISLAND_DISPLAY_CONTEXT_CALLS = {
@@ -122,6 +136,9 @@ PLOTTER_DISPLAY_LABEL_CALLS = {
     ("ax2", "plot"),
     ("ax3", "plot"),
     ("mpatches", "Patch"),
+}
+PLOTTER_DISPLAY_POSITIONAL_ARGUMENTS = {
+    ("ax1", "legend"): (1,),
 }
 EXACT_LOGGER_NESTED_DISPLAY_CALLS = {
     ("module/island/island_business.py", "__init__", ("logger", "info")): 0,
@@ -154,6 +171,13 @@ EXACT_LOGGER_NESTED_DISPLAY_CALLS = {
         "module/device/connection.py",
         "get_orientation",
         ("logger", "attr"),
+    ): 1,
+}
+EXACT_LOGGER_DISPLAY_ARGUMENTS = {
+    (
+        "module/map_detection/homography.py",
+        "search_tile_rectangle",
+        ("logger", "attr_align"),
     ): 1,
 }
 PERCENT_PLACEHOLDER = re.compile(
@@ -230,6 +254,18 @@ def _safe_templates(node: ast.AST) -> list[ast.AST]:
         return [node]
     if isinstance(node, ast.JoinedStr):
         return [node]
+    if isinstance(node, ast.IfExp):
+        body = _safe_templates(node.body)
+        orelse = _safe_templates(node.orelse)
+        return [*body, *orelse] if body and orelse else []
+    if isinstance(node, (ast.List, ast.Tuple)):
+        result: list[ast.AST] = []
+        for element in node.elts:
+            templates = _safe_templates(element)
+            if not templates:
+                return []
+            result.extend(templates)
+        return result
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -248,6 +284,17 @@ def _safe_templates(node: ast.AST) -> list[ast.AST]:
         and not node.keywords
     ):
         return _safe_templates(node.func.value)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "join"
+        and isinstance(node.func.value, ast.Constant)
+        and isinstance(node.func.value.value, str)
+        and len(node.args) == 1
+        and not node.keywords
+        and isinstance(node.args[0], (ast.List, ast.Tuple))
+    ):
+        return _safe_templates(node.args[0])
     if (
         isinstance(node, ast.BinOp)
         and isinstance(node.op, ast.Mod)
@@ -767,6 +814,26 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                         expression,
                         f"exact nested display {'.'.join(name)}",
                     )
+
+            display_argument = (
+                EXACT_LOGGER_DISPLAY_ARGUMENTS.get(
+                    (
+                        self.source_path,
+                        self.function_stack[-1],
+                        name,
+                    )
+                )
+                if self.function_stack
+                else None
+            )
+            if (
+                display_argument is not None
+                and len(node.args) > display_argument
+            ):
+                self._approve(
+                    node.args[display_argument],
+                    f"exact logger display {'.'.join(name)}",
+                )
         elif name == ("handle_notify",):
             for keyword in node.keywords:
                 if keyword.arg in HANDLE_NOTIFY_PROSE_KEYWORDS:
@@ -837,6 +904,14 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                             keyword.value,
                             f"plot display {'.'.join(name)}.label",
                         )
+            for positional_index in PLOTTER_DISPLAY_POSITIONAL_ARGUMENTS.get(
+                name, ()
+            ):
+                if len(node.args) > positional_index:
+                    self._approve(
+                        node.args[positional_index],
+                        f"plot display {'.'.join(name)} argument {positional_index}",
+                    )
 
         if self.function_stack:
             builder_list = DISPLAY_BUILDER_LISTS.get(
