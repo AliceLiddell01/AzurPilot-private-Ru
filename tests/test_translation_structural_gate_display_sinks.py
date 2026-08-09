@@ -73,10 +73,11 @@ def test_self_notify_push_inline_content_translation_passes() -> None:
 def test_scheduling_local_content_prose_translation_passes() -> None:
     base = """def check_and_notify_action_point_threshold(self):
     content = f"总行动力: {total_ap}"
-    if ap_delta > 0:
-        content = f"总行动力: {total_ap} 上涨{ap_delta}行动力"
-    else:
-        content = f"总行动力: {total_ap} 下跌{abs(ap_delta)}行动力"
+    if previous_ap is not None:
+        if ap_delta > 0:
+            content = f"总行动力: {total_ap} 上涨{ap_delta}行动力"
+        else:
+            content = f"总行动力: {total_ap} 下跌{abs(ap_delta)}行动力"
     self.notify_push(
         title="[AzurPilot] 行动力出现变化！",
         content=content,
@@ -84,16 +85,55 @@ def test_scheduling_local_content_prose_translation_passes() -> None:
 """
     head = """def check_and_notify_action_point_threshold(self):
     content = f"Всего очков действия: {total_ap}"
-    if ap_delta > 0:
-        content = f"Всего очков действия: {total_ap}; увеличено на {ap_delta} очков действия"
-    else:
-        content = f"Всего очков действия: {total_ap}; уменьшено на {abs(ap_delta)} очков действия"
+    if previous_ap is not None:
+        if ap_delta > 0:
+            content = f"Всего очков действия: {total_ap}; увеличено на {ap_delta} очков действия"
+        else:
+            content = f"Всего очков действия: {total_ap}; уменьшено на {abs(ap_delta)} очков действия"
     self.notify_push(
         title="[AzurPilot] 行动力出现变化！",
         content=content,
     )
 """
     assert_passes("module/os/tasks/scheduling.py", base, head)
+
+
+def test_scheduling_local_content_requires_exclusive_sink_use() -> None:
+    base = """def check_and_notify_action_point_threshold(self):
+    content = "正文"
+    consume(content)
+    self.notify_push(title="固定", content=content)
+"""
+    head = """def check_and_notify_action_point_threshold(self):
+    content = "Текст"
+    consume(content)
+    self.notify_push(title="固定", content=content)
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
+
+
+def test_scheduling_local_content_post_sink_assignment_stays_exact() -> None:
+    base = """def check_and_notify_action_point_threshold(self):
+    content = "正文"
+    self.notify_push(title="固定", content=content)
+    content = "其他用途"
+"""
+    head = """def check_and_notify_action_point_threshold(self):
+    content = "正文"
+    self.notify_push(title="固定", content=content)
+    content = "Другое назначение"
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
+
+
+def test_scheduling_local_content_without_sink_stays_exact() -> None:
+    base = """def check_and_notify_action_point_threshold(self):
+    content = "正文"
+"""
+    head = """def check_and_notify_action_point_threshold(self):
+    content = "Текст"
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
 
 
 @pytest.mark.parametrize(
