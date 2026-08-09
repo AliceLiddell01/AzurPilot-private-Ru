@@ -378,16 +378,16 @@ class CoinTaskMixin:
         except Exception:
             logger.exception('Не удалось загрузить последнее уведомление об AP')
 
-        content = f"总行动力: {total_ap}"
+        content = f"Всего очков действия: {total_ap}"
         if previous_ap is not None:
             ap_delta = total_ap - previous_ap
             if ap_delta == 0:
                 logger.info('[Операция «Сирена» — умное планирование+] Очки действия не изменились, уведомление пропущено')
                 return
             if ap_delta > 0:
-                content = f"总行动力: {total_ap} 上涨{ap_delta}行动力"
+                content = f"Всего очков действия: {total_ap}; увеличено на {ap_delta} очков действия"
             else:
-                content = f"总行动力: {total_ap} 下跌{abs(ap_delta)}行动力"
+                content = f"Всего очков действия: {total_ap}; уменьшено на {abs(ap_delta)} очков действия"
 
         if not self._can_send_ap_notification('_last_ap_notification_time'):
             return
@@ -747,7 +747,6 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
             return func(*args, **kwargs)
         finally:
             self.config.task = previous_task
-
             if previous_context is None:
                 if hasattr(self, '_smart_scheduling_context'):
                     delattr(self, '_smart_scheduling_context')
@@ -830,17 +829,17 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                 f'выполняется фарм мяуфицеров для расходования текущих очков действия (текущие={current_ap}, суммарные={total_ap})'
             )
             if yellow_coins < coin_target:
-                coin_status = f'黄币 {yellow_coins} 低于补黄币目标 {coin_target}'
+                coin_status = f'Жёлтые монеты {yellow_coins} ниже целевого запаса {coin_target}'
             else:
-                coin_status = f'黄币 {yellow_coins} 已达到补黄币阈值 {coin_target}'
+                coin_status = f'Жёлтые монеты {yellow_coins} достигли порога пополнения {coin_target}'
             self.handle_first_auto_search(run=True)
             if self._run_scheduled_coin_task_once(self.TASK_NAME_MEOWFFICER_FARMING, 0):
                 self.notify_push(
                     title='[AzurPilot] 防止行动力溢出 - 已执行耄耋相接',
                     content=(
                         f'{coin_status}\n'
-                        f'总行动力 {total_ap} 低于补黄币保留 {meow_ap_preserve}\n'
-                        f'已由 OpsiScheduling 执行一轮耄耋相接清理当前行动力 {current_ap}'
+                        f'Всего очков действия {total_ap} ниже резерва для пополнения монет {meow_ap_preserve}\n'
+                        f'OpsiScheduling выполнил один цикл фарма мяуфицеров, чтобы израсходовать текущие очки действия {current_ap}'
                     )
                 )
                 return
@@ -1057,8 +1056,8 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         pushed = self.notify_push(
             title="[AzurPilot] 智能调度+ - 黄币与行动力双重不足",
             content=(
-                f"黄币: {yellow_coins}，补黄币阈值: {coin_target}\n"
-                f"总行动力 {total_ap} 不足 (需要 {meow_ap_preserve})\n推迟任务"
+                f"Жёлтые монеты: {yellow_coins}, порог пополнения: {coin_target}\n"
+                f"Всего очков действия {total_ap} недостаточно (требуется {meow_ap_preserve})\nЗадача отложена"
             )
         )
         if pushed:
@@ -1076,7 +1075,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         
         pushed = self.notify_push(
             title="[AzurPilot] 智能调度+ - 行动力不足",
-            content=f"总行动力 {total_ap} 低于最低保留 {min_reserve}，推迟任务"
+            content=f"Всего очков действия {total_ap} ниже минимального резерва {min_reserve}, задача отложена"
         )
         if pushed:
             self._mark_ap_notification_sent('_last_ap_insufficient_notification_time')
@@ -1092,7 +1091,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
             logger.error('[Операция «Сирена» — умное планирование+] Ни одна задача пополнения жёлтых монет не включена, «Умное планирование+» остановлено')
             self.notify_push(
                 title='[AzurPilot] 智能调度+ - 未启用黄币补充任务',
-                content='请至少启用耄耋相接、隐秘海域、深渊坐标或塞壬要塞中的一项',
+                content='Включите хотя бы одну из задач: фарм мяуфицеров, скрытые зоны, абиссальные зоны или крепости Сирен',
             )
             self._delay_smart_scheduling_to_server_update('未启用黄币补充任务')
             self.config.task_stop()
@@ -1143,9 +1142,9 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         task_display = self.TASK_NAMES.get(task_name, task_name)
         pushed = self.notify_push(
             title="[AzurPilot] 智能调度+ - 已代理执行黄币补充任务",
-            content=(f"黄币: {yellow_coins}，补黄币阈值: {coin_target}\n"
-                     f"总行动力: {total_ap} (需要 {meow_ap_preserve})\n"
-                     f"已代理执行一轮{task_display}获取黄币")
+            content=(f"Жёлтые монеты: {yellow_coins}, порог пополнения: {coin_target}\n"
+                     f"Всего очков действия: {total_ap} (требуется {meow_ap_preserve})\n"
+                     f"Выполнен один цикл задачи {task_display} для пополнения жёлтых монет")
         )
         if pushed:
             setattr(self.config, state_key, task_name)
