@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -18,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "game_settings"
 ASSET_DIR = ROOT / "assets" / "en" / "game_settings"
 _REFERENCE_ORIGIN = (226, 490)
+_STATE_AREA = (275, 0, 440, 42)
+_OFF_STATE_SHA256 = "85346a4d0d255251ad6dab83a5d4f3fe04414885e6b6c947e8229671bbeb0a9f"
 
 
 def _fixture(name: str) -> np.ndarray:
@@ -25,29 +28,37 @@ def _fixture(name: str) -> np.ndarray:
     return image[:, :, :3] if image.ndim == 3 else image
 
 
-def _custom_ship_names_frame(
+def _frame_from_real_state_evidence(
     state: str,
     *,
     y: int = _REFERENCE_ORIGIN[1],
 ) -> np.ndarray:
-    crop = _fixture(f"custom_ship_names_{state}.png")
+    """Build detector input from real screenshot crops without altering state pixels."""
+
+    row = _fixture("custom_ship_names_on.png").copy()
+    if state == "off":
+        x1, y1, x2, y2 = _STATE_AREA
+        row[y1:y2, x1:x2] = _fixture("custom_ship_names_off_state.png")
+    elif state != "on":
+        raise ValueError(f"Unsupported state fixture: {state}")
+
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     x = _REFERENCE_ORIGIN[0]
-    height, width = crop.shape[:2]
-    frame[y : y + height, x : x + width] = crop
+    height, width = row.shape[:2]
+    frame[y : y + height, x : x + width] = row
     return frame
 
 
 class CustomShipNamesDetectorTests(unittest.TestCase):
     def test_real_on_fixture_detects_on(self) -> None:
         self.assertIs(
-            detect_custom_ship_names(_custom_ship_names_frame("on")),
+            detect_custom_ship_names(_frame_from_real_state_evidence("on")),
             GameSettingState.ON,
         )
 
-    def test_real_off_fixture_detects_off(self) -> None:
+    def test_real_off_state_evidence_detects_off(self) -> None:
         self.assertIs(
-            detect_custom_ship_names(_custom_ship_names_frame("off")),
+            detect_custom_ship_names(_frame_from_real_state_evidence("off")),
             GameSettingState.OFF,
         )
 
@@ -67,13 +78,12 @@ class CustomShipNamesDetectorTests(unittest.TestCase):
 
         self.assertIsNone(detect_custom_ship_names(blank))
 
-    def test_row_visible_with_untrusted_markers_is_unknown(self) -> None:
-        frame = _custom_ship_names_frame("off")
+    def test_row_visible_with_untrusted_state_is_unknown(self) -> None:
+        frame = _frame_from_real_state_evidence("off")
         with patch(
             "module.game_settings.detector._template_score",
             side_effect=[
                 (0.99, (57, 409)),
-                (0.98, (57, 409)),
                 (0.20, (0, 0)),
                 (0.20, (0, 0)),
             ],
@@ -107,18 +117,28 @@ class CustomShipNamesDetectorTests(unittest.TestCase):
                     expected,
                 )
 
-    def test_production_assets_and_fixtures_are_same_real_crops(self) -> None:
-        for state in ("on", "off"):
-            with self.subTest(state=state):
-                fixture = _fixture(f"custom_ship_names_{state}.png")
-                asset = imageio.imread(
-                    ASSET_DIR
-                    / f"TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_{state.upper()}.png"
-                )
-                asset = asset[:, :, :3] if asset.ndim == 3 else asset
+    def test_production_visual_assets_match_real_fixtures(self) -> None:
+        on_fixture = _fixture("custom_ship_names_on.png")
+        on_asset = imageio.imread(
+            ASSET_DIR / "TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON.png"
+        )
+        on_asset = on_asset[:, :, :3] if on_asset.ndim == 3 else on_asset
+        np.testing.assert_array_equal(on_asset, on_fixture)
+        self.assertEqual(on_asset.shape[:2], (42, 440))
 
-                np.testing.assert_array_equal(asset, fixture)
-                self.assertEqual(asset.shape[:2], (42, 440))
+        off_fixture_path = FIXTURE_DIR / "custom_ship_names_off_state.png"
+        off_asset_path = (
+            ASSET_DIR / "TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_OFF_STATE.png"
+        )
+        off_fixture = _fixture(off_fixture_path.name)
+        off_asset = imageio.imread(off_asset_path)
+        off_asset = off_asset[:, :, :3] if off_asset.ndim == 3 else off_asset
+        np.testing.assert_array_equal(off_asset, off_fixture)
+        self.assertEqual(off_asset.shape[:2], (42, 165))
+        self.assertEqual(
+            hashlib.sha256(off_asset_path.read_bytes()).hexdigest(),
+            _OFF_STATE_SHA256,
+        )
 
     def test_real_state_pixels_support_vertical_offset_search(self) -> None:
         for state, expected in (
@@ -128,7 +148,7 @@ class CustomShipNamesDetectorTests(unittest.TestCase):
             with self.subTest(state=state):
                 self.assertIs(
                     detect_custom_ship_names(
-                        _custom_ship_names_frame(state, y=260)
+                        _frame_from_real_state_evidence(state, y=260)
                     ),
                     expected,
                 )

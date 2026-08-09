@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from module.game_settings.assets import (
-    TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_OFF,
+    TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_OFF_STATE,
     TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON,
 )
 from module.game_settings.model import GameSettingState
@@ -16,19 +16,18 @@ from module.game_settings.traversal import OPTIONS_VIEWPORT_AREA
 
 
 _CUSTOM_SHIP_NAMES_LABEL_MIN_SIMILARITY = 0.70
-_CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY = 0.70
-_CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN = 0.18
+_CUSTOM_SHIP_NAMES_STATE_MIN_SIMILARITY = 0.70
+_CUSTOM_SHIP_NAMES_STATE_MIN_MARGIN = 0.18
 
-# State-specific production assets are exact crops from confirmed real
-# 1280x720 screenshots. Label and selected-marker templates are unchanged
-# sub-crops of those real pixels.
+# Production visual evidence is cut only from confirmed real 1280x720
+# screenshots. The ON row provides the state-independent text anchor. The
+# OFF-state block is an exact crop containing both toggle choices in OFF state.
 _CUSTOM_SHIP_NAMES_LABEL_AREA = (6, 5, 254, 38)
-_CUSTOM_SHIP_NAMES_OFF_SELECTED_MARKER_AREA = (307, 4, 339, 38)
-_CUSTOM_SHIP_NAMES_ON_SELECTED_MARKER_AREA = (402, 4, 434, 38)
+_CUSTOM_SHIP_NAMES_STATE_AREA = (275, 0, 440, 42)
 
-# Геометрия относительно top-left label после его нахождения в viewport.
-_CUSTOM_SHIP_NAMES_OFF_SEARCH = (296, -5, 337, 37)
-_CUSTOM_SHIP_NAMES_ON_SEARCH = (391, -5, 433, 37)
+# Geometry relative to the top-left point of the label template match.
+# The label template itself begins at row offset (6, 5).
+_CUSTOM_SHIP_NAMES_STATE_SEARCH = (269, -5, 434, 37)
 
 
 def _edges(image: np.ndarray) -> np.ndarray:
@@ -64,14 +63,14 @@ def _resolve_custom_ship_names_state(
 ) -> GameSettingState:
     """Разрешить mutually-exclusive ON/OFF по реальным state assets."""
 
-    off_matched = off_similarity >= _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY
-    on_matched = on_similarity >= _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY
+    off_matched = off_similarity >= _CUSTOM_SHIP_NAMES_STATE_MIN_SIMILARITY
+    on_matched = on_similarity >= _CUSTOM_SHIP_NAMES_STATE_MIN_SIMILARITY
 
     # Neither-state и both-state одинаково недостоверны.
     if off_matched == on_matched:
         return GameSettingState.UNKNOWN
 
-    if abs(off_similarity - on_similarity) < _CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN:
+    if abs(off_similarity - on_similarity) < _CUSTOM_SHIP_NAMES_STATE_MIN_MARGIN:
         return GameSettingState.UNKNOWN
 
     if off_matched:
@@ -126,9 +125,9 @@ def _load_custom_ship_names_on_template() -> np.ndarray:
 
 
 @lru_cache(maxsize=1)
-def _load_custom_ship_names_off_template() -> np.ndarray:
+def _load_custom_ship_names_off_state_template() -> np.ndarray:
     return _load_template(
-        TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_OFF.file,
+        TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_OFF_STATE.file,
         "OFF",
     )
 
@@ -149,24 +148,14 @@ def detect_custom_ship_names(
         )
 
     on_template = _load_custom_ship_names_on_template()
-    off_template = _load_custom_ship_names_off_template()
+    off_state_template = _load_custom_ship_names_off_state_template()
 
     vx1, vy1, vx2, vy2 = OPTIONS_VIEWPORT_AREA
     viewport = image[vy1:vy2, vx1:vx2]
 
-    label_candidates = (
-        _template_score(
-            viewport,
-            _crop(on_template, _CUSTOM_SHIP_NAMES_LABEL_AREA),
-        ),
-        _template_score(
-            viewport,
-            _crop(off_template, _CUSTOM_SHIP_NAMES_LABEL_AREA),
-        ),
-    )
-    label_similarity, label_point = max(
-        label_candidates,
-        key=lambda candidate: candidate[0],
+    label_similarity, label_point = _template_score(
+        viewport,
+        _crop(on_template, _CUSTOM_SHIP_NAMES_LABEL_AREA),
     )
     if label_similarity < _CUSTOM_SHIP_NAMES_LABEL_MIN_SIMILARITY:
         return None
@@ -175,27 +164,16 @@ def detect_custom_ship_names(
         vx1 + label_point[0],
         vy1 + label_point[1],
     )
-    off_crop = _crop_checked(
+    state_crop = _crop_checked(
         image,
-        _relative_area(label_origin, _CUSTOM_SHIP_NAMES_OFF_SEARCH),
+        _relative_area(label_origin, _CUSTOM_SHIP_NAMES_STATE_SEARCH),
     )
-    on_crop = _crop_checked(
-        image,
-        _relative_area(label_origin, _CUSTOM_SHIP_NAMES_ON_SEARCH),
-    )
-    if off_crop is None or on_crop is None:
+    if state_crop is None:
         return GameSettingState.UNKNOWN
 
-    off_marker_template = _crop(
-        off_template,
-        _CUSTOM_SHIP_NAMES_OFF_SELECTED_MARKER_AREA,
-    )
-    on_marker_template = _crop(
-        on_template,
-        _CUSTOM_SHIP_NAMES_ON_SELECTED_MARKER_AREA,
-    )
-    off_similarity, _ = _template_score(off_crop, off_marker_template)
-    on_similarity, _ = _template_score(on_crop, on_marker_template)
+    on_state_template = _crop(on_template, _CUSTOM_SHIP_NAMES_STATE_AREA)
+    off_similarity, _ = _template_score(state_crop, off_state_template)
+    on_similarity, _ = _template_score(state_crop, on_state_template)
 
     return _resolve_custom_ship_names_state(
         off_similarity=off_similarity,
