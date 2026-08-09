@@ -5,11 +5,12 @@ from abc import ABC, abstractmethod
 from module.exception import GamePageUnknownError, RequestHumanTakeover
 from module.game_settings.model import GameSettingsScanResult
 from module.game_settings.navigation import page_settings, page_settings_options
+from module.game_settings.traversal import OptionsTraversalMixin
 from module.ui.page import page_main, page_main_white
 from module.ui.ui import UI
 
 
-class GameSettingsScanner(UI, ABC):
+class GameSettingsScanner(OptionsTraversalMixin, UI, ABC):
     """UI-capable граница для общих сканеров игровых настроек.
 
     Consumer-модули должны зависеть от этой подсистемы, а не наоборот.
