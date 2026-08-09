@@ -27,6 +27,7 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
 - Ruff для ошибок выполнения и импорта;
 - компиляцию основных Python entry points и каталогов;
 - автоматическое обнаружение всего каталога `tests/` через `pytest 9.1.1`, зафиксированный в `uv.lock`;
+- permanent semantic runtime-localization audit: доказанные operator-facing sinks должны оставаться русскими, а runtime identity — только RU/Global/EN;
 - генераторы конфигурации и assets;
 - отсутствие generated diff и незакоммиченных файлов.
 
@@ -44,6 +45,10 @@ Translation structural step получает SHA из `pull_request.base.sha` и
 `pull_request.head.sha`, сравнивает changed production Python через локальный
 `git diff` и запрещает translation PR менять workflow, verifier или его tests.
 В production scope входят точки входа, `module/**/*.py` и `campaign/**/*.py`.
+
+`tests/test_runtime_russianization_audit.py` проверяет текущее дерево на каждом PR и не зависит от historical SHA или base snapshot. Он запрещает CJK и неклассифицированные English-only предложения в deterministic display sinks и защищает `ru-RU`, `en`, Global package, `assets/en`, EN metadata и OCR namespace `azur_lane`. Узкие semantic allowances относятся к техническим, machine и game значениям; broad file/directory ignores отсутствуют.
+
+Structural parity ниже применяется только к explicit translation PR. Feature, bugfix и refactor меняют functionality согласно Declared Scope и обычным product tests, но не освобождаются от permanent runtime-localization audit.
 
 Все строковые значения verifier считает exact-by-default. Изменение допускается
 только для статически однозначных operator-facing prose-позиций конкретных

@@ -94,6 +94,15 @@
 
 Реальные device/OCR acceptance и benchmarks выполняются локальными инструментами из `tools/acceptance/` и `tools/benchmarks/`. Они не становятся required checks каждого PR без отдельного устойчивого обоснования.
 
+### Runtime localization integrity
+
+Общий pytest suite запускает `tests/test_runtime_russianization_audit.py`. Тест выполняет permanent semantic audit текущих production consumer sites и Global/EN identity, а self-tests обязаны доказывать обе стороны контракта:
+
+- FAIL: CJK operator prose, обычное untranslated English предложение, foreign locale/server/package/assets/OCR alias;
+- PASS: русский контекст, ADB/OCR/API/URL/path/package/game identifiers, deferred exception text и feature structure вне display sink.
+
+Для explicit translation PR этот guard дополняет, но не заменяет dynamic base→head structural gate. Для feature/bugfix/refactor structural parity не применяется, permanent integrity остаётся обязательной частью обычных product tests.
+
 ### PowerShell
 
 - Parser через фактический `pwsh` для всех tracked `.ps1` и `.psm1`;
