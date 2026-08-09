@@ -515,3 +515,27 @@ def test_scheduling_task_names_consumer_expression_stays_exact() -> None:
         logger.info(f'Task: {task_display}')
 """
     assert_blocked("module/os/tasks/scheduling.py", base, head)
+
+
+def test_scheduling_task_names_function_local_shadow_stays_exact() -> None:
+    base = """class CoinTaskMixin:
+    def display(self):
+        TASK_NAMES = {
+            'OpsiMeowfficerFarming': '耄耋相接',
+            'OpsiObscure': '隐秘海域',
+            'OpsiAbyssal': '深渊坐标',
+            'OpsiStronghold': '塞壬要塞',
+        }
+        return TASK_NAMES
+"""
+    head = """class CoinTaskMixin:
+    def display(self):
+        TASK_NAMES = {
+            'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+            'OpsiObscure': 'Скрытые зоны',
+            'OpsiAbyssal': 'Абиссальные зоны',
+            'OpsiStronghold': 'Крепости Сирен',
+        }
+        return TASK_NAMES
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
