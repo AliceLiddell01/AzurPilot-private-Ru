@@ -47,6 +47,10 @@ DISPLAY_BUILDER_LISTS = {
         "module/os/tasks/hazard_leveling.py",
         "_format_check_report",
     ): "lines",
+    (
+        "module/os/tasks/meowfficer_farming.py",
+        "_meow_target_zones",
+    ): "errors",
 }
 DISPLAY_BUILDER_LOCAL_PROSE = {
     (
@@ -72,6 +76,34 @@ CLASS_DISPLAY_MAPPING_KEYS = {
         "OpsiStronghold",
     ),
 }
+EXACT_DISPLAY_ASSIGNMENTS = {
+    ("module/commission/commission.py", "_record_commission_income", "text"),
+    ("module/logger.py", "error_context", "message"),
+}
+EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS = {
+    (
+        "module/os/tasks/scheduling.py",
+        "_delay_smart_scheduling_to_server_update",
+    ): 0,
+    (
+        "module/os/tasks/meowfficer_farming.py",
+        "_meow_target_zone_error",
+    ): 0,
+}
+ISLAND_DISPLAY_CONTEXT_CALLS = {
+    "confirm_post_add_order",
+    "confirm_selected_character",
+    "confirm_selected_character_closed",
+}
+ISLAND_DISPLAY_CONTEXT_PATHS = {
+    "module/island/island_business.py",
+    "module/island/island_mine_forest.py",
+    "module/island/island_rancher.py",
+    "module/island/island_shop_base.py",
+    "module/island/island_teahouse.py",
+}
+PLOTTER_DISPLAY_POSITIONAL_CALLS = {"set_xlabel", "set_ylabel", "title"}
+PLOTTER_DISPLAY_LABEL_CALLS = {"Patch", "plot"}
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
     r"(?:hh|h|ll|l|L|j|z|t)?[diouxXeEfFgGcrsa%]"
@@ -541,7 +573,51 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                 node.value,
                 f"display provenance local {target.id}",
             )
+        if (
+            self.function_stack
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and (
+                self.source_path,
+                self.function_stack[-1],
+                node.targets[0].id,
+            )
+            in EXACT_DISPLAY_ASSIGNMENTS
+        ):
+            self._approve(
+                node.value,
+                f"exact display assignment {node.targets[0].id}",
+            )
         self.generic_visit(node)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        if (
+            self.function_stack
+            and isinstance(node.op, ast.Add)
+            and isinstance(node.target, ast.Name)
+            and (
+                self.source_path,
+                self.function_stack[-1],
+                node.target.id,
+            )
+            in EXACT_DISPLAY_ASSIGNMENTS
+        ):
+            self._approve(
+                node.value,
+                f"exact display append {node.target.id}",
+            )
+        self.generic_visit(node)
+
+    def _approve_schema_descriptions(self, node: ast.AST) -> None:
+        if not isinstance(node, ast.Dict):
+            return
+        for key, value in zip(node.keys, node.values, strict=True):
+            if (
+                isinstance(key, ast.Constant)
+                and key.value == "description"
+            ):
+                self._approve(value, "MCP inputSchema description")
+            self._approve_schema_descriptions(value)
 
     def visit_Call(self, node: ast.Call) -> None:
         name = _call_name(node.func)
@@ -584,6 +660,57 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                         keyword.value,
                         "self.notify_push.content",
                     )
+
+        current_function = self.function_stack[-1] if self.function_stack else None
+        positional_index = (
+            EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS.get(
+                (self.source_path, name[-1])
+            )
+            if name
+            else None
+        )
+        if (
+            positional_index is not None
+            and current_function is not None
+            and len(node.args) > positional_index
+        ):
+            self._approve(
+                node.args[positional_index],
+                f"exact display call {name[-1]} argument {positional_index}",
+            )
+
+        if (
+            self.source_path in ISLAND_DISPLAY_CONTEXT_PATHS
+            and name
+            and name[-1] in ISLAND_DISPLAY_CONTEXT_CALLS
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            self._approve(node.args[0], f"Island display context {name[-1]}")
+
+        if (
+            self.source_path == "mcp_server_sse.py"
+            and current_function == "list_tools"
+            and name == ("Tool",)
+        ):
+            for keyword in node.keywords:
+                if keyword.arg == "description":
+                    self._approve(keyword.value, "MCP Tool.description")
+                elif keyword.arg == "inputSchema":
+                    self._approve_schema_descriptions(keyword.value)
+
+        if (
+            self.source_path == "module/os_simulator/plotter.py"
+            and current_function
+            in {"plot_single_sample_history", "plot_multi_sample_history"}
+            and name
+        ):
+            if name[-1] in PLOTTER_DISPLAY_POSITIONAL_CALLS and node.args:
+                self._approve(node.args[0], f"plot display {name[-1]}")
+            if name[-1] in PLOTTER_DISPLAY_LABEL_CALLS:
+                for keyword in node.keywords:
+                    if keyword.arg == "label":
+                        self._approve(keyword.value, f"plot display {name[-1]}.label")
 
         if self.function_stack:
             builder_list = DISPLAY_BUILDER_LISTS.get(

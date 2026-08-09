@@ -13,6 +13,144 @@ def assert_blocked(path: str, base: str, head: str) -> None:
     assert verify_source_pair(base, head, path)
 
 
+@pytest.mark.parametrize(
+    ("path", "base", "head"),
+    [
+        (
+            "module/os/tasks/scheduling.py",
+            "def f(self):\n    self._delay_smart_scheduling_to_server_update('行动力不足')\n",
+            "def f(self):\n    self._delay_smart_scheduling_to_server_update('Недостаточно очков действия')\n",
+        ),
+        (
+            "module/os/tasks/meowfficer_farming.py",
+            "def f(self):\n    self._meow_target_zone_error('指定海域输入错误')\n",
+            "def f(self):\n    self._meow_target_zone_error('Ошибка ввода целевой зоны')\n",
+        ),
+        (
+            "module/island/island_rancher.py",
+            "def f(self, post_id):\n    self.confirm_selected_character(f'牧场岗位{post_id}派遣')\n",
+            "def f(self, post_id):\n    self.confirm_selected_character(f'Позиция ранчо {post_id}: назначение')\n",
+        ),
+    ],
+)
+def test_exact_display_call_argument_translation_passes(
+    path: str, base: str, head: str
+) -> None:
+    assert_passes(path, base, head)
+
+
+@pytest.mark.parametrize(
+    ("path", "base", "head"),
+    [
+        (
+            "module/os/tasks/other.py",
+            "self._delay_smart_scheduling_to_server_update('行动力不足')\n",
+            "self._delay_smart_scheduling_to_server_update('Недостаточно очков действия')\n",
+        ),
+        (
+            "module/island/island_rancher.py",
+            "self.confirm_selected_character('岗位', timeout=8)\n",
+            "self.confirm_selected_character('Позиция', timeout=8)\n",
+        ),
+        (
+            "module/island/island_rancher.py",
+            "self.consume('岗位')\n",
+            "self.consume('Позиция')\n",
+        ),
+    ],
+)
+def test_exact_display_call_contract_is_fail_closed(
+    path: str, base: str, head: str
+) -> None:
+    assert_blocked(path, base, head)
+
+
+def test_mcp_tool_and_schema_descriptions_translation_passes() -> None:
+    base = '''def list_tools():
+    return [Tool(name="status", description="获取运行状态", inputSchema={"type": "object", "properties": {"instance": {"type": "string", "description": "实例名称"}}})]
+'''
+    head = '''def list_tools():
+    return [Tool(name="status", description="Получить состояние выполнения", inputSchema={"type": "object", "properties": {"instance": {"type": "string", "description": "Имя экземпляра"}}})]
+'''
+    assert_passes("mcp_server_sse.py", base, head)
+
+
+def test_mcp_schema_machine_values_stay_exact() -> None:
+    base = 'Tool(name="status", description="状态", inputSchema={"type": "object"})\n'
+    head = 'Tool(name="status", description="Состояние", inputSchema={"type": "объект"})\n'
+    assert_blocked("mcp_server_sse.py", base, head)
+
+
+def test_mcp_description_contract_is_function_scoped() -> None:
+    assert_blocked(
+        "mcp_server_sse.py",
+        "def other():\n    return Tool(name='status', description='状态', inputSchema={})\n",
+        "def other():\n    return Tool(name='status', description='Состояние', inputSchema={})\n",
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "base", "head"),
+    [
+        (
+            "module/commission/commission.py",
+            "def _record_commission_income(self):\n    text = '奖励'\n    text += '今日累计'\n    tracked.append(text)\n",
+            "def _record_commission_income(self):\n    text = 'Награда'\n    text += 'Итого за сегодня'\n    tracked.append(text)\n",
+        ),
+        (
+            "module/logger.py",
+            "def error_context():\n    message = '原因'\n    message += '影响'\n    logger.log(level, message)\n",
+            "def error_context():\n    message = 'Причина'\n    message += 'Влияние'\n    logger.log(level, message)\n",
+        ),
+    ],
+)
+def test_exact_display_assignment_translation_passes(
+    path: str, base: str, head: str
+) -> None:
+    assert_passes(path, base, head)
+
+
+def test_exact_display_assignment_is_function_scoped() -> None:
+    assert_blocked(
+        "module/logger.py",
+        "def other():\n    message = '原因'\n",
+        "def other():\n    message = 'Причина'\n",
+    )
+
+
+def test_meow_error_builder_translation_passes() -> None:
+    base = '''def _meow_target_zones(self):
+    errors = []
+    errors.append(f'无法识别: {tokens}')
+    self._meow_target_zone_error(f'输入错误: {"; ".join(errors)}')
+'''
+    head = '''def _meow_target_zones(self):
+    errors = []
+    errors.append(f'Не распознано: {tokens}')
+    self._meow_target_zone_error(f'Ошибка ввода: {"; ".join(errors)}')
+'''
+    assert_passes("module/os/tasks/meowfficer_farming.py", base, head)
+
+
+def test_plotter_labels_translation_passes_but_machine_color_stays_exact() -> None:
+    base = "def plot_single_sample_history(self):\n    ax.plot(times, values, color='blue', label='行动力')\n    ax.set_xlabel('时间 (天)')\n    plt.title('轨迹图')\n"
+    head = "def plot_single_sample_history(self):\n    ax.plot(times, values, color='blue', label='Очки действия')\n    ax.set_xlabel('Время (дни)')\n    plt.title('График траектории')\n"
+    assert_passes("module/os_simulator/plotter.py", base, head)
+    assert_blocked(
+        "module/os_simulator/plotter.py",
+        base,
+        head.replace("color='blue'", "color='синий'"),
+    )
+
+
+def test_plotter_display_contract_is_function_scoped() -> None:
+    assert_blocked(
+        "module/os_simulator/plotter.py",
+        "def other(self):\n    plt.title('轨迹图')\n",
+        "def other(self):\n    plt.title('График траектории')\n",
+    )
+
+
 def test_logger_attr_align_label_translation_passes() -> None:
     assert_passes(
         "module/os/globe_detection.py",
