@@ -44,12 +44,14 @@ class _FakeTraversalScanner(GameSettingsScanner):
         *,
         start: int = 0,
         bottom: int = 2,
+        wrap_after: int | None = None,
         down_steps: list[int] | None = None,
         bottom_anchor_enabled: bool = True,
         page_loss_after_down_swipe: int | None = None,
     ) -> None:
         self.position = start
         self.bottom = bottom
+        self.wrap_after = bottom + 1 if wrap_after is None else wrap_after
         self.down_steps = list(down_steps or [])
         self.bottom_anchor_enabled = bottom_anchor_enabled
         self.page_loss_after_down_swipe = page_loss_after_down_swipe
@@ -80,7 +82,7 @@ class _FakeTraversalScanner(GameSettingsScanner):
         if anchor is GAME_SETTINGS_OPTIONS_TOP_ANCHOR:
             return frame.position == 0
         if anchor is GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR:
-            return self.bottom_anchor_enabled and frame.position >= self.bottom
+            return self.bottom_anchor_enabled and frame.position == self.bottom
         raise AssertionError(anchor)
 
     def _swipe_options(self, *, down: bool) -> None:
@@ -88,6 +90,8 @@ class _FakeTraversalScanner(GameSettingsScanner):
             self.down_swipes += 1
             step = self.down_steps.pop(0) if self.down_steps else 1
             self.position += step
+            if self.wrap_after is not None and self.position >= self.wrap_after:
+                self.position = 0
             if self.page_loss_after_down_swipe == self.down_swipes:
                 self.page_is_options = False
         else:
@@ -162,7 +166,7 @@ class OptionsTraversalContractTests(unittest.TestCase):
 
         self.assertEqual(scanner.up_swipes, 0)
 
-    def test_normal_traversal_is_monotonic_and_visits_bottom_last(self) -> None:
+    def test_normal_traversal_is_monotonic_and_confirms_wrap(self) -> None:
         scanner = _FakeTraversalScanner(start=0, bottom=3)
         visited = []
 
@@ -171,9 +175,46 @@ class OptionsTraversalContractTests(unittest.TestCase):
         offsets = [item.scroll_offset for item in visited]
         self.assertEqual(offsets, sorted(offsets))
         self.assertEqual([item.index for item in visited], [1, 2, 3, 4])
-        self.assertFalse(any(item.is_bottom for item in visited[:-1]))
-        self.assertTrue(visited[-1].is_bottom)
+        self.assertFalse(any(item.is_bottom for item in visited))
         self.assertEqual(result.visited_viewports, 4)
+        self.assertTrue(result.reached_bottom)
+        self.assertFalse(result.stopped_early)
+
+    def test_pre_wrap_landmark_does_not_hide_later_viewport(self) -> None:
+        scanner = _FakeTraversalScanner(
+            start=0,
+            bottom=2,
+            wrap_after=4,
+        )
+        visited_positions = []
+
+        def visitor(_viewport):
+            visited_positions.append(scanner.position)
+            return scanner.position == 3
+
+        result = scanner.traverse_options(visitor)
+
+        self.assertEqual(visited_positions, [0, 1, 2, 3])
+        self.assertEqual(scanner.down_swipes, 3)
+        self.assertTrue(result.stopped_early)
+        self.assertFalse(result.reached_bottom)
+
+    def test_full_cycle_wrap_after_landmark_does_not_revisit_top(self) -> None:
+        scanner = _FakeTraversalScanner(
+            start=0,
+            bottom=2,
+            wrap_after=4,
+        )
+        visited_positions = []
+
+        result = scanner.traverse_options(
+            lambda _viewport: visited_positions.append(scanner.position)
+        )
+
+        self.assertEqual(visited_positions, [0, 1, 2, 3])
+        self.assertEqual(scanner.down_swipes, 4)
+        self.assertEqual(result.visited_viewports, 4)
+        self.assertTrue(result.reached_bottom)
         self.assertFalse(result.stopped_early)
 
     def test_no_progress_retries_are_bounded_and_fail_closed(self) -> None:
@@ -280,7 +321,7 @@ class OptionsTraversalVisualTests(unittest.TestCase):
         cls.bottom = _fixture("options_traversal_bottom.png")
         cls.bottom_retry = _fixture("options_traversal_bottom_retry.png")
 
-    def test_real_anchors_distinguish_top_middle_and_bottom(self) -> None:
+    def test_real_anchors_distinguish_top_middle_and_cycle_landmark(self) -> None:
         self.assertTrue(
             GAME_SETTINGS_OPTIONS_TOP_ANCHOR.match(
                 self.top,
@@ -312,7 +353,7 @@ class OptionsTraversalVisualTests(unittest.TestCase):
             )
         )
 
-    def test_bottom_anchor_accepts_live_upper_snap_without_partial_section(self) -> None:
+    def test_cycle_landmark_accepts_live_upper_snap_without_partial_section(self) -> None:
         shifted = np.zeros_like(self.bottom)
         shifted[:-118] = self.bottom[118:]
 
@@ -342,7 +383,7 @@ class OptionsTraversalVisualTests(unittest.TestCase):
         self.assertLessEqual(motion.vertical_shift, -5.0)
         self.assertGreaterEqual(motion.response, 0.10)
 
-    def test_real_bottom_anchor_survives_animated_background(self) -> None:
+    def test_cycle_landmark_survives_animated_background(self) -> None:
         for frame in (self.bottom, self.bottom_retry):
             with self.subTest():
                 self.assertTrue(
