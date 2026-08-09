@@ -61,9 +61,13 @@ class GameSettingsScanner(UI, ABC, Generic[_ScanResultT]):
         return True
 
     def return_to_main(self) -> bool:
-        """Вернуться из Settings/Options на Main и синхронизировать ``ui_current``."""
+        """Вернуться на Main и подтвердить целевую страницу распознаванием."""
         changed = self.ui_goto_main()
         self.ui_get_current_page(skip_first_screenshot=True)
+        if self.ui_current is not page_main and self.ui_current is not page_main_white:
+            raise GamePageUnknownError(
+                "[Game Settings] Main не подтверждён после возврата из Settings/Options."
+            )
         return changed
 
     @abstractmethod
