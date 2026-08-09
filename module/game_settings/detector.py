@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from module.game_settings.assets import (
+    TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_OFF,
     TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON,
 )
 from module.game_settings.model import GameSettingState
@@ -18,13 +19,14 @@ _CUSTOM_SHIP_NAMES_LABEL_MIN_SIMILARITY = 0.70
 _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY = 0.70
 _CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN = 0.18
 
-# Production ON asset — exact crop из подтверждённого реального screenshot.
-# Label и selected-marker берутся только как неизменённые sub-crops.
+# State-specific production assets are exact crops from confirmed real
+# 1280x720 screenshots. Label and selected-marker templates are unchanged
+# sub-crops of those real pixels.
 _CUSTOM_SHIP_NAMES_LABEL_AREA = (6, 5, 254, 38)
-_CUSTOM_SHIP_NAMES_SELECTED_MARKER_AREA = (402, 4, 434, 38)
+_CUSTOM_SHIP_NAMES_OFF_SELECTED_MARKER_AREA = (307, 4, 339, 38)
+_CUSTOM_SHIP_NAMES_ON_SELECTED_MARKER_AREA = (402, 4, 434, 38)
 
 # Геометрия относительно top-left label после его нахождения в viewport.
-# Reference frame: 1280x720 user screenshot, label origin=(232, 495).
 _CUSTOM_SHIP_NAMES_OFF_SEARCH = (296, -5, 337, 37)
 _CUSTOM_SHIP_NAMES_ON_SEARCH = (391, -5, 433, 37)
 
@@ -60,19 +62,20 @@ def _resolve_custom_ship_names_state(
     off_similarity: float,
     on_similarity: float,
 ) -> GameSettingState:
-    """Fail-closed resolver до появления подтверждённого real OFF asset.
+    """Разрешить mutually-exclusive ON/OFF по реальным state assets."""
 
-    Единственный подтверждённый state-specific visual source сейчас — ON.
-    Поэтому сильный match selected-marker в Off-slot не считается доказательством
-    OFF: без отдельного реального OFF fixture это остаётся UNKNOWN.
-    """
-
-    on_matched = on_similarity >= _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY
     off_matched = off_similarity >= _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY
-    if not on_matched or off_matched:
+    on_matched = on_similarity >= _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY
+
+    # Neither-state и both-state одинаково недостоверны.
+    if off_matched == on_matched:
         return GameSettingState.UNKNOWN
-    if on_similarity - off_similarity < _CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN:
+
+    if abs(off_similarity - on_similarity) < _CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN:
         return GameSettingState.UNKNOWN
+
+    if off_matched:
+        return GameSettingState.OFF
     return GameSettingState.ON
 
 
@@ -105,24 +108,29 @@ def _crop_checked(
     return image[y1:y2, x1:x2]
 
 
-@lru_cache(maxsize=1)
-def _load_custom_ship_names_on_template() -> np.ndarray:
-    """Load the generated Template file without relying on global Pillow state.
-
-    Stage 5 detector already depends on OpenCV. Reading this small PNG through
-    OpenCV keeps production matching deterministic even when Pillow plugins have
-    not yet been initialized by another subsystem/test.
-    """
-
-    image = cv2.imread(
-        TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON.file,
-        cv2.IMREAD_COLOR,
-    )
+def _load_template(path: str, state: str) -> np.ndarray:
+    image = cv2.imread(path, cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError(
-            "Не удалось загрузить ON asset для Custom Ship Names."
+            f"Не удалось загрузить {state} asset для Custom Ship Names."
         )
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+@lru_cache(maxsize=1)
+def _load_custom_ship_names_on_template() -> np.ndarray:
+    return _load_template(
+        TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON.file,
+        "ON",
+    )
+
+
+@lru_cache(maxsize=1)
+def _load_custom_ship_names_off_template() -> np.ndarray:
+    return _load_template(
+        TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_OFF.file,
+        "OFF",
+    )
 
 
 def detect_custom_ship_names(
@@ -132,11 +140,7 @@ def detect_custom_ship_names(
 
     ``None`` означает, что уникальная строка не присутствует в текущем
     viewport. ``UNKNOWN`` означает, что строка найдена, но состояние нельзя
-    подтвердить имеющимися реальными state-specific assets.
-
-    Пока подтверждён только реальный ON. Production detector намеренно не
-    выводит OFF из положения одного и того же selected-marker: OFF останется
-    UNKNOWN до добавления отдельного подтверждённого real OFF screenshot/asset.
+    достоверно разрешить как mutually-exclusive ON/OFF.
     """
 
     if image.shape[:2] != (720, 1280):
@@ -145,15 +149,25 @@ def detect_custom_ship_names(
         )
 
     on_template = _load_custom_ship_names_on_template()
-    label_template = _crop(on_template, _CUSTOM_SHIP_NAMES_LABEL_AREA)
-    marker_template = _crop(
-        on_template,
-        _CUSTOM_SHIP_NAMES_SELECTED_MARKER_AREA,
-    )
+    off_template = _load_custom_ship_names_off_template()
 
     vx1, vy1, vx2, vy2 = OPTIONS_VIEWPORT_AREA
     viewport = image[vy1:vy2, vx1:vx2]
-    label_similarity, label_point = _template_score(viewport, label_template)
+
+    label_candidates = (
+        _template_score(
+            viewport,
+            _crop(on_template, _CUSTOM_SHIP_NAMES_LABEL_AREA),
+        ),
+        _template_score(
+            viewport,
+            _crop(off_template, _CUSTOM_SHIP_NAMES_LABEL_AREA),
+        ),
+    )
+    label_similarity, label_point = max(
+        label_candidates,
+        key=lambda candidate: candidate[0],
+    )
     if label_similarity < _CUSTOM_SHIP_NAMES_LABEL_MIN_SIMILARITY:
         return None
 
@@ -172,8 +186,16 @@ def detect_custom_ship_names(
     if off_crop is None or on_crop is None:
         return GameSettingState.UNKNOWN
 
-    off_similarity, _ = _template_score(off_crop, marker_template)
-    on_similarity, _ = _template_score(on_crop, marker_template)
+    off_marker_template = _crop(
+        off_template,
+        _CUSTOM_SHIP_NAMES_OFF_SELECTED_MARKER_AREA,
+    )
+    on_marker_template = _crop(
+        on_template,
+        _CUSTOM_SHIP_NAMES_ON_SELECTED_MARKER_AREA,
+    )
+    off_similarity, _ = _template_score(off_crop, off_marker_template)
+    on_similarity, _ = _template_score(on_crop, on_marker_template)
 
     return _resolve_custom_ship_names_state(
         off_similarity=off_similarity,
