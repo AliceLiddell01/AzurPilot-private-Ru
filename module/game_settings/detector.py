@@ -25,9 +25,11 @@ _CUSTOM_SHIP_NAMES_STATE_MIN_MARGIN = 0.18
 _CUSTOM_SHIP_NAMES_LABEL_AREA = (6, 5, 254, 38)
 _CUSTOM_SHIP_NAMES_STATE_AREA = (275, 0, 440, 42)
 
-# Geometry relative to the top-left point of the label template match.
-# The label template itself begins at row offset (6, 5).
-_CUSTOM_SHIP_NAMES_STATE_SEARCH = (269, -5, 434, 37)
+# Geometry relative to the text-anchor match. Matching the label against a
+# different state/background can move the best edge position by a few pixels,
+# so state matching searches a small bounded neighborhood instead of assuming
+# an exact row-top coordinate.
+_CUSTOM_SHIP_NAMES_STATE_SEARCH = (260, -10, 443, 50)
 
 
 def _edges(image: np.ndarray) -> np.ndarray:
