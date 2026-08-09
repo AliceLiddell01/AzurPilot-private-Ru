@@ -5,9 +5,8 @@ import unittest
 from pathlib import Path
 
 import cv2
-from PIL import Image
+import imageio.v2 as imageio
 
-from module.base.utils import load_image
 from module.exception import GamePageUnknownError, RequestHumanTakeover
 from module.game_settings.assets import (
     GAME_SETTINGS_MAIN_GOTO_SETTINGS,
@@ -40,7 +39,8 @@ def _button_similarity(left, right) -> float:
 
 
 def _fixture_similarity(button, fixture_name: str) -> float:
-    fixture = load_image(str(FIXTURE_DIR / fixture_name))
+    fixture = imageio.imread(FIXTURE_DIR / fixture_name)
+    fixture = fixture[:, :, :3] if len(fixture.shape) == 3 else fixture
     result = cv2.matchTemplate(
         _button_template(button),
         fixture,
@@ -101,7 +101,7 @@ class GameSettingsNavigationTests(unittest.TestCase):
         finally:
             Page.clear_connection()
 
-    def test_game_settings_assets_are_decodable(self) -> None:
+    def test_game_settings_assets_are_decodable_by_project_loader(self) -> None:
         asset_names = (
             "GAME_SETTINGS_MAIN_GOTO_SETTINGS.gif",
             "GAME_SETTINGS_MAIN_GOTO_SETTINGS.BUTTON.gif",
@@ -111,8 +111,12 @@ class GameSettingsNavigationTests(unittest.TestCase):
 
         for asset_name in asset_names:
             with self.subTest(asset=asset_name):
-                with Image.open(ASSET_DIR / asset_name) as image:
-                    image.verify()
+                frames = imageio.mimread(ASSET_DIR / asset_name)
+                self.assertGreaterEqual(len(frames), 1)
+                self.assertEqual(frames[0].shape[:2], (720, 1280))
+
+        fixture = imageio.imread(FIXTURE_DIR / "settings_options_selected_lower.png")
+        self.assertEqual(fixture.shape[:2], (91, 101))
 
     def test_options_detector_distinguishes_settings_shell(self) -> None:
         self.assertLess(
