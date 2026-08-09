@@ -60,6 +60,18 @@ DISPLAY_BUILDER_LOCAL_PROSE = {
         "time_str",
     ),
 }
+CLASS_DISPLAY_MAPPING_KEYS = {
+    (
+        "module/os/tasks/scheduling.py",
+        "CoinTaskMixin",
+        "TASK_NAMES",
+    ): (
+        "OpsiMeowfficerFarming",
+        "OpsiObscure",
+        "OpsiAbyssal",
+        "OpsiStronghold",
+    ),
+}
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
     r"(?:hh|h|ll|l|L|j|z|t)?[diouxXeEfFgGcrsa%]"
@@ -390,6 +402,7 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         self.ranges: list[SourceRange] = []
         self.contracts: list[SiteContract] = []
         self.source_path = filename.rsplit("@", maxsplit=1)[0]
+        self.class_stack: list[str] = []
         self.function_stack: list[str] = []
         self.local_prose_assignment_stack: list[set[int]] = []
 
@@ -469,6 +482,11 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         self.local_prose_assignment_stack.pop()
         self.function_stack.pop()
 
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.class_stack.append(node.name)
+        self.generic_visit(node)
+        self.class_stack.pop()
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._visit_function(node)
 
@@ -476,6 +494,40 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         self._visit_function(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
+        if (
+            self.class_stack
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Dict)
+        ):
+            target = node.targets[0]
+            expected_keys = CLASS_DISPLAY_MAPPING_KEYS.get(
+                (self.source_path, self.class_stack[-1], target.id)
+            )
+            if expected_keys is not None:
+                actual_keys = tuple(
+                    key.value
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str)
+                    else None
+                    for key in node.value.keys
+                )
+                if (
+                    actual_keys == expected_keys
+                    and len(node.value.values) == len(expected_keys)
+                    and all(
+                        isinstance(value, ast.Constant)
+                        and isinstance(value.value, str)
+                        for value in node.value.values
+                    )
+                ):
+                    for key, value in zip(
+                        expected_keys, node.value.values, strict=True
+                    ):
+                        self._approve(
+                            value,
+                            f"class display mapping {target.id}[{key!r}]",
+                        )
+
         if (
             self.local_prose_assignment_stack
             and id(node) in self.local_prose_assignment_stack[-1]
