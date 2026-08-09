@@ -20,6 +20,7 @@ PROTECTED_PATHS = {
     ".github/workflows/ci.yml",
     "dev_tools/translation_structural_gate.py",
     "tests/test_translation_structural_gate.py",
+    "tests/test_translation_structural_gate_display_sinks.py",
 }
 ENTRY_POINTS = {"alas.py", "gui.py", "mcp_server_sse.py"}
 LOGGER_METHODS = {"info", "warning", "error", "critical", "exception", "hr"}
