@@ -35,10 +35,7 @@ CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 LATIN_RE = re.compile(r"[A-Za-z]")
 URL_RE = re.compile(r"^(?:https?|wss?)://\S+$", re.IGNORECASE)
-PACKAGE_RE = re.compile(r"^(?:[a-z][a-z0-9_]*\.){2,}[A-Za-z0-9_]+$")
-MACHINE_IDENTIFIER_RE = re.compile(
-    r"^_?[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*(?:\s*->\s*[A-Z][A-Z0-9_]*)?$"
-)
+PACKAGE_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9_]*\.){2,}[A-Za-z0-9_]+$")
 EXCEPTION_TEMPLATE_RE = re.compile(
     r"^(?:\[Alas\]\s+)?(?:<>\s+)?(?:GameStuckError|GamePageUnknownError|"
     r"ScriptError|EmulatorNotRunningError|RequestHumanTakeover)(?::\s*/)?$"
@@ -89,16 +86,23 @@ MACHINE_TEMPLATES = frozenset(
         "E:/path\\\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",
         "bored_visited_G3: , bored_visited_H2:",
         "customer.app_keptlive",
+        "emergency_module_development",
         "ensure_no_stage_entrance",
+        "grids_offset",
         "hr0",
         "hr1",
         "hr2",
         "hr3",
         "is_in_daily_reward ->",
+        "network_available",
+        "next_template_index",
+        "OS_ACTION_POINT_PRESERVE",
         "pos: () =",
         "sdk_ver:",
         "u2.Device",
+        "_fleet_sidebar_offset",
         "_storage_in_material -> EQUIPMENT_ENTER",
+        "center_loca",
     }
 )
 
@@ -162,10 +166,6 @@ def classify_english_only(text: str) -> str | None:
         return "PRESERVE_TECHNICAL"
     if _path_like(stripped):
         return "PRESERVE_TECHNICAL"
-    if MACHINE_IDENTIFIER_RE.fullmatch(stripped) and (
-        "_" in stripped or "." in stripped or "->" in stripped
-    ):
-        return "PRESERVE_MACHINE"
     return None
 
 

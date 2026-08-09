@@ -8,7 +8,7 @@
 
 - Entry `personal/stable`: `4da251770c2abdfd3d9dc6af33185be3263add24`.
 - Translation closure stable: `9aeba4e8e21a0a8f2ea50e90016f8699dae7035e`.
-- Final release source head: exact head финального integrity/docs PR; resulting stable SHA создаётся его squash merge и фиксируется в GitHub merge metadata и итоговом отчёте задачи.
+- Final release candidate source head: `67978f93177d4521faeeb3b7d302d17e84685022` (PR `#69`). Resulting stable SHA создаётся squash merge этого head и фиксируется в GitHub merge metadata и Wiki: включить собственный будущий merge SHA в тот же commit технически невозможно.
 - Runtime scope: Windows 11, PowerShell 7.6, MuMu Player Global 15, Android 15, Global/EN Azur Lane.
 - Concurrent open PRs not included in release snapshot: `#62 feature/game-settings-navigation`.
 - GitHub tag/release и binaries не создавались: release означает validated `personal/stable` snapshot и этот отчёт.
@@ -78,7 +78,7 @@ Acceptance выполнялась на изолированном clean checkout
 
 Translation PR exact head прошёл required contexts `Python`, `Windows`, `Security`; GitHub structural step `Verify translation-only structure from PR base` был `EXECUTED/SUCCESS`. CodeRabbit required status был PASS, blocking findings и unresolved threads отсутствовали; повторный content review был ограничен внешней квотой.
 
-Финальный integrity/docs PR обязан повторно пройти exact-head `Python`, `Windows`, `Security`, Declared Scope и отсутствие unresolved review threads. Resulting squash merge проверяется post-merge CI до объявления snapshot завершённым.
+Финальный integrity/docs PR `#69` на exact head `67978f93177d4521faeeb3b7d302d17e84685022` прошёл `Python`, `Windows`, `Security` и Declared Scope. CodeRabbit завершил review; все actionable threads должны быть разрешены перед merge. Resulting squash merge проверяется post-merge CI до объявления snapshot завершённым.
 
 ## Documentation and future changes
 

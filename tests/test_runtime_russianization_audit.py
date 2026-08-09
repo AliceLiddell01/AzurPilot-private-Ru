@@ -33,11 +33,12 @@ def test_cjk_operator_logger_message_fails() -> None:
 
 def test_ordinary_english_operator_sentence_fails() -> None:
     result = audit_source(
-        'logger.info("Starting task")\nlogger.info("Waiting")\n',
+        'logger.info("Starting task")\nlogger.info("Waiting")\n'
+        'logger.info("Waiting_for_task")\n',
         "module/sample.py",
     )
 
-    assert result.categories["TRANSLATE"] == 2
+    assert result.categories["TRANSLATE"] == 3
     assert "unclassified English operator text" in result.blockers[0]
 
 
