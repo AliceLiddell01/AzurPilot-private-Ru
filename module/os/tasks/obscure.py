@@ -31,10 +31,10 @@ class OpsiObscure(CoinTaskMixin, OSMap):
             in: page_os, 大世界地图
             out: page_os, 大世界地图
         """
-        logger.hr('大世界-隐秘海域', level=1)
+        logger.hr('Операция «Сирена» — скрытые зоны', level=1)
         self.cl1_ap_preserve()
         if self.config.OpsiObscure_ForceRun:
-            logger.info('隐秘海域处于强制运行模式')
+            logger.info('Скрытые зоны выполняются в принудительном режиме')
 
         result = self.storage_get_next_item('OBSCURE', use_logger=self.config.OpsiGeneral_UseLogger,
                                             skip_obscure_hazard_2=self.config.OpsiObscure_SkipHazard2Obscure)

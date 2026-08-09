@@ -27,7 +27,7 @@ class MapOrderHandler(MapOperation, ActionPointHandler, MapEventHandler, ZoneMan
             in: is_in_map
             out: is_in_map_order
         """
-        logger.info('进入指令')
+        logger.info('Вход в меню приказов')
         for _ in self.loop():
             # End
             if self.is_in_map_order():
@@ -49,7 +49,7 @@ class MapOrderHandler(MapOperation, ActionPointHandler, MapEventHandler, ZoneMan
             in: is_in_map_order
             out: is_in_map
         """
-        logger.info('退出指令')
+        logger.info('Выход из меню приказов')
         self.ui_click(ORDER_CHECK, appear_button=self.is_in_map_order, check_button=self.is_in_map,
                       skip_first_screenshot=True)
 
@@ -82,7 +82,7 @@ class MapOrderHandler(MapOperation, ActionPointHandler, MapEventHandler, ZoneMan
 
             if self.is_in_map_order() and not self.appear(button):
                 if missing_timer.reached():
-                    logger.info(f'[大世界处理-指令] 地图指令不可用: {button}')
+                    logger.info(f'[Операция «Сирена» — приказ] Приказ карты недоступен: {button}')
                     self.order_quit()
                     return False
             else:
@@ -156,7 +156,7 @@ class MapOrderHandler(MapOperation, ActionPointHandler, MapEventHandler, ZoneMan
         if not self.map_cat_attack_timer.reached():
             return False
         if np.sum(color_similarity_2d(self.image_crop(MAP_CAT_ATTACK, copy=False), (255, 231, 123)) > 221) > 100:
-            logger.info('跳过地图猫攻击')
+            logger.info('Атака мяуфицера на карте пропущена')
             self.device.click(CLICK_SAFE_AREA)
             self.map_cat_attack_timer.reset()
             return True

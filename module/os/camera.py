@@ -104,7 +104,7 @@ class OSCamera(OSMapOperation, Camera):
                 edge = self.view.backend.right_edge
                 area = (edge.get_x(360), 360, 1280, 560)
             else:
-                logger.info('[大世界-相机] 没有左边缘或右边缘')
+                logger.info('[Операция «Сирена» — камера] Нет ни левой, ни правой границы')
                 self.ensure_edge_insight()
                 continue
 
@@ -122,7 +122,7 @@ class OSCamera(OSMapOperation, Camera):
             self.view.load(self.device.image)
         except (MapDetectionError, AttributeError, cv2.error) as e:
             logger.warning(e)
-            logger.warning('[大世界-相机] 假设摄像机聚焦在格子中心')
+            logger.warning('[Операция «Сирена» — камера] Предполагается, что камера сфокусирована на центре клетки')
 
             def empty(*args, **kwargs):
                 pass
@@ -158,26 +158,26 @@ class OSCamera(OSMapOperation, Camera):
         if fleets.count == 1:
             center = fleets[0].location
         elif fleets.count > 1:
-            logger.warning(f'[大世界-相机] 雷达转换到本地时发现多个当前舰队: {fleets}')
+            logger.warning(f'[Операция «Сирена» — камера] При преобразовании координат радара найдено несколько текущих флотов: {fleets}')
             fleets = fleets.sort_by_camera_distance(self.view.center_loca)
             center = fleets[0].location
             logger.warning(
-                f'假设距离摄像机中心最近的舰队为当前舰队: {location2node(center)}')
+                f'Ближайший к центру камеры флот считается текущим: {location2node(center)}')
         else:
-            logger.warning(f'[大世界-相机] 雷达转换到本地时未找到当前舰队, '
-                           f'假设摄像机中心为当前舰队: {location2node(self.view.center_loca)}')
+            logger.warning(f'[Операция «Сирена» — камера] При преобразовании координат радара текущий флот не найден; '
+                           f'центр камеры считается текущим флотом: {location2node(self.view.center_loca)}')
             center = self.view.center_loca
 
         try:
             local = self.view[np.add(location, center)]
         except KeyError:
-            logger.warning(f'[大世界-相机] 雷达转换到本地时目标格子不在本地视野中, '
-                           f'假设摄像机中心为当前舰队: {location2node(self.view.center_loca)}')
+            logger.warning(f'[Операция «Сирена» — камера] При преобразовании координат радара целевая клетка отсутствует в локальной области; '
+                           f'центр камеры считается текущим флотом: {location2node(self.view.center_loca)}')
             center = self.view.center_loca
             local = self.view[np.add(location, center)]
 
         logger.info(
-            f'[大世界-相机] 雷达 {location} -> 本地 {location2node(local.location)} '
-            f'(舰队={location2node(center)})'
+            f'[Операция «Сирена» — камера] Радар {location} -> локальная клетка {location2node(local.location)} '
+            f'(флот={location2node(center)})'
         )
         return local

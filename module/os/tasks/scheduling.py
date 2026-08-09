@@ -129,7 +129,7 @@ class CoinTaskMixin:
                     self.RUNTIME_ATTR_PREVENT_OVERFLOW_DELAY,
                     (args, kwargs),
                 )
-                logger.info('[大世界-智能调度+] 已将子任务延迟请求交给防止行动力溢出任务')
+                logger.info('[Операция «Сирена» — умное планирование+] Запрос на перенос подзадачи передан задаче защиты от переполнения очков действия')
                 return
 
             kwargs.pop('task', None)
@@ -138,7 +138,7 @@ class CoinTaskMixin:
                     keys=f'{self.TASK_NAME_SCHEDULING}.Scheduler.ServerUpdate',
                     default='00:00',
                 )
-            logger.info('[大世界-智能调度+] 将子任务延迟映射到智能调度+任务')
+            logger.info('[Операция «Сирена» — умное планирование+] Перенос подзадачи сопоставлен задаче «Умное планирование+»')
             self.config.task_delay(
                 *args,
                 task=self.TASK_NAME_SCHEDULING,
@@ -176,10 +176,10 @@ class CoinTaskMixin:
                 self.RUNTIME_ATTR_PREVENT_OVERFLOW_DELAY,
                 ((), {'server_update': True}),
             )
-            logger.info(f'[大世界-智能调度+] {reason}，防止行动力溢出任务延迟到服务器刷新')
+            logger.info(f'[Операция «Сирена» — умное планирование+] {reason}; задача защиты от переполнения очков действия отложена до обновления сервера')
             return
 
-        logger.info(f'[大世界-智能调度+] {reason}，智能调度+延迟到服务器刷新')
+        logger.info(f'[Операция «Сирена» — умное планирование+] {reason}; «Умное планирование+» отложено до обновления сервера')
         self.config.task_delay(
             server_update=self.config.cross_get(
                 keys=f'{self.TASK_NAME_SCHEDULING}.Scheduler.ServerUpdate',
@@ -243,9 +243,9 @@ class CoinTaskMixin:
                     content=launcher_content
                 )
                 if webui_success:
-                    logger.info(f"[大世界-智能调度+] 启动器推送通知成功: {launcher_title}")
+                    logger.info(f"[Операция «Сирена» — умное планирование+] Уведомление лаунчера отправлено: {launcher_title}")
             except Exception as e:
-                logger.error(f"[大世界-智能调度+] 启动器推送通知异常: {e}")
+                logger.error(f"[Операция «Сирена» — умное планирование+] Ошибка отправки уведомления лаунчера: {e}")
 
         if not onepush_enabled:
             return webui_success
@@ -257,7 +257,7 @@ class CoinTaskMixin:
             else self.config.Error_OnePushConfig
         )
         if not self._is_push_config_valid(push_config):
-            logger.warning("[大世界-智能调度+] 推送配置未设置或 provider 为 null，跳过 OnePush 推送。请在 AzurPilot 设置 -> 错误处理 -> OnePush 配置中设置有效的推送渠道。")
+            logger.warning("[Операция «Сирена» — умное планирование+] Конфигурация уведомлений не задана либо provider равен null; отправка через OnePush пропущена. Настройте канал в AzurPilot → Обработка ошибок → OnePush.")
             return webui_success
 
         try:
@@ -268,12 +268,12 @@ class CoinTaskMixin:
                 content=content
             )
             if success:
-                logger.info(f"[大世界-智能调度+] 推送通知成功: {formatted_title}")
+                logger.info(f"[Операция «Сирена» — умное планирование+] Уведомление отправлено: {formatted_title}")
             else:
-                logger.warning(f"[大世界-智能调度+] 推送通知失败: {formatted_title}")
+                logger.warning(f"[Операция «Сирена» — умное планирование+] Не удалось отправить уведомление: {formatted_title}")
             return bool(success or webui_success)
         except Exception as e:
-            logger.error(f"[大世界-智能调度+] 推送通知异常: {e}")
+            logger.error(f"[Операция «Сирена» — умное планирование+] Ошибка отправки уведомления: {e}")
             return webui_success
 
     def _format_launcher_notification(self, instance_name, title, content):
@@ -347,7 +347,7 @@ class CoinTaskMixin:
         min_interval = timedelta(minutes=self.AP_NOTIFY_MIN_INTERVAL_MINUTES)
         if last_notify and now - last_notify < min_interval:
             logger.info(
-                f"Skip AP notification ({key}, last: {last_notify}, wait {self.AP_NOTIFY_MIN_INTERVAL_MINUTES}m)"
+                f"Уведомление об AP пропущено ({key}, последнее: {last_notify}, ожидание: {self.AP_NOTIFY_MIN_INTERVAL_MINUTES} мин)"
             )
             return False
         setattr(self.config, attempt_key, now)
@@ -376,13 +376,13 @@ class CoinTaskMixin:
             if isinstance(last_notification, dict):
                 previous_ap = last_notification.get('ap')
         except Exception:
-            logger.exception('Failed to load last AP notification')
+            logger.exception('Не удалось загрузить последнее уведомление об AP')
 
         content = f"总行动力: {total_ap}"
         if previous_ap is not None:
             ap_delta = total_ap - previous_ap
             if ap_delta == 0:
-                logger.info('[大世界-智能调度+] 行动力未发生变化，跳过推送通知')
+                logger.info('[Операция «Сирена» — умное планирование+] Очки действия не изменились, уведомление пропущено')
                 return
             if ap_delta > 0:
                 content = f"总行动力: {total_ap} 上涨{ap_delta}行动力"
@@ -402,7 +402,7 @@ class CoinTaskMixin:
                 from module.statistics.cl1_database import db as cl1_db
                 cl1_db.async_set_last_ap_notification(instance_name, total_ap)
             except Exception:
-                logger.exception('Failed to save last AP notification')
+                logger.exception('Не удалось сохранить последнее уведомление об AP')
 
     
     def _get_smart_scheduling_operation_coins_preserve(self):
@@ -423,7 +423,7 @@ class CoinTaskMixin:
             # 保证返回 int 以免后续比较报错
             if cl1_preserve_original is None:
                 cl1_preserve_original = 0
-            logger.info(f'[大世界-智能调度+] 黄币保留使用原配置: {cl1_preserve_original} (黄币目标调度未启用)')
+            logger.info(f'[Операция «Сирена» — умное планирование+] Резерв жёлтых монет взят из исходной конфигурации: {cl1_preserve_original} (планирование целевого запаса отключено)')
             return cl1_preserve_original
         else:
             # 开关开启，使用智能调度+自己的配置，允许为 0
@@ -432,7 +432,7 @@ class CoinTaskMixin:
             )
             if preserve is None:
                 preserve = 0
-            logger.info(f'[大世界-智能调度+] 黄币保留使用智能调度+配置: {preserve} (开关已开启)')
+            logger.info(f'[Операция «Сирена» — умное планирование+] Резерв жёлтых монет взят из конфигурации «Умного планирования+»: {preserve} (функция включена)')
             return preserve
     
     def _get_smart_scheduling_action_point_preserve(self):
@@ -479,7 +479,7 @@ class CoinTaskMixin:
         try:
             threshold = int(threshold or 0)
         except (TypeError, ValueError):
-            logger.warning(f'[大世界-智能调度+] 智能调度+黄币回补阈值无效: {threshold}，使用 0')
+            logger.warning(f'[Операция «Сирена» — умное планирование+] Недопустимый порог пополнения жёлтых монет: {threshold}; используется 0')
             threshold = 0
         return max(threshold, 0)
 
@@ -591,8 +591,8 @@ class CoinTaskMixin:
             state.pop(self.STATE_KEY_AP_REPLENISH_ACTIVE, None)
             self._clear_coin_task_notification_state()
             logger.info(
-                f'[大世界-智能调度+] 调度模式由 {previous_mode} 切换为 {current_mode}，'
-                '已清理旧模式运行状态'
+                f'[Операция «Сирена» — умное планирование+] Режим планирования изменён с {previous_mode} на {current_mode}; '
+                'состояние предыдущего режима очищено'
             )
 
         state[self.STATE_KEY_SCHEDULING_MODE] = current_mode
@@ -653,7 +653,7 @@ class CoinTaskMixin:
                         return len(priorities)
                 enabled_tasks = sorted(enabled_tasks, key=sort_key)
         except Exception as e:
-            logger.warning(f'[大世界-智能调度+] 按优先级排序大世界黄币补充任务失败: {e}，使用默认顺序')
+            logger.warning(f'[Операция «Сирена» — умное планирование+] Не удалось упорядочить задачи пополнения жёлтых монет по приоритету: {e}; используется порядок по умолчанию')
         
         return enabled_tasks
 
@@ -661,21 +661,21 @@ class CoinTaskMixin:
         """
         处理黄币补充任务没有可执行内容的情况。
         """
-        logger.info(f'[大世界-智能调度+] {log_message}，准备结束当前任务')
+        logger.info(f'[Операция «Сирена» — умное планирование+] {log_message}; подготовка к завершению текущей задачи')
         task_name = self._get_current_coin_task_name()
-        logger.info(f'[大世界-智能调度+] 处理任务: {task_name}')
+        logger.info(f'[Операция «Сирена» — умное планирование+] Обрабатываемая задача: {task_name}')
 
         if self.is_running_smart_scheduling_task():
             if '没有更多' not in log_message:
                 self._smart_scheduling_no_content_task = task_name
-            logger.info(f'[大世界-智能调度+] 智能调度+代理执行中，{task_display_name}无可执行内容')
+            logger.info(f'[Операция «Сирена» — умное планирование+] Выполнение через диспетчер «Умного планирования+»: для {task_display_name} нет доступных действий')
             if self._is_direct_prevent_overflow_coin_task():
                 self.delay_opsi_active_task(server_update=True)
                 self.config.task_stop()
             return True
 
         if self.is_smart_scheduling_enabled():
-            logger.info(f'[大世界-智能调度+] 智能调度+已启用，{task_display_name}无可执行内容')
+            logger.info(f'[Операция «Сирена» — умное планирование+] «Умное планирование+» включено; для {task_display_name} нет доступных действий')
             self.config.task_delay(server_update=True)
             self.config.task_stop()
 
@@ -688,13 +688,13 @@ class CoinTaskMixin:
             if task_name in ('OpsiObscure', 'OpsiAbyssal') and get_os_reset_remain is not None:
                 remain = get_os_reset_remain()
                 if remain == 0:
-                    logger.info(f'[大世界-智能调度+] {task_name} 没有更多可执行内容，距离大世界重置不足1天，延迟2.5小时后再运行')
+                    logger.info(f'[Операция «Сирена» — умное планирование+] Для {task_name} больше нет доступных действий; до сброса Операции «Сирена» менее суток, повторный запуск через 2,5 часа')
                     self.config.task_delay(minute=150, server_update=True)
                 else:
-                    logger.info(f'[大世界-智能调度+] {task_name} 没有更多可执行内容，延迟到下次服务器刷新后再运行')
+                    logger.info(f'[Операция «Сирена» — умное планирование+] Для {task_name} больше нет доступных действий; повторный запуск отложен до следующего обновления сервера')
                     self.config.task_delay(server_update=True)
             else:
-                logger.info(f'[大世界-智能调度+] {task_name} 没有更多可执行内容，延迟到下次服务器刷新后再运行')
+                logger.info(f'[Операция «Сирена» — умное планирование+] Для {task_name} больше нет доступных действий; повторный запуск отложен до следующего обновления сервера')
                 self.config.task_delay(server_update=True)
         
         self.config.task_stop()
@@ -795,10 +795,10 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         由智能调度+执行一轮耄耋相接。
         """
         if not hasattr(self, 'run_meowfficer_farming_once'):
-            logger.error('[大世界-智能调度+] 当前实例不支持执行耄耋相接')
+            logger.error('[Операция «Сирена» — умное планирование+] Текущий экземпляр не поддерживает запуск фарма мяуфицеров')
             self.config.task_stop()
 
-        logger.info('[大世界-智能调度+] 执行一轮耄耋相接')
+        logger.info('[Операция «Сирена» — умное планирование+] Выполнение одного цикла фарма мяуфицеров')
         self._run_with_opsi_task_context(
             self.TASK_NAME_MEOWFFICER_FARMING,
             self.run_meowfficer_farming_once,
@@ -812,7 +812,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         self._smart_scheduling_first_auto_search_pending = False
 
         if not run:
-            logger.info("智能调度+接下来执行侵蚀 1，跳过初始化自律寻敌")
+            logger.info("Следующей задачей «Умного планирования+» будет прокачка в зоне коррозии 1; инициализация автопоиска врагов пропущена")
             return
 
         self.run_first_auto_search()
@@ -826,8 +826,8 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         """
         if self.is_running_prevent_action_point_overflow_task() and current_ap > 0:
             logger.info(
-                f'防止行动力溢出上下文：黄币不足且总行动力未达补黄币保留，'
-                f'执行耄耋相接清理当前行动力 (当前={current_ap}, 总行动力={total_ap})'
+                f'Контекст защиты от переполнения очков действия: жёлтых монет недостаточно, а суммарные очки действия не достигли резерва для их пополнения; '
+                f'выполняется фарм мяуфицеров для расходования текущих очков действия (текущие={current_ap}, суммарные={total_ap})'
             )
             if yellow_coins < coin_target:
                 coin_status = f'黄币 {yellow_coins} 低于补黄币目标 {coin_target}'
@@ -845,7 +845,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                 )
                 return
 
-            logger.warning('[大世界-防止行动力溢出] 耄耋相接无可执行内容，无法继续清理当前行动力')
+            logger.warning('[Операция «Сирена» — защита от переполнения очков действия] Для фарма мяуфицеров нет доступных действий; продолжить расходование текущих очков действия невозможно')
             self._delay_smart_scheduling_to_server_update('耄耋相接无可执行内容')
             self.config.task_stop()
             return
@@ -858,10 +858,10 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         由智能调度+执行一轮侵蚀 1 练级。
         """
         if not hasattr(self, 'run_hazard1_leveling_once'):
-            logger.error('[大世界-智能调度+] 当前实例不支持执行侵蚀 1 练级')
+            logger.error('[Операция «Сирена» — умное планирование+] Текущий экземпляр не поддерживает прокачку в зоне коррозии 1')
             self.config.task_stop()
 
-        logger.info('[大世界-智能调度+] 执行一轮侵蚀 1 练级')
+        logger.info('[Операция «Сирена» — умное планирование+] Выполнение одного цикла прокачки в зоне коррозии 1')
         self.handle_first_auto_search(run=False)
         if hasattr(self, 'os_check_leveling'):
             self._run_with_opsi_task_context(
@@ -881,32 +881,32 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         self._smart_scheduling_no_content_task = None
 
         task_display = self.TASK_NAMES.get(task_name, task_name)
-        logger.info(f'[大世界-智能调度+] 代理执行一轮{task_display}')
+        logger.info(f'[Операция «Сирена» — умное планирование+] Выполнение одного цикла задачи через диспетчер: {task_display}')
         if task_name == self.TASK_NAME_MEOWFFICER_FARMING:
             self._run_scheduled_meowfficer_farming(ap_preserve)
         elif task_name == self.TASK_NAME_OBSCURE:
             if not hasattr(self, 'clear_obscure'):
-                logger.error('[大世界-智能调度+] 当前实例不支持执行隐秘海域')
+                logger.error('[Операция «Сирена» — умное планирование+] Текущий экземпляр не поддерживает зачистку скрытых зон')
                 self.config.task_stop()
             self._run_with_opsi_task_context(task_name, self.clear_obscure)
         elif task_name == self.TASK_NAME_ABYSSAL:
             if not hasattr(self, 'clear_abyssal'):
-                logger.error('[大世界-智能调度+] 当前实例不支持执行深渊坐标')
+                logger.error('[Операция «Сирена» — умное планирование+] Текущий экземпляр не поддерживает зачистку абиссальных зон')
                 self.config.task_stop()
             self._run_with_opsi_task_context(task_name, self.clear_abyssal)
         elif task_name == self.TASK_NAME_STRONGHOLD:
             if not hasattr(self, 'clear_stronghold'):
-                logger.error('[大世界-智能调度+] 当前实例不支持执行塞壬要塞')
+                logger.error('[Операция «Сирена» — умное планирование+] Текущий экземпляр не поддерживает зачистку крепостей Сирен')
                 self.config.task_stop()
             self._run_with_opsi_task_context(task_name, self.clear_stronghold)
         else:
-            logger.error(f'[大世界-智能调度+] 不支持代理执行黄币补充任务: {task_name}')
+            logger.error(f'[Операция «Сирена» — умное планирование+] Диспетчер не поддерживает задачу пополнения жёлтых монет: {task_name}')
             self.config.task_stop()
 
         no_content_task = getattr(self, '_smart_scheduling_no_content_task', None)
         self._smart_scheduling_no_content_task = None
         if no_content_task == task_name:
-            logger.info(f'[大世界-智能调度+] {task_display}没有可执行内容')
+            logger.info(f'[Операция «Сирена» — умное планирование+] Для {task_display} нет доступных действий')
             return False
         return True
 
@@ -914,7 +914,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         """
         因行动力不足推迟智能调度+。
         """
-        logger.warning(f'[大世界-智能调度+] 行动力达到最低保留 ({total_ap} <= {min_ap_reserve})')
+        logger.warning(f'[Операция «Сирена» — умное планирование+] Очки действия достигли минимального резерва ({total_ap} <= {min_ap_reserve})')
         self._notify_ap_insufficient(total_ap, min_ap_reserve)
         self._delay_smart_scheduling_to_server_update('行动力不足')
         self.config.task_stop()
@@ -931,16 +931,16 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         coin_replenish_active = self._is_coin_replenish_active()
         ap_replenish_active = self._is_ap_replenish_active()
 
-        logger.info(f'[大世界-智能调度+] 黄币: {yellow_coins}, 保留值: {cl1_preserve}')
+        logger.info(f'[Операция «Сирена» — умное планирование+] Жёлтые монеты: {yellow_coins}, резерв: {cl1_preserve}')
         if self.is_running_prevent_action_point_overflow_task():
             logger.info(
-                f'[大世界-智能调度+] 行动力: 当前={current_ap}, 总计={total_ap}, '
-                f'CL1保留: {cl1_ap_preserve}, 补黄币保留: {meow_ap_preserve}'
+                f'[Операция «Сирена» — умное планирование+] Очки действия: текущие={current_ap}, суммарные={total_ap}, '
+                f'резерв CL1={cl1_ap_preserve}, резерв пополнения монет={meow_ap_preserve}'
             )
         else:
             logger.info(
-                f'[大世界-智能调度+] 总行动力: {total_ap}, '
-                f'CL1保留: {cl1_ap_preserve}, 补黄币保留: {meow_ap_preserve}'
+                f'[Операция «Сирена» — умное планирование+] Суммарные очки действия: {total_ap}, '
+                f'резерв CL1={cl1_ap_preserve}, резерв пополнения монет={meow_ap_preserve}'
             )
 
         try:
@@ -950,16 +950,16 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                     cl1_preserve,
                 )
                 logger.info(
-                    f'[大世界-智能调度+] 补黄币目标: 当前={yellow_coins}, 起始={start_coins}, '
-                    f'回补阈值={return_threshold}, 目标={coin_target}'
+                    f'[Операция «Сирена» — умное планирование+] Целевой запас монет: текущие={yellow_coins}, начальные={start_coins}, '
+                    f'порог пополнения={return_threshold}, цель={coin_target}'
                 )
                 if yellow_coins >= coin_target:
-                    logger.info(f'[大世界-智能调度+] 黄币已补足 ({yellow_coins} >= {coin_target})，恢复侵蚀1练级')
+                    logger.info(f'[Операция «Сирена» — умное планирование+] Жёлтые монеты пополнены ({yellow_coins} >= {coin_target}), возврат к прокачке в зоне коррозии 1')
                     self._clear_coin_replenish_target()
                 else:
-                    logger.info(f'[大世界-智能调度+] 黄币未补足 ({yellow_coins} < {coin_target})，需要执行黄币补充任务')
+                    logger.info(f'[Операция «Сирена» — умное планирование+] Жёлтые монеты не пополнены ({yellow_coins} < {coin_target}), требуется задача их пополнения')
                     if total_ap <= meow_ap_preserve:
-                        logger.warning(f'[大世界-智能调度+] 行动力不足以执行黄币补充任务 ({total_ap} <= {meow_ap_preserve})')
+                        logger.warning(f'[Операция «Сирена» — умное планирование+] Недостаточно очков действия для задачи пополнения жёлтых монет ({total_ap} <= {meow_ap_preserve})')
                         self._handle_smart_scheduling_no_task(
                             yellow_coins,
                             total_ap,
@@ -981,11 +981,11 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                 if not ap_replenish_active:
                     self._set_ap_replenish_active()
                 logger.info(
-                    f'[大世界-智能调度+] 体力调度补黄币中: 黄币={yellow_coins}, '
-                    f'黄币阈值={cl1_preserve}, 总行动力={total_ap}, 行动力阈值={meow_ap_preserve}'
+                    f'[Операция «Сирена» — умное планирование+] Пополнение жёлтых монет по очкам действия: монеты={yellow_coins}, '
+                    f'порог монет={cl1_preserve}, суммарные очки действия={total_ap}, порог очков действия={meow_ap_preserve}'
                 )
                 if total_ap <= meow_ap_preserve:
-                    logger.info(f'[大世界-智能调度+] 行动力已达到体力调度阈值 ({total_ap} <= {meow_ap_preserve})，停止补黄币')
+                    logger.info(f'[Операция «Сирена» — умное планирование+] Очки действия достигли порога планирования ({total_ap} <= {meow_ap_preserve}), пополнение жёлтых монет остановлено')
                     self._clear_ap_replenish_active()
                     overflow_cleanup = (
                         self.is_running_prevent_action_point_overflow_task()
@@ -1001,8 +1001,8 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                         )
                         return
                     logger.info(
-                        f'[大世界-智能调度+] 黄币已补足 ({yellow_coins} >= {cl1_preserve})，'
-                        '恢复侵蚀1练级'
+                        f'[Операция «Сирена» — умное планирование+] Жёлтые монеты пополнены ({yellow_coins} >= {cl1_preserve}), '
+                        'возврат к прокачке в зоне коррозии 1'
                     )
                 else:
                     self._dispatch_coin_task(
@@ -1016,10 +1016,10 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
             if total_ap <= cl1_ap_preserve:
                 self._delay_smart_scheduling_for_ap_limit(total_ap, cl1_ap_preserve)
 
-            logger.info(f'[大世界-智能调度+] 黄币充足 ({yellow_coins} >= {cl1_preserve})，执行侵蚀1练级')
+            logger.info(f'[Операция «Сирена» — умное планирование+] Жёлтых монет достаточно ({yellow_coins} >= {cl1_preserve}), запуск прокачки в зоне коррозии 1')
             self._execute_hazard1_leveling(yellow_coins, total_ap)
         except ActionPointLimit as e:
-            logger.warning(f'[大世界-智能调度+] 智能调度+执行子任务时行动力不足: {e}')
+            logger.warning(f'[Операция «Сирена» — умное планирование+] Недостаточно очков действия при выполнении подзадачи: {e}')
             preserve = getattr(e, 'preserve', None) or cl1_ap_preserve
             current = getattr(e, 'total', None) or getattr(e, 'current', None) or total_ap
             self._delay_smart_scheduling_for_ap_limit(current, preserve)
@@ -1033,11 +1033,11 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         2. 根据黄币和行动力状态决定当前应该执行的任务
         3. 按代理模式协调子任务执行
         """
-        logger.hr('大世界-智能调度+', level=1)
+        logger.hr('Операция «Сирена» — умное планирование+', level=1)
 
         # 检查是否启用智能调度+
         if not self.is_smart_scheduling_enabled():
-            logger.info('[大世界-智能调度+] 智能调度+未启用，跳过执行')
+            logger.info('[Операция «Сирена» — умное планирование+] «Умное планирование+» отключено, выполнение пропущено')
             return
 
         while True:
@@ -1089,7 +1089,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         """
         all_coin_tasks = self._get_enabled_coin_tasks()
         if not all_coin_tasks:
-            logger.error('[大世界-智能调度+] 没有启用任何黄币补充任务，停止智能调度+')
+            logger.error('[Операция «Сирена» — умное планирование+] Ни одна задача пополнения жёлтых монет не включена, «Умное планирование+» остановлено')
             self.notify_push(
                 title='[AzurPilot] 智能调度+ - 未启用黄币补充任务',
                 content='请至少启用耄耋相接、隐秘海域、深渊坐标或塞壬要塞中的一项',
@@ -1099,7 +1099,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
 
         self.handle_first_auto_search(run=True)
         task_names = '、'.join([self.TASK_NAMES.get(task, task) for task in all_coin_tasks])
-        logger.info(f'[大世界-智能调度+] 启用的黄币补充任务: {task_names}')
+        logger.info(f'[Операция «Сирена» — умное планирование+] Включённые задачи пополнения жёлтых монет: {task_names}')
 
         for task_name in all_coin_tasks:
             if self._run_scheduled_coin_task_once(task_name, meow_ap_preserve):
@@ -1112,7 +1112,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                 )
                 return
 
-        logger.warning('[大世界-智能调度+] 智能调度+启用的黄币补充任务均无可执行内容，结束本轮智能调度+')
+        logger.warning('[Операция «Сирена» — умное планирование+] Во всех включённых задачах пополнения жёлтых монет нет доступных действий; текущий цикл завершён')
         self._delay_smart_scheduling_to_server_update('黄币补充任务均无可执行内容')
         self.config.task_stop()
 
@@ -1155,7 +1155,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         执行侵蚀1练级任务
         """
         self._clear_coin_task_notification_state()
-        logger.info('[大世界-智能调度+] 执行侵蚀1练级任务')
+        logger.info('[Операция «Сирена» — умное планирование+] Выполнение задачи прокачки в зоне коррозии 1')
         self._run_scheduled_hazard1_leveling(self._get_effective_cl1_ap_preserve())
     
     def notify_action_point_threshold(self, title, content):

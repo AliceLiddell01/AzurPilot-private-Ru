@@ -31,4 +31,4 @@ class EnemySearchingHandler(EnemySearchingHandler_):
             if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50), interval=3):
                 continue
         else:
-            logger.warning('[大世界处理-搜索] 大世界地图按钮等待超时，假设已等待完成')
+            logger.warning('[Операция «Сирена» — поиск] Истекло время ожидания кнопки карты; предполагается, что ожидание завершено')

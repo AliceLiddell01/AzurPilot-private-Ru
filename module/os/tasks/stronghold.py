@@ -25,7 +25,7 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
             in: page_os, 大世界地球仪
             out: page_os, 大世界地图
         """
-        logger.hr('大世界-塞壬要塞', level=1)
+        logger.hr('Операция «Сирена» — крепость Сирен', level=1)
         with self.config.multi_set():
             self.config.OpsiStronghold_HasStronghold = True
             self.cl1_ap_preserve()
@@ -46,7 +46,7 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
 
         if self.config.OpsiStronghold_SubmarineEveryCombat:
             if self.zone.is_azur_port:
-                logger.info('[大世界-要塞] 已在碧蓝港口')
+                logger.info('[Операция «Сирена» — крепость] Уже в порту Азур Лейн')
             else:
                 self.globe_goto(self.zone_nearest_azur_port(self.zone))
         self.handle_fleet_repair_by_config(revert=False)
@@ -103,10 +103,10 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
 
             # 判断结果
             if self.get_stronghold_percentage() == '0':
-                logger.info('[大世界-要塞] Boss已清除')
+                logger.info('[Операция «Сирена» — крепость] Босс побеждён')
                 return True
             elif any(self.need_repair):
-                logger.info('[大世界-要塞] 自动搜索停止，因为舰队阵亡')
+                logger.info('[Операция «Сирена» — крепость] Автоматические поиски остановлены, так как флот погиб')
                 # 重新进入以重置舰队位置
                 prev = self.zone
                 self.globe_goto(self.zone_nearest_azur_port(self.zone))
@@ -114,12 +114,12 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
                 self.globe_goto(prev, types='STRONGHOLD')
                 return False
             elif submarine and self.os_sumbarine_empty():
-                logger.info('[大世界-要塞] 潜艇弹药耗尽，等待下次清理')
+                logger.info('[Операция «Сирена» — крепость] Боезапас подлодки исчерпан, ожидание следующей зачистки')
                 # 潜艇弹药耗尽，等待下次清理
                 self.globe_goto(self.zone_nearest_azur_port(self.zone))
                 return True
             else:
-                logger.info('[大世界-要塞] 自动搜索停止，因为舰队卡住')
+                logger.info('[Операция «Сирена» — крепость] Автоматический поиск остановился из-за застревания флота')
                 # 重新进入以重置舰队位置
                 prev = self.zone
                 self.globe_goto(self.zone_nearest_azur_port(self.zone))
@@ -141,10 +141,10 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
             in: 塞壬日志仪（深渊），Boss 已出现。
             out: 成功时为危险或安全海域，失败时仍在深渊中。
         """
-        logger.hr('塞壬要塞清理', level=1)
+        logger.hr('Очистка крепости Сирен', level=1)
         fleets = self.parse_fleet_filter()
         for fleet in fleets:
-            logger.hr(f'[大世界-要塞] 回合: {fleet}', level=2)
+            logger.hr(f'[Операция «Сирена» — крепость] Раунд: {fleet}', level=2)
             if not isinstance(fleet, BossFleet):
                 self.os_order_execute(recon_scan=False, submarine_call=True)
                 continue
@@ -155,5 +155,5 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
             else:
                 continue
 
-        logger.critical('[大世界-塞壬要塞] 无法击败boss，舰队已耗尽')
+        logger.critical('[Операция «Сирена» — крепость Сирен] Не удалось победить босса, все флоты исчерпаны')
         return False

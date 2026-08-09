@@ -80,8 +80,8 @@ class OpsiVoucher(OSMap):
     def _data_logger_schedule_failure_pause(self, reason, failure_count):
         next_reset = get_os_next_reset()
         logger.error(
-            f'[{DATA_LOGGER_NAME}] lifecycle remained unverifiable after '
-            f'{failure_count} attempts; paused until the next monthly reset: '
+            f'[{DATA_LOGGER_NAME}] Жизненный цикл не удалось подтвердить после '
+            f'{failure_count} попыток; задача приостановлена до следующего ежемесячного сброса: '
             f'{reason}'
         )
         self.config.task_delay(target=next_reset)
@@ -93,9 +93,9 @@ class OpsiVoucher(OSMap):
             return
 
         logger.warning(
-            f'[{DATA_LOGGER_NAME}] lifecycle incomplete; unresolved attempt '
-            f'{failure_count}/{DATA_LOGGER_MAX_FAILURES_PER_CYCLE}, retry in no '
-            f'more than {DATA_LOGGER_RETRY_MINUTES} minutes: {reason}'
+            f'[{DATA_LOGGER_NAME}] Жизненный цикл не завершён; неподтверждённая попытка '
+            f'{failure_count}/{DATA_LOGGER_MAX_FAILURES_PER_CYCLE}, повтор не '
+            f'позднее чем через {DATA_LOGGER_RETRY_MINUTES} мин: {reason}'
         )
         # Retry after six hours, but never later than the next daily server
         # update. task_delay converts the configured server update to local
@@ -108,28 +108,28 @@ class OpsiVoucher(OSMap):
     def _data_logger_schedule_month_reset(self):
         data_logger_clear_retry(self.config)
         next_reset = get_os_next_reset()
-        logger.info('白票商店已完成，延迟到下次重置')
-        logger.attr('大世界下次重置', next_reset)
+        logger.info('Магазин ваучеров завершён, задача отложена до следующего сброса')
+        logger.attr('Следующий сброс Операции «Сирена»', next_reset)
         self.config.task_delay(target=next_reset)
 
     def _data_logger_ensure_port_map(self):
         """Ensure a stable local map in an allied port before Storage input."""
-        logger.info(f'[{DATA_LOGGER_NAME}] validating allied-port prerequisite')
+        logger.info(f'[{DATA_LOGGER_NAME}] Проверка обязательного условия: союзный порт')
         if self.is_in_globe():
             self.os_globe_goto_map()
         if not self.is_in_map():
-            logger.warning(f'[{DATA_LOGGER_NAME}] not on an Operation Siren local map')
+            logger.warning(f'[{DATA_LOGGER_NAME}] Локальная карта Операции «Сирена» не открыта')
             return False
 
         self.zone_init()
         if not self.zone.is_azur_port:
             target = self.zone_nearest_azur_port(self.zone)
-            logger.info(f'[{DATA_LOGGER_NAME}] navigating to allied port {target}')
+            logger.info(f'[{DATA_LOGGER_NAME}] Переход в союзный порт {target}')
             self.globe_goto(target)
             self.zone_init()
             if not self.zone.is_azur_port:
                 logger.warning(
-                    f'[{DATA_LOGGER_NAME}] allied-port navigation was not confirmed'
+                    f'[{DATA_LOGGER_NAME}] Переход в союзный порт не подтверждён'
                 )
                 return False
 
@@ -141,11 +141,11 @@ class OpsiVoucher(OSMap):
                 stable_frames += 1
                 self.device.sleep(0.5)
                 if stable_frames >= 3:
-                    logger.info(f'[{DATA_LOGGER_NAME}] allied-port local map confirmed')
+                    logger.info(f'[{DATA_LOGGER_NAME}] Локальная карта союзного порта подтверждена')
                     return True
             else:
                 stable_frames = 0
-        logger.warning(f'[{DATA_LOGGER_NAME}] allied-port local map was not stable')
+        logger.warning(f'[{DATA_LOGGER_NAME}] Локальная карта союзного порта нестабильна')
         return False
 
     def _data_logger_storage_enter(self):
@@ -153,7 +153,7 @@ class OpsiVoucher(OSMap):
         if not self._data_logger_ensure_port_map():
             return False
 
-        logger.info(f'[{DATA_LOGGER_NAME}] entering Storage')
+        logger.info(f'[{DATA_LOGGER_NAME}] Вход в Storage')
         timeout = Timer.from_seconds(DATA_LOGGER_STORAGE_ENTER_SECONDS).start()
         transition = None
         self.interval_clear(STORAGE_ENTER)
@@ -161,12 +161,12 @@ class OpsiVoucher(OSMap):
             self.device.screenshot()
             if self.is_in_storage():
                 self.handle_info_bar()
-                logger.info(f'[{DATA_LOGGER_NAME}] Storage confirmed')
+                logger.info(f'[{DATA_LOGGER_NAME}] Storage подтверждён')
                 return True
 
             if self.appear(MISSION_CHECK, offset=(20, 20)):
                 logger.warning(
-                    f'[{DATA_LOGGER_NAME}] Overview opened instead of Storage; closing it'
+                    f'[{DATA_LOGGER_NAME}] Вместо Storage открыта сводка; закрытие сводки'
                 )
                 self.device.click(MISSION_QUIT)
                 transition = None
@@ -186,8 +186,8 @@ class OpsiVoucher(OSMap):
                 if transition is not None and not transition.reached():
                     continue
                 logger.warning(
-                    f'[{DATA_LOGGER_NAME}] allied-port map invariant was lost '
-                    'during Storage entry'
+                    f'[{DATA_LOGGER_NAME}] Во время входа в Storage нарушен инвариант '
+                    'карты союзного порта'
                 )
                 return False
             if transition is not None:
@@ -209,8 +209,8 @@ class OpsiVoucher(OSMap):
                 continue
 
         logger.warning(
-            f'[{DATA_LOGGER_NAME}] Storage entry timed out after '
-            f'{DATA_LOGGER_STORAGE_ENTER_SECONDS} seconds'
+            f'[{DATA_LOGGER_NAME}] Истекло время входа в Storage: '
+            f'{DATA_LOGGER_STORAGE_ENTER_SECONDS} с'
         )
         return False
 
@@ -243,7 +243,7 @@ class OpsiVoucher(OSMap):
             ):
                 continue
 
-        logger.warning(f'[{DATA_LOGGER_NAME}] failed to confirm Storage exit')
+        logger.warning(f'[{DATA_LOGGER_NAME}] Не удалось подтвердить выход из Storage')
         return False
 
     def _data_logger_storage_items(self):
@@ -310,7 +310,7 @@ class OpsiVoucher(OSMap):
     def _data_logger_storage_scan(self):
         if not self._data_logger_storage_scroll_bottom():
             logger.warning(
-                f'[{DATA_LOGGER_NAME}] Storage bottom could not be confirmed'
+                f'[{DATA_LOGGER_NAME}] Не удалось подтвердить нижнюю границу Storage'
             )
             return None
 
@@ -321,7 +321,7 @@ class OpsiVoucher(OSMap):
             if not self.is_in_storage():
                 return None
             items = self._data_logger_storage_items()
-            logger.attr(f'{DATA_LOGGER_NAME} Storage matches', len(items))
+            logger.attr(f'{DATA_LOGGER_NAME}: совпадения в Storage', len(items))
             if items:
                 return items
             empty_frames += 1
@@ -374,7 +374,7 @@ class OpsiVoucher(OSMap):
                     success_observed = True
                 else:
                     logger.warning(
-                        f'[{DATA_LOGGER_NAME}] ignored generic reward UI before Use'
+                        f'[{DATA_LOGGER_NAME}] Общий экран награды до Use проигнорирован'
                     )
                 continue
             if self.appear_then_click(GET_ITEMS_2, interval=2):
@@ -382,7 +382,7 @@ class OpsiVoucher(OSMap):
                     success_observed = True
                 else:
                     logger.warning(
-                        f'[{DATA_LOGGER_NAME}] ignored generic reward UI before Use'
+                        f'[{DATA_LOGGER_NAME}] Общий экран награды до Use проигнорирован'
                     )
                 continue
             if self.appear(GET_ADAPTABILITY, offset=5, interval=2):
@@ -391,7 +391,7 @@ class OpsiVoucher(OSMap):
                     success_observed = True
                 else:
                     logger.warning(
-                        f'[{DATA_LOGGER_NAME}] ignored adaptability reward before Use'
+                        f'[{DATA_LOGGER_NAME}] Награда адаптивности до Use проигнорирована'
                     )
                 continue
             if self.handle_story_skip():
@@ -408,8 +408,8 @@ class OpsiVoucher(OSMap):
 
                 if success_observed:
                     logger.info(
-                        f'[{DATA_LOGGER_NAME}] activation confirmed by success UI '
-                        'after Use'
+                        f'[{DATA_LOGGER_NAME}] Активация подтверждена экраном успеха '
+                        'после Use'
                     )
                     return DataLoggerStorageState.ACTIVATED
 
@@ -436,7 +436,7 @@ class OpsiVoucher(OSMap):
                     # disappearance is not evidence that Use was clicked.
                     continue
 
-        logger.warning(f'[{DATA_LOGGER_NAME}] Storage activation could not be confirmed')
+        logger.warning(f'[{DATA_LOGGER_NAME}] Не удалось подтвердить активацию в Storage')
         return DataLoggerStorageState.UNKNOWN
 
     def _data_logger_storage_lifecycle(self):
@@ -449,8 +449,8 @@ class OpsiVoucher(OSMap):
                 return DataLoggerStorageState.UNKNOWN
             if not items:
                 logger.warning(
-                    f'[{DATA_LOGGER_NAME}] item is absent in Storage; '
-                    'absence alone is not accepted as proof of activation'
+                    f'[{DATA_LOGGER_NAME}] Предмет отсутствует в Storage; '
+                    'само отсутствие не считается доказательством активации'
                 )
                 return DataLoggerStorageState.ABSENT
             self._data_logger_record_evidence(
@@ -464,15 +464,15 @@ class OpsiVoucher(OSMap):
                 self._data_logger_storage_quit()
             except Exception as exc:
                 logger.exception(
-                    f'[{DATA_LOGGER_NAME}] Storage cleanup failed after lifecycle '
-                    f'result was determined: {exc}'
+                    f'[{DATA_LOGGER_NAME}] Не удалось очистить Storage после определения '
+                    f'результата жизненного цикла: {exc}'
                 )
 
     def _data_logger_shop_lifecycle(self, shop):
         try:
             return shop.ensure_data_logger()
         except Exception as exc:
-            logger.exception(f'[{DATA_LOGGER_NAME}] shop inspection failed: {exc}')
+            logger.exception(f'[{DATA_LOGGER_NAME}] Не удалось проверить магазин: {exc}')
             return DataLoggerShopResult(
                 state=DataLoggerShopState.UNKNOWN,
                 reason=f'exception:{type(exc).__name__}',
@@ -527,17 +527,17 @@ class OpsiVoucher(OSMap):
         }
 
     def os_voucher(self):
-        logger.hr('大世界-白票商店', level=1)
+        logger.hr('Операция «Сирена» — магазин ваучеров', level=1)
         intent = data_logger_intent_enabled(self.config)
         active = data_logger_is_active(self.config)
         retry_only = data_logger_retry_pending(self.config)
         failure_count = data_logger_retry_count(self.config)
         lifecycle_evidence = data_logger_lifecycle_evidence(self.config)
         logger.info(
-            f'[{DATA_LOGGER_NAME}] visible intent={intent}, '
-            f'monthly active={active}, retry-only={retry_only}, '
-            f'failures={failure_count}, '
-            f'evidence={lifecycle_evidence.value}'
+            f'[{DATA_LOGGER_NAME}] видимое намерение={intent}, '
+            f'активен в текущем месяце={active}, только повтор={retry_only}, '
+            f'ошибок={failure_count}, '
+            f'доказательство={lifecycle_evidence.value}'
         )
 
         if (
@@ -562,13 +562,13 @@ class OpsiVoucher(OSMap):
             data_logger_clear_retry(self.config)
             data_logger_clear_evidence(self.config)
             retry_only = False
-            logger.info(f'[{DATA_LOGGER_NAME}] automation disabled by user')
+            logger.info(f'[{DATA_LOGGER_NAME}] Автоматизация отключена пользователем')
         else:
-            logger.info(f'[{DATA_LOGGER_NAME}] current monthly cycle already confirmed')
+            logger.info(f'[{DATA_LOGGER_NAME}] Текущий ежемесячный цикл уже подтверждён')
 
         if retry_only:
             logger.info(
-                f'[{DATA_LOGGER_NAME}] retry-only run: ordinary voucher filter is skipped'
+                f'[{DATA_LOGGER_NAME}] Запуск только для повтора: обычный фильтр ваучеров пропущен'
             )
         else:
             shop.run()
@@ -578,16 +578,16 @@ class OpsiVoucher(OSMap):
         if shop_result is not None:
             if self._data_logger_should_probe_storage(shop_result, retry_only):
                 logger.info(
-                    f'[{DATA_LOGGER_NAME}] continuing with Storage probe: '
-                    f'shop state={shop_result.state.value}, '
-                    f'reason={shop_result.reason}, '
-                    f'purchase-evidence={shop_result.purchase_evidence.value}, '
-                    f'retry-only={retry_only}'
+                    f'[{DATA_LOGGER_NAME}] Продолжение проверкой Storage: '
+                    f'состояние магазина={shop_result.state.value}, '
+                    f'причина={shop_result.reason}, '
+                    f'доказательство покупки={shop_result.purchase_evidence.value}, '
+                    f'только повтор={retry_only}'
                 )
                 try:
                     storage_state = self._data_logger_storage_lifecycle()
                 except Exception as exc:
-                    logger.exception(f'[{DATA_LOGGER_NAME}] Storage lifecycle failed: {exc}')
+                    logger.exception(f'[{DATA_LOGGER_NAME}] Ошибка жизненного цикла Storage: {exc}')
                     storage_state = DataLoggerStorageState.UNKNOWN
 
                 lifecycle_evidence = data_logger_lifecycle_evidence(self.config)
@@ -600,9 +600,9 @@ class OpsiVoucher(OSMap):
                 )
                 if recovered_from_absence:
                     logger.info(
-                        f'[{DATA_LOGGER_NAME}] activation recovered from persisted '
-                        f'exact-item evidence={lifecycle_evidence.value}, complete '
-                        'shop scan, and confirmed Storage absence'
+                        f'[{DATA_LOGGER_NAME}] Активация восстановлена по сохранённому '
+                        f'доказательству точного предмета={lifecycle_evidence.value}, полному '
+                        'сканированию магазина и подтверждённому отсутствию в Storage'
                     )
 
                 if (
@@ -611,7 +611,7 @@ class OpsiVoucher(OSMap):
                 ):
                     cycle_key = data_logger_mark_active(self.config)
                     logger.info(
-                        f'[{DATA_LOGGER_NAME}] monthly success saved for server cycle '
+                        f'[{DATA_LOGGER_NAME}] Ежемесячный успех сохранён для серверного цикла '
                         f'{cycle_key}'
                     )
                     self._data_logger_schedule_month_reset()

@@ -44,7 +44,7 @@ class OSCampaignRun(OSMapOperation):
     def delay_opsi_tasks_after_ap_limit(self, error):
         delay_minutes = getattr(error, 'delay_minutes', None)
         if delay_minutes is not None:
-            logger.info(f'[大世界-运行] 延迟大世界行动力任务 {delay_minutes} 分钟直到行动力恢复')
+            logger.info(f'[Операция «Сирена» — запуск] Задачи, расходующие очки действия, отложены на {delay_minutes} мин. до их восстановления')
         self.config.opsi_task_delay(ap_limit=True, ap_limit_minutes=delay_minutes)
 
     def _run_opsi_task_with_ap_overflow_guard(self, runner):
@@ -52,7 +52,7 @@ class OSCampaignRun(OSMapOperation):
         campaign = None
         prevent_enabled = self.config.is_task_enabled(self.PREVENT_AP_OVERFLOW_TASK)
         if prevent_enabled:
-            logger.info('[战役] 临时关闭防止行动力溢出任务')
+            logger.info('[Операция «Сирена» — запуск] Задача защиты от переполнения очков действия временно отключена')
             self.config.cross_set(keys=f'{self.PREVENT_AP_OVERFLOW_TASK}.Scheduler.Enable', value=False)
 
         try:
@@ -101,7 +101,7 @@ class OSCampaignRun(OSMapOperation):
                 self.config.task_delay(server_update=True)
                 self.config.task_call('Reward', force_call=False)
             else:
-                logger.info('[大世界-运行] 距离大世界重置不足1天，延迟2.5小时')
+                logger.info('[Операция «Сирена» — запуск] До сброса менее одного дня; задача отложена на 2,5 часа')
                 self.config.task_delay(minute=150, server_update=True)
 
     def opsi_hazard1_leveling(self):
@@ -120,8 +120,8 @@ class OSCampaignRun(OSMapOperation):
 
     def opsi_month_boss(self):
         if self.config.SERVER in ['tw']:
-            logger.info(f'[大世界-运行] OpsiMonthBoss不支持服务器 {self.config.SERVER}，'
-                        ' please contact server maintainers')
+            logger.info(f'[Операция «Сирена» — запуск] OpsiMonthBoss не поддерживает сервер {self.config.SERVER}; '
+                        'обратитесь к сопровождающим этого сервера')
             self.config.task_delay(server_update=True)
             self.config.task_stop()
             return

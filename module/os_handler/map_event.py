@@ -156,7 +156,7 @@ class MapEventHandler(EnemySearchingHandler):
 
         if self.appear(STORY_SKIP_3, offset=(20, 20), interval=0):
             if self._story_timeout.reached():
-                logger.warning('[大世界处理-事件] 等待剧情选项超时')
+                logger.warning('[Операция «Сирена» — событие] Истекло время ожидания варианта сюжета')
                 self._story_timeout.reset()
 
                 # 重启应用
@@ -321,7 +321,7 @@ class MapEventHandler(EnemySearchingHandler):
         # 舰队锁定取决于是否在地图上显示，而非地图状态
         # 因为如果已在地图中，则没有地图状态
         if not fleet_lock.appear(main=self):
-            logger.info('[大世界处理-事件] 未找到舰队锁定选项')
+            logger.info('[Операция «Сирена» — событие] Вариант фиксации флота не найден')
             return False
 
         if enable is None:

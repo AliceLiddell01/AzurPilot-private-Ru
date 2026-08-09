@@ -74,7 +74,7 @@ class OpsiPreventActionPointOverflow(OpsiScheduling):
             self.TASK_NAME_HAZARD1_LEVELING,
             self.TASK_NAME_MEOWFFICER_FARMING,
         ):
-            logger.warning(f'[大世界-防止行动力溢出] 防止行动力溢出的执行任务无效: {task}，回退到智能调度+')
+            logger.warning(f'[Операция «Сирена» — защита от переполнения очков действия] Недопустимая задача расходования очков действия: {task}; возврат к «Умному планированию+»')
             task = self.TASK_NAME_SCHEDULING
         return task
 
@@ -85,7 +85,7 @@ class OpsiPreventActionPointOverflow(OpsiScheduling):
         current = int(getattr(self, '_action_point_current', 0) or 0)
         total = int(getattr(self, '_action_point_total', 0) or 0)
         self.action_point_quit()
-        logger.info(f'[大世界-防止行动力溢出] 防止行动力溢出检查：当前行动力={current}, 总行动力={total}')
+        logger.info(f'[Операция «Сирена» — защита от переполнения очков действия] Проверка переполнения: текущие очки действия={current}, суммарные={total}')
         return current
 
     def update_prevent_action_point_overflow_schedule(self, current_ap=None, enable=True):
@@ -111,8 +111,8 @@ class OpsiPreventActionPointOverflow(OpsiScheduling):
             delay_minutes = max(1, (upper - current_ap) * ACTION_POINT_RECOVER_SECONDS / 60)
 
         logger.info(
-            f'按当前行动力更新防止行动力溢出任务：当前={current_ap}, 上限={upper}, '
-            f'{delay_minutes:.0f} 分钟后运行'
+            f'Обновление задачи защиты от переполнения по текущим очкам действия: текущие={current_ap}, верхний предел={upper}, '
+            f'{delay_minutes:.0f} мин до запуска'
         )
         with self.config.multi_set():
             self._set_prevent_action_point_overflow_enabled(enable)
@@ -149,7 +149,7 @@ class OpsiPreventActionPointOverflow(OpsiScheduling):
     def _run_scheduled_coin_task_once(self, task_name, ap_preserve):
         """由防止行动力溢出上下文直接执行一轮补黄币任务。"""
         if self.is_running_prevent_action_point_overflow_task():
-            logger.info(f'[大世界-防止行动力溢出] 直接执行一轮{self.TASK_NAMES.get(task_name, task_name)}')
+            logger.info(f'[Операция «Сирена» — защита от переполнения очков действия] Прямое выполнение одного цикла задачи {self.TASK_NAMES.get(task_name, task_name)}')
         return super()._run_scheduled_coin_task_once(task_name, ap_preserve)
 
     def _run_prevent_action_point_overflow_target_once(self, task_name, lowerbound):
@@ -180,23 +180,23 @@ class OpsiPreventActionPointOverflow(OpsiScheduling):
 
     def run_prevent_action_point_overflow(self):
         """防止当前行动力溢出。"""
-        logger.hr('大世界-防止行动力溢出', level=1)
+        logger.hr('Операция «Сирена» — защита от переполнения очков действия', level=1)
         upperbound, lowerbound = self._get_prevent_action_point_overflow_thresholds()
         task_name = self._get_prevent_action_point_overflow_task()
-        logger.attr('行动力上限', upperbound)
-        logger.attr('行动力下限', lowerbound)
-        logger.attr('溢出任务', task_name)
+        logger.attr('Верхний предел очков действия', upperbound)
+        logger.attr('Нижний предел очков действия', lowerbound)
+        logger.attr('Задача расходования очков действия', task_name)
 
         started = False
         while True:
             current_ap = self._get_current_action_point_for_overflow()
             if not started:
                 if current_ap < upperbound:
-                    logger.info(f'[大世界-防止行动力溢出] 当前行动力未达到上限 ({current_ap} < {upperbound})，更新下次运行时间')
+                    logger.info(f'[Операция «Сирена» — защита от переполнения очков действия] Текущие очки действия не достигли верхнего предела ({current_ap} < {upperbound}), обновление времени следующего запуска')
                     self.update_prevent_action_point_overflow_schedule(current_ap=current_ap, enable=True)
                     self.config.task_stop()
             elif current_ap < lowerbound:
-                logger.info(f'[大世界-防止行动力溢出] 当前行动力已低于下限 ({current_ap} < {lowerbound})，停止防止行动力溢出任务')
+                logger.info(f'[Операция «Сирена» — защита от переполнения очков действия] Текущие очки действия ниже нижнего предела ({current_ap} < {lowerbound}), задача остановлена')
                 self.update_prevent_action_point_overflow_schedule(current_ap=current_ap, enable=True)
                 self.config.task_stop()
 
@@ -207,7 +207,7 @@ class OpsiPreventActionPointOverflow(OpsiScheduling):
                 current = getattr(e, 'current', None)
                 if current is None:
                     current = current_ap
-                logger.info(f'[大世界-防止行动力溢出] 当前行动力无法进入目标海域，停止防止行动力溢出任务: current={current}, error={e}')
+                logger.info(f'[Операция «Сирена» — защита от переполнения очков действия] Текущих очков действия недостаточно для входа в целевую зону, задача остановлена: current={current}, error={e}')
                 self.update_prevent_action_point_overflow_schedule(current_ap=current, enable=True)
                 self.config.task_stop()
             except TaskEnd:
@@ -216,7 +216,7 @@ class OpsiPreventActionPointOverflow(OpsiScheduling):
                     delattr(self, self.RUNTIME_ATTR_PREVENT_OVERFLOW_DELAY)
                 if delay_request is not None:
                     args, kwargs = delay_request
-                    logger.info('[大世界-防止行动力溢出] 应用代理子任务请求的延迟时间')
+                    logger.info('[Операция «Сирена» — защита от переполнения очков действия] Применён перенос, запрошенный подзадачей диспетчера')
                     self.config.task_delay(
                         *args,
                         task=self.TASK_NAME_PREVENT_AP_OVERFLOW,

@@ -50,7 +50,7 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         """
         image = self.image_crop((360, 320, 410, 700))
         result = sum([template.match_multi(image) for template in self.TEMPLATES], [])
-        logger.attr('货币图标位置', f'{result}')
+        logger.attr('Расположение иконок валюты', f'{result}')
         return Points([(0., m.area[1]) for m in result]).group(threshold=5)
 
     @cached_property
@@ -107,12 +107,12 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         if len(shop_items):
             min_row = self.os_shop_items.grids[0, 0].area[1]
             row = [str(item) for item in shop_items if item.button[1] == min_row]
-            logger.info(f'[大世界商店-港口] 大世界商店+第 1 行: {row}')
+            logger.info(f'[Магазин Операции «Сирена» — порт] Магазин+, строка 1: {row}')
             row = [str(item) for item in shop_items if item.button[1] != min_row]
-            logger.info(f'[大世界商店-港口] 大世界商店+第 2 行: {row}')
+            logger.info(f'[Магазин Операции «Сирена» — порт] Магазин+, строка 2: {row}')
             return shop_items
         else:
-            logger.info('[大世界商店-港口] 未找到大世界商店+物品')
+            logger.info('[Магазин Операции «Сирена» — порт] В магазине+ предметы не найдены')
 
         return []
 
@@ -131,7 +131,7 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         items = self.os_shop_get_items()
         for _ in range(2):
             if not len(items) or any(not item.is_known_item() for item in items):
-                logger.warning('[大世界商店-港口] 大世界商店+为空或物品为空，正在确认')
+                logger.warning('[Магазин Операции «Сирена» — порт] Магазин+ или список предметов пуст, выполняется подтверждение')
                 self.device.sleep((0.3, 0.5))
                 self.device.screenshot()
                 items = self.os_shop_get_items()
@@ -158,7 +158,7 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         self.device.click_record.clear()
 
         for i in range(4):
-            logger.hr(f'大世界商店+扫描 {i}')
+            logger.hr(f'Сканирование магазина Операции «Сирена»+ {i}')
             self.os_shop_side_navbar_ensure(upper=i + 1)
             pre_pos, cur_pos = self.init_slider()
 
@@ -169,12 +169,12 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
                 for _ in range(3):
                     _items = self.os_shop_get_items(i, cur_pos)
                     if not len(_items) or any(not item.is_known_item() for item in _items):
-                        logger.warning('[大世界商店-港口] 大世界商店+为空或物品为空，正在确认')
+                        logger.warning('[Магазин Операции «Сирена» — порт] Магазин+ или список предметов пуст, выполняется подтверждение')
                         self.device.sleep((0.3, 0.5))
                         self.device.screenshot()
                         continue
                     else:
-                        logger.info(f'[大世界商店-港口] 在商店 {i + 1} 的位置 {cur_pos:.2f} 找到 {len(_items)} 个物品')
+                        logger.info(f'[Магазин Операции «Сирена» — порт] В магазине {i + 1} на позиции {cur_pos:.2f} найдено предметов: {len(_items)} шт.')
                         break
                 # 始终添加物品，即使最后的物品列表包含未知物品
                 # 这样可以扫描到所有已知物品
@@ -185,7 +185,7 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
                         items.append(item)
 
                 if OS_SHOP_SCROLL.at_bottom(main=self):
-                    logger.info('[大世界商店-港口] 大世界商店+已滚动到底部，停止扫描')
+                    logger.info('[Магазин Операции «Сирена» — порт] Прокрутка магазина+ достигла конца, сканирование остановлено')
                     break
                 else:
                     OS_SHOP_SCROLL.next_page(main=self, page=0.5, skip_first_screenshot=False)

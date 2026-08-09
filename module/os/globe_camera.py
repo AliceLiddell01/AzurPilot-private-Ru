@@ -113,14 +113,14 @@ class GlobeCamera(GlobeOperation, ZoneManager):
                 timeout.reset()
                 continue
 
-            logger.warning('[大世界-地球仪] 尝试执行globe_update()，但不在大世界地球仪地图中')
+            logger.warning('[Операция «Сирена» — глобус] Вызван globe_update(), но экран глобуса не открыт')
             continue
 
         self._globe_init()
         self.globe.load(self.device.image)
         self.globe_camera = self.globe.center_loca
         center = self.camera_to_zone(self.globe.center_loca)
-        logger.attr('地球仪中心', center.zone_id)
+        logger.attr('Центр глобуса', center.zone_id)
 
     def globe_swipe(self, vector, box=(20, 220, 980, 620)):
         """
@@ -133,7 +133,7 @@ class GlobeCamera(GlobeOperation, ZoneManager):
         """
         name = 'GLOBE_SWIPE_' + '_'.join([str(int(round(x))) for x in vector])
         if np.linalg.norm(vector) <= 25:
-            logger.warning(f'地球仪滑动过短: {vector}')
+            logger.warning(f'Слишком короткий свайп по глобусу: {vector}')
             vector = np.sign(vector) * 25
 
         if self.config.DEVICE_CONTROL_METHOD == 'minitouch':
@@ -169,7 +169,7 @@ class GlobeCamera(GlobeOperation, ZoneManager):
             # End
             if np.linalg.norm(np.subtract(self.globe_camera, prev)) < 10:
                 if confirm.reached():
-                    logger.info('[大世界-地球仪] 地球仪地图已稳定')
+                    logger.info('[Операция «Сирена» — глобус] Карта глобуса стабилизировалась')
                     break
             else:
                 confirm.reset()
@@ -269,10 +269,10 @@ class GlobeCamera(GlobeOperation, ZoneManager):
 
             if self.is_zone_pinned():
                 if self.get_globe_pinned_zone() == zone:
-                    logger.attr('固定海域', zone)
+                    logger.attr('Закреплённая зона', zone)
                     return True
             if timeout.reached():
-                logger.warning('[大世界-地球仪] 等待区域固定超时')
+                logger.warning('[Операция «Сирена» — глобус] Истекло время ожидания закрепления зоны')
                 return False
 
     def globe_focus_to(self, zone):
@@ -288,7 +288,7 @@ class GlobeCamera(GlobeOperation, ZoneManager):
             out: IN_GLOBE, zone selected, ZONE_ENTRANCE
         """
         zone = self.name_to_zone(zone)
-        logger.info(f'[大世界-地球仪] 聚焦到: {zone.zone_id}')
+        logger.info(f'[Операция «Сирена» — глобус] Фокус на: {zone.zone_id}')
 
         while 1:
             if self.handle_zone_pinned():
@@ -351,26 +351,26 @@ class GlobeCamera(GlobeOperation, ZoneManager):
         while zones:
             prev = self.camera_to_zone(self.globe_camera)
             zone = zones.sort_by_camera_distance(prev.location)[0]
-            logger.info(f'[大世界-地球仪] 查找塞壬要塞 around {zone}')
+            logger.info(f'[Операция «Сирена» — глобус] Поиск крепости Сирен рядом с зоной {zone}')
             self.globe_in_sight(zone, sight=sight)
 
             to_check = zones.filter(lambda z: point_in_area(self.globe2screen([z.location])[0], area=sight))
             for zone in to_check:
                 if self._globe_predict_stronghold(zone):
-                    logger.info(f'[大世界-地球仪] 区域 {zone.zone_id} 是塞壬要塞')
+                    logger.info(f'[Операция «Сирена» — глобус] Зона {zone.zone_id} является крепостью Сирен')
                     self.globe_focus_to(zone)
                     if self.get_zone_pinned_name() == 'STRONGHOLD':
-                        logger.info('[大世界-地球仪] 确认为塞壬要塞')
+                        logger.info('[Операция «Сирена» — глобус] Крепость Сирен подтверждена')
                         return zone
                     else:
-                        logger.warning('[大世界-地球仪] 不是塞壬要塞，继续搜索')
+                        logger.warning('[Операция «Сирена» — глобус] Это не крепость Сирен; поиск продолжается')
                         self.ensure_no_zone_pinned()
                 else:
-                    logger.info(f'[大世界-地球仪] 区域 {zone.zone_id} 不是塞壬要塞')
+                    logger.info(f'[Операция «Сирена» — глобус] Зона {zone.zone_id} не является крепостью Сирен')
 
             zones = zones.delete(to_check)
 
-        logger.info('[大世界-地球仪] 查找塞壬要塞完成')
+        logger.info('[Операция «Сирена» — глобус] Поиск крепости Сирен завершён')
         return None
 
     def find_siren_stronghold(self):
@@ -382,7 +382,7 @@ class GlobeCamera(GlobeOperation, ZoneManager):
             in: in_globe
             out: in_globe, is_zone_pinned() if found.
         """
-        logger.hr(f'[大世界-地球仪] 查找塞壬要塞', level=1)
+        logger.hr(f'[Операция «Сирена» — глобус] Поиск крепости Сирен', level=1)
         region = self.camera_to_zone(self.globe_camera).region
         order = [1, 2, 4, 3]
         if region not in order:
@@ -396,11 +396,11 @@ class GlobeCamera(GlobeOperation, ZoneManager):
         order = order * 2
         order = order[index:index + 4]
         for region in order:
-            logger.hr(f'[大世界-地球仪] 查找塞壬要塞 in region {region}', level=2)
+            logger.hr(f'[Операция «Сирена» — глобус] Поиск крепости Сирен в регионе {region}', level=2)
             zones = self.zones.select(region=region, is_port=False)
             result = self._find_siren_stronghold(zones)
             if result is not None:
                 return result
 
-        logger.info('[大世界-地球仪] 没有更多塞壬要塞')
+        logger.info('[Операция «Сирена» — глобус] Нет больше крепостей Сирен')
         return None

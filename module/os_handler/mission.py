@@ -59,7 +59,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
         image = color_similarity_2d(self.image_crop(area, copy=False), color=(255, 207, 66))
         points = np.array(np.where(image > 235)).T[:, ::-1]
         if not len(points):
-            logger.warning('无法在大世界任务地图中找到任务')
+            logger.warning('Не удалось найти миссии на карте операции «Сирена»')
 
         point = fit_points(points, mod=(1000, 1000), encourage=5) + (0, 11)
         # 海域位置
@@ -87,7 +87,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
             in: MISSION_ENTER
             out: MISSION_CHECK
         """
-        logger.info('[大世界处理-任务] 进入大世界任务')
+        logger.info('[Операция «Сирена» — задания] Переход к миссии операции «Сирена»')
         checkout_offset = (-20, -20, 20, 20)
         confirm_timer = Timer(2, count=6).start()
         for _ in self.loop():
@@ -97,12 +97,12 @@ class MissionHandler(GlobeOperation, ZoneManager):
                     and not self.match_template_color(MISSION_CHECKOUT, offset=checkout_offset, similarity=0.78):
                 # 未找到任务，等待确认。任务可能加载较慢。
                 if confirm_timer.reached():
-                    logger.info('[大世界处理-任务] 未找到大世界任务')
+                    logger.info('[Операция «Сирена» — задания] Задание Операции «Сирена» не найдено')
                     break
             elif self.is_in_os_mission() \
                     and self.match_template_color(MISSION_CHECKOUT, offset=checkout_offset, similarity=0.78):
                 # 找到至少一个任务
-                logger.info('[大世界处理-任务] 至少找到一个大世界任务')
+                logger.info('[Операция «Сирена» — задания] Найдено хотя бы одно задание Операции «Сирена»')
                 break
             else:
                 confirm_timer.reset()
@@ -141,7 +141,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
         """
         退出任务列表。
         """
-        logger.info('[大世界处理-任务] 退出大世界任务')
+        logger.info('[Операция «Сирена» — задания] Выход из меню заданий Операции «Сирена»')
         for _ in self.loop():
             # 结束
             # 有时任务弹窗没有黑色模糊背景
@@ -170,29 +170,29 @@ class MissionHandler(GlobeOperation, ZoneManager):
         checkout_offset = self.os_mission_enter(skip_siren_mission=skip_siren_mission)
         checkout_offset = self._os_find_checkout_offset_skip_monthly_boss(checkout_offset)
         if checkout_offset is None:
-            logger.info('[大世界处理-任务] 没有更多非月度Boss的大世界任务')
+            logger.info('[Операция «Сирена» — задания] Заданий Операции «Сирена», кроме ежемесячного босса, больше нет')
             self.os_mission_quit()
             return False
 
         if self.is_in_opsi_explore():
-            logger.info('[大世界处理-任务] 每月开荒+正在运行，仅接取任务并领取奖励')
+            logger.info('[Операция «Сирена» — задания] Выполняется «Ежемесячное исследование+»: только принятие заданий и получение наград')
             self.os_mission_quit()
             return False
 
-        logger.info('[大世界处理-任务] 接取大世界任务')
+        logger.info('[Операция «Сирена» — задания] Принятие заданий Операции «Сирена»')
         for _ in self.loop():
             # 结束
             if self.is_zone_pinned():
                 if self.get_zone_pinned_name() == 'ARCHIVE':
-                    logger.info('[大世界处理-任务] 固定在档案区域')
+                    logger.info('[Операция «Сирена» — задания] Зафиксировано в архивной зоне')
                     self.globe_enter(zone=self.name_to_zone(72))
                     return 'pinned_at_archive_zone'
                 else:
-                    logger.info('[大世界处理-任务] 固定在任务区域')
+                    logger.info('[Операция «Сирена» — задания] Зафиксировано в зоне задания')
                     self.globe_enter(zone=self.name_to_zone(72))
                     return 'pinned_at_mission_zone'
             if self.is_in_map() and self.info_bar_count():
-                logger.info('[大世界处理-任务] 已在任务区域')
+                logger.info('[Операция «Сирена» — задания] Уже в зоне миссии')
                 return 'already_at_mission_zone'
 
             if self.appear_then_click(MISSION_CHECKOUT, offset=checkout_offset, interval=2, similarity=0.78):
@@ -216,7 +216,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
             in: is_in_map
             out: is_in_map
         """
-        logger.hr('大世界任务总览接取', level=1)
+        logger.hr('Принятие заданий из сводки Операции «Сирена»', level=1)
         # is_in_map
         self.os_map_goto_globe(unpin=False)
         # is_in_globe
@@ -241,14 +241,14 @@ class MissionHandler(GlobeOperation, ZoneManager):
                 continue
             if self.info_bar_count():
                 if skip_siren_mission:
-                    logger.info('[大世界处理-任务] 无法接受任务，存在多个同名塞壬研究任务')
+                    logger.info('[Операция «Сирена» — задания] Невозможно принять задание: существует несколько исследовательских заданий Сирен с одинаковым названием')
                     success = True
                 else:
-                    logger.info('[大世界处理-任务] 无法接受任务，已达任务数量上限')
+                    logger.info('[Операция «Сирена» — задания] Невозможно принять задание: достигнут предел количества заданий')
                     success = False
                 break
             if self.appear(MISSION_OVERVIEW_EMPTY, offset=(20, 20)):
-                logger.info('[大世界处理-任务] 无更多任务可接受')
+                logger.info('[Операция «Сирена» — задания] Нет больше заданий для принятия')
                 success = True
                 break
 
@@ -276,16 +276,16 @@ class MissionHandler(GlobeOperation, ZoneManager):
         enable = self.config.is_task_enabled('OpsiExplore')
         next_run = self.config.cross_get(keys='OpsiExplore.Scheduler.NextRun', default=DEFAULT_TIME)
         next_reset = get_os_next_reset()
-        logger.attr('大世界下次重置', next_reset)
-        logger.attr('每月开荒+', (enable, next_run))
+        logger.attr('Следующий сброс Операции «Сирена»', next_reset)
+        logger.attr('Ежемесячное исследование+', (enable, next_run))
         # -12 小时以处理夏令时
         # `next_run` 可能在夏令时之前计算，但现在是夏令时
         # 2023-03-14 11:15:28.423 | INFO | [OpsiNextReset] 2023-04-01 03:00:00
         # 2023-03-14 11:15:28.425 | INFO | [OpsiExplore] (True, datetime.datetime(2023, 4, 1, 2, 0))
         # 2023-03-14 11:15:28.426 | INFO | 每月开荒+仍在运行，仅接取任务...
         if enable and next_run < next_reset - timedelta(hours=12):
-            logger.info('每月开荒+仍在运行，仅接取任务。每月开荒+访问所有区域时会完成这些任务，不必担心遗漏。')
+            logger.info('«Ежемесячное исследование+» ещё выполняется, поэтому задания только принимаются. Они будут завершены при посещении всех зон, пропусков не будет.')
             return True
         else:
-            logger.info('未处于每月开荒+，可以执行大世界每日+')
+            logger.info('«Ежемесячное исследование+» не выполняется, можно запускать ежедневные задания+ Операции «Сирена»')
             return False

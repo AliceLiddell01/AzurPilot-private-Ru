@@ -129,7 +129,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             in: IN_MAP 或 IN_GLOBE 或 page_os 或任意页面
             out: IN_MAP
         """
-        logger.hr("大世界初始化", level=1)
+        logger.hr("Инициализация Операции «Сирена»", level=1)
         kwargs = {}
         if "iM" in self.config.task.command:
             for key in self.config.bound.keys():
@@ -151,7 +151,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
         # 界面切换
         if self.is_in_map():
-            logger.info("[大世界-地图] 已在大世界地图中")
+            logger.info("[Операция «Сирена» — карта] Карта Операции «Сирена» уже открыта")
         elif self.is_in_globe():
             self.os_globe_goto_map()
         else:
@@ -170,7 +170,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         # 从特殊海域类型退出，仅 SAFE 和 DANGEROUS 可接受。
         if self.is_in_special_zone():
             logger.warning(
-                "[大世界-地图] 大世界在特殊海域类型, 仅 SAFE 和 DANGEROUS 可接受"
+                "[Операция «Сирена» — карта] Для особого типа зоны допустимы только SAFE и DANGEROUS"
             )
             self.map_exit()
 
@@ -187,7 +187,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             )
             or overflow_target_task == "OpsiScheduling"
         ):
-            logger.info("智能调度+将决定初始化自律寻敌是否执行")
+            logger.info("Умное планирование+ определит, запускать ли начальный автопоиск врагов")
             self._smart_scheduling_first_auto_search_pending = True
         elif (
             self.zone.zone_id == leveling_zone
@@ -202,7 +202,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
     def run_first_auto_search(self):
         if self.zone.zone_id == 154:
-            logger.info("[大世界-地图] 在区域154，跳过首次自动搜索")
+            logger.info("[Операция «Сирена» — карта] В зоне 154 начальный автопоиск пропущен")
             self.handle_ash_beacon_attack()
         else:
             self.run_auto_search(rescan=True)
@@ -242,10 +242,10 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             out: IN_MAP
         """
         zone = self.name_to_zone(zone)
-        logger.hr(f"地球仪前往: {zone}")
+        logger.hr(f"Переход по глобусу: {zone}")
         if self.zone == zone:
             if refresh:
-                logger.info("[大世界-地图] 前往其他区域刷新当前区域")
+                logger.info("[Операция «Сирена» — карта] Переход в другую зону для обновления текущей")
                 self.globe_goto(
                     self.zone_nearest_azur_port(self.zone),
                     types=("SAFE", "DANGEROUS"),
@@ -254,7 +254,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             else:
                 if self.is_in_globe():
                     self.os_globe_goto_map()
-                logger.info("[大世界-地图] 已在目标区域")
+                logger.info("[Операция «Сирена» — карта] Уже в целевой зоне")
                 return False
         # MAP_EXIT 处理
         if self.is_in_special_zone():
@@ -267,7 +267,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         self.globe_update()
         self.globe_focus_to(zone)
         if stop_if_safe and self.zone_has_safe():
-            logger.info("[大世界-地图] 区域安全，停止")
+            logger.info("[Операция «Сирена» — карта] Зона безопасна; остановка")
             self.ensure_no_zone_pinned()
             return False
         self.zone_type_select(types=types)
@@ -296,7 +296,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 self.run_auto_search(rescan=True, after_auto_search=False)
                 continue
 
-        logger.error("[大世界-地图] 解决未收集奖励失败")
+        logger.error("[Операция «Сирена» — карта] Не удалось обработать несобранную награду")
         raise GameTooManyClickError
 
     def port_goto(self, allow_port_arrive=True):
@@ -311,7 +311,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 super().port_goto(allow_port_arrive=allow_port_arrive)
                 return True
             except MapWalkError:
-                logger.info("[大世界-地图] 前往其他港口再重新进入")
+                logger.info("[Операция «Сирена» — карта] Переход в другой порт и повторный вход")
             prev = self.zone
             if prev == self.name_to_zone("NY City"):
                 other = self.name_to_zone("Liverpool")
@@ -320,7 +320,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             self.globe_goto(other)
             self.globe_goto(prev)
 
-        logger.warning("[大世界-地图] 前往港口时解决地图移动错误失败")
+        logger.warning("[Операция «Сирена» — карта] Не удалось устранить ошибку перемещения при переходе в порт")
         return False
 
     def fleet_repair(self, revert=True):
@@ -330,10 +330,10 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         Args:
             revert (bool): 是否返回之前的海域。
         """
-        logger.hr("大世界舰队维修")
+        logger.hr("Ремонт флота в Операции «Сирена»")
         prev = self.zone
         if self.zone.is_azur_port:
-            logger.info("[大世界-维修] 已在碧蓝港口")
+            logger.info("[Операция «Сирена» — ремонт] Флот уже в порту Азур Лейн")
         else:
             self.globe_goto(self.zone_nearest_azur_port(self.zone))
 
@@ -373,12 +373,12 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         # 所以 threshold=0 仍会触发阵亡舰船的修理，这可能不是预期行为。
         if trigger_threshold <= 0:
             logger.info(
-                f"修理阈值: {repair_threshold}, 维修包阈值: {repair_pack_threshold}, "
-                f"触发阈值: {trigger_threshold}, 跳过舰队维修"
+                f"Порог ремонта: {repair_threshold}, порог ремкомплекта: {repair_pack_threshold}, "
+                f"порог срабатывания: {trigger_threshold}; ремонт флота пропущен"
             )
             return False
         if self.is_in_special_zone():
-            logger.info("[大世界-维修] 大世界在特殊区域类型，跳过舰队维修")
+            logger.info("[Операция «Сирена» — ремонт] Особый тип зоны; ремонт флота пропущен")
             return False
 
         self.hp_get()
@@ -388,9 +388,9 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         ]
         if any(check):
             logger.info(
-                "至少有一艘舰船低于阈值 "
+                "HP как минимум одного корабля ниже порога "
                 f"{int(trigger_threshold * 100)}%, "
-                "开始按当前配置修理舰队"
+                "Ремонт флота выполняется согласно текущим настройкам"
             )
             repaired = self.handle_fleet_repair_by_config(
                 revert=revert, trigger_threshold=trigger_threshold
@@ -398,12 +398,12 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             self.hp_reset()
             if repaired:
                 return True
-            logger.info("[大世界-维修] 触发了舰队维修但未执行实际维修")
+            logger.info("[Операция «Сирена» — ремонт] Ремонт флота запрошен, но ни один корабль не отремонтирован")
             return False
         logger.info(
-            "未发现低于阈值 "
-            f"{int(trigger_threshold * 100)}% 的舰船, "
-            "继续大世界探索"
+            "Не найдено кораблей с HP ниже порога "
+            f"{int(trigger_threshold * 100)}%, "
+            "исследование Операции «Сирена» продолжается"
         )
         self.hp_reset()
         return False
@@ -451,9 +451,9 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         ]
         if any(check):
             logger.info(
-                f"舰队 {fleet_index} 中至少有一艘舰船低于阈值 "
+                f"Во флоте {fleet_index} HP как минимум одного корабля ниже порога "
                 f"{int(threshold * 100)}%, "
-                "使用维修包进行维修"
+                "Выполняется ремонт с помощью ремкомплектов"
             )
             had_timeout = False
             for index, repair in enumerate(check):
@@ -462,36 +462,36 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 ship_hp = round(self.hp[index] * 100) if index < len(self.hp) else '?'
                 result = self.repair_pack_use(hp_grids.buttons[index])
                 if result == RepairResult.SUCCESS:
-                    logger.info(f'[大世界-维修] 舰队{fleet_index}中第{index + 1}艘舰船已维修')
+                    logger.info(f'[Операция «Сирена» — ремонт] Во флоте {fleet_index} отремонтирован корабль {index + 1}.')
                 elif result == RepairResult.PACK_INSUFFICIENT:
                     # 维修箱确认耗尽，后续舰船无法修理，立即停止
                     # 返回 False 以区别于"无需修理"的 None
                     logger.warning(
-                        f'[大世界-维修] 维修包在第 {index + 1} 艘舰船 (血量 {ship_hp}%) '
-                        f'(舰队 {fleet_index}) 处耗尽, 停止维修剩余舰船'
+                        f'[Операция «Сирена» — ремонт] Ремкомплекты закончились на корабле {index + 1} (HP {ship_hp}%) '
+                        f'флота {fleet_index}; ремонт остальных кораблей остановлен'
                     )
                     self.hp_reset()
                     return False
                 elif result == RepairResult.TIMEOUT:
                     # 超时或未知错误，记录警告但继续尝试下一艘（可能只是临时卡顿）
                     logger.warning(
-                        f'[大世界-维修] 第 {index + 1} 艘舰船 (血量 {ship_hp}%) '
-                        f'(舰队 {fleet_index}) 维修超时, 跳过此舰船继续'
+                        f'[Операция «Сирена» — ремонт] Истекло время ремонта корабля {index + 1} (HP {ship_hp}%) '
+                        f'флота {fleet_index}; корабль пропущен'
                     )
                     had_timeout = True
             if had_timeout:
                 logger.warning(
-                    f'舰队 {fleet_index} 部分维修完成 '
-                    f'(部分舰船超时, 结果不确定)'
+                    f'Флот {fleet_index} отремонтирован частично '
+                    f'(для некоторых кораблей истекло время ожидания, результат неизвестен)'
                 )
             else:
-                logger.info(f'[大世界-维修] 舰队{fleet_index}所有舰船已维修')
+                logger.info(f'[Операция «Сирена» — ремонт] Все корабли флота {fleet_index} отремонтированы')
             self.hp_reset()
             return True
         logger.info(
-            f"舰队 {fleet_index} 中未发现低于阈值 "
-            f"{int(threshold * 100)}% 的舰船, "
-            "继续大世界探索"
+            f"Во флоте {fleet_index} не найдено кораблей с HP ниже порога "
+            f"{int(threshold * 100)}%; "
+            "исследование Операции «Сирена» продолжается"
         )
         self.hp_reset()
         # 返回 None 表示"无需修理"，与 False（维修箱耗尽）明确区分
@@ -513,13 +513,13 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             in: in_map
             out: in_map
         """
-        logger.hr("大世界使用维修包维修")
+        logger.hr("Ремонт флота ремкомплектами")
         if fleet_index is None:
             fleet_index = self.fleet_selector.get()
         if isinstance(fleet_index, int):
             fleet_index = [fleet_index]
         if not isinstance(fleet_index, list):
-            logger.warning(f"[大世界-维修] 未知的舰队索引: {fleet_index}")
+            logger.warning(f"[Операция «Сирена» — ремонт] Неизвестный индекс флота: {fleet_index}")
             return False
         if repair_pack_threshold is None:
             repair_pack_threshold = self.get_effective_repair_pack_threshold()
@@ -539,7 +539,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 elif fleet_repaired is False:
                     # handle_storage_one_fleet_repair 返回 False 表示维修箱耗尽
                     # 继续尝试其他舰队只会触发超时，直接退出循环
-                    logger.warning("[大世界-维修] 维修包耗尽，停止维修剩余舰队")
+                    logger.warning("[Операция «Сирена» — ремонт] Ремкомплекты закончились; ремонт остальных флотов остановлен")
                     break
                 if any(self.need_repair):
                     repair = True
@@ -576,7 +576,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         """
         if self.config.OpsiGeneral_UseRepairPack and self.config.SERVER not in ["cn"]:
             logger.warning(
-                f"[大世界-维修] 维修包功能不支持 {self.config.SERVER} 服务器"
+                f"[Операция «Сирена» — ремонт] Сервер {self.config.SERVER} не поддерживает использование ремкомплектов"
             )
             self.config.OpsiGeneral_UseRepairPack = False
 
@@ -604,8 +604,8 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             # 所以 threshold=0 仍会触发阵亡舰船的修理，这可能不是预期行为。
             if trigger_threshold <= 0:
                 logger.info(
-                    f"Repair threshold: {repair_threshold}, Repair pack threshold: {repair_pack_threshold}, "
-                    f"Trigger threshold: {trigger_threshold}, skip fleet repair"
+                    f"Порог ремонта: {repair_threshold}, порог ремкомплекта: {repair_pack_threshold}, "
+                    f"порог срабатывания: {trigger_threshold}; ремонт флота пропущен"
                 )
                 return False
 
@@ -636,7 +636,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 elif submarine_fleet in fleet_index:
                     fleet_index.remove(submarine_fleet)
                     fleet_index.append(submarine_fleet)
-            logger.attr("维修舰队", fleet_index)
+            logger.attr("Ремонтируемые флоты", fleet_index)
             return self.handle_storage_fleet_repair(
                 fleet_index=fleet_index,
                 revert=revert,
@@ -651,7 +651,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         Args:
             revert (bool): 是否返回之前的海域。
         """
-        logger.hr("大世界舰队治疗低决心debuff")
+        logger.hr("Снятие с флота debuff низкого боевого духа")
 
         prev = self.zone
         self.globe_goto(22)
@@ -673,7 +673,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             bool: 是否处理了低士气减益。
         """
         if self.is_in_special_zone():
-            logger.info("[大世界-决心] 大世界在特殊区域类型，跳过舰队决心")
+            logger.info("[Операция «Сирена» — боевой дух] Особый тип зоны; обработка боевого духа флота пропущена")
             return False
 
         for index in [1, 2, 3, 4]:
@@ -682,12 +682,12 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
             if self.fleet_low_resolve_appear():
                 logger.info(
-                    "[大世界-决心] 至少有一支舰队受到低决心减益影响"
+                    "[Операция «Сирена» — боевой дух] Как минимум один флот находится под действием debuff низкого боевого духа"
                 )
                 self.fleet_resolve(revert)
                 return True
 
-        logger.info("[大世界-决心] 没有舰队受到低决心debuff影响")
+        logger.info("[Операция «Сирена» — боевой дух] Ни один флот не находится под действием debuff низкого боевого духа")
         return False
 
     def handle_current_fleet_resolve(self, revert=False):
@@ -701,11 +701,11 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             bool: 是否处理了低士气减益。
         """
         if self.fleet_low_resolve_appear():
-            logger.info("[大世界-决心] 当前舰队受到低决心debuff影响")
+            logger.info("[Операция «Сирена» — боевой дух] Текущий флот находится под действием debuff низкого боевого духа")
             self.fleet_resolve(revert)
             return True
 
-        logger.info("[大世界-决心] 当前舰队未受到低决心debuff影响")
+        logger.info("[Операция «Сирена» — боевой дух] На текущем флоте нет debuff низкого боевого духа")
         return False
 
     def handle_fleet_emp_debuff(self):
@@ -717,7 +717,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             bool: 是否已解决。
         """
         if self.is_in_special_zone():
-            logger.info("[大世界-EMP] 大世界在特殊区域类型，跳过处理舰队EMP debuff")
+            logger.info("[Операция «Сирена» — EMP] Особый тип зоны; обработка EMP debuff флота пропущена")
             return False
 
         def has_emp_debuff():
@@ -725,28 +725,28 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
         for trial in range(5):
             if not has_emp_debuff():
-                logger.info("[大世界-EMP] 当前舰队无EMP debuff")
+                logger.info("[Операция «Сирена» — EMP] На текущем флоте нет EMP debuff")
                 return trial > 0
 
             current = self.get_fleet_current_index()
-            logger.hr(f"解决舰队 {current} 的EMP debuff")
+            logger.hr(f"Снятие EMP debuff с флота {current}.")
             self.globe_goto(self.zone_nearest_azur_port(self.zone))
 
-            logger.info("[大世界-EMP] 找到无EMP debuff的舰队")
+            logger.info("[Операция «Сирена» — EMP] Поиск флота без EMP debuff")
             for fleet in [1, 2, 3, 4]:
                 self.fleet_set(fleet)
                 if has_emp_debuff():
-                    logger.info(f"[大世界-EMP] 舰队 {fleet} 受到EMP debuff影响")
+                    logger.info(f"[Операция «Сирена» — EMP] Флот {fleet} находится под действием EMP debuff")
                     continue
                 else:
-                    logger.info(f"[大世界-EMP] 舰队 {fleet} 未受到EMP debuff影响")
+                    logger.info(f"[Операция «Сирена» — EMP] На флоте {fleet} нет EMP debuff")
                     break
 
-            logger.info("[大世界-EMP] 通过前往其他地方解决EMP debuff")
+            logger.info("[Операция «Сирена» — EMP] Снятие EMP debuff переходом в другое место")
             self.port_goto(allow_port_arrive=False)
             self.fleet_set(current)
 
-        logger.warning("[大世界-EMP] 尝试5次后仍无法解决EMP debuff，假设已解决")
+        logger.warning("[Операция «Сирена» — EMP] Не удалось снять EMP debuff за 5 попыток; считаем его снятым")
         return True
 
     def handle_fog_block(self, repair=True):
@@ -761,7 +761,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             return False
 
         logger.warning(
-            f"[大世界-地图] 触发卡死迷雾状态, 重启游戏以恢复并继续 "
+            f"[Операция «Сирена» — карта] Обнаружено зависание в тумане; игра перезапускается для восстановления и продолжения "
             f"{self.config.task.command}"
         )
 
@@ -789,49 +789,49 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         """
         if preserve:
             if self.config.is_task_enabled("OpsiCrossMonth"):
-                logger.info("[大世界-调度] 保留行动点直到大世界跨月")
+                logger.info("[Операция «Сирена» — планирование] Очки действия сохраняются до смены месяца")
                 return maxsize
             else:
                 logger.info(
-                    "[大世界-调度] OpsiCrossMonth 未启用, 跳过 OpsiMeowfficerFarming.APPreserveUntilReset"
+                    "[Операция «Сирена» — планирование] OpsiCrossMonth не активен, пропустить OpsiMeowfficerFarming.APPreserveUntilReset"
                 )
 
         remain = get_os_reset_remain()
         if remain <= 0:
             if self.config.is_task_enabled("OpsiCrossMonth"):
                 logger.info(
-                    "[大世界-调度] 距大世界重置不足1天, OpsiCrossMonth 已启用, "
-                    "临时将行动力保留设为 500"
+                    "[Операция «Сирена» — планирование] До сброса Операции «Сирена» меньше 1 дня, OpsiCrossMonth включён; "
+                    "временный резерв очков действия установлен на 500"
                 )
                 return 500
             else:
                 logger.info(
-                    "[大世界-调度] 距大世界重置不足1天, "
-                    "临时将行动力保留设为 0"
+                    "[Операция «Сирена» — планирование] До сброса Операции «Сирена» меньше 1 дня; "
+                    "временный резерв очков действия установлен на 0"
                 )
                 return 0
         elif self.is_cl1_mode_enabled and remain <= 2:
             logger.info(
-                "[大世界-调度] 距大世界重置不足3天, "
-                "临时将行动力保留设为 2000 (侵蚀1练级)"
+                "[Операция «Сирена» — планирование] До сброса Операции «Сирена» меньше 3 дней; "
+                "временный резерв очков действия установлен на 2000 (прокачка в зоне коррозии 1)"
             )
             return 2000
         elif remain <= 2:
             logger.info(
-                "[大世界-调度] 距大世界重置不足3天, "
-                "临时将行动力保留设为 500"
+                "[Операция «Сирена» — планирование] До сброса Операции «Сирена» меньше 3 дней; "
+                "временный резерв очков действия установлен на 500"
             )
             return 500
         else:
-            logger.info("[大世界-调度] 未接近大世界重置")
+            logger.info("[Операция «Сирена» — планирование] Сброс Операции «Сирена» ещё не близко")
             return maxsize
 
     def handle_after_auto_search(self):
-        logger.hr("自动搜索后", level=2)
+        logger.hr("После автопоиска", level=2)
         solved = False
         solved |= self.handle_fleet_emp_debuff()
         solved |= self.handle_fleet_repair(revert=False)
-        logger.info(f"[大世界-搜索] 处理自动搜索完成后, 已解决={solved}")
+        logger.info(f"[Операция «Сирена» — поиск] Обработка после автопоиска завершена, решено={solved}")
         return solved
 
     def cl1_ap_preserve(self):
@@ -852,7 +852,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 keys="OpsiHazard1Leveling.OpsiHazard1Leveling.MinimumActionPointReserve",
                 default=200,
             )
-            logger.info(f"[大世界-调度] CL1可用时保留 {preserve} 行动点")
+            logger.info(f"[Операция «Сирена» — планирование] При доступном CL1 сохраняется {preserve} очков действия")
             if not self.action_point_check(preserve):
                 self.config.opsi_task_delay(cl1_preserve=True)
                 self.config.task_stop()
@@ -871,11 +871,11 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
     def on_auto_search_battle_count_add(self):
         self._auto_search_battle_count += 1
-        logger.attr("战斗计数", self._auto_search_battle_count)
+        logger.attr("Количество боёв", self._auto_search_battle_count)
         if getattr(self, "is_running_cl1_leveling", False):
             try:
                 self._cl1_auto_search_battle_count += 1
-                logger.attr("CL1战斗计数", self._cl1_auto_search_battle_count)
+                logger.attr("Количество боёв CL1", self._cl1_auto_search_battle_count)
                 # CL1 回合计时使用自己的计数器，而非共享的自动搜索计数器，
                 # 因为其他任务可能复用此循环。
                 self._auto_search_round_timer = record_cl1_auto_search_battle(
@@ -892,7 +892,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         ):
             try:
                 self._meow_auto_search_battle_count += 1
-                logger.attr("指挥喵战斗计数", self._meow_auto_search_battle_count)
+                logger.attr("Количество боёв мяуфицеров", self._meow_auto_search_battle_count)
                 # 耄耋相接记录原始战斗数和标准化轮数；
                 # 指标助手负责危险等级转换。
                 self._meow_battle_timer = record_meow_auto_search_battle(
@@ -1007,7 +1007,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             out: AUTO_SEARCH_OS_MAP_OPTION_OFF 且 info_bar_count() >= 2（地图上无可清理对象时）。
                  AUTO_SEARCH_REWARD（获得自动搜索奖励时）。
         """
-        logger.hr("大世界自动搜索", level=2)
+        logger.hr("Автопоиск Операции «Сирена»", level=2)
         self.on_auto_search_battle_count_reset()
         unlock_checked = False
         unlock_check_timer = Timer(5, count=10).start()
@@ -1032,13 +1032,13 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         for _ in self.loop():
             # 结束条件
             if not unlock_checked and unlock_check_timer.reached():
-                logger.critical("[大世界] 当前海域未解锁自律，请先完成剧情任务。")
+                logger.critical("[Операция «Сирена»] В текущей зоне не разблокирован автопоиск; сначала завершите сюжетное задание")
                 raise RequestHumanTakeover
             if self.is_in_map():
                 self.device.stuck_record_clear()
                 if not success:
                     if died_timer.reached():
-                        logger.warning("[大世界-战斗] 舰队阵亡确认")
+                        logger.warning("[Операция «Сирена» — бой] Гибель флота подтверждена")
                         break
                 else:
                     if not interrupt_confirm and is_interrupt():
@@ -1079,7 +1079,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     and self.config.task_switched()
                 ):
                     if self.config.task.command == "OpsiMeowfficerFarming":
-                        logger.info("[大世界-搜索] 短时指挥喵搜索运行中，延迟任务切换直到搜索完成")
+                        logger.info("[Операция «Сирена» — поиск] Выполняется короткий поиск мяуфицеров; переключение задач отложено до его завершения")
                     else:
                         self.interrupt_auto_search()
                 if interrupt_confirm:
@@ -1094,7 +1094,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                         and not self.config.OpsiHazard1Leveling_SkipHpCheck
                     ):
                         success = False
-                        logger.warning("[大世界-战斗] 舰队阵亡，停止自动搜索")
+                        logger.warning("[Операция «Сирена» — бой] Флот погиб; автопоиск остановлен")
                         auto_search_time_limit_timer.reset()
                         continue
                 auto_search_time_limit_timer.reset()
@@ -1123,7 +1123,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             in: 任意页面，通常为 is_combat_executing
             out: page_main 或 IN_MAP
         """
-        logger.info("[大世界-搜索] 中断自动搜索")
+        logger.info("[Операция «Сирена» — поиск] Прерывание автопоиска")
         is_loading = False
         pause_interval = Timer(0.5, count=1)
         in_main_timer = Timer(3, count=6)
@@ -1136,10 +1136,10 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
             # 结束条件
             if self.is_in_main():
-                logger.info("[大世界-搜索] 自动搜索已中断")
+                logger.info("[Операция «Сирена» — поиск] Автоматический поиск был прерван")
                 self.config.task_stop()
             if not goto_main and self.is_in_map() and in_map_timer.reached():
-                logger.info("[大世界-搜索] 自动搜索已中断")
+                logger.info("[Операция «Сирена» — поиск] Автоматический поиск был прерван")
                 if end_task:
                     self.config.task_stop()
                 return
@@ -1188,7 +1188,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     continue
                 # page_main 的随机背景可能触发 EXP_INFO_*，不检查它们
                 if in_main_timer.reached():
-                    logger.info("[大世界-信息] 处理经验信息")
+                    logger.info("[Операция «Сирена» — информация] Обработка сведений об опыте")
                     if self.handle_battle_status():
                         continue
                     if self.handle_exp_info():
@@ -1220,7 +1220,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 )
                 finished_combat += combat
             except CampaignEnd:
-                logger.info("[大世界-搜索] 大世界自动搜索完成")
+                logger.info("[Операция «Сирена» — поиск] Автопоиск Операции «Сирена» завершён")
             finally:
                 backup.recover()
 
@@ -1268,9 +1268,9 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         """
         if hasattr(grid, "is_scanning_device") and grid.is_scanning_device:
             if not self._is_siren_research_enabled:
-                logger.info(f"[大世界] [预检查] 格子 {grid} 是塞壬研究装置,但功能未开启,跳过")
+                logger.info(f"[Операция «Сирена»] [Предварительная проверка] Клетка {grid} является исследовательским устройством Сирен, но функция отключена; пропуск")
                 return True
-            logger.info(f"[大世界] [预检查] 格子 {grid} 是塞壬研究装置,功能已开启,继续处理")
+            logger.info(f"[Операция «Сирена»] [Предварительная проверка] Клетка {grid} является исследовательским устройством Сирен; функция включена, обработка продолжается")
         return False
 
     def clear_question(self, drop=None):
@@ -1284,16 +1284,16 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         Returns:
             bool: 是否清理了问号。
         """
-        logger.hr("清除问号", level=2)
+        logger.hr("Удаление вопросительного знака", level=2)
         for _ in range(3):
             grid = self.radar.predict_question(
                 self.device.image, in_port=self.zone.is_port
             )
             if grid is None:
-                logger.info("[大世界-搜索] 此雷达上当前舰队上方无问号")
+                logger.info("[Операция «Сирена» — поиск] На радаре над текущим флотом нет вопросительного знака")
                 return False
 
-            logger.info(f"[大世界-搜索] 在 {grid} 找到问号")
+            logger.info(f"[Операция «Сирена» — поиск] В клетке {grid} найден вопросительный знак")
             self.handle_info_bar()
 
             self.update_os()
@@ -1326,16 +1326,16 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 grid.is_scanning_device or self.is_siren_device_confirmed
             ):
                 # ========== 地图检测:检测到扫描装置 ==========
-                logger.hr("[大世界] 检测到扫描装置,开始处理", level=2)
+                logger.hr("[Операция «Сирена»] Обнаружено сканирующее устройство; начало обработки", level=2)
                 logger.info(
-                    f"[地图检测] 格子 {grid} 被识别为扫描装置 (grid.is_scanning_device=True)"
+                    f"[Распознавание карты] Клетка {grid} распознана как сканирующее устройство (grid.is_scanning_device=True)"
                 )
-                logger.info(f"[大世界] [地图检测] 移动结果: {result}")
+                logger.info(f"[Операция «Сирена»] [Распознавание карты] Результат перемещения: {result}")
                 record_siren_research_device(self)
 
                 # ========== 配置检查 ==========
                 if not self._is_siren_research_enabled:
-                    logger.warning("[大世界] [配置检查] 塞壬研究装置功能已禁用,标记但不处理")
+                    logger.warning("[Операция «Сирена»] [Проверка конфигурации] Исследовательские устройства Сирен отключены; устройство отмечено без обработки")
                     self._solved_map_event.add("is_scanning_device")
                     return True
 
@@ -1344,11 +1344,11 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
                 # 检测选择的模式
                 siren_mode = getattr(self, "siren_device_mode", None)
-                logger.attr("塞壬装置模式", siren_mode)
+                logger.attr("Режим устройства Сирен", siren_mode)
 
                 # 如果选择了敌人模式
                 if siren_mode == "enemy":
-                    logger.info("[大世界] [装置处理] 检测到敌人模式，执行特殊处理")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Обнаружен режим врага; выполняется специальная обработка")
 
                     # 获取配置的舰队
                     task = self.config.task.command
@@ -1360,37 +1360,37 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
                     # 记录当前舰队
                     current_fleet = self.fleet_selector.get()
-                    logger.info(f"[大世界] [装置处理] 当前舰队: {current_fleet}")
+                    logger.info(f"[Операция «Сирена»] [Обработка устройства] Текущий флот: {current_fleet}")
 
                     # 如果配置了指定舰队，切换到指定舰队
                     if siren_fleet > 0:
-                        logger.info(f"[大世界] [装置处理] 切换到指定舰队: {siren_fleet}")
+                        logger.info(f"[Операция «Сирена»] [Обработка устройства] Переключение на назначенный флот: {siren_fleet}")
                         self.fleet_set(siren_fleet)
                     else:
-                        logger.info("[大世界] [装置处理] 使用当前舰队")
+                        logger.info("[Операция «Сирена»] [Обработка устройства] Использование текущего флота")
 
                     # 执行三次自律寻敌
                     for i in range(3):
-                        logger.info(f"[大世界] [装置处理] 执行第 {i + 1}/3 次自律寻敌")
+                        logger.info(f"[Операция «Сирена»] [Обработка устройства] Автопоиск врагов, попытка {i + 1}/3")
                         self.os_auto_search_run(drop=drop)
 
                     # 如果切换了舰队，切换回原舰队
                     if siren_fleet > 0:
-                        logger.info(f"[大世界] [装置处理] 切换回原舰队: {current_fleet}")
+                        logger.info(f"[Операция «Сирена»] [Обработка устройства] Возвращение к исходному флоту: {current_fleet}")
                         self.fleet_set(current_fleet)
 
                 # 如果选择了资源模式
                 elif siren_mode == "resource":
-                    logger.info("[大世界] [装置处理] 检测到资源模式，执行标准处理")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Обнаружен режим ресурсов; выполняется стандартная обработка")
                     # 执行一次自律寻敌
-                    logger.info("[大世界] [装置处理] 执行自律寻敌")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Запуск автопоиска врагов")
                     self.os_auto_search_run(drop=drop)
 
                 # 未知模式或资源不足
                 else:
-                    logger.info("[大世界] [装置处理] 未知模式或资源不足，执行标准处理")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Неизвестный режим или недостаточно ресурсов; выполняется стандартная обработка")
                     # 执行一次自律寻敌
-                    logger.info("[大世界] [装置处理] 执行自律寻敌")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Запуск автопоиска врагов")
                     self.os_auto_search_run(drop=drop)
 
                 # 标记处理
@@ -1399,8 +1399,8 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 return True
 
         logger.warning(
-            "[大世界-地图] 前往问号5次尝试失败, "
-            "可能是相邻双舰队机关, 已停止"
+            "[Операция «Сирена» — карта] Не удалось перейти к вопросительному знаку за 5 попыток; "
+            "возможно, рядом находятся два механизма флота; остановка"
         )
         return False
 
@@ -1429,7 +1429,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             rescan = "full"
         self.handle_ash_beacon_attack()
 
-        logger.info(f"[大世界-搜索] 运行自动搜索, 问号={question}, 重新扫描={rescan}")
+        logger.info(f"[Операция «Сирена» — поиск] Запуск автопоиска, вопросительный знак={question}, повторное сканирование={rescan}")
         finished_combat = 0
         with self.stat.new(
             genre=inflection.underscore(self.config.task.command),
@@ -1480,7 +1480,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         """
         self.handle_ash_beacon_attack()
 
-        logger.hr("运行策略搜索", level=2)
+        logger.hr("Стратегический поиск", level=2)
 
         with self.stat.new(
             genre=inflection.underscore(self.config.task.command),
@@ -1502,7 +1502,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 # 任务切换和恢复型异常必须交给上层调度器处理。
                 raise
             except Exception as e:
-                logger.warning(f"[大世界-搜索] 策略搜索中断: {e}")
+                logger.warning(f"[Операция «Сирена» — поиск] Стратегический поиск прерван: {e}")
                 return False
             finally:
                 if drop.count <= 1:
@@ -1525,7 +1525,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             and grids[0].is_exploration_reward
         ):
             grid = grids[0]
-            logger.info(f"[大世界-搜索] 在 {grid} 找到探索奖励")
+            logger.info(f"[Операция «Сирена» — поиск] В клетке {grid} найдена награда за исследование")
             result = self.wait_until_walk_stable(
                 drop=drop, walk_out_of_step=False, confirm_timer=Timer(1.5, count=4)
             )
@@ -1537,7 +1537,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         grids = self.view.select(is_akashi=True)
         if "is_akashi" not in self._solved_map_event and grids and grids[0].is_akashi:
             grid = grids[0]
-            logger.info(f"[大世界-搜索] 在 {grid} 找到明石")
+            logger.info(f"[Операция «Сирена» — поиск] В клетке {grid} найдена Акаси")
             fleet = self.convert_radar_to_local((0, 0))
             if fleet.distance_to(grid) > 1:
                 self.device.click(grid)
@@ -1557,19 +1557,19 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                         grid = grids[0]
                         fleet = self.convert_radar_to_local((0, 0))
                         if fleet.distance_to(grid) <= 1:
-                            logger.info(f"[大世界-搜索] 明石 ({grid}) 靠近当前舰队 ({fleet})")
+                            logger.info(f"[Операция «Сирена» — поиск] Акаси ({grid}) находится рядом с текущим флотом ({fleet})")
                             self.handle_akashi_supply_buy(grid)
                             self._solved_map_event.add("is_akashi")
                             return True
                         else:
-                            logger.info("[大世界] 无法到达明石位置，执行强制移动")
+                            logger.info("[Операция «Сирена»] Позиция Акаси недоступна; выполняется принудительное перемещение")
                             self._execute_fixed_patrol_scan(ExecuteFixedPatrolScan=True)
                             return False
                     else:
-                        logger.info("[大世界-事件] 无地图事件")
+                        logger.info("[Операция «Сирена» — событие] Событий на карте нет")
                         return False
             else:
-                logger.info(f"[大世界-搜索] 明石 ({grid}) 靠近当前舰队 ({fleet})")
+                logger.info(f"[Операция «Сирена» — поиск] Акаси ({grid}) находится рядом с текущим флотом ({fleet})")
                 self.handle_akashi_supply_buy(grid)
                 self._solved_map_event.add("is_akashi")
                 return True
@@ -1583,40 +1583,40 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             grid = grids[0]
 
             # ========== 地图选择:发现研究装置 ==========
-            logger.hr("[大世界] 发现研究装置,开始处理", level=2)
-            logger.info(f"[大世界] [地图选择] 在 {grid} 位置发现研究装置")
+            logger.hr("[Операция «Сирена»] Обнаружено исследовательское устройство; начало обработки", level=2)
+            logger.info(f"[Операция «Сирена»] [Выбор на карте] Исследовательское устройство найдено в клетке {grid}.")
             record_siren_research_device(self)
 
             if not self._is_siren_research_enabled:
-                logger.warning("[大世界] [配置检查] 塞壬研究装置功能已禁用,跳过处理")
+                logger.warning("[Операция «Сирена»] [Проверка конфигурации] Исследовательские устройства Сирен отключены; обработка пропущена")
                 self._solved_map_event.add("is_scanning_device")
                 return True
 
             # ========== 移动并处理 ==========
-            logger.info(f"[大世界] [移动装置] 开始移动到装置位置: {grid}")
+            logger.info(f"[Операция «Сирена»] [Переход к устройству] Начало перемещения в клетку устройства: {grid}")
             self.device.click(grid)
 
             # 重置标志位
             self.is_siren_device_confirmed = False
 
             # wait_until_walk_stable 会调用 handle_story_skip 处理选项
-            logger.info("[大世界] [移动装置] 等待移动稳定...")
+            logger.info("[Операция «Сирена»] [Переход к устройству] Ожидание стабилизации перемещения...")
             with self.config.temporary(
                 STORY_ALLOW_SKIP=False, OS_SIREN_DEVICE_USAGE="use_until_destroyed"
             ):
                 result = self.wait_until_walk_stable(
                     drop=drop, walk_out_of_step=False, confirm_timer=Timer(3, count=4)
                 )
-            logger.info(f"[大世界] [移动装置] 移动完成,结果: {result}")
+            logger.info(f"[Операция «Сирена»] [Переход к устройству] Перемещение завершено, результат: {result}")
 
             if getattr(self, "is_siren_device_confirmed", False):
                 # 检测选择的模式
                 siren_mode = getattr(self, "siren_device_mode", None)
-                logger.attr("塞壬装置模式", siren_mode)
+                logger.attr("Режим устройства Сирен", siren_mode)
 
                 # 如果选择了敌人模式
                 if siren_mode == "enemy":
-                    logger.info("[大世界] [装置处理] 敌人模式，执行特殊处理")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Режим врага, выполняется специальная обработка")
 
                     # 获取配置的舰队
                     task = self.config.task.command
@@ -1628,44 +1628,44 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
                     # 记录当前舰队
                     current_fleet = self.fleet_selector.get()
-                    logger.info(f"[大世界] [装置处理] 当前舰队: {current_fleet}")
+                    logger.info(f"[Операция «Сирена»] [Обработка устройства] Текущий флот: {current_fleet}")
 
                     # 如果配置了指定舰队，切换到指定舰队
                     if siren_fleet > 0:
-                        logger.info(f"[大世界] [装置处理] 切换到指定舰队: {siren_fleet}")
+                        logger.info(f"[Операция «Сирена»] [Обработка устройства] Переключение на назначенный флот: {siren_fleet}")
                         self.fleet_set(siren_fleet)
                     else:
-                        logger.info("[大世界] [装置处理] 使用当前舰队")
+                        logger.info("[Операция «Сирена»] [Обработка устройства] Использование текущего флота")
 
                     # 执行三次自律寻敌
                     for i in range(3):
-                        logger.info(f"[大世界] [装置处理] 执行第 {i + 1}/3 次自律寻敌")
+                        logger.info(f"[Операция «Сирена»] [Обработка устройства] Автопоиск врагов, попытка {i + 1}/3")
                         self.os_auto_search_run(drop=drop)
 
                     # 如果切换了舰队，切换回原舰队
                     if siren_fleet > 0:
-                        logger.info(f"[大世界] [装置处理] 切换回原舰队: {current_fleet}")
+                        logger.info(f"[Операция «Сирена»] [Обработка устройства] Возврат к исходному флоту: {current_fleet}")
                         self.fleet_set(current_fleet)
 
                 # 如果选择了资源模式
                 elif siren_mode == "resource":
-                    logger.info("[大世界] [装置处理] 检测到资源模式，执行标准处理")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Обнаружен режим ресурсов; выполняется стандартная обработка")
                     # 执行一次自律寻敌
-                    logger.info("[大世界] [装置处理] 执行自律寻敌")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Запуск автопоиска врагов")
                     self.os_auto_search_run(drop=drop)
 
                 # 未知模式或资源不足
                 else:
-                    logger.info("[大世界] [装置处理] 未知模式或资源不足，执行标准处理")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Неизвестный режим или недостаточно ресурсов, выполнение стандартной обработки")
                     # 执行一次自律寻敌
-                    logger.info("[大世界] [装置处理] 执行自律寻敌")
+                    logger.info("[Операция «Сирена»] [Обработка устройства] Запуск автопоиска врагов")
                     self.os_auto_search_run(drop=drop)
 
                 # 先标记为已处理，防止二次重扫时再次处理塞壬装置
                 self._solved_map_event.add("is_scanning_device")
 
                 # 二次重扫，防止出现意外情况导致装置处理失败
-                logger.info("[大世界] [装置处理] 执行二次重扫")
+                logger.info("[Операция «Сирена»] [Обработка устройства] Выполняется повторное сканирование")
                 self.map_rescan_current(drop=drop)
 
             return True
@@ -1677,7 +1677,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             and grids[0].is_logging_tower
         ):
             grid = grids[0]
-            logger.info(f"[大世界-搜索] 在 {grid} 找到记录塔")
+            logger.info(f"[Операция «Сирена» — поиск] В клетке {grid} найдена башня записей")
             self.device.click(grid)
             with self.config.temporary(STORY_ALLOW_SKIP=False):
                 result = self.wait_until_walk_stable(
@@ -1696,22 +1696,22 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             and grids[0].is_fleet_mechanism
         ):
             grid = grids[0]
-            logger.info(f"[大世界-搜索] 在 {grid} 找到舰队机关")
+            logger.info(f"[Операция «Сирена» — поиск] В клетке {grid} найден механизм флота")
             self.device.click(grid)
             self.wait_until_walk_stable(
                 drop=drop, walk_out_of_step=False, confirm_timer=Timer(1.5, count=4)
             )
 
             if self._solved_fleet_mechanism:
-                logger.info("[大世界-搜索] 所有舰队机关已解决")
+                logger.info("[Операция «Сирена» — поиск] Все механизмы флота активированы")
                 self.os_auto_search_run(drop=drop)
                 self._solved_map_event.add("is_fleet_mechanism")
                 return True
-            logger.info("[大世界-搜索] 一个舰队机关已解决")
+            logger.info("[Операция «Сирена» — поиск] Один механизм флота активирован")
             self._solved_fleet_mechanism = True
             return True
 
-        logger.info("[大世界-事件] 无地图事件")
+        logger.info("[Операция «Сирена» — событие] Событий на карте нет")
         return False
 
     def map_rescan_once(self, rescan_mode="full", drop=None):
@@ -1726,7 +1726,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         result = False
 
         # 先尝试当前摄像机
-        logger.hr("重新扫描当前地图", level=2)
+        logger.hr("Повторное сканирование текущей карты", level=2)
         self.map_data_init(map_=None)
         self.handle_info_bar()
         try:
@@ -1734,20 +1734,20 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         except MapDetectionError:
             # 地图可能已清理完毕，单应性变换无法检测到有效格子
             logger.warning(
-                "[大世界-扫描] 当前地图重新扫描单应性变换失败 (分数低于0.8), "
-                "地图可能已清理或检测不稳定, 可能遗漏未处理的事件"
+                "[Операция «Сирена» — сканирование] При повторном сканировании текущей карты не удалось построить гомографию (оценка ниже 0.8); "
+                "карта могла быть очищена или распознана нестабильно, поэтому необработанные события могли быть пропущены"
             )
             return False
         if self.map_rescan_current(drop=drop):
-            logger.info("[大世界-扫描] 地图重新扫描一次结束, 结果=True")
+            logger.info("[Операция «Сирена» — сканирование] Один проход повторного сканирования завершён, результат=True")
             return True
 
         if rescan_mode == "full":
-            logger.hr("完全重新扫描地图", level=2)
+            logger.hr("Полное повторное сканирование карты", level=2)
             self.map_init(map_=None)
             queue = self.map.camera_data
             while len(queue) > 0:
-                logger.hr(f"重新扫描 {queue[0]}")
+                logger.hr(f"Повторное сканирование {queue[0]}")
                 queue = queue.sort_by_camera_distance(self.camera)
                 self.focus_to(queue[0], swipe_limit=(6, 5))
                 self.focus_to_grid_center(0.3)
@@ -1757,12 +1757,12 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     break
                 queue = queue[1:]
 
-        logger.info(f"[大世界-扫描] 地图重新扫描一次结束, 结果={result}")
+        logger.info(f"[Операция «Сирена» — сканирование] Один проход повторного сканирования завершён, результат={result}")
         return result
 
     def map_rescan(self, rescan_mode="full", drop=None):
         if self.zone.is_port:
-            logger.info("[大世界-扫描] 当前区域是港口，无需重新扫描")
+            logger.info("[Операция «Сирена» — сканирование] Текущая зона является портом; повторное сканирование не требуется")
             return False
 
         for _ in range(5):
@@ -1771,18 +1771,18 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             else:
                 self.fleet_set(self.get_second_fleet())
             if not self.is_in_task_explore and len(self._solved_map_event):
-                logger.info("[大世界-扫描] 解决了地图事件且不在大世界探索中，停止重新扫描")
-                logger.attr("已解决地图事件", self._solved_map_event)
+                logger.info("[Операция «Сирена» — сканирование] Событие карты обработано вне исследования Операции «Сирена»; повторное сканирование остановлено")
+                logger.attr("Обработанные события карты", self._solved_map_event)
                 self.fleet_set(self.config.OpsiFleet_Fleet)
                 return False
             result = self.map_rescan_once(rescan_mode=rescan_mode, drop=drop)
             if not result:
-                logger.attr("已解决地图事件", self._solved_map_event)
+                logger.attr("Обработанные события карты", self._solved_map_event)
                 self.fleet_set(self.config.OpsiFleet_Fleet)
                 return True
 
-        logger.attr("已解决地图事件", self._solved_map_event)
-        logger.warning("[大世界-扫描] 地图重新扫描尝试过多，停止")
+        logger.attr("Обработанные события карты", self._solved_map_event)
+        logger.warning("[Операция «Сирена» — сканирование] Слишком много попыток повторного сканирования карты; остановка")
         self.fleet_set(self.config.OpsiFleet_Fleet)
         return False
 
@@ -1809,7 +1809,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 time.sleep(0.45)
                 return True
             except Exception as e:
-                logger.warning(f"[大世界] 安全滑动第 {attempt} 次尝试失败: {e}")
+                logger.warning(f"[Операция «Сирена»] Неудачная попытка безопасного свайпа {attempt}: {e}")
                 time.sleep(0.4)
                 continue
         return False
@@ -1881,7 +1881,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             clickable_grid = self.convert_global_to_local(target_grid.location)
         except KeyError:
             logger.warning(
-                f"已将视角移动到 {target_grid.location}，但在视野中找不到可点击的格子。"
+                f"Камера перемещена к {target_grid.location}, но в поле зрения нет клетки для клика."
             )
             return False
 
@@ -1893,19 +1893,19 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                 self.device.click(clickable_grid)
                 self.wait_until_walk_stable(confirm_timer=Timer(1.5, count=4))
                 if target_grid.location == primary_target:
-                    logger.info(f"[大世界] 舰队 {fleet_index} 已到达 {target_grid}。")
+                    logger.info(f"[Операция «Сирена»] Флот {fleet_index} прибыл в {target_grid}.")
                 else:
                     logger.info(
-                        f"舰队 {fleet_index} 主目标 {self.map[primary_target]} 失败，已改停靠至备用点 {target_grid}。"
+                        f"Флот {fleet_index} не достиг основной цели {self.map[primary_target]}; остановка перенесена в резервную точку {target_grid}."
                     )
                 return True
             except (MapWalkError, GameTooManyClickError) as e:
                 if isinstance(e, MapWalkError) and str(e) == "walk_out_of_step":
                     logger.warning(
-                        f"舰队 {fleet_index} 前往 {target_grid} 超出移动范围，放弃当前候选点并尝试其他落点"
+                        f"Флот {fleet_index} не может достичь цели {target_grid}; текущая точка отброшена, проверяются другие"
                     )
                     return False
-                logger.warning(f"[大世界] 舰队移动异常: {e}，尝试强制恢复（{try_idx + 1}/2）")
+                logger.warning(f"[Операция «Сирена»] Ошибка перемещения флота: {e}; принудительное восстановление ({try_idx + 1}/2)")
                 recovered = False
                 try:
                     recovered = self._force_move_recover(
@@ -1925,7 +1925,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                         clickable_grid = None
                     if clickable_grid:
                         continue
-                logger.warning("[大世界] 尝试软恢复（back / screenshot / rebuild view）")
+                logger.warning("[Операция «Сирена»] Попытка мягкого восстановления (back / screenshot / rebuild view)")
                 try:
                     for _ in range(3):
                         with suppress(Exception):
@@ -1944,21 +1944,21 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     except KeyError:
                         clickable_grid = None
                     if clickable_grid:
-                        logger.info("[大世界] 软恢复后找到格子，重试点击")
+                        logger.info("[Операция «Сирена»] После мягкого восстановления найдена клетка; повторный клик")
                         try:
                             time.sleep(0.3)
                             self.device.click(clickable_grid)
                             self.wait_until_walk_stable(
                                 confirm_timer=Timer(1.5, count=4)
                             )
-                            logger.info("[大世界] 软恢复成功，舰队已到达")
+                            logger.info("[Операция «Сирена»] Мягкое восстановление успешно; флот прибыл")
                             return True
                         except Exception:
                             logger.debug("[大世界] 软恢复重试点击失败", exc_info=True)
                 except Exception as rec_e:
                     logger.debug(f"[大世界] 软恢复过程出现异常: {rec_e}")
                 if try_idx == 1:
-                    logger.warning("[大世界] 软恢复失败，尝试重启应用以恢复状态")
+                    logger.warning("[Операция «Сирена»] Мягкое восстановление не удалось; попытка восстановить состояние перезапуском приложения")
                     try:
                         self.device.app_stop()
                         time.sleep(1.0)
@@ -1985,11 +1985,11 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                             self.wait_until_walk_stable(
                                 confirm_timer=Timer(1.5, count=4)
                             )
-                            logger.info("[大世界] 重启应用后恢复成功，舰队已到达")
+                            logger.info("[Операция «Сирена»] Состояние восстановлено после перезапуска приложения; флот прибыл")
                             return True
                     except Exception:
                         logger.error(
-                            "应用重启恢复失败，当前候选点移动失败", exc_info=True
+                            "Не удалось восстановить состояние перезапуском приложения; перемещение к текущей точке не выполнено", exc_info=True
                         )
                 time.sleep(0.5)
 
@@ -2012,23 +2012,23 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         Returns:
             None
         """
-        logger.hr("[大世界] 执行强制移动")
+        logger.hr("[Операция «Сирена»] Принудительное перемещение")
 
         if not ExecuteFixedPatrolScan:
-            logger.info("[大世界] ExecuteFixedPatrolScan 未启用，跳过强制移动。")
+            logger.info("[Операция «Сирена»] ExecuteFixedPatrolScan отключён; принудительное перемещение пропущено")
             return
-        logger.attr("执行固定巡逻扫描", True)
+        logger.attr("Выполнение фиксированного патрульного сканирования", True)
 
         self.map_init(map_=None)
         if not hasattr(self, "map") or not self.map.grids:
-            logger.warning("[大世界] 无法获取当前地图网格数据，已跳过强制移动。")
+            logger.warning("[Операция «Сирена»] Данные клеток текущей карты недоступны; принудительное перемещение пропущено")
             return
 
         solved = getattr(self, "_solved_map_event", set())
         if any(
             k in solved for k in ("is_akashi", "is_scanning_device", "is_logging_tower")
         ):
-            logger.info("[大世界] 彩蛋：雪风大人保佑你，本次舰队移动已跳过")
+            logger.info("[Операция «Сирена»] Пасхалка: госпожа Юкикадзэ благословляет вас; перемещение флота пропущено")
             return
 
         patrol_locations = [(2, 0), (3, 0), (4, 0), (5, 0)]  # 对应 C1, D1, E1, F1
@@ -2038,14 +2038,14 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             fleet_index = i + 1
             if fleet_index in progress:
                 logger.info(
-                    f"舰队 {fleet_index} 已在本轮强制移动中完成停靠 ({self.map[progress[fleet_index]]})，跳过重复移动。"
+                    f"Флот {fleet_index} уже остановился в точке {self.map[progress[fleet_index]]} в этом цикле принудительного перемещения; повтор пропущен."
                 )
                 continue
 
             target_grid_group = self.map.select(location=target_loc)
             if not target_grid_group:
                 logger.warning(
-                    f"在地图上找不到坐标为 {target_loc} 的格子，跳过舰队 {fleet_index} 的移动。"
+                    f"На карте не найдена клетка с координатами {target_loc}; перемещение флота {fleet_index} пропущено."
                 )
                 continue
             target_grid = target_grid_group[0]
@@ -2055,15 +2055,15 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             )
             if not candidate_grids:
                 logger.warning(
-                    f"舰队 {fleet_index} 在 {target_grid} 附近找不到可用落点，跳过本次移动。"
+                    f"Для флота {fleet_index} рядом с {target_grid} нет доступной точки остановки; перемещение пропущено."
                 )
                 continue
 
-            logger.hr(f"[大世界] 强制移动: 指挥舰队 {fleet_index} 前往 {target_grid}", level=2)
+            logger.hr(f"[Операция «Сирена»] Принудительное перемещение: флот {fleet_index} к {target_grid}", level=2)
 
             self.fleet_set(fleet_index)
 
-            logger.info("[大世界] 视角复位...")
+            logger.info("[Операция «Сирена»] Сброс положения камеры...")
 
             top_point = (640, 150)
             bottom_point = (640, 600)
@@ -2079,11 +2079,11 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             if not quick_ok and not self.safe_swipe(
                 top_point, bottom_point, duration=0.55, retries=2
             ):
-                logger.warning("[大世界] 视角复位失败，继续尝试下一步")
+                logger.warning("[Операция «Сирена»] Не удалось сбросить положение камеры; переход к следующему шагу")
             elif not quick_ok:
-                logger.info("[大世界] 视角复位完成。")
+                logger.info("[Операция «Сирена»] Положение камеры сброшено")
             else:
-                logger.info("[大世界] 快速滑动复位完成。")
+                logger.info("[Операция «Сирена»] Быстрый свайп для сброса камеры завершён")
             time.sleep(0.45)
 
             moved = False
@@ -2091,7 +2091,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             for candidate_index, candidate_grid in enumerate(candidate_grids[:4]):
                 if candidate_index > 0:
                     logger.info(
-                        f"舰队 {fleet_index} 改用备用落点 {candidate_grid}（原目标 {target_grid}）"
+                        f"Флот {fleet_index} использует резервную точку {candidate_grid} (исходная цель {target_grid})"
                     )
                 if self._try_fixed_patrol_move(fleet_index, candidate_grid, target_loc):
                     if candidate_grid.location == target_loc:
@@ -2101,7 +2101,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
                     fallback_location = candidate_grid.location
                     logger.info(
-                        f"舰队 {fleet_index} 已停靠备用点 {candidate_grid}，尝试返回真正目标 {target_grid}"
+                        f"Флот {fleet_index} остановился в резервной точке {candidate_grid}; попытка вернуться к настоящей цели {target_grid}"
                     )
                     if self._try_fixed_patrol_move(
                         fleet_index, target_grid, target_loc
@@ -2109,29 +2109,29 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                         progress[fleet_index] = target_loc
                         moved = True
                         logger.info(
-                            f"舰队 {fleet_index} 已从备用点返回真正目标 {target_grid}"
+                            f"Флот {fleet_index} вернулся из резервной точки к настоящей цели {target_grid}"
                         )
                         break
 
                     logger.warning(
-                        f"舰队 {fleet_index} 从备用点 {candidate_grid} 返回真正目标 {target_grid} 失败，继续尝试其他候选点"
+                        f"Флот {fleet_index} не смог вернуться из резервной точки {candidate_grid} к настоящей цели {target_grid}; проверяются другие точки"
                     )
             if not moved:
                 if fallback_location is not None:
                     progress[fleet_index] = fallback_location
                     logger.warning(
-                        f"舰队 {fleet_index} 无法回到真正目标 {target_grid}，暂时停靠在备用点 {self.map[fallback_location]}。"
+                        f"Флот {fleet_index} не смог вернуться к настоящей цели {target_grid}; временная остановка в резервной точке {self.map[fallback_location]}."
                     )
                 else:
                     logger.warning(
-                        f"舰队 {fleet_index} 在 {target_grid} 及其备用落点均移动失败，继续后续流程。"
+                        f"Флот {fleet_index} не смог переместиться ни к {target_grid}, ни к резервным точкам; выполнение продолжается."
                     )
 
         backup = self.config.temporary(
             OpsiGeneral_RepairThreshold=-1, Campaign_UseAutoSearch=False
         )
         try:
-            logger.info("[大世界] 所有舰队已定点，执行最终全图重扫（双遍检查）")
+            logger.info("[Операция «Сирена»] Все флоты размещены; выполняется итоговое полное сканирование карты в два прохода")
             self._solved_map_event = set()
             for _ in range(2):
                 try:
@@ -2149,7 +2149,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         finally:
             backup.recover()
 
-        logger.info("[大世界] 执行一次自律寻敌以清理可能的装置")
+        logger.info("[Операция «Сирена»] Запуск одного автопоиска врагов для очистки возможного устройства")
         try:
             self.run_auto_search(question=True, rescan=None, after_auto_search=True)
         except (
@@ -2160,7 +2160,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         ):
             raise
         except Exception as e:
-            logger.warning(f"[大世界] 自律寻敌过程出现异常: {e}")
+            logger.warning(f"[Операция «Сирена»] Ошибка во время автопоиска врагов: {e}")
 
     def _select_story_option_by_index(self, target_index, options_count=3):
         """按索引点击剧情选项按钮。

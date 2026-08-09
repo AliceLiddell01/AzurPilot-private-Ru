@@ -86,12 +86,12 @@ class AkashiShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         if len(items):
             min_row = self.os_akashi_shop_items.grids[0, 0].area[1]
             row = [str(item) for item in items if item.button[1] == min_row]
-            logger.info(f'明石商店第 1 行: {row}')
+            logger.info(f'Магазин Акаши, строка 1: {row}')
             row = [str(item) for item in items if item.button[1] != min_row]
-            logger.info(f'明石商店第 2 行: {row}')
+            logger.info(f'Магазин Акаши, строка 2: {row}')
             return items
         else:
-            logger.info('未找到明石商店物品')
+            logger.info('В магазине Акаши предметы не найдены')
             return []
 
     def os_shop_get_item_to_buy_in_akashi(self) -> Item:
@@ -108,7 +108,7 @@ class AkashiShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         # 商店物品不会立即出现，需要确认商店是否为空
         for _ in range(2):
             if not len(items) or any(not item.is_known_item() for item in items):
-                logger.warning('明石商店为空或物品为空，正在确认')
+                logger.warning('Магазин Акаши или список предметов пуст, выполняется подтверждение')
                 self.device.sleep((0.3, 0.5))
                 self.device.screenshot()
                 items = self.os_shop_get_items_in_akashi()

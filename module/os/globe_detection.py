@@ -81,7 +81,7 @@ class GlobeDetection:
         if self._globe_map_loaded:
             return False
 
-        logger.info('[大世界-检测] 加载全球地图')
+        logger.info('[Операция «Сирена» — распознавание] Загрузка карты мира')
 
         # Load GLOBE_MAP
         image = load_image(GLOBE_MAP)
@@ -192,4 +192,4 @@ class GlobeDetection:
         logger.attr_align('全球地图中心', loca)
         logger.attr_align('相似度', float2str(similarity), front=float2str(time_cost) + 's')
         if similarity < 0.1:
-            logger.warning('[大世界-检测] 匹配全球地图时相似度过低')
+            logger.warning('[Операция «Сирена» — распознавание] Слишком низкое сходство при сопоставлении с картой глобуса')

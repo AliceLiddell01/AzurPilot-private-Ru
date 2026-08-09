@@ -43,7 +43,7 @@ class PortHandler(OSShop):
             in: IN_MAP
             out: PORT_CHECK
         """
-        logger.info('进入港口')
+        logger.info('Вход в порт')
         for _ in self.loop():
             if self.appear(PORT_CHECK, offset=(20, 20)):
                 break
@@ -62,7 +62,7 @@ class PortHandler(OSShop):
             in: PORT_CHECK
             out: IN_MAP
         """
-        logger.info('退出港口')
+        logger.info('Выход из порта')
         self.ui_back(appear_button=PORT_CHECK, check_button=self.is_in_map,
                      skip_first_screenshot=skip_first_screenshot)
         # 底部按钮有显示动画
@@ -82,7 +82,7 @@ class PortHandler(OSShop):
             out: PORT_CHECK
         """
         if not self.appear(PORT_MISSION_RED_DOT):
-            logger.info('[大世界处理-港口] 此港口无可用任务')
+            logger.info('[Операция «Сирена» — порт] В этом порту нет доступных заданий')
             return True
 
         self.ui_click(PORT_GOTO_MISSION, appear_button=PORT_CHECK, check_button=PORT_MISSION_CHECK,
@@ -101,7 +101,7 @@ class PortHandler(OSShop):
                     break
 
             if self.info_bar_count():
-                logger.info('[大世界处理-港口] 无法接受任务，已达任务数量上限')
+                logger.info('[Операция «Сирена» — порт] Невозможно принять задание: достигнут предел количества заданий')
                 success = False
                 break
 
@@ -130,7 +130,7 @@ class PortHandler(OSShop):
             in: PORT_SUPPLY_CHECK
             out: PORT_CHECK
         """
-        logger.info('退出港口商店')
+        logger.info('Выход из портового магазина')
         
         self.interval_clear([PORT_SUPPLY_CHECK, PORT_CHECK, ORDER_CHECK])
         
@@ -141,7 +141,7 @@ class PortHandler(OSShop):
         while True:
             # 超时保护：同时满足时间超过 10 秒且 reached() 调用超过 30 次
             if timeout.reached():
-                logger.warning('[大世界处理-港口] 退出港口商店超时，尝试使用返回箭头')
+                logger.warning('[Операция «Сирена» — порт] Истекло время выхода из портового магазина, попытка использовать стрелку «Назад»')
                 self.ui_back(appear_button=PORT_SUPPLY_CHECK, check_button=PORT_CHECK, skip_first_screenshot=True)
                 break
             
@@ -152,12 +152,12 @@ class PortHandler(OSShop):
 
             # 成功返回到港口界面
             if self.appear(PORT_CHECK, offset=(20, 20)):
-                logger.info('[大世界处理-港口] 已返回港口界面')
+                logger.info('[Операция «Сирена» — порт] Выполнен возврат на экран порта')
                 break
 
             # 意外进入情报界面（作战总览），用 order_quit 正确关闭
             if self.appear(ORDER_CHECK, offset=(20, 20)):
-                logger.warning('[大世界处理-港口] 意外进入情报界面，执行 order_quit 退出')
+                logger.warning('[Операция «Сирена» — порт] Случайно открыт экран разведданных, выполняется order_quit')
                 self.order_quit()
                 order_quit_used = True
                 self.interval_clear([PORT_SUPPLY_CHECK, PORT_CHECK, ORDER_CHECK])
@@ -166,7 +166,7 @@ class PortHandler(OSShop):
 
             # 从情报界面退出后可能落在大地图，重新进入港口
             if order_quit_used and self.is_in_map():
-                logger.info('[大世界处理-港口] 从情报界面退出后在大地图，重新进入港口')
+                logger.info('[Операция «Сирена» — порт] После выхода с экрана разведданных открыта глобальная карта, повторный вход в порт')
                 self.port_enter()
                 order_quit_used = False
                 self.interval_reset(PORT_CHECK)

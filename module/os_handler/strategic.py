@@ -15,7 +15,7 @@ STRATEGIC_SEARCH_SCROLL = Scroll(STRATEGIC_SEARCH_SCROLL_AREA, color=(247, 211, 
 
 class StrategicSearchHandler(MapEventHandler):
     def strategy_search_enter(self):
-        logger.info('[大世界-策略] 进入策略搜索')
+        logger.info('[Операция «Сирена» — стратегия] Вход в стратегический поиск')
         self.interval_clear(STRATEGIC_SEARCH_MAP_OPTION_OFF)
         for _ in self.loop():
             # End
@@ -31,7 +31,7 @@ class StrategicSearchHandler(MapEventHandler):
                 continue
 
     def strategic_search_set_tab(self):
-        logger.info('[大世界-策略] 设置策略搜索标签')
+        logger.info('[Операция «Сирена» — стратегия] Настройка вкладки стратегического поиска')
         for _ in self.loop():
             if get_color(self.device.image, STRATEGIC_SEARCH_TAB_SECURED.area)[2] <= 150:
                 self.device.click(STRATEGIC_SEARCH_TAB_SECURED)
@@ -48,9 +48,9 @@ class StrategicSearchHandler(MapEventHandler):
             if STRATEGIC_SEARCH_SCROLL.appear(main=self):
                 return True
             else:
-                logger.warning('[大世界-策略] 策略搜索滚动条消失')
+                logger.warning('[Операция «Сирена» — стратегия] Полоса прокрутки стратегического поиска исчезла')
         else:
-            logger.warning('[大世界-策略] 策略搜索滚动条消失确认')
+            logger.warning('[Операция «Сирена» — стратегия] Исчезновение полосы прокрутки стратегического поиска подтверждено')
             return False
 
     def _strategy_option_selected(self, button):
@@ -64,19 +64,19 @@ class StrategicSearchHandler(MapEventHandler):
         Returns:
             If success. False if strategic settings closed for unknown reason.
         """
-        logger.info('[大世界-策略] 设置策略搜索选项')
+        logger.info('[Операция «Сирена» — стратегия] Настройка параметров стратегического поиска')
         for _ in self.loop():
             if self._strategy_option_selected(STRATEGIC_SEARCH_ZONEMODE_REPEAT) \
                     and self._strategy_option_selected(STRATEGIC_SEARCH_MERCHANT_STOP):
-                logger.attr('区域模式', '重复')
-                logger.attr('遭遇商人', '停止')
+                logger.attr('Режим зоны', 'повторять')
+                logger.attr('При встрече торговца', 'остановить')
                 break
             if self._strategy_option_selected(STRATEGIC_SEARCH_ZONEMODE_RANDOM):
-                logger.attr('区域模式', '随机')
+                logger.attr('Режим зоны', 'случайный')
                 self.device.click(STRATEGIC_SEARCH_ZONEMODE_REPEAT)
                 continue
             if self._strategy_option_selected(STRATEGIC_SEARCH_MERCHANT_CONTINUE):
-                logger.attr('遭遇商人', '继续')
+                logger.attr('При встрече торговца', 'продолжить')
                 self.device.click(STRATEGIC_SEARCH_MERCHANT_STOP)
                 continue
 
@@ -91,10 +91,10 @@ class StrategicSearchHandler(MapEventHandler):
             STRATEGIC_SEARCH_DEVICE_CONTINUE.load_offset(STRATEGIC_SEARCH_DEVICE_CHECK)
 
             if self._strategy_option_selected(STRATEGIC_SEARCH_DEVICE_STOP):
-                logger.attr('遭遇装置', '停止')
+                logger.attr('При встрече устройства', 'остановить')
                 break
             if self._strategy_option_selected(STRATEGIC_SEARCH_DEVICE_CONTINUE):
-                logger.attr('遭遇装置', '继续')
+                logger.attr('При встрече устройства', 'продолжить')
                 self.device.click(STRATEGIC_SEARCH_DEVICE_STOP)
                 continue
 
@@ -110,17 +110,17 @@ class StrategicSearchHandler(MapEventHandler):
             STRATEGIC_SEARCH_SUBMIT_ON.load_offset(STRATEGIC_SEARCH_SUBMIT_CHECK)
 
             if self._strategy_option_selected(STRATEGIC_SEARCH_SUBMIT_ON):
-                logger.attr('自动提交', '开启')
+                logger.attr('Автоматическая отправка', 'включена')
                 break
             if self._strategy_option_selected(STRATEGIC_SEARCH_SUBMIT_OFF):
-                logger.attr('自动提交', '关闭')
+                logger.attr('Автоматическая отправка', 'выключена')
                 self.device.click(STRATEGIC_SEARCH_SUBMIT_ON)
                 continue
 
         return True
 
     def strategic_search_confirm(self):
-        logger.info('[大世界-策略] 策略搜索确认')
+        logger.info('[Операция «Сирена» — стратегия] Подтверждение стратегического поиска')
         for _ in self.loop():
             if self.appear(STRATEGIC_SEARCH_POPUP_CHECK, offset=(20, 20)) \
                     and self.handle_popup_confirm(offset=(30, 30), name='STRATEGIC_SEARCH'):
@@ -140,7 +140,7 @@ class StrategicSearchHandler(MapEventHandler):
             in: IN_MAP
             out: IN_MAP, with strategic search running
         """
-        logger.hr('策略搜索开始')
+        logger.hr('Запуск стратегического поиска')
         for _ in range(3):
             self.strategy_search_enter()
             self.strategic_search_set_tab()
@@ -150,5 +150,5 @@ class StrategicSearchHandler(MapEventHandler):
             self.strategic_search_confirm()
             return True
 
-        logger.warning('[大世界-策略] 策略搜索启动失败')
+        logger.warning('[Операция «Сирена» — стратегия] Не удалось запустить стратегический поиск')
         return False

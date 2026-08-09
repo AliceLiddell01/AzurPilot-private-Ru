@@ -230,7 +230,7 @@ class GlobeOperation(ActionPointHandler):
             record = len(selection)
             self.device.screenshot()
 
-        logger.warning('[大世界-操作] 无法确保区域选择已展开，假设已展开')
+        logger.warning('[Операция «Сирена» — действия] Не удалось подтвердить раскрытие выбора зоны; считаем его раскрытым')
         return self.get_zone_select()
 
     def zone_select_enter(self):
@@ -255,7 +255,7 @@ class GlobeOperation(ActionPointHandler):
             in: is_in_zone_select
             out: is_zone_pinned
         """
-        logger.info(f'区域选择: {button}')
+        logger.info(f'Выбор области: {button}')
         for _ in self.loop():
             # End
             if self.is_zone_pinned():
@@ -280,7 +280,7 @@ class GlobeOperation(ActionPointHandler):
             out: is_zone_pinned
         """
         if not self.zone_has_switch():
-            logger.info('区域无类型可选，跳过')
+            logger.info('Для зоны нельзя выбрать тип; пропуск')
             return True
 
         if isinstance(types, str):
@@ -298,36 +298,36 @@ class GlobeOperation(ActionPointHandler):
 
         pinned = self.get_zone_pinned_name()
         if pinned in types:
-            logger.info(f'已选择于 {pinned}')
+            logger.info(f'Уже выбран тип зоны: {pinned}')
             return True
 
         for _ in range(3):
             self.zone_select_enter()
             selection = self.ensure_zone_select_expanded()
-            logger.attr('海域选择', selection)
+            logger.attr('Выбор зоны', selection)
 
             button = get_button(selection)
             if button is None:
                 # 获取所有可用的区域类型（不含SELECT_前缀）
                 available_types = [getattr(sel, 'name', str(sel)).replace('SELECT_', '') for sel in selection]
                 logger.warning(
-                    f'[大世界-操作] 海域类型 {requested_type} 未在选择列表中, '
-                    f'可用类型: {available_types}, '
-                    f'回退到默认 (SAFE > DANGEROUS)'
+                    f'[Операция «Сирена» — действия] Тип зоны {requested_type} отсутствует в списке выбора, '
+                    f'Доступные типы: {available_types}, '
+                    f'используется тип по умолчанию (SAFE > DANGEROUS)'
                 )
                 # 回退到安全的默认优先级，而不是选择列表中的第一个
                 # 这样在有深渊海域时不会错误地进入深渊而是选择安全海域
                 types = ('SAFE', 'DANGEROUS')
                 button = get_button(selection)
                 if button is None:
-                    logger.warning('[大世界-操作] 无区域类型可选')
+                    logger.warning('[Операция «Сирена» — действия] Нет доступных типов области')
                     return False
 
             self.zone_select_execute(button)
             if self.pinned_to_name(button) == self.get_zone_pinned_name():
                 return True
 
-        logger.warning('[大世界-操作] 尝试3次后仍无法选择区域类型')
+        logger.warning('[Операция «Сирена» — действия] Не удалось выбрать тип зоны за 3 попытки')
         return False
 
     def zone_has_safe(self):
@@ -373,7 +373,7 @@ class GlobeOperation(ActionPointHandler):
                 break
 
             if self.appear(PORT_CHECK, offset=(20, 20), interval=3):
-                logger.info('误入港口，退出')
+                logger.info('Случайный вход в порт; выход')
                 self.device.click(BACK_ARROW)
                 self.interval_reset(GLOBE_GOTO_MAP)
                 continue
@@ -406,7 +406,7 @@ class GlobeOperation(ActionPointHandler):
                 click_count += 1
                 if click_count >= 5:
                     # 当海域存在探索奖励时，游戏不会允许你离开。
-                    logger.warning('[大世界-操作] 无法前往全球地图, 可能有未收集的海域探索奖励阻止退出')
+                    logger.warning('[Операция «Сирена» — действия] Не удалось перейти к глобусу: возможно, выход блокирует несобранная награда за исследование зоны')
                     raise RewardUncollectedError
                 continue
             if self.appear_then_click(MAP_GOTO_GLOBE_FOG, interval=5):
@@ -417,7 +417,7 @@ class GlobeOperation(ActionPointHandler):
                 continue
             # 意外进入港口
             if self.appear(PORT_CHECK, offset=(20, 20), interval=5):
-                logger.info(f'页面切换: {PORT_CHECK} -> {BACK_ARROW}')
+                logger.info(f'Переключение экрана: {PORT_CHECK} -> {BACK_ARROW}')
                 self.device.click(BACK_ARROW)
                 continue
             # 弹窗：AUTO_SEARCH_REWARD 出现较慢
@@ -472,10 +472,10 @@ class GlobeOperation(ActionPointHandler):
 
             if self.is_zone_pinned():
                 if self.appear(ZONE_LOCKED, offset=(20, 20)):
-                    logger.warning(f'[大世界-操作] 海域 {zone} 已锁定, 相邻海域可能未被探索过')
+                    logger.warning(f'[Операция «Сирена» — действия] Зона {zone} заблокирована; возможно, соседняя зона ещё не исследована')
                     raise OSExploreError
                 if click_count > 5:
-                    logger.warning(f'[大世界-操作] 无法进入海域 {zone}, 相邻海域可能未被探索过')
+                    logger.warning(f'[Операция «Сирена» — действия] Не удалось войти в зону {zone}; возможно, соседняя зона ещё не исследована')
                     raise OSExploreError
                 if click_timer.reached():
                     # 点太快会进不去 浪费时间
