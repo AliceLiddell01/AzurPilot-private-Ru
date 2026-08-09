@@ -179,6 +179,63 @@ def test_plotter_display_contract_is_receiver_scoped() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("path", "base", "head"),
+    [
+        (
+            "module/island/island_business.py",
+            "def __init__(self):\n    logger.info(f\"Режим: {'启用' if enabled else '禁用'}\")\n",
+            "def __init__(self):\n    logger.info(f\"Режим: {'включён' if enabled else 'выключен'}\")\n",
+        ),
+        (
+            "module/island/island_mine_forest.py",
+            "def _record_working_post(self):\n    logger.info(f\"Продукт: {name or '未知'}\")\n",
+            "def _record_working_post(self):\n    logger.info(f\"Продукт: {name or 'неизвестно'}\")\n",
+        ),
+        (
+            "module/island/island_daily_order.py",
+            "def _ocr_cooldown_below_urgent(self):\n    logger.warning(f\"OCR: {'失败' if seconds is None else f'过短({seconds}秒)'}\")\n",
+            "def _ocr_cooldown_below_urgent(self):\n    logger.warning(f\"OCR: {'ошибка' if seconds is None else f'слишком мало ({seconds} с)'}\")\n",
+        ),
+        (
+            "module/tactical/tactical_class.py",
+            "def _tactical_get_finish(self):\n    logger.info(f\"Состояние: {['运行中' if state else '空闲' for state in states]}\")\n",
+            "def _tactical_get_finish(self):\n    logger.info(f\"Состояние: {['выполняется' if state else 'свободно' for state in states]}\")\n",
+        ),
+    ],
+)
+def test_exact_nested_display_values_translation_passes(
+    path: str, base: str, head: str
+) -> None:
+    assert_passes(path, base, head)
+
+
+@pytest.mark.parametrize(
+    ("path", "base", "head"),
+    [
+        (
+            "module/island/island_business.py",
+            "def other(self):\n    logger.info(f\"Режим: {'启用' if enabled else '禁用'}\")\n",
+            "def other(self):\n    logger.info(f\"Режим: {'включён' if enabled else 'выключен'}\")\n",
+        ),
+        (
+            "module/island/island_business.py",
+            "def __init__(self):\n    other.info(f\"Режим: {'启用' if enabled else '禁用'}\")\n",
+            "def __init__(self):\n    other.info(f\"Режим: {'включён' if enabled else 'выключен'}\")\n",
+        ),
+        (
+            "module/island/island_business.py",
+            "def __init__(self):\n    logger.info(f\"Режим: {mapping['启用']}\")\n",
+            "def __init__(self):\n    logger.info(f\"Режим: {mapping['включён']}\")\n",
+        ),
+    ],
+)
+def test_exact_nested_display_values_contract_is_fail_closed(
+    path: str, base: str, head: str
+) -> None:
+    assert_blocked(path, base, head)
+
+
 def test_logger_attr_align_label_translation_passes() -> None:
     assert_passes(
         "module/os/globe_detection.py",

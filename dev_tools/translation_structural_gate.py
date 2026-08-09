@@ -115,6 +115,34 @@ PLOTTER_DISPLAY_LABEL_CALLS = {
     ("ax3", "plot"),
     ("mpatches", "Patch"),
 }
+EXACT_LOGGER_NESTED_DISPLAY_CALLS = {
+    ("module/island/island_business.py", "__init__", ("logger", "info")),
+    (
+        "module/island/island_daily_order.py",
+        "_ocr_cooldown_below_urgent",
+        ("logger", "warning"),
+    ),
+    (
+        "module/island/island_mine_forest.py",
+        "_record_working_post",
+        ("logger", "info"),
+    ),
+    (
+        "module/island/island_mine_forest.py",
+        "post_plant",
+        ("logger", "info"),
+    ),
+    (
+        "module/island/island_shop_base.py",
+        "_compute_base_demands",
+        ("logger", "info"),
+    ),
+    (
+        "module/tactical/tactical_class.py",
+        "_tactical_get_finish",
+        ("logger", "info"),
+    ),
+}
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
     r"(?:hh|h|ll|l|L|j|z|t)?[diouxXeEfFgGcrsa%]"
@@ -216,6 +244,40 @@ def _safe_templates(node: ast.AST) -> list[ast.AST]:
         return [node.left, *_display_value_templates(node.right)]
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         return [*_safe_templates(node.left), *_safe_templates(node.right)]
+    return []
+
+
+def _conditional_display_templates(node: ast.AST) -> list[ast.AST]:
+    if isinstance(node, ast.IfExp):
+        return [
+            *_safe_templates(node.body),
+            *_safe_templates(node.orelse),
+            *_conditional_display_templates(node.body),
+            *_conditional_display_templates(node.orelse),
+        ]
+    if isinstance(node, ast.BoolOp):
+        return [
+            template
+            for value in node.values
+            for template in (
+                *_safe_templates(value),
+                *_conditional_display_templates(value),
+            )
+        ]
+    if isinstance(node, ast.JoinedStr):
+        return [
+            template
+            for value in node.values
+            if isinstance(value, ast.FormattedValue)
+            for template in _conditional_display_templates(value.value)
+        ]
+    if isinstance(node, ast.ListComp):
+        return _conditional_display_templates(node.elt)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return [
+            *_conditional_display_templates(node.left),
+            *_conditional_display_templates(node.right),
+        ]
     return []
 
 
@@ -658,6 +720,21 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                     self._approve(node.args[1], f"{logger_target}.attr value")
             elif logger_method == "attr_align":
                 self._approve(node.args[0], f"{logger_target}.attr_align label")
+
+            if (
+                self.function_stack
+                and (
+                    self.source_path,
+                    self.function_stack[-1],
+                    name,
+                )
+                in EXACT_LOGGER_NESTED_DISPLAY_CALLS
+            ):
+                for expression in _conditional_display_templates(node.args[0]):
+                    self._approve(
+                        expression,
+                        f"exact nested display {'.'.join(name)}",
+                    )
         elif name == ("handle_notify",):
             for keyword in node.keywords:
                 if keyword.arg in HANDLE_NOTIFY_PROSE_KEYWORDS:
