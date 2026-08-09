@@ -9,4 +9,4 @@ GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR = Button(area=(190, 315, 660, 375), color=(7
 GAME_SETTINGS_OPTIONS_SELECTED = Button(area=(0, 178, 101, 269), color=(98, 80, 67), button=(0, 178, 101, 269), file='./assets/en/game_settings/GAME_SETTINGS_OPTIONS_SELECTED.gif')
 GAME_SETTINGS_OPTIONS_TOP_ANCHOR = Button(area=(190, 112, 700, 158), color=(80, 87, 111), button=(190, 112, 700, 158), file='./assets/en/game_settings/GAME_SETTINGS_OPTIONS_TOP_ANCHOR.gif')
 GAME_SETTINGS_OPTIONS_UNSELECTED = Button(area=(0, 178, 101, 269), color=(42, 47, 59), button=(0, 178, 101, 269), file='./assets/en/game_settings/GAME_SETTINGS_OPTIONS_UNSELECTED.gif')
-TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ROW = Template(file='./assets/en/game_settings/TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ROW.png')
+TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON = Template(file='./assets/en/game_settings/TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON.png')

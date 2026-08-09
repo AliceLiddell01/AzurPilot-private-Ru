@@ -29,13 +29,29 @@ class _FakeDevice:
 
 
 class _FakePreflightScanner(GameSettingsPreflightScanner):
-    def __init__(self, viewports: int = 3) -> None:
+    def __init__(
+        self,
+        viewports: int = 3,
+        *,
+        traversal_error: Exception | None = None,
+        return_error: Exception | None = None,
+    ) -> None:
         self.device = _FakeDevice()
         self.viewports = viewports
+        self.traversal_error = traversal_error
+        self.return_error = return_error
         self.visited = 0
+        self.ensure_calls = 0
         self.return_calls = 0
 
+    def ensure_options_page(self) -> bool:
+        self.ensure_calls += 1
+        return True
+
     def traverse_options(self, visitor):
+        if self.traversal_error is not None:
+            raise self.traversal_error
+
         for index in range(1, self.viewports + 1):
             self.visited += 1
             viewport = OptionsViewport(
@@ -61,6 +77,8 @@ class _FakePreflightScanner(GameSettingsPreflightScanner):
 
     def return_to_main(self) -> bool:
         self.return_calls += 1
+        if self.return_error is not None:
+            raise self.return_error
         return True
 
 
@@ -94,7 +112,10 @@ class GameSettingsPreflightTests(unittest.TestCase):
         self.assertIs(check.detected_state, GameSettingState.ON)
         self.assertIs(check.expected_state, GameSettingState.OFF)
         self.assertFalse(check.compatible)
+        self.assertFalse(result.all_required_compatible)
+        self.assertEqual(len(result), 1)
         self.assertEqual(scanner.visited, 2)
+        self.assertEqual(scanner.ensure_calls, 1)
         self.assertEqual(scanner.return_calls, 1)
 
     def test_off_is_reported_as_compatible(self) -> None:
@@ -113,36 +134,28 @@ class GameSettingsPreflightTests(unittest.TestCase):
         self.assertEqual(scanner.visited, 1)
         self.assertEqual(scanner.return_calls, 1)
 
-    def test_ambiguous_viewport_can_recover_on_overlap(self) -> None:
+    def test_row_present_unknown_stops_early_and_fails_closed(self) -> None:
         scanner = _FakePreflightScanner(viewports=4)
 
         with patch(
             "module.game_settings.preflight.detect_custom_ship_names",
-            side_effect=[
-                None,
-                GameSettingState.UNKNOWN,
-                GameSettingState.OFF,
-            ],
+            side_effect=[None, GameSettingState.UNKNOWN, GameSettingState.OFF],
         ):
             result = scanner.scan_game_settings()
 
-        self.assertIs(
-            result.get("custom_ship_names").detected_state,
-            GameSettingState.OFF,
-        )
-        self.assertEqual(scanner.visited, 3)
+        check = result.get("custom_ship_names")
+        self.assertIs(check.detected_state, GameSettingState.UNKNOWN)
+        self.assertFalse(check.compatible)
+        self.assertFalse(result.all_required_compatible)
+        self.assertEqual(scanner.visited, 2)
         self.assertEqual(scanner.return_calls, 1)
 
-    def test_absent_or_unresolved_setting_fails_closed_as_unknown(self) -> None:
+    def test_absent_setting_reaches_bottom_as_unknown(self) -> None:
         scanner = _FakePreflightScanner(viewports=3)
 
         with patch(
             "module.game_settings.preflight.detect_custom_ship_names",
-            side_effect=[
-                None,
-                GameSettingState.UNKNOWN,
-                None,
-            ],
+            return_value=None,
         ):
             result = scanner.scan_game_settings()
 
@@ -151,6 +164,42 @@ class GameSettingsPreflightTests(unittest.TestCase):
         self.assertFalse(check.compatible)
         self.assertFalse(result.all_required_compatible)
         self.assertEqual(scanner.visited, 3)
+        self.assertEqual(scanner.return_calls, 1)
+
+    def test_traversal_failure_still_returns_to_main(self) -> None:
+        scanner = _FakePreflightScanner(
+            traversal_error=RuntimeError("primary traversal failure")
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "primary traversal failure"):
+            scanner.scan_game_settings()
+
+        self.assertEqual(scanner.ensure_calls, 1)
+        self.assertEqual(scanner.return_calls, 1)
+
+    def test_cleanup_failure_does_not_mask_primary_failure(self) -> None:
+        scanner = _FakePreflightScanner(
+            traversal_error=RuntimeError("primary traversal failure"),
+            return_error=RuntimeError("cleanup failure"),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "primary traversal failure"):
+            scanner.scan_game_settings()
+
+        self.assertEqual(scanner.return_calls, 1)
+
+    def test_cleanup_failure_propagates_after_successful_scan(self) -> None:
+        scanner = _FakePreflightScanner(
+            return_error=RuntimeError("cleanup failure"),
+        )
+
+        with patch(
+            "module.game_settings.preflight.detect_custom_ship_names",
+            return_value=GameSettingState.ON,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "cleanup failure"):
+                scanner.scan_game_settings()
+
         self.assertEqual(scanner.return_calls, 1)
 
     def test_stage5_production_code_has_no_setting_mutation_calls(self) -> None:

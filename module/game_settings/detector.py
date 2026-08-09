@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 from module.game_settings.assets import (
-    TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ROW,
+    TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON,
 )
 from module.game_settings.model import GameSettingState
 from module.game_settings.traversal import OPTIONS_VIEWPORT_AREA
@@ -16,10 +16,10 @@ _CUSTOM_SHIP_NAMES_LABEL_MIN_SIMILARITY = 0.70
 _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY = 0.70
 _CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN = 0.18
 
-# Единственный production asset — exact real crop строки Custom Ship Names.
-# Эти две области являются его неизменёнными sub-crops.
-_CUSTOM_SHIP_NAMES_LABEL_AREA = (18, 11, 266, 44)
-_CUSTOM_SHIP_NAMES_SELECTED_MARKER_AREA = (414, 10, 446, 44)
+# Production ON asset — exact crop из подтверждённого реального screenshot.
+# Label и selected-marker берутся только как неизменённые sub-crops.
+_CUSTOM_SHIP_NAMES_LABEL_AREA = (6, 5, 254, 38)
+_CUSTOM_SHIP_NAMES_SELECTED_MARKER_AREA = (402, 4, 434, 38)
 
 # Геометрия относительно top-left label после его нахождения в viewport.
 # Reference frame: 1280x720 user screenshot, label origin=(232, 495).
@@ -58,13 +58,19 @@ def _resolve_custom_ship_names_state(
     off_similarity: float,
     on_similarity: float,
 ) -> GameSettingState:
-    best = max(off_similarity, on_similarity)
-    if best < _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY:
+    """Fail-closed resolver до появления подтверждённого real OFF asset.
+
+    Единственный подтверждённый state-specific visual source сейчас — ON.
+    Поэтому сильный match selected-marker в Off-slot не считается доказательством
+    OFF: без отдельного реального OFF fixture это остаётся UNKNOWN.
+    """
+
+    on_matched = on_similarity >= _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY
+    off_matched = off_similarity >= _CUSTOM_SHIP_NAMES_MARKER_MIN_SIMILARITY
+    if not on_matched or off_matched:
         return GameSettingState.UNKNOWN
-    if abs(off_similarity - on_similarity) < _CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN:
+    if on_similarity - off_similarity < _CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN:
         return GameSettingState.UNKNOWN
-    if off_similarity > on_similarity:
-        return GameSettingState.OFF
     return GameSettingState.ON
 
 
@@ -103,14 +109,12 @@ def detect_custom_ship_names(
     """Определить Custom Ship Names без изменения настройки.
 
     ``None`` означает, что уникальная строка не присутствует в текущем
-    viewport. ``UNKNOWN`` означает, что строка найдена, но selected-marker
-    нельзя надёжно отнести к Off или On.
+    viewport. ``UNKNOWN`` означает, что строка найдена, но состояние нельзя
+    подтвердить имеющимися реальными state-specific assets.
 
-    Production asset — один exact real crop именно строки Custom Ship Names.
-    Из него без синтеза берутся уникальный label и selected-marker текущего
-    On-slot. После нахождения label тот же marker ищется только в двух штатных
-    slot-областях этой же строки. Другие настройки не используются как
-    substitute/reference для отсутствующего состояния.
+    Пока подтверждён только реальный ON. Production detector намеренно не
+    выводит OFF из положения одного и того же selected-marker: OFF останется
+    UNKNOWN до добавления отдельного подтверждённого real OFF screenshot/asset.
     """
 
     if image.shape[:2] != (720, 1280):
@@ -118,10 +122,10 @@ def detect_custom_ship_names(
             "Custom Ship Names detector ожидает screenshot 1280 x 720."
         )
 
-    row_template = TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ROW.image
-    label_template = _crop(row_template, _CUSTOM_SHIP_NAMES_LABEL_AREA)
+    on_template = TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON.image
+    label_template = _crop(on_template, _CUSTOM_SHIP_NAMES_LABEL_AREA)
     marker_template = _crop(
-        row_template,
+        on_template,
         _CUSTOM_SHIP_NAMES_SELECTED_MARKER_AREA,
     )
 

@@ -23,34 +23,71 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
     def _scan_game_settings(self) -> GameSettingsScanResult:
         detected_state = GameSettingState.UNKNOWN
 
-        def visit(_viewport: OptionsViewport) -> bool:
+        def visit(viewport: OptionsViewport) -> bool:
             nonlocal detected_state
 
             state = detect_custom_ship_names(self.device.image)
             if state is None:
                 return False
 
+            detected_state = state
+            logger.info(
+                "[Игровые настройки] Custom Ship Names найден в окне #%s "
+                "(смещение %.1f px)",
+                viewport.index,
+                viewport.scroll_offset,
+            )
             if state is GameSettingState.UNKNOWN:
                 logger.warning(
                     "[Игровые настройки] Custom Ship Names найден, "
-                    "но состояние пока неоднозначно"
+                    "но состояние неоднозначно"
                 )
-                return False
-
-            detected_state = state
-            logger.attr("Custom Ship Names", state.value)
+            else:
+                logger.info(
+                    "[Игровые настройки] Custom Ship Names: %s",
+                    state.value.upper(),
+                )
+            # Row-present UNKNOWN тоже является терминальным результатом этого
+            # single-setting Stage: overlap не должен превращать неоднозначность
+            # в «строка ещё не найдена».
             return True
 
-        self.traverse_options(visit)
+        # После подтверждённого входа в Options cleanup обязателен для любого
+        # результата traversal и для исключений detector/traversal.
+        self.ensure_options_page()
+        primary_error: Exception | None = None
+        try:
+            traversal_result = self.traverse_options(visit)
+            if not traversal_result.stopped_early:
+                logger.warning(
+                    "[Игровые настройки] Custom Ship Names не найден "
+                    "до подтверждённого низа Options"
+                )
 
-        result = GameSettingsScanResult(
-            (
-                GameSettingCheckResult(
-                    definition=CUSTOM_SHIP_NAMES,
-                    detected_state=detected_state,
-                    requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
-                ),
+            check = GameSettingCheckResult(
+                definition=CUSTOM_SHIP_NAMES,
+                detected_state=detected_state,
+                requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
             )
-        )
-        self.return_to_main()
-        return result
+            logger.info(
+                "[Игровые настройки] Требуемое состояние Custom Ship Names: OFF"
+            )
+            logger.info(
+                "[Игровые настройки] Требование совместимо: %s",
+                check.compatible,
+            )
+            return GameSettingsScanResult((check,))
+        except Exception as exc:
+            primary_error = exc
+            raise
+        finally:
+            try:
+                self.return_to_main()
+            except Exception:
+                if primary_error is None:
+                    raise
+                # Ошибка cleanup не должна подменять исходную scanner error.
+                logger.warning(
+                    "[Игровые настройки] Не удалось вернуться на главный экран "
+                    "после ошибки сканирования"
+                )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import imageio.v2 as imageio
 import numpy as np
@@ -16,7 +17,7 @@ from module.game_settings.model import GameSettingState
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "game_settings"
 ASSET_DIR = ROOT / "assets" / "en" / "game_settings"
-_REFERENCE_ORIGIN = (214, 484)
+_REFERENCE_ORIGIN = (226, 490)
 
 
 def _fixture(name: str) -> np.ndarray:
@@ -24,10 +25,10 @@ def _fixture(name: str) -> np.ndarray:
     return image[:, :, :3] if image.ndim == 3 else image
 
 
-def _custom_ship_names_frame() -> np.ndarray:
+def _custom_ship_names_frame(*, y: int = _REFERENCE_ORIGIN[1]) -> np.ndarray:
     crop = _fixture("custom_ship_names_on.png")
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
-    x, y = _REFERENCE_ORIGIN
+    x = _REFERENCE_ORIGIN[0]
     height, width = crop.shape[:2]
     frame[y : y + height, x : x + width] = crop
     return frame
@@ -56,12 +57,28 @@ class CustomShipNamesDetectorTests(unittest.TestCase):
 
         self.assertIsNone(detect_custom_ship_names(blank))
 
-    def test_state_resolution_is_tristate_and_margin_guarded(self) -> None:
+    def test_row_visible_with_untrusted_markers_is_unknown(self) -> None:
+        frame = _custom_ship_names_frame()
+        with patch(
+            "module.game_settings.detector._template_score",
+            side_effect=[
+                (0.99, (57, 415)),
+                (0.20, (0, 0)),
+                (0.20, (0, 0)),
+            ],
+        ):
+            self.assertIs(
+                detect_custom_ship_names(frame),
+                GameSettingState.UNKNOWN,
+            )
+
+    def test_state_resolution_is_fail_closed_until_real_off_exists(self) -> None:
         cases = (
-            (0.91, 0.24, GameSettingState.OFF),
             (0.24, 0.91, GameSettingState.ON),
+            (0.91, 0.24, GameSettingState.UNKNOWN),
             (0.64, 0.21, GameSettingState.UNKNOWN),
-            (0.86, 0.75, GameSettingState.UNKNOWN),
+            (0.86, 0.86, GameSettingState.UNKNOWN),
+            (0.75, 0.86, GameSettingState.UNKNOWN),
         )
 
         for off_similarity, on_similarity, expected in cases:
@@ -77,15 +94,21 @@ class CustomShipNamesDetectorTests(unittest.TestCase):
                     expected,
                 )
 
-    def test_production_asset_and_fixture_are_same_exact_real_crop(self) -> None:
+    def test_production_on_asset_and_fixture_are_same_real_crop(self) -> None:
         fixture = _fixture("custom_ship_names_on.png")
         asset = imageio.imread(
-            ASSET_DIR / "TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ROW.png"
+            ASSET_DIR / "TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON.png"
         )
         asset = asset[:, :, :3] if asset.ndim == 3 else asset
 
         np.testing.assert_array_equal(asset, fixture)
-        self.assertEqual(asset.shape[:2], (52, 466))
+        self.assertEqual(asset.shape[:2], (42, 440))
+
+    def test_real_on_pixels_support_vertical_offset_search(self) -> None:
+        self.assertIs(
+            detect_custom_ship_names(_custom_ship_names_frame(y=260)),
+            GameSettingState.ON,
+        )
 
     def test_detector_rejects_non_native_geometry(self) -> None:
         with self.assertRaisesRegex(ValueError, "1280 x 720"):
