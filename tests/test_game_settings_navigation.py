@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 import cv2
+from PIL import Image
 
 from module.base.utils import load_image
 from module.exception import GamePageUnknownError, RequestHumanTakeover
@@ -16,23 +17,35 @@ from module.game_settings.assets import (
 from module.game_settings.navigation import page_settings, page_settings_options
 from module.game_settings.scanner import GameSettingsScanner
 from module.ui.assets import GOTO_MAIN
-from module.ui.page import Page, page_main, page_main_white
+from module.ui.page import Page, page_campaign, page_main, page_main_white
 
 
+ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "game_settings"
+ASSET_DIR = ROOT / "assets" / "en" / "game_settings"
+
+
+def _button_template(button):
+    button.ensure_template()
+    return button.image[0] if button.is_gif else button.image
 
 
 def _button_similarity(left, right) -> float:
-    left.ensure_template()
-    right.ensure_template()
-    result = cv2.matchTemplate(left.image, right.image, cv2.TM_CCOEFF_NORMED)
+    result = cv2.matchTemplate(
+        _button_template(left),
+        _button_template(right),
+        cv2.TM_CCOEFF_NORMED,
+    )
     return float(cv2.minMaxLoc(result)[1])
 
 
 def _fixture_similarity(button, fixture_name: str) -> float:
-    button.ensure_template()
     fixture = load_image(str(FIXTURE_DIR / fixture_name))
-    result = cv2.matchTemplate(button.image, fixture, cv2.TM_CCOEFF_NORMED)
+    result = cv2.matchTemplate(
+        _button_template(button),
+        fixture,
+        cv2.TM_CCOEFF_NORMED,
+    )
     return float(cv2.minMaxLoc(result)[1])
 
 
@@ -88,6 +101,19 @@ class GameSettingsNavigationTests(unittest.TestCase):
         finally:
             Page.clear_connection()
 
+    def test_game_settings_assets_are_decodable(self) -> None:
+        asset_names = (
+            "GAME_SETTINGS_MAIN_GOTO_SETTINGS.gif",
+            "GAME_SETTINGS_MAIN_GOTO_SETTINGS.BUTTON.gif",
+            "GAME_SETTINGS_OPTIONS_SELECTED.gif",
+            "GAME_SETTINGS_OPTIONS_UNSELECTED.gif",
+        )
+
+        for asset_name in asset_names:
+            with self.subTest(asset=asset_name):
+                with Image.open(ASSET_DIR / asset_name) as image:
+                    image.verify()
+
     def test_options_detector_distinguishes_settings_shell(self) -> None:
         self.assertLess(
             _button_similarity(
@@ -134,8 +160,8 @@ class GameSettingsNavigationTests(unittest.TestCase):
 
         self.assertEqual(scanner.goto_calls, [])
 
-    def test_unrelated_start_state_is_not_extended_into_recovery_engine(self) -> None:
-        scanner = _FakeNavigationScanner(object())
+    def test_unrelated_recognized_page_is_not_extended_into_scanner_recovery(self) -> None:
+        scanner = _FakeNavigationScanner(page_campaign)
 
         with self.assertRaises(GamePageUnknownError):
             scanner.ensure_options_page()
@@ -150,10 +176,9 @@ class GameSettingsNavigationTests(unittest.TestCase):
         self.assertEqual(scanner.ui_current, page_main_white)
 
     def test_navigation_has_no_blind_click_or_stage3_scope(self) -> None:
-        root = Path(__file__).resolve().parents[1]
         files = [
-            root / "module" / "game_settings" / "scanner.py",
-            root / "module" / "game_settings" / "navigation.py",
+            ROOT / "module" / "game_settings" / "scanner.py",
+            ROOT / "module" / "game_settings" / "navigation.py",
         ]
         forbidden_calls = {"click", "sleep", "swipe", "drag"}
         imported_modules = []

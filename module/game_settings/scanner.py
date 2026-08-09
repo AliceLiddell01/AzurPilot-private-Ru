@@ -30,8 +30,10 @@ class GameSettingsScanner(UI, ABC, Generic[_ScanResultT]):
         """Гарантировать открытый Options через штатный ``Page/UI``-граф.
 
         Возвращает ``False``, если Options уже открыт, иначе ``True`` после
-        подтверждённого перехода. Legacy/dark Main пока не имеет подтверждённого
-        Settings gear asset и поэтому завершается fail-closed вместо blind click.
+        подтверждённого перехода. Реально неизвестные экраны намеренно остаются
+        в штатном recovery-контуре ``UI.ui_get_current_page()``. Распознанные,
+        но не входящие в контракт Stage 2 страницы сканер не пытается расширять
+        собственным recovery engine.
         """
         self.ui_get_current_page()
 
@@ -46,8 +48,8 @@ class GameSettingsScanner(UI, ABC, Generic[_ScanResultT]):
 
         if self.ui_current is not page_main_white and self.ui_current is not page_settings:
             raise GamePageUnknownError(
-                "[Game Settings] Навигация Stage 2 поддерживает старт из Main, "
-                "Settings или Options."
+                "[Game Settings] Распознанная стартовая страница не входит в "
+                "поддерживаемые Stage 2 состояния Main, Settings или Options."
             )
 
         self.ui_goto(page_settings_options, skip_first_screenshot=True)
