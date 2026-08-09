@@ -9,6 +9,8 @@ import imageio.v2 as imageio
 import numpy as np
 
 from module.game_settings.detector import (
+    _CUSTOM_SHIP_NAMES_LABEL_AREA,
+    _CUSTOM_SHIP_NAMES_STATE_AREA,
     _resolve_custom_ship_names_state,
     detect_custom_ship_names,
 )
@@ -19,7 +21,6 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "game_settings"
 ASSET_DIR = ROOT / "assets" / "en" / "game_settings"
 _REFERENCE_ORIGIN = (226, 490)
-_STATE_AREA = (275, 0, 440, 42)
 _OFF_STATE_SHA256 = "85346a4d0d255251ad6dab83a5d4f3fe04414885e6b6c947e8229671bbeb0a9f"
 
 
@@ -37,7 +38,7 @@ def _frame_from_real_state_evidence(
 
     row = _fixture("custom_ship_names_on.png").copy()
     if state == "off":
-        x1, y1, x2, y2 = _STATE_AREA
+        x1, y1, x2, y2 = _CUSTOM_SHIP_NAMES_STATE_AREA
         row[y1:y2, x1:x2] = _fixture("custom_ship_names_off_state.png")
     elif state != "on":
         raise ValueError(f"Unsupported state fixture: {state}")
@@ -46,6 +47,40 @@ def _frame_from_real_state_evidence(
     x = _REFERENCE_ORIGIN[0]
     height, width = row.shape[:2]
     frame[y : y + height, x : x + width] = row
+    return frame
+
+
+def _frame_with_independent_label_shift(
+    state: str,
+    *,
+    dx: int = 0,
+    dy: int = 0,
+) -> np.ndarray:
+    """Keep real state pixels fixed while moving only the unique text anchor."""
+
+    row = _fixture("custom_ship_names_on.png")
+    lx1, ly1, lx2, ly2 = _CUSTOM_SHIP_NAMES_LABEL_AREA
+    sx1, sy1, sx2, sy2 = _CUSTOM_SHIP_NAMES_STATE_AREA
+    label = row[ly1:ly2, lx1:lx2]
+
+    if state == "on":
+        state_pixels = row[sy1:sy2, sx1:sx2]
+    elif state == "off":
+        state_pixels = _fixture("custom_ship_names_off_state.png")
+    else:
+        raise ValueError(f"Unsupported state fixture: {state}")
+
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    x, y = _REFERENCE_ORIGIN
+    frame[y + sy1 : y + sy2, x + sx1 : x + sx2] = state_pixels
+
+    label_x = x + lx1 + dx
+    label_y = y + ly1 + dy
+    label_height, label_width = label.shape[:2]
+    frame[
+        label_y : label_y + label_height,
+        label_x : label_x + label_width,
+    ] = label
     return frame
 
 
@@ -152,6 +187,51 @@ class CustomShipNamesDetectorTests(unittest.TestCase):
                     ),
                     expected,
                 )
+
+    def test_independent_label_shift_accepts_search_window_boundaries(self) -> None:
+        boundary_offsets = (
+            (-9, 0),
+            (9, 0),
+            (0, -13),
+            (0, 5),
+        )
+        for state, expected in (
+            ("on", GameSettingState.ON),
+            ("off", GameSettingState.OFF),
+        ):
+            for dx, dy in boundary_offsets:
+                with self.subTest(state=state, dx=dx, dy=dy):
+                    self.assertIs(
+                        detect_custom_ship_names(
+                            _frame_with_independent_label_shift(
+                                state,
+                                dx=dx,
+                                dy=dy,
+                            )
+                        ),
+                        expected,
+                    )
+
+    def test_independent_label_shift_outside_search_window_is_unknown(self) -> None:
+        outside_offsets = (
+            (-10, 0),
+            (10, 0),
+            (0, -14),
+            (0, 6),
+        )
+        for state in ("on", "off"):
+            for dx, dy in outside_offsets:
+                with self.subTest(state=state, dx=dx, dy=dy):
+                    self.assertIs(
+                        detect_custom_ship_names(
+                            _frame_with_independent_label_shift(
+                                state,
+                                dx=dx,
+                                dy=dy,
+                            )
+                        ),
+                        GameSettingState.UNKNOWN,
+                    )
 
     def test_detector_rejects_non_native_geometry(self) -> None:
         with self.assertRaisesRegex(ValueError, "1280 x 720"):
