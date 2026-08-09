@@ -61,7 +61,7 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
             if not traversal_result.stopped_early:
                 logger.warning(
                     "[Игровые настройки] Custom Ship Names не найден "
-                    "до подтверждённого низа Options"
+                    "до подтверждённого полного цикла Options"
                 )
 
             check = GameSettingCheckResult(
