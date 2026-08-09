@@ -5,5 +5,7 @@ from module.base.template import Template
 # Don't modify it manually.
 
 GAME_SETTINGS_MAIN_GOTO_SETTINGS = Button(area=(1205, 23, 1237, 50), color=(167, 169, 176), button=(1180, 18, 1264, 56), file='./assets/en/game_settings/GAME_SETTINGS_MAIN_GOTO_SETTINGS.gif')
+GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR = Button(area=(190, 315, 660, 375), color=(79, 88, 114), button=(190, 315, 660, 375), file='./assets/en/game_settings/GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR.gif')
 GAME_SETTINGS_OPTIONS_SELECTED = Button(area=(0, 178, 101, 269), color=(98, 80, 67), button=(0, 178, 101, 269), file='./assets/en/game_settings/GAME_SETTINGS_OPTIONS_SELECTED.gif')
+GAME_SETTINGS_OPTIONS_TOP_ANCHOR = Button(area=(190, 112, 700, 158), color=(80, 87, 111), button=(190, 112, 700, 158), file='./assets/en/game_settings/GAME_SETTINGS_OPTIONS_TOP_ANCHOR.gif')
 GAME_SETTINGS_OPTIONS_UNSELECTED = Button(area=(0, 178, 101, 269), color=(42, 47, 59), button=(0, 178, 101, 269), file='./assets/en/game_settings/GAME_SETTINGS_OPTIONS_UNSELECTED.gif')
