@@ -272,7 +272,10 @@ def _conditional_display_templates(node: ast.AST) -> list[ast.AST]:
             for template in _conditional_display_templates(value.value)
         ]
     if isinstance(node, ast.ListComp):
-        return _conditional_display_templates(node.elt)
+        return [
+            *_safe_templates(node.elt),
+            *_conditional_display_templates(node.elt),
+        ]
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         return [
             *_conditional_display_templates(node.left),

@@ -202,6 +202,16 @@ def test_plotter_display_contract_is_receiver_scoped() -> None:
             "def _tactical_get_finish(self):\n    logger.info(f\"Состояние: {['运行中' if state else '空闲' for state in states]}\")\n",
             "def _tactical_get_finish(self):\n    logger.info(f\"Состояние: {['выполняется' if state else 'свободно' for state in states]}\")\n",
         ),
+        (
+            "module/tactical/tactical_class.py",
+            "def _tactical_get_finish(self):\n    logger.info(f\"Состояние: {['运行中' for state in states]}\")\n",
+            "def _tactical_get_finish(self):\n    logger.info(f\"Состояние: {['выполняется' for state in states]}\")\n",
+        ),
+        (
+            "module/tactical/tactical_class.py",
+            "def _tactical_get_finish(self):\n    logger.info(f\"Состояние: {[f'第 {index} 项' for index in indexes]}\")\n",
+            "def _tactical_get_finish(self):\n    logger.info(f\"Состояние: {[f'Элемент {index}: активен' for index in indexes]}\")\n",
+        ),
     ],
 )
 def test_exact_nested_display_values_translation_passes(
