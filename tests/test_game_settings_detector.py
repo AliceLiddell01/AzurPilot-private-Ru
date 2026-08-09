@@ -16,7 +16,7 @@ from module.game_settings.model import GameSettingState
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "game_settings"
 ASSET_DIR = ROOT / "assets" / "en" / "game_settings"
-_REFERENCE_ORIGIN = (226, 490)
+_REFERENCE_ORIGIN = (214, 484)
 
 
 def _fixture(name: str) -> np.ndarray:
@@ -85,7 +85,7 @@ class CustomShipNamesDetectorTests(unittest.TestCase):
         asset = asset[:, :, :3] if asset.ndim == 3 else asset
 
         np.testing.assert_array_equal(asset, fixture)
-        self.assertEqual(asset.shape[:2], (42, 440))
+        self.assertEqual(asset.shape[:2], (52, 466))
 
     def test_detector_rejects_non_native_geometry(self) -> None:
         with self.assertRaisesRegex(ValueError, "1280 x 720"):

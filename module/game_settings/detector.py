@@ -18,8 +18,8 @@ _CUSTOM_SHIP_NAMES_MARKER_MIN_MARGIN = 0.18
 
 # Единственный production asset — exact real crop строки Custom Ship Names.
 # Эти две области являются его неизменёнными sub-crops.
-_CUSTOM_SHIP_NAMES_LABEL_AREA = (6, 5, 254, 38)
-_CUSTOM_SHIP_NAMES_SELECTED_MARKER_AREA = (402, 4, 434, 38)
+_CUSTOM_SHIP_NAMES_LABEL_AREA = (18, 11, 266, 44)
+_CUSTOM_SHIP_NAMES_SELECTED_MARKER_AREA = (414, 10, 446, 44)
 
 # Геометрия относительно top-left label после его нахождения в viewport.
 # Reference frame: 1280x720 user screenshot, label origin=(232, 495).
