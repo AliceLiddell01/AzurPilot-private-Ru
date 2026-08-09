@@ -27,6 +27,16 @@ def assert_blocked(path: str, base: str, head: str) -> None:
             "def f(self):\n    self._meow_target_zone_error('Ошибка ввода целевой зоны')\n",
         ),
         (
+            "module/os/tasks/meowfficer_farming.py",
+            "def _meow_target_zones(self):\n    self._handle_coin_task_no_content('耄耋相接', message)\n",
+            "def _meow_target_zones(self):\n    self._handle_coin_task_no_content('Фарм мяуфицеров', message)\n",
+        ),
+        (
+            "module/os/tasks/meowfficer_farming.py",
+            "def _meow_handle_normal_search(self):\n    self._handle_coin_task_no_content('耄耋相接', message)\n",
+            "def _meow_handle_normal_search(self):\n    self._handle_coin_task_no_content('Фарм мяуфицеров', message)\n",
+        ),
+        (
             "module/island/island_rancher.py",
             "def f(self, post_id):\n    self.confirm_selected_character(f'牧场岗位{post_id}派遣')\n",
             "def f(self, post_id):\n    self.confirm_selected_character(f'Позиция ранчо {post_id}: назначение')\n",
@@ -66,6 +76,11 @@ def test_exact_display_call_argument_translation_passes(
             "module/os/tasks/scheduling.py",
             "other._delay_smart_scheduling_to_server_update('行动力不足')\n",
             "other._delay_smart_scheduling_to_server_update('Недостаточно очков действия')\n",
+        ),
+        (
+            "module/os/tasks/meowfficer_farming.py",
+            "def other(self):\n    self._handle_coin_task_no_content('耄耋相接', message)\n",
+            "def other(self):\n    self._handle_coin_task_no_content('Фарм мяуфицеров', message)\n",
         ),
     ],
 )
@@ -122,6 +137,21 @@ def test_mcp_description_contract_is_function_scoped() -> None:
             "def error_context():\n    message = '原因'\n    message += '影响'\n    logger.log(level, message)\n",
             "def error_context():\n    message = 'Причина'\n    message += 'Влияние'\n    logger.log(level, message)\n",
         ),
+        (
+            "module/logger.py",
+            "def error_context(title, reason):\n    message = '\\n'.join([f'[错误] {title}', f'原因：{reason}'])\n    logger.log(level, message)\n",
+            "def error_context(title, reason):\n    message = '\\n'.join([f'[Ошибка] {title}', f'Причина: {reason}'])\n    logger.log(level, message)\n",
+        ),
+        (
+            "module/os/tasks/meowfficer_farming.py",
+            "def _meow_target_zones(self):\n    message = '未设置目标海域'\n    logger.warning(message)\n",
+            "def _meow_target_zones(self):\n    message = 'Целевая зона не задана'\n    logger.warning(message)\n",
+        ),
+        (
+            "module/os/tasks/meowfficer_farming.py",
+            "def _meow_handle_normal_search(self):\n    message = f'未找到符合条件的海域 ({hazard_level})'\n    logger.warning(message)\n",
+            "def _meow_handle_normal_search(self):\n    message = f'Подходящая зона не найдена ({hazard_level})'\n    logger.warning(message)\n",
+        ),
     ],
 )
 def test_exact_display_assignment_translation_passes(
@@ -135,6 +165,14 @@ def test_exact_display_assignment_is_function_scoped() -> None:
         "module/logger.py",
         "def other():\n    message = '原因'\n",
         "def other():\n    message = 'Причина'\n",
+    )
+
+
+def test_joined_display_assignment_separator_stays_exact() -> None:
+    assert_blocked(
+        "module/logger.py",
+        "def error_context():\n    message = '\\n'.join(['原因', '影响'])\n",
+        "def error_context():\n    message = ', '.join(['Причина', 'Влияние'])\n",
     )
 
 
@@ -160,6 +198,17 @@ def test_plotter_labels_translation_passes_but_machine_color_stays_exact() -> No
         "module/os_simulator/plotter.py",
         base,
         head.replace("color='blue'", "color='синий'"),
+    )
+
+
+def test_plotter_legend_labels_translation_passes() -> None:
+    base = "def plot_single_sample_history(self):\n    ax1.legend(lines + [patch], labels + ['侵蚀1', '坠机'], loc='upper left')\n"
+    head = "def plot_single_sample_history(self):\n    ax1.legend(lines + [patch], labels + ['Коррозия 1', 'Сбой'], loc='upper left')\n"
+    assert_passes("module/os_simulator/plotter.py", base, head)
+    assert_blocked(
+        "module/os_simulator/plotter.py",
+        base,
+        head.replace("lines + [patch]", "other_lines + [patch]"),
     )
 
 
@@ -251,6 +300,32 @@ def test_logger_attr_align_label_translation_passes() -> None:
         "module/os/globe_detection.py",
         'logger.attr_align("全球地图中心", loca)\n',
         'logger.attr_align("Центр карты мира", loca)\n',
+    )
+
+
+def test_logger_attr_align_value_translation_passes() -> None:
+    assert_passes(
+        "module/map_detection/homography.py",
+        'def search_tile_rectangle(self):\n    logger.attr_align("瓦片矩形", f"{count} 个矩形 ({state})")\n',
+        'def search_tile_rectangle(self):\n    logger.attr_align("Прямоугольники клеток", f"{count} прямоугольников ({state})")\n',
+    )
+    assert_blocked(
+        "module/map_detection/homography.py",
+        'def search_tile_rectangle(self):\n    logger.attr_align("瓦片矩形", f"{count} 个矩形 ({state})")\n',
+        'def search_tile_rectangle(self):\n    logger.attr_align("Прямоугольники клеток", f"{total} прямоугольников ({state})")\n',
+    )
+
+
+def test_logger_conditional_display_translation_passes() -> None:
+    assert_passes(
+        "module/os_shop/shop.py",
+        "logger.info(f'已购买 {count} 个物品' if count else '未购买物品')\n",
+        "logger.info(f'Куплено {count} предметов' if count else 'Ничего не куплено')\n",
+    )
+    assert_blocked(
+        "module/os_shop/shop.py",
+        "logger.info('已购买' if count else '未购买')\n",
+        "logger.info('Куплено' if total else 'Не куплено')\n",
     )
 
 
