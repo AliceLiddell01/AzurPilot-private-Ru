@@ -50,7 +50,7 @@ Translation structural step получает SHA из `pull_request.base.sha` и
 sinks: первого message argument поддерживаемых прямых `logger.*` и точных
 method-call `self.logger.*` вызовов, обеих позиционных prose-позиций точного
 `logger.attr(name, text)`/`self.logger.attr(name, text)`, первого позиционного
-label точного `logger.attr_align(name, text, ...)`, а также keyword values
+label точного `logger.attr_align(name, text, ...)`/`self.logger.attr_align(name, text, ...)`, а также keyword values
 `title=`/`content=` прямого `handle_notify(...)`.
 
 Для Operation Siren отдельно разрешён только keyword `content=` точного
@@ -58,18 +58,33 @@ label точного `logger.attr_align(name, text, ...)`, а также keyword
 `module/os/tasks/scheduling.py`, `module/os/tasks/fleet_auto_change.py` и
 `module/os/tasks/hazard_leveling.py`. `notify_push.title` остаётся exact, потому
 что `_format_launcher_notification()` анализирует title и использует его для
-ветвления. Позиционный content, произвольные `obj.notify_push`, другие файлы и
-`self.logger.attr_align` не входят в allowlist. В
-`CoinTaskMixin.check_and_notify_action_point_threshold()` разрешены только
-строковые RHS локальной переменной `content`, которая затем передаётся в
-`self.notify_push(..., content=content)`; это точечный contract для фактического
-consumer flow, а не generic-разрешение строковых assignments.
+ветвления. Позиционный content, произвольные `obj.notify_push` и другие файлы
+не входят в allowlist.
+
+Локальная строковая переменная может считаться частью `notify_push.content`
+только для явно доказанного path/function/variable contract, если verifier
+подтверждает единственное чтение этой переменной внутри exact keyword
+`content=` и fail-closed reaching-definition связь с этим sink. Любое другое
+чтение, неподдерживаемая запись или control-flow с отслеживаемой переменной
+снимает такое разрешение. Это покрывает как локальный `content` в
+`check_and_notify_action_point_threshold()`, так и `coin_status` в
+`_handle_smart_scheduling_no_task()`, не создавая generic-разрешения локальных
+assignments.
+
+Для доказанного display-builder
+`OpsiHazard1Leveling._format_check_report()` разрешены только непустые безопасные
+строковые templates в exact `lines.append(...)`. Локальные `status` и
+`time_str` разрешаются лишь когда все их чтения принадлежат этим append-display
+expressions, а записи являются простыми assignments. Разделитель
+`"\n".join(lines)`, вычисления, ключи/идентификаторы и любые другие строки
+helper остаются exact.
 
 Остальные соседние аргументы и неизвестные keywords, строки в
 `raise`/exception constructors, неизвестных calls/keywords и machine-sensitive
 контекстах остаются exact. Call target, call shape, dynamic expressions,
 placeholders, conversion и format specification должны совпадать. Для
-`logger.attr_align` второй positional argument, `front` и `align` также exact.
+`logger.attr_align`/`self.logger.attr_align` второй positional argument, `front`
+и `align` также exact.
 
 Для обычных `STRING` сохраняются prefix и точный вид quote delimiter. Для
 f-string verifier использует token contract текущего Python runtime:

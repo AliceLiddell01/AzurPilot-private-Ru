@@ -36,6 +36,29 @@ SELF_NOTIFY_PUSH_LOCAL_PROSE = {
         "check_and_notify_action_point_threshold",
         "content",
     ),
+    (
+        "module/os/tasks/scheduling.py",
+        "_handle_smart_scheduling_no_task",
+        "coin_status",
+    ),
+}
+DISPLAY_BUILDER_LISTS = {
+    (
+        "module/os/tasks/hazard_leveling.py",
+        "_format_check_report",
+    ): "lines",
+}
+DISPLAY_BUILDER_LOCAL_PROSE = {
+    (
+        "module/os/tasks/hazard_leveling.py",
+        "_format_check_report",
+        "status",
+    ),
+    (
+        "module/os/tasks/hazard_leveling.py",
+        "_format_check_report",
+        "time_str",
+    ),
 }
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
@@ -153,6 +176,15 @@ def _literal_nodes(template: ast.AST) -> list[ast.Constant]:
     raise TypeError(f"Unsupported template node: {type(template).__name__}")
 
 
+def _has_visible_string_template(node: ast.AST) -> bool:
+    templates = _safe_templates(node)
+    return any(
+        literal.value
+        for template in templates
+        for literal in _literal_nodes(template)
+    )
+
+
 def _format_placeholders(value: str) -> tuple[tuple[str, str | None, str], ...]:
     try:
         parsed = string.Formatter().parse(value)
@@ -174,12 +206,16 @@ class _LocalVariableUseCollector(ast.NodeVisitor):
         self,
         root: ast.FunctionDef | ast.AsyncFunctionDef,
         variable: str,
+        *,
+        builder_list: str | None = None,
     ) -> None:
         self.root = root
         self.variable = variable
+        self.builder_list = builder_list
         self.loads: set[int] = set()
         self.stores: set[int] = set()
         self.sink_loads: set[int] = set()
+        self.builder_loads: set[int] = set()
         self.simple_assignments: dict[int, ast.Assign] = {}
         self.simple_store_nodes: set[int] = set()
 
@@ -212,14 +248,31 @@ class _LocalVariableUseCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        if _call_name(node.func) == ("self", "notify_push"):
+        name = _call_name(node.func)
+        if name == ("self", "notify_push"):
             for keyword in node.keywords:
+                if keyword.arg != "content":
+                    continue
+                for item in ast.walk(keyword.value):
+                    if (
+                        isinstance(item, ast.Name)
+                        and isinstance(item.ctx, ast.Load)
+                        and item.id == self.variable
+                    ):
+                        self.sink_loads.add(id(item))
+        if (
+            self.builder_list is not None
+            and name == (self.builder_list, "append")
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            for item in ast.walk(node.args[0]):
                 if (
-                    keyword.arg == "content"
-                    and isinstance(keyword.value, ast.Name)
-                    and keyword.value.id == self.variable
+                    isinstance(item, ast.Name)
+                    and isinstance(item.ctx, ast.Load)
+                    and item.id == self.variable
                 ):
-                    self.sink_loads.add(id(keyword.value))
+                    self.builder_loads.add(id(item))
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
@@ -314,6 +367,24 @@ def _sink_bound_local_assignments(
     return sink_reaching[0] & set(usage.simple_assignments)
 
 
+def _display_builder_local_assignments(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    variable: str,
+    builder_list: str,
+) -> set[int]:
+    usage = _LocalVariableUseCollector(
+        function,
+        variable,
+        builder_list=builder_list,
+    )
+    usage.visit(function)
+    if not usage.builder_loads or usage.loads != usage.builder_loads:
+        return set()
+    if usage.stores != usage.simple_store_nodes:
+        return set()
+    return set(usage.simple_assignments)
+
+
 class _ApprovedSiteCollector(ast.NodeVisitor):
     def __init__(self, filename: str) -> None:
         self.ranges: list[SourceRange] = []
@@ -376,6 +447,23 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
             approved_assignments.update(
                 _sink_bound_local_assignments(node, variable)
             )
+
+        builder_list = DISPLAY_BUILDER_LISTS.get((self.source_path, node.name))
+        if builder_list is not None:
+            builder_candidates = {
+                variable
+                for source_path, function_name, variable in DISPLAY_BUILDER_LOCAL_PROSE
+                if source_path == self.source_path and function_name == node.name
+            }
+            for variable in builder_candidates:
+                approved_assignments.update(
+                    _display_builder_local_assignments(
+                        node,
+                        variable,
+                        builder_list,
+                    )
+                )
+
         self.local_prose_assignment_stack.append(approved_assignments)
         self.generic_visit(node)
         self.local_prose_assignment_stack.pop()
@@ -397,7 +485,7 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
             target = node.targets[0]
             self._approve(
                 node.value,
-                f"self.notify_push.content local {target.id}",
+                f"display provenance local {target.id}",
             )
         self.generic_visit(node)
 
@@ -423,8 +511,8 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                 self._approve(node.args[0], f"{logger_target}.attr label")
                 if len(node.args) > 1:
                     self._approve(node.args[1], f"{logger_target}.attr value")
-            elif logger_target == "logger" and logger_method == "attr_align":
-                self._approve(node.args[0], "logger.attr_align label")
+            elif logger_method == "attr_align":
+                self._approve(node.args[0], f"{logger_target}.attr_align label")
         elif name == ("handle_notify",):
             for keyword in node.keywords:
                 if keyword.arg in HANDLE_NOTIFY_PROSE_KEYWORDS:
@@ -442,6 +530,22 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                         keyword.value,
                         "self.notify_push.content",
                     )
+
+        if self.function_stack:
+            builder_list = DISPLAY_BUILDER_LISTS.get(
+                (self.source_path, self.function_stack[-1])
+            )
+            if (
+                builder_list is not None
+                and name == (builder_list, "append")
+                and len(node.args) == 1
+                and not node.keywords
+                and _has_visible_string_template(node.args[0])
+            ):
+                self._approve(
+                    node.args[0],
+                    f"display builder {builder_list}.append",
+                )
         self.generic_visit(node)
 
 
