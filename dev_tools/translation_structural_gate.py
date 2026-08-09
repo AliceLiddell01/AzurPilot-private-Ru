@@ -511,8 +511,8 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
                 self._approve(node.args[0], f"{logger_target}.attr label")
                 if len(node.args) > 1:
                     self._approve(node.args[1], f"{logger_target}.attr value")
-            elif logger_target == "logger" and logger_method == "attr_align":
-                self._approve(node.args[0], "logger.attr_align label")
+            elif logger_method == "attr_align":
+                self._approve(node.args[0], f"{logger_target}.attr_align label")
         elif name == ("handle_notify",):
             for keyword in node.keywords:
                 if keyword.arg in HANDLE_NOTIFY_PROSE_KEYWORDS:
