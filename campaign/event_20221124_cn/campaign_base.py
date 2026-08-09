@@ -87,7 +87,7 @@ class CampaignBase(CampaignBase_):
         if super().handle_mystery_items(button, drop=drop):
             return True
         if self.appear(GET_ITEMS_1_RYZA, offset=(-20, -100, 20, 20)):
-            logger.attr('Таинственная клетка', 'Get item')
+            logger.attr('Таинственная клетка', 'Получен предмет')
             if drop:
                 drop.add(self.device.image)
             self.device.click(MYSTERY_ITEM)

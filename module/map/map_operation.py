@@ -325,26 +325,26 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
 
         if mode == 'normal':
             if self.match_template_color(MAP_MODE_SWITCH_NORMAL, offset=(20, 20)):
-                logger.attr('Режим карты', '普通')
+                logger.attr('Режим карты', 'Обычный')
                 return True
             if self._is_mod_switch_hard_appear(active=False, interval=2):
-                logger.attr('Режим карты', '困难')
+                logger.attr('Режим карты', 'Сложный')
                 MAP_MODE_SWITCH_NORMAL.clear_offset()
                 self.device.click(MAP_MODE_SWITCH_NORMAL)
                 self.interval_reset(MAP_MODE_SWITCH_HARD)
             return False
         elif mode == 'hard':
             if self._is_mod_switch_hard_appear(active=True):
-                logger.attr('Режим карты', '困难')
+                logger.attr('Режим карты', 'Сложный')
                 return True
             if self.match_template_color(MAP_MODE_SWITCH_NORMAL, offset=(20, 20), interval=2):
-                logger.attr('Режим карты', '普通')
+                logger.attr('Режим карты', 'Обычный')
                 MAP_MODE_SWITCH_HARD.clear_offset()
                 self.device.click(MAP_MODE_SWITCH_HARD)
                 return False
             return False
         else:
-            logger.attr('Режим карты', '未知')
+            logger.attr('Режим карты', 'Неизвестный')
             return False
 
     def _is_mod_switch_hard_appear(self, active=True, interval=0):

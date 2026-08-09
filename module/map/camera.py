@@ -265,7 +265,7 @@ class Camera(MapOperation):
             y = self.camera[1]
 
         if self.camera != (x, y):
-            logger.attr_align('摄像机修正', f'{location2node(self.camera)} -> {location2node((x, y))}')
+            logger.attr_align('Коррекция камеры', f'{location2node(self.camera)} -> {location2node((x, y))}')
         self.camera = (x, y)
         self.show_camera()
 
@@ -363,7 +363,7 @@ class Camera(MapOperation):
         self.view.show()
 
     def show_camera(self):
-        logger.attr_align('摄像机', location2node(self.camera))
+        logger.attr_align('Камера', location2node(self.camera))
 
     def ensure_edge_insight(self, reverse=False, preset=None, swipe_limit=(3, 2), skip_first_update=True):
         """滑动到左下角直到两条边缘可见。

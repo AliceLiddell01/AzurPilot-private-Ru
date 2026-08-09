@@ -124,8 +124,8 @@ class Perspective:
         self.vanish_point = optimize.brute(self._vanish_point_value, self.config.VANISH_POINT_RANGE)
         distance_point_x = optimize.brute(self._distant_point_value, self.config.DISTANCE_POINT_X_RANGE)[0]
         self.distant_point = (distance_point_x, self.vanish_point[1])
-        logger.attr_align('灭点', point2str(*self.vanish_point, length=5))
-        logger.attr_align('远点', point2str(*self.distant_point, length=5))
+        logger.attr_align('Точка схода', point2str(*self.vanish_point, length=5))
+        logger.attr_align('Дальняя точка', point2str(*self.distant_point, length=5))
         if np.linalg.norm(np.subtract(self.vanish_point, self.distant_point)) < 10:
             raise MapDetectionError('Точка схода и дальняя точка расположены слишком близко')
 

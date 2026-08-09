@@ -146,7 +146,7 @@ class OSShop(PortShop, AkashiShop):
                 self.os_shop_buy_execute(button)
                 try:
                     if not getattr(self, 'is_running_cl1_leveling', False):
-                        logger.debug('[大世界商店] 侵蚀1练级未运行，跳过明石行动力购买记录')
+                        logger.debug('[Магазин Operation Siren] Фарм в зоне коррозии 1 не запущен; покупка очков действия у Акаси не учитывается')
                     else:
                         name = str(getattr(button, 'name', '') or '')
                         name_l = name.lower()
@@ -354,7 +354,7 @@ class OSShop(PortShop, AkashiShop):
             else:
                 logger.warning(f'Не удалось приобрести предмет {_item.name}, пропуск')
             self.device.click_record.clear()
-        logger.info(f'港口商店已购买 {count} 个物品' if count else '港口商店未购买任何物品')
+        logger.info(f'В магазине порта куплено предметов: {count} шт.' if count else 'В магазине порта ничего не куплено')
         return True
 
     def handle_akashi_supply_buy(self, grid):

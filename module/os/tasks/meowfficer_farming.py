@@ -62,10 +62,10 @@ class MeowfficerTargetZoneMixin:
         raw_value = self.config.OpsiMeowfficerFarming_TargetZone
         if not tokens:
             if require_target:
-                message = '已启用 StayInZone 但未设置 TargetZone'
+                message = 'Режим StayInZone включён, но TargetZone не задан'
                 logger.warning(f'[Операция «Сирена» — фарм мяуфицеров] {message}; текущая задача пропущена')
                 if self.is_running_smart_scheduling_task():
-                    self._handle_coin_task_no_content('耄耋相接', message)
+                    self._handle_coin_task_no_content('Фарм мяуфицеров', message)
                     return []
                 self.delay_opsi_active_task(server_update=True)
                 self.config.task_stop()
@@ -73,7 +73,7 @@ class MeowfficerTargetZoneMixin:
 
         if len(tokens) > 1 and not allow_multiple:
             self._meow_target_zone_error(
-                f'耄耋相接指定海域填写了多海域列表 "{raw_value}"，需要开启“循环出击指定海域”后才能使用'
+                f'Для целевой зоны фарма мяуфицеров задан список "{raw_value}"; включите циклические выходы в указанные зоны'
             )
 
         empty_tokens = [index + 1 for index, token in enumerate(tokens) if token == '']
@@ -104,15 +104,15 @@ class MeowfficerTargetZoneMixin:
 
         errors = []
         if empty_tokens:
-            errors.append(f'第 {", ".join(map(str, empty_tokens))} 项为空')
+            errors.append(f'Позиции {", ".join(map(str, empty_tokens))} пусты')
         if invalid_tokens:
-            errors.append(f'无法识别: {", ".join(map(str, invalid_tokens))}')
+            errors.append(f'Не удалось распознать: {", ".join(map(str, invalid_tokens))}')
         if port_zones:
-            errors.append(f'港口海域不可用于耄耋相接: {[zone.zone_id for zone in port_zones]}')
+            errors.append(f'Портовые зоны нельзя использовать для фарма мяуфицеров: {[zone.zone_id for zone in port_zones]}')
         if duplicate_zones:
-            errors.append(f'重复海域: {[zone.zone_id for zone in duplicate_zones]}')
+            errors.append(f'Повторяющиеся зоны: {[zone.zone_id for zone in duplicate_zones]}')
         if errors:
-            self._meow_target_zone_error(f'耄耋相接指定海域输入错误 ({raw_value}): {"; ".join(errors)}')
+            self._meow_target_zone_error(f'Ошибка целевых зон фарма мяуфицеров ({raw_value}): {"; ".join(errors)}')
 
         logger.attr('Список целевых зон', [zone.zone_id for zone in zones])
         return zones
@@ -250,9 +250,9 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
             .sort_by_clock_degree(center=(1252, 1012), start=self.zone.location)
 
         if not zones:
-            message = f'普通搜索模式未找到符合条件的海域 (侵蚀等级 {hazard_level})'
+            message = f'В обычном режиме поиска не найдена подходящая зона с уровнем коррозии {hazard_level}.'
             logger.warning(f'[Операция «Сирена» — фарм мяуфицеров] {message}')
-            self._handle_coin_task_no_content('耄耋相接', message)
+            self._handle_coin_task_no_content('Фарм мяуфицеров', message)
             return False
 
         logger.hr(f'Операция «Сирена» — фарм мяуфицеров, zone_id={zones[0].zone_id}', level=1)

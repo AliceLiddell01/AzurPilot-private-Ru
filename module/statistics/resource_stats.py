@@ -103,7 +103,7 @@ def record_resource_snapshot(instance: str, resources: Dict[str, Any]) -> bool:
                 conn.commit()
         return True
     except Exception as e:
-        logger.warning(f'[统计-资源] 记录资源快照失败: {e}')
+        logger.warning(f'[Статистика — ресурсы] Не удалось записать снимок ресурсов: {e}')
         return False
 
 
@@ -140,7 +140,7 @@ def get_resource_timeline(
             result.reverse()
             return result
     except Exception as e:
-        logger.warning(f'[统计-资源] 获取资源时间线失败: {e}')
+        logger.warning(f'[Статистика — ресурсы] Не удалось получить временную шкалу ресурсов: {e}')
         return []
 
 

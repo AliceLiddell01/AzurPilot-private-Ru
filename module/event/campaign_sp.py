@@ -34,7 +34,7 @@ class CampaignSP(EventBase):
         """
         # 检查当前活动是否包含 SP 关卡
         if not os.path.exists(f'./campaign/{self.config.Campaign_Event}/sp.py'):
-            logger.info(f'[活动-SP] ./campaign/{self.config.Campaign_Event}/sp.py 不存在')
+            logger.info(f'[Событие — SP] Файл ./campaign/{self.config.Campaign_Event}/sp.py не существует')
             logger.info('В этом событии нет SP; пропуск')
             self.config.Scheduler_Enable = False
             self.config.task_stop()

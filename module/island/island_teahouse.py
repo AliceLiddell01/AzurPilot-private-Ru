@@ -244,7 +244,7 @@ class IslandTeahouse(IslandShopBase):
                 if self.appear(ISLAND_SELECT_CHARACTER_CHECK, offset=1):
                     # 选择厨师
                     if self.select_character(character_list=self.chef_config):
-                        if not self.confirm_selected_character(f"{product}生产派遣"):
+                        if not self.confirm_selected_character(f"{product}: производственное назначение"):
                             self.back_to_postmanage_from_dispatch()
                             return 0
                     else:

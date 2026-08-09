@@ -501,7 +501,7 @@ class RewardTacticalClass(Dock):
             origin=(421, 596), delta=(223, 0), button_shape=(139, 27), grid_shape=(4, 1), name='TACTICAL_REMAIN')
 
         is_running = [self.image_color_count(button, color=(148, 255, 99), count=50) for button in grids.buttons]
-        logger.info(f'[Тактика — состояние] Состояние обучения: {["运行中" if s else "空闲" for s in is_running]}')
+        logger.info(f'[Тактика — состояние] Состояние обучения: {["занято" if s else "свободно" for s in is_running]}')
 
         buttons = [b for b, s in zip(grids.buttons, is_running) if s]
         ocr = Duration(buttons, letter=(148, 255, 99), name='TACTICAL_REMAIN')

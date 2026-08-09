@@ -11,7 +11,7 @@ def test_activation_waits_for_reward_grace_before_disappearance_fallback():
 
     grace_check = source.index("reward_grace.reached()")
     fallback_message = source.index(
-        "reward grace, and stable item disappearance"
+        "истёк интервал ожидания награды, а предмет стабильно отсутствует"
     )
     fallback_return = source.index(
         "return DataLoggerStorageState.ACTIVATED",

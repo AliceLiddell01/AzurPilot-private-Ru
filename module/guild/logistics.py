@@ -476,7 +476,7 @@ class GuildLogistics(GuildBase):
             out: GUILD_LOGISTICS
         """
         logger.hr('Логистика гильдии')
-        logger.attr('舰队司令/副司令', self.config.GuildLogistics_SelectNewMission)
+        logger.attr('Командир/заместитель гильдии', self.config.GuildLogistics_SelectNewMission)
         confirm_timer = Timer(1.5, count=3).start()
         exchange_interval = Timer(1.5, count=3)
         click_interval = Timer(0.5, count=1)

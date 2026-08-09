@@ -204,7 +204,7 @@ class IslandBusiness(Island):
         self.boost_filters = {}
         self._load_boost_filters()
 
-        logger.info(f"[Остров — бизнес] Работа по партиям: {'启用' if self.batch_enabled else '禁用'}, "
+        logger.info(f"[Остров — бизнес] Работа по партиям: {'включена' if self.batch_enabled else 'выключена'}, "
                      f"первая партия: {self.batch1_shops_indices}, вторая партия: {self.batch2_shops_indices}")
         logger.info("[Остров — бизнес] Инициализация модуля завершена")
 
@@ -1726,7 +1726,7 @@ class IslandBusiness(Island):
             if result:
                 selected_name = result
                 logger.info(f"[Остров — бизнес] Персонаж №{slot_idx + 1} успешно выбран: {selected_name}")
-                if not self.confirm_selected_character_closed(f"经营第{slot_idx + 1}个角色"):
+                if not self.confirm_selected_character_closed(f"Бизнес: персонаж №{slot_idx + 1}, назначение"):
                     self.device.click(SELECT_UI_BACK)
                     self.device.sleep(0.5)
                     continue
