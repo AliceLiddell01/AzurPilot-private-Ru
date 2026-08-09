@@ -2,8 +2,14 @@
 
 У Options в EN-клиенте нет отдельного визуального thumb/track: правая
 вертикальная линия принадлежит рамкам секций и не меняется вместе с позицией.
-После последней секции content циклически продолжает ранние секции, поэтому
-bottom здесь логический и подтверждается последней секцией до wrap.
+После последних секций content циклически возвращается к ранним секциям,
+поэтому завершение полного обхода подтверждается wrap обратно к canonical top.
+
+Исторический ``GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR`` на live MuMu оказался
+не terminal bottom, а устойчивым pre-wrap landmark: после него ещё доступна
+секция Game Settings. Он сохраняется как маркер того, что traversal прошёл
+достаточно далеко, но сам по себе больше не завершает обход.
+
 Поэтому ``Scroll``/``AdaptiveScroll`` здесь не могут дать достоверную
 нормализованную позицию. Traversal использует подтверждённые структурные
 anchors, движение контента и ограниченные recovery-попытки.
@@ -38,7 +44,7 @@ OPTIONS_SAFE_SWIPE_END = (690, 360)
 """Центральный зазор между колонками: gesture не начинается на toggle."""
 
 OPTIONS_BOTTOM_ANCHOR_OFFSET = (-8, -215, 8, 115)
-"""Допустимое окно последней секции: вверх шире, вниз только до полного показа."""
+"""Окно исторического pre-wrap landmark; это не terminal bottom Options."""
 
 _OPTIONS_VIEWPORT_WIDTH = OPTIONS_VIEWPORT_AREA[2] - OPTIONS_VIEWPORT_AREA[0]
 _OPTIONS_VIEWPORT_HEIGHT = OPTIONS_VIEWPORT_AREA[3] - OPTIONS_VIEWPORT_AREA[1]
@@ -55,6 +61,11 @@ class OptionsViewport:
     Актуальный frame во время callback находится в ``self.device.image``.
     ``scroll_offset`` — накопленное визуальное смещение в пикселях, а не
     выдуманная позиция 0..1: у страницы нет измеримого scrollbar.
+
+    В циклическом Options terminal bottom нельзя доказать на текущем frame:
+    полный обход подтверждается только после следующего wrap к canonical top.
+    Поэтому ``is_bottom`` остаётся False для visitor-кадров; итог полного
+    обхода сообщает ``OptionsTraversalResult.reached_bottom``.
     """
 
     index: int
@@ -164,11 +175,14 @@ class OptionsTraversalMixin:
         self,
         visitor: Callable[[OptionsViewport], bool | None],
     ) -> OptionsTraversalResult:
-        """Посетить Options сверху вниз; оставить Options на bottom/early-stop.
+        """Посетить уникальные Options viewport сверху вниз до wrap/early-stop.
 
         Visitor вызывается только на подтверждённой странице и после visual
         stabilization. Истинный результат visitor-а означает раннюю остановку.
-        Interpretation текущего frame остаётся обязанностью visitor-а.
+
+        Полный обход считается завершённым только когда после подтверждённого
+        pre-wrap landmark следующий стабильный frame снова совпал с canonical
+        top. Повторный top visitor-у не передаётся.
         """
 
         if not callable(visitor):
@@ -179,12 +193,13 @@ class OptionsTraversalMixin:
         offset = 0.0
         visited = 0
         no_progress = 0
+        cycle_landmark_seen = False
 
         logger.info("[Игровые настройки] Options: верх подтверждён")
 
         while visited < self.options_max_viewports:
             self._confirm_options_page(frame)
-            is_bottom = self._options_anchor_matches(
+            is_cycle_landmark = self._options_anchor_matches(
                 frame,
                 GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR,
                 offset=OPTIONS_BOTTOM_ANCHOR_OFFSET,
@@ -193,13 +208,13 @@ class OptionsTraversalMixin:
                 index=visited + 1,
                 scroll_offset=offset,
                 is_top=visited == 0,
-                is_bottom=is_bottom,
+                is_bottom=False,
             )
             logger.info(
                 "[Игровые настройки] Viewport Options #%s: смещение %.1f px%s",
                 viewport.index,
                 viewport.scroll_offset,
-                " (низ)" if is_bottom else "",
+                " (pre-wrap landmark)" if is_cycle_landmark else "",
             )
             visited += 1
 
@@ -208,22 +223,37 @@ class OptionsTraversalMixin:
                 return OptionsTraversalResult(
                     visited_viewports=visited,
                     final_offset=offset,
-                    reached_bottom=is_bottom,
+                    reached_bottom=False,
                     stopped_early=True,
                 )
 
-            if is_bottom:
-                logger.info("[Игровые настройки] Options: низ подтверждён")
-                return OptionsTraversalResult(
-                    visited_viewports=visited,
-                    final_offset=offset,
-                    reached_bottom=True,
-                    stopped_early=False,
+            if is_cycle_landmark:
+                cycle_landmark_seen = True
+                logger.info(
+                    "[Игровые настройки] Options: pre-wrap landmark подтверждён; "
+                    "обход продолжается до wrap"
                 )
 
             while True:
                 self._swipe_options(down=True)
                 next_frame = self._wait_options_stable()
+
+                if cycle_landmark_seen and self._options_anchor_matches(
+                    next_frame,
+                    GAME_SETTINGS_OPTIONS_TOP_ANCHOR,
+                    offset=OPTIONS_TOP_ANCHOR_OFFSET,
+                ):
+                    logger.info(
+                        "[Игровые настройки] Options: полный цикл подтверждён "
+                        "wrap к canonical top"
+                    )
+                    return OptionsTraversalResult(
+                        visited_viewports=visited,
+                        final_offset=offset,
+                        reached_bottom=True,
+                        stopped_early=False,
+                    )
+
                 motion = self._measure_options_motion(frame, next_frame)
 
                 if motion.stable:
@@ -235,7 +265,8 @@ class OptionsTraversalMixin:
                     )
                     if no_progress >= self.options_max_no_progress_retries:
                         raise GameStuckError(
-                            "[Game Settings] Options не прокручивается, но bottom anchor отсутствует."
+                            "[Game Settings] Options не прокручивается, "
+                            "а полный cycle wrap не подтверждён."
                         )
                     frame = next_frame
                     continue
