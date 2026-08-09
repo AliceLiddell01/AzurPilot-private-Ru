@@ -26,13 +26,15 @@ from module.game_settings.assets import (
 from module.game_settings.navigation import page_settings_options
 from module.logger import logger
 
-
 OPTIONS_VIEWPORT_AREA = (175, 80, 1207, 690)
 """Область движущегося Options content в нативной сетке 1280 x 720."""
 
 OPTIONS_SAFE_SWIPE_START = (690, 610)
 OPTIONS_SAFE_SWIPE_END = (690, 360)
 """Центральный зазор между колонками: gesture не начинается на toggle."""
+
+OPTIONS_BOTTOM_ANCHOR_OFFSET = (-8, -215, 8, 115)
+"""Допустимое окно последней секции: вверх шире, вниз только до полного показа."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,20 +106,21 @@ def measure_options_viewport_motion(
         current_edges.astype(np.float32),
     )
     edge_change = float(np.mean(previous_edges != current_edges))
-    # После жеста вниз content движется вверх. Для соседних live-кадров
-    # phase correlation надёжно даёт знак, но повторяющиеся строки Options
-    # могут сопоставить завершённый шаг 200+ px с другим пиком. Поэтому берём
-    # консервативную положительную величину прогресса: phase displacement либо
-    # плотность изменившихся edges, выраженную в пикселях viewport.
+    # После жеста вниз content движется вверх, поэтому положительный scroll
+    # progress равен ``-raw_vertical``. Повторяющиеся строки Options могут
+    # сопоставить завершённый шаг 200+ px с другим пиком; edge density даёт
+    # консервативный magnitude floor, не уничтожая знак обратного движения.
     viewport_height = previous_edges.shape[0]
+    signed_vertical = -float(raw_vertical)
     if (
         abs(raw_vertical) <= 3.0
         and abs(horizontal) <= 3.0
         and edge_change <= 0.045
     ):
-        vertical = abs(float(raw_vertical))
+        vertical = signed_vertical
     else:
-        vertical = max(abs(float(raw_vertical)), edge_change * viewport_height)
+        magnitude = max(abs(float(raw_vertical)), edge_change * viewport_height)
+        vertical = magnitude if signed_vertical >= 0 else -magnitude
     return OptionsViewportMotion(
         vertical_shift=vertical,
         horizontal_shift=float(horizontal),
@@ -280,6 +283,7 @@ class OptionsTraversalMixin:
             if not self._options_page_visible(current):
                 page_misses += 1
                 stable_frames = 0
+                previous = None
                 if page_misses >= self.options_page_loss_frames:
                     raise GamePageUnknownError(
                         "[Game Settings] Страница Options потеряна во время traversal."
@@ -287,14 +291,15 @@ class OptionsTraversalMixin:
             else:
                 page_misses = 0
 
-            if page_misses == 0 and previous is not None:
-                if self._measure_options_motion(previous, current).stable:
-                    stable_frames += 1
-                    if stable_frames >= self.options_stable_frames:
-                        return current
-                else:
-                    stable_frames = 0
-            previous = current
+            if page_misses == 0:
+                if previous is not None:
+                    if self._measure_options_motion(previous, current).stable:
+                        stable_frames += 1
+                        if stable_frames >= self.options_stable_frames:
+                            return current
+                    else:
+                        stable_frames = 0
+                previous = current
 
             if timer.reached():
                 break
@@ -328,8 +333,14 @@ class OptionsTraversalMixin:
     def _options_anchor_matches(frame: np.ndarray, anchor) -> bool:
         if anchor is GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR:
             # Последняя секция должна войти в центральную часть viewport,
-            # чтобы visitor увидел её полностью до циклического wrap.
-            return anchor.match(frame, offset=(8, 110), similarity=0.82)
+            # чтобы visitor увидел её полностью до циклического wrap. Live
+            # drag может поставить заголовок на y=197, поэтому верхняя граница
+            # шире симметричного offset; нижняя намеренно остаётся bounded.
+            return anchor.match(
+                frame,
+                offset=OPTIONS_BOTTOM_ANCHOR_OFFSET,
+                similarity=0.82,
+            )
         return anchor.match(frame, offset=(3, 3), similarity=0.82)
 
     @staticmethod

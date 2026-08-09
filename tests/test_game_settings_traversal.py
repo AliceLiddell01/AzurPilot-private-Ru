@@ -16,12 +16,12 @@ from module.game_settings.assets import (
 from module.game_settings.model import GameSettingsScanResult
 from module.game_settings.scanner import GameSettingsScanner
 from module.game_settings.traversal import (
+    OPTIONS_BOTTOM_ANCHOR_OFFSET,
     OPTIONS_VIEWPORT_AREA,
     OptionsTraversalMixin,
     OptionsViewportMotion,
     measure_options_viewport_motion,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "game_settings"
@@ -294,17 +294,31 @@ class OptionsTraversalVisualTests(unittest.TestCase):
                 similarity=0.82,
             )
         )
-        self.assertFalse(
-            GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR.match(
-                self.middle,
-                offset=(3, 3),
-                similarity=0.82,
-            )
-        )
+        for frame in (self.top, self.middle_previous, self.middle):
+            with self.subTest(frame=frame):
+                self.assertFalse(
+                    GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR.match(
+                        frame,
+                        offset=OPTIONS_BOTTOM_ANCHOR_OFFSET,
+                        similarity=0.82,
+                    )
+                )
         self.assertTrue(
             GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR.match(
                 self.bottom,
-                offset=(3, 3),
+                offset=OPTIONS_BOTTOM_ANCHOR_OFFSET,
+                similarity=0.82,
+            )
+        )
+
+    def test_bottom_anchor_accepts_live_upper_snap_without_partial_section(self) -> None:
+        shifted = np.zeros_like(self.bottom)
+        shifted[:-118] = self.bottom[118:]
+
+        self.assertTrue(
+            GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR.match(
+                shifted,
+                offset=OPTIONS_BOTTOM_ANCHOR_OFFSET,
                 similarity=0.82,
             )
         )
@@ -320,6 +334,12 @@ class OptionsTraversalVisualTests(unittest.TestCase):
                 self.assertGreaterEqual(motion.response, 0.10)
                 self.assertLess(abs(motion.horizontal_shift), 5.0)
                 self.assertLess(motion.vertical_shift, viewport_height * 0.60)
+
+    def test_real_reverse_step_preserves_backward_sign(self) -> None:
+        motion = measure_options_viewport_motion(self.middle, self.middle_previous)
+
+        self.assertLessEqual(motion.vertical_shift, -5.0)
+        self.assertGreaterEqual(motion.response, 0.10)
 
     def test_real_bottom_anchor_survives_animated_background(self) -> None:
         for frame in (self.bottom, self.bottom_retry):
