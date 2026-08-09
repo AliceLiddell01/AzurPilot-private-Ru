@@ -85,9 +85,9 @@ def test_scheduling_local_content_prose_translation_passes() -> None:
     head = """def check_and_notify_action_point_threshold(self):
     content = f"Всего очков действия: {total_ap}"
     if ap_delta > 0:
-        content = f"Всего очков действия: {total_ap}; увеличено на {ap_delta}"
+        content = f"Всего очков действия: {total_ap}; увеличено на {ap_delta} очков действия"
     else:
-        content = f"Всего очков действия: {total_ap}; уменьшено на {abs(ap_delta)}"
+        content = f"Всего очков действия: {total_ap}; уменьшено на {abs(ap_delta)} очков действия"
     self.notify_push(
         title="[AzurPilot] 行动力出现变化！",
         content=content,
