@@ -1,0 +1,192 @@
+from __future__ import annotations
+
+import ast
+import unittest
+from pathlib import Path
+
+import cv2
+
+from module.base.utils import load_image
+from module.exception import GamePageUnknownError, RequestHumanTakeover
+from module.game_settings.assets import (
+    GAME_SETTINGS_MAIN_GOTO_SETTINGS,
+    GAME_SETTINGS_OPTIONS_SELECTED,
+    GAME_SETTINGS_OPTIONS_UNSELECTED,
+)
+from module.game_settings.navigation import page_settings, page_settings_options
+from module.game_settings.scanner import GameSettingsScanner
+from module.ui.assets import GOTO_MAIN
+from module.ui.page import Page, page_main, page_main_white
+
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "game_settings"
+
+
+def _button_similarity(left, right) -> float:
+    left.ensure_template()
+    right.ensure_template()
+    result = cv2.matchTemplate(left.image, right.image, cv2.TM_CCOEFF_NORMED)
+    return float(cv2.minMaxLoc(result)[1])
+
+
+def _fixture_similarity(button, fixture_name: str) -> float:
+    button.ensure_template()
+    fixture = load_image(str(FIXTURE_DIR / fixture_name))
+    result = cv2.matchTemplate(button.image, fixture, cv2.TM_CCOEFF_NORMED)
+    return float(cv2.minMaxLoc(result)[1])
+
+
+class _FakeNavigationScanner(GameSettingsScanner[str]):
+    def __init__(self, current_page) -> None:
+        self.ui_current = current_page
+        self.goto_calls = []
+        self.goto_main_calls = 0
+        self.current_page_calls = 0
+
+    def _scan_game_settings(self) -> str:
+        return "stage-2-contract"
+
+    def ui_get_current_page(self, skip_first_screenshot=True):
+        self.current_page_calls += 1
+        return self.ui_current
+
+    def ui_goto(
+        self,
+        destination,
+        get_ship=True,
+        offset=(30, 30),
+        skip_first_screenshot=True,
+    ):
+        self.goto_calls.append(destination)
+        self.ui_current = destination
+
+    def ui_goto_main(self):
+        self.goto_main_calls += 1
+        changed = self.ui_current not in (page_main, page_main_white)
+        self.ui_current = page_main_white
+        return changed
+
+
+class GameSettingsNavigationTests(unittest.TestCase):
+    def test_pages_use_shared_page_graph(self) -> None:
+        self.assertIs(
+            page_main_white.links[page_settings],
+            GAME_SETTINGS_MAIN_GOTO_SETTINGS,
+        )
+        self.assertIs(
+            page_settings.links[page_settings_options],
+            GAME_SETTINGS_OPTIONS_UNSELECTED,
+        )
+        self.assertIs(page_settings.links[page_main], GOTO_MAIN)
+        self.assertIs(page_settings_options.links[page_main], GOTO_MAIN)
+
+        try:
+            Page.init_connection(page_settings_options)
+            self.assertIs(page_main_white.parent, page_settings)
+            self.assertIs(page_settings.parent, page_settings_options)
+            self.assertIsNone(page_settings_options.parent)
+        finally:
+            Page.clear_connection()
+
+    def test_options_detector_distinguishes_settings_shell(self) -> None:
+        self.assertLess(
+            _button_similarity(
+                GAME_SETTINGS_OPTIONS_UNSELECTED,
+                GAME_SETTINGS_OPTIONS_SELECTED,
+            ),
+            0.85,
+        )
+
+    def test_options_detector_is_independent_of_vertical_position(self) -> None:
+        self.assertGreaterEqual(
+            _fixture_similarity(
+                GAME_SETTINGS_OPTIONS_SELECTED,
+                "settings_options_selected_lower.png",
+            ),
+            0.95,
+        )
+
+    def test_already_open_options_is_idempotent(self) -> None:
+        scanner = _FakeNavigationScanner(page_settings_options)
+
+        self.assertFalse(scanner.ensure_options_page())
+        self.assertEqual(scanner.goto_calls, [])
+
+    def test_settings_shell_routes_to_options_through_ui_goto(self) -> None:
+        scanner = _FakeNavigationScanner(page_settings)
+
+        self.assertTrue(scanner.ensure_options_page())
+        self.assertEqual(scanner.goto_calls, [page_settings_options])
+        self.assertEqual(scanner.ui_current, page_settings_options)
+
+    def test_current_main_variant_routes_to_options_through_ui_goto(self) -> None:
+        scanner = _FakeNavigationScanner(page_main_white)
+
+        self.assertTrue(scanner.ensure_options_page())
+        self.assertEqual(scanner.goto_calls, [page_settings_options])
+        self.assertEqual(scanner.ui_current, page_settings_options)
+
+    def test_unverified_legacy_main_fails_closed(self) -> None:
+        scanner = _FakeNavigationScanner(page_main)
+
+        with self.assertRaises(RequestHumanTakeover):
+            scanner.ensure_options_page()
+
+        self.assertEqual(scanner.goto_calls, [])
+
+    def test_unrelated_start_state_is_not_extended_into_recovery_engine(self) -> None:
+        scanner = _FakeNavigationScanner(object())
+
+        with self.assertRaises(GamePageUnknownError):
+            scanner.ensure_options_page()
+
+        self.assertEqual(scanner.goto_calls, [])
+
+    def test_return_to_main_uses_shared_ui_contract(self) -> None:
+        scanner = _FakeNavigationScanner(page_settings_options)
+
+        self.assertTrue(scanner.return_to_main())
+        self.assertEqual(scanner.goto_main_calls, 1)
+        self.assertEqual(scanner.ui_current, page_main_white)
+
+    def test_navigation_has_no_blind_click_or_stage3_scope(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        files = [
+            root / "module" / "game_settings" / "scanner.py",
+            root / "module" / "game_settings" / "navigation.py",
+        ]
+        forbidden_calls = {"click", "sleep", "swipe", "drag"}
+        imported_modules = []
+        call_names = set()
+        source_text = ""
+
+        for file in files:
+            text = file.read_text(encoding="utf-8")
+            source_text += text
+            tree = ast.parse(text)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imported_modules.extend(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                    imported_modules.append(node.module)
+                elif isinstance(node, ast.Call):
+                    func = node.func
+                    if isinstance(func, ast.Attribute):
+                        call_names.add(func.attr)
+                    elif isinstance(func, ast.Name):
+                        call_names.add(func.id)
+
+        self.assertTrue(forbidden_calls.isdisjoint(call_names), call_names)
+        self.assertFalse(
+            any("dock" in module.casefold() for module in imported_modules),
+            imported_modules,
+        )
+        self.assertFalse(
+            any("scroll" in module.casefold() for module in imported_modules),
+            imported_modules,
+        )
+        self.assertNotIn("Custom Ship Names", source_text)
+
+
+if __name__ == "__main__":
+    unittest.main()
