@@ -50,10 +50,10 @@ class CoinTaskMixin:
     
     # 任务名称映射（用于通知显示）
     TASK_NAMES = {
-        'OpsiMeowfficerFarming': '耄耋相接',
-        'OpsiObscure': '隐秘海域',
-        'OpsiAbyssal': '深渊坐标',
-        'OpsiStronghold': '塞壬要塞'
+        'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+        'OpsiObscure': 'Скрытые зоны',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен'
     }
     
     # 配置路径常量
@@ -839,7 +839,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                     title='[AzurPilot] 防止行动力溢出 - 已执行耄耋相接',
                     content=(
                         f'{coin_status}\n'
-                        f'Всего очков действия {total_ap} ниже резерва для пополнения монет {meow_ap_preserve}\n'
+                        f'Всего очков действия {total_ap} не превышает резерв для пополнения монет {meow_ap_preserve}\n'
                         f'OpsiScheduling выполнил один цикл фарма мяуфицеров, чтобы израсходовать текущие очки действия {current_ap}'
                     )
                 )
@@ -1076,7 +1076,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         
         pushed = self.notify_push(
             title="[AzurPilot] 智能调度+ - 行动力不足",
-            content=f"Всего очков действия {total_ap} ниже минимального резерва {min_reserve}, задача отложена"
+            content=f"Всего очков действия {total_ap} не превышает минимальный резерв {min_reserve}, задача отложена"
         )
         if pushed:
             self._mark_ap_notification_sent('_last_ap_insufficient_notification_time')
