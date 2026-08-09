@@ -23,7 +23,15 @@ PROTECTED_PATHS = {
     "tests/test_translation_structural_gate_display_sinks.py",
 }
 ENTRY_POINTS = {"alas.py", "gui.py", "mcp_server_sse.py"}
-LOGGER_METHODS = {"info", "warning", "error", "critical", "exception", "hr"}
+LOGGER_METHODS = {
+    "info",
+    "warning",
+    "error",
+    "critical",
+    "exception",
+    "debug",
+    "hr",
+}
 HANDLE_NOTIFY_PROSE_KEYWORDS = {"title", "content"}
 SELF_NOTIFY_PUSH_CONTENT_PATHS = {
     "module/os/tasks/fleet_auto_change.py",
@@ -116,32 +124,37 @@ PLOTTER_DISPLAY_LABEL_CALLS = {
     ("mpatches", "Patch"),
 }
 EXACT_LOGGER_NESTED_DISPLAY_CALLS = {
-    ("module/island/island_business.py", "__init__", ("logger", "info")),
+    ("module/island/island_business.py", "__init__", ("logger", "info")): 0,
     (
         "module/island/island_daily_order.py",
         "_ocr_cooldown_below_urgent",
         ("logger", "warning"),
-    ),
+    ): 0,
     (
         "module/island/island_mine_forest.py",
         "_record_working_post",
         ("logger", "info"),
-    ),
+    ): 0,
     (
         "module/island/island_mine_forest.py",
         "post_plant",
         ("logger", "info"),
-    ),
+    ): 0,
     (
         "module/island/island_shop_base.py",
         "_compute_base_demands",
         ("logger", "info"),
-    ),
+    ): 0,
     (
         "module/tactical/tactical_class.py",
         "_tactical_get_finish",
         ("logger", "info"),
-    ),
+    ): 0,
+    (
+        "module/device/connection.py",
+        "get_orientation",
+        ("logger", "attr"),
+    ): 1,
 }
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
@@ -276,6 +289,13 @@ def _conditional_display_templates(node: ast.AST) -> list[ast.AST]:
             *_safe_templates(node.elt),
             *_conditional_display_templates(node.elt),
         ]
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and len(node.args) >= 2
+    ):
+        return _safe_templates(node.args[1])
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         return [
             *_conditional_display_templates(node.left),
@@ -724,16 +744,25 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
             elif logger_method == "attr_align":
                 self._approve(node.args[0], f"{logger_target}.attr_align label")
 
+            nested_display_argument = (
+                EXACT_LOGGER_NESTED_DISPLAY_CALLS.get(
+                    (
+                        self.source_path,
+                        self.function_stack[-1],
+                        name,
+                    )
+                )
+                if self.function_stack
+                else None
+            )
             if (
                 self.function_stack
-                and (
-                    self.source_path,
-                    self.function_stack[-1],
-                    name,
-                )
-                in EXACT_LOGGER_NESTED_DISPLAY_CALLS
+                and nested_display_argument is not None
+                and len(node.args) > nested_display_argument
             ):
-                for expression in _conditional_display_templates(node.args[0]):
+                for expression in _conditional_display_templates(
+                    node.args[nested_display_argument]
+                ):
                     self._approve(
                         expression,
                         f"exact nested display {'.'.join(name)}",
