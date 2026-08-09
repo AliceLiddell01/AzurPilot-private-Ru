@@ -75,7 +75,8 @@ class _FakeTraversalScanner(GameSettingsScanner):
         if not frame.page_is_options:
             raise GamePageUnknownError("Options lost in fake")
 
-    def _options_anchor_matches(self, frame: _FakeFrame, anchor) -> bool:
+    def _options_anchor_matches(self, frame: _FakeFrame, anchor, *, offset) -> bool:
+        del offset
         if anchor is GAME_SETTINGS_OPTIONS_TOP_ANCHOR:
             return frame.position == 0
         if anchor is GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR:
@@ -354,6 +355,11 @@ class OptionsTraversalVisualTests(unittest.TestCase):
 
     def test_visual_fixtures_contain_only_options_content(self) -> None:
         x1, y1, x2, y2 = (160, 80, 1223, 690)
+        vx1, vy1, vx2, vy2 = OPTIONS_VIEWPORT_AREA
+        self.assertTrue(
+            x1 <= vx1 and y1 <= vy1 and vx2 <= x2 and vy2 <= y2,
+            "OPTIONS_VIEWPORT_AREA выходит за маскированную область фикстур",
+        )
         for name in (
             "options_traversal_top.png",
             "options_traversal_middle_previous.png",

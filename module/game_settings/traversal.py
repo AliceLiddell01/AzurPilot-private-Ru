@@ -29,12 +29,23 @@ from module.logger import logger
 OPTIONS_VIEWPORT_AREA = (175, 80, 1207, 690)
 """Область движущегося Options content в нативной сетке 1280 x 720."""
 
+OPTIONS_STABLE_SHIFT_PX = 3.0
+OPTIONS_STABLE_EDGE_CHANGE = 0.045
+OPTIONS_TOP_ANCHOR_OFFSET = (3, 3)
+
 OPTIONS_SAFE_SWIPE_START = (690, 610)
 OPTIONS_SAFE_SWIPE_END = (690, 360)
 """Центральный зазор между колонками: gesture не начинается на toggle."""
 
 OPTIONS_BOTTOM_ANCHOR_OFFSET = (-8, -215, 8, 115)
 """Допустимое окно последней секции: вверх шире, вниз только до полного показа."""
+
+_OPTIONS_VIEWPORT_WIDTH = OPTIONS_VIEWPORT_AREA[2] - OPTIONS_VIEWPORT_AREA[0]
+_OPTIONS_VIEWPORT_HEIGHT = OPTIONS_VIEWPORT_AREA[3] - OPTIONS_VIEWPORT_AREA[1]
+_OPTIONS_PHASE_WINDOW = cv2.createHanningWindow(
+    (_OPTIONS_VIEWPORT_WIDTH, _OPTIONS_VIEWPORT_HEIGHT),
+    cv2.CV_32F,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,9 +81,9 @@ class OptionsViewportMotion:
     @property
     def stable(self) -> bool:
         return (
-            abs(self.vertical_shift) <= 3.0
-            and abs(self.horizontal_shift) <= 3.0
-            and self.edge_change <= 0.045
+            abs(self.vertical_shift) <= OPTIONS_STABLE_SHIFT_PX
+            and abs(self.horizontal_shift) <= OPTIONS_STABLE_SHIFT_PX
+            and self.edge_change <= OPTIONS_STABLE_EDGE_CHANGE
         )
 
 
@@ -83,7 +94,7 @@ def _options_edges(image: np.ndarray) -> np.ndarray:
         raise ValueError(
             "Options traversal ожидает screenshot в нативной геометрии 1280 x 720."
         )
-    gray = cv2.cvtColor(viewport, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(viewport, cv2.COLOR_RGB2GRAY)
     return cv2.Canny(gray, 80, 160)
 
 
@@ -104,6 +115,7 @@ def measure_options_viewport_motion(
     (horizontal, raw_vertical), response = cv2.phaseCorrelate(
         previous_edges.astype(np.float32),
         current_edges.astype(np.float32),
+        _OPTIONS_PHASE_WINDOW,
     )
     edge_change = float(np.mean(previous_edges != current_edges))
     # После жеста вниз content движется вверх, поэтому положительный scroll
@@ -113,9 +125,9 @@ def measure_options_viewport_motion(
     viewport_height = previous_edges.shape[0]
     signed_vertical = -float(raw_vertical)
     if (
-        abs(raw_vertical) <= 3.0
-        and abs(horizontal) <= 3.0
-        and edge_change <= 0.045
+        abs(raw_vertical) <= OPTIONS_STABLE_SHIFT_PX
+        and abs(horizontal) <= OPTIONS_STABLE_SHIFT_PX
+        and edge_change <= OPTIONS_STABLE_EDGE_CHANGE
     ):
         vertical = signed_vertical
     else:
@@ -130,7 +142,11 @@ def measure_options_viewport_motion(
 
 
 class OptionsTraversalMixin:
-    """Reusable navigation/progression contract для будущих detectors."""
+    """Reusable navigation/progression contract для будущих detectors.
+
+    Класс-потребитель обязан предоставить ``ensure_options_page()`` и
+    ``device`` с методами ``screenshot()`` и ``drag()``.
+    """
 
     options_max_viewports = 16
     options_max_top_swipes = 16
@@ -171,6 +187,7 @@ class OptionsTraversalMixin:
             is_bottom = self._options_anchor_matches(
                 frame,
                 GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR,
+                offset=OPTIONS_BOTTOM_ANCHOR_OFFSET,
             )
             viewport = OptionsViewport(
                 index=visited + 1,
@@ -235,7 +252,11 @@ class OptionsTraversalMixin:
 
     def _normalize_options_top(self) -> np.ndarray:
         frame = self._wait_options_stable()
-        if self._options_anchor_matches(frame, GAME_SETTINGS_OPTIONS_TOP_ANCHOR):
+        if self._options_anchor_matches(
+            frame,
+            GAME_SETTINGS_OPTIONS_TOP_ANCHOR,
+            offset=OPTIONS_TOP_ANCHOR_OFFSET,
+        ):
             return frame
 
         no_progress = 0
@@ -245,6 +266,7 @@ class OptionsTraversalMixin:
             if self._options_anchor_matches(
                 next_frame,
                 GAME_SETTINGS_OPTIONS_TOP_ANCHOR,
+                offset=OPTIONS_TOP_ANCHOR_OFFSET,
             ):
                 return next_frame
 
@@ -316,32 +338,22 @@ class OptionsTraversalMixin:
             )
         return frame.copy()
 
-    def _confirm_options_page(self, _frame: np.ndarray) -> None:
-        if not self._options_page_visible(_frame):
+    def _confirm_options_page(self, frame: np.ndarray) -> None:
+        if not self._options_page_visible(frame):
             raise GamePageUnknownError(
                 "[Game Settings] Страница Options потеряна во время traversal."
             )
 
-    def _options_page_visible(self, _frame: np.ndarray) -> bool:
+    def _options_page_visible(self, frame: np.ndarray) -> bool:
         return page_settings_options.check_button.match(
-            _frame,
+            frame,
             offset=(5, 5),
             similarity=0.78,
         )
 
     @staticmethod
-    def _options_anchor_matches(frame: np.ndarray, anchor) -> bool:
-        if anchor is GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR:
-            # Последняя секция должна войти в центральную часть viewport,
-            # чтобы visitor увидел её полностью до циклического wrap. Live
-            # drag может поставить заголовок на y=197, поэтому верхняя граница
-            # шире симметричного offset; нижняя намеренно остаётся bounded.
-            return anchor.match(
-                frame,
-                offset=OPTIONS_BOTTOM_ANCHOR_OFFSET,
-                similarity=0.82,
-            )
-        return anchor.match(frame, offset=(3, 3), similarity=0.82)
+    def _options_anchor_matches(frame: np.ndarray, anchor, *, offset) -> bool:
+        return anchor.match(frame, offset=offset, similarity=0.82)
 
     @staticmethod
     def _measure_options_motion(
