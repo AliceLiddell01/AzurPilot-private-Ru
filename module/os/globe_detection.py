@@ -120,7 +120,7 @@ class GlobeDetection:
             points (np.ndarray): 全球地图坐标点数组。
 
         Returns:
-            np.ndarray: 对应的全球地图坐标点数组。
+            np.ndarray: 对应的屏幕坐标点数组。
         """
         return perspective_transform(points, data=self.homography.homo_invt)
 
