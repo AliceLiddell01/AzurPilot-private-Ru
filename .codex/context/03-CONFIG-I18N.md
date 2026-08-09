@@ -103,3 +103,15 @@ uv run -m module.config.config_updater
 - runtime WebUI — `ru-RU`; `en-US.json` — только build-time key/placeholder parity;
 - `ja-JP`, `zh-CN`, `zh-MIAO`, `zh-TW` не runtime-selectable;
 - event metadata source — `en`, foreign fallback order пуст.
+
+## Permanent runtime localization integrity
+
+`dev_tools/runtime_russianization_audit.py` — постоянный semantic guard текущего продукта. Он использует те же доказанные display-consumer contracts, что structural translation gate, но проверяет текущее дерево независимо от типа PR:
+
+- CJK в deterministic operator sink запрещён;
+- обычное English-only предложение требует явной semantic classification;
+- точные technical/machine/game значения сохраняются;
+- произвольный exception text учитывается как `DEFERRED_EXCEPTION_TEXT`, а не переводится автоматически;
+- runtime identity остаётся `ru-RU` + `en` + `com.YoStarEN.AzurLane` + `assets/en` + OCR namespace `azur_lane` без foreign fallback.
+
+Это не historical baseline: guard не хранит SHA, число файлов или before-tree snapshot.

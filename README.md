@@ -119,6 +119,10 @@ WebUI всегда использует локализацию `ru-RU`. Язык
 
 Игровой контур поддерживает только Global/EN: пакет `com.YoStarEN.AzurLane`, сервер `en` и канонический каталог `assets/en`. Runtime WebUI использует только `ru-RU`; `en-US.json` сохранён исключительно как build-time источник ключей и placeholders. Названия событий берутся из EN metadata без CN/JP/TW fallback. Все 18 OCR-файлов сохранены как Global/shared ресурсы; foreign OCR aliases недоступны. Неизвестный или foreign package/server отклоняется до device/game side effects.
 
+Постоянная проверка `dev_tools/runtime_russianization_audit.py` анализирует только доказанные operator-facing consumer sites и fail-closed отклоняет любой CJK либо неклассифицированный английский текст в проверяемом дереве. Технические токены, пути, URL, package/game identifiers и deferred exception text не считаются переводом автоматически. Проверка одновременно защищает `ru-RU`, единственный сервер `en`, Global package, `assets/en`, EN metadata без foreign fallback и единственный публичный OCR namespace `azur_lane`.
+
+Для веток `codex/translate-*` дополнительно действует base→head structural gate: перевод может менять только одобренный prose при неизменных AST, call shape, placeholders и machine contracts. Обычные feature/bugfix PR могут менять поведение согласно заявленному scope, но всё равно проходят permanent runtime localization integrity через общий pytest suite.
+
 ### Русские инфраструктурные журналы и безопасная диагностика
 
 First-party сообщения инфраструктуры переведены на русский в контуре запуска и обслуживания, deploy-модулях, конфигурации, logger, WebUI lifecycle, управлении процессами, MCP и точках входа приложения.
@@ -133,6 +137,8 @@ First-party сообщения инфраструктуры переведены
 Подробный traceback в WebUI проходит redaction чувствительных данных и HTML escaping до отображения. Вертикальная прокрутка принадлежит странице, а горизонтальная прокрутка длинных строк остаётся внутри traceback. Поведение проверено для светлой и тёмной тем, включая масштаб браузера 200%.
 
 Журналы игровой логики переводятся отдельно от инфраструктурного контура.
+
+Проверенная Windows/MuMu/Global граница включает запуск и перезапуск WebUI, ADB/screenshot/control backends, compact и general-English OCR, а также безопасную навигацию Campaign/Operation Siren. Боевые, расчётные и расходующие ресурс действия не выполняются как диагностический smoke: для них используются текущие product tests и отдельная явно подтверждённая acceptance.
 
 ## Быстрый запуск
 
