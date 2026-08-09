@@ -49,10 +49,44 @@ def _fixture_similarity(button, fixture_name: str) -> float:
     return float(cv2.minMaxLoc(result)[1])
 
 
+def _scope_signals(text: str) -> tuple[list[str], set[str]]:
+    tree = ast.parse(text)
+    imported_modules = []
+    imported_call_aliases = {}
+    call_names = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported_modules.append(alias.name)
+                if alias.asname is not None:
+                    imported_call_aliases[alias.asname] = alias.name.rsplit(".", 1)[-1]
+        elif isinstance(node, ast.ImportFrom):
+            if node.module is not None:
+                imported_modules.append(node.module)
+            for alias in node.names:
+                imported_modules.append(alias.name)
+                imported_call_aliases[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                call_names.add(func.attr)
+            elif isinstance(func, ast.Name):
+                call_names.add(imported_call_aliases.get(func.id, func.id))
+
+    return imported_modules, call_names
+
+
 class _FakeNavigationScanner(GameSettingsScanner[str]):
-    def __init__(self, current_page, main_result_page=page_main_white) -> None:
+    def __init__(
+        self,
+        current_page,
+        main_result_page=page_main_white,
+        options_result_page=page_settings_options,
+    ) -> None:
         self.ui_current = current_page
         self.main_result_page = main_result_page
+        self.options_result_page = options_result_page
         self.goto_calls = []
         self.goto_main_calls = 0
         self.current_page_calls = 0
@@ -72,7 +106,10 @@ class _FakeNavigationScanner(GameSettingsScanner[str]):
         skip_first_screenshot=True,
     ):
         self.goto_calls.append(destination)
-        self.ui_current = destination
+        if destination is page_settings_options:
+            self.ui_current = self.options_result_page
+        else:
+            self.ui_current = destination
 
     def ui_goto_main(self):
         self.goto_main_calls += 1
@@ -157,6 +194,18 @@ class GameSettingsNavigationTests(unittest.TestCase):
         self.assertEqual(scanner.goto_calls, [page_settings_options])
         self.assertEqual(scanner.ui_current, page_settings_options)
 
+    def test_options_navigation_fails_if_options_is_not_confirmed(self) -> None:
+        scanner = _FakeNavigationScanner(
+            page_settings,
+            options_result_page=page_campaign,
+        )
+
+        with self.assertRaises(GamePageUnknownError):
+            scanner.ensure_options_page()
+
+        self.assertEqual(scanner.goto_calls, [page_settings_options])
+        self.assertEqual(scanner.ui_current, page_campaign)
+
     def test_unverified_legacy_main_fails_closed(self) -> None:
         scanner = _FakeNavigationScanner(page_main)
 
@@ -192,6 +241,14 @@ class GameSettingsNavigationTests(unittest.TestCase):
         self.assertEqual(scanner.goto_main_calls, 1)
         self.assertEqual(scanner.ui_current, page_campaign)
 
+    def test_scope_checker_resolves_import_aliases(self) -> None:
+        imported_modules, call_names = _scope_signals(
+            "from module.ui import click as tap\ntap()\n"
+        )
+
+        self.assertIn("click", imported_modules)
+        self.assertIn("click", call_names)
+
     def test_navigation_has_no_blind_click_or_stage3_scope(self) -> None:
         files = [
             ROOT / "module" / "game_settings" / "scanner.py",
@@ -205,20 +262,9 @@ class GameSettingsNavigationTests(unittest.TestCase):
         for file in files:
             text = file.read_text(encoding="utf-8")
             source_text += text
-            tree = ast.parse(text)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    imported_modules.extend(alias.name for alias in node.names)
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module is not None:
-                        imported_modules.append(node.module)
-                    imported_modules.extend(alias.name for alias in node.names)
-                elif isinstance(node, ast.Call):
-                    func = node.func
-                    if isinstance(func, ast.Attribute):
-                        call_names.add(func.attr)
-                    elif isinstance(func, ast.Name):
-                        call_names.add(func.id)
+            file_imports, file_calls = _scope_signals(text)
+            imported_modules.extend(file_imports)
+            call_names.update(file_calls)
 
         self.assertTrue(forbidden_calls.isdisjoint(call_names), call_names)
         self.assertFalse(
