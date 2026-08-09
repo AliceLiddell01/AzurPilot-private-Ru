@@ -12,7 +12,7 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "game_settings"
 
 
 class Stage5FixtureProbeTests(unittest.TestCase):
-    def test_probe_bottom_fixture_text(self) -> None:
+    def test_probe_stage4_fixture_text(self) -> None:
         areas = [
             (175, y, 1207, min(y + 54, 690))
             for y in range(90, 666, 24)
@@ -20,6 +20,9 @@ class Stage5FixtureProbeTests(unittest.TestCase):
         lines: list[str] = []
 
         for name in (
+            "options_traversal_top.png",
+            "options_traversal_middle_previous.png",
+            "options_traversal_middle.png",
             "options_traversal_bottom.png",
             "options_traversal_bottom_retry.png",
         ):
