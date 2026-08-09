@@ -17,6 +17,7 @@ from module.game_settings.model import GameSettingsScanResult
 from module.game_settings.scanner import GameSettingsScanner
 from module.game_settings.traversal import (
     OPTIONS_BOTTOM_ANCHOR_OFFSET,
+    OPTIONS_CONTROL_NAME,
     OPTIONS_VIEWPORT_AREA,
     OptionsTraversalMixin,
     OptionsViewportMotion,
@@ -49,6 +50,7 @@ class _FakeTraversalScanner(GameSettingsScanner):
         bottom_anchor_enabled: bool = True,
         page_loss_after_down_swipe: int | None = None,
     ) -> None:
+        self.device = self
         self.position = start
         self.bottom = bottom
         self.hard_end = bottom + 1 if hard_end is None else hard_end
@@ -59,6 +61,7 @@ class _FakeTraversalScanner(GameSettingsScanner):
         self.ensure_calls = 0
         self.up_swipes = 0
         self.down_swipes = 0
+        self.removed_control_records: list[str] = []
 
     def _scan_game_settings(self) -> GameSettingsScanResult:
         return GameSettingsScanResult()
@@ -95,6 +98,10 @@ class _FakeTraversalScanner(GameSettingsScanner):
         else:
             self.up_swipes += 1
             self.position = max(0, self.position - 1)
+
+    def click_record_remove(self, button: str) -> int:
+        self.removed_control_records.append(button)
+        return 1
 
     @staticmethod
     def _measure_options_motion(
@@ -180,7 +187,7 @@ class OptionsTraversalContractTests(unittest.TestCase):
         self.assertEqual(result.visited_viewports, 6)
         self.assertTrue(result.reached_bottom)
         self.assertFalse(result.stopped_early)
-        self.assertEqual(scanner.down_swipes, 6)
+        self.assertEqual(scanner.down_swipes, 7)
 
     def test_lower_landmark_does_not_hide_later_viewport(self) -> None:
         scanner = _FakeTraversalScanner(
@@ -201,7 +208,7 @@ class OptionsTraversalContractTests(unittest.TestCase):
         self.assertTrue(result.stopped_early)
         self.assertFalse(result.reached_bottom)
 
-    def test_hard_end_after_landmark_finishes_on_first_no_progress_drag(self) -> None:
+    def test_hard_end_after_landmark_requires_bounded_confirmation(self) -> None:
         scanner = _FakeTraversalScanner(
             start=0,
             bottom=2,
@@ -214,10 +221,19 @@ class OptionsTraversalContractTests(unittest.TestCase):
         )
 
         self.assertEqual(visited_positions, [0, 1, 2, 3, 4])
-        self.assertEqual(scanner.down_swipes, 5)
+        self.assertEqual(scanner.down_swipes, 6)
         self.assertEqual(result.visited_viewports, 5)
         self.assertTrue(result.reached_bottom)
         self.assertFalse(result.stopped_early)
+
+    def test_verified_progress_clears_only_traversal_control_record(self) -> None:
+        scanner = _FakeTraversalScanner(start=0, bottom=5, hard_end=8)
+
+        result = scanner.traverse_options(lambda viewport: viewport.index == 2)
+
+        self.assertTrue(result.stopped_early)
+        self.assertEqual(scanner.down_swipes, 1)
+        self.assertEqual(scanner.removed_control_records, [OPTIONS_CONTROL_NAME])
 
     def test_no_progress_before_lower_landmark_retries_and_fails_closed(self) -> None:
         scanner = _FakeTraversalScanner(
@@ -233,6 +249,7 @@ class OptionsTraversalContractTests(unittest.TestCase):
 
         self.assertEqual(scanner.down_swipes, 2)
         self.assertEqual([item.index for item in visited], [1])
+        self.assertEqual(scanner.removed_control_records, [])
 
     def test_hard_safety_bound_is_not_used_as_bottom_detector(self) -> None:
         scanner = _FakeTraversalScanner(
