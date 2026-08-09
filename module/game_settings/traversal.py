@@ -2,11 +2,20 @@
 
 У Options в EN-клиенте нет отдельного визуального thumb/track: правая
 вертикальная линия принадлежит рамкам секций и не меняется вместе с позицией.
-После последней секции content циклически продолжает ранние секции, поэтому
-bottom здесь логический и подтверждается последней секцией до wrap.
+Live-прогон на MuMu показал, что страница имеет фактический hard end: после
+последней секции controlled drag больше не двигает content.
+
+Исторический ``GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR`` на live MuMu оказался
+не terminal bottom, а устойчивым landmark нижней части страницы: после него
+ещё доступны Game Settings и последующие строки. Он сохраняется как маркер
+того, что traversal уже вошёл в нижнюю область, но сам по себе не завершает
+обход.
+
 Поэтому ``Scroll``/``AdaptiveScroll`` здесь не могут дать достоверную
 нормализованную позицию. Traversal использует подтверждённые структурные
-anchors, движение контента и ограниченные recovery-попытки.
+anchors, движение контента и ограниченные recovery-попытки. Фактический низ
+подтверждается bounded повтором controlled drag без прогресса только после
+нижнего landmark.
 """
 
 from __future__ import annotations
@@ -37,8 +46,11 @@ OPTIONS_SAFE_SWIPE_START = (690, 610)
 OPTIONS_SAFE_SWIPE_END = (690, 360)
 """Центральный зазор между колонками: gesture не начинается на toggle."""
 
+OPTIONS_CONTROL_NAME = "GAME_SETTINGS_OPTIONS"
+"""Имя controlled drag в общей защите Device от повторных действий."""
+
 OPTIONS_BOTTOM_ANCHOR_OFFSET = (-8, -215, 8, 115)
-"""Допустимое окно последней секции: вверх шире, вниз только до полного показа."""
+"""Окно исторического lower landmark; это не terminal bottom Options."""
 
 _OPTIONS_VIEWPORT_WIDTH = OPTIONS_VIEWPORT_AREA[2] - OPTIONS_VIEWPORT_AREA[0]
 _OPTIONS_VIEWPORT_HEIGHT = OPTIONS_VIEWPORT_AREA[3] - OPTIONS_VIEWPORT_AREA[1]
@@ -55,6 +67,10 @@ class OptionsViewport:
     Актуальный frame во время callback находится в ``self.device.image``.
     ``scroll_offset`` — накопленное визуальное смещение в пикселях, а не
     выдуманная позиция 0..1: у страницы нет измеримого scrollbar.
+
+    Terminal bottom можно доказать только результатом следующих controlled
+    drag, поэтому visitor-кадр заранее не помечается как bottom. Итог полного
+    обхода сообщает ``OptionsTraversalResult.reached_bottom``.
     """
 
     index: int
@@ -164,11 +180,17 @@ class OptionsTraversalMixin:
         self,
         visitor: Callable[[OptionsViewport], bool | None],
     ) -> OptionsTraversalResult:
-        """Посетить Options сверху вниз; оставить Options на bottom/early-stop.
+        """Посетить Options сверху вниз до hard end или early-stop.
 
         Visitor вызывается только на подтверждённой странице и после visual
         stabilization. Истинный результат visitor-а означает раннюю остановку.
-        Interpretation текущего frame остаётся обязанностью visitor-а.
+
+        Старый bottom anchor является только lower landmark. После него
+        ``options_max_no_progress_retries`` последовательных controlled drag
+        без измеримого движения подтверждают terminal bottom. Записи нашего
+        drag удаляются из общего click guard только после доказанного visual
+        progress, поэтому длинный штатный traversal не выглядит как click-loop,
+        а повторные действия без прогресса по-прежнему остаются защищёнными.
         """
 
         if not callable(visitor):
@@ -179,12 +201,13 @@ class OptionsTraversalMixin:
         offset = 0.0
         visited = 0
         no_progress = 0
+        lower_landmark_seen = False
 
         logger.info("[Игровые настройки] Options: верх подтверждён")
 
         while visited < self.options_max_viewports:
             self._confirm_options_page(frame)
-            is_bottom = self._options_anchor_matches(
+            is_lower_landmark = self._options_anchor_matches(
                 frame,
                 GAME_SETTINGS_OPTIONS_BOTTOM_ANCHOR,
                 offset=OPTIONS_BOTTOM_ANCHOR_OFFSET,
@@ -193,13 +216,13 @@ class OptionsTraversalMixin:
                 index=visited + 1,
                 scroll_offset=offset,
                 is_top=visited == 0,
-                is_bottom=is_bottom,
+                is_bottom=False,
             )
             logger.info(
                 "[Игровые настройки] Viewport Options #%s: смещение %.1f px%s",
                 viewport.index,
                 viewport.scroll_offset,
-                " (низ)" if is_bottom else "",
+                " (lower landmark)" if is_lower_landmark else "",
             )
             visited += 1
 
@@ -208,17 +231,15 @@ class OptionsTraversalMixin:
                 return OptionsTraversalResult(
                     visited_viewports=visited,
                     final_offset=offset,
-                    reached_bottom=is_bottom,
+                    reached_bottom=False,
                     stopped_early=True,
                 )
 
-            if is_bottom:
-                logger.info("[Игровые настройки] Options: низ подтверждён")
-                return OptionsTraversalResult(
-                    visited_viewports=visited,
-                    final_offset=offset,
-                    reached_bottom=True,
-                    stopped_early=False,
+            if is_lower_landmark:
+                lower_landmark_seen = True
+                logger.info(
+                    "[Игровые настройки] Options: lower landmark подтверждён; "
+                    "обход продолжается до фактического hard end"
                 )
 
             while True:
@@ -228,20 +249,42 @@ class OptionsTraversalMixin:
 
                 if motion.stable:
                     no_progress += 1
-                    logger.warning(
-                        "[Игровые настройки] Options: нет прогресса (%s/%s)",
-                        no_progress,
-                        self.options_max_no_progress_retries,
-                    )
-                    if no_progress >= self.options_max_no_progress_retries:
-                        raise GameStuckError(
-                            "[Game Settings] Options не прокручивается, но bottom anchor отсутствует."
+                    if lower_landmark_seen:
+                        logger.info(
+                            "[Игровые настройки] Options: нет прогресса в нижней "
+                            "области (%s/%s)",
+                            no_progress,
+                            self.options_max_no_progress_retries,
                         )
+                        if no_progress >= self.options_max_no_progress_retries:
+                            logger.info(
+                                "[Игровые настройки] Options: фактический низ "
+                                "подтверждён bounded no-progress"
+                            )
+                            return OptionsTraversalResult(
+                                visited_viewports=visited,
+                                final_offset=offset,
+                                reached_bottom=True,
+                                stopped_early=False,
+                            )
+                    else:
+                        logger.warning(
+                            "[Игровые настройки] Options: нет прогресса до lower "
+                            "landmark (%s/%s)",
+                            no_progress,
+                            self.options_max_no_progress_retries,
+                        )
+                        if no_progress >= self.options_max_no_progress_retries:
+                            raise GameStuckError(
+                                "[Game Settings] Options не прокручивается до "
+                                "подтверждения нижней области страницы."
+                            )
                     frame = next_frame
                     continue
 
                 no_progress = 0
                 self._validate_downward_progress(motion)
+                self._clear_options_control_record()
                 offset += motion.vertical_shift
                 frame = next_frame
                 break
@@ -268,6 +311,7 @@ class OptionsTraversalMixin:
                 GAME_SETTINGS_OPTIONS_TOP_ANCHOR,
                 offset=OPTIONS_TOP_ANCHOR_OFFSET,
             ):
+                self._clear_options_control_record()
                 return next_frame
 
             motion = self._measure_options_motion(frame, next_frame)
@@ -288,6 +332,7 @@ class OptionsTraversalMixin:
                     raise GameStuckError(
                         "[Game Settings] Неоднозначное движение Options при reset к top."
                     )
+                self._clear_options_control_record()
             frame = next_frame
 
         raise GameStuckError(
@@ -362,6 +407,13 @@ class OptionsTraversalMixin:
     ) -> OptionsViewportMotion:
         return measure_options_viewport_motion(previous, current)
 
+    def _clear_options_control_record(self) -> None:
+        """Сбросить только наш drag из click guard после доказанного прогресса."""
+
+        remove = getattr(self.device, "click_record_remove", None)
+        if callable(remove):
+            remove(OPTIONS_CONTROL_NAME)
+
     def _swipe_options(self, *, down: bool) -> None:
         start = OPTIONS_SAFE_SWIPE_START
         end = OPTIONS_SAFE_SWIPE_END
@@ -378,7 +430,7 @@ class OptionsTraversalMixin:
             point_random=(0, 0, 0, 0),
             shake_random=(0, 0, 0, 0),
             swipe_duration=self.options_swipe_duration,
-            name="GAME_SETTINGS_OPTIONS",
+            name=OPTIONS_CONTROL_NAME,
         )
 
     def _validate_downward_progress(self, motion: OptionsViewportMotion) -> None:
