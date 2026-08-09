@@ -651,7 +651,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         Args:
             revert (bool): 是否返回之前的海域。
         """
-        logger.hr("Снятие с флота debuff низкого боевого духа")
+        logger.hr("Снятие дебаффа низкого боевого духа с флота")
 
         prev = self.zone
         self.globe_goto(22)
@@ -682,12 +682,12 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
             if self.fleet_low_resolve_appear():
                 logger.info(
-                    "[Операция «Сирена» — боевой дух] Как минимум один флот находится под действием debuff низкого боевого духа"
+                    "[Операция «Сирена» — боевой дух] Как минимум один флот находится под действием дебаффа низкого боевого духа"
                 )
                 self.fleet_resolve(revert)
                 return True
 
-        logger.info("[Операция «Сирена» — боевой дух] Ни один флот не находится под действием debuff низкого боевого духа")
+        logger.info("[Операция «Сирена» — боевой дух] Ни один флот не находится под действием дебаффа низкого боевого духа")
         return False
 
     def handle_current_fleet_resolve(self, revert=False):
@@ -701,11 +701,11 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             bool: 是否处理了低士气减益。
         """
         if self.fleet_low_resolve_appear():
-            logger.info("[Операция «Сирена» — боевой дух] Текущий флот находится под действием debuff низкого боевого духа")
+            logger.info("[Операция «Сирена» — боевой дух] Текущий флот находится под действием дебаффа низкого боевого духа")
             self.fleet_resolve(revert)
             return True
 
-        logger.info("[Операция «Сирена» — боевой дух] На текущем флоте нет debuff низкого боевого духа")
+        logger.info("[Операция «Сирена» — боевой дух] На текущем флоте нет дебаффа низкого боевого духа")
         return False
 
     def handle_fleet_emp_debuff(self):
@@ -717,7 +717,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             bool: 是否已解决。
         """
         if self.is_in_special_zone():
-            logger.info("[Операция «Сирена» — EMP] Особый тип зоны; обработка EMP debuff флота пропущена")
+            logger.info("[Операция «Сирена» — EMP] Особый тип зоны; обработка дебаффа EMP флота пропущена")
             return False
 
         def has_emp_debuff():
@@ -725,28 +725,28 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
 
         for trial in range(5):
             if not has_emp_debuff():
-                logger.info("[Операция «Сирена» — EMP] На текущем флоте нет EMP debuff")
+                logger.info("[Операция «Сирена» — EMP] На текущем флоте нет дебаффа EMP")
                 return trial > 0
 
             current = self.get_fleet_current_index()
-            logger.hr(f"Снятие EMP debuff с флота {current}.")
+            logger.hr(f"Снятие дебаффа EMP с флота {current}.")
             self.globe_goto(self.zone_nearest_azur_port(self.zone))
 
-            logger.info("[Операция «Сирена» — EMP] Поиск флота без EMP debuff")
+            logger.info("[Операция «Сирена» — EMP] Поиск флота без дебаффа EMP")
             for fleet in [1, 2, 3, 4]:
                 self.fleet_set(fleet)
                 if has_emp_debuff():
-                    logger.info(f"[Операция «Сирена» — EMP] Флот {fleet} находится под действием EMP debuff")
+                    logger.info(f"[Операция «Сирена» — EMP] Флот {fleet} находится под действием дебаффа EMP")
                     continue
                 else:
-                    logger.info(f"[Операция «Сирена» — EMP] На флоте {fleet} нет EMP debuff")
+                    logger.info(f"[Операция «Сирена» — EMP] На флоте {fleet} нет дебаффа EMP")
                     break
 
-            logger.info("[Операция «Сирена» — EMP] Снятие EMP debuff переходом в другое место")
+            logger.info("[Операция «Сирена» — EMP] Снятие дебаффа EMP переходом в другое место")
             self.port_goto(allow_port_arrive=False)
             self.fleet_set(current)
 
-        logger.warning("[Операция «Сирена» — EMP] Не удалось снять EMP debuff за 5 попыток; считаем его снятым")
+        logger.warning("[Операция «Сирена» — EMP] Не удалось снять дебафф EMP за 5 попыток; считаем его снятым")
         return True
 
     def handle_fog_block(self, repair=True):
