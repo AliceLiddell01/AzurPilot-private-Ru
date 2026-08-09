@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import cv2
 import numpy as np
 
@@ -103,6 +105,26 @@ def _crop_checked(
     return image[y1:y2, x1:x2]
 
 
+@lru_cache(maxsize=1)
+def _load_custom_ship_names_on_template() -> np.ndarray:
+    """Load the generated Template file without relying on global Pillow state.
+
+    Stage 5 detector already depends on OpenCV. Reading this small PNG through
+    OpenCV keeps production matching deterministic even when Pillow plugins have
+    not yet been initialized by another subsystem/test.
+    """
+
+    image = cv2.imread(
+        TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON.file,
+        cv2.IMREAD_COLOR,
+    )
+    if image is None:
+        raise ValueError(
+            "Не удалось загрузить ON asset для Custom Ship Names."
+        )
+    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
 def detect_custom_ship_names(
     image: np.ndarray,
 ) -> GameSettingState | None:
@@ -122,7 +144,7 @@ def detect_custom_ship_names(
             "Custom Ship Names detector ожидает screenshot 1280 x 720."
         )
 
-    on_template = TEMPLATE_GAME_SETTINGS_CUSTOM_SHIP_NAMES_ON.image
+    on_template = _load_custom_ship_names_on_template()
     label_template = _crop(on_template, _CUSTOM_SHIP_NAMES_LABEL_AREA)
     marker_template = _crop(
         on_template,
