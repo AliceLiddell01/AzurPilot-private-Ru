@@ -497,13 +497,14 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         if (
             self.class_stack
             and not self.function_stack
+            and len(self.class_stack) == 1
             and len(node.targets) == 1
             and isinstance(node.targets[0], ast.Name)
             and isinstance(node.value, ast.Dict)
         ):
             target = node.targets[0]
             expected_keys = CLASS_DISPLAY_MAPPING_KEYS.get(
-                (self.source_path, self.class_stack[-1], target.id)
+                (self.source_path, self.class_stack[0], target.id)
             )
             if expected_keys is not None:
                 actual_keys = tuple(
