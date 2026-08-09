@@ -341,3 +341,247 @@ def test_notify_push_sensitive_or_structural_changes_fail(
     path: str, base: str, head: str
 ) -> None:
     assert_blocked(path, base, head)
+
+
+def test_scheduling_task_names_display_values_translation_passes() -> None:
+    base = """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': '耄耋相接',
+        'OpsiObscure': '隐秘海域',
+        'OpsiAbyssal': '深渊坐标',
+        'OpsiStronghold': '塞壬要塞',
+    }
+"""
+    head = """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+        'OpsiObscure': 'Скрытые зоны',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен',
+    }
+"""
+    assert_passes("module/os/tasks/scheduling.py", base, head)
+
+
+@pytest.mark.parametrize(
+    ("path", "base", "head"),
+    [
+        (
+            "module/os/tasks/scheduling.py",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': '耄耋相接',
+        'OpsiObscure': '隐秘海域',
+        'OpsiAbyssal': '深渊坐标',
+        'OpsiStronghold': '塞壬要塞',
+    }
+""",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+        'OpsiHidden': 'Скрытые зоны',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен',
+    }
+""",
+        ),
+        (
+            "module/os/tasks/scheduling.py",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': '耄耋相接',
+        'OpsiObscure': '隐秘海域',
+        'OpsiAbyssal': '深渊坐标',
+        'OpsiStronghold': '塞壬要塞',
+    }
+""",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiObscure': 'Скрытые зоны',
+        'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен',
+    }
+""",
+        ),
+        (
+            "module/os/tasks/scheduling.py",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': '耄耋相接',
+        'OpsiObscure': '隐秘海域',
+        'OpsiAbyssal': '深渊坐标',
+        'OpsiStronghold': '塞壬要塞',
+    }
+""",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+        'OpsiObscure': 'Скрытые зоны',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен',
+        'Extra': 'Лишнее',
+    }
+""",
+        ),
+        (
+            "module/os/tasks/scheduling.py",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': '耄耋相接',
+        'OpsiObscure': '隐秘海域',
+        'OpsiAbyssal': '深渊坐标',
+        'OpsiStronghold': '塞壬要塞',
+    }
+""",
+            """class OtherMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+        'OpsiObscure': 'Скрытые зоны',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен',
+    }
+""",
+        ),
+        (
+            "module/os/tasks/other.py",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': '耄耋相接',
+        'OpsiObscure': '隐秘海域',
+        'OpsiAbyssal': '深渊坐标',
+        'OpsiStronghold': '塞壬要塞',
+    }
+""",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+        'OpsiObscure': 'Скрытые зоны',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен',
+    }
+""",
+        ),
+        (
+            "module/os/tasks/scheduling.py",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': '耄耋相接',
+        'OpsiObscure': '隐秘海域',
+        'OpsiAbyssal': '深渊坐标',
+        'OpsiStronghold': '塞壬要塞',
+    }
+""",
+            """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': f'Фарм {name}',
+        'OpsiObscure': 'Скрытые зоны',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен',
+    }
+""",
+        ),
+    ],
+)
+def test_scheduling_task_names_mapping_contract_is_fail_closed(
+    path: str, base: str, head: str
+) -> None:
+    assert_blocked(path, base, head)
+
+
+def test_scheduling_task_names_consumer_expression_stays_exact() -> None:
+    base = """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': '耄耋相接',
+        'OpsiObscure': '隐秘海域',
+        'OpsiAbyssal': '深渊坐标',
+        'OpsiStronghold': '塞壬要塞',
+    }
+
+    def display(self, task_name):
+        task_display = self.TASK_NAMES.get(task_name, task_name)
+        logger.info(f'Task: {task_display}')
+"""
+    head = """class CoinTaskMixin:
+    TASK_NAMES = {
+        'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+        'OpsiObscure': 'Скрытые зоны',
+        'OpsiAbyssal': 'Абиссальные зоны',
+        'OpsiStronghold': 'Крепости Сирен',
+    }
+
+    def display(self, task_name):
+        task_display = self.TASK_NAMES.get(other_name, task_name)
+        logger.info(f'Task: {task_display}')
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
+
+
+def test_scheduling_task_names_function_local_shadow_stays_exact() -> None:
+    base = """class CoinTaskMixin:
+    def display(self):
+        TASK_NAMES = {
+            'OpsiMeowfficerFarming': '耄耋相接',
+            'OpsiObscure': '隐秘海域',
+            'OpsiAbyssal': '深渊坐标',
+            'OpsiStronghold': '塞壬要塞',
+        }
+        return TASK_NAMES
+"""
+    head = """class CoinTaskMixin:
+    def display(self):
+        TASK_NAMES = {
+            'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+            'OpsiObscure': 'Скрытые зоны',
+            'OpsiAbyssal': 'Абиссальные зоны',
+            'OpsiStronghold': 'Крепости Сирен',
+        }
+        return TASK_NAMES
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
+
+
+def test_scheduling_task_names_nested_class_stays_exact() -> None:
+    base = """class Outer:
+    class CoinTaskMixin:
+        TASK_NAMES = {
+            'OpsiMeowfficerFarming': '耄耋相接',
+            'OpsiObscure': '隐秘海域',
+            'OpsiAbyssal': '深渊坐标',
+            'OpsiStronghold': '塞壬要塞',
+        }
+"""
+    head = """class Outer:
+    class CoinTaskMixin:
+        TASK_NAMES = {
+            'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+            'OpsiObscure': 'Скрытые зоны',
+            'OpsiAbyssal': 'Абиссальные зоны',
+            'OpsiStronghold': 'Крепости Сирен',
+        }
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
+
+
+def test_scheduling_task_names_local_class_stays_exact() -> None:
+    base = """def build():
+    class CoinTaskMixin:
+        TASK_NAMES = {
+            'OpsiMeowfficerFarming': '耄耋相接',
+            'OpsiObscure': '隐秘海域',
+            'OpsiAbyssal': '深渊坐标',
+            'OpsiStronghold': '塞壬要塞',
+        }
+    return CoinTaskMixin
+"""
+    head = """def build():
+    class CoinTaskMixin:
+        TASK_NAMES = {
+            'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
+            'OpsiObscure': 'Скрытые зоны',
+            'OpsiAbyssal': 'Абиссальные зоны',
+            'OpsiStronghold': 'Крепости Сирен',
+        }
+    return CoinTaskMixin
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
