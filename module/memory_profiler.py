@@ -103,7 +103,7 @@ class MemoryProfiler:
             tracemalloc.start(25)
 
         self.logger.info(
-            "memory profiler started | pid=%s | interval=%.1fs | top=%s | log=%s",
+            "профилировщик памяти запущен | pid=%s | interval=%.1fs | top=%s | log=%s",
             os.getpid(),
             self.interval,
             self.top,
@@ -163,7 +163,7 @@ class MemoryProfiler:
 
             self.logger.info(
                 (
-                    "sample | reason=%s | task=%s | rss=%s | vms=%s | uss=%s | "
+                    "снимок | reason=%s | task=%s | rss=%s | vms=%s | uss=%s | "
                     "traced=%s | traced_peak=%s | system_used=%s/%s %.1f%% | "
                     "cpu=%.1f%% | threads=%s | open_files=%s | gc=%s/%s/%s | "
                     "delta_prev=%s | delta_task=%s"
@@ -189,7 +189,7 @@ class MemoryProfiler:
             )
             if reason == "task_end":
                 self.logger.info(
-                    "task summary | task=%s | delta_task=%s",
+                    "сводка задачи | task=%s | delta_task=%s",
                     self.current_task,
                     self._format_delta(task_delta),
                 )
@@ -201,7 +201,7 @@ class MemoryProfiler:
             self.previous_snapshot = snapshot
             self.previous_metrics = metrics
         except Exception as exc:
-            self.logger.exception("memory profiler sample failed: %s", exc)
+            self.logger.exception("не удалось получить снимок профилировщика памяти: %s", exc)
 
     def _full_memory_info(self):
         try:
@@ -241,11 +241,11 @@ class MemoryProfiler:
 
     def _write_top_allocations(self, snapshot):
         stats = snapshot.statistics("lineno")[:self.top]
-        self.logger.info("top allocations | count=%s", len(stats))
+        self.logger.info("крупнейшие выделения памяти | count=%s", len(stats))
         for index, stat in enumerate(stats, 1):
             frame = stat.traceback[0]
             self.logger.info(
-                "top #%02d | size=%s | count=%s | %s:%s",
+                "выделение #%02d | size=%s | count=%s | %s:%s",
                 index,
                 self._mb(stat.size),
                 stat.count,
@@ -257,13 +257,13 @@ class MemoryProfiler:
         if self.previous_snapshot is None:
             return
         stats = snapshot.compare_to(self.previous_snapshot, "lineno")[:self.top]
-        self.logger.info("top growth since previous sample | count=%s", len(stats))
+        self.logger.info("наибольший рост с предыдущего снимка | count=%s", len(stats))
         for index, stat in enumerate(stats, 1):
             if stat.size_diff <= 0:
                 continue
             frame = stat.traceback[0]
             self.logger.info(
-                "growth #%02d | diff=%s | count_diff=%+d | now=%s | %s:%s",
+                "рост #%02d | diff=%s | count_diff=%+d | now=%s | %s:%s",
                 index,
                 self._mb(stat.size_diff),
                 stat.count_diff,

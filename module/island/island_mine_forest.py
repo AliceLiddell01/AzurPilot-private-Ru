@@ -231,7 +231,7 @@ class IslandMineForest(Island,LoginHandler):
                                 alphabet='0123456789')
         number = ocr_post_number.ocr(self.device.image)
         self.posts[post_id]['runs'] = number if number else 0
-        logger.info(f"[Остров — шахта и лес] {post_id}: производится {product_name or '未知'}, осталось запусков: {self.posts[post_id]['runs']}")
+        logger.info(f"[Остров — шахта и лес] {post_id}: производится {product_name or 'неизвестный продукт'}, осталось запусков: {self.posts[post_id]['runs']}")
 
         time_work = Duration(ISLAND_WORKING_TIME)
         time_value = time_work.ocr(self.device.image)
@@ -320,7 +320,7 @@ class IslandMineForest(Island,LoginHandler):
         else:
             runs = max_runs
             target_units = max_units  # 默认满产
-        logger.info(f"[Остров — шахта и лес] {product}: дефицит {need_count or '满产'} ед.; назначено {runs}/{max_runs} запусков ({target_units} ед.)")
+        logger.info(f"[Остров — шахта и лес] {product}: дефицит {need_count or 'полное производство'} ед.; назначено {runs}/{max_runs} запусков ({target_units} ед.)")
 
         while 1:
             self.device.screenshot()
@@ -331,7 +331,7 @@ class IslandMineForest(Island,LoginHandler):
             if self.appear(ISLAND_SELECT_CHARACTER_CHECK, offset=1):
                 character_filter = self.worker_filters.get(category, "WorkerJuu")
                 if self.select_character(character_list=character_filter):
-                    if not self.confirm_selected_character(f"{product}生产派遣"):
+                    if not self.confirm_selected_character(f"{product}: производственное назначение"):
                         self.back_to_postmanage_from_dispatch()
                         return False
                 else:

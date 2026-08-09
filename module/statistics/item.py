@@ -65,17 +65,17 @@ class AmountOcr(Digit):
             return amount
 
         for retry in range(self.MAX_RETRY):
-            logger.warning(f'{item_name} amount {amount} 超过最大值 {max_val}, retry {retry + 1}/{self.MAX_RETRY}')
+            logger.warning(f'{item_name}: количество {amount} превышает максимум {max_val}; повтор {retry + 1}/{self.MAX_RETRY}')
             result_str = self.cnocr.atomic_ocr_for_single_lines(images, self.alphabet)[0]
             amount = self.after_process(result_str)
             if amount <= max_val:
-                logger.info(f'{item_name} amount validated after {retry + 1} retries: {amount}')
+                logger.info(f'{item_name}: количество подтверждено после повторов {retry + 1}: {amount}')
                 return amount
 
         if amount > max_val and amount >= 10:
             truncated = int(str(amount)[:-1])
-            logger.warning(f'{item_name} amount {amount} still 超过最大值 after {self.MAX_RETRY} retries, '
-                          f'truncating to {truncated}')
+            logger.warning(f'{item_name}: количество {amount} всё ещё превышает максимум после {self.MAX_RETRY} повторов; '
+                          f'сокращается до {truncated}')
             return truncated
 
         return amount
@@ -267,7 +267,7 @@ class ItemGrid:
         Args:
             folder (str): 模板文件夹路径。
         """
-        logger.info(f'加载模板文件夹: {folder}')
+        logger.info(f'Загрузка каталога шаблонов: {folder}')
         max_digit = 0
         data = load_folder(folder)
         for name, image in data.items():
@@ -339,7 +339,7 @@ class ItemGrid:
 
         self.next_template_index += 1
         name = str(self.next_template_index)
-        logger.info(f'新模板: {name}')
+        logger.info(f'Новый шаблон: {name}')
         image = crop(image, self.template_area)
         self.colors[name] = cv2.mean(image)[:3]
         self.templates[name] = image
@@ -467,7 +467,7 @@ class ItemGrid:
         items = [item for item in self.items if not (price and item.price <= 0)]
         diff = len(self.items) - len(items)
         if diff > 0:
-            logger.warning(f'[统计-物品] 忽略 {diff} 个物品，因为价格<=0')
+            logger.warning(f'[Статистика — предметы] Пропущено предметов с ценой <= 0: {diff} шт.')
             self.items = items
 
         return self.items

@@ -641,7 +641,7 @@ def show():
     logger.hr('hr1', 1)
     logger.hr('hr2', 2)
     logger.hr('hr3', 3)
-    logger.info(r'大括号 { [ ( ) ] }')
+    logger.info(r'Скобки { [ ( ) ] }')
     logger.info(r'True, False, None')
     logger.info(r'E:/path\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt')
     local_var1 = 'This is local variable'
@@ -656,13 +656,13 @@ def error_context(title, reason, impact, action, exc=None, level=logging.ERROR, 
     ``with_traceback`` 为 ``None`` 时，保持原有行为：传入异常对象则输出完整堆栈。
     """
     message = '\n'.join([
-        f'[错误] {title}',
-        f'原因：{reason}',
-        f'影响：{impact}',
-        f'建议：{action}',
+        f'[Ошибка] {title}',
+        f'Причина: {reason}',
+        f'Влияние: {impact}',
+        f'Рекомендация: {action}',
     ])
     if exc is not None:
-        message += f'\n异常：{type(exc).__name__}: {exc}'
+        message += f'\nИсключение: {type(exc).__name__}: {exc}'
     if with_traceback is None:
         with_traceback = exc is not None
     logger.log(level, message, exc_info=with_traceback)

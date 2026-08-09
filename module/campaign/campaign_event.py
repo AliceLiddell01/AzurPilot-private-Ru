@@ -134,8 +134,8 @@ class CampaignEvent(CampaignStatus):
             self.config.task_delay(minute=(120, 240))
             handle_notify(
                 self.config.Error_OnePushConfig,
-                title=f"AzurPilot <{self.config.config_name}> campaign delayed",
-                content=f"<{self.config.config_name}> {self.config.Campaign_Name} reached coin limit"
+                title=f"AzurPilot <{self.config.config_name}>: кампания отложена",
+                content=f"<{self.config.config_name}> {self.config.Campaign_Name}: достигнут лимит монет"
             )
             return True
         else:

@@ -71,7 +71,7 @@ class ShipExpStats:
                 return data
             return {}
         except Exception as e:
-            logger.warning(f'[统计-经验] 加载舰船经验数据失败: {e}')
+            logger.warning(f'[Статистика — опыт] Не удалось загрузить данные опыта кораблей: {e}')
             return {}
     
     def _save(self) -> None:
@@ -83,7 +83,7 @@ class ShipExpStats:
                 encoding='utf-8'
             )
         except Exception as e:
-            logger.warning(f'[统计-经验] 保存舰船经验数据失败: {e}')
+            logger.warning(f'[Статистика — опыт] Не удалось сохранить данные опыта кораблей: {e}')
     
     # ========== 战斗时间记录 ==========
     
@@ -113,7 +113,7 @@ class ShipExpStats:
         
         # 过滤异常值 (太短或太长的战斗)
         if duration < 1 or duration > 300:
-            logger.debug(f'Battle duration {duration:.1f}s out of range, not recorded')
+            logger.debug(f'Длительность боя {duration:.1f} с вне допустимого диапазона; запись пропущена')
             return duration
         
         # 记录战斗时间（根据来源分别统计）
@@ -128,7 +128,7 @@ class ShipExpStats:
         if source == "cl1":
             self._update_daily_stats(exp_gained=avg_exp, battle_duration=duration)
 
-        logger.info(f'{source.upper()} battle recorded: {duration:.1f}s, exp: {avg_exp}')
+        logger.info(f'{source.upper()}: бой записан, длительность {duration:.1f} с, опыт: {avg_exp}')
         return duration
     
     def _record_battle_time(self, duration: float, source: str = "cl1") -> None:
@@ -289,7 +289,7 @@ class ShipExpStats:
         self.data['battle_count_at_check'] = battle_count_at_check
         self.data['ships'] = ships
         self._save()
-        logger.info(f'[统计-经验] 舰船经验数据已保存: {len(ships)} 艘舰船，目标等级 {target_level}')
+        logger.info(f'[Статистика — опыт] Данные опыта кораблей сохранены: {len(ships)}, целевой уровень {target_level}')
     
     def calculate_progress(
         self,

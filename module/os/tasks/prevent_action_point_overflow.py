@@ -226,6 +226,6 @@ class OpsiPreventActionPointOverflow(OpsiScheduling):
                 try:
                     current_ap = self._get_current_action_point_for_overflow()
                 except Exception:
-                    logger.debug('[大世界-防止行动力溢出] 防止行动力溢出任务结束后刷新当前行动力失败，使用运行前数值', exc_info=True)
+                    logger.debug('[Operation Siren — защита от переполнения очков действия] Не удалось обновить текущее значение после завершения задачи; используется значение до запуска', exc_info=True)
                 self.update_prevent_action_point_overflow_schedule(current_ap=current_ap, enable=True)
                 raise

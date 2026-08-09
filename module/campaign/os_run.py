@@ -64,7 +64,7 @@ class OSCampaignRun(OSMapOperation):
                     try:
                         campaign.update_prevent_action_point_overflow_schedule(enable=True)
                     except Exception:
-                        logger.debug('恢复防止行动力溢出任务调度失败，直接重新启用任务', exc_info=True)
+                        logger.debug('Не удалось восстановить расписание задачи защиты от переполнения очков действия; задача будет просто включена', exc_info=True)
                         self.config.cross_set(keys=f'{self.PREVENT_AP_OVERFLOW_TASK}.Scheduler.Enable', value=True)
                 else:
                     self.config.cross_set(keys=f'{self.PREVENT_AP_OVERFLOW_TASK}.Scheduler.Enable', value=True)

@@ -173,7 +173,7 @@ class IslandDailyOrder(Island):
             logger.info(f'[Остров — ежедневные заказы] Время восстановления по OCR: {seconds} сек.')
             return seconds
         else:
-            logger.warning(f'[Остров — ежедневные заказы] Время восстановления OCR: {"失败" if seconds is None else f"过短({seconds}秒)"}; используется запасное значение 8 часов')
+            logger.warning(f'[Остров — ежедневные заказы] Время восстановления OCR: {"ошибка" if seconds is None else f"слишком короткое ({seconds} с)"}; используется запасное значение 8 часов')
             return 8 * 3600
 
     def _get_urgent_refresh_time(self):

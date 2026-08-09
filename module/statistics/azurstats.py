@@ -71,7 +71,7 @@ class DropImage:
         if self:
             self.images.append(image)
             logger.info(
-                f'Drop record added, genre={self.genre}, amount={self.count}')
+                f'Данные о наградах добавлены: genre={self.genre}, amount={self.count}')
 
     def set_combat_count(self, count):
         self.combat_count = count
@@ -304,7 +304,7 @@ class AzurStats:
                     out_data[i, j] /= out_data[i, 2]
 
         AzurStats._write_meowofficer_farming(out_data)
-        logger.info('[Statistics] 本地统计数据更新成功: azurstat_meowofficer_farming.csv')
+        logger.info('[Статистика] Локальные данные успешно обновлены: azurstat_meowofficer_farming.csv')
 
     @staticmethod
     def _ensure_local_parser():
@@ -340,14 +340,14 @@ class AzurStats:
         try:
             rows = self._parse_local_opsi_items(image, imgid, genre, combat_count)
             if not rows:
-                logger.warning('本地碧蓝统计解析跳过, no opsi item rows extracted')
+                logger.warning('Локальный разбор AzurStats пропущен: строки предметов Operation Siren не извлечены')
                 return False
             inserted = self._insert_local_opsi_items(rows)
             self.get_meowofficer_farming()
-            logger.info(f'本地碧蓝统计解析成功，行数={inserted}')
+            logger.info(f'Локальный разбор AzurStats завершён, строк: {inserted}')
             return True
         except Exception as e:
-            logger.warning(f'本地碧蓝统计解析失败, {e}')
+            logger.warning(f'Не удалось выполнить локальный разбор AzurStats: {e}')
             return False
 
     def _save(self, image, genre, filename):
@@ -366,7 +366,7 @@ class AzurStats:
             os.makedirs(folder, exist_ok=True)
             file = os.path.join(folder, filename)
             save_image(image, file)
-            logger.info(f'图片保存成功，文件: {file}')
+            logger.info(f'Изображение сохранено: {file}')
             return True
         except Exception as e:
             logger.exception(e)
@@ -390,7 +390,7 @@ class AzurStats:
 
         save, local = bool(save), bool(local)
         logger.info(
-            f'Drop record commit, genre={genre}, amount={len(images)}, save={save}, local={local}')
+            f'Фиксация данных о наградах: genre={genre}, amount={len(images)}, save={save}, local={local}')
         image = pack(images)
         now = int(time.time() * 1000)
 
@@ -405,7 +405,7 @@ class AzurStats:
             save_thread.start()
 
         if local:
-            logger.info(f'本地碧蓝统计解析开始，类型={genre}')
+            logger.info(f'Запуск локального разбора AzurStats, тип={genre}')
             with self._record_lock:
                 self._record_local(image, genre, filename, combat_count)
 

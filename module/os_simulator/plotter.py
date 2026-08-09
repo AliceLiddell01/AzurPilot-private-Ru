@@ -41,14 +41,14 @@ class OSSimulatorPlotter:
         coins = history_single['coin']
         statuses = history_single['status']
 
-        ax1.plot(times, aps, color='blue', label='行动力', linewidth=1.5)
-        ax1.set_xlabel('时间 (天)')
-        ax1.set_ylabel('行动力', color='blue')
+        ax1.plot(times, aps, color='blue', label='Очки действия', linewidth=1.5)
+        ax1.set_xlabel('Время (дни)')
+        ax1.set_ylabel('Очки действия', color='blue')
         ax1.tick_params(axis='y', labelcolor='blue')
 
         ax2 = ax1.twinx()
-        ax2.plot(times, coins, color='gold', label='黄币', linewidth=1.5)
-        ax2.set_ylabel('黄币', color='gold')
+        ax2.plot(times, coins, color='gold', label='Жёлтые монеты', linewidth=1.5)
+        ax2.set_ylabel('Жёлтые монеты', color='gold')
         ax2.tick_params(axis='y', labelcolor='gold')
 
         if len(times) > 1:
@@ -73,17 +73,17 @@ class OSSimulatorPlotter:
             elif current_s == STATUS_CRASHED:
                 ax1.axvspan(start_t, times[-1], facecolor='red', alpha=0.15)
                 
-        cl1_patch = mpatches.Patch(color='green', alpha=0.15, label='侵蚀1')
-        meow_patch = mpatches.Patch(color='orange', alpha=0.15, label='耄耋相接')
-        crash_patch = mpatches.Patch(color='red', alpha=0.15, label='坠机')
+        cl1_patch = mpatches.Patch(color='green', alpha=0.15, label='Уровень коррозии 1')
+        meow_patch = mpatches.Patch(color='orange', alpha=0.15, label='Фарм мяуфицеров')
+        crash_patch = mpatches.Patch(color='red', alpha=0.15, label='Сбой')
         
         lines1, labels1 = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
         ax1.legend(lines1 + lines2 + [cl1_patch, meow_patch, crash_patch], 
-                labels1 + labels2 + ['侵蚀1', '耄耋相接', '坠机'],
+                labels1 + labels2 + ['Уровень коррозии 1', 'Фарм мяуфицеров', 'Сбой'],
                 loc='upper left')
 
-        plt.title('大世界模拟器: 单样本轨迹图')
+        plt.title('Симулятор Operation Siren: траектория одного прогона')
         plt.tight_layout()
 
         self._save(fig, 'single_sample')
@@ -103,23 +103,23 @@ class OSSimulatorPlotter:
         std_coin = history_multi_avg['coin_std']
         mean_crash = history_multi_avg['crash'] * 100.0  # 转为百分比
 
-        ax1.plot(times, mean_ap, color='blue', label='平均行动力', linewidth=2)
+        ax1.plot(times, mean_ap, color='blue', label='Средние очки действия', linewidth=2)
         ax1.fill_between(times, mean_ap - std_ap, mean_ap + std_ap, color='blue', alpha=0.2)
-        ax1.set_xlabel('时间 (天)')
-        ax1.set_ylabel('行动力', color='blue')
+        ax1.set_xlabel('Время (дни)')
+        ax1.set_ylabel('Очки действия', color='blue')
         ax1.tick_params(axis='y', labelcolor='blue')
 
         ax2 = ax1.twinx()
-        ax2.plot(times, mean_coin, color='gold', label='平均黄币', linewidth=2)
+        ax2.plot(times, mean_coin, color='gold', label='Среднее число жёлтых монет', linewidth=2)
         ax2.fill_between(times, mean_coin - std_coin, mean_coin + std_coin, color='gold', alpha=0.2)
-        ax2.set_ylabel('黄币', color='gold')
+        ax2.set_ylabel('Жёлтые монеты', color='gold')
         ax2.tick_params(axis='y', labelcolor='gold')
 
         ax3 = ax1.twinx()
         ax3.spines['right'].set_position(('outward', 60))
-        ax3.plot(times, mean_crash, color='red', label='累计坠过机概率', linewidth=2)
+        ax3.plot(times, mean_crash, color='red', label='Накопленная вероятность сбоя', linewidth=2)
         ax3.fill_between(times, 0, mean_crash, color='red', alpha=0.1)
-        ax3.set_ylabel('累计概率 (%)', color='red')
+        ax3.set_ylabel('Накопленная вероятность (%)', color='red')
         ax3.tick_params(axis='y', labelcolor='red')
         ax3.set_ylim(-5, 105)
 
@@ -128,7 +128,7 @@ class OSSimulatorPlotter:
         lines3, labels3 = ax3.get_legend_handles_labels()
         ax1.legend(lines1 + lines2 + lines3, labels1 + labels2 + labels3, loc='upper left')
 
-        plt.title('大世界模拟器: 多样本平均轨迹与坠机概率')
+        plt.title('Симулятор Operation Siren: средняя траектория и вероятность сбоя')
         fig.tight_layout()
         fig.subplots_adjust(right=0.88)
         

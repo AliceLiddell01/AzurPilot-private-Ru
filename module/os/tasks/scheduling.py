@@ -846,7 +846,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                 return
 
             logger.warning('[Операция «Сирена» — защита от переполнения очков действия] Для фарма мяуфицеров нет доступных действий; продолжить расходование текущих очков действия невозможно')
-            self._delay_smart_scheduling_to_server_update('耄耋相接无可执行内容')
+            self._delay_smart_scheduling_to_server_update('Для фарма мяуфицеров нет доступных действий')
             self.config.task_stop()
             return
 
@@ -916,7 +916,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         """
         logger.warning(f'[Операция «Сирена» — умное планирование+] Очки действия достигли минимального резерва ({total_ap} <= {min_ap_reserve})')
         self._notify_ap_insufficient(total_ap, min_ap_reserve)
-        self._delay_smart_scheduling_to_server_update('行动力不足')
+        self._delay_smart_scheduling_to_server_update('Недостаточно очков действия')
         self.config.task_stop()
 
     def run_smart_scheduling_once(self):
@@ -1094,7 +1094,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                 title='[AzurPilot] 智能调度+ - 未启用黄币补充任务',
                 content='Включите хотя бы одну из задач: фарм мяуфицеров, скрытые зоны, абиссальные зоны или крепости Сирен',
             )
-            self._delay_smart_scheduling_to_server_update('未启用黄币补充任务')
+            self._delay_smart_scheduling_to_server_update('Задачи пополнения жёлтых монет не включены')
             self.config.task_stop()
 
         self.handle_first_auto_search(run=True)
@@ -1113,7 +1113,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
                 return
 
         logger.warning('[Операция «Сирена» — умное планирование+] Во всех включённых задачах пополнения жёлтых монет нет доступных действий; текущий цикл завершён')
-        self._delay_smart_scheduling_to_server_update('黄币补充任务均无可执行内容')
+        self._delay_smart_scheduling_to_server_update('Во всех задачах пополнения жёлтых монет нет доступных действий')
         self.config.task_stop()
 
     def _notify_coin_task_proxy(self, yellow_coins, total_ap, coin_target, meow_ap_preserve, task_name):

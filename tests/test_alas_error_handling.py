@@ -13,17 +13,17 @@ class TestErrorContext(unittest.TestCase):
 
         with patch('module.logger.logger.log') as log:
             error_context(
-                title='游戏进程未运行',
-                reason='任务执行前未检测到碧蓝航线游戏进程。',
-                impact='当前任务跳过。',
-                action='自动重启游戏。',
+                title='Игровой процесс не запущен',
+                reason='Перед выполнением задачи процесс Azur Lane не обнаружен.',
+                impact='Текущая задача пропущена.',
+                action='Автоматически перезапустить игру.',
                 exc=error,
                 level=logging.WARNING,
                 with_traceback=False,
             )
 
         self.assertFalse(log.call_args.kwargs['exc_info'])
-        self.assertIn('异常：GameNotRunningError: Game not running', log.call_args.args[1])
+        self.assertIn('Исключение: GameNotRunningError: Game not running', log.call_args.args[1])
 
 
 class TestGameNotRunningErrorHandling(unittest.TestCase):

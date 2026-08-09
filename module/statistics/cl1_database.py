@@ -135,7 +135,7 @@ class Cl1Database:
         try:
             self.db_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            logger.error(f"[Statistics] 创建数据库目录失败: {e}")
+            logger.error(f"[Статистика] Не удалось создать каталог базы данных: {e}")
 
     def _init_db(self):
         """初始化数据库表，并兼容旧版 encrypted_blob 结构。"""
@@ -159,7 +159,7 @@ class Cl1Database:
                     cursor.execute("ALTER TABLE cl1_data ADD COLUMN encrypted_blob BLOB")
                 conn.commit()
         except Exception as e:
-            logger.exception(f"初始化 CL1 数据库失败: {e}")
+            logger.exception(f"Не удалось инициализировать базу данных CL1: {e}")
 
     def _derive_key(self, device_id: str) -> bytes:
         """基于 device_id 派生 256 位 AES 密钥"""
@@ -204,7 +204,7 @@ class Cl1Database:
                 if not rows:
                     return
 
-                logger.info(f"[Statistics] 开始解密旧版 CL1 数据库，条目数: {len(rows)}")
+                logger.info(f"[Статистика] Начата расшифровка устаревшей базы CL1, записей: {len(rows)}")
                 updated_rows = []
                 clear_rows = []
                 failed_rows = []
@@ -242,13 +242,13 @@ class Cl1Database:
 
                 migrated = len(updated_rows) + len(clear_rows)
                 if migrated:
-                    logger.info(f"[Statistics] 旧版 CL1 数据库解密迁移完成，条目数: {migrated}")
+                    logger.info(f"[Статистика] Миграция расшифрованной устаревшей базы CL1 завершена, записей: {migrated}")
                 if failed_rows:
                     logger.warning(
-                        f"[Statistics] 旧版 CL1 数据库有 {len(failed_rows)} 条记录解密失败"
+                        f"[Статистика] Не удалось расшифровать записи устаревшей базы CL1: {len(failed_rows)} записей"
                     )
         except Exception as e:
-            logger.error(f"[Statistics] 解密旧版 CL1 数据库失败: {e}")
+            logger.error(f"[Статистика] Не удалось расшифровать устаревшую базу CL1: {e}")
 
     def _move_legacy_db(self):
         """将旧位置的 CL1 数据库移动到 config 目录后再初始化表结构。"""
@@ -262,10 +262,10 @@ class Cl1Database:
             try:
                 shutil.move(str(old_db_path), str(self.db_path))
                 logger.info(
-                    f"已移动旧版 CL1 数据库: {old_db_path} -> {self.db_path}"
+                    f"Устаревшая база CL1 перемещена: {old_db_path} -> {self.db_path}"
                 )
             except Exception as e:
-                logger.error(f"[Statistics] 移动旧版 CL1 数据库失败: {e}")
+                logger.error(f"[Статистика] Не удалось переместить устаревшую базу CL1: {e}")
 
     def _serialize_data(self, data: Dict[str, Any]) -> str:
         """将统计数据序列化为明文 JSON。"""
@@ -278,7 +278,7 @@ class Cl1Database:
         try:
             data = json.loads(data_json)
         except Exception as e:
-            logger.warning(f"[Statistics] 读取 CL1 明文 JSON 失败: {e}")
+            logger.warning(f"[Статистика] Не удалось прочитать открытый JSON CL1: {e}")
             return None
         return data if isinstance(data, dict) else None
 
@@ -327,7 +327,7 @@ class Cl1Database:
                         self.save_stats(instance, month, data)
                         return data
         except Exception as e:
-            logger.error(f"[Statistics] 查询统计数据失败 {instance} {month}: {e}")
+            logger.error(f"[Статистика] Не удалось запросить данные {instance} {month}: {e}")
 
         return self._empty_data(month)
 
@@ -571,7 +571,7 @@ class Cl1Database:
                     )
                 return [(row[0], row[1]) for row in cursor.fetchall()]
         except Exception as e:
-            logger.error(f"[Statistics] 列出统计数据失败: {e}")
+            logger.error(f"[Статистика] Не удалось перечислить данные: {e}")
             return []
 
     def backfill_meow_stats(
@@ -642,7 +642,7 @@ class Cl1Database:
                 )
                 conn.commit()
         except Exception as e:
-            logger.error(f"[Statistics] 保存统计数据失败 {instance} {month}: {e}")
+            logger.error(f"[Статистика] Не удалось сохранить данные {instance} {month}: {e}")
 
     def increment_battle_count(self, instance: str, delta: int = 1):
         """增加战斗次数"""
@@ -871,7 +871,7 @@ class Cl1Database:
         if not json_path.exists():
             return
 
-        logger.info(f"[Statistics] 开始从 JSON 迁移 CL1 数据: {json_path}, instance={instance}")
+        logger.info(f"[Статистика] Начата миграция данных CL1 из JSON: {json_path}, instance={instance}")
         try:
             with json_path.open("r", encoding="utf-8") as f:
                 old_data = json.load(f)
@@ -897,7 +897,7 @@ class Cl1Database:
                     )
                     if c.fetchone():
                         logger.info(
-                            f"[Statistics] 数据库中已存在 {instance} {month}，跳过迁移"
+                            f"[Статистика] В базе уже есть {instance} {month}; миграция пропущена"
                         )
                         continue
 
@@ -910,15 +910,15 @@ class Cl1Database:
                 )
 
                 self.save_stats(instance, month, new_stats)
-                logger.info(f"[Statistics] 已迁移 {instance} {month}")
+                logger.info(f"[Статистика] Миграция завершена: {instance} {month}")
 
             # 迁移成功后可以删除 JSON 或重命名 (此处建议重命名为 .bak 以防万一)
             bak_path = json_path.with_suffix(".json.bak")
             json_path.replace(bak_path)
-            logger.info(f"[Statistics] 已将旧 JSON 重命名为 {bak_path}")
+            logger.info(f"[Статистика] Старый JSON переименован в {bak_path}")
 
         except Exception as e:
-            logger.exception(f"从 JSON 迁移 CL1 数据失败: {e}")
+            logger.exception(f"Не удалось перенести данные CL1 из JSON: {e}")
 
     def _auto_migrate(self):
         """
@@ -934,10 +934,10 @@ class Cl1Database:
             try:
                 shutil.move(str(old_db_path), str(self.db_path))
                 logger.info(
-                    f"Moved old CL1数据库 from {old_db_path} to {self.db_path}"
+                    f"Устаревшая база CL1 перемещена из {old_db_path} в {self.db_path}"
                 )
             except Exception as e:
-                logger.error(f"[统计-数据库] 移动旧CL1数据库失败: {e}")
+                logger.error(f"[Статистика — база данных] Не удалось переместить устаревшую базу CL1: {e}")
 
         if not old_db_dir.exists():
             return
@@ -951,7 +951,7 @@ class Cl1Database:
                         # logger.info(f"Found legacy data for instance: {instance_dir.name}")
                         self.migrate_from_json(json_file, instance_dir.name)
         except Exception as e:
-            logger.error(f"[统计-数据库] 自动迁移扫描错误: {e}")
+            logger.error(f"[Статистика — база данных] Ошибка автоматического поиска данных для миграции: {e}")
 
     # ========== 耄耋相接数据记录方法 ==========
 
@@ -1008,7 +1008,7 @@ class Cl1Database:
         """
         # 验证 hazard_level 是否在有效范围内
         if hazard_level is not None and hazard_level not in {2, 3, 4, 5, 6}:
-            logger.debug(f"Invalid hazard_level {hazard_level}, ignoring")
+            logger.debug(f"Недопустимый hazard_level {hazard_level}; значение игнорируется")
             hazard_level = None
 
         month = datetime.now().strftime("%Y-%m")
@@ -1051,7 +1051,7 @@ class Cl1Database:
             hazard_level: 侵蚀等级（2-6），用于分级统计
         """
         if hazard_level is not None and hazard_level not in {2, 3, 4, 5, 6}:
-            logger.debug(f"Invalid hazard_level {hazard_level}, ignoring")
+            logger.debug(f"Недопустимый hazard_level {hazard_level}; значение игнорируется")
             hazard_level = None
 
         month = datetime.now().strftime("%Y-%m")
