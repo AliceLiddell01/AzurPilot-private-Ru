@@ -21,6 +21,14 @@ def test_logger_attr_align_label_translation_passes() -> None:
     )
 
 
+def test_self_logger_attr_align_label_translation_passes() -> None:
+    assert_passes(
+        "module/os/globe_detection.py",
+        'self.logger.attr_align("全球地图中心", loca)\n',
+        'self.logger.attr_align("Центр карты мира", loca)\n',
+    )
+
+
 @pytest.mark.parametrize(
     ("base", "head"),
     [
@@ -43,10 +51,6 @@ def test_logger_attr_align_label_translation_passes() -> None:
         (
             'logger.attr_align("相似度", value)\n',
             'other.attr_align("Сходство", value)\n',
-        ),
-        (
-            'self.logger.attr_align("相似度", value)\n',
-            'self.logger.attr_align("Сходство", value)\n',
         ),
     ],
 )
