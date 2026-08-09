@@ -49,11 +49,27 @@ Translation structural step получает SHA из `pull_request.base.sha` и
 только для статически однозначных operator-facing prose-позиций конкретных
 sinks: первого message argument поддерживаемых прямых `logger.*` и точных
 method-call `self.logger.*` вызовов, обеих позиционных prose-позиций точного
-`logger.attr(name, text)`/`self.logger.attr(name, text)`, а также keyword values
-`title=`/`content=` прямого `handle_notify(...)`. Остальные соседние аргументы и неизвестные keywords,
-строки в `raise`/exception constructors, неизвестных calls/keywords и
-machine-sensitive контекстах остаются exact. Call target, call shape, dynamic expressions,
-placeholders, conversion и format specification должны совпадать.
+`logger.attr(name, text)`/`self.logger.attr(name, text)`, первого позиционного
+label точного `logger.attr_align(name, text, ...)`, а также keyword values
+`title=`/`content=` прямого `handle_notify(...)`.
+
+Для Operation Siren отдельно разрешён только keyword `content=` точного
+`self.notify_push(...)` в доказанных task-consumers
+`module/os/tasks/scheduling.py`, `module/os/tasks/fleet_auto_change.py` и
+`module/os/tasks/hazard_leveling.py`. `notify_push.title` остаётся exact, потому
+что `_format_launcher_notification()` анализирует title и использует его для
+ветвления. Позиционный content, произвольные `obj.notify_push`, другие файлы и
+`self.logger.attr_align` не входят в allowlist. В
+`CoinTaskMixin.check_and_notify_action_point_threshold()` разрешены только
+строковые RHS локальной переменной `content`, которая затем передаётся в
+`self.notify_push(..., content=content)`; это точечный contract для фактического
+consumer flow, а не generic-разрешение строковых assignments.
+
+Остальные соседние аргументы и неизвестные keywords, строки в
+`raise`/exception constructors, неизвестных calls/keywords и machine-sensitive
+контекстах остаются exact. Call target, call shape, dynamic expressions,
+placeholders, conversion и format specification должны совпадать. Для
+`logger.attr_align` второй positional argument, `front` и `align` также exact.
 
 Для обычных `STRING` сохраняются prefix и точный вид quote delimiter. Для
 f-string verifier использует token contract текущего Python runtime:
