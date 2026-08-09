@@ -171,7 +171,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
             positions_str = ', '.join(map(str, custom_positions))
             self.notify_push(
                 title="大世界自动配队完成",
-                content=f"<{self.config.config_name}>\n\n已更换舰位: {positions_str}\n\n自动配队冷却时间: {self.config.OpsiFleetAutoChange_CooldownHours} 小时"
+                content=f"<{self.config.config_name}>\n\nЗаменены позиции кораблей: {positions_str}\n\nПерезарядка автоподбора флота: {self.config.OpsiFleetAutoChange_CooldownHours} ч."
             )
         except Exception as e:
             logger.warning(f"[Операция «Сирена» — автоподбор флота] Не удалось отправить уведомление: {e}")
@@ -204,7 +204,7 @@ class OpsiFleetAutoChange(CoinTaskMixin, DockMixin, OSMap):
         try:
             self.notify_push(
                 title="大世界自动配队错误",
-                content=f"<{self.config.config_name}>\n\n自动配队执行失败: {error_msg}\n\n已禁用自动配队功能，请检查后手动启用。"
+                content=f"<{self.config.config_name}>\n\nНе удалось выполнить автоподбор флота: {error_msg}\n\nАвтоподбор флота отключён. Проверьте проблему и включите его вручную."
             )
         except Exception as e:
             logger.warning(f"[Операция «Сирена» — автоподбор флота] Не удалось отправить уведомление: {e}")
