@@ -169,12 +169,158 @@ def _control_signature(value: str) -> tuple[str, ...]:
     return tuple(character for character in value if character in "\n\r\t")
 
 
+class _LocalVariableUseCollector(ast.NodeVisitor):
+    def __init__(
+        self,
+        root: ast.FunctionDef | ast.AsyncFunctionDef,
+        variable: str,
+    ) -> None:
+        self.root = root
+        self.variable = variable
+        self.loads: set[int] = set()
+        self.stores: set[int] = set()
+        self.sink_loads: set[int] = set()
+        self.simple_assignments: dict[int, ast.Assign] = {}
+        self.simple_store_nodes: set[int] = set()
+
+    def _visit_root_or_skip(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
+        if node is self.root:
+            self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_root_or_skip(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_root_or_skip(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        return
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        return
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if (
+            len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == self.variable
+        ):
+            self.simple_assignments[id(node)] = node
+            self.simple_store_nodes.add(id(node.targets[0]))
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if _call_name(node.func) == ("self", "notify_push"):
+            for keyword in node.keywords:
+                if (
+                    keyword.arg == "content"
+                    and isinstance(keyword.value, ast.Name)
+                    and keyword.value.id == self.variable
+                ):
+                    self.sink_loads.add(id(keyword.value))
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id == self.variable:
+            if isinstance(node.ctx, ast.Load):
+                self.loads.add(id(node))
+            elif isinstance(node.ctx, ast.Store):
+                self.stores.add(id(node))
+        self.generic_visit(node)
+
+
+def _sink_bound_local_assignments(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    variable: str,
+) -> set[int]:
+    usage = _LocalVariableUseCollector(function, variable)
+    usage.visit(function)
+    if len(usage.sink_loads) != 1:
+        return set()
+    if usage.loads != usage.sink_loads:
+        return set()
+    if usage.stores != usage.simple_store_nodes:
+        return set()
+
+    tracked_name_nodes = usage.loads | usage.stores
+    sink_load = next(iter(usage.sink_loads))
+    sink_reaching: list[set[int]] = []
+    invalid_flow = False
+
+    def contains_node(node: ast.AST, node_ids: set[int]) -> bool:
+        return any(id(item) in node_ids for item in ast.walk(node))
+
+    def analyze_block(
+        statements: list[ast.stmt], incoming: set[int]
+    ) -> set[int] | None:
+        nonlocal invalid_flow
+        definitions = set(incoming)
+        for statement in statements:
+            if isinstance(statement, ast.If):
+                if contains_node(statement.test, {sink_load}):
+                    sink_reaching.append(set(definitions))
+                body_out = analyze_block(statement.body, definitions)
+                else_out = (
+                    analyze_block(statement.orelse, definitions)
+                    if statement.orelse
+                    else set(definitions)
+                )
+                active = [
+                    branch for branch in (body_out, else_out) if branch is not None
+                ]
+                if not active:
+                    return None
+                definitions = set().union(*active)
+                continue
+
+            if isinstance(
+                statement,
+                (
+                    ast.Try,
+                    ast.For,
+                    ast.AsyncFor,
+                    ast.While,
+                    ast.With,
+                    ast.AsyncWith,
+                    ast.Match,
+                ),
+            ):
+                if contains_node(statement, tracked_name_nodes):
+                    invalid_flow = True
+                    return None
+                continue
+
+            if contains_node(statement, {sink_load}):
+                sink_reaching.append(set(definitions))
+
+            if (
+                isinstance(statement, ast.Assign)
+                and id(statement) in usage.simple_assignments
+            ):
+                definitions = {id(statement)}
+            elif contains_node(statement, usage.stores):
+                invalid_flow = True
+                return None
+
+            if isinstance(statement, (ast.Return, ast.Raise)):
+                return None
+        return definitions
+
+    analyze_block(function.body, set())
+    if invalid_flow or len(sink_reaching) != 1 or not sink_reaching[0]:
+        return set()
+    return sink_reaching[0] & set(usage.simple_assignments)
+
+
 class _ApprovedSiteCollector(ast.NodeVisitor):
     def __init__(self, filename: str) -> None:
         self.ranges: list[SourceRange] = []
         self.contracts: list[SiteContract] = []
         self.source_path = filename.rsplit("@", maxsplit=1)[0]
         self.function_stack: list[str] = []
+        self.local_prose_assignment_stack: list[set[int]] = []
 
     def _approve(
         self, expression: ast.AST, kind: str, *, logger_percent_arguments: bool = False
@@ -220,7 +366,19 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
 
     def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.function_stack.append(node.name)
+        candidates = {
+            variable
+            for source_path, function_name, variable in SELF_NOTIFY_PUSH_LOCAL_PROSE
+            if source_path == self.source_path and function_name == node.name
+        }
+        approved_assignments: set[int] = set()
+        for variable in candidates:
+            approved_assignments.update(
+                _sink_bound_local_assignments(node, variable)
+            )
+        self.local_prose_assignment_stack.append(approved_assignments)
         self.generic_visit(node)
+        self.local_prose_assignment_stack.pop()
         self.function_stack.pop()
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -230,18 +388,17 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         self._visit_function(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        if (
+            self.local_prose_assignment_stack
+            and id(node) in self.local_prose_assignment_stack[-1]
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
             target = node.targets[0]
-            function_name = self.function_stack[-1] if self.function_stack else None
-            if (
-                function_name is not None
-                and (self.source_path, function_name, target.id)
-                in SELF_NOTIFY_PUSH_LOCAL_PROSE
-            ):
-                self._approve(
-                    node.value,
-                    f"self.notify_push.content local {target.id}",
-                )
+            self._approve(
+                node.value,
+                f"self.notify_push.content local {target.id}",
+            )
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
