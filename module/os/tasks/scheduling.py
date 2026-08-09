@@ -138,7 +138,7 @@ class CoinTaskMixin:
                     keys=f'{self.TASK_NAME_SCHEDULING}.Scheduler.ServerUpdate',
                     default='00:00',
                 )
-            logger.info('[Операция «Сирена» — умное планирование+] Перенос подзадачи сопоставлен задаче «Умного планирования+»')
+            logger.info('[Операция «Сирена» — умное планирование+] Перенос подзадачи сопоставлен задаче «Умное планирование+»')
             self.config.task_delay(
                 *args,
                 task=self.TASK_NAME_SCHEDULING,
