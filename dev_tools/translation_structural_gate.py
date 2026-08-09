@@ -83,17 +83,17 @@ EXACT_DISPLAY_ASSIGNMENTS = {
 EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS = {
     (
         "module/os/tasks/scheduling.py",
-        "_delay_smart_scheduling_to_server_update",
+        ("self", "_delay_smart_scheduling_to_server_update"),
     ): 0,
     (
         "module/os/tasks/meowfficer_farming.py",
-        "_meow_target_zone_error",
+        ("self", "_meow_target_zone_error"),
     ): 0,
 }
 ISLAND_DISPLAY_CONTEXT_CALLS = {
-    "confirm_post_add_order",
-    "confirm_selected_character",
-    "confirm_selected_character_closed",
+    ("self", "confirm_post_add_order"),
+    ("self", "confirm_selected_character"),
+    ("self", "confirm_selected_character_closed"),
 }
 ISLAND_DISPLAY_CONTEXT_PATHS = {
     "module/island/island_business.py",
@@ -102,8 +102,19 @@ ISLAND_DISPLAY_CONTEXT_PATHS = {
     "module/island/island_shop_base.py",
     "module/island/island_teahouse.py",
 }
-PLOTTER_DISPLAY_POSITIONAL_CALLS = {"set_xlabel", "set_ylabel", "title"}
-PLOTTER_DISPLAY_LABEL_CALLS = {"Patch", "plot"}
+PLOTTER_DISPLAY_POSITIONAL_CALLS = {
+    ("ax1", "set_xlabel"),
+    ("ax1", "set_ylabel"),
+    ("ax2", "set_ylabel"),
+    ("ax3", "set_ylabel"),
+    ("plt", "title"),
+}
+PLOTTER_DISPLAY_LABEL_CALLS = {
+    ("ax1", "plot"),
+    ("ax2", "plot"),
+    ("ax3", "plot"),
+    ("mpatches", "Patch"),
+}
 PERCENT_PLACEHOLDER = re.compile(
     r"%(?:\([^)]+\))?[#0\- +'I]*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
     r"(?:hh|h|ll|l|L|j|z|t)?[diouxXeEfFgGcrsa%]"
@@ -609,6 +620,10 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _approve_schema_descriptions(self, node: ast.AST) -> None:
+        if isinstance(node, (ast.List, ast.Tuple)):
+            for element in node.elts:
+                self._approve_schema_descriptions(element)
+            return
         if not isinstance(node, ast.Dict):
             return
         for key, value in zip(node.keys, node.values, strict=True):
@@ -664,7 +679,7 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         current_function = self.function_stack[-1] if self.function_stack else None
         positional_index = (
             EXACT_DISPLAY_CALL_POSITIONAL_ARGUMENTS.get(
-                (self.source_path, name[-1])
+                (self.source_path, name)
             )
             if name
             else None
@@ -676,17 +691,16 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
         ):
             self._approve(
                 node.args[positional_index],
-                f"exact display call {name[-1]} argument {positional_index}",
+                f"exact display call {'.'.join(name)} argument {positional_index}",
             )
 
         if (
             self.source_path in ISLAND_DISPLAY_CONTEXT_PATHS
-            and name
-            and name[-1] in ISLAND_DISPLAY_CONTEXT_CALLS
+            and name in ISLAND_DISPLAY_CONTEXT_CALLS
             and len(node.args) == 1
             and not node.keywords
         ):
-            self._approve(node.args[0], f"Island display context {name[-1]}")
+            self._approve(node.args[0], f"Island display context {'.'.join(name)}")
 
         if (
             self.source_path == "mcp_server_sse.py"
@@ -705,12 +719,15 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
             in {"plot_single_sample_history", "plot_multi_sample_history"}
             and name
         ):
-            if name[-1] in PLOTTER_DISPLAY_POSITIONAL_CALLS and node.args:
-                self._approve(node.args[0], f"plot display {name[-1]}")
-            if name[-1] in PLOTTER_DISPLAY_LABEL_CALLS:
+            if name in PLOTTER_DISPLAY_POSITIONAL_CALLS and node.args:
+                self._approve(node.args[0], f"plot display {'.'.join(name)}")
+            if name in PLOTTER_DISPLAY_LABEL_CALLS:
                 for keyword in node.keywords:
                     if keyword.arg == "label":
-                        self._approve(keyword.value, f"plot display {name[-1]}.label")
+                        self._approve(
+                            keyword.value,
+                            f"plot display {'.'.join(name)}.label",
+                        )
 
         if self.function_stack:
             builder_list = DISPLAY_BUILDER_LISTS.get(

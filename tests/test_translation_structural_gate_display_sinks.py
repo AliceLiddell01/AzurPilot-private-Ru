@@ -57,6 +57,16 @@ def test_exact_display_call_argument_translation_passes(
             "self.consume('岗位')\n",
             "self.consume('Позиция')\n",
         ),
+        (
+            "module/island/island_rancher.py",
+            "other.confirm_selected_character('岗位')\n",
+            "other.confirm_selected_character('Позиция')\n",
+        ),
+        (
+            "module/os/tasks/scheduling.py",
+            "other._delay_smart_scheduling_to_server_update('行动力不足')\n",
+            "other._delay_smart_scheduling_to_server_update('Недостаточно очков действия')\n",
+        ),
     ],
 )
 def test_exact_display_call_contract_is_fail_closed(
@@ -71,6 +81,16 @@ def test_mcp_tool_and_schema_descriptions_translation_passes() -> None:
 '''
     head = '''def list_tools():
     return [Tool(name="status", description="Получить состояние выполнения", inputSchema={"type": "object", "properties": {"instance": {"type": "string", "description": "Имя экземпляра"}}})]
+'''
+    assert_passes("mcp_server_sse.py", base, head)
+
+
+def test_mcp_nested_schema_descriptions_translation_passes() -> None:
+    base = '''def list_tools():
+    return [Tool(name="update", description="修改配置", inputSchema={"oneOf": [{"type": "string", "description": "新的配置值"}]})]
+'''
+    head = '''def list_tools():
+    return [Tool(name="update", description="Изменить конфигурацию", inputSchema={"oneOf": [{"type": "string", "description": "Новое значение конфигурации"}]})]
 '''
     assert_passes("mcp_server_sse.py", base, head)
 
@@ -133,8 +153,8 @@ def test_meow_error_builder_translation_passes() -> None:
 
 
 def test_plotter_labels_translation_passes_but_machine_color_stays_exact() -> None:
-    base = "def plot_single_sample_history(self):\n    ax.plot(times, values, color='blue', label='行动力')\n    ax.set_xlabel('时间 (天)')\n    plt.title('轨迹图')\n"
-    head = "def plot_single_sample_history(self):\n    ax.plot(times, values, color='blue', label='Очки действия')\n    ax.set_xlabel('Время (дни)')\n    plt.title('График траектории')\n"
+    base = "def plot_single_sample_history(self):\n    ax1.plot(times, values, color='blue', label='行动力')\n    ax1.set_xlabel('时间 (天)')\n    plt.title('轨迹图')\n"
+    head = "def plot_single_sample_history(self):\n    ax1.plot(times, values, color='blue', label='Очки действия')\n    ax1.set_xlabel('Время (дни)')\n    plt.title('График траектории')\n"
     assert_passes("module/os_simulator/plotter.py", base, head)
     assert_blocked(
         "module/os_simulator/plotter.py",
@@ -148,6 +168,14 @@ def test_plotter_display_contract_is_function_scoped() -> None:
         "module/os_simulator/plotter.py",
         "def other(self):\n    plt.title('轨迹图')\n",
         "def other(self):\n    plt.title('График траектории')\n",
+    )
+
+
+def test_plotter_display_contract_is_receiver_scoped() -> None:
+    assert_blocked(
+        "module/os_simulator/plotter.py",
+        "def plot_single_sample_history(self):\n    other.plot(times, values, label='行动力')\n",
+        "def plot_single_sample_history(self):\n    other.plot(times, values, label='Очки действия')\n",
     )
 
 
