@@ -33,11 +33,13 @@ class _FakePreflightScanner(GameSettingsPreflightScanner):
         self,
         viewports: int = 3,
         *,
+        ensure_error: Exception | None = None,
         traversal_error: Exception | None = None,
         return_error: Exception | None = None,
     ) -> None:
         self.device = _FakeDevice()
         self.viewports = viewports
+        self.ensure_error = ensure_error
         self.traversal_error = traversal_error
         self.return_error = return_error
         self.visited = 0
@@ -46,6 +48,8 @@ class _FakePreflightScanner(GameSettingsPreflightScanner):
 
     def ensure_options_page(self) -> bool:
         self.ensure_calls += 1
+        if self.ensure_error is not None:
+            raise self.ensure_error
         return True
 
     def traverse_options(self, visitor):
@@ -164,6 +168,17 @@ class GameSettingsPreflightTests(unittest.TestCase):
         self.assertFalse(check.compatible)
         self.assertFalse(result.all_required_compatible)
         self.assertEqual(scanner.visited, 3)
+        self.assertEqual(scanner.return_calls, 1)
+
+    def test_options_entry_failure_still_attempts_return_to_main(self) -> None:
+        scanner = _FakePreflightScanner(
+            ensure_error=RuntimeError("options entry failure")
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "options entry failure"):
+            scanner.scan_game_settings()
+
+        self.assertEqual(scanner.ensure_calls, 1)
         self.assertEqual(scanner.return_calls, 1)
 
     def test_traversal_failure_still_returns_to_main(self) -> None:

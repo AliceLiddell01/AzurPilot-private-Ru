@@ -52,11 +52,11 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
             # в «строка ещё не найдена».
             return True
 
-        # После подтверждённого входа в Options cleanup обязателен для любого
-        # результата traversal и для исключений detector/traversal.
-        self.ensure_options_page()
+        # Cleanup охватывает и вход в Options: навигация может успеть изменить
+        # страницу до того, как подтверждение входа выбросит исключение.
         primary_error: Exception | None = None
         try:
+            self.ensure_options_page()
             traversal_result = self.traverse_options(visit)
             if not traversal_result.stopped_early:
                 logger.warning(
