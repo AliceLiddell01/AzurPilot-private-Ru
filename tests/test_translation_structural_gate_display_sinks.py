@@ -98,6 +98,126 @@ def test_scheduling_local_content_prose_translation_passes() -> None:
     assert_passes("module/os/tasks/scheduling.py", base, head)
 
 
+def test_scheduling_coin_status_provenance_translation_passes() -> None:
+    base = """def _handle_smart_scheduling_no_task(self, yellow_coins, coin_target, total_ap):
+    if yellow_coins < coin_target:
+        coin_status = f"黄币 {yellow_coins} 低于补黄币目标 {coin_target}"
+    else:
+        coin_status = f"黄币 {yellow_coins} 已达到补黄币阈值 {coin_target}"
+    if self.run_once():
+        self.notify_push(
+            title="[AzurPilot] 固定标题",
+            content=f"{coin_status}\\n总行动力 {total_ap}",
+        )
+"""
+    head = """def _handle_smart_scheduling_no_task(self, yellow_coins, coin_target, total_ap):
+    if yellow_coins < coin_target:
+        coin_status = f"Жёлтые монеты {yellow_coins} ниже цели пополнения {coin_target}"
+    else:
+        coin_status = f"Жёлтые монеты {yellow_coins} достигли порога пополнения {coin_target}"
+    if self.run_once():
+        self.notify_push(
+            title="[AzurPilot] 固定标题",
+            content=f"{coin_status}\\nВсего очков действия: {total_ap}",
+        )
+"""
+    assert_passes("module/os/tasks/scheduling.py", base, head)
+
+
+def test_scheduling_coin_status_extra_use_stays_exact() -> None:
+    base = """def _handle_smart_scheduling_no_task(self, yellow_coins, coin_target):
+    if yellow_coins < coin_target:
+        coin_status = "不足"
+    else:
+        coin_status = "充足"
+    consume(coin_status)
+    self.notify_push(title="固定", content=f"{coin_status}")
+"""
+    head = """def _handle_smart_scheduling_no_task(self, yellow_coins, coin_target):
+    if yellow_coins < coin_target:
+        coin_status = "Недостаточно"
+    else:
+        coin_status = "Достаточно"
+    consume(coin_status)
+    self.notify_push(title="固定", content=f"{coin_status}")
+"""
+    assert_blocked("module/os/tasks/scheduling.py", base, head)
+
+
+def test_hazard_report_builder_translation_passes() -> None:
+    base = """def _format_check_report(self, ships, full, minutes):
+    lines = []
+    lines.append("【舰船经验检测报告】")
+    if full:
+        status = "已满"
+        time_str = "0分钟"
+    else:
+        status = progress_str
+        time_str = f"{minutes}分钟"
+    lines.append(f"进度：{status} │ 预计时间：{time_str}")
+    return "\\n".join(lines)
+"""
+    head = """def _format_check_report(self, ships, full, minutes):
+    lines = []
+    lines.append("【Отчёт о проверке опыта кораблей】")
+    if full:
+        status = "Максимум"
+        time_str = "0 мин"
+    else:
+        status = progress_str
+        time_str = f"{minutes} мин"
+    lines.append(f"Прогресс: {status} │ Осталось: {time_str}")
+    return "\\n".join(lines)
+"""
+    assert_passes("module/os/tasks/hazard_leveling.py", base, head)
+
+
+def test_hazard_report_builder_local_value_extra_use_stays_exact() -> None:
+    base = """def _format_check_report(self, full):
+    lines = []
+    status = "已满" if full else "未满"
+    consume(status)
+    lines.append(f"状态: {status}")
+    return "\\n".join(lines)
+"""
+    head = """def _format_check_report(self, full):
+    lines = []
+    status = "Максимум" if full else "Не максимум"
+    consume(status)
+    lines.append(f"Статус: {status}")
+    return "\\n".join(lines)
+"""
+    assert_blocked("module/os/tasks/hazard_leveling.py", base, head)
+
+
+def test_hazard_report_builder_is_path_and_function_scoped() -> None:
+    base = """def other(self):
+    lines = []
+    lines.append("检测报告")
+    return "\\n".join(lines)
+"""
+    head = """def other(self):
+    lines = []
+    lines.append("Отчёт проверки")
+    return "\\n".join(lines)
+"""
+    assert_blocked("module/os/tasks/hazard_leveling.py", base, head)
+
+
+def test_hazard_report_builder_join_separator_stays_exact() -> None:
+    base = """def _format_check_report(self):
+    lines = []
+    lines.append("检测报告")
+    return "\\n".join(lines)
+"""
+    head = """def _format_check_report(self):
+    lines = []
+    lines.append("Отчёт проверки")
+    return " | ".join(lines)
+"""
+    assert_blocked("module/os/tasks/hazard_leveling.py", base, head)
+
+
 def test_scheduling_local_content_requires_exclusive_sink_use() -> None:
     base = """def check_and_notify_action_point_threshold(self):
     content = "正文"
