@@ -332,7 +332,7 @@ def save_game_settings_snapshot(
         str(target),
         serialize_game_settings_snapshot(snapshot, registry=registry),
     )
-    logger.info("[Game Settings Snapshot] snapshot written: %s", target)
+    logger.info("[Снимок игровых настроек] Сохранён: %s", target)
     return snapshot
 
 
@@ -344,35 +344,44 @@ def invalidate_game_settings_snapshot(
         target.unlink()
     except FileNotFoundError:
         return
-    logger.info("[Game Settings Snapshot] invalidated: %s", target)
+    logger.info("[Снимок игровых настроек] Инвалидирован: %s", target)
 
 
 def _exact(data: dict[str, object], keys: set[str], context: str) -> None:
     if set(data) != keys:
         raise _ValidationError(
             GameSettingsSnapshotStatus.CORRUPT,
-            f"{context}: unexpected field set",
+            f"{context}: неожиданный набор полей",
         )
 
 
 def _timestamp(raw: object) -> datetime:
     if not isinstance(raw, str) or not raw:
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "bad scanned_at")
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "Некорректный scanned_at",
+        )
     try:
         value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError as exc:
         raise _ValidationError(
             GameSettingsSnapshotStatus.CORRUPT,
-            "bad scanned_at",
+            "Некорректный scanned_at",
         ) from exc
     if value.tzinfo is None or value.utcoffset() is None:
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "naive scanned_at")
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "scanned_at не содержит timezone",
+        )
     return value
 
 
 def _scope(raw: object) -> GameSettingsEnvironmentScope:
     if not isinstance(raw, dict):
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "scope not object")
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "scope должен быть JSON object",
+        )
     _exact(raw, {"server", "package_name", "resolution", "ui_profile"}, "scope")
     resolution = raw["resolution"]
     if (
@@ -380,7 +389,10 @@ def _scope(raw: object) -> GameSettingsEnvironmentScope:
         or len(resolution) != 2
         or any(type(value) is not int or value <= 0 for value in resolution)
     ):
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "bad resolution")
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "Некорректное resolution",
+        )
     try:
         return GameSettingsEnvironmentScope(
             server=raw["server"],
@@ -391,7 +403,7 @@ def _scope(raw: object) -> GameSettingsEnvironmentScope:
     except (TypeError, ValueError) as exc:
         raise _ValidationError(
             GameSettingsSnapshotStatus.CORRUPT,
-            f"bad scope: {exc}",
+            f"Некорректный scope: {exc}",
         ) from exc
 
 
@@ -399,7 +411,10 @@ def _source(raw: object) -> GameSettingsSnapshotSource:
     try:
         return GameSettingsSnapshotSource(raw)
     except (TypeError, ValueError) as exc:
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "bad source") from exc
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "Неизвестный source",
+        ) from exc
 
 
 def _settings(
@@ -407,52 +422,83 @@ def _settings(
     entries: tuple[GameSettingCheckSpec, ...],
 ) -> GameSettingsScanResult:
     if not isinstance(raw, list):
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "settings not array")
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "settings должен быть JSON array",
+        )
     by_key = {entry.key: entry for entry in entries}
     parsed: dict[str, GameSettingResult] = {}
-    required_fields = {"key", "location", "kind", "value_family", "detected", "required"}
+    required_fields = {
+        "key",
+        "location",
+        "kind",
+        "value_family",
+        "detected",
+        "required",
+    }
     for item in raw:
         if not isinstance(item, dict):
-            raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "setting not object")
+            raise _ValidationError(
+                GameSettingsSnapshotStatus.CORRUPT,
+                "Элемент settings должен быть JSON object",
+            )
         _exact(item, required_fields, "setting")
         key = item["key"]
         if not isinstance(key, str) or not key:
-            raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "bad setting key")
+            raise _ValidationError(
+                GameSettingsSnapshotStatus.CORRUPT,
+                "Некорректный key настройки",
+            )
         if key in parsed:
-            raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, f"duplicate key: {key}")
+            raise _ValidationError(
+                GameSettingsSnapshotStatus.CORRUPT,
+                f"Повторяющийся key: {key}",
+            )
         entry = by_key.get(key)
         if entry is None:
-            raise _ValidationError(GameSettingsSnapshotStatus.INCOMPLETE, f"extra key: {key}")
+            raise _ValidationError(
+                GameSettingsSnapshotStatus.INCOMPLETE,
+                f"Неизвестный лишний key: {key}",
+            )
         requirement = entry.requirement
         if requirement is None:
             raise _ValidationError(
                 GameSettingsSnapshotStatus.REQUIREMENTS_CHANGED,
-                f"requirement removed: {key}",
+                f"Requirement удалён: {key}",
             )
         if item["kind"] != requirement.kind.value or item["value_family"] != _family(entry):
-            raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, f"family mismatch: {key}")
+            raise _ValidationError(
+                GameSettingsSnapshotStatus.CORRUPT,
+                f"Несовпадение value family: {key}",
+            )
         if item["location"] != entry.definition.location:
             raise _ValidationError(
                 GameSettingsSnapshotStatus.REQUIREMENTS_CHANGED,
-                f"location changed: {key}",
+                f"Location изменён: {key}",
             )
         if item["required"] != requirement.expected_value.value:
             raise _ValidationError(
                 GameSettingsSnapshotStatus.REQUIREMENTS_CHANGED,
-                f"required changed: {key}",
+                f"Required value изменён: {key}",
             )
         detected = item["detected"]
         if not isinstance(detected, str):
-            raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, f"bad value: {key}")
+            raise _ValidationError(
+                GameSettingsSnapshotStatus.CORRUPT,
+                f"Некорректное detected value: {key}",
+            )
         try:
             parsed[key] = entry.make_result(entry.value_type(detected))
         except (TypeError, ValueError) as exc:
             raise _ValidationError(
                 GameSettingsSnapshotStatus.CORRUPT,
-                f"invalid typed value: {key}",
+                f"Некорректное типизированное значение: {key}",
             ) from exc
     if set(parsed) != set(by_key):
-        raise _ValidationError(GameSettingsSnapshotStatus.INCOMPLETE, "missing current keys")
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.INCOMPLETE,
+            "Отсутствуют current registry keys",
+        )
     return GameSettingsScanResult(parsed[entry.key] for entry in entries)
 
 
@@ -464,29 +510,45 @@ def deserialize_game_settings_snapshot(
     try:
         data = json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "bad JSON") from exc
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "Некорректный JSON",
+        ) from exc
     if not isinstance(data, dict):
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "top-level not object")
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "Верхний уровень должен быть JSON object",
+        )
     schema = data.get("schema_version")
     if schema != GAME_SETTINGS_SNAPSHOT_SCHEMA_VERSION:
         raise _ValidationError(
             GameSettingsSnapshotStatus.UNSUPPORTED_SCHEMA,
-            f"unsupported schema: {schema!r}",
+            f"Неподдерживаемая schema: {schema!r}",
         )
     _exact(
         data,
-        {"schema_version", "scanned_at", "source", "scope", "requirements_fingerprint", "settings"},
+        {
+            "schema_version",
+            "scanned_at",
+            "source",
+            "scope",
+            "requirements_fingerprint",
+            "settings",
+        },
         "snapshot",
     )
     fingerprint = data["requirements_fingerprint"]
     if not isinstance(fingerprint, str) or not _SHA256_RE.fullmatch(fingerprint):
-        raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "bad fingerprint")
+        raise _ValidationError(
+            GameSettingsSnapshotStatus.CORRUPT,
+            "Некорректный requirements fingerprint",
+        )
     entries = _registry(registry)
     result = _settings(data["settings"], entries)
     if fingerprint != game_settings_requirements_fingerprint(entries):
         raise _ValidationError(
             GameSettingsSnapshotStatus.REQUIREMENTS_CHANGED,
-            "requirements fingerprint changed",
+            "Requirements fingerprint изменился",
         )
     return GameSettingsSnapshot(
         schema_version=schema,
@@ -510,20 +572,23 @@ def load_game_settings_snapshot(
     if max_age is not None and max_age < timedelta(0):
         raise ValueError("max_age не может быть отрицательным")
     if not target.exists():
-        logger.info("[Game Settings Snapshot] cache miss: file missing")
+        logger.info("[Снимок игровых настроек] Промах кэша: файл отсутствует")
         return GameSettingsSnapshotLoadResult(
             GameSettingsSnapshotStatus.MISSING,
             target,
-            reason="file missing",
+            reason="Файл отсутствует",
         )
     try:
         payload = atomic_read_text(str(target), encoding="utf-8", errors="strict")
         if not payload:
-            raise _ValidationError(GameSettingsSnapshotStatus.CORRUPT, "empty file")
+            raise _ValidationError(
+                GameSettingsSnapshotStatus.CORRUPT,
+                "Пустой файл",
+            )
         snapshot = deserialize_game_settings_snapshot(payload, registry=registry)
     except _ValidationError as exc:
         logger.warning(
-            "[Game Settings Snapshot] cache miss: %s (%s): %s",
+            "[Снимок игровых настроек] Промах кэша: %s (%s): %s",
             exc.status.value,
             target,
             exc.reason,
@@ -531,36 +596,36 @@ def load_game_settings_snapshot(
         return GameSettingsSnapshotLoadResult(exc.status, target, reason=exc.reason)
     except (OSError, UnicodeError) as exc:
         logger.warning(
-            "[Game Settings Snapshot] cache miss: corrupt (%s): %s",
+            "[Снимок игровых настроек] Промах кэша: повреждённый файл (%s): %s",
             target,
             type(exc).__name__,
         )
         return GameSettingsSnapshotLoadResult(
             GameSettingsSnapshotStatus.CORRUPT,
             target,
-            reason=f"read failure: {type(exc).__name__}",
+            reason=f"Ошибка чтения: {type(exc).__name__}",
         )
     if snapshot.scope != expected_scope:
-        logger.info("[Game Settings Snapshot] cache miss: scope mismatch")
+        logger.info("[Снимок игровых настроек] Промах кэша: среда не совпадает")
         return GameSettingsSnapshotLoadResult(
             GameSettingsSnapshotStatus.SCOPE_MISMATCH,
             target,
             snapshot,
-            "environment scope mismatch",
+            "Environment scope не совпадает",
         )
     if max_age is not None:
         current = datetime.now(timezone.utc) if now is None else now
         if current.tzinfo is None or current.utcoffset() is None:
             raise ValueError("now должен содержать timezone")
         if current - snapshot.scanned_at > max_age:
-            logger.info("[Game Settings Snapshot] cache miss: stale")
+            logger.info("[Снимок игровых настроек] Промах кэша: снимок устарел")
             return GameSettingsSnapshotLoadResult(
                 GameSettingsSnapshotStatus.STALE,
                 target,
                 snapshot,
-                "snapshot older than consumer max_age",
+                "Снимок старше consumer max_age",
             )
-    logger.info("[Game Settings Snapshot] cache hit")
+    logger.info("[Снимок игровых настроек] Попадание в кэш")
     return GameSettingsSnapshotLoadResult(
         GameSettingsSnapshotStatus.VALID,
         target,
@@ -585,10 +650,10 @@ def refresh_game_settings_snapshot(
     loaded = load_game_settings_snapshot(path=target, expected_scope=expected_scope)
     if not loaded.valid or loaded.snapshot is None:
         raise GameSettingsSnapshotError(
-            "Live audit завершился без валидного snapshot: "
+            "Полный игровой аудит завершился без валидного снимка: "
             f"{loaded.status.value}: {loaded.reason}"
         )
-    logger.info("[Game Settings Snapshot] refreshed from live audit")
+    logger.info("[Снимок игровых настроек] Обновлён после полного игрового аудита")
     return loaded.snapshot
 
 
@@ -618,8 +683,8 @@ def get_or_refresh_game_settings_snapshot(
         reason = cached.reason
     else:
         status = GameSettingsSnapshotStatus.VALID
-        reason = "force refresh requested"
-        logger.info("[Game Settings Snapshot] force refresh requested")
+        reason = "Запрошено принудительное обновление"
+        logger.info("[Снимок игровых настроек] Запрошено принудительное обновление")
     snapshot = refresh_game_settings_snapshot(
         scanner_factory,
         path=path,
