@@ -84,6 +84,7 @@ OPTIONS_SEMANTIC_LANDMARKS = (
         aliases=(
             "Rendering Compatibility",
             "Rendering Compatibility Mode",
+            "Compatibility Mode",
         ),
         terminal=True,
     ),
