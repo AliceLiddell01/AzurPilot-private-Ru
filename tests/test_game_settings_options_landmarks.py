@@ -132,12 +132,14 @@ class _SemanticTraversalScanner(OptionsTraversalMixin):
         lower_position: int = 1,
         terminal_position: int = 3,
         semantic_positions: dict[int, tuple[str, int, bool]] | None = None,
+        terminal_after_stable_retry: bool = False,
     ) -> None:
         self.device = self
         self.position = 0
         self.reverse_at = reverse_at
         self.lower_position = lower_position
         self.terminal_position = terminal_position
+        self.terminal_after_stable_retry = terminal_after_stable_retry
         self.semantic_positions = semantic_positions or {
             0: ("frame_rate_region", 10, False),
             1: ("idle_screen_region", 30, False),
@@ -189,7 +191,14 @@ class _SemanticTraversalScanner(OptionsTraversalMixin):
         )
 
     def _detect_options_semantic_landmark(self, frame: _FakeFrame):
-        item = self.semantic_positions.get(frame.position)
+        if (
+            self.terminal_after_stable_retry
+            and frame.position == self.terminal_position
+            and self.down_swipes <= self.terminal_position
+        ):
+            item = ("custom_ship_names_region", 40, False)
+        else:
+            item = self.semantic_positions.get(frame.position)
         if item is None:
             return None
         key, rank, terminal = item
@@ -222,6 +231,19 @@ class OptionsSemanticTraversalTests(unittest.TestCase):
             scanner.removed_control_records,
             [OPTIONS_CONTROL_NAME, OPTIONS_CONTROL_NAME, OPTIONS_CONTROL_NAME],
         )
+
+    def test_terminal_entering_during_stable_retry_is_visited_before_stop(self) -> None:
+        scanner = _SemanticTraversalScanner(terminal_after_stable_retry=True)
+        visited: list[int] = []
+
+        result = scanner.traverse_options(
+            lambda _viewport: visited.append(scanner.position)
+        )
+
+        self.assertEqual(visited, [0, 1, 2, 3, 3])
+        self.assertEqual(scanner.down_swipes, 4)
+        self.assertTrue(result.reached_bottom)
+        self.assertFalse(result.stopped_early)
 
     def test_forward_semantic_landmark_can_override_bad_phase_before_lower_area(self) -> None:
         scanner = _SemanticTraversalScanner(
