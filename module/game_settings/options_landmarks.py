@@ -118,13 +118,14 @@ def _semantic_similarity(text: str, alias: str) -> float:
         return 0.0
 
     score = _label_similarity(text, alias)
-    if left in right:
-        coverage = len(left) / len(right)
+    if left in right and left != right:
         visible_words = sum(1 for part in text.split() if _normalize(part))
+        if visible_words < _SEMANTIC_MARQUEE_MIN_WORDS:
+            return 0.0
+        coverage = len(left) / len(right)
         if (
             len(left) >= _SEMANTIC_MARQUEE_MIN_CHARS
             and coverage >= _SEMANTIC_MARQUEE_MIN_COVERAGE
-            and visible_words >= _SEMANTIC_MARQUEE_MIN_WORDS
         ):
             score = max(score, 0.80 + min(0.19, coverage * 0.19))
     return score
