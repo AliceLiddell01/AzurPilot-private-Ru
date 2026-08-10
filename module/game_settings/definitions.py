@@ -27,7 +27,7 @@ TEXT_AUTO_SCROLL_SPEED = GameSettingDefinition(
     "options",
 )
 
-# Source reconciliation (Stage 7):
+# Source reconciliation:
 # - current ALAS README_en still says "No Sleep Mode on Main Menu = Off";
 # - current ALAS README.md replaced the former main-menu keep-awake requirement
 #   with "Enable Idle Screen = Off" in 2024-07;
