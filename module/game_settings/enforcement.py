@@ -300,21 +300,25 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
     def _safe_click_bounds(
         target: tuple[int, int, int, int],
     ) -> tuple[int, int, int, int]:
-        """Keep compact marker clicks central; preserve explicit large targets."""
+        """Keep compact marker clicks central without escaping the target."""
 
         x1, y1, x2, y2 = target
         width = x2 - x1
         height = y2 - y1
+        if width <= 0 or height <= 0:
+            return target
         if width > _MAX_COMPACT_TARGET_SPAN or height > _MAX_COMPACT_TARGET_SPAN:
             return target
 
+        safe_width = min(width, _SAFE_CLICK_HALF_SIZE * 2)
+        safe_height = min(height, _SAFE_CLICK_HALF_SIZE * 2)
         center_x = (x1 + x2) / 2.0
         center_y = (y1 + y2) / 2.0
         return (
-            int(round(center_x - _SAFE_CLICK_HALF_SIZE)),
-            int(round(center_y - _SAFE_CLICK_HALF_SIZE)),
-            int(round(center_x + _SAFE_CLICK_HALF_SIZE)),
-            int(round(center_y + _SAFE_CLICK_HALF_SIZE)),
+            int(round(center_x - safe_width / 2.0)),
+            int(round(center_y - safe_height / 2.0)),
+            int(round(center_x + safe_width / 2.0)),
+            int(round(center_y + safe_height / 2.0)),
         )
 
     @staticmethod
