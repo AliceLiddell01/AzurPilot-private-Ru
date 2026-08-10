@@ -85,7 +85,10 @@ from module.submodule.utils import get_config_mod
 from module.webui.base import Frame
 from module.webui.discord_presence import close_discord_rpc, init_discord_rpc
 from module.webui.fastapi import asgi_app
-from module.webui.instance_visibility import visible_webui_instances
+from module.webui.instance_visibility import (
+    is_webui_hidden_instance,
+    visible_webui_instances,
+)
 from module.webui.lang import _t, t
 from module.webui.patch import (
     fix_py37_subprocess_communicate,
