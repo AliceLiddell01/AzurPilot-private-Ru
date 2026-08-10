@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from module.game_settings.definitions import (
-    CUSTOM_SHIP_NAMES,
-    CUSTOM_SHIP_NAMES_REQUIRED_OFF,
-)
-from module.game_settings.detector import detect_custom_ship_names
 from module.game_settings.model import (
     GameSettingCheckResult,
     GameSettingsScanResult,
     GameSettingState,
+)
+from module.game_settings.registry import (
+    GAME_SETTINGS_PREFLIGHT_REGISTRY,
+    GameSettingCheckSpec,
+    build_game_settings_registry,
 )
 from module.game_settings.scanner import GameSettingsScanner
 from module.game_settings.traversal import OptionsViewport
@@ -18,65 +18,97 @@ from module.logger import logger
 
 
 class GameSettingsPreflightScanner(GameSettingsScanner):
-    """Проверить обязательные Game Settings без auto-fix или toggle clicks."""
+    """Проверить registered tri-state Game Settings без изменения настроек."""
+
+    check_registry = GAME_SETTINGS_PREFLIGHT_REGISTRY
+
+    def get_check_registry(self) -> tuple[GameSettingCheckSpec, ...]:
+        """Вернуть validated registry, допускающий безопасный test override."""
+        return build_game_settings_registry(self.check_registry)
 
     def _scan_game_settings(self) -> GameSettingsScanResult:
-        detected_state = GameSettingState.UNKNOWN
+        registry = self.get_check_registry()
+        if not registry:
+            logger.info("[Игровые настройки] Preflight registry пуст; сканирование не требуется")
+            return GameSettingsScanResult()
+
+        resolved: dict[str, GameSettingCheckResult] = {}
 
         def visit(viewport: OptionsViewport) -> bool:
-            nonlocal detected_state
+            # Все ещё unresolved detectors этого viewport анализируют один и тот
+            # же уже стабилизированный frame. Дополнительный screenshot здесь
+            # намеренно не выполняется.
+            frame = self.device.image
 
-            state = detect_custom_ship_names(self.device.image)
-            if state is None:
-                return False
+            for entry in registry:
+                if entry.key in resolved:
+                    continue
 
-            detected_state = state
-            logger.info(
-                "[Игровые настройки] Custom Ship Names найден в окне #%s "
-                "(смещение %.1f px)",
-                viewport.index,
-                viewport.scroll_offset,
-            )
-            if state is GameSettingState.UNKNOWN:
-                logger.warning(
-                    "[Игровые настройки] Custom Ship Names найден, "
-                    "но состояние неоднозначно"
+                state = entry.detector(frame)
+                if state is None:
+                    continue
+
+                check = GameSettingCheckResult(
+                    definition=entry.definition,
+                    detected_state=state,
+                    requirement=entry.requirement,
                 )
-            else:
+                resolved[entry.key] = check
                 logger.info(
-                    "[Игровые настройки] Custom Ship Names: %s",
-                    state.value.upper(),
+                    "[Игровые настройки] %s найден в окне #%s (смещение %.1f px)",
+                    entry.key,
+                    viewport.index,
+                    viewport.scroll_offset,
                 )
-            # Row-present UNKNOWN тоже является терминальным результатом этого
-            # single-setting Stage: overlap не должен превращать неоднозначность
-            # в «строка ещё не найдена».
-            return True
+                if state is GameSettingState.UNKNOWN:
+                    logger.warning(
+                        "[Игровые настройки] %s найден, но состояние неоднозначно",
+                        entry.key,
+                    )
+                else:
+                    logger.info(
+                        "[Игровые настройки] %s: detected=%s",
+                        entry.key,
+                        state.value.upper(),
+                    )
 
-        # Cleanup охватывает и вход в Options: навигация может успеть изменить
-        # страницу до того, как подтверждение входа выбросит исключение.
+            # Row-present UNKNOWN является resolved result. Traversal прекращается
+            # только когда разрешены все entries, а не после первой найденной строки.
+            return len(resolved) == len(registry)
+
         primary_error: Exception | None = None
         try:
-            self.ensure_options_page()
+            # traverse_options() сам гарантирует вход в Options ровно один раз.
+            # Cleanup охватывает и ошибку навигации внутри traversal.
             traversal_result = self.traverse_options(visit)
-            if not traversal_result.stopped_early:
-                logger.warning(
-                    "[Игровые настройки] Custom Ship Names не найден "
-                    "до подтверждённого фактического низа Options"
-                )
 
-            check = GameSettingCheckResult(
-                definition=CUSTOM_SHIP_NAMES,
-                detected_state=detected_state,
-                requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
+            if len(resolved) != len(registry):
+                if not traversal_result.reached_bottom:
+                    raise RuntimeError(
+                        "[Game Settings] Traversal завершился без hard bottom при "
+                        "неразрешённых registry entries."
+                    )
+
+                for entry in registry:
+                    if entry.key in resolved:
+                        continue
+                    logger.warning(
+                        "[Игровые настройки] %s: строка не найдена до "
+                        "подтверждённого фактического низа Options; detected=UNKNOWN",
+                        entry.key,
+                    )
+                    resolved[entry.key] = GameSettingCheckResult(
+                        definition=entry.definition,
+                        detected_state=GameSettingState.UNKNOWN,
+                        requirement=entry.requirement,
+                    )
+
+            result = GameSettingsScanResult(
+                resolved[entry.key]
+                for entry in registry
             )
-            logger.info(
-                "[Игровые настройки] Требуемое состояние Custom Ship Names: OFF"
-            )
-            logger.info(
-                "[Игровые настройки] Требование совместимо: %s",
-                check.compatible,
-            )
-            return GameSettingsScanResult((check,))
+            self._log_result(result)
+            return result
         except Exception as exc:
             primary_error = exc
             raise
@@ -91,3 +123,16 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
                     "[Игровые настройки] Не удалось вернуться на главный экран "
                     "после ошибки сканирования"
                 )
+
+    @staticmethod
+    def _log_result(result: GameSettingsScanResult) -> None:
+        for check in result:
+            expected = check.expected_state
+            required = "NONE" if expected is None else expected.value.upper()
+            logger.info(
+                "[Игровые настройки] %s: detected=%s, required=%s, compatible=%s",
+                check.key,
+                check.detected_state.value.upper(),
+                required,
+                check.compatible,
+            )
