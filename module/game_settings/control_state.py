@@ -22,7 +22,8 @@ from module.game_settings.options_detector import (
 
 
 _CONTROL_TEMPLATE_MIN_SCORE = 0.42
-_CONTROL_TEMPLATE_MIN_MARGIN = 0.15
+_CONTROL_SELECTED_MIN_MARGIN = 0.15
+_CONTROL_UNSELECTED_MIN_MARGIN = 0.10
 _CONTROL_SEARCH_HALF_SIZE = 22
 _CONTROL_EDGE_LOW = 80
 _CONTROL_EDGE_HIGH = 160
@@ -74,6 +75,34 @@ def _template_score(search: np.ndarray, template: np.ndarray) -> float:
     return float(np.max(result))
 
 
+def _classify_control_scores(
+    selected_score: float,
+    unselected_score: float,
+) -> float | None:
+    """Return signed confidence with asymmetric fail-closed state margins.
+
+    A selected marker is positive state authority and therefore keeps the
+    stricter margin. An unselected marker is only negative evidence, so a
+    slightly smaller margin is sufficient as long as its absolute template
+    score is still strong. Row resolution still requires every option to be
+    classified and exactly one option to be confidently selected.
+    """
+
+    if max(selected_score, unselected_score) < _CONTROL_TEMPLATE_MIN_SCORE:
+        return None
+
+    confidence = selected_score - unselected_score
+    if confidence > 0.0:
+        if confidence < _CONTROL_SELECTED_MIN_MARGIN:
+            return None
+    elif confidence < 0.0:
+        if -confidence < _CONTROL_UNSELECTED_MIN_MARGIN:
+            return None
+    else:
+        return None
+    return confidence
+
+
 def control_selection_confidence(
     image: np.ndarray,
     click_bounds: tuple[int, int, int, int],
@@ -92,13 +121,7 @@ def control_selection_confidence(
     unselected = _load_control_template(TEMPLATE_GAME_SETTINGS_CONTROL_UNSELECTED.file)
     selected_score = _template_score(search, selected)
     unselected_score = _template_score(search, unselected)
-    if max(selected_score, unselected_score) < _CONTROL_TEMPLATE_MIN_SCORE:
-        return None
-
-    confidence = selected_score - unselected_score
-    if abs(confidence) < _CONTROL_TEMPLATE_MIN_MARGIN:
-        return None
-    return confidence
+    return _classify_control_scores(selected_score, unselected_score)
 
 
 def _unknown_for(spec: GameSettingRowSpec) -> GameSettingValue:
