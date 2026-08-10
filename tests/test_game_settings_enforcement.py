@@ -198,7 +198,7 @@ class _FakeEnforcementScanner(GameSettingsEnforcementScanner):
             index=1,
             scroll_offset=0.0,
             is_top=True,
-            is_bottom=self.reached_bottom,
+            is_bottom=False,
         )
         stopped = bool(visitor(viewport))
         return OptionsTraversalResult(
@@ -210,7 +210,9 @@ class _FakeEnforcementScanner(GameSettingsEnforcementScanner):
 
     def _wait_options_stable(self) -> np.ndarray:
         self.wait_calls += 1
-        return self.device.image
+        stabilized = self.device.image.copy()
+        self.device.image = stabilized
+        return stabilized
 
     def return_to_main(self) -> bool:
         self.return_calls += 1
