@@ -39,7 +39,11 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
             require_enforce=True,
         )
 
-    def enforce_required_game_settings(self) -> GameSettingsEnforcementResult:
+    def enforce_required_game_settings(
+        self,
+        *,
+        reaudit_on_noop: bool = False,
+    ) -> GameSettingsEnforcementResult:
         """Apply only known mismatches after a complete fail-closed audit.
 
         This method is intentionally separate from ``scan_game_settings()``.
@@ -77,9 +81,10 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
         self._log_change_plan(before, plan)
 
         if not plan:
-            # A second read-only pass proves idempotent no-op behaviour against
-            # a fresh traversal instead of merely echoing the initial audit.
-            after = self.scan_game_settings()
+            # Production no-op is intentionally cheap. Tests/smoke can request
+            # one additional fresh audit when they want to prove the no-op
+            # result against a second traversal.
+            after = self.scan_game_settings() if reaudit_on_noop else before
             success = after.all_required_compatible is True
             return GameSettingsEnforcementResult(
                 before=before,
@@ -157,6 +162,9 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
             return True
 
         def visit(_viewport: OptionsViewport) -> bool:
+            # Exactly one OCR cache lifetime per stabilized viewport. This is
+            # safe for backends that overwrite one numpy buffer in place.
+            clear_game_settings_ocr_cache()
             frame = self.device.image
 
             for entry in plan:
@@ -218,7 +226,7 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 clear_game_settings_ocr_cache()
                 verified_frame = self._wait_options_stable()
                 verified = observer(verified_frame)
-                if verified is None:
+                if verified is None or is_unknown_game_setting_value(verified.value):
                     clear_game_settings_ocr_cache()
                     verified_frame = self._wait_options_stable()
                     verified = observer(verified_frame)
@@ -278,12 +286,13 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
             clear_game_settings_ocr_cache()
             try:
                 self.return_to_main()
-            except Exception:
+            except Exception as cleanup_error:
                 if primary_error is None and failure is None:
                     raise
                 logger.warning(
-                    "[Игровые настройки] Ошибка возврата на Main не заменила "
-                    "основную ошибку применения"
+                    "[Игровые настройки] Не удалось вернуться на Main: %s; "
+                    "основная ошибка применения сохранена",
+                    cleanup_error,
                 )
 
     @staticmethod
