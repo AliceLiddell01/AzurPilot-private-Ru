@@ -200,7 +200,7 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
                 self.assertIsNotNone(observation)
                 self.assertIs(observation.value, selected)
 
-    def test_live_oathed_ship_name_label_uses_custom_ship_name_row_geometry(self) -> None:
+    def test_distinct_oathed_ship_name_label_is_not_custom_ship_name_state(self) -> None:
         image = _frame()
         y = 360
         detections = (_box("Change Oathed Ship Names", 716, y, 1018, y + 30),)
@@ -217,9 +217,7 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
             detections=detections,
         )
 
-        self.assertIsNotNone(observation)
-        self.assertIs(observation.value, GameSettingState.ON)
-        self.assertEqual(len(observation.options), 2)
+        self.assertIsNone(observation)
 
     def test_frame_rate_choice_reads_marker_left_of_option_text(self) -> None:
         image = _frame()
