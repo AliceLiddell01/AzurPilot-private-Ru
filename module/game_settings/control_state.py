@@ -209,13 +209,3 @@ def observe_game_setting_row_with_control_assets(
     if geometry is None:
         return None
     return _reclassify_observation(image, spec, geometry)
-
-
-def detect_game_setting_row_with_control_assets(
-    image: np.ndarray,
-    spec: GameSettingRowSpec,
-) -> GameSettingValue | None:
-    observation = observe_game_setting_row_with_control_assets(image, spec)
-    if observation is None:
-        return None
-    return observation.value
