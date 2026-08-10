@@ -1,4 +1,4 @@
-"""Heterogeneous ordered registry for Game Settings audit and explicit enforce."""
+"""Heterogeneous ordered registries for Game Settings audit and enforce."""
 
 from __future__ import annotations
 
@@ -190,7 +190,21 @@ def build_game_settings_registry(
     return registry
 
 
+# Compatibility export kept for Stage 6 callers/tests that intentionally model
+# the original single-setting preflight contract. Stage 7 production scanner
+# uses GAME_SETTINGS_OPTIONS_REGISTRY below.
 GAME_SETTINGS_PREFLIGHT_REGISTRY = build_game_settings_registry(
+    (
+        GameSettingCheckSpec(
+            definition=CUSTOM_SHIP_NAMES,
+            detector=detect_custom_ship_names,
+            requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
+        ),
+    )
+)
+
+
+GAME_SETTINGS_OPTIONS_REGISTRY = build_game_settings_registry(
     (
         GameSettingCheckSpec(
             definition=FRAME_RATE,
@@ -266,5 +280,5 @@ GAME_SETTINGS_PREFLIGHT_REGISTRY = build_game_settings_registry(
 )
 
 GAME_SETTINGS_PRODUCTION_KEYS = tuple(
-    entry.key for entry in GAME_SETTINGS_PREFLIGHT_REGISTRY
+    entry.key for entry in GAME_SETTINGS_OPTIONS_REGISTRY
 )
