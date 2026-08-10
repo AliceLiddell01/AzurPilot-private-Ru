@@ -205,6 +205,13 @@ class GameSettingsEnforcementResultTests(unittest.TestCase):
                 blocked_reason="blocked",
                 failure_reason="failed",
             )
+        with self.assertRaisesRegex(ValueError, "взаимоисключающие"):
+            GameSettingsEnforcementResult(
+                before=before,
+                success=False,
+                blocked_reason="blocked",
+                failed_key="frame_rate",
+            )
         with self.assertRaisesRegex(ValueError, "должен содержать причину"):
             GameSettingsEnforcementResult(
                 before=before,
