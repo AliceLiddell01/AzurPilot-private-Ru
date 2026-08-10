@@ -10,7 +10,13 @@ from module.game_settings.assets import (
     TEMPLATE_GAME_SETTINGS_CONTROL_UNSELECTED,
 )
 from module.game_settings.control_state import observe_game_setting_row_with_control_assets
-from module.game_settings.model import GameSettingRequirement, GameSettingState
+from module.game_settings.model import (
+    FrameRateValue,
+    GameSettingRequirement,
+    GameSettingState,
+    StoryAutoplayValue,
+    TextAutoScrollSpeedValue,
+)
 from module.game_settings.options_detector import (
     ROW_LAYOUT_CHOICE_CARDS,
     ROW_SPECS_BY_KEY,
@@ -30,6 +36,19 @@ from module.game_settings.traversal import OptionsTraversalResult, OptionsViewpo
 
 
 _BACKGROUND = 96
+_EXPECTED_PRODUCTION_REQUIREMENTS = {
+    "frame_rate": FrameRateValue.FPS_60,
+    "opsi_reduce_tb_guidance": GameSettingState.ON,
+    "opsi_auto_use_items": GameSettingState.ON,
+    "opsi_default_auto_mode_threat_safe": GameSettingState.OFF,
+    "story_autoplay": StoryAutoplayValue.ENABLED,
+    "text_auto_scroll_speed": TextAutoScrollSpeedValue.VERY_FAST,
+    "enable_idle_screen": GameSettingState.OFF,
+    "duplicate_ship_display": GameSettingState.OFF,
+    "display_quick_switch_prompt": GameSettingState.OFF,
+    "display_battle_result_cutscene": GameSettingState.OFF,
+    "custom_ship_names": GameSettingState.OFF,
+}
 
 
 def _load_rgb(path: str) -> np.ndarray:
@@ -124,6 +143,20 @@ def _render_row(key: str, selected_value):
 
 
 class ProductionRowContractTests(unittest.TestCase):
+    def test_production_requirement_set_is_explicit_and_complete(self) -> None:
+        actual = {
+            entry.key: entry.requirement.expected_value
+            if entry.requirement is not None
+            else None
+            for entry in GAME_SETTINGS_OPTIONS_REGISTRY
+        }
+
+        self.assertEqual(actual, _EXPECTED_PRODUCTION_REQUIREMENTS)
+        self.assertIs(
+            actual["custom_ship_names"],
+            GameSettingState.OFF,
+        )
+
     def test_every_production_requirement_detects_required_value(self) -> None:
         self.assertEqual(
             set(ROW_SPECS_BY_KEY),
