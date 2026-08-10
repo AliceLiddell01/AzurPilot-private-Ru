@@ -7,10 +7,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from module.game_settings.control_state import (
-    detect_game_setting_row_with_control_assets,
-    observe_game_setting_row_with_control_assets,
-)
+from module.game_settings.control_state import observe_game_setting_row_with_control_assets
 from module.game_settings.definitions import (
     CUSTOM_SHIP_NAMES,
     CUSTOM_SHIP_NAMES_REQUIRED_OFF,
@@ -77,18 +74,23 @@ GameSettingDetector = Callable[[np.ndarray], GameSettingValue | None]
 GameSettingObserver = Callable[[np.ndarray], GameSettingRowObservation | None]
 
 
-def _row_detector(spec: GameSettingRowSpec) -> GameSettingDetector:
-    def detector(image: np.ndarray) -> GameSettingValue | None:
-        return detect_game_setting_row_with_control_assets(image, spec)
-
-    return detector
-
-
 def _row_observer(spec: GameSettingRowSpec) -> GameSettingObserver:
     def observer(image: np.ndarray) -> GameSettingRowObservation | None:
         return observe_game_setting_row_with_control_assets(image, spec)
 
     return observer
+
+
+def _row_detector(spec: GameSettingRowSpec) -> GameSettingDetector:
+    observer = _row_observer(spec)
+
+    def detector(image: np.ndarray) -> GameSettingValue | None:
+        observation = observer(image)
+        if observation is None:
+            return None
+        return observation.value
+
+    return detector
 
 
 @dataclass(frozen=True, slots=True)
