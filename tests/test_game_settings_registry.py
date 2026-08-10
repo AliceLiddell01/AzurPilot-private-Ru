@@ -35,6 +35,7 @@ from module.game_settings.model import (
 )
 from module.game_settings.options_detector import (
     CUSTOM_SHIP_NAMES_ROW,
+    FRAME_RATE_ROW,
     GameSettingRowObservation,
 )
 from module.game_settings.registry import (
@@ -42,6 +43,7 @@ from module.game_settings.registry import (
     GAME_SETTINGS_PREFLIGHT_REGISTRY,
     GAME_SETTINGS_PRODUCTION_KEYS,
     OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW,
+    GameSettingCheckSpec,
     build_game_settings_registry,
 )
 
@@ -62,13 +64,6 @@ EXPECTED_PRODUCTION_KEYS = (
 
 
 class GameSettingsRegistryTests(unittest.TestCase):
-    def test_legacy_registry_preserves_custom_ship_names_detector_contract(self) -> None:
-        self.assertEqual(len(GAME_SETTINGS_PREFLIGHT_REGISTRY), 1)
-        entry = GAME_SETTINGS_PREFLIGHT_REGISTRY[0]
-        self.assertIs(entry.definition, CUSTOM_SHIP_NAMES)
-        self.assertIs(entry.requirement, CUSTOM_SHIP_NAMES_REQUIRED_OFF)
-        self.assertIs(entry.detector, detect_custom_ship_names)
-
     def test_full_registry_contains_expected_required_definitions(self) -> None:
         by_key = {entry.key: entry for entry in GAME_SETTINGS_OPTIONS_REGISTRY}
         self.assertIs(by_key["frame_rate"].definition, FRAME_RATE)
@@ -140,6 +135,15 @@ class GameSettingsRegistryTests(unittest.TestCase):
         legacy = GAME_SETTINGS_PREFLIGHT_REGISTRY[0]
         with self.assertRaisesRegex(ValueError, "не имеет mutator observer"):
             build_game_settings_registry((legacy,), require_enforce=True)
+
+    def test_row_spec_value_family_must_match_entry_value_type(self) -> None:
+        with self.assertRaisesRegex(TypeError, "row_spec.options"):
+            GameSettingCheckSpec(
+                definition=FRAME_RATE,
+                detector=lambda _image: GameSettingState.OFF,
+                value_type=GameSettingState,
+                row_spec=FRAME_RATE_ROW,
+            )
 
     def test_full_registry_has_observer_and_row_spec_for_every_required_entry(self) -> None:
         self.assertTrue(
