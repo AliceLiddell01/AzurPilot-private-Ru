@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -124,10 +125,11 @@ class _Device:
 
 
 class _MutatingEnforcement(GameSettingsEnforcementScanner):
-    def __init__(self, keys=("setting_a",)):
+    def __init__(self, keys=("setting_a",), *, persistable=True):
         self.events = []
         self.states = {key: GameSettingState.OFF for key in keys}
         self.verify_fail_key = None
+        self.persistable = persistable
         self.device = _Device(self)
         entries = []
         for index, key in enumerate(keys):
@@ -169,7 +171,7 @@ class _MutatingEnforcement(GameSettingsEnforcementScanner):
         self.check_registry = build_game_settings_registry(entries, require_enforce=True)
         self.scan_calls = 0
 
-    def scan_game_settings(self):
+    def _scan_game_settings(self):
         self.scan_calls += 1
         self.events.append(f"scan:{self.scan_calls}")
         return GameSettingsScanResult(
@@ -177,7 +179,7 @@ class _MutatingEnforcement(GameSettingsEnforcementScanner):
         )
 
     def _should_persist_game_settings_snapshot(self, _result):
-        return True
+        return self.persistable
 
     def invalidate_game_settings_snapshot(self):
         self.events.append("invalidate")
@@ -256,6 +258,9 @@ class SnapshotSchemaTests(unittest.TestCase):
             unsupported = _doc()
             unsupported["schema_version"] = 999
             cases.append(("schema", unsupported, GameSettingsSnapshotStatus.UNSUPPORTED_SCHEMA))
+            bool_schema = _doc()
+            bool_schema["schema_version"] = True
+            cases.append(("bool-schema", bool_schema, GameSettingsSnapshotStatus.UNSUPPORTED_SCHEMA))
             typed = _doc()
             typed["settings"][0]["detected"] = "120_fps"
             cases.append(("typed", typed, GameSettingsSnapshotStatus.CORRUPT))
@@ -380,11 +385,15 @@ class FingerprintTests(unittest.TestCase):
             detector=lambda _image: first.requirement.expected_value,
         )
         registry = (alternate, *GAME_SETTINGS_OPTIONS_REGISTRY[1:])
-        self.assertNotEqual("a" * 40, "b" * 40)
         self.assertEqual(
             game_settings_requirements_fingerprint(registry),
             game_settings_requirements_fingerprint(),
         )
+        with patch.dict(os.environ, {"GITHUB_SHA": "a" * 40}, clear=False):
+            first_sha = game_settings_requirements_fingerprint()
+        with patch.dict(os.environ, {"GITHUB_SHA": "b" * 40}, clear=False):
+            second_sha = game_settings_requirements_fingerprint()
+        self.assertEqual(first_sha, second_sha)
 
     def test_old_fingerprint_is_requirements_changed(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -448,6 +457,36 @@ class ScopeFreshnessPersistenceTests(unittest.TestCase):
                 ).status,
                 GameSettingsSnapshotStatus.STALE,
             )
+            future_path = Path(temp) / "future.json"
+            save_game_settings_snapshot(
+                _result(),
+                path=future_path,
+                scanned_at=now + timedelta(minutes=1),
+            )
+            self.assertIs(
+                load_game_settings_snapshot(
+                    path=future_path,
+                    max_age=timedelta(hours=4),
+                    now=now,
+                ).status,
+                GameSettingsSnapshotStatus.STALE,
+            )
+
+    def test_missing_race_during_read_is_missing_not_corrupt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "snapshot.json"
+            path.write_text("placeholder", encoding="utf-8")
+
+            def disappear(*_args, **_kwargs):
+                path.unlink()
+                return ""
+
+            with patch(
+                "module.game_settings.snapshot.atomic_read_text",
+                side_effect=disappear,
+            ):
+                loaded = load_game_settings_snapshot(path=path)
+            self.assertIs(loaded.status, GameSettingsSnapshotStatus.MISSING)
 
     def test_atomic_success_and_failure_before_replace_preserves_previous(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -633,6 +672,7 @@ class CacheApiTests(unittest.TestCase):
                 access.source,
                 GameSettingsSnapshotAccessSource.LIVE_AUDIT,
             )
+            self.assertIsNone(access.cache_status)
 
 
 class EnforcementSnapshotTests(unittest.TestCase):
@@ -660,7 +700,7 @@ class EnforcementSnapshotTests(unittest.TestCase):
                 GameSettingState.UNKNOWN,
             )
 
-    def test_invalidation_happens_once_before_first_click_and_success_persists_final(self):
+    def test_invalidation_happens_once_before_first_click_and_success_persists_final_once(self):
         scanner = _MutatingEnforcement(("setting_a", "setting_b"))
         result = scanner.enforce_required_game_settings()
         self.assertTrue(result.success)
@@ -672,6 +712,7 @@ class EnforcementSnapshotTests(unittest.TestCase):
             if event.startswith("click:")
         )
         self.assertLess(invalidate, first_click)
+        self.assertEqual(scanner.events.count("persist:audit"), 1)
         self.assertEqual(
             scanner.events.count("persist:enforcement_final_audit"),
             1,
@@ -681,6 +722,14 @@ class EnforcementSnapshotTests(unittest.TestCase):
             scanner.events.index("scan:2"),
         )
 
+    def test_custom_registry_still_invalidates_before_mutation(self):
+        scanner = _MutatingEnforcement(("setting_a",), persistable=False)
+        result = scanner.enforce_required_game_settings()
+        self.assertTrue(result.success)
+        self.assertIn("invalidate", scanner.events)
+        self.assertNotIn("persist:audit", scanner.events)
+        self.assertNotIn("persist:enforcement_final_audit", scanner.events)
+
     def test_partial_apply_failure_never_persists_final_snapshot(self):
         scanner = _MutatingEnforcement(("setting_a", "setting_b"))
         scanner.verify_fail_key = "setting_b"
@@ -688,6 +737,7 @@ class EnforcementSnapshotTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.changed_keys, ("setting_a",))
         self.assertIn("invalidate", scanner.events)
+        self.assertEqual(scanner.events.count("persist:audit"), 1)
         self.assertNotIn("persist:enforcement_final_audit", scanner.events)
 
 
