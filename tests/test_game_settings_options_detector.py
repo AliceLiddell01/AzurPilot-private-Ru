@@ -68,6 +68,21 @@ def _toggle_fixture(y: int = 200, selected: GameSettingState = GameSettingState.
     return image, detections, spec
 
 
+def _speed_spec() -> GameSettingRowSpec:
+    return GameSettingRowSpec(
+        label_aliases=("Text Auto-Scroll Speed",),
+        options=(
+            GameSettingOptionSpec(TextAutoScrollSpeedValue.SLOW, ("Slow",)),
+            GameSettingOptionSpec(TextAutoScrollSpeedValue.NORMAL, ("Normal",)),
+            GameSettingOptionSpec(TextAutoScrollSpeedValue.FAST, ("Fast",)),
+            GameSettingOptionSpec(
+                TextAutoScrollSpeedValue.VERY_FAST,
+                ("Very Fast",),
+            ),
+        ),
+    )
+
+
 class GameSettingsOptionsDetectorTests(unittest.TestCase):
     def tearDown(self) -> None:
         clear_game_settings_ocr_cache()
@@ -111,6 +126,32 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
             observe_game_setting_row(image, different, detections=detections)
         )
 
+    def test_split_enable_idle_screen_label_cannot_be_reused_as_enable_option(self) -> None:
+        image = _frame()
+        y = 230
+        detections = (
+            _box("Enable", 250, y, 300, y + 20),
+            _box("Idle", 307, y, 337, y + 20),
+            _box("Screen", 344, y, 397, y + 20),
+            _box("Off", 540, y, 570, y + 20),
+            _box("On", 660, y, 685, y + 20),
+        )
+        _paint_marker(image, detections[3].bounds, selected=True)
+        _paint_marker(image, detections[4].bounds, selected=False)
+        spec = GameSettingRowSpec(
+            label_aliases=("Enable Idle Screen",),
+            options=(
+                GameSettingOptionSpec(GameSettingState.OFF, ("Off", "Disabled")),
+                GameSettingOptionSpec(GameSettingState.ON, ("On", "Enable")),
+            ),
+        )
+        observation = observe_game_setting_row(image, spec, detections=detections)
+        self.assertIsNotNone(observation)
+        self.assertIs(observation.value, GameSettingState.OFF)
+        on_target = observation.option_for(GameSettingState.ON)
+        self.assertIsNotNone(on_target)
+        self.assertEqual(on_target.bounds, detections[4].bounds)
+
     def test_ambiguous_marker_activity_returns_unknown_not_guess(self) -> None:
         image, detections, spec = _toggle_fixture()
         off = detections[1]
@@ -136,20 +177,36 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
             _paint_marker(image, box.bounds, selected=False)
         very_fast_bounds = (850, y, 925, y + 20)
         _paint_marker(image, very_fast_bounds, selected=True)
-        spec = GameSettingRowSpec(
-            label_aliases=("Text Auto-Scroll Speed",),
-            options=(
-                GameSettingOptionSpec(TextAutoScrollSpeedValue.SLOW, ("Slow",)),
-                GameSettingOptionSpec(TextAutoScrollSpeedValue.NORMAL, ("Normal",)),
-                GameSettingOptionSpec(TextAutoScrollSpeedValue.FAST, ("Fast",)),
-                GameSettingOptionSpec(
-                    TextAutoScrollSpeedValue.VERY_FAST,
-                    ("Very Fast",),
-                ),
-            ),
+        observation = observe_game_setting_row(
+            image,
+            _speed_spec(),
+            detections=detections,
         )
-        observation = observe_game_setting_row(image, spec, detections=detections)
         self.assertIs(observation.value, TextAutoScrollSpeedValue.VERY_FAST)
+
+    def test_foreign_duplicate_fast_option_fails_closed_instead_of_guessing(self) -> None:
+        image = _frame()
+        y = 330
+        detections = (
+            _box("Text Auto-Scroll Speed", 250, y, 450, y + 20),
+            _box("Slow", 510, y, 545, y + 20),
+            _box("Normal", 610, y, 665, y + 20),
+            _box("Fast", 730, y, 765, y + 20),
+            _box("Very", 850, y, 885, y + 20),
+            _box("Fast", 892, y, 925, y + 20),
+            _box("Fast", 1010, y, 1045, y + 20),
+        )
+        for box in detections[1:]:
+            _paint_marker(image, box.bounds, selected=False)
+        _paint_marker(image, (850, y, 925, y + 20), selected=True)
+        observation = observe_game_setting_row(
+            image,
+            _speed_spec(),
+            detections=detections,
+        )
+        self.assertIsNotNone(observation)
+        self.assertIs(observation.value, TextAutoScrollSpeedValue.UNKNOWN)
+        self.assertEqual(observation.options, ())
 
     def test_choice_unknown_when_one_option_is_not_uniquely_located(self) -> None:
         image = _frame()
@@ -167,6 +224,7 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
             ),
         )
         observation = observe_game_setting_row(image, spec, detections=detections)
+        self.assertIsNotNone(observation)
         self.assertIs(observation.value, FrameRateValue.UNKNOWN)
         self.assertEqual(observation.options, ())
 
