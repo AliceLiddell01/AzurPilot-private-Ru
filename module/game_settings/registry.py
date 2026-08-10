@@ -108,6 +108,12 @@ class GameSettingCheckSpec:
             raise TypeError("observer должен быть callable или None")
         if self.row_spec is not None and not isinstance(self.row_spec, GameSettingRowSpec):
             raise TypeError("row_spec должен быть GameSettingRowSpec или None")
+        if self.row_spec is not None:
+            for option in self.row_spec.options:
+                if type(option.value) is not self.value_type:
+                    raise TypeError(
+                        "row_spec.options и value_type принадлежат разным value family"
+                    )
 
         if self.requirement is None:
             return
