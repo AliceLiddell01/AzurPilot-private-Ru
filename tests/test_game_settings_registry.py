@@ -19,6 +19,7 @@ from module.game_settings.model import (
     GameSettingState,
 )
 from module.game_settings.registry import (
+    GAME_SETTINGS_OPTIONS_REGISTRY,
     GAME_SETTINGS_PREFLIGHT_REGISTRY,
     GAME_SETTINGS_PRODUCTION_KEYS,
     GameSettingCheckSpec,
@@ -46,10 +47,6 @@ def _detector(_image: np.ndarray) -> GameSettingState | None:
     return GameSettingState.OFF
 
 
-def _observer(_image: np.ndarray):
-    return None
-
-
 class GameSettingsRegistryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.definition_a = GameSettingDefinition(key="setting_a", location="options")
@@ -69,9 +66,7 @@ class GameSettingsRegistryTests(unittest.TestCase):
             detector=_detector,
             requirement=self.requirement_a,
         )
-
         registry = build_game_settings_registry((entry,))
-
         self.assertEqual(registry, (entry,))
         self.assertEqual(entry.key, "setting_a")
 
@@ -86,9 +81,7 @@ class GameSettingsRegistryTests(unittest.TestCase):
             detector=_detector,
             requirement=self.requirement_b,
         )
-
         registry = build_game_settings_registry((entry_b, entry_a))
-
         self.assertEqual(tuple(entry.key for entry in registry), ("setting_b", "setting_a"))
 
     def test_duplicate_definition_key_fails_fast(self) -> None:
@@ -104,7 +97,6 @@ class GameSettingsRegistryTests(unittest.TestCase):
             definition=duplicate_definition,
             detector=_detector,
         )
-
         with self.assertRaisesRegex(ValueError, "Повторяющийся ключ registry"):
             build_game_settings_registry((entry_a, duplicate_entry))
 
@@ -121,7 +113,6 @@ class GameSettingsRegistryTests(unittest.TestCase):
             definition=self.definition_a,
             expected_value=FrameRateValue.FPS_60,
         )
-
         with self.assertRaisesRegex(TypeError, "value family"):
             GameSettingCheckSpec(
                 definition=self.definition_a,
@@ -135,7 +126,6 @@ class GameSettingsRegistryTests(unittest.TestCase):
             detector=cast(GameSettingDetector, lambda _image: FrameRateValue.FPS_60),
             requirement=self.requirement_a,
         )
-
         with self.assertRaisesRegex(TypeError, "другой value family"):
             entry.make_result(FrameRateValue.FPS_60)
 
@@ -145,7 +135,6 @@ class GameSettingsRegistryTests(unittest.TestCase):
             detector=_detector,
             requirement=self.requirement_a,
         )
-
         with self.assertRaisesRegex(ValueError, "mutator observer"):
             build_game_settings_registry((entry,), require_enforce=True)
 
@@ -155,13 +144,11 @@ class GameSettingsRegistryTests(unittest.TestCase):
             detector=_detector,
             requirement=self.requirement_a,
         )
-
         with self.assertRaises(FrozenInstanceError):
             entry.requirement = None
 
     def test_non_callable_detector_fails_fast(self) -> None:
         invalid_detector = cast(GameSettingDetector, None)
-
         with self.assertRaisesRegex(TypeError, "detector должен быть callable"):
             GameSettingCheckSpec(
                 definition=self.definition_a,
@@ -170,23 +157,28 @@ class GameSettingsRegistryTests(unittest.TestCase):
 
     def test_empty_registry_is_valid_deterministic_tuple(self) -> None:
         registry = build_game_settings_registry()
-
         self.assertEqual(registry, ())
         self.assertIsInstance(registry, tuple)
+
+    def test_stage6_compat_registry_keeps_custom_ship_names_contract(self) -> None:
+        self.assertEqual(len(GAME_SETTINGS_PREFLIGHT_REGISTRY), 1)
+        entry = GAME_SETTINGS_PREFLIGHT_REGISTRY[0]
+        self.assertIs(entry.definition, CUSTOM_SHIP_NAMES)
+        self.assertIs(entry.requirement, CUSTOM_SHIP_NAMES_REQUIRED_OFF)
+        self.assertIs(entry.detector, detect_custom_ship_names)
 
     def test_production_registry_has_exact_authoritative_stage7_key_set(self) -> None:
         self.assertEqual(GAME_SETTINGS_PRODUCTION_KEYS, EXPECTED_PRODUCTION_KEYS)
         self.assertEqual(
-            tuple(entry.key for entry in GAME_SETTINGS_PREFLIGHT_REGISTRY),
+            tuple(entry.key for entry in GAME_SETTINGS_OPTIONS_REGISTRY),
             EXPECTED_PRODUCTION_KEYS,
         )
         self.assertNotIn("no_sleep_mode_on_main_menu", GAME_SETTINGS_PRODUCTION_KEYS)
         self.assertIn("enable_idle_screen", GAME_SETTINGS_PRODUCTION_KEYS)
-        self.assertTrue(all(entry.enforce_supported for entry in GAME_SETTINGS_PREFLIGHT_REGISTRY))
+        self.assertTrue(all(entry.enforce_supported for entry in GAME_SETTINGS_OPTIONS_REGISTRY))
 
     def test_custom_ship_names_keeps_existing_detector_and_off_requirement(self) -> None:
-        entry = GAME_SETTINGS_PREFLIGHT_REGISTRY[-1]
-
+        entry = GAME_SETTINGS_OPTIONS_REGISTRY[-1]
         self.assertIs(entry.definition, CUSTOM_SHIP_NAMES)
         self.assertIs(entry.requirement, CUSTOM_SHIP_NAMES_REQUIRED_OFF)
         self.assertIs(entry.detector, detect_custom_ship_names)
