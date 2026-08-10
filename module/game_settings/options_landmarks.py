@@ -16,11 +16,15 @@ from module.game_settings.options_detector import (
     _FRAME_OCR_CACHE,
     _group_text,
     _label_similarity,
+    _normalize,
     _same_line_groups,
 )
 
 
 _SEMANTIC_MATCH_THRESHOLD = 0.80
+_SEMANTIC_MARQUEE_MIN_CHARS = 10
+_SEMANTIC_MARQUEE_MIN_COVERAGE = 0.60
+_SEMANTIC_SPAN_MAX_BOXES = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +90,48 @@ OPTIONS_SEMANTIC_LANDMARKS = (
 )
 
 
+def _semantic_similarity(text: str, alias: str) -> float:
+    """Match full labels and long marquee-visible label fragments.
+
+    Long Options labels move horizontally inside a clipped field. OCR can
+    therefore observe only a prefix or suffix of the real label while the row
+    itself remains perfectly identifiable. Short fragments stay rejected so
+    generic words such as ``Off``, ``On`` or ``Mode`` cannot become landmarks.
+    """
+
+    score = _label_similarity(text, alias)
+    left = _normalize(text)
+    right = _normalize(alias)
+    if not left or not right:
+        return score
+
+    if left in right:
+        coverage = len(left) / len(right)
+        if (
+            len(left) >= _SEMANTIC_MARQUEE_MIN_CHARS
+            and coverage >= _SEMANTIC_MARQUEE_MIN_COVERAGE
+        ):
+            score = max(score, 0.80 + min(0.19, coverage * 0.19))
+    return score
+
+
+def _semantic_candidate_texts(group: tuple[OcrTextBox, ...]) -> tuple[str, ...]:
+    """Return bounded contiguous OCR spans from one visual row.
+
+    The full row remains a candidate, but individual/short contiguous spans
+    let a clipped moving label match independently from its adjacent Off/On
+    controls. The bound prevents combinatorial growth on text-heavy rows.
+    """
+
+    candidates: list[str] = [_group_text(group)]
+    limit = min(len(group), _SEMANTIC_SPAN_MAX_BOXES)
+    for start in range(len(group)):
+        stop_limit = min(len(group), start + limit)
+        for stop in range(start + 1, stop_limit + 1):
+            candidates.append(_group_text(group[start:stop]))
+    return tuple(dict.fromkeys(candidates))
+
+
 def detect_options_semantic_landmark(
     image: np.ndarray,
     *,
@@ -110,14 +156,14 @@ def detect_options_semantic_landmark(
         best_score = 0.0
         best_text = ""
         for group in groups:
-            text = _group_text(group)
-            score = max(
-                _label_similarity(text, alias)
-                for alias in landmark.aliases
-            )
-            if score > best_score:
-                best_score = score
-                best_text = text
+            for text in _semantic_candidate_texts(group):
+                score = max(
+                    _semantic_similarity(text, alias)
+                    for alias in landmark.aliases
+                )
+                if score > best_score:
+                    best_score = score
+                    best_text = text
         if best_score >= _SEMANTIC_MATCH_THRESHOLD:
             candidates.append(
                 OptionsSemanticObservation(
