@@ -19,9 +19,9 @@ from module.game_settings.model import (
 )
 from module.game_settings.options_detector import (
     ROW_LAYOUT_CHOICE_CARDS,
-    ROW_SPECS_BY_KEY,
     GameSettingOptionObservation,
     GameSettingRowObservation,
+    GameSettingRowSpec,
     OcrTextBox,
     _choice_marker_bounds,
     _toggle_marker_bounds,
@@ -78,8 +78,7 @@ def _paste_control(
     image[top : top + height, left : left + width] = asset
 
 
-def _render_toggle_row(key: str, selected_value):
-    spec = ROW_SPECS_BY_KEY[key]
+def _render_toggle_row(spec: GameSettingRowSpec, selected_value):
     image = np.full((720, 1280, 3), _BACKGROUND, dtype=np.uint8)
     y = 300
     detections = (
@@ -100,11 +99,10 @@ def _render_toggle_row(key: str, selected_value):
             marker_bounds,
             selected=option.value is selected_value,
         )
-    return image, detections, spec
+    return image, detections
 
 
-def _render_choice_row(key: str, selected_value):
-    spec = ROW_SPECS_BY_KEY[key]
+def _render_choice_row(spec: GameSettingRowSpec, selected_value):
     image = np.full((720, 1280, 3), _BACKGROUND, dtype=np.uint8)
     label_y = 220
     detections: list[OcrTextBox] = [
@@ -132,14 +130,13 @@ def _render_choice_row(key: str, selected_value):
             _choice_marker_bounds(box.bounds),
             selected=option.value is selected_value,
         )
-    return image, tuple(detections), spec
+    return image, tuple(detections)
 
 
-def _render_row(key: str, selected_value):
-    spec = ROW_SPECS_BY_KEY[key]
+def _render_row(spec: GameSettingRowSpec, selected_value):
     if spec.layout == ROW_LAYOUT_CHOICE_CARDS:
-        return _render_choice_row(key, selected_value)
-    return _render_toggle_row(key, selected_value)
+        return _render_choice_row(spec, selected_value)
+    return _render_toggle_row(spec, selected_value)
 
 
 class ProductionRowContractTests(unittest.TestCase):
@@ -158,14 +155,12 @@ class ProductionRowContractTests(unittest.TestCase):
         )
 
     def test_every_production_requirement_detects_required_value(self) -> None:
-        self.assertEqual(
-            set(ROW_SPECS_BY_KEY),
-            {entry.key for entry in GAME_SETTINGS_OPTIONS_REGISTRY},
-        )
         for entry in GAME_SETTINGS_OPTIONS_REGISTRY:
             with self.subTest(key=entry.key):
                 required = entry.requirement.expected_value
-                image, detections, spec = _render_row(entry.key, required)
+                spec = entry.row_spec
+                self.assertIsNotNone(spec)
+                image, detections = _render_row(spec, required)
                 observation = observe_game_setting_row_with_control_assets(
                     image,
                     spec,
@@ -180,13 +175,14 @@ class ProductionRowContractTests(unittest.TestCase):
         for entry in GAME_SETTINGS_OPTIONS_REGISTRY:
             with self.subTest(key=entry.key):
                 required = entry.requirement.expected_value
-                spec = ROW_SPECS_BY_KEY[entry.key]
+                spec = entry.row_spec
+                self.assertIsNotNone(spec)
                 mismatch = next(
                     option.value
                     for option in spec.options
                     if option.value is not required
                 )
-                image, detections, spec = _render_row(entry.key, mismatch)
+                image, detections = _render_row(spec, mismatch)
                 observation = observe_game_setting_row_with_control_assets(
                     image,
                     spec,
@@ -200,7 +196,9 @@ class ProductionRowContractTests(unittest.TestCase):
         for entry in GAME_SETTINGS_OPTIONS_REGISTRY:
             with self.subTest(key=entry.key):
                 required = entry.requirement.expected_value
-                image, detections, spec = _render_row(entry.key, required)
+                spec = entry.row_spec
+                self.assertIsNotNone(spec)
+                image, detections = _render_row(spec, required)
                 unrelated = (
                     OcrTextBox(
                         text="Completely Unrelated Setting",
