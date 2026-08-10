@@ -10,6 +10,7 @@ from module.webui.app_dependencies import (
     clear,
     close_popup,
     get_config_mod,
+    is_webui_hidden_instance,
     load_config,
     pin,
     popup,
@@ -72,7 +73,7 @@ class InstanceMixin(WebUIMixinBase):
                 name = cast(str, pin["AddAlas_name"])
                 origin = cast(str, pin["AddAlas_copyfrom"])
 
-                if name in alas_instance():
+                if name in alas_instance() or is_webui_hidden_instance(name):
                     err = "Gui.AddAlas.FileExist"
                 elif set(name) & set(".\\/:*?\"'<>|"):
                     err = "Gui.AddAlas.InvalidChar"
