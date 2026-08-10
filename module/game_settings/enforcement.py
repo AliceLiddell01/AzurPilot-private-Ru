@@ -234,7 +234,7 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     self.invalidate_game_settings_snapshot()
                     snapshot_invalidated = True
                     logger.info(
-                        "[Game Settings Snapshot] invalidated before enforcement mutation"
+                        "[Снимок игровых настроек] Инвалидирован перед изменением настройки"
                     )
 
                 self.device.click(
