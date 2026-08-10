@@ -25,6 +25,7 @@ _SEMANTIC_MATCH_THRESHOLD = 0.80
 _SEMANTIC_MARQUEE_MIN_CHARS = 10
 _SEMANTIC_MARQUEE_MIN_COVERAGE = 0.60
 _SEMANTIC_SPAN_MAX_BOXES = 4
+_EXACT_VISIBLE_ALIASES = frozenset(("compatibilitymode",))
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,14 +99,19 @@ def _semantic_similarity(text: str, alias: str) -> float:
     therefore observe only a prefix or suffix of the real label while the row
     itself remains perfectly identifiable. Short fragments stay rejected so
     generic words such as ``Off``, ``On`` or ``Mode`` cannot become landmarks.
+    ``Compatibility Mode`` is a special live terminal suffix and must be
+    visible in full; accepting ``Compatibility`` alone would be too generic.
     """
 
-    score = _label_similarity(text, alias)
     left = _normalize(text)
     right = _normalize(alias)
     if not left or not right:
-        return score
+        return 0.0
 
+    if right in _EXACT_VISIBLE_ALIASES and right not in left:
+        return 0.0
+
+    score = _label_similarity(text, alias)
     if left in right:
         coverage = len(left) / len(right)
         if (
