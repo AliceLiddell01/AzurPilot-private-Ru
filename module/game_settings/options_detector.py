@@ -45,10 +45,6 @@ _MARKER_HALF_HEIGHT = 18
 _MARKER_HALF_WIDTH = 18
 _NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
 
-# Kept for compatibility with older tests/callers that import these constants.
-_MARKER_X_GAP = 2
-_MARKER_WIDTH = 30
-
 ROW_LAYOUT_TOGGLE_COLUMNS = "toggle_columns"
 ROW_LAYOUT_CHOICE_CARDS = "choice_cards"
 
@@ -748,11 +744,11 @@ STORY_AUTOPLAY_ROW = GameSettingRowSpec(
     options=(
         GameSettingOptionSpec(
             StoryAutoplayValue.DISABLED,
-            ("Disable", "Disabled", "Off"),
+            ("Disable", "Disabled"),
         ),
         GameSettingOptionSpec(
             StoryAutoplayValue.ENABLED,
-            ("Enable", "Enabled", "On"),
+            ("Enable", "Enabled"),
         ),
     ),
     layout=ROW_LAYOUT_CHOICE_CARDS,
