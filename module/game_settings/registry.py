@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -192,6 +192,20 @@ def build_game_settings_registry(
     return registry
 
 
+# Current EN uses a horizontally scrolling label for this OpSi row. The v8 live
+# acceptance frame exposed a stable clipped fragment such as
+# ``...uto Mode in secured Off`` after the row moved away from the viewport
+# edge. Keep the full canonical aliases and add one specific inner fragment so
+# OCR boxes that include the neighbouring ``Off`` text still anchor the row.
+OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW = replace(
+    OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_ROW,
+    label_aliases=(
+        *OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_ROW.label_aliases,
+        "Mode in secured",
+    ),
+)
+
+
 # Legacy compatibility export for callers/tests that intentionally exercise the
 # original single-setting preflight contract. The full production scanner uses
 # GAME_SETTINGS_OPTIONS_REGISTRY below.
@@ -229,9 +243,9 @@ GAME_SETTINGS_OPTIONS_REGISTRY = build_game_settings_registry(
         ),
         GameSettingCheckSpec(
             definition=OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE,
-            detector=_row_detector(OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_ROW),
+            detector=_row_detector(OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW),
             requirement=OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_REQUIRED_OFF,
-            observer=_row_observer(OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_ROW),
+            observer=_row_observer(OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW),
         ),
         GameSettingCheckSpec(
             definition=STORY_AUTOPLAY,
