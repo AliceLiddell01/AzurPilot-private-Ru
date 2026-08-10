@@ -88,6 +88,10 @@ class _FakeTraversalScanner(GameSettingsScanner):
             return self.bottom_anchor_enabled and frame.position == self.bottom
         raise AssertionError(anchor)
 
+    @staticmethod
+    def _detect_options_semantic_landmark(_frame: _FakeFrame):
+        return None
+
     def _swipe_options(self, *, down: bool) -> None:
         if down:
             self.down_swipes += 1
