@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import FrozenInstanceError
 from typing import cast
+from unittest.mock import patch
 
 import numpy as np
 
@@ -22,6 +23,7 @@ from module.game_settings.registry import (
     GAME_SETTINGS_OPTIONS_REGISTRY,
     GAME_SETTINGS_PREFLIGHT_REGISTRY,
     GAME_SETTINGS_PRODUCTION_KEYS,
+    OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW,
     GameSettingCheckSpec,
     GameSettingDetector,
     build_game_settings_registry,
@@ -176,6 +178,24 @@ class GameSettingsRegistryTests(unittest.TestCase):
         self.assertNotIn("no_sleep_mode_on_main_menu", GAME_SETTINGS_PRODUCTION_KEYS)
         self.assertIn("enable_idle_screen", GAME_SETTINGS_PRODUCTION_KEYS)
         self.assertTrue(all(entry.enforce_supported for entry in GAME_SETTINGS_OPTIONS_REGISTRY))
+
+    def test_live_secured_marquee_fragment_is_used_by_production_detector(self) -> None:
+        entry = GAME_SETTINGS_OPTIONS_REGISTRY[3]
+        self.assertEqual(entry.key, "opsi_default_auto_mode_threat_safe")
+        self.assertIn(
+            "Mode in secured",
+            OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW.label_aliases,
+        )
+        image = np.zeros((720, 1280, 3), dtype=np.uint8)
+        with patch(
+            "module.game_settings.registry.detect_game_setting_row_with_control_assets",
+            return_value=GameSettingState.OFF,
+        ) as detector:
+            self.assertIs(entry.detector(image), GameSettingState.OFF)
+        detector.assert_called_once_with(
+            image,
+            OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW,
+        )
 
     def test_custom_ship_names_production_entry_uses_generic_row_state_path(self) -> None:
         entry = GAME_SETTINGS_OPTIONS_REGISTRY[-1]
