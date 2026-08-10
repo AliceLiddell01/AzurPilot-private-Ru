@@ -20,6 +20,7 @@ from module.game_settings.registry import (
     GameSettingCheckSpec,
     build_game_settings_registry,
 )
+from module.game_settings.snapshot import GameSettingsSnapshotSource
 from module.game_settings.traversal import OptionsViewport
 from module.logger import logger
 
@@ -111,8 +112,22 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 failure_reason=failure.reason,
             )
 
-        after = self.scan_game_settings()
-        if after.all_required_compatible is not True:
+        # Preserve the public audit seam for Stage 7/future subclasses while
+        # suppressing its default source=AUDIT write. The completed result is
+        # then persisted exactly once below with final enforcement provenance.
+        after = self._scan_game_settings_without_snapshot_persistence()
+        final_compatible = after.all_required_compatible is True
+        if self._should_persist_game_settings_snapshot(after):
+            self.persist_game_settings_snapshot(
+                after,
+                source=(
+                    GameSettingsSnapshotSource.ENFORCEMENT_FINAL_AUDIT
+                    if final_compatible
+                    else GameSettingsSnapshotSource.AUDIT
+                ),
+            )
+
+        if not final_compatible:
             return GameSettingsEnforcementResult(
                 before=before,
                 changes=changes,
@@ -157,6 +172,7 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
         pending = {entry.key: entry for entry in plan}
         changes: list[GameSettingAppliedChange] = []
         failure: _ApplyFailure | None = None
+        snapshot_invalidated = False
         clear_game_settings_ocr_cache()
 
         def fail(key: str, reason: str) -> bool:
@@ -166,6 +182,8 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
             return True
 
         def visit(_viewport: OptionsViewport) -> bool:
+            nonlocal snapshot_invalidated
+
             # GameSettingsScanner mirrors the detached traversal snapshot into
             # device.image, so this is the exact ndarray owned by traversal.
             # Keep that object identity stable across clicks: semantic matching
@@ -217,6 +235,16 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     observation.value.value,
                     required.value,
                 )
+                if not snapshot_invalidated:
+                    # Any real mutation can invalidate a pre-existing production
+                    # snapshot, even when this enforcement instance uses a custom
+                    # registry. Invalidation is safe/idempotent if no file exists.
+                    self.invalidate_game_settings_snapshot()
+                    snapshot_invalidated = True
+                    logger.info(
+                        "[Снимок игровых настроек] Инвалидирован перед изменением настройки"
+                    )
+
                 self.device.click(
                     Button(
                         area=click_bounds,

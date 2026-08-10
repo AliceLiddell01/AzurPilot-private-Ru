@@ -1,10 +1,19 @@
 """UI-capable граница сканирования игровых настроек."""
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from module.exception import GamePageUnknownError, RequestHumanTakeover
 from module.game_settings.model import GameSettingsScanResult
 from module.game_settings.navigation import page_settings, page_settings_options
+from module.game_settings.snapshot import (
+    DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH,
+    GameSettingsSnapshot,
+    GameSettingsSnapshotSource,
+    invalidate_game_settings_snapshot,
+    is_current_game_settings_scan_result,
+    save_game_settings_snapshot,
+)
 from module.game_settings.traversal import OptionsTraversalMixin
 from module.ui.page import page_main, page_main_white
 from module.ui.ui import UI
@@ -16,9 +25,58 @@ class GameSettingsScanner(OptionsTraversalMixin, UI, ABC):
     Consumer-модули должны зависеть от этой подсистемы, а не наоборот.
     """
 
+    game_settings_snapshot_path: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH
+    _game_settings_snapshot_persistence_suppressed = False
+
     def scan_game_settings(self) -> GameSettingsScanResult:
-        """Запустить реализацию сканирования через стабильный public entry point."""
-        return self._scan_game_settings()
+        """Запустить complete audit и сохранить только production snapshot."""
+        result = self._scan_game_settings()
+        if (
+            not self._game_settings_snapshot_persistence_suppressed
+            and self._should_persist_game_settings_snapshot(result)
+        ):
+            self.persist_game_settings_snapshot(
+                result,
+                source=GameSettingsSnapshotSource.AUDIT,
+            )
+        return result
+
+    def _scan_game_settings_without_snapshot_persistence(self) -> GameSettingsScanResult:
+        """Запустить public audit seam, временно отключив automatic persistence.
+
+        Enforcement использует этот helper для финального полного аудита, чтобы
+        после него записать ровно один snapshot с точным provenance. Вызов идёт
+        через ``scan_game_settings()`` намеренно: это сохраняет public audit seam
+        для независимых test doubles и будущих подклассов.
+        """
+        previous = self._game_settings_snapshot_persistence_suppressed
+        self._game_settings_snapshot_persistence_suppressed = True
+        try:
+            return self.scan_game_settings()
+        finally:
+            self._game_settings_snapshot_persistence_suppressed = previous
+
+    def _should_persist_game_settings_snapshot(
+        self,
+        result: GameSettingsScanResult,
+    ) -> bool:
+        """Не сохранять test/custom registries как production cache."""
+        return is_current_game_settings_scan_result(result)
+
+    def persist_game_settings_snapshot(
+        self,
+        result: GameSettingsScanResult,
+        *,
+        source: GameSettingsSnapshotSource = GameSettingsSnapshotSource.AUDIT,
+    ) -> GameSettingsSnapshot:
+        return save_game_settings_snapshot(
+            result,
+            path=self.game_settings_snapshot_path,
+            source=source,
+        )
+
+    def invalidate_game_settings_snapshot(self) -> None:
+        invalidate_game_settings_snapshot(self.game_settings_snapshot_path)
 
     def _capture_options_frame(self):
         """Expose the detached traversal snapshot as the callback device image.
