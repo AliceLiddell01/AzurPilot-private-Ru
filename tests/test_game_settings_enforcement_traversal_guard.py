@@ -12,7 +12,7 @@ from module.game_settings.model import (
     GameSettingsScanResult,
 )
 from module.game_settings.registry import GameSettingCheckSpec, build_game_settings_registry
-from module.game_settings.traversal import OptionsTraversalResult
+from module.game_settings.traversal import OptionsTraversalResult, OptionsViewport
 
 
 class _IncompleteApplyScanner(GameSettingsEnforcementScanner):
@@ -48,12 +48,19 @@ class _IncompleteApplyScanner(GameSettingsEnforcementScanner):
             (self.entry.make_result(GameSettingState.OFF),)
         )
 
-    def traverse_options(self, _visitor) -> OptionsTraversalResult:
+    def traverse_options(self, visitor) -> OptionsTraversalResult:
+        viewport = OptionsViewport(
+            index=1,
+            scroll_offset=0.0,
+            is_top=True,
+            is_bottom=False,
+        )
+        stopped = bool(visitor(viewport))
         return OptionsTraversalResult(
             visited_viewports=1,
             final_offset=0.0,
             reached_bottom=False,
-            stopped_early=False,
+            stopped_early=stopped,
         )
 
     def return_to_main(self) -> bool:
