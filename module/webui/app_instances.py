@@ -38,6 +38,8 @@ class InstanceMixin(WebUIMixinBase):
     """WebUI实例切换创建和导入"""
 
     def ui_alas(self, config_name: str) -> None:
+        if is_webui_hidden_instance(config_name):
+            return
         self._set_manage_mode(False)
         if config_name == self.alas_name:
             self.expand_menu()
