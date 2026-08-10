@@ -186,10 +186,6 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     return fail(entry.key, "Изменилась типизированная группа значения")
                 if is_unknown_game_setting_value(observation.value):
                     return fail(entry.key, "Текущее значение стало UNKNOWN до клика")
-
-                if observation.value is required:
-                    pending.pop(entry.key)
-                    continue
                 if observation.value is not initial.detected_value:
                     return fail(
                         entry.key,
