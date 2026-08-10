@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from module.base.button import Button
 from module.game_settings.model import (
     GameSettingAppliedChange,
-    GameSettingResult,
     GameSettingsEnforcementResult,
     GameSettingsScanResult,
     is_unknown_game_setting_value,
@@ -156,7 +155,6 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
             return True
 
         def visit(_viewport: OptionsViewport) -> bool:
-            nonlocal failure
             frame = self.device.image
 
             for entry in plan:
@@ -180,8 +178,6 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     return fail(entry.key, "Current value became UNKNOWN before click")
 
                 if observation.value is required:
-                    # Another deterministic action may already have made this
-                    # row canonical. Do not click an already-compatible target.
                     pending.pop(entry.key)
                     continue
                 if observation.value is not initial.detected_value:
@@ -211,14 +207,10 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     )
                 )
 
-                # The traversal stabilization loop itself takes fresh screenshots.
-                # Verification never reuses the pre-click frame.
                 clear_game_settings_ocr_cache()
                 verified_frame = self._wait_options_stable()
                 verified = observer(verified_frame)
                 if verified is None:
-                    # One additional bounded stabilization is allowed for a row
-                    # temporarily disappearing during UI animation.
                     clear_game_settings_ocr_cache()
                     verified_frame = self._wait_options_stable()
                     verified = observer(verified_frame)
@@ -257,20 +249,16 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 return tuple(changes), failure
             if pending:
                 if not traversal.reached_bottom:
-                    return (
-                        tuple(changes),
-                        _ApplyFailure(
-                            key=next(iter(pending)),
-                            reason="Apply traversal ended before pending rows were found",
-                        ),
+                    failure = _ApplyFailure(
+                        key=next(iter(pending)),
+                        reason="Apply traversal ended before pending rows were found",
                     )
-                return (
-                    tuple(changes),
-                    _ApplyFailure(
+                else:
+                    failure = _ApplyFailure(
                         key=next(iter(pending)),
                         reason="Required row not found during apply traversal",
-                    ),
-                )
+                    )
+                return tuple(changes), failure
             return tuple(changes), None
         except Exception as exc:
             primary_error = exc
@@ -280,11 +268,11 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
             try:
                 self.return_to_main()
             except Exception:
-                if primary_error is None:
+                if primary_error is None and failure is None:
                     raise
                 logger.warning(
-                    "[Game Settings] Не удалось вернуться на главный экран "
-                    "после operational apply failure"
+                    "[Game Settings] Cleanup failure did not replace the primary "
+                    "apply failure"
                 )
 
     @staticmethod
