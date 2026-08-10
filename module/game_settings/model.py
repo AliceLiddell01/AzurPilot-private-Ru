@@ -359,7 +359,9 @@ class GameSettingsEnforcementResult:
             or self.failure_reason is not None
         ):
             raise ValueError("success result не может одновременно содержать failure")
-        if self.blocked_reason is not None and self.failure_reason is not None:
+        if self.blocked_reason is not None and (
+            self.failed_key is not None or self.failure_reason is not None
+        ):
             raise ValueError("blocked и operational failure взаимоисключающие")
         if (
             not self.success
