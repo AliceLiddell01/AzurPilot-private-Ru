@@ -4,12 +4,15 @@ import unittest
 
 import numpy as np
 
-from module.game_settings.model import GameSettingState
+from module.game_settings.model import GameSettingRequirement, GameSettingState
 from module.game_settings.options_detector import (
+    ROW_SPECS_BY_KEY,
     GameSettingOptionObservation,
     GameSettingRowObservation,
     OcrTextBox,
-    ROW_SPECS_BY_KEY,
+    _MARKER_HALF_HEIGHT,
+    _MARKER_WIDTH,
+    _MARKER_X_GAP,
     observe_game_setting_row,
 )
 from module.game_settings.preflight import GameSettingsPreflightScanner
@@ -32,10 +35,10 @@ def _paint_marker(
 ) -> None:
     _x1, y1, x2, y2 = bounds
     center_y = int(round((y1 + y2) / 2.0))
-    left = x2 + 2
-    top = center_y - 15
-    right = left + 30
-    bottom = center_y + 15
+    left = x2 + _MARKER_X_GAP
+    top = center_y - _MARKER_HALF_HEIGHT
+    right = left + _MARKER_WIDTH
+    bottom = center_y + _MARKER_HALF_HEIGHT
     if selected:
         image[top + 5 : bottom - 5, left + 5 : right - 5] = 230
     else:
@@ -147,7 +150,7 @@ class _ReadOnlyScanner(GameSettingsPreflightScanner):
         return OptionsTraversalResult(
             visited_viewports=1,
             final_offset=0.0,
-            reached_bottom=not stopped,
+            reached_bottom=False,
             stopped_early=stopped,
         )
 
@@ -181,8 +184,6 @@ class ReadOnlyAuditContractTests(unittest.TestCase):
 
         definition = GAME_SETTINGS_OPTIONS_REGISTRY[0].definition
         toggle_definition = type(definition)(key="read_only_guard", location="options")
-        from module.game_settings.model import GameSettingRequirement
-
         requirement = GameSettingRequirement(
             toggle_definition,
             GameSettingState.OFF,
@@ -202,7 +203,7 @@ class ReadOnlyAuditContractTests(unittest.TestCase):
         result = scanner.scan_game_settings()
 
         self.assertEqual(observer_calls, 0)
-        self.assertEqual(result.changed_keys if hasattr(result, "changed_keys") else (), ())
+        self.assertFalse(hasattr(result, "changed_keys"))
         self.assertIs(result.get("read_only_guard").detected_state, GameSettingState.OFF)
         self.assertEqual(scanner.return_calls, 1)
 
