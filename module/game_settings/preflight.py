@@ -36,9 +36,10 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
         resolved: dict[str, GameSettingResult] = {}
 
         def visit(viewport: OptionsViewport) -> bool:
-            # traverse_options() has already stabilized this viewport. Every
-            # unresolved detector receives the exact same frame object. Text
-            # detectors additionally share one cached OCR pass for that frame.
+            # Cache lifetime is exactly one stabilized viewport. This remains
+            # safe even if a screenshot backend reuses one numpy buffer and
+            # overwrites its contents between captures.
+            clear_game_settings_ocr_cache()
             frame = self.device.image
 
             for entry in registry:
@@ -78,7 +79,7 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
             if len(resolved) != len(registry):
                 if not traversal_result.reached_bottom:
                     raise RuntimeError(
-                        "[Game Settings] Traversal завершился без hard bottom при "
+                        "Обход Game Settings завершился без hard bottom при "
                         "неразрешённых registry entries."
                     )
 
