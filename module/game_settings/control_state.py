@@ -24,17 +24,19 @@ from module.game_settings.options_detector import (
 _CONTROL_TEMPLATE_MIN_SCORE = 0.42
 _CONTROL_SELECTED_MIN_MARGIN = 0.15
 _CONTROL_UNSELECTED_MIN_MARGIN = 0.10
+_CONTROL_RAW_MIN_SCORE = 0.65
+_CONTROL_RAW_MIN_MARGIN = 0.20
 _CONTROL_SEARCH_HALF_SIZE = 22
 _CONTROL_EDGE_LOW = 80
 _CONTROL_EDGE_HIGH = 160
 
 
 @lru_cache(maxsize=2)
-def _load_control_template(path: str) -> np.ndarray:
+def _load_control_template(path: str) -> tuple[np.ndarray, np.ndarray]:
     image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if image is None:
         raise ValueError(f"Не удалось загрузить Game Settings control asset: {path}")
-    return cv2.Canny(image, _CONTROL_EDGE_LOW, _CONTROL_EDGE_HIGH)
+    return image, cv2.Canny(image, _CONTROL_EDGE_LOW, _CONTROL_EDGE_HIGH)
 
 
 def _crop_checked(
@@ -63,44 +65,64 @@ def _control_search_bounds(
     )
 
 
-def _template_score(search: np.ndarray, template: np.ndarray) -> float:
-    if search.ndim == 3:
-        gray = cv2.cvtColor(search[:, :, :3], cv2.COLOR_RGB2GRAY)
-    else:
-        gray = search
-    edges = cv2.Canny(gray, _CONTROL_EDGE_LOW, _CONTROL_EDGE_HIGH)
-    if edges.shape[0] < template.shape[0] or edges.shape[1] < template.shape[1]:
+def _match_template(search: np.ndarray, template: np.ndarray) -> float:
+    if search.shape[0] < template.shape[0] or search.shape[1] < template.shape[1]:
         return 0.0
-    result = cv2.matchTemplate(edges, template, cv2.TM_CCOEFF_NORMED)
+    result = cv2.matchTemplate(search, template, cv2.TM_CCOEFF_NORMED)
     return float(np.max(result))
+
+
+def _classify_score_pair(
+    selected_score: float,
+    unselected_score: float,
+    *,
+    min_score: float,
+    selected_min_margin: float,
+    unselected_min_margin: float,
+) -> float | None:
+    if max(selected_score, unselected_score) < min_score:
+        return None
+
+    confidence = selected_score - unselected_score
+    if confidence > 0.0:
+        if confidence < selected_min_margin:
+            return None
+    elif confidence < 0.0:
+        if -confidence < unselected_min_margin:
+            return None
+    else:
+        return None
+    return confidence
 
 
 def _classify_control_scores(
     selected_score: float,
     unselected_score: float,
 ) -> float | None:
-    """Return signed confidence with asymmetric fail-closed state margins.
+    """Classify edge-template scores with asymmetric fail-closed margins."""
 
-    A selected marker is positive state authority and therefore keeps the
-    stricter margin. An unselected marker is only negative evidence, so a
-    slightly smaller margin is sufficient as long as its absolute template
-    score is still strong. Row resolution still requires every option to be
-    classified and exactly one option to be confidently selected.
-    """
+    return _classify_score_pair(
+        selected_score,
+        unselected_score,
+        min_score=_CONTROL_TEMPLATE_MIN_SCORE,
+        selected_min_margin=_CONTROL_SELECTED_MIN_MARGIN,
+        unselected_min_margin=_CONTROL_UNSELECTED_MIN_MARGIN,
+    )
 
-    if max(selected_score, unselected_score) < _CONTROL_TEMPLATE_MIN_SCORE:
-        return None
 
-    confidence = selected_score - unselected_score
-    if confidence > 0.0:
-        if confidence < _CONTROL_SELECTED_MIN_MARGIN:
-            return None
-    elif confidence < 0.0:
-        if -confidence < _CONTROL_UNSELECTED_MIN_MARGIN:
-            return None
-    else:
-        return None
-    return confidence
+def _classify_raw_control_scores(
+    selected_score: float,
+    unselected_score: float,
+) -> float | None:
+    """Accept only strong raw-template evidence before falling back to edges."""
+
+    return _classify_score_pair(
+        selected_score,
+        unselected_score,
+        min_score=_CONTROL_RAW_MIN_SCORE,
+        selected_min_margin=_CONTROL_RAW_MIN_MARGIN,
+        unselected_min_margin=_CONTROL_RAW_MIN_MARGIN,
+    )
 
 
 def control_selection_confidence(
@@ -111,17 +133,40 @@ def control_selection_confidence(
 
     Positive means the selected asset wins, negative means the unselected asset
     wins, and ``None`` means the visual evidence is not strong enough.
+
+    Raw grayscale template matching is used first because the real selected and
+    unselected diamonds differ strongly in glow/fill while sharing many edges.
+    Edge matching remains a fail-closed fallback for frames where background
+    variation weakens the raw-template correlation.
     """
 
     search = _crop_checked(image, _control_search_bounds(click_bounds))
     if search is None or search.size == 0:
         return None
+    if search.ndim == 3:
+        gray = cv2.cvtColor(search[:, :, :3], cv2.COLOR_RGB2GRAY)
+    else:
+        gray = search
 
-    selected = _load_control_template(TEMPLATE_GAME_SETTINGS_CONTROL_SELECTED.file)
-    unselected = _load_control_template(TEMPLATE_GAME_SETTINGS_CONTROL_UNSELECTED.file)
-    selected_score = _template_score(search, selected)
-    unselected_score = _template_score(search, unselected)
-    return _classify_control_scores(selected_score, unselected_score)
+    selected_raw, selected_edges = _load_control_template(
+        TEMPLATE_GAME_SETTINGS_CONTROL_SELECTED.file
+    )
+    unselected_raw, unselected_edges = _load_control_template(
+        TEMPLATE_GAME_SETTINGS_CONTROL_UNSELECTED.file
+    )
+
+    raw_confidence = _classify_raw_control_scores(
+        _match_template(gray, selected_raw),
+        _match_template(gray, unselected_raw),
+    )
+    if raw_confidence is not None:
+        return raw_confidence
+
+    edges = cv2.Canny(gray, _CONTROL_EDGE_LOW, _CONTROL_EDGE_HIGH)
+    return _classify_control_scores(
+        _match_template(edges, selected_edges),
+        _match_template(edges, unselected_edges),
+    )
 
 
 def _unknown_for(spec: GameSettingRowSpec) -> GameSettingValue:
@@ -141,9 +186,9 @@ def _reclassify_observation(
         confidence = control_selection_confidence(image, option.click_bounds)
         if confidence is None:
             all_classified = False
-            signed_confidence = 0.0
+            activity = 0.0
         else:
-            signed_confidence = confidence
+            activity = abs(confidence)
             if confidence > 0.0:
                 selected_values.append(option.value)
         rebuilt.append(
@@ -151,7 +196,7 @@ def _reclassify_observation(
                 value=option.value,
                 bounds=option.bounds,
                 click_bounds=option.click_bounds,
-                marker_activity=signed_confidence,
+                marker_activity=activity,
             )
         )
 
