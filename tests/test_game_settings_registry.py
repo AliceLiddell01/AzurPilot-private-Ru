@@ -177,11 +177,13 @@ class GameSettingsRegistryTests(unittest.TestCase):
         self.assertIn("enable_idle_screen", GAME_SETTINGS_PRODUCTION_KEYS)
         self.assertTrue(all(entry.enforce_supported for entry in GAME_SETTINGS_OPTIONS_REGISTRY))
 
-    def test_custom_ship_names_keeps_existing_detector_and_off_requirement(self) -> None:
+    def test_custom_ship_names_production_entry_uses_generic_row_state_path(self) -> None:
         entry = GAME_SETTINGS_OPTIONS_REGISTRY[-1]
         self.assertIs(entry.definition, CUSTOM_SHIP_NAMES)
         self.assertIs(entry.requirement, CUSTOM_SHIP_NAMES_REQUIRED_OFF)
-        self.assertIs(entry.detector, detect_custom_ship_names)
+        self.assertIsNot(entry.detector, detect_custom_ship_names)
+        self.assertTrue(callable(entry.detector))
+        self.assertTrue(callable(entry.observer))
         self.assertEqual(entry.key, "custom_ship_names")
 
 
