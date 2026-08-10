@@ -1,54 +1,99 @@
-"""Чистая доменная модель результатов проверки игровых настроек."""
+"""Типизированная доменная модель Game Settings audit/enforcement."""
 
 from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
-_IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+class GameSettingKind(Enum):
+    TOGGLE = "toggle"
+    CHOICE = "choice"
 
 
 class GameSettingState(Enum):
-    """Достоверно обнаруженное состояние настройки или его неизвестность."""
-
     ON = "on"
     OFF = "off"
     UNKNOWN = "unknown"
 
     def __bool__(self) -> bool:
-        """Запретить двусмысленное неявное преобразование состояния в bool."""
-        raise TypeError("GameSettingState нельзя неявно преобразовать в bool")
+        raise TypeError("GameSettingState нельзя неявно преобразовывать в bool")
 
 
-def _validate_identifier(value: object, *, field_name: str) -> None:
-    if not isinstance(value, str):
-        raise TypeError(f"{field_name} должен быть строкой")
-    if _IDENTIFIER_PATTERN.fullmatch(value) is None:
-        raise ValueError(
-            f"{field_name} должен быть непустым стабильным идентификатором "
-            "в нижнем регистре"
+class FrameRateValue(Enum):
+    FPS_30 = "30_fps"
+    FPS_60 = "60_fps"
+    UNKNOWN = "unknown"
+
+    def __bool__(self) -> bool:
+        raise TypeError("FrameRateValue нельзя неявно преобразовывать в bool")
+
+
+class StoryAutoplayValue(Enum):
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+    UNKNOWN = "unknown"
+
+    def __bool__(self) -> bool:
+        raise TypeError("StoryAutoplayValue нельзя неявно преобразовывать в bool")
+
+
+class TextAutoScrollSpeedValue(Enum):
+    SLOW = "slow"
+    NORMAL = "normal"
+    FAST = "fast"
+    VERY_FAST = "very_fast"
+    UNKNOWN = "unknown"
+
+    def __bool__(self) -> bool:
+        raise TypeError(
+            "TextAutoScrollSpeedValue нельзя неявно преобразовывать в bool"
         )
+
+
+GameSettingChoiceValue = (
+    FrameRateValue | StoryAutoplayValue | TextAutoScrollSpeedValue
+)
+GameSettingValue = GameSettingState | GameSettingChoiceValue
+
+
+def is_unknown_game_setting_value(value: GameSettingValue) -> bool:
+    return value.value == "unknown"
+
+
+def game_setting_value_kind(value: GameSettingValue) -> GameSettingKind:
+    if isinstance(value, GameSettingState):
+        return GameSettingKind.TOGGLE
+    if isinstance(
+        value,
+        (FrameRateValue, StoryAutoplayValue, TextAutoScrollSpeedValue),
+    ):
+        return GameSettingKind.CHOICE
+    raise TypeError("Неподдерживаемый тип значения Game Setting")
 
 
 @dataclass(frozen=True, slots=True)
 class GameSettingDefinition:
-    """Стабильная идентичность игровой настройки и место её расположения."""
-
     key: str
     location: str
 
     def __post_init__(self) -> None:
-        _validate_identifier(self.key, field_name="key")
-        _validate_identifier(self.location, field_name="location")
+        for name, value in (("key", self.key), ("location", self.location)):
+            if not isinstance(value, str):
+                raise TypeError(f"{name} должен быть str")
+            if not _IDENTIFIER_RE.fullmatch(value):
+                raise ValueError(
+                    f"{name} должен быть стабильным lowercase identifier: {value!r}"
+                )
 
 
 @dataclass(frozen=True, slots=True)
 class GameSettingRequirement:
-    """Требуемое рабочее состояние конкретной игровой настройки."""
-
     definition: GameSettingDefinition
     expected_state: GameSettingState
 
@@ -60,11 +105,41 @@ class GameSettingRequirement:
         if self.expected_state is GameSettingState.UNKNOWN:
             raise ValueError("UNKNOWN нельзя использовать как требуемое состояние")
 
+    @property
+    def expected_value(self) -> GameSettingState:
+        return self.expected_state
+
+    @property
+    def kind(self) -> GameSettingKind:
+        return GameSettingKind.TOGGLE
+
+
+@dataclass(frozen=True, slots=True)
+class GameSettingChoiceRequirement:
+    definition: GameSettingDefinition
+    expected_value: GameSettingChoiceValue
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.definition, GameSettingDefinition):
+            raise TypeError("definition должен быть GameSettingDefinition")
+        if not isinstance(
+            self.expected_value,
+            (FrameRateValue, StoryAutoplayValue, TextAutoScrollSpeedValue),
+        ):
+            raise TypeError("expected_value должен быть типизированным choice enum")
+        if is_unknown_game_setting_value(self.expected_value):
+            raise ValueError("UNKNOWN нельзя использовать как требуемое значение")
+
+    @property
+    def kind(self) -> GameSettingKind:
+        return GameSettingKind.CHOICE
+
+
+GameSettingRequirementValue = GameSettingRequirement | GameSettingChoiceRequirement
+
 
 @dataclass(frozen=True, slots=True)
 class GameSettingCheckResult:
-    """Результат определения одной настройки и проверки её требования."""
-
     definition: GameSettingDefinition
     detected_state: GameSettingState
     requirement: GameSettingRequirement | None = None
@@ -82,85 +157,200 @@ class GameSettingCheckResult:
 
     @property
     def key(self) -> str:
-        """Вернуть стабильный ключ настройки."""
         return self.definition.key
 
     @property
+    def detected_value(self) -> GameSettingState:
+        return self.detected_state
+
+    @property
     def expected_state(self) -> GameSettingState | None:
-        """Вернуть требуемое состояние или None для информационной проверки."""
         if self.requirement is None:
             return None
         return self.requirement.expected_state
 
     @property
+    def required_value(self) -> GameSettingState | None:
+        return self.expected_state
+
+    @property
+    def kind(self) -> GameSettingKind:
+        return GameSettingKind.TOGGLE
+
+    @property
     def is_required(self) -> bool:
-        """Показать, задано ли для результата обязательное состояние."""
         return self.requirement is not None
 
     @property
     def compatible(self) -> bool | None:
-        """Проверить требование или вернуть None, когда требования нет."""
-        expected_state = self.expected_state
-        if expected_state is None:
+        expected = self.expected_state
+        if expected is None:
             return None
-        return self.detected_state is expected_state
+        return self.detected_state is expected
+
+
+@dataclass(frozen=True, slots=True)
+class GameSettingChoiceCheckResult:
+    definition: GameSettingDefinition
+    detected_value: GameSettingChoiceValue
+    requirement: GameSettingChoiceRequirement | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.definition, GameSettingDefinition):
+            raise TypeError("definition должен быть GameSettingDefinition")
+        if not isinstance(
+            self.detected_value,
+            (FrameRateValue, StoryAutoplayValue, TextAutoScrollSpeedValue),
+        ):
+            raise TypeError("detected_value должен быть типизированным choice enum")
+        if self.requirement is not None:
+            if not isinstance(self.requirement, GameSettingChoiceRequirement):
+                raise TypeError(
+                    "requirement должен быть GameSettingChoiceRequirement или None"
+                )
+            if self.requirement.definition != self.definition:
+                raise ValueError("requirement относится к другой настройке")
+            if type(self.requirement.expected_value) is not type(self.detected_value):
+                raise TypeError("detected/required choice принадлежат разным value family")
+
+    @property
+    def key(self) -> str:
+        return self.definition.key
+
+    @property
+    def required_value(self) -> GameSettingChoiceValue | None:
+        if self.requirement is None:
+            return None
+        return self.requirement.expected_value
+
+    @property
+    def kind(self) -> GameSettingKind:
+        return GameSettingKind.CHOICE
+
+    @property
+    def is_required(self) -> bool:
+        return self.requirement is not None
+
+    @property
+    def compatible(self) -> bool | None:
+        expected = self.required_value
+        if expected is None:
+            return None
+        if is_unknown_game_setting_value(self.detected_value):
+            return False
+        return self.detected_value is expected
+
+
+GameSettingResult = GameSettingCheckResult | GameSettingChoiceCheckResult
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class GameSettingsScanResult:
-    """Упорядоченный неизменяемый набор результатов без повторяющихся ключей."""
+    results: tuple[GameSettingResult, ...]
 
-    results: tuple[GameSettingCheckResult, ...]
+    def __init__(self, results: Iterable[GameSettingResult] = ()) -> None:
+        frozen_results = tuple(results)
+        seen: set[str] = set()
+        for result in frozen_results:
+            if not isinstance(
+                result,
+                (GameSettingCheckResult, GameSettingChoiceCheckResult),
+            ):
+                raise TypeError(
+                    "results должен содержать GameSettingCheckResult "
+                    "или GameSettingChoiceCheckResult"
+                )
+            if result.key in seen:
+                raise ValueError(f"Повторяющийся ключ результата: {result.key!r}")
+            seen.add(result.key)
+        object.__setattr__(self, "results", frozen_results)
 
-    def __init__(self, results: Iterable[GameSettingCheckResult] = ()) -> None:
-        resolved_results = tuple(results)
-        seen_keys: set[str] = set()
-
-        for result in resolved_results:
-            if not isinstance(result, GameSettingCheckResult):
-                raise TypeError("results должен содержать GameSettingCheckResult")
-            if result.key in seen_keys:
-                raise ValueError(f"Повторяющийся ключ настройки: {result.key!r}")
-            seen_keys.add(result.key)
-
-        object.__setattr__(self, "results", resolved_results)
-
-    def __iter__(self) -> Iterator[GameSettingCheckResult]:
+    def __iter__(self) -> Iterator[GameSettingResult]:
         return iter(self.results)
 
     def __len__(self) -> int:
         return len(self.results)
 
-    def get(self, key: str) -> GameSettingCheckResult | None:
-        """Найти результат по стабильному ключу без изменения порядка."""
+    def get(self, key: str) -> GameSettingResult | None:
         for result in self.results:
             if result.key == key:
                 return result
         return None
 
     @property
-    def required(self) -> tuple[GameSettingCheckResult, ...]:
-        """Вернуть результаты, для которых задано обязательное состояние."""
+    def required(self) -> tuple[GameSettingResult, ...]:
         return tuple(result for result in self.results if result.is_required)
 
     @property
-    def unknown(self) -> tuple[GameSettingCheckResult, ...]:
-        """Вернуть результаты с недостоверно определённым состоянием."""
+    def unknown(self) -> tuple[GameSettingResult, ...]:
         return tuple(
             result
             for result in self.results
-            if result.detected_state is GameSettingState.UNKNOWN
+            if is_unknown_game_setting_value(result.detected_value)
         )
 
     @property
-    def incompatible(self) -> tuple[GameSettingCheckResult, ...]:
-        """Вернуть обязательные результаты, которые не прошли требование."""
-        return tuple(result for result in self.required if result.compatible is False)
+    def incompatible(self) -> tuple[GameSettingResult, ...]:
+        return tuple(
+            result for result in self.required if result.compatible is False
+        )
 
     @property
     def all_required_compatible(self) -> bool | None:
-        """Вернуть общий итог или None, если обязательных требований нет."""
         required = self.required
         if not required:
             return None
         return all(result.compatible is True for result in required)
+
+
+@dataclass(frozen=True, slots=True)
+class GameSettingAppliedChange:
+    key: str
+    before: GameSettingValue
+    after: GameSettingValue
+    verified: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.key, str) or not _IDENTIFIER_RE.fullmatch(self.key):
+            raise ValueError(f"Недопустимый key изменения: {self.key!r}")
+        if type(self.before) is not type(self.after):
+            raise TypeError("before/after должны принадлежать одной value family")
+
+
+@dataclass(frozen=True, slots=True)
+class GameSettingsEnforcementResult:
+    before: GameSettingsScanResult
+    changes: tuple[GameSettingAppliedChange, ...] = field(default_factory=tuple)
+    after: GameSettingsScanResult | None = None
+    success: bool = False
+    blocked_reason: str | None = None
+    failed_key: str | None = None
+    failure_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.before, GameSettingsScanResult):
+            raise TypeError("before должен быть GameSettingsScanResult")
+        if self.after is not None and not isinstance(
+            self.after, GameSettingsScanResult
+        ):
+            raise TypeError("after должен быть GameSettingsScanResult или None")
+        changes = tuple(self.changes)
+        if not all(isinstance(change, GameSettingAppliedChange) for change in changes):
+            raise TypeError("changes должен содержать GameSettingAppliedChange")
+        object.__setattr__(self, "changes", changes)
+        if self.success and (
+            self.blocked_reason is not None
+            or self.failed_key is not None
+            or self.failure_reason is not None
+        ):
+            raise ValueError("success result не может одновременно содержать failure")
+        if self.blocked_reason is not None and self.failure_reason is not None:
+            raise ValueError("blocked и operational failure взаимоисключающие")
+
+    @property
+    def changed_keys(self) -> tuple[str, ...]:
+        return tuple(change.key for change in self.changes)
+
+    @property
+    def blocked(self) -> bool:
+        return self.blocked_reason is not None
