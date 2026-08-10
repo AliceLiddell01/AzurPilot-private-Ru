@@ -93,7 +93,7 @@ def _row_observer(spec: GameSettingRowSpec) -> GameSettingObserver:
 def _custom_ship_names_observer(
     image: np.ndarray,
 ) -> GameSettingRowObservation | None:
-    """Use the proven Stage 5/6 template detector as the state authority.
+    """Use the proven template detector as the state authority.
 
     OCR is used only to obtain row-local click geometry. It never replaces the
     template-derived current state, so audit and apply cannot disagree merely
@@ -223,9 +223,9 @@ def build_game_settings_registry(
     return registry
 
 
-# Compatibility export kept for Stage 6 callers/tests that intentionally model
-# the original single-setting preflight contract. Stage 7 production scanner
-# uses GAME_SETTINGS_OPTIONS_REGISTRY below.
+# Legacy compatibility export for callers/tests that intentionally exercise the
+# original single-setting preflight contract. The full production scanner uses
+# GAME_SETTINGS_OPTIONS_REGISTRY below.
 GAME_SETTINGS_PREFLIGHT_REGISTRY = build_game_settings_registry(
     (
         GameSettingCheckSpec(
