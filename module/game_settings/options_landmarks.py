@@ -162,13 +162,14 @@ def detect_options_semantic_landmark(
         if detections is None
         else _same_line_groups(detections)
     )
+    group_candidates = tuple(_semantic_candidate_texts(group) for group in groups)
     candidates: list[OptionsSemanticObservation] = []
 
     for landmark in OPTIONS_SEMANTIC_LANDMARKS:
         best_score = 0.0
         best_text = ""
-        for group in groups:
-            for text in _semantic_candidate_texts(group):
+        for candidates_for_group in group_candidates:
+            for text in candidates_for_group:
                 score = max(
                     _semantic_similarity(text, alias)
                     for alias in landmark.aliases
