@@ -34,6 +34,7 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
 
         clear_game_settings_ocr_cache()
         resolved: dict[str, GameSettingResult] = {}
+        ambiguous: dict[str, GameSettingResult] = {}
 
         def visit(viewport: OptionsViewport) -> bool:
             # Cache lifetime is exactly one stabilized viewport. This remains
@@ -51,47 +52,64 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
                     continue
 
                 check = entry.make_result(value)
+                if is_unknown_game_setting_value(value):
+                    ambiguous[entry.key] = check
+                    logger.warning(
+                        "[Игровые настройки] %s найден в окне #%s, но значение "
+                        "неоднозначно; продолжаем искать устойчивое значение до "
+                        "фактического низа Options",
+                        entry.key,
+                        viewport.index,
+                    )
+                    continue
+
                 resolved[entry.key] = check
+                ambiguous.pop(entry.key, None)
                 logger.info(
                     "[Игровые настройки] %s найден в окне #%s (смещение %.1f px)",
                     entry.key,
                     viewport.index,
                     viewport.scroll_offset,
                 )
-                if is_unknown_game_setting_value(value):
-                    logger.warning(
-                        "[Игровые настройки] %s найден, но значение неоднозначно",
-                        entry.key,
-                    )
-                else:
-                    logger.info(
-                        "[Игровые настройки] %s: обнаружено=%s",
-                        entry.key,
-                        value.value,
-                    )
+                logger.info(
+                    "[Игровые настройки] %s: обнаружено=%s",
+                    entry.key,
+                    value.value,
+                )
 
-            return len(resolved) == len(registry)
+            # Read-only audit is a full-page contract. Finding every registry
+            # row early is not sufficient evidence that the physical bottom
+            # was reached, and UNKNOWN observations are intentionally retried.
+            return False
 
         primary_error: Exception | None = None
         try:
             traversal_result = self.traverse_options(visit)
 
-            if len(resolved) != len(registry):
-                if not traversal_result.reached_bottom:
-                    raise RuntimeError(
-                        "Обход Game Settings завершился без hard bottom при "
-                        "неразрешённых registry entries."
-                    )
+            if not traversal_result.reached_bottom:
+                raise RuntimeError(
+                    "Обход Game Settings завершился до подтверждённого "
+                    "фактического низа Options."
+                )
 
-                for entry in registry:
-                    if entry.key in resolved:
-                        continue
+            for entry in registry:
+                if entry.key in resolved:
+                    continue
+                if entry.key in ambiguous:
                     logger.warning(
-                        "[Игровые настройки] %s: строка не найдена до "
-                        "подтверждённого фактического низа Options; значение=UNKNOWN",
+                        "[Игровые настройки] %s: строка была найдена, но значение "
+                        "осталось неоднозначным до подтверждённого фактического "
+                        "низа Options; значение=UNKNOWN",
                         entry.key,
                     )
-                    resolved[entry.key] = entry.make_unknown_result()
+                    resolved[entry.key] = ambiguous[entry.key]
+                    continue
+                logger.warning(
+                    "[Игровые настройки] %s: строка не найдена до "
+                    "подтверждённого фактического низа Options; значение=UNKNOWN",
+                    entry.key,
+                )
+                resolved[entry.key] = entry.make_unknown_result()
 
             result = GameSettingsScanResult(
                 resolved[entry.key]
