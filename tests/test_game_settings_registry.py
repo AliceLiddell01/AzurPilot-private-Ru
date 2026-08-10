@@ -33,16 +33,17 @@ from module.game_settings.model import (
     StoryAutoplayValue,
     TextAutoScrollSpeedValue,
 )
+from module.game_settings.options_detector import (
+    CUSTOM_SHIP_NAMES_ROW,
+    GameSettingRowObservation,
+)
 from module.game_settings.registry import (
-    CUSTOM_SHIP_NAMES_PRODUCTION_ROW,
     GAME_SETTINGS_OPTIONS_REGISTRY,
     GAME_SETTINGS_PREFLIGHT_REGISTRY,
     GAME_SETTINGS_PRODUCTION_KEYS,
     OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW,
-    GameSettingCheckSpec,
     build_game_settings_registry,
 )
-from module.game_settings.options_detector import GameSettingRowObservation
 
 
 EXPECTED_PRODUCTION_KEYS = (
@@ -140,9 +141,12 @@ class GameSettingsRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "не имеет mutator observer"):
             build_game_settings_registry((legacy,), require_enforce=True)
 
-    def test_full_registry_has_observer_for_every_required_entry(self) -> None:
+    def test_full_registry_has_observer_and_row_spec_for_every_required_entry(self) -> None:
         self.assertTrue(
             all(entry.enforce_supported for entry in GAME_SETTINGS_OPTIONS_REGISTRY)
+        )
+        self.assertTrue(
+            all(entry.row_spec is not None for entry in GAME_SETTINGS_OPTIONS_REGISTRY)
         )
 
     def test_legacy_registry_stays_single_setting_contract(self) -> None:
@@ -168,6 +172,7 @@ class GameSettingsRegistryTests(unittest.TestCase):
     def test_live_secured_marquee_fragment_is_used_by_production_detector(self) -> None:
         entry = GAME_SETTINGS_OPTIONS_REGISTRY[3]
         self.assertEqual(entry.key, "opsi_default_auto_mode_threat_safe")
+        self.assertIs(entry.row_spec, OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW)
         self.assertIn(
             "Mode in secured",
             OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW.label_aliases,
@@ -188,20 +193,21 @@ class GameSettingsRegistryTests(unittest.TestCase):
             OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW,
         )
 
-    def test_custom_ship_names_production_row_does_not_alias_distinct_oath_control(self) -> None:
+    def test_custom_ship_names_row_does_not_alias_distinct_oath_control(self) -> None:
         self.assertEqual(
-            CUSTOM_SHIP_NAMES_PRODUCTION_ROW.label_aliases,
+            CUSTOM_SHIP_NAMES_ROW.label_aliases,
             ("Custom Ship Names",),
         )
         self.assertNotIn(
             "Change Oathed Ship Names",
-            CUSTOM_SHIP_NAMES_PRODUCTION_ROW.label_aliases,
+            CUSTOM_SHIP_NAMES_ROW.label_aliases,
         )
 
-    def test_custom_ship_names_production_entry_uses_generic_row_state_path(self) -> None:
+    def test_custom_ship_names_production_entry_uses_one_authoritative_row_spec(self) -> None:
         entry = GAME_SETTINGS_OPTIONS_REGISTRY[-1]
         self.assertIs(entry.definition, CUSTOM_SHIP_NAMES)
         self.assertIs(entry.requirement, CUSTOM_SHIP_NAMES_REQUIRED_OFF)
+        self.assertIs(entry.row_spec, CUSTOM_SHIP_NAMES_ROW)
         self.assertIsNot(entry.detector, detect_custom_ship_names)
 
 
