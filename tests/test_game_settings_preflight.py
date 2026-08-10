@@ -69,6 +69,7 @@ class _FakePreflightScanner(GameSettingsPreflightScanner):
         *,
         registry: tuple[GameSettingCheckSpec, ...] | None = None,
         frames: tuple[np.ndarray, ...] | None = None,
+        reached_bottom: bool = True,
         ensure_error: Exception | None = None,
         traversal_error: Exception | None = None,
         return_error: Exception | None = None,
@@ -76,6 +77,7 @@ class _FakePreflightScanner(GameSettingsPreflightScanner):
         self.device = _FakeDevice()
         self.viewports = viewports
         self.frames = frames
+        self.reached_bottom = reached_bottom
         self.check_registry = (
             GAME_SETTINGS_PREFLIGHT_REGISTRY if registry is None else registry
         )
@@ -120,7 +122,7 @@ class _FakePreflightScanner(GameSettingsPreflightScanner):
         return OptionsTraversalResult(
             visited_viewports=self.viewports,
             final_offset=float(max(0, self.viewports - 1) * 100),
-            reached_bottom=True,
+            reached_bottom=self.reached_bottom,
             stopped_early=False,
         )
 
@@ -192,7 +194,7 @@ class GameSettingsPreflightTests(unittest.TestCase):
         self.assertEqual(scanner.ensure_calls, 1)
         self.assertEqual(scanner.return_calls, 1)
 
-    def test_two_entries_resolve_in_one_viewport_and_one_traversal(self) -> None:
+    def test_two_entries_resolve_once_but_audit_continues_to_bottom(self) -> None:
         definition_a = _definition("setting_a")
         definition_b = _definition("setting_b")
         frame_ids: list[int] = []
@@ -229,7 +231,7 @@ class GameSettingsPreflightTests(unittest.TestCase):
         self.assertEqual(tuple(check.key for check in result), ("setting_a", "setting_b"))
         self.assertEqual(calls, {"a": 1, "b": 1})
         self.assertEqual(len(set(frame_ids)), 1)
-        self.assertEqual(scanner.visited, 1)
+        self.assertEqual(scanner.visited, 4)
         self.assertEqual(scanner.traversal_calls, 1)
         self.assertEqual(scanner.ensure_calls, 1)
         self.assertEqual(scanner.return_calls, 1)
@@ -260,7 +262,7 @@ class GameSettingsPreflightTests(unittest.TestCase):
         scanner.scan_game_settings()
 
         self.assertEqual(calls, {"a": 1, "b": 2})
-        self.assertEqual(scanner.visited, 2)
+        self.assertEqual(scanner.visited, 4)
 
     def test_absent_entry_becomes_unknown_at_hard_bottom(self) -> None:
         definition_a = _definition("setting_a")
@@ -292,7 +294,7 @@ class GameSettingsPreflightTests(unittest.TestCase):
         self.assertFalse(result.get("setting_b").compatible)
         self.assertEqual(scanner.visited, 3)
 
-    def test_row_present_unknown_is_resolved_while_other_entry_continues(self) -> None:
+    def test_row_present_unknown_is_retried_until_hard_bottom(self) -> None:
         definition_a = _definition("setting_a")
         definition_b = _definition("setting_b")
         calls = {"a": 0, "b": 0}
@@ -317,8 +319,60 @@ class GameSettingsPreflightTests(unittest.TestCase):
 
         self.assertIs(result.get("setting_a").detected_state, GameSettingState.UNKNOWN)
         self.assertIs(result.get("setting_b").detected_state, GameSettingState.UNKNOWN)
-        self.assertEqual(calls, {"a": 1, "b": 3})
+        self.assertEqual(calls, {"a": 3, "b": 3})
         self.assertEqual(scanner.visited, 3)
+
+    def test_unknown_can_be_replaced_by_known_value_on_later_viewport(self) -> None:
+        definition = _definition("setting_a")
+        calls = 0
+
+        def detector(_image: np.ndarray) -> GameSettingState | None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return GameSettingState.UNKNOWN
+            return GameSettingState.ON
+
+        registry = build_game_settings_registry(
+            (
+                GameSettingCheckSpec(
+                    definition=definition,
+                    detector=detector,
+                    requirement=_required(definition, GameSettingState.ON),
+                ),
+            )
+        )
+        scanner = _FakePreflightScanner(viewports=3, registry=registry)
+
+        result = scanner.scan_game_settings()
+
+        self.assertEqual(calls, 2)
+        self.assertIs(result.get("setting_a").detected_state, GameSettingState.ON)
+        self.assertIs(result.get("setting_a").compatible, True)
+        self.assertEqual(scanner.visited, 3)
+
+    def test_complete_registry_without_confirmed_bottom_fails_closed(self) -> None:
+        definition = _definition("setting_a")
+        registry = build_game_settings_registry(
+            (
+                GameSettingCheckSpec(
+                    definition=definition,
+                    detector=lambda _image: GameSettingState.OFF,
+                    requirement=_required(definition, GameSettingState.OFF),
+                ),
+            )
+        )
+        scanner = _FakePreflightScanner(
+            viewports=1,
+            registry=registry,
+            reached_bottom=False,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "фактического низа Options"):
+            scanner.scan_game_settings()
+
+        self.assertEqual(scanner.visited, 1)
+        self.assertEqual(scanner.return_calls, 1)
 
     def test_result_order_is_registry_order_not_detection_order(self) -> None:
         definition_a = _definition("setting_a")
@@ -347,7 +401,7 @@ class GameSettingsPreflightTests(unittest.TestCase):
         self.assertEqual(tuple(check.key for check in result), ("setting_a", "setting_b"))
         self.assertIs(result.results[0].detected_state, GameSettingState.OFF)
         self.assertIs(result.results[1].detected_state, GameSettingState.ON)
-        self.assertEqual(scanner.visited, 2)
+        self.assertEqual(scanner.visited, 3)
 
     def test_detector_exception_propagates_and_cleanup_runs(self) -> None:
         definition = _definition("setting_a")
