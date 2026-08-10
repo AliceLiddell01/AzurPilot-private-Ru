@@ -26,16 +26,35 @@ class GameSettingsScanner(OptionsTraversalMixin, UI, ABC):
     """
 
     game_settings_snapshot_path: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH
+    _game_settings_snapshot_persistence_suppressed = False
 
     def scan_game_settings(self) -> GameSettingsScanResult:
         """Запустить complete audit и сохранить только production snapshot."""
         result = self._scan_game_settings()
-        if self._should_persist_game_settings_snapshot(result):
+        if (
+            not self._game_settings_snapshot_persistence_suppressed
+            and self._should_persist_game_settings_snapshot(result)
+        ):
             self.persist_game_settings_snapshot(
                 result,
                 source=GameSettingsSnapshotSource.AUDIT,
             )
         return result
+
+    def _scan_game_settings_without_snapshot_persistence(self) -> GameSettingsScanResult:
+        """Запустить public audit seam, временно отключив automatic persistence.
+
+        Enforcement использует этот helper для финального полного аудита, чтобы
+        после него записать ровно один snapshot с точным provenance. Вызов идёт
+        через ``scan_game_settings()`` намеренно: это сохраняет public audit seam
+        для независимых test doubles и будущих подклассов.
+        """
+        previous = self._game_settings_snapshot_persistence_suppressed
+        self._game_settings_snapshot_persistence_suppressed = True
+        try:
+            return self.scan_game_settings()
+        finally:
+            self._game_settings_snapshot_persistence_suppressed = previous
 
     def _should_persist_game_settings_snapshot(
         self,
