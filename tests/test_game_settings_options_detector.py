@@ -15,6 +15,7 @@ from module.game_settings.options_detector import (
     GameSettingOptionSpec,
     GameSettingRowSpec,
     OcrTextBox,
+    _FRAME_OCR_CACHE,
     clear_game_settings_ocr_cache,
     detect_game_setting_row,
     observe_game_setting_row,
@@ -266,8 +267,10 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
 
         fake_module = types.ModuleType("module.ocr.al_ocr")
         fake_module.AlOcr = FakeAlOcr
-        original = sys.modules.get("module.ocr.al_ocr")
+        original_module = sys.modules.get("module.ocr.al_ocr")
+        original_engine = _FRAME_OCR_CACHE._ocr
         sys.modules["module.ocr.al_ocr"] = fake_module
+        _FRAME_OCR_CACHE._ocr = None
         clear_game_settings_ocr_cache()
         try:
             first = detect_game_setting_row(image, spec)
@@ -277,10 +280,11 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
             self.assertEqual(calls["det"], 1)
         finally:
             clear_game_settings_ocr_cache()
-            if original is None:
+            _FRAME_OCR_CACHE._ocr = original_engine
+            if original_module is None:
                 sys.modules.pop("module.ocr.al_ocr", None)
             else:
-                sys.modules["module.ocr.al_ocr"] = original
+                sys.modules["module.ocr.al_ocr"] = original_module
 
 
 if __name__ == "__main__":
