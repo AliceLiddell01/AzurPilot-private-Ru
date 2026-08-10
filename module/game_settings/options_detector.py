@@ -778,7 +778,7 @@ DISPLAY_BATTLE_RESULT_CUTSCENE_ROW = GameSettingRowSpec(
     options=TOGGLE_OFF_ON,
 )
 CUSTOM_SHIP_NAMES_ROW = GameSettingRowSpec(
-    label_aliases=("Custom Ship Names", "Change Oathed Ship Names"),
+    label_aliases=("Custom Ship Names",),
     options=TOGGLE_OFF_ON,
 )
 
