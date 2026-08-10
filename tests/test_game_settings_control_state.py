@@ -10,6 +10,7 @@ from module.game_settings.assets import (
     TEMPLATE_GAME_SETTINGS_CONTROL_UNSELECTED,
 )
 from module.game_settings.control_state import (
+    _classify_control_scores,
     control_selection_confidence,
     observe_game_setting_row_with_control_assets,
 )
@@ -151,6 +152,31 @@ class GameSettingsControlStateTests(unittest.TestCase):
 
         self.assertIsNotNone(observation)
         self.assertIs(observation.value, GameSettingState.OFF)
+
+    def test_unselected_control_accepts_live_negative_margin_variance(self) -> None:
+        confidence = _classify_control_scores(
+            selected_score=0.4519,
+            unselected_score=0.5991,
+        )
+
+        self.assertIsNotNone(confidence)
+        self.assertLess(confidence, 0.0)
+
+    def test_selected_control_keeps_strict_positive_margin(self) -> None:
+        confidence = _classify_control_scores(
+            selected_score=0.5922,
+            unselected_score=0.5441,
+        )
+
+        self.assertIsNone(confidence)
+
+    def test_weak_unselected_margin_still_fails_closed(self) -> None:
+        confidence = _classify_control_scores(
+            selected_score=0.50,
+            unselected_score=0.59,
+        )
+
+        self.assertIsNone(confidence)
 
     def test_two_selected_controls_fail_closed_as_unknown(self) -> None:
         image = _frame()
