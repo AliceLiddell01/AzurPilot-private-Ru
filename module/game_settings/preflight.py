@@ -1,14 +1,15 @@
-"""Concrete read-only Game Settings preflight scanner."""
+"""Concrete heterogeneous read-only Game Settings preflight scanner."""
 
 from __future__ import annotations
 
 from module.game_settings.model import (
-    GameSettingCheckResult,
+    GameSettingResult,
     GameSettingsScanResult,
-    GameSettingState,
+    is_unknown_game_setting_value,
 )
+from module.game_settings.options_detector import clear_game_settings_ocr_cache
 from module.game_settings.registry import (
-    GAME_SETTINGS_PREFLIGHT_REGISTRY,
+    GAME_SETTINGS_OPTIONS_REGISTRY,
     GameSettingCheckSpec,
     build_game_settings_registry,
 )
@@ -18,12 +19,11 @@ from module.logger import logger
 
 
 class GameSettingsPreflightScanner(GameSettingsScanner):
-    """Проверить registered tri-state Game Settings без изменения настроек."""
+    """Audit all registered Options requirements without changing settings."""
 
-    check_registry = GAME_SETTINGS_PREFLIGHT_REGISTRY
+    check_registry = GAME_SETTINGS_OPTIONS_REGISTRY
 
     def get_check_registry(self) -> tuple[GameSettingCheckSpec, ...]:
-        """Вернуть validated registry, допускающий безопасный test override."""
         return build_game_settings_registry(self.check_registry)
 
     def _scan_game_settings(self) -> GameSettingsScanResult:
@@ -32,76 +32,86 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
             logger.info("[Игровые настройки] Preflight registry пуст; сканирование не требуется")
             return GameSettingsScanResult()
 
-        resolved: dict[str, GameSettingCheckResult] = {}
+        clear_game_settings_ocr_cache()
+        resolved: dict[str, GameSettingResult] = {}
+        ambiguous: dict[str, GameSettingResult] = {}
 
         def visit(viewport: OptionsViewport) -> bool:
-            # Все ещё unresolved detectors этого viewport анализируют один и тот
-            # же уже стабилизированный frame. Дополнительный screenshot здесь
-            # намеренно не выполняется.
+            # GameSettingsScanner mirrors the detached traversal snapshot into
+            # device.image.  The visitor therefore consumes the exact same
+            # ndarray that semantic landmark detection receives after callback,
+            # while still remaining safe if the screenshot backend reuses its
+            # own numpy buffer between captures.
+            clear_game_settings_ocr_cache()
             frame = self.device.image
 
             for entry in registry:
                 if entry.key in resolved:
                     continue
 
-                state = entry.detector(frame)
-                if state is None:
+                value = entry.detector(frame)
+                if value is None:
                     continue
 
-                check = GameSettingCheckResult(
-                    definition=entry.definition,
-                    detected_state=state,
-                    requirement=entry.requirement,
-                )
+                check = entry.make_result(value)
+                if is_unknown_game_setting_value(value):
+                    ambiguous[entry.key] = check
+                    logger.warning(
+                        "[Игровые настройки] %s найден в окне #%s, но значение "
+                        "неоднозначно; продолжаем искать устойчивое значение до "
+                        "фактического низа Options",
+                        entry.key,
+                        viewport.index,
+                    )
+                    continue
+
                 resolved[entry.key] = check
+                ambiguous.pop(entry.key, None)
                 logger.info(
                     "[Игровые настройки] %s найден в окне #%s (смещение %.1f px)",
                     entry.key,
                     viewport.index,
                     viewport.scroll_offset,
                 )
-                if state is GameSettingState.UNKNOWN:
-                    logger.warning(
-                        "[Игровые настройки] %s найден, но состояние неоднозначно",
-                        entry.key,
-                    )
-                else:
-                    logger.info(
-                        "[Игровые настройки] %s: detected=%s",
-                        entry.key,
-                        state.value.upper(),
-                    )
+                logger.info(
+                    "[Игровые настройки] %s: обнаружено=%s",
+                    entry.key,
+                    value.value,
+                )
 
-            # Row-present UNKNOWN является resolved result. Traversal прекращается
-            # только когда разрешены все entries, а не после первой найденной строки.
-            return len(resolved) == len(registry)
+            # Read-only audit is a full-page contract. Finding every registry
+            # row early is not sufficient evidence that the physical bottom
+            # was reached, and UNKNOWN observations are intentionally retried.
+            return False
 
         primary_error: Exception | None = None
         try:
-            # traverse_options() сам гарантирует вход в Options ровно один раз.
-            # Cleanup охватывает и ошибку навигации внутри traversal.
             traversal_result = self.traverse_options(visit)
 
-            if len(resolved) != len(registry):
-                if not traversal_result.reached_bottom:
-                    raise RuntimeError(
-                        "[Game Settings] Traversal завершился без hard bottom при "
-                        "неразрешённых registry entries."
-                    )
+            if not traversal_result.reached_bottom:
+                raise RuntimeError(
+                    "Обход Game Settings завершился до подтверждённого "
+                    "фактического низа Options."
+                )
 
-                for entry in registry:
-                    if entry.key in resolved:
-                        continue
+            for entry in registry:
+                if entry.key in resolved:
+                    continue
+                if entry.key in ambiguous:
                     logger.warning(
-                        "[Игровые настройки] %s: строка не найдена до "
-                        "подтверждённого фактического низа Options; detected=UNKNOWN",
+                        "[Игровые настройки] %s: строка была найдена, но значение "
+                        "осталось неоднозначным до подтверждённого фактического "
+                        "низа Options; значение=UNKNOWN",
                         entry.key,
                     )
-                    resolved[entry.key] = GameSettingCheckResult(
-                        definition=entry.definition,
-                        detected_state=GameSettingState.UNKNOWN,
-                        requirement=entry.requirement,
-                    )
+                    resolved[entry.key] = ambiguous[entry.key]
+                    continue
+                logger.warning(
+                    "[Игровые настройки] %s: строка не найдена до "
+                    "подтверждённого фактического низа Options; значение=UNKNOWN",
+                    entry.key,
+                )
+                resolved[entry.key] = entry.make_unknown_result()
 
             result = GameSettingsScanResult(
                 resolved[entry.key]
@@ -113,12 +123,12 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
             primary_error = exc
             raise
         finally:
+            clear_game_settings_ocr_cache()
             try:
                 self.return_to_main()
             except Exception:
                 if primary_error is None:
                     raise
-                # Ошибка cleanup не должна подменять исходную scanner error.
                 logger.warning(
                     "[Игровые настройки] Не удалось вернуться на главный экран "
                     "после ошибки сканирования"
@@ -126,13 +136,14 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
 
     @staticmethod
     def _log_result(result: GameSettingsScanResult) -> None:
+        logger.info("[Игровые настройки] Аудит:")
         for check in result:
-            expected = check.expected_state
-            required = "NONE" if expected is None else expected.value.upper()
+            required_value = check.required_value
+            required = "нет" if required_value is None else required_value.value
             logger.info(
-                "[Игровые настройки] %s: detected=%s, required=%s, compatible=%s",
+                "[Игровые настройки] %s: обнаружено=%s, требуется=%s, совместимо=%s",
                 check.key,
-                check.detected_state.value.upper(),
+                check.detected_value.value,
                 required,
                 check.compatible,
             )

@@ -11,11 +11,11 @@ Live-прогон на MuMu показал, что страница имеет �
 того, что traversal уже вошёл в нижнюю область, но сам по себе не завершает
 обход.
 
-Поэтому ``Scroll``/``AdaptiveScroll`` здесь не могут дать достоверную
-нормализованную позицию. Traversal использует подтверждённые структурные
-anchors, движение контента и ограниченные recovery-попытки. Фактический низ
-подтверждается bounded повтором controlled drag без прогресса только после
-нижнего landmark.
+Позиция страницы определяется прежде всего структурными/семантическими
+landmark-ами. Phase correlation остаётся вторичным сигналом движения и
+стабилизации: повторяющиеся строки и elastic rebound у нижней границы могут
+давать неверный знак глобального сдвига. Terminal landmark завершает обход
+только после того, как соответствующий стабильный viewport был отдан visitor-у.
 """
 
 from __future__ import annotations
@@ -65,12 +65,12 @@ class OptionsViewport:
     """Метаданные стабильного viewport, доступного visitor-у.
 
     Актуальный frame во время callback находится в ``self.device.image``.
-    ``scroll_offset`` — накопленное визуальное смещение в пикселях, а не
+    ``scroll_offset`` — накопленная диагностическая величина прогресса, а не
     выдуманная позиция 0..1: у страницы нет измеримого scrollbar.
 
-    Terminal bottom можно доказать только результатом следующих controlled
-    drag, поэтому visitor-кадр заранее не помечается как bottom. Итог полного
-    обхода сообщает ``OptionsTraversalResult.reached_bottom``.
+    Terminal bottom подтверждается semantic landmark либо bounded отсутствием
+    прогресса после нижнего landmark. Visitor-кадр заранее не помечается как
+    bottom; итог полного обхода сообщает ``OptionsTraversalResult.reached_bottom``.
     """
 
     index: int
@@ -118,12 +118,11 @@ def measure_options_viewport_motion(
     previous: np.ndarray,
     current: np.ndarray,
 ) -> OptionsViewportMotion:
-    """Измерить вертикальное движение, подавляя animated background.
+    """Измерить визуальное движение, подавляя animated background.
 
-    Canny оставляет главным образом стабильные рамки и текст, а phase
-    correlation оценивает общий вертикальный сдвиг перекрывающейся области.
-    ``edge_change`` отдельно отличает неподвижный viewport от неоднозначного
-    кадра с визуальным шумом.
+    Результат служит вторичным evidence. Знак phase correlation не считается
+    абсолютным источником позиции страницы: на повторяющихся строках и возле
+    hard end он может выбрать соседний корреляционный пик.
     """
 
     previous_edges = _options_edges(previous)
@@ -134,10 +133,6 @@ def measure_options_viewport_motion(
         _OPTIONS_PHASE_WINDOW,
     )
     edge_change = float(np.mean(previous_edges != current_edges))
-    # После жеста вниз content движется вверх, поэтому положительный scroll
-    # progress равен ``-raw_vertical``. Повторяющиеся строки Options могут
-    # сопоставить завершённый шаг 200+ px с другим пиком; edge density даёт
-    # консервативный magnitude floor, не уничтожая знак обратного движения.
     viewport_height = previous_edges.shape[0]
     signed_vertical = -float(raw_vertical)
     if (
@@ -158,19 +153,13 @@ def measure_options_viewport_motion(
 
 
 class OptionsTraversalMixin:
-    """Reusable navigation/progression contract для будущих detectors.
-
-    Класс-потребитель обязан предоставить ``ensure_options_page()`` и
-    ``device`` с методами ``screenshot()`` и ``drag()``.
-    """
+    """Reusable navigation/progression contract для Options detectors."""
 
     options_max_viewports = 16
     options_max_top_swipes = 16
     options_max_no_progress_retries = 2
     options_stabilization_timeout = 1.5
     options_stable_frames = 4
-    # Selected-icon animation после входа может не совпасть до 5 кадров;
-    # восемь последовательных misses всё ещё дают bounded fail за < 0.5 с.
     options_page_loss_frames = 8
     options_min_progress = 5.0
     options_min_motion_response = 0.10
@@ -180,17 +169,14 @@ class OptionsTraversalMixin:
         self,
         visitor: Callable[[OptionsViewport], bool | None],
     ) -> OptionsTraversalResult:
-        """Посетить Options сверху вниз до hard end или early-stop.
+        """Посетить Options сверху вниз до semantic/hard end или early-stop.
 
-        Visitor вызывается только на подтверждённой странице и после visual
-        stabilization. Истинный результат visitor-а означает раннюю остановку.
-
-        Старый bottom anchor является только lower landmark. После него
-        ``options_max_no_progress_retries`` последовательных controlled drag
-        без измеримого движения подтверждают terminal bottom. Записи нашего
-        drag удаляются из общего click guard только после доказанного visual
-        progress, поэтому длинный штатный traversal не выглядит как click-loop,
-        а повторные действия без прогресса по-прежнему остаются защищёнными.
+        Structural anchors и semantic landmarks определяют положение страницы.
+        Motion используется для обычного шага и как дополнительная защита.
+        Если phase correlation сообщает обратный знак, но следующий semantic
+        landmark доказывает более глубокую позицию, semantic evidence имеет
+        приоритет. После lower landmark допускается также non-regressing
+        semantic evidence — это покрывает elastic rebound у физического низа.
         """
 
         if not callable(visitor):
@@ -202,6 +188,8 @@ class OptionsTraversalMixin:
         visited = 0
         no_progress = 0
         lower_landmark_seen = False
+        highest_semantic_rank = -1
+        highest_semantic_key = None
 
         logger.info("[Игровые настройки] Options: верх подтверждён")
 
@@ -219,7 +207,7 @@ class OptionsTraversalMixin:
                 is_bottom=False,
             )
             logger.info(
-                "[Игровые настройки] Viewport Options #%s: смещение %.1f px%s",
+                "[Игровые настройки] Viewport Options #%s: прогресс %.1f%s",
                 viewport.index,
                 viewport.scroll_offset,
                 " (lower landmark)" if is_lower_landmark else "",
@@ -235,11 +223,34 @@ class OptionsTraversalMixin:
                     stopped_early=True,
                 )
 
+            semantic = self._detect_options_semantic_landmark(frame)
+            if semantic is not None:
+                logger.info(
+                    "[Игровые настройки] Semantic landmark: %s (rank=%s, score=%.3f)",
+                    semantic.key,
+                    semantic.rank,
+                    semantic.score,
+                )
+                if semantic.rank > highest_semantic_rank:
+                    highest_semantic_rank = semantic.rank
+                    highest_semantic_key = semantic.key
+                if semantic.terminal:
+                    logger.info(
+                        "[Игровые настройки] Terminal semantic landmark подтверждён; "
+                        "фактический низ Options достигнут"
+                    )
+                    return OptionsTraversalResult(
+                        visited_viewports=visited,
+                        final_offset=offset,
+                        reached_bottom=True,
+                        stopped_early=False,
+                    )
+
             if is_lower_landmark:
                 lower_landmark_seen = True
                 logger.info(
                     "[Игровые настройки] Options: lower landmark подтверждён; "
-                    "обход продолжается до фактического hard end"
+                    "обход продолжается до terminal semantic/hard end"
                 )
 
             while True:
@@ -248,6 +259,16 @@ class OptionsTraversalMixin:
                 motion = self._measure_options_motion(frame, next_frame)
 
                 if motion.stable:
+                    next_semantic = self._detect_options_semantic_landmark(next_frame)
+                    if next_semantic is not None and next_semantic.terminal:
+                        logger.info(
+                            "[Игровые настройки] Terminal semantic landmark вошёл "
+                            "в стабильный нижний кадр; передаём его visitor-у"
+                        )
+                        self._clear_options_control_record()
+                        frame = next_frame
+                        break
+
                     no_progress += 1
                     if lower_landmark_seen:
                         logger.info(
@@ -282,12 +303,79 @@ class OptionsTraversalMixin:
                     frame = next_frame
                     continue
 
-                no_progress = 0
+                if self._motion_is_normal_downward(motion):
+                    no_progress = 0
+                    self._clear_options_control_record()
+                    offset += motion.vertical_shift
+                    frame = next_frame
+                    break
+
+                next_semantic = self._detect_options_semantic_landmark(next_frame)
+                semantic_forward = (
+                    next_semantic is not None
+                    and next_semantic.rank > highest_semantic_rank
+                )
+                semantic_non_regressing_lower = (
+                    lower_landmark_seen
+                    and next_semantic is not None
+                    and next_semantic.rank >= highest_semantic_rank
+                )
+
+                if semantic_forward or semantic_non_regressing_lower:
+                    if semantic_forward:
+                        no_progress = 0
+                    else:
+                        no_progress += 1
+                        logger.info(
+                            "[Игровые настройки] Options: semantic-прогресс не "
+                            "увеличился в нижней области (%s/%s)",
+                            no_progress,
+                            self.options_max_no_progress_retries,
+                        )
+                        if no_progress >= self.options_max_no_progress_retries:
+                            logger.info(
+                                "[Игровые настройки] Options: фактический низ "
+                                "подтверждён bounded semantic non-progress"
+                            )
+                            return OptionsTraversalResult(
+                                visited_viewports=visited,
+                                final_offset=offset,
+                                reached_bottom=True,
+                                stopped_early=False,
+                            )
+                    reason = (
+                        "forward semantic landmark"
+                        if semantic_forward
+                        else "non-regressing lower semantic landmark"
+                    )
+                    logger.warning(
+                        "[Игровые настройки] Phase motion неоднозначен "
+                        "(vertical=%.1f, horizontal=%.1f, response=%.3f), "
+                        "но %s подтверждает продолжение: %s -> %s",
+                        motion.vertical_shift,
+                        motion.horizontal_shift,
+                        motion.response,
+                        reason,
+                        highest_semantic_key or "<none>",
+                        next_semantic.key,
+                    )
+                    self._clear_options_control_record()
+                    if next_semantic.rank > highest_semantic_rank:
+                        highest_semantic_rank = next_semantic.rank
+                        highest_semantic_key = next_semantic.key
+                    offset += self._semantic_progress_amount(motion)
+                    frame = next_frame
+                    break
+
+                # The normal-downward predicate and this validator deliberately
+                # share the same thresholds. Reaching this point means there is
+                # no semantic evidence capable of overriding an ambiguous or
+                # reverse motion, so the validator must fail closed.
                 self._validate_downward_progress(motion)
-                self._clear_options_control_record()
-                offset += motion.vertical_shift
-                frame = next_frame
-                break
+                raise AssertionError(
+                    "[Game Settings] Downward motion passed fail-closed validation "
+                    "after the normal-motion branch rejected it."
+                )
 
         raise GameStuckError(
             "[Game Settings] Options traversal превысил аварийный лимит viewport."
@@ -323,8 +411,6 @@ class OptionsTraversalMixin:
                     )
             else:
                 no_progress = 0
-                # На section boundary phase response иногда слабый. Значимое
-                # изменение edges допустимо только до визуального top anchor.
                 if (
                     motion.response < self.options_min_motion_response
                     and motion.edge_change <= 0.06
@@ -407,6 +493,28 @@ class OptionsTraversalMixin:
     ) -> OptionsViewportMotion:
         return measure_options_viewport_motion(previous, current)
 
+    @staticmethod
+    def _detect_options_semantic_landmark(frame: np.ndarray):
+        from module.game_settings.options_landmarks import (
+            detect_options_semantic_landmark,
+        )
+
+        return detect_options_semantic_landmark(frame)
+
+    def _motion_is_normal_downward(self, motion: OptionsViewportMotion) -> bool:
+        return (
+            motion.response >= self.options_min_motion_response
+            and abs(motion.horizontal_shift) <= 5.0
+            and motion.vertical_shift >= self.options_min_progress
+        )
+
+    def _semantic_progress_amount(self, motion: OptionsViewportMotion) -> float:
+        return max(
+            abs(motion.vertical_shift),
+            motion.edge_change * _OPTIONS_VIEWPORT_HEIGHT,
+            self.options_min_progress,
+        )
+
     def _clear_options_control_record(self) -> None:
         """Сбросить только наш drag из click guard после доказанного прогресса."""
 
@@ -419,9 +527,6 @@ class OptionsTraversalMixin:
         end = OPTIONS_SAFE_SWIPE_END
         if not down:
             start, end = end, start
-        # ``drag`` удерживает endpoint перед отпусканием. На live minitouch
-        # обычный swipe сохранял инерцию около 2 секунд; controlled drag
-        # стабилизируется к следующему screenshot и сохраняет overlap.
         self.device.drag(
             start,
             end,

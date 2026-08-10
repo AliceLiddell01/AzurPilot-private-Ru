@@ -20,6 +20,20 @@ class GameSettingsScanner(OptionsTraversalMixin, UI, ABC):
         """Запустить реализацию сканирования через стабильный public entry point."""
         return self._scan_game_settings()
 
+    def _capture_options_frame(self):
+        """Expose the detached traversal snapshot as the callback device image.
+
+        ``OptionsTraversalMixin`` deliberately copies every screenshot so a
+        backend may safely reuse or overwrite its numpy buffer.  The scanner
+        mirrors that detached copy back to ``device.image`` so visitors and
+        semantic landmark detection consume the exact same object and can
+        share the identity-keyed OCR cache.
+        """
+
+        frame = super()._capture_options_frame()
+        self.device.image = frame
+        return frame
+
     def ensure_options_page(self) -> bool:
         """Гарантировать открытый Options через штатный ``Page/UI``-граф.
 
