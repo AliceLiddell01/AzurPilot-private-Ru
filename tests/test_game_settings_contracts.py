@@ -187,7 +187,7 @@ class _ReadOnlyScanner(GameSettingsPreflightScanner):
         return OptionsTraversalResult(
             visited_viewports=1,
             final_offset=0.0,
-            reached_bottom=False,
+            reached_bottom=True,
             stopped_early=stopped,
         )
 
