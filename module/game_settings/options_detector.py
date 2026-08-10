@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import TypeAlias
 
-import cv2
 import numpy as np
 
+from module.game_settings.image_utils import crop_checked, rgb_to_gray
 from module.game_settings.model import (
     FrameRateValue,
     GameSettingState,
@@ -422,29 +422,14 @@ def _resolve_option_candidates(
     return tuple(assigned[index] for index in range(len(options)))
 
 
-def _crop_checked(
-    image: np.ndarray,
-    bounds: tuple[int, int, int, int],
-) -> np.ndarray | None:
-    x1, y1, x2, y2 = bounds
-    if x1 < 0 or y1 < 0 or x2 > image.shape[1] or y2 > image.shape[0]:
-        return None
-    if x1 >= x2 or y1 >= y2:
-        return None
-    return image[y1:y2, x1:x2]
-
-
 def _marker_activity_from_bounds(
     image: np.ndarray,
     marker_bounds: tuple[int, int, int, int],
 ) -> float | None:
-    marker = _crop_checked(image, marker_bounds)
+    marker = crop_checked(image, marker_bounds)
     if marker is None or marker.size == 0:
         return None
-    if marker.ndim == 3:
-        gray = cv2.cvtColor(marker[:, :, :3], cv2.COLOR_RGB2GRAY)
-    else:
-        gray = marker
+    gray = rgb_to_gray(marker)
 
     border = np.concatenate(
         (gray[0, :], gray[-1, :], gray[:, 0], gray[:, -1])
