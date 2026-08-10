@@ -202,15 +202,14 @@ def build_game_settings_registry(
             raise TypeError("registry должен содержать GameSettingCheckSpec")
         if entry.key in seen_keys:
             raise ValueError(f"Повторяющийся ключ registry: {entry.key!r}")
-        if require_enforce and entry.requirement is not None:
-            if entry.observer is None:
-                raise ValueError(
-                    f"Required registry entry {entry.key!r} не имеет mutator observer"
-                )
-            if entry.row_spec is None:
-                raise ValueError(
-                    f"Required registry entry {entry.key!r} не имеет row_spec"
-                )
+        if (
+            require_enforce
+            and entry.requirement is not None
+            and entry.observer is None
+        ):
+            raise ValueError(
+                f"Required registry entry {entry.key!r} не имеет mutator observer"
+            )
         seen_keys.add(entry.key)
 
     return registry
