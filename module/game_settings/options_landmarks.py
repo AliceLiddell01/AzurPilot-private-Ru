@@ -24,6 +24,7 @@ from module.game_settings.options_detector import (
 _SEMANTIC_MATCH_THRESHOLD = 0.80
 _SEMANTIC_MARQUEE_MIN_CHARS = 10
 _SEMANTIC_MARQUEE_MIN_COVERAGE = 0.60
+_SEMANTIC_MARQUEE_MIN_WORDS = 2
 _SEMANTIC_SPAN_MAX_BOXES = 4
 _EXACT_VISIBLE_ALIASES = frozenset(("compatibilitymode",))
 
@@ -102,10 +103,10 @@ def _semantic_similarity(text: str, alias: str) -> float:
 
     Long Options labels move horizontally inside a clipped field. OCR can
     therefore observe only a prefix or suffix of the real label while the row
-    itself remains perfectly identifiable. Short fragments stay rejected so
-    generic words such as ``Off``, ``On`` or ``Mode`` cannot become landmarks.
-    ``Compatibility Mode`` is a special live terminal suffix and must be
-    visible in full; accepting ``Compatibility`` alone would be too generic.
+    itself remains perfectly identifiable. Short or one-word fragments stay
+    rejected so generic words such as ``Off``, ``On``, ``Mode`` or
+    ``Compatibility`` cannot become landmarks. ``Compatibility Mode`` is a
+    special live terminal suffix and must be visible in full.
     """
 
     left = _normalize(text)
@@ -119,9 +120,11 @@ def _semantic_similarity(text: str, alias: str) -> float:
     score = _label_similarity(text, alias)
     if left in right:
         coverage = len(left) / len(right)
+        visible_words = sum(1 for part in text.split() if _normalize(part))
         if (
             len(left) >= _SEMANTIC_MARQUEE_MIN_CHARS
             and coverage >= _SEMANTIC_MARQUEE_MIN_COVERAGE
+            and visible_words >= _SEMANTIC_MARQUEE_MIN_WORDS
         ):
             score = max(score, 0.80 + min(0.19, coverage * 0.19))
     return score
