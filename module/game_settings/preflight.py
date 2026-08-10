@@ -9,7 +9,7 @@ from module.game_settings.model import (
 )
 from module.game_settings.options_detector import clear_game_settings_ocr_cache
 from module.game_settings.registry import (
-    GAME_SETTINGS_PREFLIGHT_REGISTRY,
+    GAME_SETTINGS_OPTIONS_REGISTRY,
     GameSettingCheckSpec,
     build_game_settings_registry,
 )
@@ -21,7 +21,7 @@ from module.logger import logger
 class GameSettingsPreflightScanner(GameSettingsScanner):
     """Audit all registered Options requirements without changing settings."""
 
-    check_registry = GAME_SETTINGS_PREFLIGHT_REGISTRY
+    check_registry = GAME_SETTINGS_OPTIONS_REGISTRY
 
     def get_check_registry(self) -> tuple[GameSettingCheckSpec, ...]:
         return build_game_settings_registry(self.check_registry)
