@@ -63,6 +63,16 @@ class OptionsSemanticLandmarkTests(unittest.TestCase):
         self.assertEqual(observation.key, "rendering_compatibility_terminal")
         self.assertTrue(observation.terminal)
 
+    def test_terminal_landmark_accepts_live_compatibility_mode_suffix(self) -> None:
+        observation = detect_options_semantic_landmark(
+            _frame(),
+            detections=_row_boxes("Compatibility Mode", 420),
+        )
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.key, "rendering_compatibility_terminal")
+        self.assertTrue(observation.terminal)
+
     def test_short_generic_terminal_fragment_is_rejected(self) -> None:
         observation = detect_options_semantic_landmark(
             _frame(),
