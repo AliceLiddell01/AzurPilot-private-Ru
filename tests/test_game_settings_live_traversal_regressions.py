@@ -106,6 +106,48 @@ class _LiveReversePhaseScanner(OptionsTraversalMixin):
         return None
 
 
+class _RepeatedLowerSemanticScanner(_LiveReversePhaseScanner):
+    @staticmethod
+    def _detect_options_semantic_landmark(frame: _TraversalFrame):
+        semantics = {
+            0: _Semantic("frame_rate_region", 10),
+            4: _Semantic("story_autoplay_region", 20),
+            6: _Semantic("idle_screen_region", 30),
+            7: _Semantic("custom_ship_names_region", 40),
+            8: _Semantic("custom_ship_names_region", 40),
+            9: _Semantic("fixed_l2d_region", 45),
+            10: _Semantic("fixed_l2d_region", 45),
+            11: _Semantic("fixed_l2d_region", 45),
+        }
+        return semantics.get(frame.position)
+
+    def _swipe_options(self, *, down: bool) -> None:
+        if not down:
+            raise AssertionError("test starts at the confirmed top")
+        self.down_swipes += 1
+        self.position = min(11, self.position + 1)
+
+    @staticmethod
+    def _measure_options_motion(
+        previous: _TraversalFrame,
+        current: _TraversalFrame,
+    ) -> OptionsViewportMotion:
+        if previous.position >= 9 and current.position > previous.position:
+            return OptionsViewportMotion(
+                vertical_shift=-60.0,
+                horizontal_shift=0.0,
+                response=0.80,
+                edge_change=0.12,
+            )
+        changed = current.position != previous.position
+        return OptionsViewportMotion(
+            vertical_shift=260.0 if changed else 0.0,
+            horizontal_shift=0.0,
+            response=1.0,
+            edge_change=0.12 if changed else 0.0,
+        )
+
+
 class LiveOptionsTraversalRegressionTests(unittest.TestCase):
     def test_live_fixed_l2d_ocr_bridges_semantic_gap_before_terminal_bottom(self) -> None:
         observation = detect_options_semantic_landmark(
@@ -165,6 +207,19 @@ class LiveOptionsTraversalRegressionTests(unittest.TestCase):
         self.assertFalse(result.stopped_early)
         self.assertEqual(visited_positions, list(range(11)))
         self.assertEqual(scanner.down_swipes, 10)
+
+    def test_repeated_equal_lower_semantic_rank_is_bounded_as_no_progress(self) -> None:
+        scanner = _RepeatedLowerSemanticScanner()
+        visited_positions: list[int] = []
+
+        result = scanner.traverse_options(
+            lambda _viewport: visited_positions.append(scanner.position)
+        )
+
+        self.assertTrue(result.reached_bottom)
+        self.assertFalse(result.stopped_early)
+        self.assertEqual(visited_positions[-1], 10)
+        self.assertEqual(scanner.down_swipes, 11)
 
 
 if __name__ == "__main__":
