@@ -80,6 +80,11 @@ OPTIONS_SEMANTIC_LANDMARKS = (
         ),
     ),
     OptionsSemanticLandmark(
+        key="fixed_l2d_region",
+        rank=45,
+        aliases=("Fixed L2D Settings",),
+    ),
+    OptionsSemanticLandmark(
         key="rendering_compatibility_terminal",
         rank=50,
         aliases=(
