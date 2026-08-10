@@ -169,6 +169,15 @@ class GameSettingsEnforcementResultTests(unittest.TestCase):
                 verified=True,
             )
 
+    def test_change_rejects_non_boolean_verified(self) -> None:
+        with self.assertRaisesRegex(TypeError, "verified должен быть bool"):
+            GameSettingAppliedChange(
+                key="frame_rate",
+                before=FrameRateValue.FPS_30,
+                after=FrameRateValue.FPS_60,
+                verified="true",
+            )
+
     def test_enforcement_result_exposes_changed_keys_and_blocked_reason(self) -> None:
         before = GameSettingsScanResult()
         change = GameSettingAppliedChange(
@@ -189,6 +198,39 @@ class GameSettingsEnforcementResultTests(unittest.TestCase):
         self.assertEqual(applied.changed_keys, ("frame_rate",))
         self.assertFalse(applied.blocked)
         self.assertTrue(blocked.blocked)
+
+    def test_enforcement_result_rejects_invalid_runtime_field_types(self) -> None:
+        before = GameSettingsScanResult()
+        with self.assertRaisesRegex(TypeError, "success должен быть bool"):
+            GameSettingsEnforcementResult(
+                before=before,
+                success="false",
+                failure_reason="failed",
+            )
+        for field_name in ("blocked_reason", "failure_reason"):
+            with self.subTest(field_name=field_name):
+                kwargs = {
+                    "before": before,
+                    "success": False,
+                    "failure_reason": "failed",
+                }
+                kwargs[field_name] = 1
+                with self.assertRaisesRegex(TypeError, field_name):
+                    GameSettingsEnforcementResult(**kwargs)
+        with self.assertRaisesRegex(TypeError, "failed_key должен быть str"):
+            GameSettingsEnforcementResult(
+                before=before,
+                success=False,
+                failed_key=1,
+                failure_reason="failed",
+            )
+        with self.assertRaisesRegex(ValueError, "lowercase identifier"):
+            GameSettingsEnforcementResult(
+                before=before,
+                success=False,
+                failed_key="Frame Rate",
+                failure_reason="failed",
+            )
 
     def test_enforcement_result_rejects_conflicting_status_fields(self) -> None:
         before = GameSettingsScanResult()
