@@ -11,6 +11,7 @@ from module.game_settings.assets import (
     TEMPLATE_GAME_SETTINGS_CONTROL_SELECTED,
     TEMPLATE_GAME_SETTINGS_CONTROL_UNSELECTED,
 )
+from module.game_settings.image_utils import crop_checked, rgb_to_gray
 from module.game_settings.model import GameSettingValue
 from module.game_settings.options_detector import (
     GameSettingOptionObservation,
@@ -37,18 +38,6 @@ def _load_control_template(path: str) -> tuple[np.ndarray, np.ndarray]:
     if image is None:
         raise ValueError(f"Не удалось загрузить Game Settings control asset: {path}")
     return image, cv2.Canny(image, _CONTROL_EDGE_LOW, _CONTROL_EDGE_HIGH)
-
-
-def _crop_checked(
-    image: np.ndarray,
-    bounds: tuple[int, int, int, int],
-) -> np.ndarray | None:
-    x1, y1, x2, y2 = bounds
-    if x1 < 0 or y1 < 0 or x2 > image.shape[1] or y2 > image.shape[0]:
-        return None
-    if x1 >= x2 or y1 >= y2:
-        return None
-    return image[y1:y2, x1:x2]
 
 
 def _control_search_bounds(
@@ -140,13 +129,10 @@ def control_selection_confidence(
     variation weakens the raw-template correlation.
     """
 
-    search = _crop_checked(image, _control_search_bounds(click_bounds))
+    search = crop_checked(image, _control_search_bounds(click_bounds))
     if search is None or search.size == 0:
         return None
-    if search.ndim == 3:
-        gray = cv2.cvtColor(search[:, :, :3], cv2.COLOR_RGB2GRAY)
-    else:
-        gray = search
+    gray = rgb_to_gray(search)
 
     selected_raw, selected_edges = _load_control_template(
         TEMPLATE_GAME_SETTINGS_CONTROL_SELECTED.file
