@@ -5,6 +5,7 @@ import unittest
 from module.game_settings.model import (
     FrameRateValue,
     GameSettingAppliedChange,
+    GameSettingCheckResult,
     GameSettingChoiceCheckResult,
     GameSettingChoiceRequirement,
     GameSettingDefinition,
@@ -100,9 +101,9 @@ class Stage7TypedValueTests(unittest.TestCase):
             FrameRateValue.UNKNOWN,
             requirement,
         )
-        self.assertTrue(compatible.compatible)
-        self.assertFalse(mismatch.compatible)
-        self.assertFalse(unknown.compatible)
+        self.assertIs(compatible.compatible, True)
+        self.assertIs(mismatch.compatible, False)
+        self.assertIs(unknown.compatible, False)
         self.assertIs(compatible.kind, GameSettingKind.CHOICE)
 
     def test_heterogeneous_aggregate_preserves_order_and_unknown_semantics(self) -> None:
@@ -122,10 +123,22 @@ class Stage7TypedValueTests(unittest.TestCase):
             ),
         )
         result = GameSettingsScanResult((frame, speed))
-        self.assertEqual(tuple(item.key for item in result), ("frame_rate", "text_auto_scroll_speed"))
+        self.assertEqual(
+            tuple(item.key for item in result),
+            ("frame_rate", "text_auto_scroll_speed"),
+        )
         self.assertEqual(result.unknown, (speed,))
         self.assertEqual(result.incompatible, (speed,))
-        self.assertFalse(result.all_required_compatible)
+        self.assertIs(result.all_required_compatible, False)
+
+    def test_aggregate_rejects_duplicate_keys(self) -> None:
+        definition = _definition("duplicate_guard")
+        result = GameSettingCheckResult(
+            definition=definition,
+            detected_state=GameSettingState.OFF,
+        )
+        with self.assertRaisesRegex(ValueError, "Повторяющийся ключ"):
+            GameSettingsScanResult((result, result))
 
 
 class Stage7EnforcementResultTests(unittest.TestCase):
@@ -141,6 +154,19 @@ class Stage7EnforcementResultTests(unittest.TestCase):
                 key="frame_rate",
                 before=FrameRateValue.FPS_30,
                 after=GameSettingState.ON,
+            )
+        with self.assertRaises(TypeError):
+            GameSettingAppliedChange(
+                key="frame_rate",
+                before=1,
+                after=1,
+            )
+        with self.assertRaisesRegex(ValueError, "UNKNOWN"):
+            GameSettingAppliedChange(
+                key="frame_rate",
+                before=FrameRateValue.FPS_30,
+                after=FrameRateValue.UNKNOWN,
+                verified=True,
             )
 
     def test_enforcement_result_exposes_changed_keys_and_blocked_reason(self) -> None:
@@ -163,6 +189,27 @@ class Stage7EnforcementResultTests(unittest.TestCase):
         self.assertEqual(applied.changed_keys, ("frame_rate",))
         self.assertFalse(applied.blocked)
         self.assertTrue(blocked.blocked)
+
+    def test_enforcement_result_rejects_conflicting_status_fields(self) -> None:
+        before = GameSettingsScanResult()
+        with self.assertRaisesRegex(ValueError, "success result"):
+            GameSettingsEnforcementResult(
+                before=before,
+                success=True,
+                failure_reason="unexpected",
+            )
+        with self.assertRaisesRegex(ValueError, "взаимоисключающие"):
+            GameSettingsEnforcementResult(
+                before=before,
+                success=False,
+                blocked_reason="blocked",
+                failure_reason="failed",
+            )
+        with self.assertRaisesRegex(ValueError, "должен содержать причину"):
+            GameSettingsEnforcementResult(
+                before=before,
+                success=False,
+            )
 
 
 if __name__ == "__main__":
