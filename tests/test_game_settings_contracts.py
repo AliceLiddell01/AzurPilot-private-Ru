@@ -182,14 +182,14 @@ class _ReadOnlyScanner(GameSettingsPreflightScanner):
             index=1,
             scroll_offset=0.0,
             is_top=True,
-            is_bottom=False,
+            is_bottom=True,
         )
         stopped = bool(visitor(viewport))
         self.stop_requested = stopped
         return OptionsTraversalResult(
             visited_viewports=1,
             final_offset=0.0,
-            reached_bottom=True,
+            reached_bottom=not stopped,
             stopped_early=stopped,
         )
 
