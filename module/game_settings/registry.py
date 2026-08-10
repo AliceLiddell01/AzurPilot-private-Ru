@@ -91,7 +91,7 @@ def _row_observer(spec: GameSettingRowSpec) -> GameSettingObserver:
 
 @dataclass(frozen=True, slots=True)
 class GameSettingCheckSpec:
-    """One typed audit entry and, where supported, its row observer for enforce."""
+    """One typed audit entry and optional row observer for explicit enforce."""
 
     definition: GameSettingDefinition
     detector: GameSettingDetector
@@ -125,8 +125,6 @@ class GameSettingCheckSpec:
             raise ValueError("requirement относится к другой настройке")
         if type(self.requirement.expected_value) is not self.value_type:
             raise TypeError("requirement/value_type принадлежат разным value family")
-        if self.observer is None:
-            raise ValueError("required production entry должен иметь observer для enforce")
 
     @property
     def key(self) -> str:
@@ -172,6 +170,8 @@ class GameSettingCheckSpec:
 
 def build_game_settings_registry(
     entries: Iterable[GameSettingCheckSpec] = (),
+    *,
+    require_enforce: bool = False,
 ) -> tuple[GameSettingCheckSpec, ...]:
     registry = tuple(entries)
     seen_keys: set[str] = set()
@@ -181,6 +181,10 @@ def build_game_settings_registry(
             raise TypeError("registry должен содержать GameSettingCheckSpec")
         if entry.key in seen_keys:
             raise ValueError(f"Повторяющийся ключ registry: {entry.key!r}")
+        if require_enforce and entry.requirement is not None and entry.observer is None:
+            raise ValueError(
+                f"Required registry entry {entry.key!r} не имеет mutator observer"
+            )
         seen_keys.add(entry.key)
 
     return registry
@@ -257,7 +261,8 @@ GAME_SETTINGS_PREFLIGHT_REGISTRY = build_game_settings_registry(
             requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
             observer=_row_observer(CUSTOM_SHIP_NAMES_ROW),
         ),
-    )
+    ),
+    require_enforce=True,
 )
 
 GAME_SETTINGS_PRODUCTION_KEYS = tuple(
