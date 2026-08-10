@@ -128,6 +128,7 @@ class _TextCandidate:
     indices: tuple[int, ...]
     text: str
     bounds: tuple[int, int, int, int]
+    source_bounds: tuple[tuple[int, int, int, int], ...] = ()
 
     @property
     def center_x(self) -> float:
@@ -308,6 +309,7 @@ def _option_candidates(row: tuple[OcrTextBox, ...]) -> tuple[_TextCandidate, ...
                 indices=(index,),
                 text=current.text,
                 bounds=current.bounds,
+                source_bounds=(current.bounds,),
             )
         )
         if index + 1 >= len(row):
@@ -322,6 +324,7 @@ def _option_candidates(row: tuple[OcrTextBox, ...]) -> tuple[_TextCandidate, ...
                 indices=(index, index + 1),
                 text=_group_text(pair),
                 bounds=_union_bounds_from_boxes(pair),
+                source_bounds=(current.bounds, following.bounds),
             )
         )
     return tuple(candidates)
@@ -392,7 +395,7 @@ def _resolve_option_candidates(
     candidates: tuple[_TextCandidate, ...],
     options: tuple[GameSettingOptionSpec, ...],
 ) -> tuple[tuple[int, int, int, int], ...] | None:
-    used_bounds: set[tuple[int, int, int, int]] = set()
+    used_sources: set[tuple[int, int, int, int]] = set()
     assigned: dict[int, tuple[int, int, int, int]] = {}
     option_order = sorted(
         range(len(options)),
@@ -404,7 +407,8 @@ def _resolve_option_candidates(
         option = options[option_index]
         scored: list[tuple[float, _TextCandidate]] = []
         for candidate in candidates:
-            if candidate.bounds in used_bounds:
+            source_bounds = candidate.source_bounds or (candidate.bounds,)
+            if used_sources.intersection(source_bounds):
                 continue
             score = max(
                 _strict_similarity(candidate.text, alias)
@@ -419,7 +423,7 @@ def _resolve_option_candidates(
             return None
         selected = scored[0][1]
         assigned[option_index] = selected.bounds
-        used_bounds.add(selected.bounds)
+        used_sources.update(selected.source_bounds or (selected.bounds,))
 
     return tuple(assigned[index] for index in range(len(options)))
 
@@ -487,7 +491,11 @@ def _choice_marker_bounds(
     option_bounds: tuple[int, int, int, int],
 ) -> tuple[int, int, int, int]:
     x1, y1, x2, y2 = option_bounds
-    center_x = _CHOICE_LEFT_MARKER_X if (x1 + x2) / 2.0 < _PANEL_SPLIT_X else _CHOICE_RIGHT_MARKER_X
+    center_x = (
+        _CHOICE_LEFT_MARKER_X
+        if (x1 + x2) / 2.0 < _PANEL_SPLIT_X
+        else _CHOICE_RIGHT_MARKER_X
+    )
     center_y = (y1 + y2) / 2.0
     return _centered_marker_bounds(center_x, center_y)
 
@@ -538,7 +546,9 @@ def _observe_toggle_columns(
     if label is None:
         return None
     panel = "left" if label.center_x < _PANEL_SPLIT_X else "right"
-    panel_x1, panel_x2 = _LEFT_PANEL_BOUNDS if panel == "left" else _RIGHT_PANEL_BOUNDS
+    panel_x1, panel_x2 = (
+        _LEFT_PANEL_BOUNDS if panel == "left" else _RIGHT_PANEL_BOUNDS
+    )
     row_bounds = (
         panel_x1,
         max(OPTIONS_VIEWPORT_AREA[1], int(round(label.center_y - 30))),
@@ -609,7 +619,10 @@ def _observe_choice_cards(
             OPTIONS_VIEWPORT_AREA[0],
             max(OPTIONS_VIEWPORT_AREA[1], label.bounds[1] - 8),
             OPTIONS_VIEWPORT_AREA[2],
-            min(OPTIONS_VIEWPORT_AREA[3], label.bounds[3] + _CHOICE_OPTION_MAX_DY),
+            min(
+                OPTIONS_VIEWPORT_AREA[3],
+                label.bounds[3] + _CHOICE_OPTION_MAX_DY,
+            ),
         )
         return GameSettingRowObservation(
             value=_unknown_for(spec),
@@ -630,7 +643,10 @@ def _observe_choice_cards(
                     OPTIONS_VIEWPORT_AREA[0],
                     label.bounds[1],
                     OPTIONS_VIEWPORT_AREA[2],
-                    min(OPTIONS_VIEWPORT_AREA[3], label.bounds[3] + _CHOICE_OPTION_MAX_DY),
+                    min(
+                        OPTIONS_VIEWPORT_AREA[3],
+                        label.bounds[3] + _CHOICE_OPTION_MAX_DY,
+                    ),
                 ),
                 options=(),
             )
@@ -779,7 +795,11 @@ DISPLAY_BATTLE_RESULT_CUTSCENE_ROW = GameSettingRowSpec(
     options=TOGGLE_OFF_ON,
 )
 CUSTOM_SHIP_NAMES_ROW = GameSettingRowSpec(
-    label_aliases=("Custom Ship Names",),
+    label_aliases=(
+        "Custom Ship Names",
+        "Change Oathed Ship Names",
+        "Oathed Ship Names",
+    ),
     options=TOGGLE_OFF_ON,
 )
 
