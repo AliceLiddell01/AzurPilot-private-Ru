@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-_STAGE_NUMBER_TOKEN = re.compile(r"(?:^|[_-])stage[_-]?\d+(?:[_.-]|$)", re.IGNORECASE)
+_STAGE_NUMBER_TOKEN = re.compile(r"(?:^|[_.-])stage[_-]?\d+(?:[_.-]|$)", re.IGNORECASE)
 _TRACKED_GUARD_SUFFIXES = {".py", ".ps1", ".psm1"}
 _TRACKED_GUARD_ROOTS = {"tests", "scripts"}
 
@@ -38,6 +38,26 @@ class RepositoryHygieneTests(unittest.TestCase):
             "Отслеживаемые тесты и эксплуатационные скрипты не должны "
             "кодировать номер roadmap Stage в имени файла.",
         )
+
+    def test_stage_token_guard_covers_dot_hyphen_and_underscore_boundaries(self) -> None:
+        blocked = (
+            "test.stage7.py",
+            "test.stage-7.ps1",
+            "test_stage7.py",
+            "stage_7.psm1",
+        )
+        allowed = (
+            "test_staging7.py",
+            "test_stage.py",
+            "test7stage.py",
+        )
+
+        for name in blocked:
+            with self.subTest(name=name):
+                self.assertIsNotNone(_STAGE_NUMBER_TOKEN.search(name))
+        for name in allowed:
+            with self.subTest(name=name):
+                self.assertIsNone(_STAGE_NUMBER_TOKEN.search(name))
 
 
 if __name__ == "__main__":
