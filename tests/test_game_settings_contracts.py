@@ -6,13 +6,13 @@ import numpy as np
 
 from module.game_settings.model import GameSettingRequirement, GameSettingState
 from module.game_settings.options_detector import (
+    ROW_LAYOUT_CHOICE_CARDS,
     ROW_SPECS_BY_KEY,
     GameSettingOptionObservation,
     GameSettingRowObservation,
     OcrTextBox,
-    _MARKER_HALF_HEIGHT,
-    _MARKER_WIDTH,
-    _MARKER_X_GAP,
+    _choice_marker_bounds,
+    _toggle_marker_bounds,
     observe_game_setting_row,
 )
 from module.game_settings.preflight import GameSettingsPreflightScanner
@@ -27,44 +27,81 @@ from module.game_settings.traversal import OptionsTraversalResult, OptionsViewpo
 _BACKGROUND = 96
 
 
-def _paint_marker(
+def _paint_marker_bounds(
     image: np.ndarray,
     bounds: tuple[int, int, int, int],
     *,
     selected: bool,
 ) -> None:
-    _x1, y1, x2, y2 = bounds
-    center_y = int(round((y1 + y2) / 2.0))
-    left = x2 + _MARKER_X_GAP
-    top = center_y - _MARKER_HALF_HEIGHT
-    right = left + _MARKER_WIDTH
-    bottom = center_y + _MARKER_HALF_HEIGHT
+    x1, y1, x2, y2 = bounds
     if selected:
-        image[top + 5 : bottom - 5, left + 5 : right - 5] = 230
+        image[y1 + 5 : y2 - 5, x1 + 5 : x2 - 5] = 230
     else:
-        image[top + 10 : bottom - 10, left + 10 : right - 10] = 150
+        image[y1 + 10 : y2 - 10, x1 + 10 : x2 - 10] = 150
+
+
+def _render_toggle_row(key: str, selected_value):
+    spec = ROW_SPECS_BY_KEY[key]
+    image = np.full((720, 1280, 3), _BACKGROUND, dtype=np.uint8)
+    y = 300
+    detections = (
+        OcrTextBox(
+            text=spec.label_aliases[0],
+            bounds=(230, y, 470, y + 30),
+            score=0.99,
+        ),
+    )
+    for option in spec.options:
+        marker_bounds = _toggle_marker_bounds(
+            option.value,
+            panel="left",
+            center_y=y + 15,
+        )
+        _paint_marker_bounds(
+            image,
+            marker_bounds,
+            selected=option.value is selected_value,
+        )
+    return image, detections, spec
+
+
+def _render_choice_row(key: str, selected_value):
+    spec = ROW_SPECS_BY_KEY[key]
+    image = np.full((720, 1280, 3), _BACKGROUND, dtype=np.uint8)
+    label_y = 220
+    detections: list[OcrTextBox] = [
+        OcrTextBox(
+            text=spec.label_aliases[0],
+            bounds=(195, label_y, 500, label_y + 35),
+            score=0.99,
+        )
+    ]
+    for index, option in enumerate(spec.options):
+        column = index % 2
+        row = index // 2
+        x1 = 400 if column == 0 else 880
+        y1 = 300 + row * 75
+        text = option.aliases[0]
+        width = max(60, len(text) * 10)
+        box = OcrTextBox(
+            text=text,
+            bounds=(x1, y1, x1 + width, y1 + 32),
+            score=0.99,
+        )
+        detections.append(box)
+        _paint_marker_bounds(
+            image,
+            _choice_marker_bounds(box.bounds),
+            selected=option.value is selected_value,
+        )
+    return image, tuple(detections), spec
 
 
 def _render_row(key: str, selected_value):
     spec = ROW_SPECS_BY_KEY[key]
-    image = np.full((720, 1280, 3), _BACKGROUND, dtype=np.uint8)
-    y = 260
-    detections: list[OcrTextBox] = [
-        OcrTextBox(
-            text=spec.label_aliases[0],
-            bounds=(220, y, 470, y + 20),
-            score=0.99,
-        )
-    ]
-    x = 520
-    for option in spec.options:
-        text = option.aliases[0]
-        width = max(34, 9 * len(text))
-        bounds = (x, y, x + width, y + 20)
-        detections.append(OcrTextBox(text=text, bounds=bounds, score=0.99))
-        _paint_marker(image, bounds, selected=option.value is selected_value)
-        x += width + 78
-    return image, tuple(detections), spec
+    if spec.layout == ROW_LAYOUT_CHOICE_CARDS:
+        return _render_choice_row(key, selected_value)
+    return _render_toggle_row(key, selected_value)
 
 
 class ProductionRowContractTests(unittest.TestCase):
