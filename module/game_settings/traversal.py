@@ -259,6 +259,17 @@ class OptionsTraversalMixin:
                 motion = self._measure_options_motion(frame, next_frame)
 
                 if motion.stable:
+                    next_semantic = self._detect_options_semantic_landmark(next_frame)
+                    if next_semantic is not None and next_semantic.terminal:
+                        logger.info(
+                            "[Игровые настройки] Terminal semantic landmark вошёл "
+                            "в стабильный нижний кадр; передаём его visitor-у"
+                        )
+                        self._clear_options_control_record()
+                        frame = next_frame
+                        no_progress = 0
+                        break
+
                     no_progress += 1
                     if lower_landmark_seen:
                         logger.info(
