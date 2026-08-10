@@ -303,8 +303,8 @@ class OptionsTraversalMixin:
                     frame = next_frame
                     continue
 
-                no_progress = 0
                 if self._motion_is_normal_downward(motion):
+                    no_progress = 0
                     self._clear_options_control_record()
                     offset += motion.vertical_shift
                     frame = next_frame
@@ -322,6 +322,27 @@ class OptionsTraversalMixin:
                 )
 
                 if semantic_forward or semantic_non_regressing_lower:
+                    if semantic_forward:
+                        no_progress = 0
+                    else:
+                        no_progress += 1
+                        logger.info(
+                            "[Игровые настройки] Options: semantic-прогресс не "
+                            "увеличился в нижней области (%s/%s)",
+                            no_progress,
+                            self.options_max_no_progress_retries,
+                        )
+                        if no_progress >= self.options_max_no_progress_retries:
+                            logger.info(
+                                "[Игровые настройки] Options: фактический низ "
+                                "подтверждён bounded semantic non-progress"
+                            )
+                            return OptionsTraversalResult(
+                                visited_viewports=visited,
+                                final_offset=offset,
+                                reached_bottom=True,
+                                stopped_early=False,
+                            )
                     reason = (
                         "forward semantic landmark"
                         if semantic_forward
@@ -347,6 +368,7 @@ class OptionsTraversalMixin:
                     break
 
                 self._validate_downward_progress(motion)
+                no_progress = 0
                 self._clear_options_control_record()
                 offset += motion.vertical_shift
                 frame = next_frame
