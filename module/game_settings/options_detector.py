@@ -442,7 +442,7 @@ def _marker_activity_from_bounds(
     if marker is None or marker.size == 0:
         return None
     if marker.ndim == 3:
-        gray = cv2.cvtColor(marker[:, :, :3], cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(marker[:, :, :3], cv2.COLOR_RGB2GRAY)
     else:
         gray = marker
 
