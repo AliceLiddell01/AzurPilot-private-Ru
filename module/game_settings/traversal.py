@@ -267,7 +267,6 @@ class OptionsTraversalMixin:
                         )
                         self._clear_options_control_record()
                         frame = next_frame
-                        no_progress = 0
                         break
 
                     no_progress += 1
