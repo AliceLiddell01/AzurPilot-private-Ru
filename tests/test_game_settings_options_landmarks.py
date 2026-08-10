@@ -33,16 +33,43 @@ def _box(text: str, y: int) -> OcrTextBox:
     return OcrTextBox(text=text, bounds=(250, y, 650, y + 24), score=0.99)
 
 
+def _row_boxes(label: str, y: int) -> tuple[OcrTextBox, ...]:
+    return (
+        OcrTextBox(text=label, bounds=(250, y, 500, y + 24), score=0.99),
+        OcrTextBox(text="Off", bounds=(520, y, 560, y + 24), score=0.99),
+        OcrTextBox(text="On", bounds=(610, y, 645, y + 24), score=0.99),
+    )
+
+
 class OptionsSemanticLandmarkTests(unittest.TestCase):
-    def test_terminal_landmark_accepts_truncated_ocr_text(self) -> None:
+    def test_terminal_landmark_accepts_live_marquee_prefix_with_controls(self) -> None:
         observation = detect_options_semantic_landmark(
             _frame(),
-            detections=(_box("Rendering Compatibil", 420),),
+            detections=_row_boxes("Rendering Compatib", 420),
         )
 
         self.assertIsNotNone(observation)
         self.assertEqual(observation.key, "rendering_compatibility_terminal")
         self.assertTrue(observation.terminal)
+        self.assertEqual(observation.text, "Rendering Compatib")
+
+    def test_terminal_landmark_accepts_marquee_suffix(self) -> None:
+        observation = detect_options_semantic_landmark(
+            _frame(),
+            detections=_row_boxes("dering Compatibility", 420),
+        )
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.key, "rendering_compatibility_terminal")
+        self.assertTrue(observation.terminal)
+
+    def test_short_generic_terminal_fragment_is_rejected(self) -> None:
+        observation = detect_options_semantic_landmark(
+            _frame(),
+            detections=_row_boxes("Compatibility", 420),
+        )
+
+        self.assertIsNone(observation)
 
     def test_deepest_visible_landmark_wins_in_overlapping_viewport(self) -> None:
         observation = detect_options_semantic_landmark(
@@ -57,10 +84,10 @@ class OptionsSemanticLandmarkTests(unittest.TestCase):
         self.assertEqual(observation.key, "rendering_compatibility_terminal")
         self.assertEqual(observation.rank, 50)
 
-    def test_current_oathed_ship_label_marks_lower_region(self) -> None:
+    def test_current_oathed_ship_marquee_label_marks_lower_region(self) -> None:
         observation = detect_options_semantic_landmark(
             _frame(),
-            detections=(_box("Change Oathed Ship Names Off On", 330),),
+            detections=_row_boxes("Change Oathed Ship", 330),
         )
 
         self.assertIsNotNone(observation)
