@@ -313,6 +313,8 @@ class GameSettingAppliedChange:
     def __post_init__(self) -> None:
         if not isinstance(self.key, str) or not _IDENTIFIER_RE.fullmatch(self.key):
             raise ValueError(f"Недопустимый key изменения: {self.key!r}")
+        if not isinstance(self.verified, bool):
+            raise TypeError("verified должен быть bool")
         for name, value in (("before", self.before), ("after", self.after)):
             if not isinstance(
                 value,
@@ -345,6 +347,19 @@ class GameSettingsEnforcementResult:
     def __post_init__(self) -> None:
         if not isinstance(self.before, GameSettingsScanResult):
             raise TypeError("before должен быть GameSettingsScanResult")
+        if not isinstance(self.success, bool):
+            raise TypeError("success должен быть bool")
+        for name, value in (
+            ("blocked_reason", self.blocked_reason),
+            ("failure_reason", self.failure_reason),
+        ):
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"{name} должен быть str или None")
+        if self.failed_key is not None:
+            if not isinstance(self.failed_key, str):
+                raise TypeError("failed_key должен быть str или None")
+            if not _IDENTIFIER_RE.fullmatch(self.failed_key):
+                raise ValueError("failed_key должен быть lowercase identifier или None")
         if self.after is not None and not isinstance(
             self.after, GameSettingsScanResult
         ):
