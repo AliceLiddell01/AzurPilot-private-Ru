@@ -112,20 +112,29 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 failure_reason=failure.reason,
             )
 
-        after = self.scan_game_settings()
-        if after.all_required_compatible is not True:
+        # Final enforcement audit must persist exactly once with provenance that
+        # describes the final completed enforcement path. Calling the public
+        # scan_game_settings() here would first write source=AUDIT and then
+        # immediately overwrite the same record.
+        after = self._scan_game_settings()
+        final_compatible = after.all_required_compatible is True
+        if self._should_persist_game_settings_snapshot(after):
+            self.persist_game_settings_snapshot(
+                after,
+                source=(
+                    GameSettingsSnapshotSource.ENFORCEMENT_FINAL_AUDIT
+                    if final_compatible
+                    else GameSettingsSnapshotSource.AUDIT
+                ),
+            )
+
+        if not final_compatible:
             return GameSettingsEnforcementResult(
                 before=before,
                 changes=changes,
                 after=after,
                 success=False,
                 failure_reason="Финальный аудит не подтвердил совместимость всех настроек",
-            )
-
-        if self._should_persist_game_settings_snapshot(after):
-            self.persist_game_settings_snapshot(
-                after,
-                source=GameSettingsSnapshotSource.ENFORCEMENT_FINAL_AUDIT,
             )
 
         logger.info("[Игровые настройки] Все обязательные настройки совместимы")
@@ -227,10 +236,10 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     observation.value.value,
                     required.value,
                 )
-                if (
-                    not snapshot_invalidated
-                    and self._should_persist_game_settings_snapshot(before)
-                ):
+                if not snapshot_invalidated:
+                    # Any real mutation can invalidate a pre-existing production
+                    # snapshot, even when this enforcement instance uses a custom
+                    # registry. Invalidation is safe/idempotent if no file exists.
                     self.invalidate_game_settings_snapshot()
                     snapshot_invalidated = True
                     logger.info(
