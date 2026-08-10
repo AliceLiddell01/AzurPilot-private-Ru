@@ -48,7 +48,7 @@ class OptionsSemanticLandmarkTests(unittest.TestCase):
         observation = detect_options_semantic_landmark(
             _frame(),
             detections=(
-                _box("Custom Ship Names Off On", 250),
+                _box("Change Oathed Ship Names Off On", 250),
                 _box("Rendering Compatibility Off On", 420),
             ),
         )
@@ -56,6 +56,17 @@ class OptionsSemanticLandmarkTests(unittest.TestCase):
         self.assertIsNotNone(observation)
         self.assertEqual(observation.key, "rendering_compatibility_terminal")
         self.assertEqual(observation.rank, 50)
+
+    def test_current_oathed_ship_label_marks_lower_region(self) -> None:
+        observation = detect_options_semantic_landmark(
+            _frame(),
+            detections=(_box("Change Oathed Ship Names Off On", 330),),
+        )
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.key, "custom_ship_names_region")
+        self.assertEqual(observation.rank, 40)
+        self.assertFalse(observation.terminal)
 
     def test_unrelated_rows_do_not_create_semantic_position(self) -> None:
         observation = detect_options_semantic_landmark(
@@ -97,7 +108,6 @@ class _SemanticTraversalScanner(OptionsTraversalMixin):
     ) -> None:
         self.device = self
         self.position = 0
-        self.image = _frame()
         self.reverse_at = reverse_at
         self.lower_position = lower_position
         self.terminal_position = terminal_position
@@ -151,8 +161,8 @@ class _SemanticTraversalScanner(OptionsTraversalMixin):
             edge_change=0.20,
         )
 
-    def _detect_options_semantic_landmark(self):
-        item = self.semantic_positions.get(self.position)
+    def _detect_options_semantic_landmark(self, frame: _FakeFrame):
+        item = self.semantic_positions.get(frame.position)
         if item is None:
             return None
         key, rank, terminal = item
@@ -209,6 +219,21 @@ class OptionsSemanticTraversalTests(unittest.TestCase):
 
         with self.assertRaisesRegex(GameStuckError, "пошла назад"):
             scanner.traverse_options(lambda _viewport: None)
+
+    def test_semantic_detector_receives_the_exact_stable_frame(self) -> None:
+        scanner = _SemanticTraversalScanner()
+        seen_positions: list[int] = []
+        original = scanner._detect_options_semantic_landmark
+
+        def detector(frame: _FakeFrame):
+            seen_positions.append(frame.position)
+            return original(frame)
+
+        scanner._detect_options_semantic_landmark = detector
+        result = scanner.traverse_options(lambda _viewport: None)
+
+        self.assertTrue(result.reached_bottom)
+        self.assertEqual(seen_positions, [0, 1, 1, 2, 2, 3, 3])
 
 
 if __name__ == "__main__":
