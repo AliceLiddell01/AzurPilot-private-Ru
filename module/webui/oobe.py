@@ -14,6 +14,11 @@ from module.webui.pin import put_select
 class OOBEWizard(_OOBEWizard):
     """Expose only the Global package and escape OOBE review values."""
 
+    def __init__(self, gui):
+        super().__init__(gui)
+        # `ap` is reserved for smoke/acceptance runs and stays hidden from WebUI.
+        self.config_name = "alas"
+
     def _step_emulator(self):
         put_html(
             f'<h2 class="oobe-section-title">{lang.t("Gui.OOBE.EmulatorTitle")}</h2>'
