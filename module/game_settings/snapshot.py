@@ -98,7 +98,10 @@ class GameSettingsSnapshot:
     scan_result: GameSettingsScanResult
 
     def __post_init__(self) -> None:
-        if self.schema_version != GAME_SETTINGS_SNAPSHOT_SCHEMA_VERSION:
+        if (
+            type(self.schema_version) is not int
+            or self.schema_version != GAME_SETTINGS_SNAPSHOT_SCHEMA_VERSION
+        ):
             raise ValueError("Неподдерживаемая schema snapshot")
         if not isinstance(self.scanned_at, datetime):
             raise TypeError("scanned_at должен быть datetime")
@@ -141,7 +144,7 @@ class GameSettingsSnapshotLoadResult:
 class GameSettingsSnapshotAccessResult:
     snapshot: GameSettingsSnapshot
     source: GameSettingsSnapshotAccessSource
-    cache_status: GameSettingsSnapshotStatus
+    cache_status: GameSettingsSnapshotStatus | None
     cache_reason: str | None = None
 
 
@@ -347,6 +350,15 @@ def invalidate_game_settings_snapshot(
     logger.info("[Снимок игровых настроек] Инвалидирован: %s", target)
 
 
+def _missing_result(target: Path) -> GameSettingsSnapshotLoadResult:
+    logger.info("[Снимок игровых настроек] Промах кэша: файл отсутствует")
+    return GameSettingsSnapshotLoadResult(
+        GameSettingsSnapshotStatus.MISSING,
+        target,
+        reason="Файл отсутствует",
+    )
+
+
 def _exact(data: dict[str, object], keys: set[str], context: str) -> None:
     if set(data) != keys:
         raise _ValidationError(
@@ -520,7 +532,10 @@ def deserialize_game_settings_snapshot(
             "Верхний уровень должен быть JSON object",
         )
     schema = data.get("schema_version")
-    if schema != GAME_SETTINGS_SNAPSHOT_SCHEMA_VERSION:
+    if (
+        type(schema) is not int
+        or schema != GAME_SETTINGS_SNAPSHOT_SCHEMA_VERSION
+    ):
         raise _ValidationError(
             GameSettingsSnapshotStatus.UNSUPPORTED_SCHEMA,
             f"Неподдерживаемая schema: {schema!r}",
@@ -572,15 +587,12 @@ def load_game_settings_snapshot(
     if max_age is not None and max_age < timedelta(0):
         raise ValueError("max_age не может быть отрицательным")
     if not target.exists():
-        logger.info("[Снимок игровых настроек] Промах кэша: файл отсутствует")
-        return GameSettingsSnapshotLoadResult(
-            GameSettingsSnapshotStatus.MISSING,
-            target,
-            reason="Файл отсутствует",
-        )
+        return _missing_result(target)
     try:
         payload = atomic_read_text(str(target), encoding="utf-8", errors="strict")
         if not payload:
+            if not target.exists():
+                return _missing_result(target)
             raise _ValidationError(
                 GameSettingsSnapshotStatus.CORRUPT,
                 "Пустой файл",
@@ -594,6 +606,8 @@ def load_game_settings_snapshot(
             exc.reason,
         )
         return GameSettingsSnapshotLoadResult(exc.status, target, reason=exc.reason)
+    except FileNotFoundError:
+        return _missing_result(target)
     except (OSError, UnicodeError) as exc:
         logger.warning(
             "[Снимок игровых настроек] Промах кэша: повреждённый файл (%s): %s",
@@ -617,13 +631,19 @@ def load_game_settings_snapshot(
         current = datetime.now(timezone.utc) if now is None else now
         if current.tzinfo is None or current.utcoffset() is None:
             raise ValueError("now должен содержать timezone")
-        if current - snapshot.scanned_at > max_age:
+        age = current - snapshot.scanned_at
+        if age < timedelta(0) or age > max_age:
             logger.info("[Снимок игровых настроек] Промах кэша: снимок устарел")
+            reason = (
+                "scanned_at находится в будущем"
+                if age < timedelta(0)
+                else "Снимок старше consumer max_age"
+            )
             return GameSettingsSnapshotLoadResult(
                 GameSettingsSnapshotStatus.STALE,
                 target,
                 snapshot,
-                "Снимок старше consumer max_age",
+                reason,
             )
     logger.info("[Снимок игровых настроек] Попадание в кэш")
     return GameSettingsSnapshotLoadResult(
@@ -682,7 +702,7 @@ def get_or_refresh_game_settings_snapshot(
         status = cached.status
         reason = cached.reason
     else:
-        status = GameSettingsSnapshotStatus.VALID
+        status = None
         reason = "Запрошено принудительное обновление"
         logger.info("[Снимок игровых настроек] Запрошено принудительное обновление")
     snapshot = refresh_game_settings_snapshot(
