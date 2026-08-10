@@ -166,8 +166,10 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
             return True
 
         def visit(_viewport: OptionsViewport) -> bool:
-            # Exactly one OCR cache lifetime per stabilized viewport. This is
-            # safe for backends that overwrite one numpy buffer in place.
+            # GameSettingsScanner mirrors the detached traversal snapshot into
+            # device.image, so this is the exact ndarray owned by traversal.
+            # Keep that object identity stable across clicks: semantic matching
+            # and motion after the callback must see the verified post-click UI.
             clear_game_settings_ocr_cache()
             frame = self.device.image
 
@@ -226,11 +228,15 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
 
                 clear_game_settings_ocr_cache()
                 verified_frame = self._wait_options_stable()
-                verified = observer(verified_frame)
+                frame[...] = verified_frame
+                self.device.image = frame
+                verified = observer(frame)
                 if verified is None or is_unknown_game_setting_value(verified.value):
                     clear_game_settings_ocr_cache()
                     verified_frame = self._wait_options_stable()
-                    verified = observer(verified_frame)
+                    frame[...] = verified_frame
+                    self.device.image = frame
+                    verified = observer(frame)
                 if verified is None:
                     return fail(entry.key, "Строка исчезла после клика")
                 if is_unknown_game_setting_value(verified.value):
@@ -253,7 +259,6 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     )
                 )
                 pending.pop(entry.key)
-                frame = verified_frame
                 logger.info(
                     "[Игровые настройки] %s: подтверждено=%s",
                     entry.key,
