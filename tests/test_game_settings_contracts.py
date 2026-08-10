@@ -182,7 +182,7 @@ class _ReadOnlyScanner(GameSettingsPreflightScanner):
             index=1,
             scroll_offset=0.0,
             is_top=True,
-            is_bottom=True,
+            is_bottom=False,
         )
         stopped = bool(visitor(viewport))
         self.stop_requested = stopped
