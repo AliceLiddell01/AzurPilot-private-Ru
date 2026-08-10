@@ -205,6 +205,15 @@ OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW = replace(
     ),
 )
 
+# v10 live diagnostics proved that the lower ``Change Oathed Ship ...`` row is
+# a distinct control from the earlier ``Custom Ship Names`` requirement. It may
+# remain useful as a semantic navigation landmark, but it must never be accepted
+# as state evidence for the production ``custom_ship_names`` key.
+CUSTOM_SHIP_NAMES_PRODUCTION_ROW = replace(
+    CUSTOM_SHIP_NAMES_ROW,
+    label_aliases=("Custom Ship Names",),
+)
+
 
 # Legacy compatibility export for callers/tests that intentionally exercise the
 # original single-setting preflight contract. The full production scanner uses
@@ -287,9 +296,9 @@ GAME_SETTINGS_OPTIONS_REGISTRY = build_game_settings_registry(
         ),
         GameSettingCheckSpec(
             definition=CUSTOM_SHIP_NAMES,
-            detector=_row_detector(CUSTOM_SHIP_NAMES_ROW),
+            detector=_row_detector(CUSTOM_SHIP_NAMES_PRODUCTION_ROW),
             requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
-            observer=_row_observer(CUSTOM_SHIP_NAMES_ROW),
+            observer=_row_observer(CUSTOM_SHIP_NAMES_PRODUCTION_ROW),
         ),
     ),
     require_enforce=True,
