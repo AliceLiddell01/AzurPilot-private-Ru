@@ -175,6 +175,7 @@ class _ReadOnlyScanner(GameSettingsPreflightScanner):
         self.device = _ReadOnlyDevice()
         self.check_registry = registry
         self.return_calls = 0
+        self.stop_requested = False
 
     def traverse_options(self, visitor):
         viewport = OptionsViewport(
@@ -184,6 +185,7 @@ class _ReadOnlyScanner(GameSettingsPreflightScanner):
             is_bottom=False,
         )
         stopped = bool(visitor(viewport))
+        self.stop_requested = stopped
         return OptionsTraversalResult(
             visited_viewports=1,
             final_offset=0.0,
@@ -240,6 +242,7 @@ class ReadOnlyAuditContractTests(unittest.TestCase):
         result = scanner.scan_game_settings()
 
         self.assertEqual(observer_calls, 0)
+        self.assertFalse(scanner.stop_requested)
         self.assertFalse(hasattr(result, "changed_keys"))
         self.assertIs(result.get("read_only_guard").detected_state, GameSettingState.OFF)
         self.assertEqual(scanner.return_calls, 1)
