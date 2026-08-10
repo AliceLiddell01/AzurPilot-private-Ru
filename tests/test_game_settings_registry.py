@@ -160,14 +160,14 @@ class GameSettingsRegistryTests(unittest.TestCase):
         self.assertEqual(registry, ())
         self.assertIsInstance(registry, tuple)
 
-    def test_stage6_compat_registry_keeps_custom_ship_names_contract(self) -> None:
+    def test_legacy_compat_registry_keeps_custom_ship_names_contract(self) -> None:
         self.assertEqual(len(GAME_SETTINGS_PREFLIGHT_REGISTRY), 1)
         entry = GAME_SETTINGS_PREFLIGHT_REGISTRY[0]
         self.assertIs(entry.definition, CUSTOM_SHIP_NAMES)
         self.assertIs(entry.requirement, CUSTOM_SHIP_NAMES_REQUIRED_OFF)
         self.assertIs(entry.detector, detect_custom_ship_names)
 
-    def test_production_registry_has_exact_authoritative_stage7_key_set(self) -> None:
+    def test_production_registry_has_exact_authoritative_key_set(self) -> None:
         self.assertEqual(GAME_SETTINGS_PRODUCTION_KEYS, EXPECTED_PRODUCTION_KEYS)
         self.assertEqual(
             tuple(entry.key for entry in GAME_SETTINGS_OPTIONS_REGISTRY),
