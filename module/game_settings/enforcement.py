@@ -24,6 +24,9 @@ from module.game_settings.traversal import OptionsViewport
 from module.logger import logger
 
 
+_SAFE_CLICK_HALF_SIZE = 8
+
+
 @dataclass(frozen=True, slots=True)
 class _ApplyFailure:
     key: str
@@ -198,7 +201,8 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                         entry.key,
                         "Не удалось однозначно определить требуемую кнопку значения",
                     )
-                if not self._target_within_observed_row(observation, target.click_bounds):
+                click_bounds = self._safe_click_bounds(target.click_bounds)
+                if not self._target_within_observed_row(observation, click_bounds):
                     return fail(
                         entry.key,
                         "Цель клика вышла за границы подтверждённой строки",
@@ -212,9 +216,9 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 )
                 self.device.click(
                     Button(
-                        area=target.click_bounds,
+                        area=click_bounds,
                         color=(0, 0, 0),
-                        button=target.click_bounds,
+                        button=click_bounds,
                         name=f"GAME_SETTINGS_{entry.key.upper()}_TARGET",
                     )
                 )
@@ -290,6 +294,22 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     "основная ошибка применения сохранена",
                     cleanup_error,
                 )
+
+    @staticmethod
+    def _safe_click_bounds(
+        target: tuple[int, int, int, int],
+    ) -> tuple[int, int, int, int]:
+        """Keep stochastic device clicks inside the confirmed marker center."""
+
+        x1, y1, x2, y2 = target
+        center_x = (x1 + x2) / 2.0
+        center_y = (y1 + y2) / 2.0
+        return (
+            int(round(center_x - _SAFE_CLICK_HALF_SIZE)),
+            int(round(center_y - _SAFE_CLICK_HALF_SIZE)),
+            int(round(center_x + _SAFE_CLICK_HALF_SIZE)),
+            int(round(center_y + _SAFE_CLICK_HALF_SIZE)),
+        )
 
     @staticmethod
     def _target_within_observed_row(
