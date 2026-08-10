@@ -64,7 +64,7 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
                     )
                 else:
                     logger.info(
-                        "[Игровые настройки] %s: detected=%s",
+                        "[Игровые настройки] %s: обнаружено=%s",
                         entry.key,
                         value.value,
                     )
@@ -87,7 +87,7 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
                         continue
                     logger.warning(
                         "[Игровые настройки] %s: строка не найдена до "
-                        "подтверждённого фактического низа Options; detected=UNKNOWN",
+                        "подтверждённого фактического низа Options; значение=UNKNOWN",
                         entry.key,
                     )
                     resolved[entry.key] = entry.make_unknown_result()
@@ -115,12 +115,12 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
 
     @staticmethod
     def _log_result(result: GameSettingsScanResult) -> None:
-        logger.info("[Game Settings] Audit:")
+        logger.info("[Игровые настройки] Аудит:")
         for check in result:
             required_value = check.required_value
-            required = "none" if required_value is None else required_value.value
+            required = "нет" if required_value is None else required_value.value
             logger.info(
-                "[Игровые настройки] %s: detected=%s, required=%s, compatible=%s",
+                "[Игровые настройки] %s: обнаружено=%s, требуется=%s, совместимо=%s",
                 check.key,
                 check.detected_value.value,
                 required,
