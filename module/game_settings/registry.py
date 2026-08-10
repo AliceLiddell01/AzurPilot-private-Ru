@@ -81,18 +81,6 @@ def _row_observer(spec: GameSettingRowSpec) -> GameSettingObserver:
     return observer
 
 
-def _row_detector(spec: GameSettingRowSpec) -> GameSettingDetector:
-    observer = _row_observer(spec)
-
-    def detector(image: np.ndarray) -> GameSettingValue | None:
-        observation = observer(image)
-        if observation is None:
-            return None
-        return observation.value
-
-    return detector
-
-
 @dataclass(frozen=True, slots=True)
 class GameSettingCheckSpec:
     """One typed audit entry and optional row observer for explicit enforce."""
@@ -102,6 +90,7 @@ class GameSettingCheckSpec:
     requirement: GameSettingRequirementValue | None = None
     value_type: GameSettingValueType = GameSettingState
     observer: GameSettingObserver | None = None
+    row_spec: GameSettingRowSpec | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.definition, GameSettingDefinition):
@@ -117,6 +106,8 @@ class GameSettingCheckSpec:
             raise TypeError("value_type должен быть поддерживаемой enum family")
         if self.observer is not None and not callable(self.observer):
             raise TypeError("observer должен быть callable или None")
+        if self.row_spec is not None and not isinstance(self.row_spec, GameSettingRowSpec):
+            raise TypeError("row_spec должен быть GameSettingRowSpec или None")
 
         if self.requirement is None:
             return
@@ -172,6 +163,32 @@ class GameSettingCheckSpec:
         return self.make_result(self.value_type.UNKNOWN)
 
 
+def _row_entry(
+    definition: GameSettingDefinition,
+    spec: GameSettingRowSpec,
+    requirement: GameSettingRequirementValue | None = None,
+    value_type: GameSettingValueType = GameSettingState,
+) -> GameSettingCheckSpec:
+    """Build audit detector and enforce observer from one authoritative row spec."""
+
+    observer = _row_observer(spec)
+
+    def detector(image: np.ndarray) -> GameSettingValue | None:
+        observation = observer(image)
+        if observation is None:
+            return None
+        return observation.value
+
+    return GameSettingCheckSpec(
+        definition=definition,
+        detector=detector,
+        requirement=requirement,
+        value_type=value_type,
+        observer=observer,
+        row_spec=spec,
+    )
+
+
 def build_game_settings_registry(
     entries: Iterable[GameSettingCheckSpec] = (),
     *,
@@ -185,10 +202,15 @@ def build_game_settings_registry(
             raise TypeError("registry должен содержать GameSettingCheckSpec")
         if entry.key in seen_keys:
             raise ValueError(f"Повторяющийся ключ registry: {entry.key!r}")
-        if require_enforce and entry.requirement is not None and entry.observer is None:
-            raise ValueError(
-                f"Required registry entry {entry.key!r} не имеет mutator observer"
-            )
+        if require_enforce and entry.requirement is not None:
+            if entry.observer is None:
+                raise ValueError(
+                    f"Required registry entry {entry.key!r} не имеет mutator observer"
+                )
+            if entry.row_spec is None:
+                raise ValueError(
+                    f"Required registry entry {entry.key!r} не имеет row_spec"
+                )
         seen_keys.add(entry.key)
 
     return registry
@@ -205,15 +227,6 @@ OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW = replace(
         *OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_ROW.label_aliases,
         "Mode in secured",
     ),
-)
-
-# v10 live diagnostics proved that the lower ``Change Oathed Ship ...`` row is
-# a distinct control from the earlier ``Custom Ship Names`` requirement. It may
-# remain useful as a semantic navigation landmark, but it must never be accepted
-# as state evidence for the production ``custom_ship_names`` key.
-CUSTOM_SHIP_NAMES_PRODUCTION_ROW = replace(
-    CUSTOM_SHIP_NAMES_ROW,
-    label_aliases=("Custom Ship Names",),
 )
 
 
@@ -233,74 +246,63 @@ GAME_SETTINGS_PREFLIGHT_REGISTRY = build_game_settings_registry(
 
 GAME_SETTINGS_OPTIONS_REGISTRY = build_game_settings_registry(
     (
-        GameSettingCheckSpec(
-            definition=FRAME_RATE,
-            detector=_row_detector(FRAME_RATE_ROW),
-            requirement=FRAME_RATE_REQUIRED_60_FPS,
-            value_type=FrameRateValue,
-            observer=_row_observer(FRAME_RATE_ROW),
+        _row_entry(
+            FRAME_RATE,
+            FRAME_RATE_ROW,
+            FRAME_RATE_REQUIRED_60_FPS,
+            FrameRateValue,
         ),
-        GameSettingCheckSpec(
-            definition=OPSI_REDUCE_TB_GUIDANCE,
-            detector=_row_detector(OPSI_REDUCE_TB_GUIDANCE_ROW),
-            requirement=OPSI_REDUCE_TB_GUIDANCE_REQUIRED_ON,
-            observer=_row_observer(OPSI_REDUCE_TB_GUIDANCE_ROW),
+        _row_entry(
+            OPSI_REDUCE_TB_GUIDANCE,
+            OPSI_REDUCE_TB_GUIDANCE_ROW,
+            OPSI_REDUCE_TB_GUIDANCE_REQUIRED_ON,
         ),
-        GameSettingCheckSpec(
-            definition=OPSI_AUTO_USE_ITEMS,
-            detector=_row_detector(OPSI_AUTO_USE_ITEMS_ROW),
-            requirement=OPSI_AUTO_USE_ITEMS_REQUIRED_ON,
-            observer=_row_observer(OPSI_AUTO_USE_ITEMS_ROW),
+        _row_entry(
+            OPSI_AUTO_USE_ITEMS,
+            OPSI_AUTO_USE_ITEMS_ROW,
+            OPSI_AUTO_USE_ITEMS_REQUIRED_ON,
         ),
-        GameSettingCheckSpec(
-            definition=OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE,
-            detector=_row_detector(OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW),
-            requirement=OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_REQUIRED_OFF,
-            observer=_row_observer(OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW),
+        _row_entry(
+            OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE,
+            OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW,
+            OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_REQUIRED_OFF,
         ),
-        GameSettingCheckSpec(
-            definition=STORY_AUTOPLAY,
-            detector=_row_detector(STORY_AUTOPLAY_ROW),
-            requirement=STORY_AUTOPLAY_REQUIRED_ENABLED,
-            value_type=StoryAutoplayValue,
-            observer=_row_observer(STORY_AUTOPLAY_ROW),
+        _row_entry(
+            STORY_AUTOPLAY,
+            STORY_AUTOPLAY_ROW,
+            STORY_AUTOPLAY_REQUIRED_ENABLED,
+            StoryAutoplayValue,
         ),
-        GameSettingCheckSpec(
-            definition=TEXT_AUTO_SCROLL_SPEED,
-            detector=_row_detector(TEXT_AUTO_SCROLL_SPEED_ROW),
-            requirement=TEXT_AUTO_SCROLL_SPEED_REQUIRED_VERY_FAST,
-            value_type=TextAutoScrollSpeedValue,
-            observer=_row_observer(TEXT_AUTO_SCROLL_SPEED_ROW),
+        _row_entry(
+            TEXT_AUTO_SCROLL_SPEED,
+            TEXT_AUTO_SCROLL_SPEED_ROW,
+            TEXT_AUTO_SCROLL_SPEED_REQUIRED_VERY_FAST,
+            TextAutoScrollSpeedValue,
         ),
-        GameSettingCheckSpec(
-            definition=ENABLE_IDLE_SCREEN,
-            detector=_row_detector(ENABLE_IDLE_SCREEN_ROW),
-            requirement=ENABLE_IDLE_SCREEN_REQUIRED_OFF,
-            observer=_row_observer(ENABLE_IDLE_SCREEN_ROW),
+        _row_entry(
+            ENABLE_IDLE_SCREEN,
+            ENABLE_IDLE_SCREEN_ROW,
+            ENABLE_IDLE_SCREEN_REQUIRED_OFF,
         ),
-        GameSettingCheckSpec(
-            definition=DUPLICATE_SHIP_DISPLAY,
-            detector=_row_detector(DUPLICATE_SHIP_DISPLAY_ROW),
-            requirement=DUPLICATE_SHIP_DISPLAY_REQUIRED_OFF,
-            observer=_row_observer(DUPLICATE_SHIP_DISPLAY_ROW),
+        _row_entry(
+            DUPLICATE_SHIP_DISPLAY,
+            DUPLICATE_SHIP_DISPLAY_ROW,
+            DUPLICATE_SHIP_DISPLAY_REQUIRED_OFF,
         ),
-        GameSettingCheckSpec(
-            definition=DISPLAY_QUICK_SWITCH_PROMPT,
-            detector=_row_detector(DISPLAY_QUICK_SWITCH_PROMPT_ROW),
-            requirement=DISPLAY_QUICK_SWITCH_PROMPT_REQUIRED_OFF,
-            observer=_row_observer(DISPLAY_QUICK_SWITCH_PROMPT_ROW),
+        _row_entry(
+            DISPLAY_QUICK_SWITCH_PROMPT,
+            DISPLAY_QUICK_SWITCH_PROMPT_ROW,
+            DISPLAY_QUICK_SWITCH_PROMPT_REQUIRED_OFF,
         ),
-        GameSettingCheckSpec(
-            definition=DISPLAY_BATTLE_RESULT_CUTSCENE,
-            detector=_row_detector(DISPLAY_BATTLE_RESULT_CUTSCENE_ROW),
-            requirement=DISPLAY_BATTLE_RESULT_CUTSCENE_REQUIRED_OFF,
-            observer=_row_observer(DISPLAY_BATTLE_RESULT_CUTSCENE_ROW),
+        _row_entry(
+            DISPLAY_BATTLE_RESULT_CUTSCENE,
+            DISPLAY_BATTLE_RESULT_CUTSCENE_ROW,
+            DISPLAY_BATTLE_RESULT_CUTSCENE_REQUIRED_OFF,
         ),
-        GameSettingCheckSpec(
-            definition=CUSTOM_SHIP_NAMES,
-            detector=_row_detector(CUSTOM_SHIP_NAMES_PRODUCTION_ROW),
-            requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
-            observer=_row_observer(CUSTOM_SHIP_NAMES_PRODUCTION_ROW),
+        _row_entry(
+            CUSTOM_SHIP_NAMES,
+            CUSTOM_SHIP_NAMES_ROW,
+            CUSTOM_SHIP_NAMES_REQUIRED_OFF,
         ),
     ),
     require_enforce=True,
