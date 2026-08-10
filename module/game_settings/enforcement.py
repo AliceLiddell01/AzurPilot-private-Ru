@@ -112,11 +112,10 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 failure_reason=failure.reason,
             )
 
-        # Final enforcement audit must persist exactly once with provenance that
-        # describes the final completed enforcement path. Calling the public
-        # scan_game_settings() here would first write source=AUDIT and then
-        # immediately overwrite the same record.
-        after = self._scan_game_settings()
+        # Preserve the public audit seam for Stage 7/future subclasses while
+        # suppressing its default source=AUDIT write. The completed result is
+        # then persisted exactly once below with final enforcement provenance.
+        after = self._scan_game_settings_without_snapshot_persistence()
         final_compatible = after.all_required_compatible is True
         if self._should_persist_game_settings_snapshot(after):
             self.persist_game_settings_snapshot(
