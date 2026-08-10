@@ -221,7 +221,7 @@ class OptionsSemanticTraversalTests(unittest.TestCase):
             scanner.traverse_options(lambda _viewport: None)
 
     def test_semantic_detector_receives_the_exact_stable_frame(self) -> None:
-        scanner = _SemanticTraversalScanner()
+        scanner = _SemanticTraversalScanner(reverse_at=1, lower_position=2)
         seen_positions: list[int] = []
         original = scanner._detect_options_semantic_landmark
 
@@ -233,7 +233,7 @@ class OptionsSemanticTraversalTests(unittest.TestCase):
         result = scanner.traverse_options(lambda _viewport: None)
 
         self.assertTrue(result.reached_bottom)
-        self.assertEqual(seen_positions, [0, 1, 1, 2, 2, 3, 3])
+        self.assertEqual(seen_positions, [0, 1, 1, 2, 3])
 
 
 if __name__ == "__main__":
