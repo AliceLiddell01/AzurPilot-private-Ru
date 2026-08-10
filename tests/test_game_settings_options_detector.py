@@ -6,6 +6,7 @@ import unittest
 
 import numpy as np
 
+import module.game_settings.options_detector as detector_module
 from module.game_settings.model import (
     FrameRateValue,
     GameSettingState,
@@ -13,6 +14,7 @@ from module.game_settings.model import (
     TextAutoScrollSpeedValue,
 )
 from module.game_settings.options_detector import (
+    CUSTOM_SHIP_NAMES_ROW,
     DISPLAY_BATTLE_RESULT_CUTSCENE_ROW,
     DISPLAY_QUICK_SWITCH_PROMPT_ROW,
     ENABLE_IDLE_SCREEN_ROW,
@@ -198,6 +200,27 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
                 self.assertIsNotNone(observation)
                 self.assertIs(observation.value, selected)
 
+    def test_live_oathed_ship_name_label_uses_custom_ship_name_row_geometry(self) -> None:
+        image = _frame()
+        y = 360
+        detections = (_box("Change Oathed Ship Names", 716, y, 1018, y + 30),)
+        _paint_toggle(
+            image,
+            panel="right",
+            center_y=y + 15,
+            selected=GameSettingState.ON,
+        )
+
+        observation = observe_game_setting_row(
+            image,
+            CUSTOM_SHIP_NAMES_ROW,
+            detections=detections,
+        )
+
+        self.assertIsNotNone(observation)
+        self.assertIs(observation.value, GameSettingState.ON)
+        self.assertEqual(len(observation.options), 2)
+
     def test_frame_rate_choice_reads_marker_left_of_option_text(self) -> None:
         image = _frame()
         label = _box("Frame Rate Settings", 195, 114, 479, 155)
@@ -365,12 +388,12 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
                 detections=(),
             )
 
-    def test_one_frame_runs_one_ocr_pass_for_multiple_detectors(self) -> None:
+    def test_one_frame_runs_one_ocr_and_grouping_pass_for_multiple_detectors(self) -> None:
         image = _frame()
         y = 300
         detections = (_box("Enable Idle Screen", 230, y, 460, y + 30),)
         _paint_toggle(image, panel="left", center_y=y + 15, selected=GameSettingState.OFF)
-        calls = {"det": 0}
+        calls = {"det": 0, "groups": 0}
 
         class FakeAlOcr:
             def __init__(self, **_kwargs) -> None:
@@ -399,8 +422,15 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
         fake_module.AlOcr = FakeAlOcr
         original_module = sys.modules.get("module.ocr.al_ocr")
         original_engine = _FRAME_OCR_CACHE._ocr
+        original_grouping = detector_module._same_line_groups
+
+        def counting_grouping(items):
+            calls["groups"] += 1
+            return original_grouping(items)
+
         sys.modules["module.ocr.al_ocr"] = fake_module
         _FRAME_OCR_CACHE._ocr = None
+        detector_module._same_line_groups = counting_grouping
         clear_game_settings_ocr_cache()
         try:
             first = detect_game_setting_row(image, ENABLE_IDLE_SCREEN_ROW)
@@ -408,8 +438,10 @@ class GameSettingsOptionsDetectorTests(unittest.TestCase):
             self.assertIs(first, GameSettingState.OFF)
             self.assertIs(second, GameSettingState.OFF)
             self.assertEqual(calls["det"], 1)
+            self.assertEqual(calls["groups"], 1)
         finally:
             clear_game_settings_ocr_cache()
+            detector_module._same_line_groups = original_grouping
             _FRAME_OCR_CACHE._ocr = original_engine
             if original_module is None:
                 sys.modules.pop("module.ocr.al_ocr", None)
