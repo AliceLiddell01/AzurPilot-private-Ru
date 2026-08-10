@@ -1,10 +1,4 @@
-"""Декларативный registry read-only preflight-проверок Game Settings.
-
-Stage 6 registry описывает только текущую tri-state family, где detector
-возвращает ``ON``, ``OFF``, ``UNKNOWN`` либо ``None`` при отсутствии строки в
-текущем viewport. Будущие discrete settings вроде FPS или autoplay speed не
-должны кодироваться через эту модель как фиктивные ON/OFF значения.
-"""
+"""Heterogeneous ordered registry for Game Settings audit and explicit enforce."""
 
 from __future__ import annotations
 
@@ -16,51 +10,169 @@ import numpy as np
 from module.game_settings.definitions import (
     CUSTOM_SHIP_NAMES,
     CUSTOM_SHIP_NAMES_REQUIRED_OFF,
+    DISPLAY_BATTLE_RESULT_CUTSCENE,
+    DISPLAY_BATTLE_RESULT_CUTSCENE_REQUIRED_OFF,
+    DISPLAY_QUICK_SWITCH_PROMPT,
+    DISPLAY_QUICK_SWITCH_PROMPT_REQUIRED_OFF,
+    DUPLICATE_SHIP_DISPLAY,
+    DUPLICATE_SHIP_DISPLAY_REQUIRED_OFF,
+    ENABLE_IDLE_SCREEN,
+    ENABLE_IDLE_SCREEN_REQUIRED_OFF,
+    FRAME_RATE,
+    FRAME_RATE_REQUIRED_60_FPS,
+    OPSI_AUTO_USE_ITEMS,
+    OPSI_AUTO_USE_ITEMS_REQUIRED_ON,
+    OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE,
+    OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_REQUIRED_OFF,
+    OPSI_REDUCE_TB_GUIDANCE,
+    OPSI_REDUCE_TB_GUIDANCE_REQUIRED_ON,
+    STORY_AUTOPLAY,
+    STORY_AUTOPLAY_REQUIRED_ENABLED,
+    TEXT_AUTO_SCROLL_SPEED,
+    TEXT_AUTO_SCROLL_SPEED_REQUIRED_VERY_FAST,
 )
 from module.game_settings.detector import detect_custom_ship_names
 from module.game_settings.model import (
+    FrameRateValue,
+    GameSettingCheckResult,
+    GameSettingChoiceCheckResult,
+    GameSettingChoiceRequirement,
     GameSettingDefinition,
     GameSettingRequirement,
+    GameSettingRequirementValue,
+    GameSettingResult,
     GameSettingState,
+    GameSettingValue,
+    StoryAutoplayValue,
+    TextAutoScrollSpeedValue,
+)
+from module.game_settings.options_detector import (
+    CUSTOM_SHIP_NAMES_ROW,
+    DISPLAY_BATTLE_RESULT_CUTSCENE_ROW,
+    DISPLAY_QUICK_SWITCH_PROMPT_ROW,
+    DUPLICATE_SHIP_DISPLAY_ROW,
+    ENABLE_IDLE_SCREEN_ROW,
+    FRAME_RATE_ROW,
+    OPSI_AUTO_USE_ITEMS_ROW,
+    OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_ROW,
+    OPSI_REDUCE_TB_GUIDANCE_ROW,
+    STORY_AUTOPLAY_ROW,
+    TEXT_AUTO_SCROLL_SPEED_ROW,
+    GameSettingRowObservation,
+    GameSettingRowSpec,
+    detect_game_setting_row,
+    observe_game_setting_row,
 )
 
 
-GameSettingDetector = Callable[[np.ndarray], GameSettingState | None]
-"""Read-only detector одного stable frame текущего Options viewport."""
+GameSettingValueType = (
+    type[GameSettingState]
+    | type[FrameRateValue]
+    | type[StoryAutoplayValue]
+    | type[TextAutoScrollSpeedValue]
+)
+GameSettingDetector = Callable[[np.ndarray], GameSettingValue | None]
+GameSettingObserver = Callable[[np.ndarray], GameSettingRowObservation | None]
+
+
+def _row_detector(spec: GameSettingRowSpec) -> GameSettingDetector:
+    def detector(image: np.ndarray) -> GameSettingValue | None:
+        return detect_game_setting_row(image, spec)
+
+    return detector
+
+
+def _row_observer(spec: GameSettingRowSpec) -> GameSettingObserver:
+    def observer(image: np.ndarray) -> GameSettingRowObservation | None:
+        return observe_game_setting_row(image, spec)
+
+    return observer
 
 
 @dataclass(frozen=True, slots=True)
 class GameSettingCheckSpec:
-    """Immutable tri-state preflight entry: definition + requirement + detector."""
+    """One typed audit entry and, where supported, its row observer for enforce."""
 
     definition: GameSettingDefinition
     detector: GameSettingDetector
-    requirement: GameSettingRequirement | None = None
+    requirement: GameSettingRequirementValue | None = None
+    value_type: GameSettingValueType = GameSettingState
+    observer: GameSettingObserver | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.definition, GameSettingDefinition):
             raise TypeError("definition должен быть GameSettingDefinition")
         if not callable(self.detector):
             raise TypeError("detector должен быть callable")
-        if self.requirement is not None:
-            if not isinstance(self.requirement, GameSettingRequirement):
-                raise TypeError("requirement должен быть GameSettingRequirement или None")
-            if self.requirement.definition != self.definition:
-                raise ValueError("requirement относится к другой настройке")
-            if self.requirement.expected_state is GameSettingState.UNKNOWN:
-                raise ValueError("UNKNOWN нельзя использовать как требуемое состояние")
+        if self.value_type not in (
+            GameSettingState,
+            FrameRateValue,
+            StoryAutoplayValue,
+            TextAutoScrollSpeedValue,
+        ):
+            raise TypeError("value_type должен быть поддерживаемой enum family")
+        if self.observer is not None and not callable(self.observer):
+            raise TypeError("observer должен быть callable или None")
+
+        if self.requirement is None:
+            return
+        if not isinstance(
+            self.requirement,
+            (GameSettingRequirement, GameSettingChoiceRequirement),
+        ):
+            raise TypeError("requirement имеет неподдерживаемый тип")
+        if self.requirement.definition != self.definition:
+            raise ValueError("requirement относится к другой настройке")
+        if type(self.requirement.expected_value) is not self.value_type:
+            raise TypeError("requirement/value_type принадлежат разным value family")
+        if self.observer is None:
+            raise ValueError("required production entry должен иметь observer для enforce")
 
     @property
     def key(self) -> str:
-        """Вернуть стабильный key из definition."""
         return self.definition.key
+
+    @property
+    def enforce_supported(self) -> bool:
+        return self.requirement is not None and self.observer is not None
+
+    def make_result(self, value: GameSettingValue) -> GameSettingResult:
+        if type(value) is not self.value_type:
+            raise TypeError(
+                f"Detector {self.key!r} вернул значение из другой value family"
+            )
+        if self.value_type is GameSettingState:
+            requirement = self.requirement
+            if requirement is not None and not isinstance(
+                requirement,
+                GameSettingRequirement,
+            ):
+                raise TypeError("Toggle entry получил choice requirement")
+            return GameSettingCheckResult(
+                definition=self.definition,
+                detected_state=value,
+                requirement=requirement,
+            )
+
+        requirement = self.requirement
+        if requirement is not None and not isinstance(
+            requirement,
+            GameSettingChoiceRequirement,
+        ):
+            raise TypeError("Choice entry получил toggle requirement")
+        return GameSettingChoiceCheckResult(
+            definition=self.definition,
+            detected_value=value,
+            requirement=requirement,
+        )
+
+    def make_unknown_result(self) -> GameSettingResult:
+        return self.make_result(self.value_type.UNKNOWN)
 
 
 def build_game_settings_registry(
     entries: Iterable[GameSettingCheckSpec] = (),
 ) -> tuple[GameSettingCheckSpec, ...]:
-    """Зафиксировать ordered registry и fail-fast проверить duplicate keys."""
-
     registry = tuple(entries)
     seen_keys: set[str] = set()
 
@@ -77,10 +189,77 @@ def build_game_settings_registry(
 GAME_SETTINGS_PREFLIGHT_REGISTRY = build_game_settings_registry(
     (
         GameSettingCheckSpec(
+            definition=FRAME_RATE,
+            detector=_row_detector(FRAME_RATE_ROW),
+            requirement=FRAME_RATE_REQUIRED_60_FPS,
+            value_type=FrameRateValue,
+            observer=_row_observer(FRAME_RATE_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=OPSI_REDUCE_TB_GUIDANCE,
+            detector=_row_detector(OPSI_REDUCE_TB_GUIDANCE_ROW),
+            requirement=OPSI_REDUCE_TB_GUIDANCE_REQUIRED_ON,
+            observer=_row_observer(OPSI_REDUCE_TB_GUIDANCE_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=OPSI_AUTO_USE_ITEMS,
+            detector=_row_detector(OPSI_AUTO_USE_ITEMS_ROW),
+            requirement=OPSI_AUTO_USE_ITEMS_REQUIRED_ON,
+            observer=_row_observer(OPSI_AUTO_USE_ITEMS_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE,
+            detector=_row_detector(OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_ROW),
+            requirement=OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_REQUIRED_OFF,
+            observer=_row_observer(OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=STORY_AUTOPLAY,
+            detector=_row_detector(STORY_AUTOPLAY_ROW),
+            requirement=STORY_AUTOPLAY_REQUIRED_ENABLED,
+            value_type=StoryAutoplayValue,
+            observer=_row_observer(STORY_AUTOPLAY_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=TEXT_AUTO_SCROLL_SPEED,
+            detector=_row_detector(TEXT_AUTO_SCROLL_SPEED_ROW),
+            requirement=TEXT_AUTO_SCROLL_SPEED_REQUIRED_VERY_FAST,
+            value_type=TextAutoScrollSpeedValue,
+            observer=_row_observer(TEXT_AUTO_SCROLL_SPEED_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=ENABLE_IDLE_SCREEN,
+            detector=_row_detector(ENABLE_IDLE_SCREEN_ROW),
+            requirement=ENABLE_IDLE_SCREEN_REQUIRED_OFF,
+            observer=_row_observer(ENABLE_IDLE_SCREEN_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=DUPLICATE_SHIP_DISPLAY,
+            detector=_row_detector(DUPLICATE_SHIP_DISPLAY_ROW),
+            requirement=DUPLICATE_SHIP_DISPLAY_REQUIRED_OFF,
+            observer=_row_observer(DUPLICATE_SHIP_DISPLAY_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=DISPLAY_QUICK_SWITCH_PROMPT,
+            detector=_row_detector(DISPLAY_QUICK_SWITCH_PROMPT_ROW),
+            requirement=DISPLAY_QUICK_SWITCH_PROMPT_REQUIRED_OFF,
+            observer=_row_observer(DISPLAY_QUICK_SWITCH_PROMPT_ROW),
+        ),
+        GameSettingCheckSpec(
+            definition=DISPLAY_BATTLE_RESULT_CUTSCENE,
+            detector=_row_detector(DISPLAY_BATTLE_RESULT_CUTSCENE_ROW),
+            requirement=DISPLAY_BATTLE_RESULT_CUTSCENE_REQUIRED_OFF,
+            observer=_row_observer(DISPLAY_BATTLE_RESULT_CUTSCENE_ROW),
+        ),
+        GameSettingCheckSpec(
             definition=CUSTOM_SHIP_NAMES,
             detector=detect_custom_ship_names,
             requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
+            observer=_row_observer(CUSTOM_SHIP_NAMES_ROW),
         ),
     )
 )
-"""Stage 6 production registry: только существующая Custom Ship Names check."""
+
+GAME_SETTINGS_PRODUCTION_KEYS = tuple(
+    entry.key for entry in GAME_SETTINGS_PREFLIGHT_REGISTRY
+)
