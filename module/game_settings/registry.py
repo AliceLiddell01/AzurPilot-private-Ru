@@ -63,6 +63,7 @@ from module.game_settings.options_detector import (
     detect_game_setting_row,
     observe_game_setting_row,
 )
+from module.game_settings.traversal import OPTIONS_VIEWPORT_AREA
 
 
 GameSettingValueType = (
@@ -87,6 +88,38 @@ def _row_observer(spec: GameSettingRowSpec) -> GameSettingObserver:
         return observe_game_setting_row(image, spec)
 
     return observer
+
+
+def _custom_ship_names_observer(
+    image: np.ndarray,
+) -> GameSettingRowObservation | None:
+    """Use the proven Stage 5/6 template detector as the state authority.
+
+    OCR is used only to obtain row-local click geometry. It never replaces the
+    template-derived current state, so audit and apply cannot disagree merely
+    because they used different state detectors.
+    """
+
+    state = detect_custom_ship_names(image)
+    if state is None:
+        return None
+
+    geometry = observe_game_setting_row(image, CUSTOM_SHIP_NAMES_ROW)
+    if geometry is None:
+        # The row is definitely present according to the template detector but
+        # target geometry is unavailable. Keep the known state and no targets;
+        # enforce will fail closed before clicking.
+        return GameSettingRowObservation(
+            value=state,
+            row_bounds=OPTIONS_VIEWPORT_AREA,
+            options=(),
+        )
+
+    return GameSettingRowObservation(
+        value=state,
+        row_bounds=geometry.row_bounds,
+        options=geometry.options,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,7 +306,7 @@ GAME_SETTINGS_OPTIONS_REGISTRY = build_game_settings_registry(
             definition=CUSTOM_SHIP_NAMES,
             detector=detect_custom_ship_names,
             requirement=CUSTOM_SHIP_NAMES_REQUIRED_OFF,
-            observer=_row_observer(CUSTOM_SHIP_NAMES_ROW),
+            observer=_custom_ship_names_observer,
         ),
     ),
     require_enforce=True,
