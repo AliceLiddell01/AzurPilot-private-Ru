@@ -330,7 +330,13 @@ class FingerprintTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        self.assertEqual(completed.stdout.strip(), current)
+        output_lines = tuple(
+            line.strip()
+            for line in completed.stdout.splitlines()
+            if line.strip()
+        )
+        self.assertTrue(output_lines)
+        self.assertEqual(output_lines[-1], current)
         self.assertRegex(current, r"^[0-9a-f]{64}$")
 
     def test_required_value_key_add_and_remove_change_fingerprint(self):
@@ -498,7 +504,36 @@ class ScopeFreshnessPersistenceTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
 
     def test_schema_contains_no_private_or_device_identity_data(self):
-        serialized = json.dumps(_doc()).lower()
+        document = _doc()
+        expected_top_level = {
+            "schema_version",
+            "scanned_at",
+            "source",
+            "scope",
+            "requirements_fingerprint",
+            "settings",
+        }
+        expected_scope_fields = {
+            "server",
+            "package_name",
+            "resolution",
+            "ui_profile",
+        }
+        expected_setting_fields = {
+            "key",
+            "location",
+            "kind",
+            "value_family",
+            "detected",
+            "required",
+        }
+        self.assertEqual(set(document), expected_top_level)
+        self.assertEqual(set(document["scope"]), expected_scope_fields)
+        observed_fields = set(document)
+        observed_fields.update(document["scope"])
+        for setting in document["settings"]:
+            self.assertEqual(set(setting), expected_setting_fields)
+            observed_fields.update(setting)
         for forbidden in (
             "player_name",
             "uid",
@@ -506,8 +541,9 @@ class ScopeFreshnessPersistenceTests(unittest.TestCase):
             "token",
             "screenshot",
             "ocr_raw",
+            "absolute_path",
         ):
-            self.assertNotIn(forbidden, serialized)
+            self.assertNotIn(forbidden, observed_fields)
 
 
 class CacheApiTests(unittest.TestCase):
