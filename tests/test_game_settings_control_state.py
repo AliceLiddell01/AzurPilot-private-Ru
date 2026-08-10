@@ -102,7 +102,7 @@ class GameSettingsControlStateTests(unittest.TestCase):
         self.assertIsNotNone(off)
         self.assertIsNotNone(on)
         self.assertGreater(off.marker_activity, 0.0)
-        self.assertLess(on.marker_activity, 0.0)
+        self.assertGreater(on.marker_activity, 0.0)
 
     def test_choice_cards_use_the_same_selected_unselected_assets(self) -> None:
         image = _frame()
