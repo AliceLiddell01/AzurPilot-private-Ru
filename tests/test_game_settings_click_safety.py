@@ -39,6 +39,29 @@ class GameSettingsClickSafetyTests(unittest.TestCase):
         self.assertEqual(safe[2] - safe[0], 16)
         self.assertEqual(safe[3] - safe[1], 16)
 
+    def test_narrow_compact_target_is_never_expanded(self) -> None:
+        narrow_target = (1034, 642, 1042, 654)
+
+        safe = GameSettingsEnforcementScanner._safe_click_bounds(narrow_target)
+
+        self.assertEqual(safe, narrow_target)
+        self.assertGreaterEqual(safe[0], narrow_target[0])
+        self.assertGreaterEqual(safe[1], narrow_target[1])
+        self.assertLessEqual(safe[2], narrow_target[2])
+        self.assertLessEqual(safe[3], narrow_target[3])
+
+    def test_invalid_compact_target_is_preserved_for_fail_closed_validation(self) -> None:
+        invalid_targets = (
+            (100, 100, 100, 120),
+            (100, 100, 120, 100),
+            (120, 100, 100, 120),
+        )
+
+        for target in invalid_targets:
+            with self.subTest(target=target):
+                safe = GameSettingsEnforcementScanner._safe_click_bounds(target)
+                self.assertEqual(safe, target)
+
 
 if __name__ == "__main__":
     unittest.main()
