@@ -8,7 +8,7 @@ WEBUI_HIDDEN_INSTANCE_NAMES = frozenset({"ap", "game_settings_snapshot"})
 
 def is_webui_hidden_instance(name: str) -> bool:
     """Return whether an internal config name must stay outside user-facing WebUI."""
-    return name in WEBUI_HIDDEN_INSTANCE_NAMES
+    return name.casefold() in WEBUI_HIDDEN_INSTANCE_NAMES
 
 
 def visible_webui_instances(instances: Iterable[str]) -> list[str]:
