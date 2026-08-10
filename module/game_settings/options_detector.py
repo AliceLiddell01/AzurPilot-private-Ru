@@ -1,9 +1,8 @@
 """Row-anchored OCR detectors for current EN Settings -> Options UI.
 
 The public audit model exposes only typed values. OCR similarities and geometry
-stay internal to this module. One OCR pass is cached per stable frame so all
-unresolved registered checks inspect the same screenshot without repeating text
-detection.
+stay internal to this module. One OCR pass and one row grouping pass are cached
+per stabilized viewport so all unresolved checks inspect the same screenshot.
 """
 
 from __future__ import annotations
@@ -28,9 +27,11 @@ from module.game_settings.traversal import OPTIONS_VIEWPORT_AREA
 
 _NATIVE_SHAPE = (720, 1280)
 _ROW_MATCH_THRESHOLD = 0.78
+_LABEL_PREFIX_MIN_SIMILARITY = 0.66
 _OPTION_MATCH_THRESHOLD = 0.80
 _ROW_CENTER_TOLERANCE = 20
 _OPTION_GROUP_MAX_GAP = 18
+_LABEL_PREFIX_MAX_BOXES = 8
 _MARKER_X_GAP = 2
 _MARKER_WIDTH = 30
 _MARKER_HALF_HEIGHT = 15
@@ -91,7 +92,14 @@ class _TextCandidate:
     bounds: tuple[int, int, int, int]
 
 
+@dataclass(frozen=True, slots=True)
+class _MatchedRow:
+    boxes: tuple[OcrTextBox, ...]
+    label_box_count: int
+
+
 OcrDetection: TypeAlias = tuple[str, list[list[float]], float]
+RowGroups: TypeAlias = tuple[tuple[OcrTextBox, ...], ...]
 
 
 def _normalize(text: str) -> str:
@@ -108,7 +116,7 @@ def _label_similarity(text: str, alias: str) -> float:
     return SequenceMatcher(None, left, right).ratio()
 
 
-def _option_similarity(text: str, alias: str) -> float:
+def _strict_similarity(text: str, alias: str) -> float:
     left = _normalize(text)
     right = _normalize(alias)
     if not left or not right:
@@ -152,44 +160,7 @@ def _convert_detections(detections: list[OcrDetection]) -> tuple[OcrTextBox, ...
     return tuple(converted)
 
 
-class _FrameOcrCache:
-    """Keep one strong-referenced stable frame and its OCR result."""
-
-    def __init__(self) -> None:
-        self._image: np.ndarray | None = None
-        self._detections: tuple[OcrTextBox, ...] = ()
-        self._ocr = None
-
-    def clear(self) -> None:
-        self._image = None
-        self._detections = ()
-
-    def get(self, image: np.ndarray) -> tuple[OcrTextBox, ...]:
-        _validate_frame(image)
-        if image is self._image:
-            return self._detections
-
-        if self._ocr is None:
-            from module.ocr.al_ocr import AlOcr
-
-            self._ocr = AlOcr(name="azur_lane")
-        raw = self._ocr.det(image)
-        detections = _convert_detections(raw)
-        self._image = image
-        self._detections = detections
-        return detections
-
-
-_FRAME_OCR_CACHE = _FrameOcrCache()
-
-
-def clear_game_settings_ocr_cache() -> None:
-    _FRAME_OCR_CACHE.clear()
-
-
-def _same_line_groups(
-    detections: tuple[OcrTextBox, ...],
-) -> tuple[tuple[OcrTextBox, ...], ...]:
+def _same_line_groups(detections: tuple[OcrTextBox, ...]) -> RowGroups:
     ordered = sorted(detections, key=lambda item: (item.center_y, item.bounds[0]))
     groups: list[list[OcrTextBox]] = []
     for item in ordered:
@@ -206,20 +177,99 @@ def _same_line_groups(
     )
 
 
+class _FrameOcrCache:
+    """Keep one viewport frame, OCR result, groups and one reusable OCR engine."""
+
+    def __init__(self) -> None:
+        self._image: np.ndarray | None = None
+        self._detections: tuple[OcrTextBox, ...] = ()
+        self._groups: RowGroups = ()
+        self._ocr = None
+
+    def clear(self) -> None:
+        self._image = None
+        self._detections = ()
+        self._groups = ()
+
+    def get(self, image: np.ndarray) -> tuple[OcrTextBox, ...]:
+        _validate_frame(image)
+        if image is self._image:
+            return self._detections
+
+        if self._ocr is None:
+            from module.ocr.al_ocr import AlOcr
+
+            self._ocr = AlOcr(name="azur_lane")
+        raw = self._ocr.det(image)
+        detections = _convert_detections(raw)
+        self._image = image
+        self._detections = detections
+        self._groups = _same_line_groups(detections)
+        return detections
+
+    def get_groups(self, image: np.ndarray) -> RowGroups:
+        self.get(image)
+        return self._groups
+
+
+_FRAME_OCR_CACHE = _FrameOcrCache()
+
+
+def clear_game_settings_ocr_cache() -> None:
+    _FRAME_OCR_CACHE.clear()
+
+
 def _group_text(group: tuple[OcrTextBox, ...]) -> str:
     return " ".join(item.text for item in group)
 
 
-def _find_row_group(
-    detections: tuple[OcrTextBox, ...],
+def _label_prefix_box_count(
+    group: tuple[OcrTextBox, ...],
     aliases: tuple[str, ...],
-) -> tuple[OcrTextBox, ...] | None:
-    candidates: list[tuple[float, tuple[OcrTextBox, ...]]] = []
-    for group in _same_line_groups(detections):
+) -> int:
+    """Return the best left-prefix length occupied by the row label.
+
+    This keeps option aliases such as ``Enable`` from matching an OCR token in
+    the label ``Enable Idle Screen``. Only boxes after this prefix are eligible
+    as option controls.
+    """
+
+    best_score = 0.0
+    best_count = 0
+    limit = min(len(group), _LABEL_PREFIX_MAX_BOXES)
+    for count in range(1, limit + 1):
+        text = _group_text(group[:count])
+        score = max(_strict_similarity(text, alias) for alias in aliases)
+        if score > best_score:
+            best_score = score
+            best_count = count
+    if best_score < _LABEL_PREFIX_MIN_SIMILARITY:
+        return 0
+    return best_count
+
+
+def _find_row_group(
+    groups: RowGroups,
+    aliases: tuple[str, ...],
+) -> _MatchedRow | None:
+    candidates: list[tuple[float, _MatchedRow]] = []
+    for group in groups:
         text = _group_text(group)
         score = max(_label_similarity(text, alias) for alias in aliases)
-        if score >= _ROW_MATCH_THRESHOLD:
-            candidates.append((score, group))
+        if score < _ROW_MATCH_THRESHOLD:
+            continue
+        label_box_count = _label_prefix_box_count(group, aliases)
+        if label_box_count <= 0 or label_box_count >= len(group):
+            continue
+        candidates.append(
+            (
+                score,
+                _MatchedRow(
+                    boxes=group,
+                    label_box_count=label_box_count,
+                ),
+            )
+        )
 
     if not candidates:
         return None
@@ -270,17 +320,12 @@ def _option_specificity(option: GameSettingOptionSpec) -> int:
 
 
 def _resolve_option_bounds(
-    row: tuple[OcrTextBox, ...],
+    option_boxes: tuple[OcrTextBox, ...],
     options: tuple[GameSettingOptionSpec, ...],
 ) -> tuple[tuple[int, int, int, int], ...] | None:
-    """Jointly assign OCR boxes so overlapping choices cannot reuse text.
+    """Jointly assign option boxes without reuse or label-box candidates."""
 
-    Longer/more specific aliases are assigned first. This prevents the `Fast`
-    option from stealing the second word of `Very Fast` while still rejecting
-    genuinely duplicated/ambiguous option text.
-    """
-
-    candidates = _option_candidates(row)
+    candidates = _option_candidates(option_boxes)
     used_indices: set[int] = set()
     assigned: dict[int, tuple[int, int, int, int]] = {}
     option_order = sorted(
@@ -296,7 +341,7 @@ def _resolve_option_bounds(
             if used_indices.intersection(candidate.indices):
                 continue
             score = max(
-                _option_similarity(candidate.text, alias)
+                _strict_similarity(candidate.text, alias)
                 for alias in option.aliases
             )
             if score >= _OPTION_MATCH_THRESHOLD:
@@ -388,12 +433,18 @@ def observe_game_setting_row(
     if any(type(option.value) is not value_type for option in spec.options):
         raise TypeError("Все options одной строки должны принадлежать одной value family")
 
-    text_boxes = _FRAME_OCR_CACHE.get(image) if detections is None else detections
-    row = _find_row_group(text_boxes, spec.label_aliases)
-    if row is None:
+    if detections is None:
+        groups = _FRAME_OCR_CACHE.get_groups(image)
+    else:
+        groups = _same_line_groups(detections)
+    matched = _find_row_group(groups, spec.label_aliases)
+    if matched is None:
         return None
+
+    row = matched.boxes
     row_bounds = _union_bounds(row)
-    option_bounds = _resolve_option_bounds(row, spec.options)
+    option_boxes = row[matched.label_box_count :]
+    option_bounds = _resolve_option_bounds(option_boxes, spec.options)
     if option_bounds is None:
         return GameSettingRowObservation(
             value=_unknown_for(spec),
