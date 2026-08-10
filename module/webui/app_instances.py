@@ -167,7 +167,7 @@ class InstanceMixin(WebUIMixinBase):
 
                         var ok = false;
                         if (subPath.startsWith('config/')) {
-                            if ((name.endsWith('.json') || name.endsWith('.db')) && !name.startsWith('template')) ok = true;
+                            if ((name.endsWith('.json') || name.endsWith('.db')) && !name.startsWith('template') && name !== 'ap.json' && name !== 'game_settings_snapshot.json') ok = true;
                         } else if (subPath.startsWith('log/cl1/')) {
                             ok = true;
                         } else if (subPath === 'log/azurstat_meowofficer_farming.csv') {
