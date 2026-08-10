@@ -69,7 +69,10 @@ OPTIONS_SEMANTIC_LANDMARKS = (
     OptionsSemanticLandmark(
         key="custom_ship_names_region",
         rank=40,
-        aliases=("Custom Ship Names",),
+        aliases=(
+            "Custom Ship Names",
+            "Change Oathed Ship Names",
+        ),
     ),
     OptionsSemanticLandmark(
         key="rendering_compatibility_terminal",
