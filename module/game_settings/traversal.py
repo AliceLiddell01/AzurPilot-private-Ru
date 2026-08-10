@@ -367,12 +367,15 @@ class OptionsTraversalMixin:
                     frame = next_frame
                     break
 
+                # The normal-downward predicate and this validator deliberately
+                # share the same thresholds. Reaching this point means there is
+                # no semantic evidence capable of overriding an ambiguous or
+                # reverse motion, so the validator must fail closed.
                 self._validate_downward_progress(motion)
-                no_progress = 0
-                self._clear_options_control_record()
-                offset += motion.vertical_shift
-                frame = next_frame
-                break
+                raise AssertionError(
+                    "[Game Settings] Downward motion passed fail-closed validation "
+                    "after the normal-motion branch rejected it."
+                )
 
         raise GameStuckError(
             "[Game Settings] Options traversal превысил аварийный лимит viewport."
