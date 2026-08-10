@@ -57,8 +57,8 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
         )
         if required_unknown:
             keys = ", ".join(check.key for check in required_unknown)
-            reason = f"Required settings unresolved: {keys}"
-            logger.warning("[Game Settings] Enforce blocked: %s", reason)
+            reason = f"Не удалось однозначно определить обязательные настройки: {keys}"
+            logger.warning("[Игровые настройки] Применение заблокировано: %s", reason)
             return GameSettingsEnforcementResult(
                 before=before,
                 success=False,
@@ -86,7 +86,9 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 after=after,
                 success=success,
                 failure_reason=(
-                    None if success else "Final audit is not fully compatible"
+                    None
+                    if success
+                    else "Финальный аудит не подтвердил совместимость всех настроек"
                 ),
             )
 
@@ -107,10 +109,10 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 changes=changes,
                 after=after,
                 success=False,
-                failure_reason="Final audit is not fully compatible",
+                failure_reason="Финальный аудит не подтвердил совместимость всех настроек",
             )
 
-        logger.info("[Game Settings] all required settings compatible")
+        logger.info("[Игровые настройки] Все обязательные настройки совместимы")
         return GameSettingsEnforcementResult(
             before=before,
             changes=changes,
@@ -123,16 +125,16 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
         before: GameSettingsScanResult,
         plan: tuple[GameSettingCheckSpec, ...],
     ) -> None:
-        logger.info("[Game Settings] Planned changes:")
+        logger.info("[Игровые настройки] План изменений:")
         if not plan:
-            logger.info("[Game Settings] (none)")
+            logger.info("[Игровые настройки] Изменения не требуются")
             return
         for entry in plan:
             check = before.get(entry.key)
             if check is None or check.required_value is None:
                 continue
             logger.info(
-                "[Game Settings] %s: current=%s, required=%s",
+                "[Игровые настройки] %s: текущее=%s, требуется=%s",
                 entry.key,
                 check.detected_value.value,
                 check.required_value.value,
@@ -151,7 +153,7 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
         def fail(key: str, reason: str) -> bool:
             nonlocal failure
             failure = _ApplyFailure(key=key, reason=reason)
-            logger.error("[Game Settings] %s: apply failed: %s", key, reason)
+            logger.error("[Игровые настройки] %s: ошибка применения: %s", key, reason)
             return True
 
         def visit(_viewport: OptionsViewport) -> bool:
@@ -162,20 +164,20 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     continue
                 observer = entry.observer
                 if observer is None:
-                    return fail(entry.key, "No enforce observer registered")
+                    return fail(entry.key, "Не зарегистрирован observer для применения")
 
                 observation = observer(frame)
                 if observation is None:
                     continue
                 initial = before.get(entry.key)
                 if initial is None or initial.required_value is None:
-                    return fail(entry.key, "Initial audit result is missing")
+                    return fail(entry.key, "Отсутствует результат начального аудита")
                 required = initial.required_value
 
                 if type(observation.value) is not type(required):
-                    return fail(entry.key, "Apply observation changed value family")
+                    return fail(entry.key, "Изменилась типизированная группа значения")
                 if is_unknown_game_setting_value(observation.value):
-                    return fail(entry.key, "Current value became UNKNOWN before click")
+                    return fail(entry.key, "Текущее значение стало UNKNOWN до клика")
 
                 if observation.value is required:
                     pending.pop(entry.key)
@@ -183,17 +185,23 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 if observation.value is not initial.detected_value:
                     return fail(
                         entry.key,
-                        "Current value drifted from the initial audited value",
+                        "Текущее значение изменилось после начального аудита",
                     )
 
                 target = observation.option_for(required)
                 if target is None:
-                    return fail(entry.key, "Required target option is not uniquely located")
+                    return fail(
+                        entry.key,
+                        "Не удалось однозначно определить требуемую кнопку значения",
+                    )
                 if not self._target_within_observed_row(observation, target.click_bounds):
-                    return fail(entry.key, "Required click target escaped observed row bounds")
+                    return fail(
+                        entry.key,
+                        "Цель клика вышла за границы подтверждённой строки",
+                    )
 
                 logger.info(
-                    "[Game Settings] %s: current=%s, required=%s, applying",
+                    "[Игровые настройки] %s: текущее=%s, требуется=%s, применяем",
                     entry.key,
                     observation.value.value,
                     required.value,
@@ -215,13 +223,16 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     verified_frame = self._wait_options_stable()
                     verified = observer(verified_frame)
                 if verified is None:
-                    return fail(entry.key, "Row disappeared after click")
+                    return fail(entry.key, "Строка исчезла после клика")
                 if is_unknown_game_setting_value(verified.value):
-                    return fail(entry.key, "Verification returned UNKNOWN")
+                    return fail(entry.key, "Проверка после клика вернула UNKNOWN")
                 if verified.value is not required:
                     return fail(
                         entry.key,
-                        f"Verification returned {verified.value.value}, expected {required.value}",
+                        (
+                            "Проверка вернула {0}, ожидалось {1}"
+                            .format(verified.value.value, required.value)
+                        ),
                     )
 
                 changes.append(
@@ -235,7 +246,7 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 pending.pop(entry.key)
                 frame = verified_frame
                 logger.info(
-                    "[Game Settings] %s: verified=%s",
+                    "[Игровые настройки] %s: подтверждено=%s",
                     entry.key,
                     verified.value.value,
                 )
@@ -251,12 +262,12 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 if not traversal.reached_bottom:
                     failure = _ApplyFailure(
                         key=next(iter(pending)),
-                        reason="Apply traversal ended before pending rows were found",
+                        reason="Обход применения завершился до поиска всех строк",
                     )
                 else:
                     failure = _ApplyFailure(
                         key=next(iter(pending)),
-                        reason="Required row not found during apply traversal",
+                        reason="Обязательная строка не найдена при применении",
                     )
                 return tuple(changes), failure
             return tuple(changes), None
@@ -271,8 +282,8 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 if primary_error is None and failure is None:
                     raise
                 logger.warning(
-                    "[Game Settings] Cleanup failure did not replace the primary "
-                    "apply failure"
+                    "[Игровые настройки] Ошибка возврата на Main не заменила "
+                    "основную ошибку применения"
                 )
 
     @staticmethod
