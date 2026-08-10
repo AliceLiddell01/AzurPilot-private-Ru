@@ -68,12 +68,11 @@ from module.config.server import to_server
 from module.config.task_priority import parse_task_priority, task_priority_from_config
 from module.config.utils import (
     DEFAULT_CONFIG_NAME,
-    alas_instance,
+    alas_instance as _all_alas_instances,
     alas_template,
     dict_to_kv,
     filepath_args,
     filepath_config,
-    is_oobe_needed,
     read_file,
     readable_time,
 )
@@ -86,6 +85,7 @@ from module.submodule.utils import get_config_mod
 from module.webui.base import Frame
 from module.webui.discord_presence import close_discord_rpc, init_discord_rpc
 from module.webui.fastapi import asgi_app
+from module.webui.instance_visibility import visible_webui_instances
 from module.webui.lang import _t, t
 from module.webui.patch import (
     fix_py37_subprocess_communicate,
@@ -148,6 +148,16 @@ LIVE_PREVIEW_BUTTON_LABELS = frozenset(
         "截图预览",
     }
 )
+
+
+def alas_instance() -> list[str]:
+    """Return only user-facing instances while preserving internal configs on disk."""
+    return visible_webui_instances(_all_alas_instances())
+
+
+def is_oobe_needed() -> bool:
+    """Run OOBE when no user-facing configuration exists."""
+    return not alas_instance()
 
 
 def put_button(*args: Any, **kwargs: Any) -> Any:
