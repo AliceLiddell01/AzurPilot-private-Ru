@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import unittest
 
+import cv2
 import numpy as np
 
+from module.game_settings.assets import (
+    TEMPLATE_GAME_SETTINGS_CONTROL_SELECTED,
+    TEMPLATE_GAME_SETTINGS_CONTROL_UNSELECTED,
+)
+from module.game_settings.control_state import observe_game_setting_row_with_control_assets
 from module.game_settings.model import GameSettingRequirement, GameSettingState
 from module.game_settings.options_detector import (
     ROW_LAYOUT_CHOICE_CARDS,
@@ -13,7 +19,6 @@ from module.game_settings.options_detector import (
     OcrTextBox,
     _choice_marker_bounds,
     _toggle_marker_bounds,
-    observe_game_setting_row,
 )
 from module.game_settings.preflight import GameSettingsPreflightScanner
 from module.game_settings.registry import (
@@ -27,17 +32,31 @@ from module.game_settings.traversal import OptionsTraversalResult, OptionsViewpo
 _BACKGROUND = 96
 
 
-def _paint_marker_bounds(
+def _load_rgb(path: str) -> np.ndarray:
+    image = cv2.imread(path, cv2.IMREAD_COLOR)
+    if image is None:
+        raise AssertionError(f"Missing test asset: {path}")
+    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+def _paste_control(
     image: np.ndarray,
     bounds: tuple[int, int, int, int],
     *,
     selected: bool,
 ) -> None:
+    asset = _load_rgb(
+        TEMPLATE_GAME_SETTINGS_CONTROL_SELECTED.file
+        if selected
+        else TEMPLATE_GAME_SETTINGS_CONTROL_UNSELECTED.file
+    )
     x1, y1, x2, y2 = bounds
-    if selected:
-        image[y1 + 5 : y2 - 5, x1 + 5 : x2 - 5] = 230
-    else:
-        image[y1 + 10 : y2 - 10, x1 + 10 : x2 - 10] = 150
+    center_x = int(round((x1 + x2) / 2.0))
+    center_y = int(round((y1 + y2) / 2.0))
+    height, width = asset.shape[:2]
+    left = center_x - width // 2
+    top = center_y - height // 2
+    image[top : top + height, left : left + width] = asset
 
 
 def _render_toggle_row(key: str, selected_value):
@@ -57,7 +76,7 @@ def _render_toggle_row(key: str, selected_value):
             panel="left",
             center_y=y + 15,
         )
-        _paint_marker_bounds(
+        _paste_control(
             image,
             marker_bounds,
             selected=option.value is selected_value,
@@ -89,7 +108,7 @@ def _render_choice_row(key: str, selected_value):
             score=0.99,
         )
         detections.append(box)
-        _paint_marker_bounds(
+        _paste_control(
             image,
             _choice_marker_bounds(box.bounds),
             selected=option.value is selected_value,
@@ -114,7 +133,7 @@ class ProductionRowContractTests(unittest.TestCase):
             with self.subTest(key=entry.key):
                 required = entry.requirement.expected_value
                 image, detections, spec = _render_row(entry.key, required)
-                observation = observe_game_setting_row(
+                observation = observe_game_setting_row_with_control_assets(
                     image,
                     spec,
                     detections=detections,
@@ -135,7 +154,7 @@ class ProductionRowContractTests(unittest.TestCase):
                     if option.value is not required
                 )
                 image, detections, spec = _render_row(entry.key, mismatch)
-                observation = observe_game_setting_row(
+                observation = observe_game_setting_row_with_control_assets(
                     image,
                     spec,
                     detections=detections,
@@ -157,7 +176,7 @@ class ProductionRowContractTests(unittest.TestCase):
                     ),
                     *detections[1:],
                 )
-                observation = observe_game_setting_row(
+                observation = observe_game_setting_row_with_control_assets(
                     image,
                     spec,
                     detections=unrelated,
