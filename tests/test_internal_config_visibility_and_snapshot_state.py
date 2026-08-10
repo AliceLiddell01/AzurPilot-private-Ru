@@ -81,6 +81,52 @@ class SnapshotStateNamespaceTests(unittest.TestCase):
             finally:
                 os.chdir(previous_cwd)
 
+    def test_existing_new_snapshot_wins_over_legacy_file(self):
+        previous_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temp:
+            try:
+                os.chdir(temp)
+                save_game_settings_snapshot(
+                    _canonical_result(),
+                    path=DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH,
+                )
+                current = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH.read_bytes()
+                save_game_settings_snapshot(
+                    _canonical_result(),
+                    path=LEGACY_GAME_SETTINGS_SNAPSHOT_PATH,
+                )
+
+                loaded = load_game_settings_snapshot()
+
+                self.assertIs(loaded.status, GameSettingsSnapshotStatus.VALID)
+                self.assertEqual(DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH.read_bytes(), current)
+                self.assertTrue(LEGACY_GAME_SETTINGS_SNAPSHOT_PATH.is_file())
+            finally:
+                os.chdir(previous_cwd)
+
+    def test_migration_failure_preserves_legacy_file_and_fails_as_missing(self):
+        previous_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temp:
+            try:
+                os.chdir(temp)
+                save_game_settings_snapshot(
+                    _canonical_result(),
+                    path=LEGACY_GAME_SETTINGS_SNAPSHOT_PATH,
+                )
+                before = LEGACY_GAME_SETTINGS_SNAPSHOT_PATH.read_bytes()
+
+                with patch(
+                    "module.game_settings.snapshot.atomic_replace",
+                    side_effect=OSError("replace failed"),
+                ):
+                    loaded = load_game_settings_snapshot()
+
+                self.assertIs(loaded.status, GameSettingsSnapshotStatus.MISSING)
+                self.assertFalse(DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH.exists())
+                self.assertEqual(LEGACY_GAME_SETTINGS_SNAPSHOT_PATH.read_bytes(), before)
+            finally:
+                os.chdir(previous_cwd)
+
     def test_nested_runtime_state_path_is_gitignored(self):
         completed = subprocess.run(
             [
