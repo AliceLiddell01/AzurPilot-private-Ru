@@ -20,6 +20,7 @@ from module.game_settings.registry import (
     GameSettingCheckSpec,
     build_game_settings_registry,
 )
+from module.game_settings.snapshot import GameSettingsSnapshotSource
 from module.game_settings.traversal import OptionsViewport
 from module.logger import logger
 
@@ -121,6 +122,12 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                 failure_reason="Финальный аудит не подтвердил совместимость всех настроек",
             )
 
+        if self._should_persist_game_settings_snapshot(after):
+            self.persist_game_settings_snapshot(
+                after,
+                source=GameSettingsSnapshotSource.ENFORCEMENT_FINAL_AUDIT,
+            )
+
         logger.info("[Игровые настройки] Все обязательные настройки совместимы")
         return GameSettingsEnforcementResult(
             before=before,
@@ -157,6 +164,7 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
         pending = {entry.key: entry for entry in plan}
         changes: list[GameSettingAppliedChange] = []
         failure: _ApplyFailure | None = None
+        snapshot_invalidated = False
         clear_game_settings_ocr_cache()
 
         def fail(key: str, reason: str) -> bool:
@@ -166,6 +174,8 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
             return True
 
         def visit(_viewport: OptionsViewport) -> bool:
+            nonlocal snapshot_invalidated
+
             # GameSettingsScanner mirrors the detached traversal snapshot into
             # device.image, so this is the exact ndarray owned by traversal.
             # Keep that object identity stable across clicks: semantic matching
@@ -217,6 +227,16 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
                     observation.value.value,
                     required.value,
                 )
+                if (
+                    not snapshot_invalidated
+                    and self._should_persist_game_settings_snapshot(before)
+                ):
+                    self.invalidate_game_settings_snapshot()
+                    snapshot_invalidated = True
+                    logger.info(
+                        "[Game Settings Snapshot] invalidated before enforcement mutation"
+                    )
+
                 self.device.click(
                     Button(
                         area=click_bounds,
