@@ -313,8 +313,23 @@ class GameSettingAppliedChange:
     def __post_init__(self) -> None:
         if not isinstance(self.key, str) or not _IDENTIFIER_RE.fullmatch(self.key):
             raise ValueError(f"Недопустимый key изменения: {self.key!r}")
+        for name, value in (("before", self.before), ("after", self.after)):
+            if not isinstance(
+                value,
+                (
+                    GameSettingState,
+                    FrameRateValue,
+                    StoryAutoplayValue,
+                    TextAutoScrollSpeedValue,
+                ),
+            ):
+                raise TypeError(
+                    f"{name} должен быть типизированным Game Setting value"
+                )
         if type(self.before) is not type(self.after):
             raise TypeError("before/after должны принадлежать одной value family")
+        if self.verified and is_unknown_game_setting_value(self.after):
+            raise ValueError("verified change не может завершаться значением UNKNOWN")
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,6 +361,12 @@ class GameSettingsEnforcementResult:
             raise ValueError("success result не может одновременно содержать failure")
         if self.blocked_reason is not None and self.failure_reason is not None:
             raise ValueError("blocked и operational failure взаимоисключающие")
+        if (
+            not self.success
+            and self.blocked_reason is None
+            and self.failure_reason is None
+        ):
+            raise ValueError("Неуспешный enforcement result должен содержать причину")
 
     @property
     def changed_keys(self) -> tuple[str, ...]:
