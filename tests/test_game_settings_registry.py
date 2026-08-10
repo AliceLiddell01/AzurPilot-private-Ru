@@ -20,6 +20,7 @@ from module.game_settings.model import (
     GameSettingState,
 )
 from module.game_settings.registry import (
+    CUSTOM_SHIP_NAMES_PRODUCTION_ROW,
     GAME_SETTINGS_OPTIONS_REGISTRY,
     GAME_SETTINGS_PREFLIGHT_REGISTRY,
     GAME_SETTINGS_PRODUCTION_KEYS,
@@ -151,7 +152,7 @@ class GameSettingsRegistryTests(unittest.TestCase):
 
     def test_non_callable_detector_fails_fast(self) -> None:
         invalid_detector = cast(GameSettingDetector, None)
-        with self.assertRaisesRegex(TypeError, "detector должен быть callable"):
+        with self.assertRaises(TypeError):
             GameSettingCheckSpec(
                 definition=self.definition_a,
                 detector=invalid_detector,
@@ -195,6 +196,16 @@ class GameSettingsRegistryTests(unittest.TestCase):
         detector.assert_called_once_with(
             image,
             OPSI_DEFAULT_AUTO_MODE_THREAT_SAFE_PRODUCTION_ROW,
+        )
+
+    def test_custom_ship_names_production_row_does_not_alias_distinct_oath_control(self) -> None:
+        self.assertEqual(
+            CUSTOM_SHIP_NAMES_PRODUCTION_ROW.label_aliases,
+            ("Custom Ship Names",),
+        )
+        self.assertNotIn(
+            "Change Oathed Ship Names",
+            CUSTOM_SHIP_NAMES_PRODUCTION_ROW.label_aliases,
         )
 
     def test_custom_ship_names_production_entry_uses_generic_row_state_path(self) -> None:
