@@ -326,11 +326,9 @@ def _option_candidates(row: tuple[OcrTextBox, ...]) -> tuple[_TextCandidate, ...
     return tuple(candidates)
 
 
-def _label_candidates(
-    detections: tuple[OcrTextBox, ...],
-) -> tuple[_TextCandidate, ...]:
+def _label_candidates(groups: RowGroups) -> tuple[_TextCandidate, ...]:
     candidates: list[_TextCandidate] = []
-    for group in _same_line_groups(detections):
+    for group in groups:
         for start in range(len(group)):
             for count in range(1, _LABEL_MAX_BOXES + 1):
                 end = start + count
@@ -355,11 +353,11 @@ def _label_candidates(
 
 
 def _find_label(
-    detections: tuple[OcrTextBox, ...],
+    groups: RowGroups,
     aliases: tuple[str, ...],
 ) -> _MatchedLabel | None:
     scored: list[tuple[float, _TextCandidate]] = []
-    for candidate in _label_candidates(detections):
+    for candidate in _label_candidates(groups):
         score = max(_label_similarity(candidate.text, alias) for alias in aliases)
         if score >= _ROW_MATCH_THRESHOLD:
             scored.append((score, candidate))
@@ -531,14 +529,14 @@ def _select_from_observations(
 def _observe_toggle_columns(
     image: np.ndarray,
     spec: GameSettingRowSpec,
-    detections: tuple[OcrTextBox, ...],
+    groups: RowGroups,
 ) -> GameSettingRowObservation | None:
     if len(spec.options) != 2 or any(
         type(option.value) is not GameSettingState for option in spec.options
     ):
         raise TypeError("toggle_columns ожидает ровно ON/OFF options")
 
-    label = _find_label(detections, spec.label_aliases)
+    label = _find_label(groups, spec.label_aliases)
     if label is None:
         return None
     panel = "left" if label.center_x < _PANEL_SPLIT_X else "right"
@@ -583,32 +581,33 @@ def _observe_toggle_columns(
 
 
 def _choice_candidates_below_label(
-    detections: tuple[OcrTextBox, ...],
+    groups: RowGroups,
     label: _MatchedLabel,
 ) -> tuple[_TextCandidate, ...]:
     lower = label.bounds[3] + _CHOICE_OPTION_MIN_DY
     upper = label.bounds[3] + _CHOICE_OPTION_MAX_DY
-    in_band = tuple(
-        item
-        for item in detections
-        if lower <= item.center_y <= upper
-    )
     candidates: list[_TextCandidate] = []
-    for group in _same_line_groups(in_band):
-        candidates.extend(_option_candidates(group))
+    for group in groups:
+        in_band = tuple(
+            item
+            for item in group
+            if lower <= item.center_y <= upper
+        )
+        if in_band:
+            candidates.extend(_option_candidates(in_band))
     return tuple(candidates)
 
 
 def _observe_choice_cards(
     image: np.ndarray,
     spec: GameSettingRowSpec,
-    detections: tuple[OcrTextBox, ...],
+    groups: RowGroups,
 ) -> GameSettingRowObservation | None:
-    label = _find_label(detections, spec.label_aliases)
+    label = _find_label(groups, spec.label_aliases)
     if label is None:
         return None
 
-    candidates = _choice_candidates_below_label(detections, label)
+    candidates = _choice_candidates_below_label(groups, label)
     option_bounds = _resolve_option_candidates(candidates, spec.options)
     if option_bounds is None:
         row_bounds = (
@@ -684,13 +683,16 @@ def observe_game_setting_row(
     if any(type(option.value) is not value_type for option in spec.options):
         raise TypeError("Все options одной строки должны принадлежать одной value family")
 
-    if detections is None:
-        detections = _FRAME_OCR_CACHE.get(image)
+    groups = (
+        _FRAME_OCR_CACHE.get_groups(image)
+        if detections is None
+        else _same_line_groups(detections)
+    )
 
     if spec.layout == ROW_LAYOUT_TOGGLE_COLUMNS:
-        return _observe_toggle_columns(image, spec, detections)
+        return _observe_toggle_columns(image, spec, groups)
     if spec.layout == ROW_LAYOUT_CHOICE_CARDS:
-        return _observe_choice_cards(image, spec, detections)
+        return _observe_choice_cards(image, spec, groups)
     raise ValueError(f"Неподдерживаемый layout Game Setting: {spec.layout!r}")
 
 
@@ -791,7 +793,7 @@ DISPLAY_BATTLE_RESULT_CUTSCENE_ROW = GameSettingRowSpec(
     options=TOGGLE_OFF_ON,
 )
 CUSTOM_SHIP_NAMES_ROW = GameSettingRowSpec(
-    label_aliases=("Custom Ship Names",),
+    label_aliases=("Custom Ship Names", "Change Oathed Ship Names"),
     options=TOGGLE_OFF_ON,
 )
 
