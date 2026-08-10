@@ -32,7 +32,7 @@ from module.game_settings.traversal import OPTIONS_VIEWPORT_AREA
 
 
 _NATIVE_SHAPE = (720, 1280)
-_ROW_MATCH_THRESHOLD = 0.75
+_ROW_MATCH_THRESHOLD = 0.78
 _OPTION_MATCH_THRESHOLD = 0.80
 _ROW_CENTER_TOLERANCE = 20
 _OPTION_GROUP_MAX_GAP = 18
@@ -758,7 +758,7 @@ STORY_AUTOPLAY_ROW = GameSettingRowSpec(
     layout=ROW_LAYOUT_CHOICE_CARDS,
 )
 TEXT_AUTO_SCROLL_SPEED_ROW = GameSettingRowSpec(
-    label_aliases=("Text Auto-Scroll Speed", "Story auto-play speed"),
+    label_aliases=("Text Auto-Scroll Speed",),
     options=(
         GameSettingOptionSpec(TextAutoScrollSpeedValue.SLOW, ("Slow",)),
         GameSettingOptionSpec(TextAutoScrollSpeedValue.NORMAL, ("Normal",)),
@@ -795,11 +795,7 @@ DISPLAY_BATTLE_RESULT_CUTSCENE_ROW = GameSettingRowSpec(
     options=TOGGLE_OFF_ON,
 )
 CUSTOM_SHIP_NAMES_ROW = GameSettingRowSpec(
-    label_aliases=(
-        "Custom Ship Names",
-        "Change Oathed Ship Names",
-        "Oathed Ship Names",
-    ),
+    label_aliases=("Custom Ship Names",),
     options=TOGGLE_OFF_ON,
 )
 
