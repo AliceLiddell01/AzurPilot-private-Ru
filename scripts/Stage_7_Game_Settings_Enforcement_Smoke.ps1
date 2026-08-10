@@ -29,7 +29,19 @@ $originalBranch = $null
 $originalCommit = $null
 $switchedCheckout = $false
 
+function Write-SmokeMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Message
+    )
+
+    Write-Information -MessageData $Message -InformationAction Continue
+}
+
 function Invoke-GitCommand {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$Arguments,
@@ -53,6 +65,7 @@ function Invoke-GitCommand {
 }
 
 function Get-LastOutputLine {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [object[]]$Output
@@ -66,6 +79,9 @@ function Get-LastOutputLine {
 }
 
 function Test-CleanWorkingTree {
+    [CmdletBinding()]
+    param()
+
     $statusArguments = @(
         '-C'
         $script:RepositoryPath
@@ -115,8 +131,9 @@ if ($repositoryItem.PSProvider.Name -ne 'FileSystem') {
 }
 
 $RepositoryPath = Convert-Path -LiteralPath $RepositoryPath
+$script:RepositoryPath = $RepositoryPath
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
-$GitExecutable = $gitCommand.Path
+$script:GitExecutable = $gitCommand.Path
 
 try {
     $workTreeArguments = @(
@@ -161,7 +178,7 @@ try {
         throw 'origin не указывает на AliceLiddell01/AzurPilot-private-Ru.'
     }
 
-    Write-Host 'Обновляю безопасные remote-tracking refs перед smoke...'
+    Write-SmokeMessage -Message 'Обновляю безопасные remote-tracking refs перед smoke...'
     $fetchArguments = @(
         '-C'
         $RepositoryPath
@@ -257,7 +274,7 @@ try {
     }
 
     if ($originalCommit -cne $ExpectedCommit.ToLowerInvariant()) {
-        Write-Host ('Переключаю чистый checkout на Stage 7 head {0}...' -f $ExpectedCommit)
+        Write-SmokeMessage -Message ('Переключаю чистый checkout на Stage 7 head {0}...' -f $ExpectedCommit)
         $switchArguments = @(
             '-C'
             $RepositoryPath
@@ -298,6 +315,10 @@ from __future__ import annotations
 
 import sys
 import traceback
+
+repository_path = sys.argv[5]
+if repository_path not in sys.path:
+    sys.path.insert(0, repository_path)
 
 from module.game_settings.enforcement import GameSettingsEnforcementScanner
 from module.game_settings.model import is_unknown_game_setting_value
@@ -383,12 +404,12 @@ def main() -> int:
     config_name = sys.argv[2]
     device_serial = sys.argv[3]
     expected_commit = sys.argv[4]
-    repository_path = sys.argv[5]
+    repository_path_value = sys.argv[5]
     scanner = None
 
     print("STAGE 7 GAME SETTINGS ENFORCEMENT SMOKE")
     print()
-    print(f"Repository: {repository_path}")
+    print(f"Repository: {repository_path_value}")
     print(f"Commit: {expected_commit}")
     print(f"Python: {sys.version.split()[0]}")
     print(f"Device: {device_serial}")
@@ -550,8 +571,8 @@ raise SystemExit(main())
 
     if ($Apply) {
         $modeValue = 'Apply'
-        Write-Host 'ВНИМАНИЕ: этот запуск изменит только перечисленные Game Settings,'
-        Write-Host 'которые сейчас не соответствуют canonical требованиям бота.'
+        Write-SmokeMessage -Message 'ВНИМАНИЕ: этот запуск изменит только перечисленные Game Settings,'
+        Write-SmokeMessage -Message 'которые сейчас не соответствуют canonical требованиям бота.'
     }
 
     $pythonArguments = @(
@@ -577,7 +598,7 @@ raise SystemExit(main())
 }
 catch {
     $failureMessage = $_.Exception.Message
-    Write-Host ('STAGE 7 SMOKE INFRASTRUCTURE FAIL: {0}' -f $failureMessage)
+    Write-SmokeMessage -Message ('STAGE 7 SMOKE INFRASTRUCTURE FAIL: {0}' -f $failureMessage)
     $finalExitCode = 99
 }
 finally {
@@ -586,7 +607,7 @@ finally {
             Test-CleanWorkingTree
 
             if (-not [string]::IsNullOrWhiteSpace($originalBranch)) {
-                Write-Host ('Восстанавливаю исходную ветку {0}...' -f $originalBranch)
+                Write-SmokeMessage -Message ('Восстанавливаю исходную ветку {0}...' -f $originalBranch)
                 $restoreArguments = @(
                     '-C'
                     $RepositoryPath
@@ -596,7 +617,7 @@ finally {
                 [void](Invoke-GitCommand -Arguments $restoreArguments)
             }
             else {
-                Write-Host ('Восстанавливаю исходный detached commit {0}...' -f $originalCommit)
+                Write-SmokeMessage -Message ('Восстанавливаю исходный detached commit {0}...' -f $originalCommit)
                 $restoreArguments = @(
                     '-C'
                     $RepositoryPath
@@ -623,7 +644,7 @@ finally {
             Test-CleanWorkingTree
         }
         catch {
-            Write-Host ('Не удалось безопасно восстановить исходный checkout: {0}' -f $_.Exception.Message)
+            Write-SmokeMessage -Message ('Не удалось безопасно восстановить исходный checkout: {0}' -f $_.Exception.Message)
             $finalExitCode = 98
         }
     }
