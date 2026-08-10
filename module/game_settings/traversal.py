@@ -223,7 +223,7 @@ class OptionsTraversalMixin:
                     stopped_early=True,
                 )
 
-            semantic = self._detect_options_semantic_landmark()
+            semantic = self._detect_options_semantic_landmark(frame)
             if semantic is not None:
                 logger.info(
                     "[Игровые настройки] Semantic landmark: %s (rank=%s, score=%.3f)",
@@ -300,7 +300,7 @@ class OptionsTraversalMixin:
                     frame = next_frame
                     break
 
-                next_semantic = self._detect_options_semantic_landmark()
+                next_semantic = self._detect_options_semantic_landmark(next_frame)
                 semantic_forward = (
                     next_semantic is not None
                     and next_semantic.rank > highest_semantic_rank
@@ -329,6 +329,9 @@ class OptionsTraversalMixin:
                         next_semantic.key,
                     )
                     self._clear_options_control_record()
+                    if next_semantic.rank > highest_semantic_rank:
+                        highest_semantic_rank = next_semantic.rank
+                        highest_semantic_key = next_semantic.key
                     offset += self._semantic_progress_amount(motion)
                     frame = next_frame
                     break
@@ -455,15 +458,13 @@ class OptionsTraversalMixin:
     ) -> OptionsViewportMotion:
         return measure_options_viewport_motion(previous, current)
 
-    def _detect_options_semantic_landmark(self):
-        image = getattr(self.device, "image", None)
-        if not isinstance(image, np.ndarray):
-            return None
+    @staticmethod
+    def _detect_options_semantic_landmark(frame: np.ndarray):
         from module.game_settings.options_landmarks import (
             detect_options_semantic_landmark,
         )
 
-        return detect_options_semantic_landmark(image)
+        return detect_options_semantic_landmark(frame)
 
     def _motion_is_normal_downward(self, motion: OptionsViewportMotion) -> bool:
         return (
