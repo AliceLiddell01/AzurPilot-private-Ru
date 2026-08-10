@@ -25,6 +25,7 @@ from module.logger import logger
 
 
 _SAFE_CLICK_HALF_SIZE = 8
+_MAX_COMPACT_TARGET_SPAN = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,9 +300,14 @@ class GameSettingsEnforcementScanner(GameSettingsPreflightScanner):
     def _safe_click_bounds(
         target: tuple[int, int, int, int],
     ) -> tuple[int, int, int, int]:
-        """Keep stochastic device clicks inside the confirmed marker center."""
+        """Keep compact marker clicks central; preserve explicit large targets."""
 
         x1, y1, x2, y2 = target
+        width = x2 - x1
+        height = y2 - y1
+        if width > _MAX_COMPACT_TARGET_SPAN or height > _MAX_COMPACT_TARGET_SPAN:
+            return target
+
         center_x = (x1 + x2) / 2.0
         center_y = (y1 + y2) / 2.0
         return (
