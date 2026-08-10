@@ -37,9 +37,11 @@ class GameSettingsPreflightScanner(GameSettingsScanner):
         ambiguous: dict[str, GameSettingResult] = {}
 
         def visit(viewport: OptionsViewport) -> bool:
-            # Cache lifetime is exactly one stabilized viewport. This remains
-            # safe even if a screenshot backend reuses one numpy buffer and
-            # overwrites its contents between captures.
+            # GameSettingsScanner mirrors the detached traversal snapshot into
+            # device.image.  The visitor therefore consumes the exact same
+            # ndarray that semantic landmark detection receives after callback,
+            # while still remaining safe if the screenshot backend reuses its
+            # own numpy buffer between captures.
             clear_game_settings_ocr_cache()
             frame = self.device.image
 
