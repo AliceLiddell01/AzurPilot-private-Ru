@@ -27,10 +27,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _canonical_result() -> GameSettingsScanResult:
-    return GameSettingsScanResult(
-        entry.make_result(entry.requirement.expected_value)
-        for entry in GAME_SETTINGS_OPTIONS_REGISTRY
-    )
+    results = []
+    for entry in GAME_SETTINGS_OPTIONS_REGISTRY:
+        requirement = entry.requirement
+        if requirement is None:
+            raise AssertionError(f"Production requirement отсутствует: {entry.key}")
+        results.append(entry.make_result(requirement.expected_value))
+    return GameSettingsScanResult(results)
 
 
 class SnapshotStateNamespaceTests(unittest.TestCase):
@@ -100,10 +103,14 @@ class WebUIInternalInstanceTests(unittest.TestCase):
             frozenset({"ap", "game_settings_snapshot"}),
         )
         self.assertTrue(is_webui_hidden_instance("ap"))
+        self.assertTrue(is_webui_hidden_instance("AP"))
         self.assertTrue(is_webui_hidden_instance("game_settings_snapshot"))
+        self.assertTrue(is_webui_hidden_instance("Game_Settings_Snapshot"))
         self.assertFalse(is_webui_hidden_instance("alas"))
         self.assertEqual(
-            visible_webui_instances(["alas", "ap", "game_settings_snapshot", "alas2"]),
+            visible_webui_instances(
+                ["alas", "AP", "game_settings_snapshot", "alas2"]
+            ),
             ["alas", "alas2"],
         )
 
