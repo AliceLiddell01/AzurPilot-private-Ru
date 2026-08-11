@@ -88,7 +88,7 @@ jobs:
           guard = '''\n\ndef test_global_only_fork_has_no_cn_uncensored_tool():\n    token = "AzurLane" + "Uncensored"\n    hits: list[str] = []\n    for path in _iter_text_files():\n        text = path.read_text(encoding="utf-8", errors="ignore")\n        if token in text:\n            hits.append(str(path.relative_to(ROOT)))\n\n    assert not (ROOT / "module/daemon/uncensored.py").exists()\n    assert not hits, "CN-only uncensored feature returned: " + ", ".join(hits)\n'''
           if "test_global_only_fork_has_no_cn_uncensored_tool" in test_text:
               raise SystemExit("network cleanup test: uncensored guard already exists")
-          test_path.write_text(test_text.rstrip() + guard + "\n", encoding="utf-8", newline="")
+          test_path.write_text(test_text.rstrip() + guard, encoding="utf-8", newline="")
           PY
           git rm module/daemon/uncensored.py
 
