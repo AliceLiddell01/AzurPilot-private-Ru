@@ -1,15 +1,16 @@
 name: One-time legacy AzurStats config cleanup
 
 on:
-  push:
+  pull_request:
     branches:
-      - chatgpt/remove-upstream-announcements
+      - personal/stable
 
 permissions:
   contents: write
 
 jobs:
   cleanup:
+    if: ${{ github.head_ref == 'chatgpt/remove-upstream-announcements' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
