@@ -368,6 +368,9 @@ def main(argv: list[str] | None = None) -> int:
             args.source_commit,
             args.supplemental_repo.resolve(),
             args.supplemental_source_commit,
+            expected_source_commit=SOURCE_COMMIT,
+            expected_supplemental_commit=SUPPLEMENTAL_SOURCE_COMMIT,
+            expected_supplemental_blob_sha=SUPPLEMENTAL_SOURCE_BLOB_SHA,
         )
         expected = canonical_json_bytes(payload)
         if args.check:
@@ -390,10 +393,11 @@ def main(argv: list[str] | None = None) -> int:
 
     records = payload["records"]
     aliases = sum(len(record["aliases"]) for record in records)
+    provenance = payload["provenance"]
     print(
         f"PASS: records={len(records)} aliases={aliases} "
-        f"source_commit={args.source_commit} "
-        f"supplemental_source_commit={args.supplemental_source_commit}"
+        f"source_commit={provenance['source_commit']} "
+        f"supplemental_source_commit={provenance['supplemental_source_commit']}"
     )
     return 0
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import dev_tools.dock_identity_catalog as catalog_generator
 from dev_tools.dock_identity_catalog import (
     CatalogGenerationError,
     build_catalog,
@@ -380,3 +381,47 @@ def test_build_from_symbolic_refs_persists_resolved_commits(tmp_path: Path) -> N
     assert payload["provenance"]["source_commit"] == source_commit
     assert payload["provenance"]["supplemental_source_commit"] == supplemental_commit
     DockIdentityCatalog.from_mapping(payload)
+
+
+def test_cli_reports_resolved_commits_for_symbolic_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_repo, source_commit = _main_source_repo(tmp_path)
+    supplemental_repo, supplemental_commit, supplemental_blob = _supplemental_repo(
+        tmp_path
+    )
+    monkeypatch.setattr(catalog_generator, "SOURCE_COMMIT", source_commit)
+    monkeypatch.setattr(
+        catalog_generator,
+        "SUPPLEMENTAL_SOURCE_COMMIT",
+        supplemental_commit,
+    )
+    monkeypatch.setattr(
+        catalog_generator,
+        "SUPPLEMENTAL_SOURCE_BLOB_SHA",
+        supplemental_blob,
+    )
+
+    exit_code = catalog_generator.main(
+        [
+            "--repo",
+            str(source_repo),
+            "--source-commit",
+            "HEAD",
+            "--supplemental-repo",
+            str(supplemental_repo),
+            "--supplemental-source-commit",
+            "HEAD",
+            "--output",
+            str(tmp_path / "catalog.json"),
+        ]
+    )
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert f"source_commit={source_commit}" in stdout.split()
+    assert f"supplemental_source_commit={supplemental_commit}" in stdout.split()
+    assert "source_commit=HEAD" not in stdout.split()
+    assert "supplemental_source_commit=HEAD" not in stdout.split()
