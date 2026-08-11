@@ -1,0 +1,35 @@
+name: One-time AzurStats residue audit
+
+on:
+  push:
+    branches:
+      - chatgpt/remove-upstream-announcements
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: ${{ github.ref_name == 'chatgpt/remove-upstream-announcements' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Audit legacy AzurStats remote contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== exact legacy remote references ==='
+          git grep -n -E 'DropRecord_(AzurStatsID|API)|AzurStatsID|cn_gz_reverse_proxy|azur-stats\.lyoko\.io' -- . || true
+          echo '=== DropRecord method references ==='
+          git grep -n -E 'DropRecord_(ResearchRecord|CommissionRecord|CombatRecord|OpsiRecord|MeowfficerBuy|MeowfficerTalent)' -- '*.py' '*.yaml' '*.json' || true
+          echo '=== AzurStats network primitives ==='
+          git grep -n -E '(requests\.|urlopen\(|urllib|http://|https://)' -- module/statistics module/azur_stats || true
+          echo '=== AzurStats.new call sites ==='
+          git grep -n -E '\.new\([^\n]*(research|commission|combat|opsi|meow)' -- '*.py' || true
