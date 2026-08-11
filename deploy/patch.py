@@ -91,6 +91,14 @@ def patch_uiautomator2():
         logger.info('uiautomator2 не установлен, исправление пропущено')
         return
 
+    if not cache_dir or not os.path.isdir(cache_dir):
+        message = (
+            'Локальный uiautomator2cache/cache не найден. Установка остановлена, '
+            'чтобы uiautomator2 не переключился на скрытый внешний источник ресурсов.'
+        )
+        logger.critical(message)
+        raise RuntimeError(message)
+
     modified = False
     with open(init_file, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -105,20 +113,17 @@ def patch_uiautomator2():
         logger.info(f'{init_file}: исправление minicap_urls не требуется')
 
     # 修补 appdir
-    if cache_dir and os.path.exists(cache_dir):
-        res = re.search(r'appdir ?=(.*)\n', content)
-        if res:
-            prev = res.group(1).strip()
-            if prev == appdir:
-                logger.info(f'{init_file}: appdir уже исправлен')
-            else:
-                content = re.sub(r'appdir ?=.*\n', f'appdir = {appdir}\n', content)
-                modified = True
-                logger.info(f'{init_file}: appdir исправлен')
+    res = re.search(r'appdir ?=(.*)\n', content)
+    if res:
+        prev = res.group(1).strip()
+        if prev == appdir:
+            logger.info(f'{init_file}: appdir уже исправлен')
         else:
-            logger.info(f'{init_file}: appdir не найден')
+            content = re.sub(r'appdir ?=.*\n', f'appdir = {appdir}\n', content)
+            modified = True
+            logger.info(f'{init_file}: appdir исправлен')
     else:
-        logger.info('uiautomator2cache не установлен, исправление пропущено')
+        logger.info(f'{init_file}: appdir не найден')
 
     # 保存文件
     if modified:
