@@ -1,0 +1,31 @@
+name: One-time event calculator audit
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: ${{ github.head_ref == 'chatgpt/remove-upstream-announcements' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: chatgpt/remove-upstream-announcements
+          fetch-depth: 1
+
+      - name: Trace event calculator references
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== references ==='
+          git grep -n -E 'load_event_calculator|_render_event_calculator|build_event_calculator_html|build_event_calculator_js|event_calculator' -- '*.py' '*.json' '*.yaml' '*.yml' || true
+          echo '=== wiki host references ==='
+          git grep -n 'wiki.biligame.com' -- . || true
