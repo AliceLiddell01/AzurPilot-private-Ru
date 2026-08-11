@@ -417,7 +417,7 @@ def test_star_scanner_ignores_unproven_early_yellow_peak(total: int) -> None:
     _draw_star_row(frame, slot, (DockStarGlyphState.FILLED,) * total)
     cv2.circle(
         frame,
-        (slot.area[0] + 31, slot.area[1] + 185),
+        (slot.area[0] + 22, slot.area[1] + DockStarScanner.STAR_TOP + 8),
         5,
         (245, 205, 60),
         -1,
@@ -737,7 +737,15 @@ def test_invalid_frame_is_operational_input_error_not_visual_unknown() -> None:
         DockStarScanner().scan(np.zeros((720, 1280), dtype=np.uint8), (slot,))
 
 
-def test_stage5_production_module_has_no_stage6_affinity_authority() -> None:
+def test_stage5_production_module_has_no_stage6_or_device_control_authority() -> None:
     source = inspect.getsource(attributes)
-    for forbidden in ("EmotionScanner", "Oath", "heart detector", "AffinityState"):
+    for forbidden in (
+        "EmotionScanner",
+        "Oath",
+        "heart detector",
+        "AffinityState",
+        "screenshot(",
+        "click(",
+        "swipe(",
+    ):
         assert forbidden not in source

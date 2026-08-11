@@ -662,39 +662,12 @@ class DockStarScanner:
             fill_match_score = float(
                 min(1.0, max(0.0, np.max(match_neighborhood)))
             )
-            if shape_score < self.SHAPE_SCORE_MIN:
-                state = DockStarGlyphState.UNKNOWN
-            elif (
-                (
-                    fill_ratio >= self.FILLED_RATIO_MIN
-                    and upper_fill_ratio >= self.FILLED_UPPER_RATIO_MIN
-                )
-                or (
-                    fill_match_score >= self.FILLED_MATCH_MIN
-                    and fill_ratio >= self.FILLED_MATCH_RATIO_MIN
-                )
-                or (
-                    self.FILLED_WEAK_MATCH_MIN
-                    <= fill_match_score
-                    < self.FILLED_MATCH_MIN
-                    and (
-                        (
-                            fill_ratio >= self.FILLED_WEAK_RATIO_MIN
-                            and upper_fill_ratio >= self.FILLED_WEAK_UPPER_RATIO_MIN
-                        )
-                        or (
-                            fill_ratio >= self.FILLED_LOWER_HEAVY_RATIO_MIN
-                            and upper_fill_ratio
-                            >= self.FILLED_LOWER_HEAVY_UPPER_RATIO_MIN
-                        )
-                    )
-                )
-            ):
-                state = DockStarGlyphState.FILLED
-            elif fill_ratio <= self.EMPTY_RATIO_MAX:
-                state = DockStarGlyphState.EMPTY
-            else:
-                state = DockStarGlyphState.UNKNOWN
+            state = self._classify_glyph(
+                shape_score=shape_score,
+                fill_ratio=fill_ratio,
+                upper_fill_ratio=upper_fill_ratio,
+                fill_match_score=fill_match_score,
+            )
             glyphs.append(
                 DockStarGlyphObservation(
                     index=index,
@@ -724,6 +697,47 @@ class DockStarScanner:
             detected_total=total,
             glyphs=glyph_tuple,
         )
+
+    def _classify_glyph(
+        self,
+        *,
+        shape_score: float,
+        fill_ratio: float,
+        upper_fill_ratio: float,
+        fill_match_score: float,
+    ) -> DockStarGlyphState:
+        if shape_score < self.SHAPE_SCORE_MIN:
+            return DockStarGlyphState.UNKNOWN
+        if (
+            (
+                fill_ratio >= self.FILLED_RATIO_MIN
+                and upper_fill_ratio >= self.FILLED_UPPER_RATIO_MIN
+            )
+            or (
+                fill_match_score >= self.FILLED_MATCH_MIN
+                and fill_ratio >= self.FILLED_MATCH_RATIO_MIN
+            )
+            or (
+                self.FILLED_WEAK_MATCH_MIN
+                <= fill_match_score
+                < self.FILLED_MATCH_MIN
+                and (
+                    (
+                        fill_ratio >= self.FILLED_WEAK_RATIO_MIN
+                        and upper_fill_ratio >= self.FILLED_WEAK_UPPER_RATIO_MIN
+                    )
+                    or (
+                        fill_ratio >= self.FILLED_LOWER_HEAVY_RATIO_MIN
+                        and upper_fill_ratio
+                        >= self.FILLED_LOWER_HEAVY_UPPER_RATIO_MIN
+                    )
+                )
+            )
+        ):
+            return DockStarGlyphState.FILLED
+        if fill_ratio <= self.EMPTY_RATIO_MAX:
+            return DockStarGlyphState.EMPTY
+        return DockStarGlyphState.UNKNOWN
 
     def _first_filled_star(
         self,

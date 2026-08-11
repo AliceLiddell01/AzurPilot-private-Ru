@@ -128,6 +128,22 @@ def test_generator_uses_supplemental_group_and_serializes_deterministically() ->
     first = build_catalog({}, **kwargs)
     second = build_catalog({}, **kwargs)
 
+    record = first["records"][0]
+    assert record["canonical_id"] == "azur_lane_ship_group:970213"
+    assert record["family_type"] == "ordinary"
+    states = record["states"]
+    assert [state["semantic_id"] for state in states] == [
+        "limit_break:0",
+        "limit_break:1",
+        "limit_break:2",
+        "limit_break:3",
+    ]
+    assert [state["filled"] for state in states] == [2, 3, 4, 5]
+    assert all(state["total"] == 5 for state in states)
+    assert all(state["kind"] == "standard_limit_break" for state in states)
+    assert [state["stage_index"] for state in states] == [0, 1, 2, 3]
+    assert all(state["stage_count"] == 4 for state in states)
+    assert [state["is_max"] for state in states] == [False, False, False, True]
     assert first == second
     assert canonical_json_bytes(first) == canonical_json_bytes(second)
     assert (

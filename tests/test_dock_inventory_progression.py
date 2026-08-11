@@ -342,6 +342,9 @@ def test_tracked_progression_catalog_matches_identity_catalog_and_is_determinist
 def test_catalog_json_does_not_embed_unrelated_upstream_payload() -> None:
     catalog_text = CATALOG_PATH.read_text(encoding="utf-8")
     payload = json.loads(catalog_text)
+    # Regression guard against accidentally embedding the multi-megabyte upstream payload.
     assert CATALOG_PATH.stat().st_size < 1_100_000
-    assert set(payload["records"][0]) == {"canonical_id", "family_type", "states"}
+    assert payload["records"]
+    for record in payload["records"]:
+        assert set(record) == {"canonical_id", "family_type", "states"}
     assert "attrs" not in catalog_text
