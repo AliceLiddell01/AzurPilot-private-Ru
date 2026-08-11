@@ -104,6 +104,38 @@ class SnapshotStateNamespaceTests(unittest.TestCase):
             finally:
                 os.chdir(previous_cwd)
 
+    def test_concurrent_target_creation_cannot_be_clobbered_by_legacy_migration(self):
+        previous_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temp:
+            try:
+                os.chdir(temp)
+                save_game_settings_snapshot(
+                    _canonical_result(),
+                    path=LEGACY_GAME_SETTINGS_SNAPSHOT_PATH,
+                )
+                legacy_bytes = LEGACY_GAME_SETTINGS_SNAPSHOT_PATH.read_bytes()
+                competing_bytes = legacy_bytes + b"\n"
+                original_hardlink_to = Path.hardlink_to
+
+                def create_target_before_link(target_path: Path, source_path: Path):
+                    target_path.write_bytes(competing_bytes)
+                    return original_hardlink_to(target_path, source_path)
+
+                with patch.object(Path, "hardlink_to", new=create_target_before_link):
+                    loaded = load_game_settings_snapshot()
+
+                self.assertIs(loaded.status, GameSettingsSnapshotStatus.VALID)
+                self.assertEqual(
+                    DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH.read_bytes(),
+                    competing_bytes,
+                )
+                self.assertEqual(
+                    LEGACY_GAME_SETTINGS_SNAPSHOT_PATH.read_bytes(),
+                    legacy_bytes,
+                )
+            finally:
+                os.chdir(previous_cwd)
+
     def test_migration_failure_preserves_legacy_file_and_fails_as_missing(self):
         previous_cwd = Path.cwd()
         with tempfile.TemporaryDirectory() as temp:
@@ -115,9 +147,10 @@ class SnapshotStateNamespaceTests(unittest.TestCase):
                 )
                 before = LEGACY_GAME_SETTINGS_SNAPSHOT_PATH.read_bytes()
 
-                with patch(
-                    "module.game_settings.snapshot.atomic_replace",
-                    side_effect=OSError("replace failed"),
+                with patch.object(
+                    Path,
+                    "hardlink_to",
+                    side_effect=OSError("hard link failed"),
                 ):
                     loaded = load_game_settings_snapshot()
 
