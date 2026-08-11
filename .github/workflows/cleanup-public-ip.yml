@@ -67,7 +67,9 @@ jobs:
 
       - name: Retire one-time workflow
         shell: bash
-        run: rm .github/workflows/cleanup-public-ip.yml
+        run: |
+          rm .github/workflows/cleanup-public-ip.yml
+          rm -f .github/public-ip-cleanup-trigger.tmp
 
       - name: Verify focused cleanup
         shell: bash
