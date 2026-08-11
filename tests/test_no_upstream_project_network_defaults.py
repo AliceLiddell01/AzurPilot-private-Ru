@@ -112,11 +112,12 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "dockerfile: ./deploy/docker/Dockerfile" in docker_compose
     assert "Dockerfile.cn" not in docker_compose
 
-    # AI labeler остаётся функциональным, но использует GitHub Models вместо DeepSeek.
-    assert "models: read" in issue_labeler
-    assert "https://models.github.ai/inference" in issue_labeler
-    assert "openai/gpt-4.1" in issue_labeler
-    assert "AI_API_KEY: ${{ github.token }}" in issue_labeler
+    # AI labeler остаётся функциональным, но использует OpenAI вместо DeepSeek.
+    assert "https://api.openai.com/v1" in issue_labeler
+    assert "gpt-4.1-mini" in issue_labeler
+    assert "AI_API_KEY: ${{ secrets.OPENAI_API_KEY }}" in issue_labeler
+    assert "models: read" not in issue_labeler
+    assert "models.github.ai" not in issue_labeler
     assert "api.deepseek.com" not in issue_labeler
     assert "deepseek-v4-flash" not in issue_labeler
 
