@@ -194,6 +194,20 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     ):
         assert token not in issue_labeler
 
+    # Старый встроенный Git-updater уже удалён из runtime: его CN-oriented UI residues не должны возвращаться.
+    deploy_config = (ROOT / "deploy/config.py").read_text(encoding="utf-8")
+    for key in ("Repository", "Branch", "GitExecutable", "GitProxy", "SSLVerify"):
+        assert f'"{key}"' in deploy_config
+    legacy_repo_hint = "git://git." + "pull/AzurPilot"
+    assert legacy_repo_hint not in ru_i18n
+    assert legacy_repo_hint not in en_i18n
+    assert "Пользователи из КНР" not in ru_i18n
+    assert "CN users may use" not in en_i18n
+    assert "китайскими эмуляторами Android" not in ru_i18n
+    assert "Chinese Android emulators" not in en_i18n
+    assert "конфликтов версий" in ru_i18n
+    assert "version conflicts" in en_i18n
+
     # Docker publish остаётся, но публикует image в GHCR самого форка без DockerHub secrets.
     assert "REGISTRY: ghcr.io" in docker_publish
     assert "IMAGE_NAME: ${{ github.repository }}" in docker_publish
