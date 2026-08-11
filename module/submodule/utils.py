@@ -24,7 +24,6 @@ def get_available_func():
         'EventStory',
         'BoxDisassemble',
         'AutoEquip',
-        'AzurLaneUncensored',
         'Benchmark',
         'OcrBenchmark',
         'ScreenshotIntervalBenchmark',

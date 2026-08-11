@@ -17086,23 +17086,6 @@
       }
     }
   },
-  "AzurLaneUncensored": {
-    "AzurLaneUncensored": {
-      "Repository": {
-        "type": "input",
-        "value": "https://gitee.com/LmeSzinc/AzurLaneUncensored",
-        "display": "disabled"
-      }
-    },
-    "Storage": {
-      "Storage": {
-        "type": "storage",
-        "value": {},
-        "valuetype": "ignore",
-        "display": "disabled"
-      }
-    }
-  },
   "GameManager": {
     "GameManager": {
       "AutoRestart": {

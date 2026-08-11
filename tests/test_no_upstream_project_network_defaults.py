@@ -36,6 +36,7 @@ SCAN_ROOTS = (
 SCAN_FILES = (
     ROOT / "README.md",
     ROOT / "PRIVACY_AND_DISCLAIMER.md",
+    ROOT / "alas.py",
 )
 
 
@@ -189,3 +190,14 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "ReportToYiTuLiu: false" in maa_argument
     assert '"report_to_penguin": self.config.MaaRecord_ReportToPenguin' in maa_handler
     assert '"report_to_yituliu": self.config.MaaRecord_ReportToYiTuLiu' in maa_handler
+
+def test_global_only_fork_has_no_cn_uncensored_tool():
+    token = "AzurLane" + "Uncensored"
+    hits: list[str] = []
+    for path in _iter_text_files():
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if token in text:
+            hits.append(str(path.relative_to(ROOT)))
+
+    assert not (ROOT / "module/daemon/uncensored.py").exists()
+    assert not hits, "CN-only uncensored feature returned: " + ", ".join(hits)

@@ -1856,10 +1856,6 @@ Benchmark:
   TestScene:
     value: screenshot_click
     option: [screenshot_click, screenshot, click]
-AzurLaneUncensored:
-  Repository:
-    value: https://gitee.com/LmeSzinc/AzurLaneUncensored
-    display: disabled
 GameManager:
   AutoRestart: true
 EmulatorManagement:

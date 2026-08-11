@@ -394,10 +394,6 @@
       "name": "Screenshot Interval Benchmark",
       "help": "Automatically measures screenshot frequency on the campaign screen and in free META Battle Simulation. Profile settings are not changed automatically."
     },
-    "AzurLaneUncensored": {
-      "name": "Uncensor",
-      "help": ""
-    },
     "GameManager": {
       "name": "Game Manager (Incomplete)",
       "help": ""
@@ -5580,16 +5576,6 @@
       "screenshot_click": "Screenshot + click speed test",
       "screenshot": "Screenshot speed test",
       "click": "Click speed test"
-    }
-  },
-  "AzurLaneUncensored": {
-    "_info": {
-      "name": "Uncensor",
-      "help": "Only for CN Server. This tool will:\n- Download uncensor files\n- Push files to the emulator\n- Restart the game client"
-    },
-    "Repository": {
-      "name": "Uncensor Repository",
-      "help": "Generally no modification is required.\nRepository https://github.com/LmeSzinc/AzurLaneUncensored\nDomestic mirror (default) https://e.coding.net/llop18870/alas/AzurLaneUncensored.git"
     }
   },
   "GameManager": {

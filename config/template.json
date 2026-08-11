@@ -3404,14 +3404,6 @@
       "Storage": {}
     }
   },
-  "AzurLaneUncensored": {
-    "AzurLaneUncensored": {
-      "Repository": "https://gitee.com/LmeSzinc/AzurLaneUncensored"
-    },
-    "Storage": {
-      "Storage": {}
-    }
-  },
   "GameManager": {
     "GameManager": {
       "AutoRestart": true

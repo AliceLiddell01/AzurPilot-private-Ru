@@ -974,9 +974,6 @@ class GeneratedConfig:
     Benchmark_DeviceType = 'emulator'  # emulator, plone_cloud_with_adb, phone_cloud_without_adb, android_phone, android_phone_vmos
     Benchmark_TestScene = 'screenshot_click'  # screenshot_click, screenshot, click
 
-    # 配置组 `AzurLaneUncensored`
-    AzurLaneUncensored_Repository = 'https://gitee.com/LmeSzinc/AzurLaneUncensored'
-
     # 配置组 `GameManager`
     GameManager_AutoRestart = True
 
