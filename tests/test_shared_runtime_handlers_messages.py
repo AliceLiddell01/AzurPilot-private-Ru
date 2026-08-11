@@ -110,7 +110,8 @@ def test_runtime_messages_are_russian_and_technical_values_are_preserved():
     assert "Ответ: {resp.text}" in server
     assert 'Ответ "{resp.text}" не является корректным JSON.' in server
     assert "http://sc.shiratama.cn" in server
-    assert "https://www.baidu.com" in server
+    assert "http://www.msftconnecttest.com/connecttest.txt" in server
+    assert "https://www.baidu.com" not in server
 
     assert "Программа вызвала исключение" in logger
     assert "[bold]<<< {title} >>>[/bold]" in logger
@@ -245,7 +246,7 @@ def test_server_checker_fast_retry_keeps_three_attempt_limit_and_network_probe()
     checker = _bare_checker()
     checker._state.append(False)
     session = Mock()
-    session.get.return_value = Mock()
+    session.get.return_value = _response(200, text="Microsoft Connect Test")
 
     calls = 0
 
@@ -259,7 +260,11 @@ def test_server_checker_fast_retry_keeps_three_attempt_limit_and_network_probe()
     with patch("module.server_checker.requests.Session", return_value=session):
         assert checker.fast_retry() is False
     assert calls == 3
-    session.get.assert_called_once_with("https://www.baidu.com", timeout=5)
+    session.get.assert_called_once_with(
+        "http://www.msftconnecttest.com/connecttest.txt",
+        timeout=5,
+        allow_redirects=False,
+    )
     assert checker._retry is False
 
     checker = _bare_checker()
@@ -269,5 +274,19 @@ def test_server_checker_fast_retry_keeps_three_attempt_limit_and_network_probe()
     checker._load_server = Mock()
     with patch("module.server_checker.requests.Session", return_value=session):
         assert checker.fast_retry() is False
+    checker._load_server.assert_not_called()
+    assert checker._retry is False
+
+
+def test_server_checker_connectivity_probe_rejects_unexpected_payload():
+    checker = _bare_checker()
+    checker._state.append(False)
+    session = Mock()
+    session.get.return_value = _response(200, text="captive portal")
+    checker._load_server = Mock()
+
+    with patch("module.server_checker.requests.Session", return_value=session):
+        assert checker.fast_retry() is False
+
     checker._load_server.assert_not_called()
     assert checker._retry is False
