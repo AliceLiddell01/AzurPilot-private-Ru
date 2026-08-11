@@ -1,10 +1,19 @@
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from dev_tools.dock_identity_catalog import build_catalog, canonical_json_bytes
+import dev_tools.dock_identity_catalog as catalog_generator
+from dev_tools.dock_identity_catalog import (
+    CatalogGenerationError,
+    build_catalog,
+    build_from_git,
+    canonical_json_bytes,
+    extract_supplemental_records,
+    read_supplemental_records_from_git,
+)
 from module.dock_inventory.catalog import (
     CATALOG_IDENTITY_SCHEME,
     DockCanonicalShip,
@@ -206,3 +215,215 @@ def test_generator_serialization_is_deterministic() -> None:
 
     assert first == second
     assert hashlib.sha256(first).hexdigest() == hashlib.sha256(second).hexdigest()
+
+
+def _supplemental_lua(*, name: str = "Nürnberg META", closing: str = "}") -> str:
+    return (
+        "pg.base.fleet_tech_ship_class[970213] = {\n"
+        "\tshiptype = 2,\n"
+        f'\tname = "{name}",\n'
+        "\tid = 970213,\n"
+        "\tships = {\n"
+        "\t\t970213\n"
+        "\t}\n"
+        f"{closing}\n"
+    )
+
+
+def _git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="strict",
+    )
+    return completed.stdout.strip()
+
+
+def _supplemental_repo(tmp_path: Path) -> tuple[Path, str, str]:
+    repo = tmp_path / "supplemental"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Fixture")
+    _git(repo, "config", "user.email", "fixture@example.invalid")
+    source = repo / "EN" / "sharecfg" / "fleet_tech_ship_class.lua"
+    source.parent.mkdir(parents=True)
+    source.write_text(_supplemental_lua(), encoding="utf-8")
+    _git(repo, "add", "EN/sharecfg/fleet_tech_ship_class.lua")
+    _git(repo, "commit", "-m", "тестовый источник")
+    commit = _git(repo, "rev-parse", "HEAD")
+    blob = _git(repo, "rev-parse", f"{commit}:EN/sharecfg/fleet_tech_ship_class.lua")
+    return repo, commit, blob
+
+
+def test_supplemental_source_correct_commit_and_blob_pass(tmp_path: Path) -> None:
+    repo, commit, blob = _supplemental_repo(tmp_path)
+
+    records, actual_blob, resolved_commit = read_supplemental_records_from_git(
+        repo,
+        commit,
+        expected_commit=commit,
+        expected_blob_sha=blob,
+    )
+
+    assert actual_blob == blob
+    assert resolved_commit == commit
+    assert records == (
+        {
+            "canonical_id": "azur_lane_ship_group:970213",
+            "canonical_name": "Nürnberg META",
+            "aliases": [],
+        },
+    )
+
+
+def test_supplemental_source_wrong_commit_fails(tmp_path: Path) -> None:
+    repo, commit, blob = _supplemental_repo(tmp_path)
+
+    with pytest.raises(CatalogGenerationError, match="ожидался точный коммит"):
+        read_supplemental_records_from_git(
+            repo,
+            commit,
+            expected_commit="0" * 40,
+            expected_blob_sha=blob,
+        )
+
+
+def test_supplemental_source_wrong_blob_fails(tmp_path: Path) -> None:
+    repo, commit, _blob = _supplemental_repo(tmp_path)
+
+    with pytest.raises(CatalogGenerationError, match="ожидался"):
+        read_supplemental_records_from_git(
+            repo,
+            commit,
+            expected_commit=commit,
+            expected_blob_sha="0" * 40,
+        )
+
+
+def test_supplemental_source_missing_path_fails(tmp_path: Path) -> None:
+    repo, commit, blob = _supplemental_repo(tmp_path)
+
+    with pytest.raises(CatalogGenerationError, match="git rev-parse"):
+        read_supplemental_records_from_git(
+            repo,
+            commit,
+            expected_commit=commit,
+            expected_blob_sha=blob,
+            source_path="EN/sharecfg/missing.lua",
+        )
+
+
+def test_supplemental_source_target_group_absent_fails() -> None:
+    with pytest.raises(CatalogGenerationError, match="должен встречаться ровно один раз"):
+        extract_supplemental_records(b"return {}\n")
+
+
+def test_supplemental_source_name_mismatch_fails() -> None:
+    source = _supplemental_lua(name="Wrong Name").encode("utf-8")
+
+    with pytest.raises(CatalogGenerationError, match="имя EN"):
+        extract_supplemental_records(source)
+
+
+def test_supplemental_source_malformed_lua_fails() -> None:
+    source = _supplemental_lua(closing="").encode("utf-8")
+
+    with pytest.raises(CatalogGenerationError, match="некорректную Lua"):
+        extract_supplemental_records(source)
+
+
+def _main_source_repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "main-source"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Fixture")
+    _git(repo, "config", "user.email", "fixture@example.invalid")
+    source = repo / "assets" / "ship" / "ship_data.json"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        json.dumps(
+            {
+                "100001": {
+                    "group_type": 10000,
+                    "name": {"en": "Fixture Ship"},
+                    "is_retrofit": False,
+                    "is_type2": False,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    generator = repo / "dev_tools" / "ship_data_extractor.py"
+    generator.parent.mkdir()
+    generator.write_text("# fixture\n", encoding="utf-8")
+    _git(repo, "add", "assets/ship/ship_data.json", "dev_tools/ship_data_extractor.py")
+    _git(repo, "commit", "-m", "тестовый источник")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def test_build_from_symbolic_refs_persists_resolved_commits(tmp_path: Path) -> None:
+    source_repo, source_commit = _main_source_repo(tmp_path)
+    supplemental_repo, supplemental_commit, supplemental_blob = _supplemental_repo(
+        tmp_path
+    )
+
+    payload = build_from_git(
+        source_repo,
+        "HEAD",
+        supplemental_repo,
+        "HEAD",
+        expected_source_commit=source_commit,
+        expected_supplemental_commit=supplemental_commit,
+        expected_supplemental_blob_sha=supplemental_blob,
+    )
+
+    assert payload["provenance"]["source_commit"] == source_commit
+    assert payload["provenance"]["supplemental_source_commit"] == supplemental_commit
+    DockIdentityCatalog.from_mapping(payload)
+
+
+def test_cli_reports_resolved_commits_for_symbolic_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_repo, source_commit = _main_source_repo(tmp_path)
+    supplemental_repo, supplemental_commit, supplemental_blob = _supplemental_repo(
+        tmp_path
+    )
+    monkeypatch.setattr(catalog_generator, "SOURCE_COMMIT", source_commit)
+    monkeypatch.setattr(
+        catalog_generator,
+        "SUPPLEMENTAL_SOURCE_COMMIT",
+        supplemental_commit,
+    )
+    monkeypatch.setattr(
+        catalog_generator,
+        "SUPPLEMENTAL_SOURCE_BLOB_SHA",
+        supplemental_blob,
+    )
+
+    exit_code = catalog_generator.main(
+        [
+            "--repo",
+            str(source_repo),
+            "--source-commit",
+            "HEAD",
+            "--supplemental-repo",
+            str(supplemental_repo),
+            "--supplemental-source-commit",
+            "HEAD",
+            "--output",
+            str(tmp_path / "catalog.json"),
+        ]
+    )
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert f"source_commit={source_commit}" in stdout.split()
+    assert f"supplemental_source_commit={supplemental_commit}" in stdout.split()
+    assert "source_commit=HEAD" not in stdout.split()
+    assert "supplemental_source_commit=HEAD" not in stdout.split()
