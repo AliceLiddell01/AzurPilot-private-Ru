@@ -197,6 +197,21 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
         assert token not in issue_labeler
 
     # Старый встроенный Git-updater уже удалён из runtime: его CN-oriented UI residues не должны возвращаться.
+    dead_deploy_gui_keys = (
+        "  Repository:\n",
+        "  RepositoryHelp:\n",
+        "  Branch:\n",
+        "  BranchHelp:\n",
+        "  GitExecutable:\n",
+        "  GitExecutableHelp:\n",
+        "  GitProxy:\n",
+        "  GitProxyHelp:\n",
+        "  SSLVerify:\n",
+        "  SSLVerifyHelp:\n",
+    )
+    for key in dead_deploy_gui_keys:
+        assert key not in gui_argument
+
     deploy_config = (ROOT / "deploy/config.py").read_text(encoding="utf-8")
     for key in ("Repository", "Branch", "GitExecutable", "GitProxy", "SSLVerify"):
         assert f'"{key}"' in deploy_config
