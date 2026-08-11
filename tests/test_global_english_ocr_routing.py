@@ -10,6 +10,9 @@ class GlobalEnglishOcrRoutingTests(unittest.TestCase):
     def test_audited_commission_name_uses_general_english(self) -> None:
         self.assertTrue(should_use_general_english(None, name="COMMISSION"))
 
+    def test_dock_ship_name_uses_general_english(self) -> None:
+        self.assertTrue(should_use_general_english(None, name="DOCK_SHIP_NAME"))
+
     def test_audited_zone_name_uses_general_english(self) -> None:
         self.assertTrue(should_use_general_english(None, name="OCR_OS_MAP_NAME"))
 

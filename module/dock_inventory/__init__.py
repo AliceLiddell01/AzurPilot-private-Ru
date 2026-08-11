@@ -8,6 +8,12 @@ from module.dock_inventory.model import (
     IdentityStatus,
     StarObservation,
 )
+from module.dock_inventory.catalog import (
+    DockCanonicalShip,
+    DockIdentityCatalog,
+    DockIdentityCatalogError,
+    load_dock_identity_catalog,
+)
 
 __all__ = [
     "AffinityState",
@@ -16,4 +22,8 @@ __all__ = [
     "DockShipObservation",
     "IdentityStatus",
     "StarObservation",
+    "DockCanonicalShip",
+    "DockIdentityCatalog",
+    "DockIdentityCatalogError",
+    "load_dock_identity_catalog",
 ]

@@ -31,6 +31,7 @@ _DIGIT_CONFUSION_LETTERS = frozenset("IDSB")
 _GENERAL_OCR_NAMES = frozenset(
     {
         "COMMISSION",
+        "DOCK_SHIP_NAME",
         "ENEMY_NAME",
         "OCR_ACTION_POINT_BUY_REMAIN",
         "OCR_EVENT_SHOP_DEADLINE",
