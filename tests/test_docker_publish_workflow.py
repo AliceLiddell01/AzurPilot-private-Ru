@@ -5,6 +5,21 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/docker-publish.yml"
 
 
+def _job_permissions(source: str) -> dict[str, str]:
+    lines = source.splitlines()
+    start = lines.index("    permissions:") + 1
+    permissions: dict[str, str] = {}
+    for line in lines[start:]:
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent <= 4:
+            break
+        key, value = line.strip().split(":", 1)
+        permissions[key] = value.strip()
+    return permissions
+
+
 def test_docker_publish_uses_pinned_node24_actions_and_minimal_permissions():
     source = WORKFLOW.read_text(encoding="utf-8")
 
@@ -19,9 +34,10 @@ def test_docker_publish_uses_pinned_node24_actions_and_minimal_permissions():
         assert action in source
 
     assert "persist-credentials: false" in source
-    assert "packages: write" in source
-    assert "contents: read" in source
-    assert "id-token: write" not in source
+    assert _job_permissions(source) == {
+        "contents": "read",
+        "packages": "write",
+    }
     assert "@v2" not in source
     assert "@v3" not in source
     assert "@v4" not in source
