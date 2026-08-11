@@ -247,6 +247,15 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     ):
         assert token not in docker_deploy
 
+    # Калькулятор события сохраняется, но его китайский Wiki endpoint больше не вызывается при открытии страницы.
+    event_calculator = (ROOT / "module/webui/event_calculator.py").read_text(encoding="utf-8")
+    event_tools = (ROOT / "module/webui/app_event_tools.py").read_text(encoding="utf-8")
+    assert "if not force_refresh:" in event_calculator
+    assert "needs_refresh" in event_calculator
+    assert "requests.get(WIKI_RAW_URL, timeout=10)" in event_calculator
+    assert "выполняется только после явного нажатия" in event_tools
+    assert "Загрузить данные Wiki" in event_tools
+
     # Старый uiautomator2 installer больше не переключается на скрытый внешний fallback.
     u2_sources = [
         (ROOT / "deploy/adb.py").read_text(encoding="utf-8"),

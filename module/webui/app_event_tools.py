@@ -195,7 +195,9 @@ class EventToolsMixin(WebUIMixinBase):
         with use_scope("group_EventCalculator", clear=True):
             put_text("Калькулятор события")
             put_text(
-                "Автоматически загружает из Wiki Azur Lane магазин события, дату окончания и PT карт. Результат можно записать в общие настройки события."
+                "Использует локальный кэш данных события. Внешний запрос к wiki.biligame.com "
+                "выполняется только после явного нажатия кнопки загрузки/обновления Wiki. "
+                "Результат можно записать в общие настройки события."
             )
             put_html('<hr class="hr-group">')
 
@@ -203,7 +205,11 @@ class EventToolsMixin(WebUIMixinBase):
             if data.get("error") and not data.get("shop_items"):
                 put_html(build_error_html(data["error"]))
                 put_button(
-                    label="Повторить загрузку из Wiki",
+                    label=(
+                        "Загрузить данные Wiki"
+                        if data.get("needs_refresh")
+                        else "Повторить загрузку из Wiki"
+                    ),
                     onclick=lambda: self._render_event_calculator(
                         self.alas_config.read_file(self.alas_name), True
                     ),
