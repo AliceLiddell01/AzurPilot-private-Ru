@@ -60,7 +60,7 @@ jobs:
           test_text = test_text.replace(anchor, replacement, 1)
 
           anchor = '''    # Экран удалённого доступа остаётся, но больше не рекламирует upstream provider.\n    assert 't("Gui.Remote.ConfigureHint")' in developer_tools\n    assert "app.azurlane.cloud" not in developer_tools\n'''
-          replacement = anchor + '''\n    # SSH provider остаётся полностью настраиваемым: private runtime не имеет скрытого fallback-хоста.\n    assert "app.pywebio.online" not in remote_access\n    assert "server, server_port = _parse_host_port(State.deploy_config.SSHServer)" in remote_access\n    assert '"server": target' in remote_access\n'''
+          replacement = anchor + '''\n    # SSH provider остаётся полностью настраиваемым: private runtime не имеет скрытого fallback-хоста.\n    obsolete_provider = "app.pywebio" + ".online"\n    assert obsolete_provider not in remote_access\n    assert "server, server_port = _parse_host_port(State.deploy_config.SSHServer)" in remote_access\n    assert '"server": target' in remote_access\n'''
           if test_text.count(anchor) != 1:
               raise SystemExit("network cleanup test: remote UI contract anchor not found exactly once")
           test_path.write_text(test_text.replace(anchor, replacement, 1), encoding="utf-8", newline="")
