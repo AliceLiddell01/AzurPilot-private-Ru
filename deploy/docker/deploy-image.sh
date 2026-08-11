@@ -23,8 +23,9 @@ detect_owner_home() {
     printf '%s\n' "${HOME}"
 }
 
-REPOSITORY="${REPOSITORY:-https://gitcode.com/ddl2/AzurLaneAutoScript}"
-IMAGE="${IMAGE:-crpi-gukwnnx8iuh9qpez.cn-shanghai.personal.cr.aliyuncs.com/hajiming/ap:latest}"
+REPOSITORY="${REPOSITORY:-https://github.com/AliceLiddell01/AzurPilot-private-Ru.git}"
+BRANCH="${BRANCH:-personal/stable}"
+IMAGE="${IMAGE:-azurpilot-private-ru:local}"
 OWNER_HOME="${OWNER_HOME:-$(detect_owner_home)}"
 APP_DIR="${APP_DIR:-${OWNER_HOME}/AP}"
 CONTAINER="AzurPilot"
@@ -62,14 +63,14 @@ t() {
         en:base_tools) printf 'Подготовка базовых инструментов\n' ;;
         en:docker_check) printf 'Проверка Docker\n' ;;
         en:docker_config) printf 'Подготовка конфигурации клиента Docker\n' ;;
-        en:docker_missing) printf 'Docker не установлен. Установить его из китайского зеркала? [Y/n]: ' ;;
+        en:docker_missing) printf 'Docker не установлен. Установить его из официального репозитория Docker? [Y/n]: ' ;;
         en:docker_rejected) printf 'Установка Docker отменена. Установите Docker и снова запустите этот скрипт.\n' ;;
-        en:docker_install) printf 'Установка Docker из китайского зеркала\n' ;;
+        en:docker_install) printf 'Установка Docker из официального репозитория Docker\n' ;;
         en:docker_start) printf 'Запуск службы Docker\n' ;;
         en:source) printf 'Подготовка исходного кода\n' ;;
         en:source_update) printf 'Обновление исходного кода: %s\n' "${APP_DIR}" ;;
         en:source_clone) printf 'Клонирование исходного кода: %s\n' "${REPOSITORY}" ;;
-        en:image_pull) printf 'Загрузка образа Docker\n' ;;
+        en:image_pull) printf 'Сборка локального образа Docker\n' ;;
         en:container_cleanup) printf 'Удаление предыдущего контейнера\n' ;;
         en:container_start) printf 'Запуск контейнера\n' ;;
         en:container_failed) printf 'Контейнер неожиданно завершился. Последние записи журнала:\n' ;;
@@ -100,14 +101,14 @@ t() {
         zh:base_tools) printf 'Подготовка базовых инструментов\n' ;;
         zh:docker_check) printf 'Проверка Docker\n' ;;
         zh:docker_config) printf 'Подготовка конфигурации клиента Docker\n' ;;
-        zh:docker_missing) printf 'Docker не установлен. Установить его из китайского зеркала? [Y/n]: ' ;;
+        zh:docker_missing) printf 'Docker не установлен. Установить его из официального репозитория Docker? [Y/n]: ' ;;
         zh:docker_rejected) printf 'Установка Docker отменена. Установите Docker и снова запустите этот скрипт.\n' ;;
-        zh:docker_install) printf 'Установка Docker из китайского зеркала\n' ;;
+        zh:docker_install) printf 'Установка Docker из официального репозитория Docker\n' ;;
         zh:docker_start) printf 'Запуск службы Docker\n' ;;
         zh:source) printf 'Подготовка исходного кода\n' ;;
         zh:source_update) printf 'Обновление исходного кода: %s\n' "${APP_DIR}" ;;
         zh:source_clone) printf 'Клонирование исходного кода: %s\n' "${REPOSITORY}" ;;
-        zh:image_pull) printf 'Загрузка образа Docker\n' ;;
+        zh:image_pull) printf 'Сборка локального образа Docker\n' ;;
         zh:container_cleanup) printf 'Удаление предыдущего контейнера\n' ;;
         zh:container_start) printf 'Запуск контейнера\n' ;;
         zh:container_failed) printf 'Контейнер неожиданно завершился. Последние записи журнала:\n' ;;
@@ -159,6 +160,7 @@ print_header() {
     printf '%b\n' "${DIM}$(t subtitle)${RESET}"
     printf '%b\n' "${BLUE}============================================================${RESET}"
     printf 'Репозиторий: %s\n' "${REPOSITORY}"
+    printf 'Ветка      : %s\n' "${BRANCH}"
     printf 'Образ      : %s\n' "${IMAGE}"
     printf 'Исходники  : %s\n' "${APP_DIR}"
     printf 'Контейнер  : %s\n' "${CONTAINER}"
@@ -318,17 +320,22 @@ install_docker_debian() {
     run_as_root apt-get update
     run_as_root apt-get install -y ca-certificates curl gnupg lsb-release
     run_as_root install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg \
-        | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    run_as_root chmod a+r /etc/apt/keyrings/docker.gpg
 
     . /etc/os-release
     local distro="${ID}"
-    if [ "${ID}" = "ubuntu" ] || [ "${ID_LIKE:-}" = "ubuntu" ]; then
+    if [ "${ID}" = "ubuntu" ] || printf '%s' "${ID_LIKE:-}" | grep -qw ubuntu; then
         distro="ubuntu"
+    elif [ "${ID}" = "debian" ] || printf '%s' "${ID_LIKE:-}" | grep -qw debian; then
+        distro="debian"
+    else
+        fail "$(t unsupported_docker)"
     fi
 
-    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/%s %s stable\n' \
+    curl -fsSL "https://download.docker.com/linux/${distro}/gpg" \
+        | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    run_as_root chmod a+r /etc/apt/keyrings/docker.gpg
+
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' \
         "$(dpkg --print-architecture)" "${distro}" "${VERSION_CODENAME}" \
         | run_as_root tee /etc/apt/sources.list.d/docker.list >/dev/null
 
@@ -338,13 +345,23 @@ install_docker_debian() {
 
 install_docker_rhel() {
     info "$(t docker_install)"
-    if command -v dnf >/dev/null 2>&1; then
-        . /etc/os-release
-        local repo="https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo"
-        if [ "${ID}" = "fedora" ]; then
-            repo="https://mirrors.aliyun.com/docker-ce/linux/fedora/docker-ce.repo"
-        fi
+    . /etc/os-release
+    local distro="${ID}"
+    case "${distro}" in
+        fedora|rhel|centos) ;;
+        *)
+            if printf '%s' "${ID_LIKE:-}" | grep -qw fedora; then
+                distro="fedora"
+            elif printf '%s' "${ID_LIKE:-}" | grep -qw rhel; then
+                distro="rhel"
+            else
+                distro="centos"
+            fi
+            ;;
+    esac
+    local repo="https://download.docker.com/linux/${distro}/docker-ce.repo"
 
+    if command -v dnf >/dev/null 2>&1; then
         run_as_root dnf install -y dnf-plugins-core
         if ! run_as_root dnf config-manager addrepo --from-repofile "${repo}"; then
             run_as_root dnf config-manager --add-repo "${repo}"
@@ -352,7 +369,7 @@ install_docker_rhel() {
         run_as_root dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     else
         run_as_root yum install -y yum-utils
-        run_as_root yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+        run_as_root yum-config-manager --add-repo "${repo}"
         run_as_root yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     fi
 }
@@ -456,16 +473,11 @@ prepare_timezone_args() {
 }
 
 get_public_ip() {
-    local url ip
-    for url in \
-        "https://4.ipw.cn" \
-        "https://myip.ipip.net/s" \
-        "https://ifconfig.me/ip"; do
-        if ip="$(curl -fsSL --max-time 5 "${url}" 2>/dev/null)"; then
-            printf '%s\n' "${ip}"
-            return
-        fi
-    done
+    local ip
+    if ip="$(curl -fsSL --max-time 5 "https://ifconfig.me/ip" 2>/dev/null)"; then
+        printf '%s\n' "${ip}"
+        return
+    fi
     t ip_failed
 }
 
@@ -564,15 +576,20 @@ prepare_docker_config
 step "$(t source)"
 if [ -d "${APP_DIR}/.git" ]; then
     info "$(t source_update)"
-    git_cmd -C "${APP_DIR}" fetch --all --prune --verbose --progress
-    git_cmd -C "${APP_DIR}" pull --ff-only --verbose --progress
+    current_branch="$(git_cmd -C "${APP_DIR}" rev-parse --abbrev-ref HEAD)"
+    if [ "${current_branch}" != "${BRANCH}" ]; then
+        fail "Ожидалась ветка ${BRANCH}, но checkout находится на ${current_branch}. Переключите ветку вручную перед обновлением."
+    fi
+    git_cmd -C "${APP_DIR}" remote set-url origin "${REPOSITORY}"
+    git_cmd -C "${APP_DIR}" fetch origin "${BRANCH}" --prune --verbose --progress
+    git_cmd -C "${APP_DIR}" merge --ff-only "origin/${BRANCH}"
 else
     info "$(t source_clone)"
-    git_cmd clone --verbose --progress "${REPOSITORY}" "${APP_DIR}"
+    git_cmd clone --branch "${BRANCH}" --single-branch --verbose --progress "${REPOSITORY}" "${APP_DIR}"
 fi
 
 step "$(t image_pull)"
-docker_cmd pull "${IMAGE}"
+run_with_spinner "$(t image_pull)" docker_cmd build --pull -t "${IMAGE}" -f "${APP_DIR}/deploy/docker/Dockerfile" "${APP_DIR}"
 
 step "$(t container_cleanup)"
 if docker_cmd ps -a --format '{{.Names}}' | grep -Fxq "${CONTAINER}"; then
