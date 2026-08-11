@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import unicodedata
@@ -21,12 +22,8 @@ SUPPLEMENTAL_SOURCE_REPOSITORY = "AzurLaneTools/AzurLaneLuaScripts"
 SUPPLEMENTAL_SOURCE_COMMIT = "89048396054a2ad908dc12f14ef6f29a2bd552c9"
 SUPPLEMENTAL_SOURCE_PATH = "EN/sharecfg/fleet_tech_ship_class.lua"
 SUPPLEMENTAL_SOURCE_BLOB_SHA = "fcdd46ac985dcf5478a9685bdc5b248076b68ae0"
-SUPPLEMENTAL_RECORDS = (
-    {
-        "canonical_id": "azur_lane_ship_group:970213",
-        "canonical_name": "Nürnberg META",
-        "aliases": [],
-    },
+SUPPLEMENTAL_REQUIREMENTS = (
+    (970213, "Nürnberg META"),
 )
 SELECTION_CONTRACT = (
     "group_type with a canonical progression template (ship_id//10 == group_type), "
@@ -159,19 +156,167 @@ def _git(repo: Path, *args: str, binary: bool = False) -> str | bytes:
     return completed.stdout if binary else completed.stdout.decode("utf-8").strip()
 
 
-def build_from_git(repo: Path, commit: str) -> dict[str, object]:
+def _read_pinned_blob(
+    repo: Path,
+    *,
+    commit: str,
+    expected_commit: str,
+    path: str,
+    expected_blob_sha: str | None = None,
+) -> tuple[bytes, str]:
     resolved = str(_git(repo, "rev-parse", f"{commit}^{{commit}}"))
-    if resolved != commit:
+    if resolved != expected_commit:
         raise CatalogGenerationError(
-            f"Source ref resolved to {resolved}, expected exact commit {commit}."
+            f"Source ref resolved to {resolved}, expected exact commit {expected_commit}."
         )
-    source_bytes = _git(repo, "show", f"{commit}:{SOURCE_PATH}", binary=True)
+    blob_sha = str(_git(repo, "rev-parse", f"{resolved}:{path}"))
+    if expected_blob_sha is not None and blob_sha != expected_blob_sha:
+        raise CatalogGenerationError(
+            f"Source blob {path} resolved to {blob_sha}, expected {expected_blob_sha}."
+        )
+    source = _git(repo, "show", f"{resolved}:{path}", binary=True)
+    if not isinstance(source, bytes):  # pragma: no cover - guarded by binary=True
+        raise CatalogGenerationError(f"Source blob {path} was not read as bytes.")
+    return source, blob_sha
+
+
+def _lua_table_body(source: str, group_type: int) -> str:
+    assignment = re.compile(
+        rf"pg\.base\.fleet_tech_ship_class\[{group_type}\]\s*=\s*\{{"
+    )
+    matches = tuple(assignment.finditer(source))
+    if len(matches) != 1:
+        raise CatalogGenerationError(
+            f"Supplemental fleet-tech group {group_type} must appear exactly once."
+        )
+    opening = matches[0].end() - 1
+    depth = 0
+    quoted = False
+    escaped = False
+    for index in range(opening, len(source)):
+        char = source[index]
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            quoted = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening + 1 : index]
+            if depth < 0:
+                break
+    raise CatalogGenerationError(
+        f"Supplemental fleet-tech group {group_type} has malformed Lua table syntax."
+    )
+
+
+def _single_lua_field(pattern: str, body: str, *, field: str, group_type: int) -> str:
+    matches = re.findall(pattern, body, flags=re.MULTILINE)
+    if len(matches) != 1:
+        raise CatalogGenerationError(
+            f"Supplemental group {group_type} must contain exactly one {field} field."
+        )
+    return matches[0]
+
+
+def extract_supplemental_records(source_bytes: bytes) -> tuple[dict[str, object], ...]:
+    try:
+        source = source_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise CatalogGenerationError(
+            "Supplemental fleet-tech source is not valid UTF-8 Lua."
+        ) from exc
+
+    records = []
+    for expected_group, expected_name in SUPPLEMENTAL_REQUIREMENTS:
+        body = _lua_table_body(source, expected_group)
+        raw_id = _single_lua_field(
+            r"^\s*id\s*=\s*([0-9]+)\s*,?\s*$",
+            body,
+            field="id",
+            group_type=expected_group,
+        )
+        raw_name = _single_lua_field(
+            r'^\s*name\s*=\s*"([^"\\]*)"\s*,?\s*$',
+            body,
+            field="name",
+            group_type=expected_group,
+        )
+        ships_body = _single_lua_field(
+            r"(?ms)^\s*ships\s*=\s*\{(.*?)^\s*\}\s*,?\s*$",
+            body,
+            field="ships",
+            group_type=expected_group,
+        )
+        residual = re.sub(r"[0-9,\s]", "", ships_body)
+        ships = tuple(int(value) for value in re.findall(r"[0-9]+", ships_body))
+        name = _clean_name(raw_name)
+        if int(raw_id) != expected_group or residual or ships != (expected_group,):
+            raise CatalogGenerationError(
+                f"Supplemental group {expected_group} has inconsistent id/ships evidence."
+            )
+        if name != expected_name:
+            raise CatalogGenerationError(
+                f"Supplemental group {expected_group} EN name is {name!r}, "
+                f"expected {expected_name!r}."
+            )
+        records.append(
+            {
+                "canonical_id": f"azur_lane_ship_group:{expected_group}",
+                "canonical_name": name,
+                "aliases": [],
+            }
+        )
+    return tuple(records)
+
+
+def read_supplemental_records_from_git(
+    repo: Path,
+    commit: str,
+    *,
+    expected_commit: str = SUPPLEMENTAL_SOURCE_COMMIT,
+    expected_blob_sha: str = SUPPLEMENTAL_SOURCE_BLOB_SHA,
+    source_path: str = SUPPLEMENTAL_SOURCE_PATH,
+) -> tuple[tuple[dict[str, object], ...], str]:
+    source_bytes, blob_sha = _read_pinned_blob(
+        repo,
+        commit=commit,
+        expected_commit=expected_commit,
+        path=source_path,
+        expected_blob_sha=expected_blob_sha,
+    )
+    return extract_supplemental_records(source_bytes), blob_sha
+
+
+def build_from_git(
+    repo: Path,
+    commit: str,
+    supplemental_repo: Path,
+    supplemental_commit: str,
+) -> dict[str, object]:
+    source_bytes, source_blob = _read_pinned_blob(
+        repo,
+        commit=commit,
+        expected_commit=SOURCE_COMMIT,
+        path=SOURCE_PATH,
+    )
     generator_blob = str(_git(repo, "rev-parse", f"{commit}:{SOURCE_GENERATOR_PATH}"))
-    source_blob = str(_git(repo, "rev-parse", f"{commit}:{SOURCE_PATH}"))
     try:
         source = json.loads(source_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CatalogGenerationError("Upstream ship_data is not valid UTF-8 JSON.") from exc
+    supplemental_records, supplemental_blob = read_supplemental_records_from_git(
+        supplemental_repo,
+        supplemental_commit,
+    )
     provenance = {
         "source_repository": SOURCE_REPOSITORY,
         "source_commit": commit,
@@ -181,27 +326,37 @@ def build_from_git(repo: Path, commit: str) -> dict[str, object]:
         "source_generator_path": SOURCE_GENERATOR_PATH,
         "source_generator_blob_sha": generator_blob,
         "supplemental_source_repository": SUPPLEMENTAL_SOURCE_REPOSITORY,
-        "supplemental_source_commit": SUPPLEMENTAL_SOURCE_COMMIT,
+        "supplemental_source_commit": supplemental_commit,
         "supplemental_source_path": SUPPLEMENTAL_SOURCE_PATH,
-        "supplemental_source_blob_sha": SUPPLEMENTAL_SOURCE_BLOB_SHA,
+        "supplemental_source_blob_sha": supplemental_blob,
         "selection_contract": SELECTION_CONTRACT,
     }
     return build_catalog(
         source,
         provenance=provenance,
-        supplemental_records=SUPPLEMENTAL_RECORDS,
+        supplemental_records=supplemental_records,
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument("--supplemental-repo", type=Path, required=True)
     parser.add_argument("--source-commit", default=SOURCE_COMMIT)
+    parser.add_argument(
+        "--supplemental-source-commit",
+        default=SUPPLEMENTAL_SOURCE_COMMIT,
+    )
     parser.add_argument("--output", type=Path, default=CATALOG_PATH)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
     try:
-        payload = build_from_git(args.repo.resolve(), args.source_commit)
+        payload = build_from_git(
+            args.repo.resolve(),
+            args.source_commit,
+            args.supplemental_repo.resolve(),
+            args.supplemental_source_commit,
+        )
         expected = canonical_json_bytes(payload)
         if args.check:
             try:
@@ -225,7 +380,8 @@ def main(argv: list[str] | None = None) -> int:
     aliases = sum(len(record["aliases"]) for record in records)
     print(
         f"PASS: records={len(records)} aliases={aliases} "
-        f"source_commit={args.source_commit}"
+        f"source_commit={args.source_commit} "
+        f"supplemental_source_commit={args.supplemental_source_commit}"
     )
     return 0
 

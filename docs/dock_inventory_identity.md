@@ -13,13 +13,14 @@ resolver возвращает `AMBIGUOUS`.
 Runtime читает компактный offline-каталог
 `assets/ship/dock_identity_catalog.json`. В нём сохранены точные source commit,
 Git blob/SHA-256, путь исходного upstream asset и контракт отбора. Новая
-`Nürnberg META`, которой ещё нет в derived asset AzurPilot, добавляется
-генератором из точного EN Lua blob `fleet_tech_ship_class.lua`; commit и blob
-этого дополнительного источника также входят в provenance. Обновление:
+`Nürnberg META`, которой ещё нет в derived asset AzurPilot, извлекается
+генератором из точного EN Lua blob `fleet_tech_ship_class.lua`: generator сам
+проверяет commit, blob, group/id/ships и EN name до построения записи. Commit и
+blob дополнительного источника также входят в provenance. Обновление:
 
 ```text
-uv run python dev_tools/dock_identity_catalog.py --repo <checkout-with-upstream-commit>
-uv run python dev_tools/dock_identity_catalog.py --repo <checkout-with-upstream-commit> --check
+uv run python dev_tools/dock_identity_catalog.py --repo <checkout-with-upstream-commit> --supplemental-repo <AzurLaneLuaScripts-checkout>
+uv run python dev_tools/dock_identity_catalog.py --repo <checkout-with-upstream-commit> --supplemental-repo <AzurLaneLuaScripts-checkout> --check
 ```
 
 OCR использует только `PRESENT` slots Stage 3, вычисляет name ROI относительно

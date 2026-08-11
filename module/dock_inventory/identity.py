@@ -613,13 +613,13 @@ class DockIdentityScanner:
                 "Stage 3 UNKNOWN не позволяет объявить identity pass полным: "
                 f"viewport={viewport.index}, unknown={card_scan.unknown_count}."
             )
-        before = viewport.frame.copy()
         present = tuple(
             slot for slot in card_scan.slots if slot.presence is DockCardPresence.PRESENT
         )
         areas = tuple(self.name_area(slot.area, viewport.frame.shape) for slot in present)
+        ocr_frame = viewport.frame.copy()
         try:
-            raw_names = self.name_ocr.read_names(viewport.frame, areas)
+            raw_names = self.name_ocr.read_names(ocr_frame, areas)
         except DockIdentityOcrError:
             raise
         except Exception as exc:
@@ -642,8 +642,6 @@ class DockIdentityScanner:
             )
             for slot, name_area, raw in zip(present, areas, raw_names)
         )
-        if not np.array_equal(viewport.frame, before):
-            raise DockIdentityInputError("Identity scanner мутировал входной frame.")
         result = DockViewportIdentityScan(
             viewport_index=viewport.index,
             scroll_position=float(viewport.scroll_position),

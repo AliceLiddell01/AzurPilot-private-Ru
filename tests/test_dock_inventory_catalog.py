@@ -1,10 +1,17 @@
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from dev_tools.dock_identity_catalog import build_catalog, canonical_json_bytes
+from dev_tools.dock_identity_catalog import (
+    CatalogGenerationError,
+    build_catalog,
+    canonical_json_bytes,
+    extract_supplemental_records,
+    read_supplemental_records_from_git,
+)
 from module.dock_inventory.catalog import (
     CATALOG_IDENTITY_SCHEME,
     DockCanonicalShip,
@@ -206,3 +213,118 @@ def test_generator_serialization_is_deterministic() -> None:
 
     assert first == second
     assert hashlib.sha256(first).hexdigest() == hashlib.sha256(second).hexdigest()
+
+
+def _supplemental_lua(*, name: str = "Nürnberg META", closing: str = "}") -> str:
+    return (
+        "pg.base.fleet_tech_ship_class[970213] = {\n"
+        "\tshiptype = 2,\n"
+        f'\tname = "{name}",\n'
+        "\tid = 970213,\n"
+        "\tships = {\n"
+        "\t\t970213\n"
+        "\t}\n"
+        f"{closing}\n"
+    )
+
+
+def _git(repo: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _supplemental_repo(tmp_path: Path) -> tuple[Path, str, str]:
+    repo = tmp_path / "supplemental"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Fixture")
+    _git(repo, "config", "user.email", "fixture@example.invalid")
+    source = repo / "EN" / "sharecfg" / "fleet_tech_ship_class.lua"
+    source.parent.mkdir(parents=True)
+    source.write_text(_supplemental_lua(), encoding="utf-8")
+    _git(repo, "add", "EN/sharecfg/fleet_tech_ship_class.lua")
+    _git(repo, "commit", "-m", "fixture")
+    commit = _git(repo, "rev-parse", "HEAD")
+    blob = _git(repo, "rev-parse", f"{commit}:EN/sharecfg/fleet_tech_ship_class.lua")
+    return repo, commit, blob
+
+
+def test_supplemental_source_correct_commit_and_blob_pass(tmp_path: Path) -> None:
+    repo, commit, blob = _supplemental_repo(tmp_path)
+
+    records, actual_blob = read_supplemental_records_from_git(
+        repo,
+        commit,
+        expected_commit=commit,
+        expected_blob_sha=blob,
+    )
+
+    assert actual_blob == blob
+    assert records == (
+        {
+            "canonical_id": "azur_lane_ship_group:970213",
+            "canonical_name": "Nürnberg META",
+            "aliases": [],
+        },
+    )
+
+
+def test_supplemental_source_wrong_commit_fails(tmp_path: Path) -> None:
+    repo, commit, blob = _supplemental_repo(tmp_path)
+
+    with pytest.raises(CatalogGenerationError, match="expected exact commit"):
+        read_supplemental_records_from_git(
+            repo,
+            commit,
+            expected_commit="0" * 40,
+            expected_blob_sha=blob,
+        )
+
+
+def test_supplemental_source_wrong_blob_fails(tmp_path: Path) -> None:
+    repo, commit, _blob = _supplemental_repo(tmp_path)
+
+    with pytest.raises(CatalogGenerationError, match="expected"):
+        read_supplemental_records_from_git(
+            repo,
+            commit,
+            expected_commit=commit,
+            expected_blob_sha="0" * 40,
+        )
+
+
+def test_supplemental_source_missing_path_fails(tmp_path: Path) -> None:
+    repo, commit, blob = _supplemental_repo(tmp_path)
+
+    with pytest.raises(CatalogGenerationError, match="git rev-parse"):
+        read_supplemental_records_from_git(
+            repo,
+            commit,
+            expected_commit=commit,
+            expected_blob_sha=blob,
+            source_path="EN/sharecfg/missing.lua",
+        )
+
+
+def test_supplemental_source_target_group_absent_fails() -> None:
+    with pytest.raises(CatalogGenerationError, match="must appear exactly once"):
+        extract_supplemental_records(b"return {}\n")
+
+
+def test_supplemental_source_name_mismatch_fails() -> None:
+    source = _supplemental_lua(name="Wrong Name").encode("utf-8")
+
+    with pytest.raises(CatalogGenerationError, match="EN name"):
+        extract_supplemental_records(source)
+
+
+def test_supplemental_source_malformed_lua_fails() -> None:
+    source = _supplemental_lua(closing="").encode("utf-8")
+
+    with pytest.raises(CatalogGenerationError, match="malformed Lua"):
+        extract_supplemental_records(source)

@@ -1,4 +1,4 @@
-"""Dock Inventory subsystem public Stage 1 model contract."""
+"""Dock Inventory public models and offline canonical identity catalog."""
 
 from module.dock_inventory.catalog import (
     DockCanonicalShip,

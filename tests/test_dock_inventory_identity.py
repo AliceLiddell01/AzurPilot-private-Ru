@@ -195,17 +195,24 @@ class _FakeOcr:
         self.values = values
         self.mutate = mutate
         self.calls: list[tuple[tuple[int, int, int, int], ...]] = []
+        self.frames: list[np.ndarray] = []
 
     def read_names(self, frame, areas):
         areas = tuple(areas)
         self.calls.append(areas)
+        self.frames.append(frame)
         if self.mutate:
             frame[0, 0] = 255
         return self.values
 
 
 class _FailingOcr:
+    def __init__(self, *, mutate: bool = False) -> None:
+        self.mutate = mutate
+
     def read_names(self, frame, areas):
+        if self.mutate:
+            frame[0, 0] = 255
         raise RuntimeError("fixture engine failure")
 
 
@@ -274,6 +281,7 @@ def test_dynamic_slot_relative_roi_first_last_columns_and_present_only(
     assert fake.calls[0][1] == (1071, 236, 1223, 266)
     assert [item.slot_index for item in result.observations] == [0, 6]
     assert result.matched_count == 2
+    assert not np.shares_memory(fake.frames[0], viewport.frame)
 
 
 def test_name_roi_tracks_dynamic_row_y(catalog: DockIdentityCatalog) -> None:
@@ -332,15 +340,59 @@ def test_viewport_mismatch_and_operational_ocr_failure_are_rejected(
 def test_source_frame_is_immutable(catalog: DockIdentityCatalog) -> None:
     viewport = _viewport()
     before = viewport.frame.copy()
-    scanner = DockIdentityScanner(catalog, name_ocr=_FakeOcr(("Enterprise",), mutate=True))
+    fake = _FakeOcr(("Enterprise",), mutate=True)
+    scanner = DockIdentityScanner(catalog, name_ocr=fake)
 
-    with pytest.raises(DockIdentityInputError, match="мутировал"):
+    result = scanner.scan_viewport(
+        viewport,
+        _card_scan((DockCardPresence.PRESENT,) + (DockCardPresence.ABSENT,) * 6),
+    )
+
+    assert result.matched_count == 1
+    assert np.array_equal(viewport.frame, before)
+    assert fake.frames[0][0, 0].tolist() == [255, 255, 255]
+    assert not np.shares_memory(fake.frames[0], viewport.frame)
+
+
+def test_source_frame_is_immutable_for_blank_and_ambiguity() -> None:
+    cases = (
+        (_catalog(DockCanonicalShip("azur_lane_ship_group:1", "Enterprise")), ""),
+        (
+            _catalog(
+                DockCanonicalShip("azur_lane_ship_group:1", "A B"),
+                DockCanonicalShip("azur_lane_ship_group:2", "AB"),
+            ),
+            "AB",
+        ),
+    )
+    for catalog, raw_name in cases:
+        viewport = _viewport()
+        before = viewport.frame.copy()
+        scanner = DockIdentityScanner(
+            catalog,
+            name_ocr=_FakeOcr((raw_name,), mutate=True),
+        )
+
         scanner.scan_viewport(
             viewport,
             _card_scan((DockCardPresence.PRESENT,) + (DockCardPresence.ABSENT,) * 6),
         )
 
-    assert not np.array_equal(viewport.frame, before)
+        assert np.array_equal(viewport.frame, before)
+
+
+def test_source_frame_is_immutable_when_ocr_raises(catalog: DockIdentityCatalog) -> None:
+    viewport = _viewport()
+    before = viewport.frame.copy()
+    scanner = DockIdentityScanner(catalog, name_ocr=_FailingOcr(mutate=True))
+
+    with pytest.raises(DockIdentityOcrError, match="Операционный сбой"):
+        scanner.scan_viewport(
+            viewport,
+            _card_scan((DockCardPresence.PRESENT,) + (DockCardPresence.ABSENT,) * 6),
+        )
+
+    assert np.array_equal(viewport.frame, before)
 
 
 def test_duplicate_identity_appearances_are_preserved(catalog: DockIdentityCatalog) -> None:
