@@ -32,6 +32,9 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          def block(lines):
+              return "\n".join(lines) + "\n"
+
           def replace_once(path: str, old: str, new: str) -> None:
               target = Path(path)
               text = target.read_text(encoding="utf-8")
@@ -68,73 +71,92 @@ jobs:
 
           replace_once(
               ".github/scripts/ai_issue_labeler.py",
-              '    if parts:\n        return parts\n',
-              '    if parts and all(parts) and "/" not in parts[1]:\n        return parts\n',
+              block([
+                  '    parts = split_repository(os.environ.get("GITHUB_REPOSITORY", ""))',
+                  "    if parts:",
+                  "        return parts",
+              ]),
+              block([
+                  '    parts = split_repository(os.environ.get("GITHUB_REPOSITORY", ""))',
+                  '    if parts and all(parts) and "/" not in parts[1]:',
+                  "        return parts",
+              ]),
           )
 
           replace_once(
               "tests/test_no_upstream_project_network_defaults.py",
-              '''def _iter_text_files():
-    for path in SCAN_FILES:
-        if path.is_file():
-            yield path
-    for root in SCAN_ROOTS:
-        if not root.exists():
-            continue
-        for path in root.rglob("*"):
-            if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:
-                yield path
-''',
-              '''def _iter_text_files():
-    tracked = subprocess.run(
-        ["git", "ls-files", "-z"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-    ).stdout
-    for raw_path in tracked.split(b"\\0"):
-        if not raw_path:
-            continue
-        path = ROOT / raw_path.decode("utf-8", errors="surrogateescape")
-        if not path.is_file():
-            continue
-        try:
-            with path.open("rb") as stream:
-                prefix = stream.read(8192)
-        except OSError:
-            continue
-        if b"\\0" in prefix:
-            continue
-        yield path
-''',
+              block([
+                  "def _iter_text_files():",
+                  "    for path in SCAN_FILES:",
+                  "        if path.is_file():",
+                  "            yield path",
+                  "    for root in SCAN_ROOTS:",
+                  "        if not root.exists():",
+                  "            continue",
+                  '        for path in root.rglob("*"):',
+                  "            if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:",
+                  "                yield path",
+              ]),
+              block([
+                  "def _iter_text_files():",
+                  "    tracked = subprocess.run(",
+                  '        ["git", "ls-files", "-z"],',
+                  "        cwd=ROOT,",
+                  "        check=True,",
+                  "        capture_output=True,",
+                  "    ).stdout",
+                  '    for raw_path in tracked.split(b"\\0"):',
+                  "        if not raw_path:",
+                  "            continue",
+                  '        path = ROOT / raw_path.decode("utf-8", errors="surrogateescape")',
+                  "        if not path.is_file():",
+                  "            continue",
+                  "        try:",
+                  '            with path.open("rb") as stream:',
+                  "                prefix = stream.read(8192)",
+                  "        except OSError:",
+                  "            continue",
+                  '        if b"\\0" in prefix:',
+                  "            continue",
+                  "        yield path",
+              ]),
           )
 
           replace_once(
               "tests/test_no_upstream_project_network_defaults.py",
-              '    assert "max_tokens=1200" in llm_runtime\n    assert "lines[-200:]" in llm_runtime\n',
-              '    assert "max_tokens=1200" in llm_runtime\n'
-              '    assert "_read_log_tail(logger.log_file)" in llm_runtime\n'
-              '    assert "max_bytes=64 * 1024" in llm_runtime\n'
-              '    assert "max_lines=200" in llm_runtime\n'
-              '    assert "stream.read(max_bytes)" in llm_runtime\n'
-              '    assert ".readlines()" not in llm_runtime\n',
+              block([
+                  '    assert "max_tokens=1200" in llm_runtime',
+                  '    assert "lines[-200:]" in llm_runtime',
+              ]),
+              block([
+                  '    assert "max_tokens=1200" in llm_runtime',
+                  '    assert "_read_log_tail(logger.log_file)" in llm_runtime',
+                  '    assert "max_bytes=64 * 1024" in llm_runtime',
+                  '    assert "max_lines=200" in llm_runtime',
+                  '    assert "stream.read(max_bytes)" in llm_runtime',
+                  '    assert ".readlines()" not in llm_runtime',
+              ]),
           )
 
           replace_once(
               "tests/test_no_upstream_project_network_defaults.py",
               '    assert "https://download.docker.com/linux/" in docker_deploy\n',
-              '    assert "https://download.docker.com/linux/" in docker_deploy\n'
-              '    assert \'codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"\' in docker_deploy\n'
-              '    assert \'"${distro}" "${codename}"\' in docker_deploy\n',
+              block([
+                  '    assert "https://download.docker.com/linux/" in docker_deploy',
+                  '    assert \'codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"\' in docker_deploy',
+                  '    assert \'"${distro}" "${codename}"\' in docker_deploy',
+              ]),
           )
 
           replace_once(
               "tests/test_no_upstream_project_network_defaults.py",
               '    assert "uiautomator2cache" in u2_sources[2]\n',
-              '    assert "uiautomator2cache" in u2_sources[2]\n'
-              '    assert "if not cache_dir or not os.path.isdir(cache_dir):" in u2_sources[2]\n'
-              '    assert "raise RuntimeError(message)" in u2_sources[2]\n'
-              '    assert "внешний источник ресурсов" in u2_sources[2]\n',
+              block([
+                  '    assert "uiautomator2cache" in u2_sources[2]',
+                  '    assert "if not cache_dir or not os.path.isdir(cache_dir):" in u2_sources[2]',
+                  '    assert "raise RuntimeError(message)" in u2_sources[2]',
+                  '    assert "внешний источник ресурсов" in u2_sources[2]',
+              ]),
           )
 
           replace_once(
