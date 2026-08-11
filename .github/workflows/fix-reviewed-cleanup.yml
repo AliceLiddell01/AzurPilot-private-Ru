@@ -1,6 +1,9 @@
 name: One-time reviewed cleanup fixes
 
 on:
+  push:
+    branches:
+      - chatgpt/remove-upstream-announcements
   pull_request:
     branches:
       - personal/stable
@@ -10,7 +13,7 @@ permissions:
 
 jobs:
   fix:
-    if: ${{ github.head_ref == 'chatgpt/remove-upstream-announcements' }}
+    if: ${{ github.ref_name == 'chatgpt/remove-upstream-announcements' || github.head_ref == 'chatgpt/remove-upstream-announcements' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -29,9 +32,6 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def block(lines):
-              return "\n".join(lines) + "\n"
-
           def replace_once(path: str, old: str, new: str) -> None:
               target = Path(path)
               text = target.read_text(encoding="utf-8")
@@ -40,123 +40,101 @@ jobs:
                   raise SystemExit(f"{path}: expected one sentinel, found {count}")
               target.write_text(text.replace(old, new, 1), encoding="utf-8", newline="")
 
-          replace_once(
-              "deploy/docker/deploy-image.sh",
-              block([
-                  "    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\\\\n' \\\",
-                  '        "$(dpkg --print-architecture)" "${distro}" "${VERSION_CODENAME}" \\\\',
-                  "        | run_as_root tee /etc/apt/sources.list.d/docker.list >/dev/null",
-              ]),
-              block([
-                  '    local codename="${VERSION_CODENAME}"',
-                  '    if [ "${distro}" = "ubuntu" ]; then',
-                  '        codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"',
-                  "    fi",
-                  "",
-                  "    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\\\\n' \\\",
-                  '        "$(dpkg --print-architecture)" "${distro}" "${codename}" \\\\',
-                  "        | run_as_root tee /etc/apt/sources.list.d/docker.list >/dev/null",
-              ]),
+          docker_path = Path("deploy/docker/deploy-image.sh")
+          docker_lines = docker_path.read_text(encoding="utf-8").splitlines()
+          printf_index = next(
+              (index for index, line in enumerate(docker_lines)
+               if line.startswith("    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg]")),
+              None,
           )
+          value_index = next(
+              (index for index, line in enumerate(docker_lines)
+               if "dpkg --print-architecture" in line and "${VERSION_CODENAME}" in line),
+              None,
+          )
+          if printf_index is None or value_index is None or value_index != printf_index + 1:
+              raise SystemExit("deploy-image.sh: Docker apt repository sentinel not found")
+          docker_lines[value_index] = docker_lines[value_index].replace(
+              "${VERSION_CODENAME}", "${codename}", 1
+          )
+          docker_lines[printf_index:printf_index] = [
+              '    local codename="${VERSION_CODENAME}"',
+              '    if [ "${distro}" = "ubuntu" ]; then',
+              '        codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"',
+              "    fi",
+              "",
+          ]
+          docker_path.write_text("\n".join(docker_lines) + "\n", encoding="utf-8", newline="")
 
           replace_once(
               ".github/scripts/ai_issue_labeler.py",
-              block([
-                  '    parts = split_repository(os.environ.get("GITHUB_REPOSITORY", ""))',
-                  "    if parts:",
-                  "        return parts",
-              ]),
-              block([
-                  '    parts = split_repository(os.environ.get("GITHUB_REPOSITORY", ""))',
-                  '    if parts and all(parts) and "/" not in parts[1]:',
-                  "        return parts",
-              ]),
+              '    if parts:\n        return parts\n',
+              '    if parts and all(parts) and "/" not in parts[1]:\n        return parts\n',
           )
 
           replace_once(
               "tests/test_no_upstream_project_network_defaults.py",
-              block([
-                  "def _iter_text_files():",
-                  "    for path in SCAN_FILES:",
-                  "        if path.is_file():",
-                  "            yield path",
-                  "    for root in SCAN_ROOTS:",
-                  "        if not root.exists():",
-                  "            continue",
-                  '        for path in root.rglob("*"):',
-                  "            if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:",
-                  "                yield path",
-              ]),
-              block([
-                  "def _iter_text_files():",
-                  "    tracked = subprocess.run(",
-                  '        ["git", "ls-files", "-z"],',
-                  "        cwd=ROOT,",
-                  "        check=True,",
-                  "        capture_output=True,",
-                  "    ).stdout",
-                  '    for raw_path in tracked.split(b"\\0"):',
-                  "        if not raw_path:",
-                  "            continue",
-                  '        path = ROOT / raw_path.decode("utf-8", errors="surrogateescape")',
-                  "        if not path.is_file():",
-                  "            continue",
-                  "        try:",
-                  '            with path.open("rb") as stream:',
-                  "                prefix = stream.read(8192)",
-                  "        except OSError:",
-                  "            continue",
-                  '        if b"\\0" in prefix:',
-                  "            continue",
-                  "        yield path",
-              ]),
+              '''def _iter_text_files():
+    for path in SCAN_FILES:
+        if path.is_file():
+            yield path
+    for root in SCAN_ROOTS:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:
+                yield path
+''',
+              '''def _iter_text_files():
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    for raw_path in tracked.split(b"\\0"):
+        if not raw_path:
+            continue
+        path = ROOT / raw_path.decode("utf-8", errors="surrogateescape")
+        if not path.is_file():
+            continue
+        try:
+            with path.open("rb") as stream:
+                prefix = stream.read(8192)
+        except OSError:
+            continue
+        if b"\\0" in prefix:
+            continue
+        yield path
+''',
           )
 
           replace_once(
               "tests/test_no_upstream_project_network_defaults.py",
-              block([
-                  '    assert "max_tokens=1200" in llm_runtime',
-                  '    assert "lines[-200:]" in llm_runtime',
-                  '    assert "Предустановленного провайдера нет" in llm_ru_i18n',
-              ]),
-              block([
-                  '    assert "max_tokens=1200" in llm_runtime',
-                  '    assert "_read_log_tail(logger.log_file)" in llm_runtime',
-                  '    assert "max_bytes=64 * 1024" in llm_runtime',
-                  '    assert "max_lines=200" in llm_runtime',
-                  '    assert "stream.read(max_bytes)" in llm_runtime',
-                  '    assert ".readlines()" not in llm_runtime',
-                  '    assert "Предустановленного провайдера нет" in llm_ru_i18n',
-              ]),
+              '    assert "max_tokens=1200" in llm_runtime\n    assert "lines[-200:]" in llm_runtime\n',
+              '    assert "max_tokens=1200" in llm_runtime\n'
+              '    assert "_read_log_tail(logger.log_file)" in llm_runtime\n'
+              '    assert "max_bytes=64 * 1024" in llm_runtime\n'
+              '    assert "max_lines=200" in llm_runtime\n'
+              '    assert "stream.read(max_bytes)" in llm_runtime\n'
+              '    assert ".readlines()" not in llm_runtime\n',
           )
 
           replace_once(
               "tests/test_no_upstream_project_network_defaults.py",
-              block([
-                  '    assert "https://download.docker.com/linux/" in docker_deploy',
-                  '    assert \'IMAGE="${IMAGE:-azurpilot-private-ru:local}"\' in docker_deploy',
-              ]),
-              block([
-                  '    assert "https://download.docker.com/linux/" in docker_deploy',
-                  '    assert \'codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"\' in docker_deploy',
-                  '    assert \'"${distro}" "${codename}"\' in docker_deploy',
-                  '    assert \'IMAGE="${IMAGE:-azurpilot-private-ru:local}"\' in docker_deploy',
-              ]),
+              '    assert "https://download.docker.com/linux/" in docker_deploy\n',
+              '    assert "https://download.docker.com/linux/" in docker_deploy\n'
+              '    assert \'codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"\' in docker_deploy\n'
+              '    assert \'"${distro}" "${codename}"\' in docker_deploy\n',
           )
 
           replace_once(
               "tests/test_no_upstream_project_network_defaults.py",
-              block([
-                  '    assert "uiautomator2cache" in u2_sources[2]',
-                  '    assert "внешний fallback отключён" in u2_sources[0]',
-              ]),
-              block([
-                  '    assert "uiautomator2cache" in u2_sources[2]',
-                  '    assert "if not cache_dir or not os.path.isdir(cache_dir):" in u2_sources[2]',
-                  '    assert "raise RuntimeError(message)" in u2_sources[2]',
-                  '    assert "внешний источник ресурсов" in u2_sources[2]',
-                  '    assert "внешний fallback отключён" in u2_sources[0]',
-              ]),
+              '    assert "uiautomator2cache" in u2_sources[2]\n',
+              '    assert "uiautomator2cache" in u2_sources[2]\n'
+              '    assert "if not cache_dir or not os.path.isdir(cache_dir):" in u2_sources[2]\n'
+              '    assert "raise RuntimeError(message)" in u2_sources[2]\n'
+              '    assert "внешний источник ресурсов" in u2_sources[2]\n',
           )
 
           replace_once(
