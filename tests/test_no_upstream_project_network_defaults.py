@@ -122,14 +122,21 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "dockerfile: ./deploy/docker/Dockerfile" in docker_compose
     assert "Dockerfile.cn" not in docker_compose
 
-    # AI labeler остаётся функциональным, но использует OpenAI вместо DeepSeek.
-    assert "https://api.openai.com/v1" in issue_labeler
-    assert "gpt-4.1-mini" in issue_labeler
-    assert "AI_API_KEY: ${{ secrets.OPENAI_API_KEY }}" in issue_labeler
-    assert "models: read" not in issue_labeler
-    assert "models.github.ai" not in issue_labeler
-    assert "api.deepseek.com" not in issue_labeler
-    assert "deepseek-v4-flash" not in issue_labeler
+    # AI labeler остаётся доступен, но запускается только вручную и не навязывает провайдера/модель.
+    assert "workflow_dispatch:" in issue_labeler
+    assert "issues:" not in issue_labeler
+    assert "required: true" in issue_labeler
+    assert "AI_BASE_URL: ${{ vars.AI_LABELER_BASE_URL }}" in issue_labeler
+    assert "AI_MODEL: ${{ vars.AI_LABELER_MODEL }}" in issue_labeler
+    assert "AI_API_KEY: ${{ secrets.AI_LABELER_API_KEY }}" in issue_labeler
+    for token in (
+        "api.openai.com",
+        "gpt-4.1-mini",
+        "api.deepseek.com",
+        "deepseek-v4-flash",
+        "OPENAI_API_KEY",
+    ):
+        assert token not in issue_labeler
 
     # Docker publish остаётся, но публикует image в GHCR самого форка без DockerHub secrets.
     assert "REGISTRY: ghcr.io" in docker_publish
