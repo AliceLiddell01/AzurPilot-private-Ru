@@ -15,7 +15,6 @@ from module.webui.app_dependencies import (
     os,
     put_button,
     put_buttons,
-    put_html,
     put_link,
     put_loading,
     put_row,
@@ -254,10 +253,6 @@ class DeveloperToolsMixin(WebUIMixinBase):
                 else:
                     put_text(t("Gui.Remote.NotEnable"), scope="remote_state")
                 put_text(t("Gui.Remote.ConfigureHint"), scope="remote_info")
-                url = "http://app.azurlane.cloud/en.html"
-                put_html(
-                    f'<a href="{url}" target="_blank">{url}</a>', scope="remote_info"
-                )
                 if state == 3:
                     put_warning(
                         t("Gui.Remote.SSHNotInstall"),
