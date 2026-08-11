@@ -52,3 +52,37 @@ def test_upstream_project_domains_are_not_present_in_personal_runtime_or_templat
             hits.append(str(path.relative_to(ROOT)))
 
     assert not hits, "Найдены запрещённые upstream project endpoints: " + ", ".join(hits)
+
+
+def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_defaults():
+    theme = (ROOT / "assets/gui/css/advanced-material-alas.css").read_text(
+        encoding="utf-8"
+    )
+    server_checker = (ROOT / "module/server_checker.py").read_text(encoding="utf-8")
+    time_source = (ROOT / "module/config/time_source.py").read_text(encoding="utf-8")
+
+    # Пользовательский случайный фон WebUI пока намеренно сохраняется.
+    assert 'https://api.yppp.net/api.php' in theme
+
+    # Полезный сервис статуса игровых серверов сохраняется без изменений endpoint.
+    assert 'http://sc.shiratama.cn' in server_checker
+    assert '/server/get_state' in server_checker
+    assert '/server/get_all_state' in server_checker
+    assert '/server/list' in server_checker
+
+    # Китайский connectivity probe удалён, функциональность проверки сети сохранена.
+    assert 'www.baidu.com' not in server_checker
+    assert 'http://www.msftconnecttest.com/connecttest.txt' in server_checker
+    assert 'Microsoft Connect Test' in server_checker
+
+    # NTP-механизм и пользовательское переопределение сохранены, China-first defaults удалены.
+    assert "AZURPILOT_NTP_SERVERS" in time_source
+    assert "AZURPILOT_NTP_DISABLE" in time_source
+    assert "time.cloudflare.com" in time_source
+    for host in (
+        "ntp.ntsc.ac.cn",
+        "ntp.aliyun.com",
+        "ntp.tencent.com",
+        "cn.pool.ntp.org",
+    ):
+        assert host not in time_source
