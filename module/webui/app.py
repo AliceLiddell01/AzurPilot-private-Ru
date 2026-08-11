@@ -18,13 +18,10 @@ from module.webui.app_dependencies import (
     List,
     PUBLIC_WEBUI_PASSWORD_GENERATE_FAILED_MESSAGE,
     ProcessManager,
-    RESTRICTED_DEVICE_IDS,
-    RESTRICTED_DEVICE_MESSAGE,
     RichLog,
     State,
     argparse,
     asgi_app,
-    get_device_id,
     get_localstorage_values,
     info,
     lang,
@@ -188,19 +185,6 @@ def app():
         "/static/doc": str(PROJECT_ROOT / "doc"),
     }
 
-    def _block_restricted_device() -> bool:
-        if is_demo_mode():
-            return False
-        if get_device_id() not in RESTRICTED_DEVICE_IDS:
-            return False
-        popup(
-            "Защита",
-            RESTRICTED_DEVICE_MESSAGE,
-            implicit_close=False,
-            closable=False,
-        )
-        return True
-
     def _block_public_webui_password_error() -> bool:
         if is_demo_mode() or password_error is None:
             return False
@@ -220,7 +204,7 @@ def app():
             preloaded_styles=("alas",),
         )
         add_css(filepath_css("traceback-alas"))
-        if _block_restricted_device() or _block_public_webui_password_error():
+        if _block_public_webui_password_error():
             return
         localstorage = None
         if is_webui_password_set(key):
