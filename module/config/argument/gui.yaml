@@ -429,8 +429,6 @@ OOBE:
   ImportErrorInvalid:
   ImportErrorFailed:
   ImportErrorNoMatch:
-  ImportLegacyRequestFailed:
-  ImportLegacyUnknownError:
   WelcomeTitle:
   WelcomeDescription:
   WelcomeSelectLanguage:
