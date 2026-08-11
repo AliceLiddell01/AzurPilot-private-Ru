@@ -269,7 +269,8 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert 'IMAGE="${IMAGE:-azurpilot-private-ru:local}"' in docker_deploy
     assert 'docker_cmd build --pull -t "${IMAGE}"' in docker_deploy
     assert 'merge --ff-only "origin/${BRANCH}"' in docker_deploy
-    assert "https://ifconfig.me/ip" in docker_deploy
+    assert "https://ifconfig.me/ip" not in docker_deploy
+    assert "AZURPILOT_PUBLIC_IP" in docker_deploy
     for token in (
         "gitcode.com",
         "aliyuncs.com",

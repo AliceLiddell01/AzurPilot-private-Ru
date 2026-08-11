@@ -478,9 +478,10 @@ prepare_timezone_args() {
 }
 
 get_public_ip() {
-    local ip
-    if ip="$(curl -fsSL --max-time 5 "https://ifconfig.me/ip" 2>/dev/null)"; then
-        printf '%s\n' "${ip}"
+    # Публичный IP нельзя определить локально без внешнего сервиса.
+    # Не делаем скрытый запрос: адрес передаётся владельцем явно при необходимости.
+    if [ -n "${AZURPILOT_PUBLIC_IP:-}" ]; then
+        printf '%s\n' "${AZURPILOT_PUBLIC_IP}"
         return
     fi
     t ip_failed
