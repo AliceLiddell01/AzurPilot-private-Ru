@@ -35,7 +35,6 @@ jobs:
 
       - name: Analyze issue
         env:
-          LABELER_PLATFORM: github
           AI_BASE_URL: ${{ vars.AI_LABELER_BASE_URL }}
           AI_MODEL: ${{ vars.AI_LABELER_MODEL }}
           AI_API_KEY: ${{ secrets.AI_LABELER_API_KEY }}
