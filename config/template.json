@@ -101,10 +101,10 @@
       "GameStuckThreshold": 3,
       "AdbOfflineRestart": false,
       "AdbOfflineThreshold": 3,
-      "LlmAnalysis": true,
+      "LlmAnalysis": false,
       "LlmApiKey": null,
-      "LlmApiBase": "https://api.xiaomimimo.com/v1",
-      "LlmModel": "mimo-v2.5-pro"
+      "LlmApiBase": null,
+      "LlmModel": null
     },
     "Optimization": {
       "OcrDevice": "auto",

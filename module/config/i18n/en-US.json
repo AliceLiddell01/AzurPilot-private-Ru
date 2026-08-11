@@ -639,19 +639,19 @@
     },
     "LlmAnalysis": {
       "name": "Enable LLM Error Analysis",
-      "help": "Automatically use LLM to analyze errors when they occur."
+      "help": "When an error occurs, send bounded diagnostic context to an external LLM API. Disabled by default."
     },
     "LlmApiKey": {
       "name": "LLM API Key",
-      "help": "Purchase model service and get an API key from https://platform.deepseek.com/ or https://platform.xiaomimimo.com/."
+      "help": "Enter the API key for your chosen OpenAI-compatible provider. No request is made without explicit configuration."
     },
     "LlmApiBase": {
       "name": "LLM API Base",
-      "help": "Enter the provider's OpenAI-compatible Base URL. Refer to https://platform.deepseek.com/ or https://platform.xiaomimimo.com/ for setup instructions."
+      "help": "Enter the full base URL of your chosen OpenAI-compatible provider. No provider is preconfigured."
     },
     "LlmModel": {
       "name": "LLM Model",
-      "help": "Enter a model name supported by your purchased service, as shown on https://platform.deepseek.com/ or https://platform.xiaomimimo.com/."
+      "help": "Enter the exact model name supported by your chosen provider."
     }
   },
   "Optimization": {

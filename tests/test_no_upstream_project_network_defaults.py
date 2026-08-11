@@ -69,6 +69,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     )
     server_checker = (ROOT / "module/server_checker.py").read_text(encoding="utf-8")
     time_source = (ROOT / "module/config/time_source.py").read_text(encoding="utf-8")
+    llm_argument = (ROOT / "module/config/argument/argument.yaml").read_text(encoding="utf-8")
+    llm_runtime = (ROOT / "module/llm.py").read_text(encoding="utf-8")
+    llm_ru_i18n = (ROOT / "module/config/i18n/ru-RU.json").read_text(encoding="utf-8")
     docker_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     issue_labeler = (ROOT / ".github/workflows/ai-issue-labeler.yml").read_text(
         encoding="utf-8"
@@ -106,6 +109,23 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert 'www.baidu.com' not in server_checker
     assert 'http://www.msftconnecttest.com/connecttest.txt' in server_checker
     assert 'Microsoft Connect Test' in server_checker
+
+    # Legacy LLM-анализатор сохранён как явная opt-in функция без предустановленного провайдера.
+    assert "LlmAnalysis: false" in llm_argument
+    assert 'LlmApiBase:\n    type: textarea\n    value: ""' in llm_argument
+    assert 'LlmModel:\n    value: ""' in llm_argument
+    assert "if not api_key or not api_base or not model:" in llm_runtime
+    assert "max_tokens=1200" in llm_runtime
+    assert "lines[-200:]" in llm_runtime
+    assert "Предустановленного провайдера нет" in llm_ru_i18n
+    for token in (
+        "xiaomimimo" + ".com",
+        "platform.deepseek" + ".com",
+        "mimo-v2.5-pro",
+    ):
+        assert token not in llm_argument
+        assert token not in llm_runtime
+        assert token not in llm_ru_i18n
 
     # NTP-механизм и пользовательское переопределение сохранены, China-first defaults удалены.
     assert "AZURPILOT_NTP_SERVERS" in time_source
