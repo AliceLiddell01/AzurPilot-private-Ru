@@ -13,11 +13,6 @@ def source(path: str) -> str:
 class TestSharedHandlersBaseRuntimeMessages:
     def test_representative_runtime_messages_are_russian(self):
         expected = {
-            "module/base/api_client.py": (
-                "[База — API] Попытка использовать",
-                "Не удалось получить объявление",
-                "Не удалось разобрать JSON объявления",
-            ),
             "module/base/async_executor.py": (
                 "Исключение в цикле событий AsyncExecutor",
                 "Истекло время ожидания завершения задач",
@@ -93,27 +88,24 @@ class TestSharedHandlersBaseRuntimeMessages:
         assert 'domain_type = "备用域名"' not in api
         assert "task_stop('无法确保自动搜索设置。')" not in fast_forward
 
-    def test_api_raw_contract_is_preserved(self):
+    def test_project_api_network_contract_is_removed(self):
         text = source("module/base/api_client.py")
-        required = (
-            'PRIMARY_DOMAIN = "https://alas-apiv2.nanoda.work"',
-            'FALLBACK_DOMAIN = "https://alas-apiv2.nanoda.work"',
-            'ANNOUNCEMENT_PATH = "/api/get/announcement"',
-            "ANNOUNCEMENT_CHECK_INTERVAL = 90",
+        forbidden = (
+            "PRIMARY_DOMAIN",
+            "FALLBACK_DOMAIN",
+            "ANNOUNCEMENT_PATH",
+            "ANNOUNCEMENT_CHECK_INTERVAL",
             "requests.get(",
-            "params=params",
-            "timeout=timeout",
-            'headers={"User-Agent": "alas AzurPilot"}',
-            "success_codes=[200, 304]",
+            "get_announcement",
             'data.get("announcementId")',
             'data.get("title")',
             'data.get("content")',
             'data.get("url")',
-            "response.text",
-            "str(exc)",
         )
-        for token in required:
-            assert token in text, token
+        for token in forbidden:
+            assert token not in text, token
+        assert "class ApiClient:" in text
+        assert "pass" in text
 
     def test_ssh_raw_contract_is_preserved(self):
         text = source("module/base/ssh.py")
