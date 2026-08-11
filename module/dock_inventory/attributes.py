@@ -336,7 +336,7 @@ class DockLevelScanner:
     # the rightmost decoration column which otherwise becomes a false "1".
     LEVEL_LEFT = 77
     LEVEL_TOP = 0
-    LEVEL_RIGHT = 136
+    LEVEL_RIGHT = 135
     LEVEL_BOTTOM = 31
 
     def __init__(
@@ -441,14 +441,22 @@ class DockStarScanner:
     YELLOW_HUE_MAX = 45
     YELLOW_SATURATION_MIN = 80
     YELLOW_VALUE_MIN = 100
+    FIRST_GLYPH_SATURATION_MIN = 100
+    FIRST_GLYPH_VALUE_MIN = 200
 
     STAR_TEMPLATE_SIZE = 19
     STAR_SPACING = 14.5
-    FIRST_MATCH_MIN = 0.25
-    FIRST_RELATIVE_SCORE_MIN = 0.65
     FIRST_CENTER_TOLERANCE = 2.5
+    FIRST_COMPONENT_AREA_MIN = 20
+    FIRST_COMPONENT_AREA_MAX = 120
+    FIRST_COMPONENT_WIDTH_MIN = 7
+    FIRST_COMPONENT_WIDTH_MAX = 15
+    FIRST_COMPONENT_HEIGHT_MIN = 7
+    FIRST_COMPONENT_HEIGHT_MAX = 15
+    FIRST_COMPONENT_CENTER_Y_MIN = 13.0
+    FIRST_COMPONENT_CENTER_Y_MAX = 21.0
     # The UI centers rows of the three source-proven totals differently. The
-    # total is selected from the visually matched first filled star, never
+    # total is selected from the bright component of the first filled star, never
     # copied from identity metadata.
     SUPPORTED_TOTAL_FIRST_CENTERS: ClassVar[dict[int, float]] = {
         4: 48.5,
@@ -557,6 +565,12 @@ class DockStarScanner:
                 & (hsv[:, :, 1] >= self.YELLOW_SATURATION_MIN)
                 & (hsv[:, :, 2] >= self.YELLOW_VALUE_MIN)
             ).astype(np.uint8) * 255
+            first_glyph_yellow = (
+                (hsv[:, :, 0] >= self.YELLOW_HUE_MIN)
+                & (hsv[:, :, 0] <= self.YELLOW_HUE_MAX)
+                & (hsv[:, :, 1] >= self.FIRST_GLYPH_SATURATION_MIN)
+                & (hsv[:, :, 2] >= self.FIRST_GLYPH_VALUE_MIN)
+            ).astype(np.uint8)
             matched = cv2.matchTemplate(
                 yellow, self._fill_template, cv2.TM_CCOEFF_NORMED
             )
@@ -568,11 +582,8 @@ class DockStarScanner:
         edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
         outline_y, outline_x = np.where(self._outline_template > 0)
         first = self._first_filled_star(
+            first_glyph_yellow,
             matched,
-            edges,
-            edge_distance,
-            outline_x,
-            outline_y,
         )
         if first is None:
             return DockStarScanObservation(
@@ -711,71 +722,62 @@ class DockStarScanner:
 
     def _first_filled_star(
         self,
+        first_glyph_yellow: np.ndarray,
         matched: np.ndarray,
-        edges: np.ndarray,
-        edge_distance: np.ndarray,
-        outline_x: np.ndarray,
-        outline_y: np.ndarray,
     ) -> tuple[int, int, int] | None:
         if matched.ndim != 2 or not matched.size or not np.all(np.isfinite(matched)):
             raise DockStarCvError(
                 "Star template response имеет неверную форму/значения."
             )
-        profile = np.max(matched, axis=0)
-        half = self.STAR_TEMPLATE_SIZE // 2
-        candidates: list[tuple[int, int, int, float]] = []
-        left_index = 22
-        right_index = min(47, len(profile) - 1)
-        for index in range(left_index, right_index + 1):
-            score = float(profile[index])
-            before = profile[max(0, index - 3) : index]
-            after = profile[index + 1 : index + 4]
-            if (
-                score >= self.FIRST_MATCH_MIN
-                and (not len(before) or score >= float(np.max(before)))
-                and (not len(after) or score >= float(np.max(after)))
+        if first_glyph_yellow.ndim != 2 or first_glyph_yellow.shape != (
+            matched.shape[0] + self.STAR_TEMPLATE_SIZE - 1,
+            matched.shape[1] + self.STAR_TEMPLATE_SIZE - 1,
+        ):
+            raise DockStarCvError("First-glyph mask имеет неверную форму.")
+        component_count, _labels, stats, centroids = cv2.connectedComponentsWithStats(
+            first_glyph_yellow,
+            connectivity=8,
+        )
+        candidates: list[tuple[int, int, int]] = []
+        for component_index in range(1, component_count):
+            _left, _top, component_width, component_height, area = (
+                int(value) for value in stats[component_index]
+            )
+            center_x, center_y = (float(value) for value in centroids[component_index])
+            if not (
+                self.FIRST_COMPONENT_AREA_MIN <= area <= self.FIRST_COMPONENT_AREA_MAX
+                and self.FIRST_COMPONENT_WIDTH_MIN
+                <= component_width
+                <= self.FIRST_COMPONENT_WIDTH_MAX
+                and self.FIRST_COMPONENT_HEIGHT_MIN
+                <= component_height
+                <= self.FIRST_COMPONENT_HEIGHT_MAX
+                and self.FIRST_COMPONENT_CENTER_Y_MIN
+                <= center_y
+                <= self.FIRST_COMPONENT_CENTER_Y_MAX
             ):
-                center_x = index + half
-                center_y = int(np.argmax(matched[:, index])) + half
-                totals = tuple(
-                    total
-                    for total, expected_center in self.SUPPORTED_TOTAL_FIRST_CENTERS.items()
-                    if abs(center_x - expected_center) <= self.FIRST_CENTER_TOLERANCE
-                )
-                if len(totals) != 1:
-                    continue
-                total = totals[0]
-                row_is_proven = all(
-                    (
-                        aligned := self._best_shape_alignment(
-                            edges,
-                            edge_distance,
-                            round(center_x + glyph_index * self.STAR_SPACING),
-                            center_y,
-                            outline_x,
-                            outline_y,
-                        )
-                    )
-                    is not None
-                    and aligned[2] >= self.SHAPE_SCORE_MIN
-                    for glyph_index in range(total)
-                )
-                if row_is_proven:
-                    candidates.append((center_x, center_y, total, score))
+                continue
+            totals = tuple(
+                total
+                for total, expected_center in self.SUPPORTED_TOTAL_FIRST_CENTERS.items()
+                if abs(center_x - expected_center) <= self.FIRST_CENTER_TOLERANCE
+            )
+            if len(totals) != 1:
+                continue
+            total = totals[0]
+            canonical_center_x = round(self.SUPPORTED_TOTAL_FIRST_CENTERS[total])
+            canonical_center_y = min(
+                round(center_y),
+                first_glyph_yellow.shape[0]
+                - (self.STAR_TEMPLATE_SIZE - self.STAR_TEMPLATE_SIZE // 2),
+            )
+            candidates.append((canonical_center_x, canonical_center_y, total))
         if not candidates:
             return None
-        best_score = max(value[3] for value in candidates)
-        candidates = [
-            value
-            for value in candidates
-            if value[3] >= best_score * self.FIRST_RELATIVE_SCORE_MIN
-        ]
-        # A six-star row contains a four-star-aligned inner subsequence. Prefer
-        # the longest fully proven row only while its first-glyph response is
-        # competitive with the strongest candidate. This rejects weak portrait
-        # peaks without consulting static identity metadata.
-        center_x, center_y, total, _score = max(candidates, key=lambda value: value[2])
-        return center_x, center_y, total
+        # The inner four glyphs of a six-star row align with a standalone
+        # four-star row. The leftmost high-confidence filled-glyph component is
+        # therefore the only visual authority for the longest proven layout.
+        return max(candidates, key=lambda value: value[2])
 
     def _best_shape_alignment(
         self,

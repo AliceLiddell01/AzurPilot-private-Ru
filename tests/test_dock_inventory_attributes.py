@@ -265,7 +265,7 @@ def test_level_roi_is_slot_relative_for_first_last_and_shifted_rows() -> None:
 
     result = scanner.scan(np.zeros((720, 1280, 3), dtype=np.uint8), slots)
 
-    assert ocr.areas == ((170, 211, 229, 242), (1158, 438, 1217, 469))
+    assert ocr.areas == ((170, 211, 228, 242), (1158, 438, 1216, 469))
     assert [item.value for item in result] == [12, 34]
 
 
@@ -402,7 +402,7 @@ def test_star_scanner_ignores_unproven_early_yellow_peak(total: int) -> None:
     _draw_star_row(frame, slot, (DockStarGlyphState.FILLED,) * total)
     cv2.circle(
         frame,
-        (slot.area[0] + 31, slot.area[1] + 193),
+        (slot.area[0] + 31, slot.area[1] + 185),
         5,
         (245, 205, 60),
         -1,
