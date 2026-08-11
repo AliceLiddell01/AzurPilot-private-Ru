@@ -13,11 +13,6 @@ def source(path: str) -> str:
 class TestSharedHandlersBaseRuntimeMessages:
     def test_representative_runtime_messages_are_russian(self):
         expected = {
-            "module/base/api_client.py": (
-                "[База — API] Попытка использовать",
-                "Не удалось получить объявление",
-                "Не удалось разобрать JSON объявления",
-            ),
             "module/base/async_executor.py": (
                 "Исключение в цикле событий AsyncExecutor",
                 "Истекло время ожидания завершения задач",
@@ -87,33 +82,14 @@ class TestSharedHandlersBaseRuntimeMessages:
                 assert message in text, (path, message)
 
     def test_live_first_party_cjk_false_negatives_are_removed(self):
-        api = source("module/base/api_client.py")
         fast_forward = source("module/handler/fast_forward.py")
-        assert 'domain_type = "主域名"' not in api
-        assert 'domain_type = "备用域名"' not in api
         assert "task_stop('无法确保自动搜索设置。')" not in fast_forward
 
-    def test_api_raw_contract_is_preserved(self):
-        text = source("module/base/api_client.py")
-        required = (
-            'PRIMARY_DOMAIN = "https://alas-apiv2.nanoda.work"',
-            'FALLBACK_DOMAIN = "https://alas-apiv2.nanoda.work"',
-            'ANNOUNCEMENT_PATH = "/api/get/announcement"',
-            "ANNOUNCEMENT_CHECK_INTERVAL = 90",
-            "requests.get(",
-            "params=params",
-            "timeout=timeout",
-            'headers={"User-Agent": "alas AzurPilot"}',
-            "success_codes=[200, 304]",
-            'data.get("announcementId")',
-            'data.get("title")',
-            'data.get("content")',
-            'data.get("url")',
-            "response.text",
-            "str(exc)",
-        )
-        for token in required:
-            assert token in text, token
+    def test_project_api_network_contract_is_removed(self):
+        assert not (ROOT / "module/base/api_client.py").exists()
+        combat = source("module/combat/combat.py")
+        assert "module.base." + "api_client" not in combat
+        assert "Api" + "Client" not in combat
 
     def test_ssh_raw_contract_is_preserved(self):
         text = source("module/base/ssh.py")

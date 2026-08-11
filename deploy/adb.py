@@ -80,19 +80,16 @@ class AdbManager(DeployConfig):
                     continue
                 initer.set_atx_agent_addr('127.0.0.1:7912')
 
-                for _ in range(2):
-                    try:
-                        initer.install()
-                        break
-                    except AssertionError:
-                        logger.info(f'AssertionError при установке uiautomator2 на устройство {device.serial}')
-                        logger.info('Если вы используете BlueStacks, LDPlayer или WSA, '
-                                    'включите ADB в настройках эмулятора')
-                        exit(1)
-                    except ConnectionError:
-                        if _ == 1:
-                            raise
-                        init.GITHUB_BASEURL = 'http://tool.appetizer.io/openatx'
+                try:
+                    initer.install()
+                except AssertionError:
+                    logger.info(f'AssertionError при установке uiautomator2 на устройство {device.serial}')
+                    logger.info('Если вы используете BlueStacks, LDPlayer или WSA, '
+                                'включите ADB в настройках эмулятора')
+                    exit(1)
+                except ConnectionError:
+                    logger.error('Не удалось установить ресурсы uiautomator2; внешний fallback отключён')
+                    raise
 
                 initer._device.shell(["rm", "/data/local/tmp/minicap"])
                 initer._device.shell(["rm", "/data/local/tmp/minicap.so"])

@@ -39,7 +39,6 @@ MenuAlas:
 MenuDevelop:
   HomePage:
   Translate:
-  Announcement:
   Remote:
   Setting:
   Utils:
@@ -197,16 +196,6 @@ DeploySetting:
   GroupMisc:
   GroupRemoteAccess:
   GroupWebui:
-  Repository:
-  RepositoryHelp:
-  Branch:
-  BranchHelp:
-  GitExecutable:
-  GitExecutableHelp:
-  GitProxy:
-  GitProxyHelp:
-  SSLVerify:
-  SSLVerifyHelp:
   PythonExecutable:
   PythonExecutableHelp:
   PypiMirror:

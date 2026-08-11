@@ -121,10 +121,10 @@ class GeneratedConfig:
     Error_GameStuckThreshold = 3
     Error_AdbOfflineRestart = False
     Error_AdbOfflineThreshold = 3
-    Error_LlmAnalysis = True
+    Error_LlmAnalysis = False
     Error_LlmApiKey = None
-    Error_LlmApiBase = 'https://api.xiaomimimo.com/v1'
-    Error_LlmModel = 'mimo-v2.5-pro'
+    Error_LlmApiBase = None
+    Error_LlmModel = None
 
     # 配置组 `Optimization`
     Optimization_OcrDevice = 'auto'  # auto, qnn_npu, openvino_npu, openvino_gpu, gpu, openvino_cpu, cpu, ane
@@ -139,8 +139,6 @@ class GeneratedConfig:
 
     # 配置组 `DropRecord`
     DropRecord_SaveFolder = './screenshots'
-    DropRecord_AzurStatsID = None
-    DropRecord_API = 'default'  # default, cn_gz_reverse_proxy
     DropRecord_ResearchRecord = 'do_not'  # do_not, save, upload, save_and_upload
     DropRecord_CommissionRecord = 'do_not'  # do_not, save, upload, save_and_upload
     DropRecord_CombatRecord = 'do_not'  # do_not, save
@@ -973,9 +971,6 @@ class GeneratedConfig:
     # 配置组 `Benchmark`
     Benchmark_DeviceType = 'emulator'  # emulator, plone_cloud_with_adb, phone_cloud_without_adb, android_phone, android_phone_vmos
     Benchmark_TestScene = 'screenshot_click'  # screenshot_click, screenshot, click
-
-    # 配置组 `AzurLaneUncensored`
-    AzurLaneUncensored_Repository = 'https://gitee.com/LmeSzinc/AzurLaneUncensored'
 
     # 配置组 `GameManager`
     GameManager_AutoRestart = True

@@ -17,6 +17,10 @@ from module.exception import ScriptError
 from module.logger import logger
 
 
+CONNECTIVITY_PROBE_URL = 'http://www.msftconnecttest.com/connecttest.txt'
+CONNECTIVITY_PROBE_EXPECTED = 'Microsoft Connect Test'
+
+
 class ServerChecker:
     """游戏服务器状态检查器。
 
@@ -205,19 +209,28 @@ class ServerChecker:
 
     def fast_retry(self) -> bool:
         """
-        快速重试：通过访问百度判断网络是否连通。
+        Быстрая повторная попытка после ошибки API состояния серверов.
 
-        部分国内用户可能无法连接 API，但网络实际可用，因此借助百度进行网络可达性判断。
+        Сначала используется официальный connectivity probe Microsoft, чтобы отличить
+        общую потерю доступа к интернету от временной недоступности API. Только точный
+        ожидаемый ответ считается подтверждением доступности сети.
 
         Returns:
-            bool: 网络可用时返回 True。
+            bool: доступен ли сервер после быстрых повторных попыток.
         """
         self._retry = True
         try:
             session = requests.Session()
             session.trust_env = False
-            _ = session.get('https://www.baidu.com', timeout=5)
-            network_available = True
+            response = session.get(
+                CONNECTIVITY_PROBE_URL,
+                timeout=5,
+                allow_redirects=False,
+            )
+            network_available = (
+                response.status_code == 200
+                and response.text.strip() == CONNECTIVITY_PROBE_EXPECTED
+            )
         except Exception as e:
             logger.error(e)
             network_available = False

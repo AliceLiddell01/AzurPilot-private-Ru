@@ -88,7 +88,9 @@ def test_server_checker_http_state_and_retry_constants_are_intact():
         "requests.Session()",
         "session.trust_env = False",
         "timeout=15",
-        "https://www.baidu.com",
+        "http://www.msftconnecttest.com/connecttest.txt",
+        "Microsoft Connect Test",
+        "allow_redirects=False",
         "timeout=5",
         "if self._expired > 3:",
         "if self._timer.limit < 600:",
@@ -116,21 +118,12 @@ def test_daemon_benchmark_algorithm_and_identifiers_are_intact():
         assert token in source
 
 
-def test_game_manager_and_uncensored_keep_device_call_order():
+def test_game_manager_keeps_device_call_order():
     game_manager = _source("module/daemon/game_manager.py")
     assert game_manager.index("self.device.app_stop()") < game_manager.index(
         "if self.config.GameManager_AutoRestart:"
     )
     assert "LoginHandler(config=self.config, device=self.device).app_restart()" in game_manager
-
-    uncensored = _source("module/daemon/uncensored.py")
-    command = "command = ['push', 'files', f'/sdcard/Android/data/{self.device.package}']"
-    assert command in uncensored
-    assert "self.device.adb_command(command, timeout=30)" in uncensored
-    stop = uncensored.index("self.device.app_stop()")
-    start = uncensored.index("self.device.app_start()")
-    login = uncensored.index("self.handle_app_login()")
-    assert stop < start < login
 
 
 def test_ocr_benchmark_models_order_and_report_contract_are_intact():

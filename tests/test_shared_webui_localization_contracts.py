@@ -201,10 +201,6 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
         self.assertIn("Неподдерживаемый сервер Global", source)
 
     def test_dynamic_values_and_html_escape_remain_in_localized_surfaces(self):
-        self.assertIn(
-            'f"[WebUI — Главная] Отправка объявления: {data.get(\'title\')}"',
-            _source("module/webui/app_home.py"),
-        )
         task_source = _source("module/webui/app_task_config.py")
         self.assertIn("{filepath_config(config_name)}", task_source)
         self.assertIn("{dict_to_kv(modified)}", task_source)

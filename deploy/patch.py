@@ -77,10 +77,11 @@ def check_running_directory():
 def patch_uiautomator2():
     """修补 uiautomator2 的资源下载路径。
 
-    uiautomator2 默认从 tool.appetizer.io 或 github.com/openatx 下载资源，
-    但这些地址在国内可能不可用或速度慢。因此修补为使用本地缓存 uiautomator2cache/cache。
+    uiautomator2 旧版安装器 может загружать ресурсы из внешних источников.
+    AzurPilot использует локальный uiautomator2cache/cache, чтобы установка не зависела
+    от скрытых сетевых fallback-адресов.
 
-    同时移除 minicap 安装，因为模拟器不需要它。
+    Одновременно отключается установка minicap, который эмуляторам не требуется.
     """
     cache_dir = site_package_file('uiautomator2cache', 'cache')
     init_file = site_package_file('uiautomator2', 'init.py')
@@ -89,6 +90,14 @@ def patch_uiautomator2():
     if not init_file or not os.path.exists(init_file):
         logger.info('uiautomator2 не установлен, исправление пропущено')
         return
+
+    if not cache_dir or not os.path.isdir(cache_dir):
+        message = (
+            'Локальный uiautomator2cache/cache не найден. Установка остановлена, '
+            'чтобы uiautomator2 не переключился на скрытый внешний источник ресурсов.'
+        )
+        logger.critical(message)
+        raise RuntimeError(message)
 
     modified = False
     with open(init_file, 'r', encoding='utf-8') as f:
@@ -104,20 +113,17 @@ def patch_uiautomator2():
         logger.info(f'{init_file}: исправление minicap_urls не требуется')
 
     # 修补 appdir
-    if cache_dir and os.path.exists(cache_dir):
-        res = re.search(r'appdir ?=(.*)\n', content)
-        if res:
-            prev = res.group(1).strip()
-            if prev == appdir:
-                logger.info(f'{init_file}: appdir уже исправлен')
-            else:
-                content = re.sub(r'appdir ?=.*\n', f'appdir = {appdir}\n', content)
-                modified = True
-                logger.info(f'{init_file}: appdir исправлен')
+    res = re.search(r'appdir ?=(.*)\n', content)
+    if res:
+        prev = res.group(1).strip()
+        if prev == appdir:
+            logger.info(f'{init_file}: appdir уже исправлен')
         else:
-            logger.info(f'{init_file}: appdir не найден')
+            content = re.sub(r'appdir ?=.*\n', f'appdir = {appdir}\n', content)
+            modified = True
+            logger.info(f'{init_file}: appdir исправлен')
     else:
-        logger.info('uiautomator2cache не установлен, исправление пропущено')
+        logger.info(f'{init_file}: appdir не найден')
 
     # 保存文件
     if modified:

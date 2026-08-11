@@ -20,10 +20,10 @@ Deploy:
     DiscordRichPresence: false
 
   RemoteAccess:
-    EnableRemoteAccess: true
+    EnableRemoteAccess: false
     RemoteAccessMode: auto
     SSHUser: null
-    SSHServer: remote.nanoda.work:1022
+    SSHServer: null
     SSHExecutable: ssh
     AllowedRedirectHosts: null
     MaxRedirects: 2

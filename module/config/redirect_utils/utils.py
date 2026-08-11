@@ -13,8 +13,6 @@
 - 服务器名称规范化
 """
 
-from module.config.server import to_server
-
 
 def upload_redirect(value):
     """
@@ -34,18 +32,6 @@ def upload_redirect(value):
             return 'do_not'
         else:
             return 'save'
-
-
-def api_redirect(value):
-    """
-    redirect attr about api.
-    """
-    if value == 'auto':
-        return 'default'
-    elif to_server(value) == 'cn':
-        return 'cn_gz_reverse_proxy'
-    else:
-        return 'default'
 
 
 def dossier_redirect(value):
@@ -107,16 +93,6 @@ def change_ship_redirect(value):
         return 'ship_equip'
     else:
         return 'ship'
-
-
-def api_redirect2(value):
-    """
-    remove shanghai proxy, use guangzhou
-    """
-    if value == 'cn_sh_reverse_proxy':
-        return 'cn_gz_reverse_proxy'
-    else:
-        return value
 
 
 def coalition_to_frostfall(value):

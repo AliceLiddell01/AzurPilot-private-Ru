@@ -147,29 +147,15 @@ def log_warning(message):
 
 
 def platform_name():
-    platform = os.environ.get("LABELER_PLATFORM", "github").strip().lower()
-    if platform not in {"github", "gitcode"}:
-        raise RuntimeError(f"Unsupported LABELER_PLATFORM: {platform}")
-
-    return platform
+    """This private fork runs the labeler only on GitHub Actions."""
+    return "github"
 
 
 def read_event():
-    event_path = (
-        os.environ.get("GITHUB_EVENT_PATH")
-        or os.environ.get("GITCODE_EVENT_PATH")
-        or os.environ.get("CI_EVENT_PATH")
-    )
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
     if not event_path:
-        event_json = (
-            os.environ.get("GITHUB_EVENT_JSON")
-            or os.environ.get("GITCODE_EVENT_JSON")
-            or os.environ.get("CI_EVENT_JSON")
-        )
-        if event_json:
-            return json.loads(event_json)
-
-        return {}
+        event_json = os.environ.get("GITHUB_EVENT_JSON")
+        return json.loads(event_json) if event_json else {}
 
     with open(event_path, "r", encoding="utf-8") as fp:
         return json.load(fp)
@@ -184,35 +170,11 @@ def split_repository(repository):
 
 
 def repo_parts(event, platform):
-    candidates = []
-
-    if platform == "github":
-        candidates.append(os.environ.get("GITHUB_REPOSITORY", ""))
-    else:
-        project = event.get("project") or {}
-        repository = event.get("repository") or {}
-        candidates.extend(
-            [
-                os.environ.get("GITCODE_REPOSITORY", ""),
-                os.environ.get("GITCODE_PROJECT_PATH", ""),
-                os.environ.get("CI_PROJECT_PATH", ""),
-                project.get("path_with_namespace", ""),
-                repository.get("full_name", "").replace(" / ", "/"),
-            ]
-        )
-
-    for candidate in candidates:
-        parts = split_repository(candidate)
-        if parts:
-            return parts
-
-    if platform == "gitcode":
-        owner = os.environ.get("GITCODE_OWNER")
-        repo = os.environ.get("GITCODE_REPO")
-        if owner and repo:
-            return owner, repo
-
-    raise RuntimeError(f"Missing or invalid {platform} repository path")
+    del event, platform
+    parts = split_repository(os.environ.get("GITHUB_REPOSITORY", ""))
+    if parts and all(parts) and "/" not in parts[1]:
+        return parts
+    raise RuntimeError("Missing or invalid GITHUB_REPOSITORY")
 
 
 def api_request(method, url, headers, payload=None):
@@ -258,27 +220,10 @@ def github_api(method, path, token, payload=None):
     )
 
 
-def gitcode_api(method, path, token, payload=None):
-    separator = "&" if "?" in path else "?"
-    query = urlencode({"access_token": token})
-    return api_request(
-        method,
-        f"https://api.gitcode.com/api/v5{path}{separator}{query}",
-        {
-            "Accept": "application/json",
-            "User-Agent": "ai-issue-labeler",
-        },
-        payload,
-    )
-
-
 def api(platform, method, path, token, payload=None):
-    if platform == "github":
-        return github_api(method, path, token, payload)
-    if platform == "gitcode":
-        return gitcode_api(method, path, token, payload)
-
-    raise RuntimeError(f"Unsupported platform: {platform}")
+    if platform != "github":
+        raise RuntimeError(f"Unsupported platform: {platform}")
+    return github_api(method, path, token, payload)
 
 
 def fetch_issue(platform, owner, repo, issue_number, token):
@@ -407,10 +352,7 @@ def list_repo_labels(platform, owner, repo, token):
     page = 1
 
     while True:
-        path = f"/repos/{safe_owner}/{safe_repo}/labels"
-        if platform == "github":
-            path = f"{path}?per_page=100&page={page}"
-
+        path = f"/repos/{safe_owner}/{safe_repo}/labels?per_page=100&page={page}"
         batch = api(
             platform,
             "GET",
@@ -421,17 +363,15 @@ def list_repo_labels(platform, owner, repo, token):
             return labels
 
         labels.extend(batch)
-
-        if platform == "gitcode" or len(batch) < 100:
+        if len(batch) < 100:
             return labels
-
         page += 1
 
 
 def add_labels(platform, owner, repo, issue_number, labels, token):
     safe_owner = quote(owner, safe="")
     safe_repo = quote(repo, safe="")
-    payload = {"labels": labels} if platform == "github" else labels
+    payload = {"labels": labels}
     api(
         platform,
         "POST",
@@ -447,35 +387,9 @@ def label_name(label):
     return label.get("name", "")
 
 
-def gitcode_event_issue(event):
-    attributes = event.get("object_attributes") or {}
-    if not attributes:
-        return None
-
-    issue_number = attributes.get("iid") or attributes.get("number")
-    if not issue_number:
-        return None
-
-    return {
-        "number": issue_number,
-        "title": attributes.get("title") or "",
-        "body": attributes.get("description") or attributes.get("body") or "",
-        "labels": event.get("labels") or attributes.get("labels") or [],
-        "state": attributes.get("state") or "",
-    }
-
-
 def issue_number_from_event(event):
     inputs = event.get("inputs") or {}
-    return (
-        inputs.get("issue_number")
-        or os.environ.get("ISSUE_NUMBER")
-        or os.environ.get("GITCODE_ISSUE_NUMBER")
-        or os.environ.get("GITCODE_ISSUE_IID")
-        or os.environ.get("CI_ISSUE_NUMBER")
-        or os.environ.get("CI_ISSUE_IID")
-        or os.environ.get("ISSUE_IID")
-    )
+    return inputs.get("issue_number") or os.environ.get("ISSUE_NUMBER")
 
 
 def pr_number_from_event(event):
@@ -493,11 +407,6 @@ def resolve_issue(platform, event, owner, repo, token):
     issue = event.get("issue")
     if issue:
         return issue
-
-    if platform == "gitcode":
-        issue = gitcode_event_issue(event)
-        if issue:
-            return issue
 
     issue_number = issue_number_from_event(event)
     if not issue_number:
@@ -940,14 +849,9 @@ def main():
     if not os.environ.get("AI_MODEL"):
         raise RuntimeError("Missing AI_MODEL")
 
-    token = (
-        os.environ.get("GITHUB_TOKEN")
-        if platform == "github"
-        else os.environ.get("GITCODE_TOKEN") or os.environ.get("GITCODE_ACCESS_TOKEN")
-    )
+    token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        token_name = "GITHUB_TOKEN" if platform == "github" else "GITCODE_TOKEN"
-        raise RuntimeError(f"Missing {token_name}")
+        raise RuntimeError("Missing GITHUB_TOKEN")
 
     event = read_event()
     owner, repo = repo_parts(event, platform)

@@ -305,9 +305,9 @@ class SSHRemoteAccessProvider(RemoteAccessProvider):
 
     def _run(
         self,
+        server: str,
         local_host="127.0.0.1",
         local_port=25548,
-        server="app.pywebio.online",
         server_port=1022,
         remote_port="/",
         setup_timeout=60,

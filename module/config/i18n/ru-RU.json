@@ -394,10 +394,6 @@
       "name": "Тест интервалов снимков экрана",
       "help": "Автоматически измеряет частоту снимков на экране кампании и в бесплатной META Battle Simulation. Настройки профиля не изменяются автоматически."
     },
-    "AzurLaneUncensored": {
-      "name": "Снятие цензуры",
-      "help": ""
-    },
     "GameManager": {
       "name": "Управление игрой (не завершено)",
       "help": ""
@@ -643,19 +639,19 @@
     },
     "LlmAnalysis": {
       "name": "Включить анализ ошибок с помощью LLM",
-      "help": "Автоматически использовать LLM для анализа ошибок при их возникновении."
+      "help": "При возникновении ошибки отправляет ограниченный диагностический контекст во внешний LLM API. Функция выключена по умолчанию."
     },
     "LlmApiKey": {
       "name": "Ключ API LLM",
-      "help": "Купите сервис модели и получите API-ключ с https://platform.deepseek.com/ или https://platform.xiaomimimo.com/."
+      "help": "Укажите API-ключ выбранного вами OpenAI-compatible провайдера. Без явной настройки запросы не выполняются."
     },
     "LlmApiBase": {
       "name": "База API LLM",
-      "help": "Введите базовый URL поставщика, совместимый с OpenAI. Инструкции по настройке см. по ссылкам https://platform.deepseek.com/ или https://platform.xiaomimimo.com/"
+      "help": "Укажите полный базовый URL выбранного OpenAI-compatible провайдера. Предустановленного провайдера нет."
     },
     "LlmModel": {
       "name": "Модель LLM",
-      "help": "Введите название модели, поддерживаемой вашей приобретённой службой, как указано на https://platform.deepseek.com/ или https://platform.xiaomimimo.com/."
+      "help": "Укажите точное имя модели, поддерживаемое выбранным провайдером."
     }
   },
   "Optimization": {
@@ -734,16 +730,6 @@
     "SaveFolder": {
       "name": "Папка сохранения",
       "help": ""
-    },
-    "AzurStatsID": {
-      "name": "AzurStat ID",
-      "help": "Идентификатор клиента, указанный при загрузке на https://azur-stats.lyoko.io\nСостоит из случайных символов и может быть изменён на своё усмотрение"
-    },
-    "API": {
-      "name": "Загрузить маршрут",
-      "help": "Если пользователи из Китая не могут подключиться к AzurStat, они могут использовать «Китайский обратный прокси»",
-      "default": "По умолчанию (Cloudflare)",
-      "cn_gz_reverse_proxy": "Китайский обратный прокси (Гуанхуэй)"
     },
     "ResearchRecord": {
       "name": "Исследование снимка экрана",
@@ -5582,16 +5568,6 @@
       "click": "Тест скорости кликов"
     }
   },
-  "AzurLaneUncensored": {
-    "_info": {
-      "name": "Снятие цензуры",
-      "help": "Доступно только для сервера КН. Инструмент будет:\n- Скачивать файлы без цензуры\n- Переносить их на эмулятор\n- Перезапускать клиент игры"
-    },
-    "Repository": {
-      "name": "Репозиторий без цензуры",
-      "help": "Обычно модификации не требуются.\nРепозиторий https://github.com/LmeSzinc/AzurLaneUncensored\nДомашний зеркало (по умолчанию) https://e.coding.net/llop18870/alas/AzurLaneUncensored.git"
-    }
-  },
   "GameManager": {
     "_info": {
       "name": "Управление игрой",
@@ -5780,7 +5756,6 @@
     "MenuDevelop": {
       "HomePage": "Главная",
       "Translate": "Перевести",
-      "Announcement": "Объявление",
       "Remote": "Удалённое управление",
       "Setting": "Настройки",
       "Utils": "Инструменты"
@@ -5938,16 +5913,6 @@
       "GroupMisc": "Другое",
       "GroupRemoteAccess": "Удалённый доступ",
       "GroupWebui": "WebUI",
-      "Repository": "Репозиторий AzurPilot",
-      "RepositoryHelp": "Репозиторий Git, используемый для установки и обновления. Пользователи из КНР могут использовать git://git.pull/AzurPilot.",
-      "Branch": "Ветка",
-      "BranchHelp": "Используйте master для стабильных версий или dev/app для тестирования.",
-      "GitExecutable": "Файл Git",
-      "GitExecutableHelp": "Путь до git.exe. По умолчанию обычно всё в порядке.",
-      "GitProxy": "Прокси Git",
-      "GitProxyHelp": "HTTP или SOCKS5-прокси. Оставьте пустым, чтобы отключить.",
-      "SSLVerify": "Проверка SSL в Git",
-      "SSLVerifyHelp": "Рекомендуется при подключении к доверенным сетям.",
       "PythonExecutable": "Исполняемый файл Python",
       "PythonExecutableHelp": "Исполняемый файл Python, используемый для запуска AzurPilot.",
       "PypiMirror": "Зеркало PyPI",
@@ -5957,7 +5922,7 @@
       "AdbExecutable": "Файл ADB",
       "AdbExecutableHelp": "Путь до adb.exe.",
       "ReplaceAdb": "Заменить ADB эмулятора",
-      "ReplaceAdbHelp": "Рекомендуется для совместимости с китайскими эмуляторами Android.",
+      "ReplaceAdbHelp": "Заменяет встроенный ADB поддерживаемых эмуляторов на выбранный ADB, чтобы избежать конфликтов версий.",
       "AutoConnect": "Автоматическое подключение эмуляторов",
       "AutoConnectHelp": "При запуске пытаться подключиться к доступным эмуляторам.",
       "InstallUiautomator2": "Повторно установить uiautomator2",

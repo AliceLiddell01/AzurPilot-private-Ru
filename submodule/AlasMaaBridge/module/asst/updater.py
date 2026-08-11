@@ -67,19 +67,22 @@ class Updater:
 
     @staticmethod
     def _request_github_api(url, retry):
-        request_resource = ["https://api.github.com/", "https://api.kgithub.com/"]
+        resource = "https://api.github.com/"
+        last_error = None
         for _ in range(retry):
-            for resource in request_resource:
-                try:
-                    response = request.urlopen(Request(url=resource + url, headers=Updater.headers), timeout=20)
-                    data = response.read().decode('utf-8')
-                    Updater.custom_print(f'访问成功，URL: {resource + url}')
-                    return data
-                except (HTTPError, URLError) as e:
-                    Updater.custom_print(f'访问成功，URL: {resource + url}')
-                    Updater.custom_print(e)
-                    if _ == retry - 1:
-                        raise
+            try:
+                response = request.urlopen(Request(url=resource + url, headers=Updater.headers), timeout=20)
+                data = response.read().decode('utf-8')
+                Updater.custom_print(f'访问成功，URL: {resource + url}')
+                return data
+            except (HTTPError, URLError) as e:
+                last_error = e
+                Updater.custom_print(f'访问失败，URL: {resource + url}')
+                Updater.custom_print(e)
+
+        if last_error is not None:
+            raise last_error
+        return ''
 
     def _is_nightly_version(self, ver: Union[str, None]):
         """判断版本号是否为 Nightly 构建。
@@ -281,22 +284,18 @@ class Updater:
             Updater.custom_print('目前不需要更新')
             return False
 
-        # 下载
-        replace_list = [
-            ('github.com', 'ota.maa.plus'),
-            ('github.com', 'download.fastgit.org')
-        ]
+        # GitHub release asset 的 browser_download_url 是官方的浏览器下载地址。
+        url = self.assets_object['browser_download_url']
+        file = os.path.join(self.path, url.split('/')[-1])
         for i in range(max_retry):
-            url = self.assets_object['browser_download_url']
-            file = os.path.join(self.path, url.split('/')[-1])
-            if i < 2:
-                url = url.replace(replace_list[i][0], replace_list[i][1])
-                try:
-                    Updater.custom_print(f'开始下载更新包，URL：{url}')
-                    request.urlretrieve(url, file)
-                    break
-                except (HTTPError, URLError) as e:
-                    Updater.custom_print(e)
+            try:
+                Updater.custom_print(f'开始下载更新包，URL：{url}')
+                request.urlretrieve(url, file)
+                break
+            except (HTTPError, URLError) as e:
+                Updater.custom_print(e)
+                if i == max_retry - 1:
+                    raise
 
         # 解压
         Updater.custom_print('开始安装更新，请不要关闭')

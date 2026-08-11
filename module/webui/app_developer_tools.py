@@ -4,7 +4,6 @@ from deploy.atomic import atomic_write
 from module.logger import logger
 
 from module.webui.app_dependencies import (
-    DEFAULT_CONFIG_NAME,
     Optional,
     ProcessManager,
     RemoteAccess,
@@ -16,7 +15,6 @@ from module.webui.app_dependencies import (
     os,
     put_button,
     put_buttons,
-    put_html,
     put_link,
     put_loading,
     put_row,
@@ -168,18 +166,6 @@ class DeveloperToolsMixin(WebUIMixinBase):
 
         put_button(label="Перезапустить AzurPilot", onclick=_force_restart, scope="develop_detail")
 
-        def _test_notify_announcement():
-            from module.notify.notify import notify_webui
-
-            instance = getattr(self, "alas_name", DEFAULT_CONFIG_NAME)
-            notify_webui(
-                instance=instance,
-                title="Новое объявление!",
-                content="Тест уведомления об объявлении: лаунчер должен показать отдельный заголовок.",
-                updata=False,
-            )
-            toast("Тестовое уведомление об объявлении отправлено", color="info")
-
         def _test_notify_error():
             from module.notify import handle_notify
 
@@ -198,23 +184,10 @@ class DeveloperToolsMixin(WebUIMixinBase):
             else:
                 toast("Не удалось отправить тестовое уведомление. Проверьте настройки уведомлений об ошибках", color="error")
 
-        put_buttons(
-            buttons=[
-                {
-                    "label": "Тест уведомления об объявлении",
-                    "value": "announcement",
-                    "color": "info",
-                },
-                {
-                    "label": "Тест уведомления об ошибке",
-                    "value": "error",
-                    "color": "danger",
-                },
-            ],
-            onclick=[
-                _test_notify_announcement,
-                _test_notify_error,
-            ],
+        put_button(
+            label="Тест уведомления об ошибке",
+            onclick=_test_notify_error,
+            color="danger",
             scope="develop_detail",
         )
 
@@ -280,10 +253,6 @@ class DeveloperToolsMixin(WebUIMixinBase):
                 else:
                     put_text(t("Gui.Remote.NotEnable"), scope="remote_state")
                 put_text(t("Gui.Remote.ConfigureHint"), scope="remote_info")
-                url = "http://app.azurlane.cloud/en.html"
-                put_html(
-                    f'<a href="{url}" target="_blank">{url}</a>', scope="remote_info"
-                )
                 if state == 3:
                     put_warning(
                         t("Gui.Remote.SSHNotInstall"),

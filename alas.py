@@ -1026,10 +1026,6 @@ class AzurLaneAutoScript:
         from module.auto_equip.auto_equip import AutoEquip
         AutoEquip(config=self.config, device=self.device, task="AutoEquip").run()
 
-    def azur_lane_uncensored(self):
-        from module.daemon.uncensored import AzurLaneUncensored
-        AzurLaneUncensored(config=self.config, device=self.device, task="AzurLaneUncensored").run()
-
     def benchmark(self):
         from module.daemon.benchmark import run_benchmark
         run_benchmark(config=self.config)

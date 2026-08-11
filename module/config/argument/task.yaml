@@ -464,8 +464,6 @@ Tool:
       - OcrBenchmark
     ScreenshotIntervalBenchmark:
       - OcrBenchmark
-    AzurLaneUncensored:
-      - AzurLaneUncensored
     GameManager:
       - GameManager
     EmulatorManager:

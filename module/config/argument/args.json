@@ -403,7 +403,7 @@
       },
       "LlmAnalysis": {
         "type": "checkbox",
-        "value": true
+        "value": false
       },
       "LlmApiKey": {
         "type": "textarea",
@@ -411,11 +411,11 @@
       },
       "LlmApiBase": {
         "type": "textarea",
-        "value": "https://api.xiaomimimo.com/v1"
+        "value": ""
       },
       "LlmModel": {
         "type": "input",
-        "value": "mimo-v2.5-pro",
+        "value": "",
         "valuetype": "str"
       }
     },
@@ -499,18 +499,6 @@
       "SaveFolder": {
         "type": "input",
         "value": "./screenshots"
-      },
-      "AzurStatsID": {
-        "type": "input",
-        "value": null
-      },
-      "API": {
-        "type": "select",
-        "value": "default",
-        "option": [
-          "default",
-          "cn_gz_reverse_proxy"
-        ]
       },
       "ResearchRecord": {
         "type": "select",
@@ -17077,23 +17065,6 @@
     }
   },
   "ScreenshotIntervalBenchmark": {
-    "Storage": {
-      "Storage": {
-        "type": "storage",
-        "value": {},
-        "valuetype": "ignore",
-        "display": "disabled"
-      }
-    }
-  },
-  "AzurLaneUncensored": {
-    "AzurLaneUncensored": {
-      "Repository": {
-        "type": "input",
-        "value": "https://gitee.com/LmeSzinc/AzurLaneUncensored",
-        "display": "disabled"
-      }
-    },
     "Storage": {
       "Storage": {
         "type": "storage",

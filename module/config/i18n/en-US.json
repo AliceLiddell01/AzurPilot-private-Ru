@@ -394,10 +394,6 @@
       "name": "Screenshot Interval Benchmark",
       "help": "Automatically measures screenshot frequency on the campaign screen and in free META Battle Simulation. Profile settings are not changed automatically."
     },
-    "AzurLaneUncensored": {
-      "name": "Uncensor",
-      "help": ""
-    },
     "GameManager": {
       "name": "Game Manager (Incomplete)",
       "help": ""
@@ -643,19 +639,19 @@
     },
     "LlmAnalysis": {
       "name": "Enable LLM Error Analysis",
-      "help": "Automatically use LLM to analyze errors when they occur."
+      "help": "When an error occurs, send bounded diagnostic context to an external LLM API. Disabled by default."
     },
     "LlmApiKey": {
       "name": "LLM API Key",
-      "help": "Purchase model service and get an API key from https://platform.deepseek.com/ or https://platform.xiaomimimo.com/."
+      "help": "Enter the API key for your chosen OpenAI-compatible provider. No request is made without explicit configuration."
     },
     "LlmApiBase": {
       "name": "LLM API Base",
-      "help": "Enter the provider's OpenAI-compatible Base URL. Refer to https://platform.deepseek.com/ or https://platform.xiaomimimo.com/ for setup instructions."
+      "help": "Enter the full base URL of your chosen OpenAI-compatible provider. No provider is preconfigured."
     },
     "LlmModel": {
       "name": "LLM Model",
-      "help": "Enter a model name supported by your purchased service, as shown on https://platform.deepseek.com/ or https://platform.xiaomimimo.com/."
+      "help": "Enter the exact model name supported by your chosen provider."
     }
   },
   "Optimization": {
@@ -734,16 +730,6 @@
     "SaveFolder": {
       "name": "Drop Save Directory",
       "help": ""
-    },
-    "AzurStatsID": {
-      "name": "AzurStat ID",
-      "help": "The client ID declared when uploading to https://azur-stats.lyoko.io\nComposed of random characters and can be modified at will"
-    },
-    "API": {
-      "name": "Upload Route",
-      "help": "If users in China cannot connect to AzurStat, they can use \"China Reverse Proxy\"",
-      "default": "Default (Cloudflare)",
-      "cn_gz_reverse_proxy": "China Reverse Proxy (Guangzhou)"
     },
     "ResearchRecord": {
       "name": "Research Screenshot",
@@ -5582,16 +5568,6 @@
       "click": "Click speed test"
     }
   },
-  "AzurLaneUncensored": {
-    "_info": {
-      "name": "Uncensor",
-      "help": "Only for CN Server. This tool will:\n- Download uncensor files\n- Push files to the emulator\n- Restart the game client"
-    },
-    "Repository": {
-      "name": "Uncensor Repository",
-      "help": "Generally no modification is required.\nRepository https://github.com/LmeSzinc/AzurLaneUncensored\nDomestic mirror (default) https://e.coding.net/llop18870/alas/AzurLaneUncensored.git"
-    }
-  },
   "GameManager": {
     "_info": {
       "name": "Game Manager",
@@ -5780,7 +5756,6 @@
     "MenuDevelop": {
       "HomePage": "Home",
       "Translate": "Translate",
-      "Announcement": "Announcement",
       "Remote": "Remote Control",
       "Setting": "Settings",
       "Utils": "Utils"
@@ -5938,16 +5913,6 @@
       "GroupMisc": "Misc",
       "GroupRemoteAccess": "Remote Access",
       "GroupWebui": "WebUI",
-      "Repository": "AzurPilot Repository",
-      "RepositoryHelp": "Git repository used for install and update. CN users may use git://git.pull/AzurPilot.",
-      "Branch": "Branch",
-      "BranchHelp": "Use master for stable releases, or dev/app for testing.",
-      "GitExecutable": "Git Executable",
-      "GitExecutableHelp": "Path to git.exe. The default is usually fine.",
-      "GitProxy": "Git Proxy",
-      "GitProxyHelp": "HTTP or SOCKS5 proxy. Leave empty to disable.",
-      "SSLVerify": "Git SSL Verify",
-      "SSLVerifyHelp": "Recommended when connected to trusted networks.",
       "PythonExecutable": "Python Executable",
       "PythonExecutableHelp": "Python used to run AzurPilot.",
       "PypiMirror": "PyPI Mirror",
@@ -5957,7 +5922,7 @@
       "AdbExecutable": "ADB Executable",
       "AdbExecutableHelp": "Path to adb.exe.",
       "ReplaceAdb": "Replace Emulator ADB",
-      "ReplaceAdbHelp": "Recommended for compatibility with Chinese Android emulators.",
+      "ReplaceAdbHelp": "Replace the bundled ADB of supported emulators with the selected ADB to avoid version conflicts.",
       "AutoConnect": "Auto Connect Emulators",
       "AutoConnectHelp": "Try to connect available emulator instances on startup.",
       "InstallUiautomator2": "Reinstall uiautomator2",

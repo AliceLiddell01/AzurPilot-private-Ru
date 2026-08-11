@@ -1,154 +1,190 @@
-"""LLM 错误分析模块。
+"""Ограниченный анализ ошибок через явно настроенный OpenAI-compatible LLM API.
 
-使用 OpenAI 兼容 API 对脚本运行中捕获的异常进行智能分析。
-当配置启用 LLM 错误分析时，会将异常堆栈发送给 LLM，
-获取错误原因分析和修复建议，帮助用户快速定位问题。
-
-配置项：
-- Error_LlmAnalysis: 是否启用 LLM 错误分析
-- Error_LlmApiKey: OpenAI API Key
-- Error_LlmApiBase: API 基础 URL（默认 https://api.openai.com/v1）
-- Error_LlmModel: 使用的模型名称（默认 gpt-4o-mini）
-
-特性：
-- 相同错误的分析结果会缓存，避免重复调用 API
-- 使用 MD5 哈希进行错误去重
-- API 调用失败时静默降级，不影响正常运行
+Модуль не выбирает провайдера автоматически и по умолчанию выключен.
+Для запроса пользователь должен явно задать API key, API base и имя модели.
+Одинаковые traceback кэшируются, поэтому один и тот же сбой не вызывает повторные
+API-запросы в рамках текущего процесса.
 """
 
-import traceback
+import hashlib
 import os
+import traceback
+
 from module.logger import logger
 
-import hashlib
 
-# 已分析错误的缓存，键为堆栈信息的 MD5 哈希
 _analyzed_errors_cache = {}
-LLM_CONFIG_WARNING = 'Анализ ошибок LLM недоступен. Проверьте конфигурацию LLM, API Key, API Base, имя модели и баланс аккаунта.'
-LLM_EMPTY_RESULT_WARNING = 'LLM API вернул пустой результат. Проверьте конфигурацию сервиса модели, имя модели или баланс аккаунта.'
+LLM_CONFIG_WARNING = (
+    "Анализ ошибок LLM недоступен. Проверьте, что явно заданы API Key, API Base "
+    "и имя модели выбранного OpenAI-compatible провайдера."
+)
+LLM_EMPTY_RESULT_WARNING = (
+    "LLM API вернул пустой результат. Проверьте конфигурацию сервиса и имя модели."
+)
 
 
 def _get_analysis_from_response(response):
-    """从 OpenAI 兼容响应中提取分析文本。"""
-    choices = getattr(response, 'choices', None)
+    """Извлечь текст анализа из OpenAI-compatible ответа."""
+    choices = getattr(response, "choices", None)
     if not choices:
-        return ''
-    message = getattr(choices[0], 'message', None)
+        return ""
+    message = getattr(choices[0], "message", None)
     if message is None:
-        return ''
-    content = getattr(message, 'content', None)
+        return ""
+    content = getattr(message, "content", None)
     if content is None:
-        return ''
+        return ""
     return content.strip()
 
 
-def analyze_exception(config, e):
-    """
-    使用 LLM 分析异常原因。
+def _read_log_tail(path, max_bytes=64 * 1024, max_lines=200):
+    """Прочитать ограниченный хвост журнала, не загружая весь файл в память."""
+    with open(path, "rb") as stream:
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        start = max(0, size - max_bytes)
+        stream.seek(start)
+        data = stream.read(max_bytes)
 
-    Args:
-        config (AzurLaneConfig): 配置对象。
-        e (Exception): 异常对象。
-    """
-    if not hasattr(config, 'Error_LlmAnalysis') or not config.Error_LlmAnalysis:
+    text = data.decode("utf-8", errors="replace")
+    if start:
+        first_newline = text.find("\n")
+        if first_newline >= 0:
+            text = text[first_newline + 1 :]
+
+    result = "".join(text.splitlines(keepends=True)[-max_lines:])
+    encoded = result.encode("utf-8")
+    if len(encoded) > max_bytes:
+        result = encoded[-max_bytes:].decode("utf-8", errors="ignore")
+    return result
+
+
+def analyze_exception(config, error):
+    """Отправить один ограниченный диагностический пакет для анализа исключения."""
+    if not getattr(config, "Error_LlmAnalysis", False):
         return
-        
-    tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-    
-    error_hash = hashlib.md5(tb.encode('utf-8')).hexdigest()
+
+    tb = "".join(
+        traceback.format_exception(type(error), error, error.__traceback__)
+    )
+    error_hash = hashlib.md5(tb.encode("utf-8")).hexdigest()
     if error_hash in _analyzed_errors_cache:
         cached_result = _analyzed_errors_cache[error_hash]
-        model = getattr(config, 'Error_LlmModel', 'gpt-4o-mini')
-        logger.hr('[LLM] Анализ ошибки LLM (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя)', level=1)
-        logger.info('[LLM] Эта ошибка уже анализировалась LLM; повторно используется предыдущий результат для экономии API (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя) ...')
-        logger.info(f"[LLM] \n[Отчёт анализа LLM (предоставлен {model}, результат из кэша) (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя)]\n{cached_result}\n")
-        logger.hr('[LLM] Анализ LLM завершён', level=1)
+        model = str(getattr(config, "Error_LlmModel", "") or "настроенная модель")
+        logger.hr("[LLM] Анализ ошибки LLM", level=1)
+        logger.info(
+            "[LLM] Эта ошибка уже анализировалась; используется кэшированный результат без нового API-запроса."
+        )
+        logger.info(
+            f"[LLM] \n[Отчёт анализа LLM ({model}, кэш)]\n{cached_result}\n"
+        )
+        logger.hr("[LLM] Анализ LLM завершён", level=1)
         return
-        
-    api_key = getattr(config, 'Error_LlmApiKey', '')
-    api_base = getattr(config, 'Error_LlmApiBase', 'https://api.openai.com/v1')
-    model = getattr(config, 'Error_LlmModel', 'gpt-4o-mini')
-    
-    if not api_key:
-        logger.warning('[LLM] Анализ ошибок LLM включён, но API Key не настроен.')
+
+    api_key = str(getattr(config, "Error_LlmApiKey", "") or "").strip()
+    api_base = str(getattr(config, "Error_LlmApiBase", "") or "").strip()
+    model = str(getattr(config, "Error_LlmModel", "") or "").strip()
+
+    if not api_key or not api_base or not model:
+        missing = []
+        if not api_key:
+            missing.append("API Key")
+        if not api_base:
+            missing.append("API Base")
+        if not model:
+            missing.append("имя модели")
+        logger.warning(
+            "[LLM] Анализ ошибок включён, но не настроены: " + ", ".join(missing)
+        )
         logger.warning(LLM_CONFIG_WARNING)
         return
 
-    _analyzed_errors_cache[error_hash] = "该错误正在被 LLM 分析中，暂无结果。（严禁提交此模块的相关日志 群内机器人检测到将自动移出群聊）"
+    _analyzed_errors_cache[error_hash] = "Анализ выполняется..."
     if len(_analyzed_errors_cache) > 50:
         _analyzed_errors_cache.clear()
-        _analyzed_errors_cache[error_hash] = "该错误正在被 LLM 分析中，暂无结果。（严禁提交此模块的相关日志 群内机器人检测到将自动移出群聊）"
+        _analyzed_errors_cache[error_hash] = "Анализ выполняется..."
 
-    logger.hr('[LLM] Анализ ошибки LLM (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя)', level=1)
-    logger.info('[LLM] Вызов LLM для анализа причины исключения...')
-    
+    logger.hr("[LLM] Анализ ошибки LLM", level=1)
+    logger.info("[LLM] Отправка ограниченного диагностического контекста для анализа...")
+
     try:
         from openai import OpenAI
-        
+
         log_context = ""
         try:
-            if hasattr(logger, 'log_file') and logger.log_file and os.path.exists(logger.log_file):
-                with open(logger.log_file, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                    log_context = "".join(lines[-500:])  # 取最后 500 行日志作为上下文
+            if (
+                hasattr(logger, "log_file")
+                and logger.log_file
+                and os.path.exists(logger.log_file)
+            ):
+                log_context = _read_log_tail(logger.log_file)
         except Exception:
             pass
 
-        tb = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-        
-        # 将总上下文限制在 64K 字符以内
         def truncate(text, limit):
             if len(text) > limit:
-                return f"... [已截断] ...\n{text[-limit:]}"
+                return f"... [обрезано] ...\n{text[-limit:]}"
             return text
 
-        # 日志上下文优先级更高，但两者都需控制在限制范围内
-        # 假设系统提示词 + 元数据约占 1K，剩余 63K 分配给日志和堆栈追踪
-        tb = truncate(tb, 20000)
-        log_context = truncate(log_context, 40000)
+        tb = truncate(tb, 12000)
+        log_context = truncate(log_context, 24000)
 
         prompt = f"""
-你是一名碧蓝航线辅助脚本 AzurPilot 的专家开发者。
-脚本运行中发生了异常。请分析以下堆栈追踪以及最近的日志，并提供简洁的原因解释和改进建议。
+Ты анализируешь единичный сбой AzurPilot по уже собранному диагностическому контексту.
+У тебя нет доступа к репозиторию, файлам, терминалу или сети кроме текста ниже.
+Не придумывай отсутствующие факты и не предлагай автоматически изменять код.
 
-异常信息: {type(e).__name__}: {str(e)}
+Дай компактный отчёт, который разработчик сможет передать в отдельный интерактивный
+сеанс для последующего исправления:
+1. Краткое описание сбоя.
+2. Наиболее вероятная причина и уровень уверенности.
+3. Конкретные строки traceback/лога, на которых основан вывод.
+4. Что проверить следующим шагом.
+5. Какие данные нужны дополнительно, если причины недостаточно ясны.
 
-堆栈追踪:
+Исключение: {type(error).__name__}: {str(error)}
+
+Traceback:
 {tb}
 
-最近日志上下文:
+Последний релевантный фрагмент журнала:
 {log_context}
-
-请直接提供建议（中文）。
 """
         client = OpenAI(api_key=api_key, base_url=api_base)
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "你是一个专门分析 Alas 错误的助手。"},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты диагностический анализатор AzurPilot. Только анализируй предоставленный "
+                        "контекст; не утверждай, что выполнил команды, просмотрел репозиторий или исправил код."
+                    ),
+                },
+                {"role": "user", "content": prompt},
             ],
-            timeout=60
+            max_tokens=1200,
+            timeout=60,
         )
-        
+
         analysis = _get_analysis_from_response(response)
         if not analysis:
             _analyzed_errors_cache.pop(error_hash, None)
             logger.warning(LLM_EMPTY_RESULT_WARNING)
             logger.warning(LLM_CONFIG_WARNING)
-            logger.hr('[LLM] Анализ LLM завершён', level=1)
+            logger.hr("[LLM] Анализ LLM завершён", level=1)
             return
 
-        # 覆写真正的成果进字典
         _analyzed_errors_cache[error_hash] = analysis
-        logger.info(f"[LLM] \n[Отчёт анализа LLM (предоставлен {model})]\n{analysis}\n")
-        logger.hr('[LLM] Анализ LLM завершён', level=1)
-        
+        logger.info(f"[LLM] \n[Отчёт анализа LLM ({model})]\n{analysis}\n")
+        logger.hr("[LLM] Анализ LLM завершён", level=1)
+
     except ImportError:
         _analyzed_errors_cache.pop(error_hash, None)
-        logger.error('[LLM] Библиотека openai не установлена; анализ ошибок LLM недоступен.')
-    except Exception as ex:
+        logger.error(
+            "[LLM] Библиотека openai не установлена; OpenAI-compatible анализ недоступен."
+        )
+    except Exception as exc:
         _analyzed_errors_cache.pop(error_hash, None)
-        # 避免循环日志问题，LLM 本身失败时使用简化的错误日志
-        logger.error(f'[LLM] Вызов анализа LLM завершился ошибкой (категорически запрещено публиковать логи этого модуля; бот группы автоматически исключит нарушителя): {ex}')
+        logger.error(f"[LLM] Вызов анализа LLM завершился ошибкой: {exc}")
         logger.warning(LLM_CONFIG_WARNING)

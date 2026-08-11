@@ -111,8 +111,6 @@ def main():
             + "\n".join(original_imports)
             + "\n\npatch_executor()\npatch_mimetype()\nfix_py37_subprocess_communicate()\n\n"
             + "task_handler = TaskHandler()\n"
-            + 'RESTRICTED_DEVICE_IDS = {"1", "2"}\n'
-            + 'RESTRICTED_DEVICE_MESSAGE = "你的公网IP已泄露 请加群https://join.nanoda.work/#/join联系我们解除安全限制"\n'
             + 'PUBLIC_WEBUI_PASSWORD_GENERATE_FAILED_MESSAGE = "当前配置允许所有设备访问，但自动生成密码失败，请手动在 config/deploy.yaml 设置 Password 后重启。"\n'
         )
     elif args.mode == "helpers":
@@ -152,4 +150,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

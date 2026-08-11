@@ -5,7 +5,6 @@ services:
         build:
             context: .
             dockerfile: ./deploy/docker/Dockerfile
-            # dockerfile: ./deploy/docker/Dockerfile.cn
             args:
                 UV_INDEX_URL: ${UV_INDEX_URL:-https://pypi.org/simple}
                 UV_EXTRA_INDEX_URL: ${UV_EXTRA_INDEX_URL:-}
@@ -14,7 +13,6 @@ services:
         init: true
         working_dir: /app/AzurPilot
         environment:
-            TZ: ${TZ:-Asia/Shanghai}
             PYTHONDONTWRITEBYTECODE: "1"
             PYTHONUNBUFFERED: "1"
         volumes:
@@ -27,7 +25,7 @@ services:
             test:
                 [
                     "CMD-SHELL",
-                    ".venv/bin/python -c \"import socket; s=socket.create_connection(('127.0.0.1', 22267), 3); s.close()\"",
+                    ".venv/bin/python -c \"import socket; s=socket.create_connection(('127.0.0.1', 25548), 3); s.close()\"",
                 ]
             interval: 30s
             timeout: 5s

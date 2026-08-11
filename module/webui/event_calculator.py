@@ -257,11 +257,22 @@ def _write_cache(data: Dict[str, Any]) -> None:
 
 
 def load_event_calculator(force_refresh: bool = False) -> Dict[str, Any]:
-    """读取 Wiki 活动计算器数据，失败时回退到缓存。"""
+    """Прочитать локальный кэш; обращаться к внешней Wiki только по явному запросу."""
     cache = _read_cache()
     cache_valid = cache.get("cache_version") == CACHE_VERSION
     if cache and cache_valid and not force_refresh:
         return {**cache, "from_cache": True}
+
+    if not force_refresh:
+        return {
+            "error": (
+                "Локальный кэш калькулятора события отсутствует или устарел. "
+                "Нажмите «Загрузить данные Wiki», чтобы явно выполнить внешний запрос "
+                "к wiki.biligame.com."
+            ),
+            "from_cache": False,
+            "needs_refresh": True,
+        }
 
     try:
         response = requests.get(WIKI_RAW_URL, timeout=10)
@@ -273,7 +284,7 @@ def load_event_calculator(force_refresh: bool = False) -> Dict[str, Any]:
         return {**data, "from_cache": False}
     except Exception as e:
         logger.warning(f"[WebUI — Калькулятор] Не удалось получить калькулятор события Wiki: {e}")
-        if cache:
+        if cache and cache_valid:
             return {**cache, "from_cache": True, "error": str(e)}
         return {"error": str(e), "from_cache": False}
 
