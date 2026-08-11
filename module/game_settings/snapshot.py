@@ -12,7 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
-from deploy.atomic import atomic_read_text, atomic_replace, atomic_write
+from deploy.atomic import atomic_read_text, atomic_write
 from module.config.server import GLOBAL_PACKAGE
 from module.game_settings.model import (
     FrameRateValue,
@@ -320,11 +320,13 @@ def migrate_legacy_game_settings_snapshot(
     target: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH,
     legacy: Path | str = LEGACY_GAME_SETTINGS_SNAPSHOT_PATH,
 ) -> bool:
-    """Перенести старый root-level snapshot в новый runtime-state namespace.
+    """Перенести старый root-level snapshot без перезаписи нового snapshot.
 
-    Миграция выполняется только когда нового файла ещё нет. При ошибке старый
-    snapshot сохраняется на месте, а вызывающий код продолжает работать с новым
-    путём и при необходимости выполнит live refresh.
+    Hard-link создаёт target атомарно только если его ещё нет. Поэтому даже если
+    другой процесс создаст новый snapshot между предварительной проверкой и
+    переносом, legacy-файл не сможет его перезаписать. На файловой системе без
+    hard-link migration fail-safe оставляет legacy на месте; consumer затем может
+    выполнить обычный live refresh в новом runtime-state namespace.
     """
     target_path = Path(target)
     legacy_path = Path(legacy)
@@ -332,7 +334,9 @@ def migrate_legacy_game_settings_snapshot(
         return False
     try:
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_replace(str(legacy_path), str(target_path))
+        target_path.hardlink_to(legacy_path)
+    except FileExistsError:
+        return False
     except FileNotFoundError:
         return False
     except OSError as exc:
@@ -343,6 +347,18 @@ def migrate_legacy_game_settings_snapshot(
             type(exc).__name__,
         )
         return False
+
+    try:
+        legacy_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        logger.warning(
+            "[Снимок игровых настроек] Новый файл создан, но старый не удалён: %s (%s)",
+            legacy_path,
+            type(exc).__name__,
+        )
+
     logger.info(
         "[Снимок игровых настроек] Перенесён в новый каталог: %s -> %s",
         legacy_path,
