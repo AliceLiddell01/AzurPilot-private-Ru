@@ -60,6 +60,7 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     )
     server_checker = (ROOT / "module/server_checker.py").read_text(encoding="utf-8")
     time_source = (ROOT / "module/config/time_source.py").read_text(encoding="utf-8")
+    docker_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     # Пользовательский случайный фон WebUI пока намеренно сохраняется.
     assert 'https://api.yppp.net/api.php' in theme
@@ -86,3 +87,10 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
         "cn.pool.ntp.org",
     ):
         assert host not in time_source
+
+    # Upstream GitCode mirror не относится к personal/stable и не должен вернуться.
+    assert not (ROOT / ".github/workflows/sync2.yml").exists()
+
+    # Мёртвая ссылка на отсутствующий китайский Dockerfile удалена, рабочий Dockerfile сохранён.
+    assert "dockerfile: ./deploy/docker/Dockerfile" in docker_compose
+    assert "Dockerfile.cn" not in docker_compose
