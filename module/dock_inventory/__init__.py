@@ -1,4 +1,4 @@
-"""Публичные модели Dock Inventory и offline-каталог canonical identity."""
+"""Публичные модели Dock Inventory и offline-каталоги."""
 
 from module.dock_inventory.catalog import (
     DockCanonicalShip,
@@ -14,6 +14,17 @@ from module.dock_inventory.model import (
     IdentityStatus,
     StarObservation,
 )
+from module.dock_inventory.progression import (
+    DockProgressionCatalog,
+    DockProgressionCatalogError,
+    DockProgressionFamily,
+    DockProgressionObservation,
+    DockProgressionState,
+    ProgressionKind,
+    ProgressionStatus,
+    derive_dock_progression,
+    load_dock_progression_catalog,
+)
 
 __all__ = [
     "AffinityState",
@@ -22,8 +33,17 @@ __all__ = [
     "DockIdentityCatalog",
     "DockIdentityCatalogError",
     "DockInventoryScanResult",
+    "DockProgressionCatalog",
+    "DockProgressionCatalogError",
+    "DockProgressionFamily",
+    "DockProgressionObservation",
+    "DockProgressionState",
     "DockShipObservation",
     "IdentityStatus",
+    "ProgressionKind",
+    "ProgressionStatus",
     "StarObservation",
+    "derive_dock_progression",
     "load_dock_identity_catalog",
+    "load_dock_progression_catalog",
 ]
