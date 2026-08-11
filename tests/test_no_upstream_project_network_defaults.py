@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -76,6 +78,8 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     developer_tools = (ROOT / "module/webui/app_developer_tools.py").read_text(
         encoding="utf-8"
     )
+    docker_deploy_path = ROOT / "deploy/docker/deploy-image.sh"
+    docker_deploy = docker_deploy_path.read_text(encoding="utf-8")
     maa_updater_path = ROOT / "submodule/AlasMaaBridge/module/asst/updater.py"
     maa_updater = maa_updater_path.read_text(encoding="utf-8")
 
@@ -133,6 +137,26 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     # Экран удалённого доступа остаётся, но больше не рекламирует upstream provider.
     assert 't("Gui.Remote.ConfigureHint")' in developer_tools
     assert "app.azurlane.cloud" not in developer_tools
+
+    # Docker helper сохраняет развёртывание, но больше не зависит от китайских repo/image/mirror/IP endpoints.
+    if shutil.which("bash"):
+        subprocess.run(["bash", "-n", str(docker_deploy_path)], check=True)
+    assert "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git" in docker_deploy
+    assert 'BRANCH="${BRANCH:-personal/stable}"' in docker_deploy
+    assert "https://download.docker.com/linux/" in docker_deploy
+    assert 'IMAGE="${IMAGE:-azurpilot-private-ru:local}"' in docker_deploy
+    assert 'docker_cmd build --pull -t "${IMAGE}"' in docker_deploy
+    assert 'merge --ff-only "origin/${BRANCH}"' in docker_deploy
+    assert "https://ifconfig.me/ip" in docker_deploy
+    for token in (
+        "gitcode.com",
+        "aliyuncs.com",
+        "mirrors.aliyun.com",
+        "mirrors.tuna.tsinghua.edu.cn",
+        "4.ipw.cn",
+        "myip.ipip.net",
+    ):
+        assert token not in docker_deploy
 
     # MAA updater сохраняет обновление, но использует только официальный GitHub API и release assets.
     compile(maa_updater, str(maa_updater_path), "exec")
