@@ -22,6 +22,7 @@ from module.webui.app_dependencies import (
     filepath_config,
     get_config_mod,
     input_group,
+    is_webui_hidden_instance,
     json,
     load_config,
     os,
@@ -105,7 +106,7 @@ def app_manage(gui: "AlasGUI") -> None:
         return ""
 
     def validate_name(name: str):
-        if name in alas_instance():
+        if name in alas_instance() or is_webui_hidden_instance(name):
             return t("Gui.AppManage.NameExist")
         if set(name) & set(".\\/:*?\"'<>|"):
             return t("Gui.AppManage.InvalidChar")
@@ -431,6 +432,10 @@ def app_manage(gui: "AlasGUI") -> None:
             mod_name = "alas"
         else:
             config_name, mod_name, _ = file_name.rsplit(".", maxsplit=2)
+
+        if is_webui_hidden_instance(config_name):
+            toast(t("Gui.AppManage.NameExist"), color="error")
+            return
 
         config = cast(Dict[str, Any], json.loads(file.decode(encoding="utf-8")))
         State.config_updater.write_file(config_name, config, mod_name)

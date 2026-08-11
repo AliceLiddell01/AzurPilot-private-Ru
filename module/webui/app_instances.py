@@ -10,6 +10,7 @@ from module.webui.app_dependencies import (
     clear,
     close_popup,
     get_config_mod,
+    is_webui_hidden_instance,
     load_config,
     pin,
     popup,
@@ -37,6 +38,8 @@ class InstanceMixin(WebUIMixinBase):
     """WebUI实例切换创建和导入"""
 
     def ui_alas(self, config_name: str) -> None:
+        if is_webui_hidden_instance(config_name):
+            return
         self._set_manage_mode(False)
         if config_name == self.alas_name:
             self.expand_menu()
@@ -72,7 +75,7 @@ class InstanceMixin(WebUIMixinBase):
                 name = cast(str, pin["AddAlas_name"])
                 origin = cast(str, pin["AddAlas_copyfrom"])
 
-                if name in alas_instance():
+                if name in alas_instance() or is_webui_hidden_instance(name):
                     err = "Gui.AddAlas.FileExist"
                 elif set(name) & set(".\\/:*?\"'<>|"):
                     err = "Gui.AddAlas.InvalidChar"
@@ -164,7 +167,7 @@ class InstanceMixin(WebUIMixinBase):
 
                         var ok = false;
                         if (subPath.startsWith('config/')) {
-                            if ((name.endsWith('.json') || name.endsWith('.db')) && !name.startsWith('template')) ok = true;
+                            if ((name.endsWith('.json') || name.endsWith('.db')) && !name.startsWith('template') && name !== 'ap.json' && name !== 'game_settings_snapshot.json') ok = true;
                         } else if (subPath.startsWith('log/cl1/')) {
                             ok = true;
                         } else if (subPath === 'log/azurstat_meowofficer_farming.csv') {

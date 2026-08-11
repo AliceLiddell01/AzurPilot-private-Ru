@@ -31,7 +31,8 @@ from module.logger import logger
 
 
 GAME_SETTINGS_SNAPSHOT_SCHEMA_VERSION = 1
-DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH = Path("config/game_settings_snapshot.json")
+DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH = Path("config/state/game_settings_snapshot.json")
+LEGACY_GAME_SETTINGS_SNAPSHOT_PATH = Path("config/game_settings_snapshot.json")
 _FINGERPRINT_CONTRACT_VERSION = 1
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -314,6 +315,63 @@ def serialize_game_settings_snapshot(
     ) + "\n"
 
 
+def migrate_legacy_game_settings_snapshot(
+    *,
+    target: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH,
+    legacy: Path | str = LEGACY_GAME_SETTINGS_SNAPSHOT_PATH,
+) -> bool:
+    """Перенести старый root-level snapshot без перезаписи нового snapshot.
+
+    Hard-link создаёт target атомарно только если его ещё нет. Поэтому даже если
+    другой процесс создаст новый snapshot между предварительной проверкой и
+    переносом, legacy-файл не сможет его перезаписать. На файловой системе без
+    hard-link migration fail-safe оставляет legacy на месте; consumer затем может
+    выполнить обычный live refresh в новом runtime-state namespace.
+    """
+    target_path = Path(target)
+    legacy_path = Path(legacy)
+    if target_path.exists() or not legacy_path.exists():
+        return False
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.hardlink_to(legacy_path)
+    except FileExistsError:
+        return False
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        logger.warning(
+            "[Снимок игровых настроек] Не удалось перенести старый файл %s -> %s (%s)",
+            legacy_path,
+            target_path,
+            type(exc).__name__,
+        )
+        return False
+
+    try:
+        legacy_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        logger.warning(
+            "[Снимок игровых настроек] Новый файл создан, но старый не удалён: %s (%s)",
+            legacy_path,
+            type(exc).__name__,
+        )
+
+    logger.info(
+        "[Снимок игровых настроек] Перенесён в новый каталог: %s -> %s",
+        legacy_path,
+        target_path,
+    )
+    return True
+
+
+def _prepare_default_snapshot_path(target: Path) -> None:
+    if target == DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH:
+        migrate_legacy_game_settings_snapshot(target=target)
+
+
 def save_game_settings_snapshot(
     result: GameSettingsScanResult,
     *,
@@ -324,6 +382,7 @@ def save_game_settings_snapshot(
     registry: Iterable[GameSettingCheckSpec] = GAME_SETTINGS_OPTIONS_REGISTRY,
 ) -> GameSettingsSnapshot:
     target = Path(path)
+    _prepare_default_snapshot_path(target)
     snapshot = create_game_settings_snapshot(
         result,
         source=source,
@@ -343,6 +402,7 @@ def invalidate_game_settings_snapshot(
     path: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH,
 ) -> None:
     target = Path(path)
+    _prepare_default_snapshot_path(target)
     try:
         target.unlink()
     except FileNotFoundError:
@@ -584,6 +644,7 @@ def load_game_settings_snapshot(
     registry: Iterable[GameSettingCheckSpec] = GAME_SETTINGS_OPTIONS_REGISTRY,
 ) -> GameSettingsSnapshotLoadResult:
     target = Path(path)
+    _prepare_default_snapshot_path(target)
     if max_age is not None and max_age < timedelta(0):
         raise ValueError("max_age не может быть отрицательным")
     if not target.exists():
@@ -664,6 +725,7 @@ def refresh_game_settings_snapshot(
     expected_scope: GameSettingsEnvironmentScope = CURRENT_GAME_SETTINGS_SCOPE,
 ) -> GameSettingsSnapshot:
     target = Path(path)
+    _prepare_default_snapshot_path(target)
     scanner = scanner_factory()
     scanner.game_settings_snapshot_path = target
     scanner.scan_game_settings()
