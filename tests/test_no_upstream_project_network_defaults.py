@@ -73,6 +73,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     docker_publish = (ROOT / ".github/workflows/docker-publish.yml").read_text(
         encoding="utf-8"
     )
+    developer_tools = (ROOT / "module/webui/app_developer_tools.py").read_text(
+        encoding="utf-8"
+    )
     maa_updater_path = ROOT / "submodule/AlasMaaBridge/module/asst/updater.py"
     maa_updater = maa_updater_path.read_text(encoding="utf-8")
 
@@ -125,6 +128,10 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "DOCKERHUB_USERNAME" not in docker_publish
     assert "DOCKERHUB_TOKEN" not in docker_publish
     assert "hajiming/azurlaneautoscript" not in docker_publish
+
+    # Экран удалённого доступа остаётся, но больше не рекламирует upstream provider.
+    assert 't("Gui.Remote.ConfigureHint")' in developer_tools
+    assert "app.azurlane.cloud" not in developer_tools
 
     # MAA updater сохраняет обновление, но использует только официальный GitHub API и release assets.
     compile(maa_updater, str(maa_updater_path), "exec")
