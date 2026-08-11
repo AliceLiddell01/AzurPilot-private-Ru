@@ -79,6 +79,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     developer_tools = (ROOT / "module/webui/app_developer_tools.py").read_text(
         encoding="utf-8"
     )
+    remote_access = (ROOT / "module/webui/remote_access.py").read_text(
+        encoding="utf-8"
+    )
     docker_deploy_path = ROOT / "deploy/docker/deploy-image.sh"
     docker_deploy = docker_deploy_path.read_text(encoding="utf-8")
     maa_argument = (
@@ -153,6 +156,12 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     # Экран удалённого доступа остаётся, но больше не рекламирует upstream provider.
     assert 't("Gui.Remote.ConfigureHint")' in developer_tools
     assert "app.azurlane.cloud" not in developer_tools
+
+    # SSH provider остаётся полностью настраиваемым: private runtime не имеет скрытого fallback-хоста.
+    obsolete_provider = "app.pywebio" + ".online"
+    assert obsolete_provider not in remote_access
+    assert "server, server_port = _parse_host_port(State.deploy_config.SSHServer)" in remote_access
+    assert '"server": target' in remote_access
 
     # Docker helper сохраняет развёртывание, но больше не зависит от китайских repo/image/mirror/IP endpoints.
     if shutil.which("bash"):
