@@ -1,0 +1,348 @@
+name: One-time LLM defaults cleanup
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: ${{ github.head_ref == 'chatgpt/remove-upstream-announcements' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: chatgpt/remove-upstream-announcements
+          fetch-depth: 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Install locked dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked --group ci
+
+      - name: Neutralize provider defaults and bound legacy analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("module/config/argument/argument.yaml")
+          text = path.read_text(encoding="utf-8")
+          old = '''  LlmAnalysis: true\n  LlmApiKey:\n    type: textarea\n    value: ""\n  LlmApiBase:\n    type: textarea\n    value: "https://api.xiaomimimo.com/v1"\n  LlmModel:\n    value: "mimo-v2.5-pro"\n    valuetype: str\n'''
+          new = '''  LlmAnalysis: false\n  LlmApiKey:\n    type: textarea\n    value: ""\n  LlmApiBase:\n    type: textarea\n    value: ""\n  LlmModel:\n    value: ""\n    valuetype: str\n'''
+          if text.count(old) != 1:
+              raise SystemExit("argument.yaml: LLM default sentinel not found exactly once")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="")
+          PY
+
+          cat > module/llm.py <<'PYFILE'
+          """Ограниченный анализ ошибок через явно настроенный OpenAI-compatible LLM API.
+
+          Модуль не выбирает провайдера автоматически и по умолчанию выключен.
+          Для запроса пользователь должен явно задать API key, API base и имя модели.
+          Одинаковые traceback кэшируются, поэтому один и тот же сбой не вызывает повторные
+          API-запросы в рамках текущего процесса.
+          """
+
+          import hashlib
+          import os
+          import traceback
+
+          from module.logger import logger
+
+
+          _analyzed_errors_cache = {}
+          LLM_CONFIG_WARNING = (
+              "Анализ ошибок LLM недоступен. Проверьте, что явно заданы API Key, API Base "
+              "и имя модели выбранного OpenAI-compatible провайдера."
+          )
+          LLM_EMPTY_RESULT_WARNING = (
+              "LLM API вернул пустой результат. Проверьте конфигурацию сервиса и имя модели."
+          )
+
+
+          def _get_analysis_from_response(response):
+              """Извлечь текст анализа из OpenAI-compatible ответа."""
+              choices = getattr(response, "choices", None)
+              if not choices:
+                  return ""
+              message = getattr(choices[0], "message", None)
+              if message is None:
+                  return ""
+              content = getattr(message, "content", None)
+              if content is None:
+                  return ""
+              return content.strip()
+
+
+          def analyze_exception(config, error):
+              """Отправить один ограниченный диагностический пакет для анализа исключения."""
+              if not getattr(config, "Error_LlmAnalysis", False):
+                  return
+
+              tb = "".join(
+                  traceback.format_exception(type(error), error, error.__traceback__)
+              )
+              error_hash = hashlib.md5(tb.encode("utf-8")).hexdigest()
+              if error_hash in _analyzed_errors_cache:
+                  cached_result = _analyzed_errors_cache[error_hash]
+                  model = str(getattr(config, "Error_LlmModel", "") or "настроенная модель")
+                  logger.hr("[LLM] Анализ ошибки LLM", level=1)
+                  logger.info(
+                      "[LLM] Эта ошибка уже анализировалась; используется кэшированный результат без нового API-запроса."
+                  )
+                  logger.info(
+                      f"[LLM] \n[Отчёт анализа LLM ({model}, кэш)]\n{cached_result}\n"
+                  )
+                  logger.hr("[LLM] Анализ LLM завершён", level=1)
+                  return
+
+              api_key = str(getattr(config, "Error_LlmApiKey", "") or "").strip()
+              api_base = str(getattr(config, "Error_LlmApiBase", "") or "").strip()
+              model = str(getattr(config, "Error_LlmModel", "") or "").strip()
+
+              if not api_key or not api_base or not model:
+                  missing = []
+                  if not api_key:
+                      missing.append("API Key")
+                  if not api_base:
+                      missing.append("API Base")
+                  if not model:
+                      missing.append("имя модели")
+                  logger.warning(
+                      "[LLM] Анализ ошибок включён, но не настроены: " + ", ".join(missing)
+                  )
+                  logger.warning(LLM_CONFIG_WARNING)
+                  return
+
+              _analyzed_errors_cache[error_hash] = "Анализ выполняется..."
+              if len(_analyzed_errors_cache) > 50:
+                  _analyzed_errors_cache.clear()
+                  _analyzed_errors_cache[error_hash] = "Анализ выполняется..."
+
+              logger.hr("[LLM] Анализ ошибки LLM", level=1)
+              logger.info("[LLM] Отправка ограниченного диагностического контекста для анализа...")
+
+              try:
+                  from openai import OpenAI
+
+                  log_context = ""
+                  try:
+                      if (
+                          hasattr(logger, "log_file")
+                          and logger.log_file
+                          and os.path.exists(logger.log_file)
+                      ):
+                          with open(logger.log_file, "r", encoding="utf-8") as stream:
+                              lines = stream.readlines()
+                              log_context = "".join(lines[-200:])
+                  except Exception:
+                      pass
+
+                  def truncate(text, limit):
+                      if len(text) > limit:
+                          return f"... [обрезано] ...\n{text[-limit:]}"
+                      return text
+
+                  tb = truncate(tb, 12000)
+                  log_context = truncate(log_context, 24000)
+
+                  prompt = f"""
+          Ты анализируешь единичный сбой AzurPilot по уже собранному диагностическому контексту.
+          У тебя нет доступа к репозиторию, файлам, терминалу или сети кроме текста ниже.
+          Не придумывай отсутствующие факты и не предлагай автоматически изменять код.
+
+          Дай компактный отчёт, который разработчик сможет передать в отдельный интерактивный
+          сеанс для последующего исправления:
+          1. Краткое описание сбоя.
+          2. Наиболее вероятная причина и уровень уверенности.
+          3. Конкретные строки traceback/лога, на которых основан вывод.
+          4. Что проверить следующим шагом.
+          5. Какие данные нужны дополнительно, если причины недостаточно ясны.
+
+          Исключение: {type(error).__name__}: {str(error)}
+
+          Traceback:
+          {tb}
+
+          Последний релевантный фрагмент журнала:
+          {log_context}
+          """
+                  client = OpenAI(api_key=api_key, base_url=api_base)
+                  response = client.chat.completions.create(
+                      model=model,
+                      messages=[
+                          {
+                              "role": "system",
+                              "content": (
+                                  "Ты диагностический анализатор AzurPilot. Только анализируй предоставленный "
+                                  "контекст; не утверждай, что выполнил команды, просмотрел репозиторий или исправил код."
+                              ),
+                          },
+                          {"role": "user", "content": prompt},
+                      ],
+                      max_tokens=1200,
+                      timeout=60,
+                  )
+
+                  analysis = _get_analysis_from_response(response)
+                  if not analysis:
+                      _analyzed_errors_cache.pop(error_hash, None)
+                      logger.warning(LLM_EMPTY_RESULT_WARNING)
+                      logger.warning(LLM_CONFIG_WARNING)
+                      logger.hr("[LLM] Анализ LLM завершён", level=1)
+                      return
+
+                  _analyzed_errors_cache[error_hash] = analysis
+                  logger.info(f"[LLM] \n[Отчёт анализа LLM ({model})]\n{analysis}\n")
+                  logger.hr("[LLM] Анализ LLM завершён", level=1)
+
+              except ImportError:
+                  _analyzed_errors_cache.pop(error_hash, None)
+                  logger.error(
+                      "[LLM] Библиотека openai не установлена; OpenAI-compatible анализ недоступен."
+                  )
+              except Exception as exc:
+                  _analyzed_errors_cache.pop(error_hash, None)
+                  logger.error(f"[LLM] Вызов анализа LLM завершился ошибкой: {exc}")
+                  logger.warning(LLM_CONFIG_WARNING)
+          PYFILE
+
+      - name: Regenerate config artifacts and neutralize help text
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked -m dev_tools.button_extract
+          uv run --locked -m module.config.config_updater
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          replacements = {
+              "ru-RU.json": {
+                  "LlmAnalysis": (
+                      "Включить анализ ошибок с помощью LLM",
+                      "При возникновении ошибки отправляет ограниченный диагностический контекст во внешний LLM API. Функция выключена по умолчанию.",
+                  ),
+                  "LlmApiKey": (
+                      "Ключ API LLM",
+                      "Укажите API-ключ выбранного вами OpenAI-compatible провайдера. Без явной настройки запросы не выполняются.",
+                  ),
+                  "LlmApiBase": (
+                      "База API LLM",
+                      "Укажите полный базовый URL выбранного OpenAI-compatible провайдера. Предустановленного провайдера нет.",
+                  ),
+                  "LlmModel": (
+                      "Модель LLM",
+                      "Укажите точное имя модели, поддерживаемое выбранным провайдером.",
+                  ),
+              },
+              "en-US.json": {
+                  "LlmAnalysis": (
+                      "Enable LLM Error Analysis",
+                      "When an error occurs, send bounded diagnostic context to an external LLM API. Disabled by default.",
+                  ),
+                  "LlmApiKey": (
+                      "LLM API Key",
+                      "Enter the API key for your chosen OpenAI-compatible provider. No request is made without explicit configuration.",
+                  ),
+                  "LlmApiBase": (
+                      "LLM API Base",
+                      "Enter the full base URL of your chosen OpenAI-compatible provider. No provider is preconfigured.",
+                  ),
+                  "LlmModel": (
+                      "LLM Model",
+                      "Enter the exact model name supported by your chosen provider.",
+                  ),
+              },
+          }
+
+          for filename, entries in replacements.items():
+              path = Path("module/config/i18n") / filename
+              data = json.loads(path.read_text(encoding="utf-8"))
+              error_group = data.get("Error")
+              if not isinstance(error_group, dict):
+                  raise SystemExit(f"{filename}: Error i18n group missing")
+              for key, (name, help_text) in entries.items():
+                  item = error_group.get(key)
+                  if not isinstance(item, dict):
+                      raise SystemExit(f"{filename}: Error.{key} missing")
+                  item["name"] = name
+                  item["help"] = help_text
+              path.write_text(
+                  json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                  encoding="utf-8",
+                  newline="",
+              )
+          PY
+
+      - name: Add regression contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/test_no_upstream_project_network_defaults.py")
+          text = path.read_text(encoding="utf-8")
+          anchor = '''    time_source = (ROOT / "module/config/time_source.py").read_text(encoding="utf-8")\n'''
+          replacement = anchor + '''    llm_argument = (ROOT / "module/config/argument/argument.yaml").read_text(encoding="utf-8")\n    llm_runtime = (ROOT / "module/llm.py").read_text(encoding="utf-8")\n    llm_ru_i18n = (ROOT / "module/config/i18n/ru-RU.json").read_text(encoding="utf-8")\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("network cleanup test: time_source anchor not found exactly once")
+          text = text.replace(anchor, replacement, 1)
+
+          anchor = '''    # NTP-механизм и пользовательское переопределение сохранены, China-first defaults удалены.\n'''
+          block = '''    # Legacy LLM-анализатор сохранён как явная opt-in функция без предустановленного провайдера.\n    assert "LlmAnalysis: false" in llm_argument\n    assert 'LlmApiBase:\\n    type: textarea\\n    value: ""' in llm_argument\n    assert 'LlmModel:\\n    value: ""' in llm_argument\n    assert "if not api_key or not api_base or not model:" in llm_runtime\n    assert "max_tokens=1200" in llm_runtime\n    assert "lines[-200:]" in llm_runtime\n    assert "Предустановленного провайдера нет" in llm_ru_i18n\n    for token in (\n        "xiaomimimo" + ".com",\n        "platform.deepseek" + ".com",\n        "mimo-v2.5-pro",\n    ):\n        assert token not in llm_argument\n        assert token not in llm_runtime\n        assert token not in llm_ru_i18n\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("network cleanup test: NTP anchor not found exactly once")
+          path.write_text(text.replace(anchor, block + anchor, 1), encoding="utf-8", newline="")
+          PY
+
+      - name: Retire one-time workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/cleanup-llm-defaults.yml
+          printf '%s\n' 'LLM defaults cleanup complete; remove marker with GitHub connector' > .github/llm-defaults-cleanup.done
+
+      - name: Verify focused contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python -m py_compile module/llm.py
+          uv run --locked --group ci python -m pytest -q tests/test_no_upstream_project_network_defaults.py
+          if git grep -n -E 'xiaomimimo\.com|platform\.deepseek\.com|mimo-v2\.5-pro' -- module/llm.py module/config/argument module/config/i18n; then
+            echo 'Provider-specific LLM defaults or help links remain.' >&2
+            exit 1
+          fi
+          git diff --check
+
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --name-status
+          git diff --cached --quiet && { echo 'Expected LLM cleanup changes were not generated.' >&2; exit 1; }
+          git commit -m "refactor(llm): убрать provider defaults и ограничить анализ"
+          git push origin HEAD:chatgpt/remove-upstream-announcements
