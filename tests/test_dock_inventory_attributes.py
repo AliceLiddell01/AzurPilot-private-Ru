@@ -446,6 +446,33 @@ def test_ambiguous_glyph_clipped_roi_and_wrong_geometry_are_unknown() -> None:
     assert blank.reason == "first_filled_star_not_proven"
 
 
+@pytest.mark.parametrize("ambiguous_index", (1, 4))
+def test_any_ambiguous_glyph_keeps_aggregate_unknown(ambiguous_index: int) -> None:
+    frame = np.full((720, 1280, 3), 70, dtype=np.uint8)
+    slot = _slot(0, 77, DockCardPresence.PRESENT)
+    _draw_star_row(frame, slot, (DockStarGlyphState.FILLED,) * 5)
+    scanner = DockStarScanner()
+    original_alignment = scanner._best_shape_alignment
+    alignment_index = 0
+
+    def alignment_with_one_ambiguous_glyph(*args, **kwargs):
+        nonlocal alignment_index
+        aligned = original_alignment(*args, **kwargs)
+        current_index = alignment_index
+        alignment_index += 1
+        if aligned is not None and current_index == ambiguous_index:
+            return aligned[0], aligned[1], scanner.SHAPE_SCORE_MIN - 0.01
+        return aligned
+
+    scanner._best_shape_alignment = alignment_with_one_ambiguous_glyph
+    result = scanner.scan(frame, (slot,))[0]
+
+    assert result.status is DockStarStatus.UNKNOWN
+    assert result.reason == "ambiguous_star_glyph"
+    assert any(glyph.state is DockStarGlyphState.UNKNOWN for glyph in result.glyphs)
+    assert result.stars is None
+
+
 def test_composition_scans_only_present_blocks_unknown_and_preserves_duplicates() -> (
     None
 ):

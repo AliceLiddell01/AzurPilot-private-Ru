@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar, Protocol
 
@@ -470,11 +470,15 @@ class DockStarScanner:
     FILLED_WEAK_MATCH_MIN = 0.18
     FILLED_WEAK_RATIO_MIN = 0.25
     FILLED_WEAK_UPPER_RATIO_MIN = 0.23
+    # Some real filled glyphs have a dim upper point but retain a dense lower
+    # body. Keep this as a per-glyph visual rule: neighbouring glyph states
+    # must never upgrade an ambiguous observation.
+    FILLED_LOWER_HEAVY_RATIO_MIN = 0.30
+    FILLED_LOWER_HEAVY_UPPER_RATIO_MIN = 0.16
     # Real outlined empty glyphs retain small yellow anti-aliased/highlight
     # fragments. The calibrated cutoff stays below the weakest continuous
     # filled-row evidence on the acceptance frame sets.
     EMPTY_RATIO_MAX = 0.245
-    TRAILING_FILLED_RATIO_MIN = 0.26
     SHAPE_SCORE_MIN = 0.45
     GLYPH_ALIGNMENT_RADIUS = 2
 
@@ -653,8 +657,17 @@ class DockStarScanner:
                     self.FILLED_WEAK_MATCH_MIN
                     <= fill_match_score
                     < self.FILLED_MATCH_MIN
-                    and fill_ratio >= self.FILLED_WEAK_RATIO_MIN
-                    and upper_fill_ratio >= self.FILLED_WEAK_UPPER_RATIO_MIN
+                    and (
+                        (
+                            fill_ratio >= self.FILLED_WEAK_RATIO_MIN
+                            and upper_fill_ratio >= self.FILLED_WEAK_UPPER_RATIO_MIN
+                        )
+                        or (
+                            fill_ratio >= self.FILLED_LOWER_HEAVY_RATIO_MIN
+                            and upper_fill_ratio
+                            >= self.FILLED_LOWER_HEAVY_UPPER_RATIO_MIN
+                        )
+                    )
                 )
             ):
                 state = DockStarGlyphState.FILLED
@@ -673,34 +686,6 @@ class DockStarScanner:
                     fill_match_score=fill_match_score,
                 )
             )
-        for index, glyph in enumerate(glyphs):
-            if glyph.state is not DockStarGlyphState.UNKNOWN:
-                continue
-            earlier = tuple(item.state for item in glyphs[:index])
-            later = tuple(item.state for item in glyphs[index + 1 :])
-            if (
-                DockStarGlyphState.FILLED in later
-                and DockStarGlyphState.EMPTY not in earlier
-            ):
-                glyphs[index] = replace(glyph, state=DockStarGlyphState.FILLED)
-            elif (
-                DockStarGlyphState.EMPTY in earlier
-                and DockStarGlyphState.FILLED not in later
-            ):
-                glyphs[index] = replace(glyph, state=DockStarGlyphState.EMPTY)
-        if DockStarGlyphState.EMPTY not in (item.state for item in glyphs):
-            for index, glyph in enumerate(glyphs):
-                if glyph.state is not DockStarGlyphState.UNKNOWN or index == 0:
-                    continue
-                if any(
-                    item.state is not DockStarGlyphState.FILLED
-                    for item in glyphs[:index]
-                ):
-                    break
-                if glyph.fill_ratio >= self.TRAILING_FILLED_RATIO_MIN:
-                    glyphs[index] = replace(glyph, state=DockStarGlyphState.FILLED)
-                else:
-                    break
         glyph_tuple = tuple(glyphs)
         if any(glyph.state is DockStarGlyphState.UNKNOWN for glyph in glyph_tuple):
             return DockStarScanObservation(
