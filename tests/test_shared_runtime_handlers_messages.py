@@ -54,7 +54,6 @@ def test_runtime_messages_are_russian_and_technical_values_are_preserved():
     benchmark = _source("module/daemon/benchmark.py")
     game_manager = _source("module/daemon/game_manager.py")
     os_daemon = _source("module/daemon/os_daemon.py")
-    uncensored = _source("module/daemon/uncensored.py")
     ocr = _source("module/daemon/ocr_benchmark.py")
     screenshot = _source("module/daemon/screenshot_interval_benchmark.py")
     server = _source("module/server_checker.py")
@@ -82,8 +81,6 @@ def test_runtime_messages_are_russian_and_technical_values_are_preserved():
 
     assert "Принудительная остановка Azur Lane" in game_manager
     assert "[Daemon-Operation Siren] Ремонт в порту завершён" in os_daemon
-    assert "[Daemon-Без цензуры] Команда: {command}" in uncensored
-    assert "['push', 'files', f'/sdcard/Android/data/{self.device.package}']" in uncensored
 
     assert "[Бенчмарк OCR]" in ocr
     assert "[Бенчмарк снимков экрана]" in screenshot
