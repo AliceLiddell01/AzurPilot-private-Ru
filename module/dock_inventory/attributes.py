@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import ClassVar, Protocol
 
@@ -124,6 +124,8 @@ class DockStarGlyphObservation:
     area: tuple[int, int, int, int]
     shape_score: float
     fill_ratio: float
+    upper_fill_ratio: float
+    fill_match_score: float
 
     def __post_init__(self) -> None:
         if type(self.index) is not int or self.index < 0:
@@ -134,6 +136,8 @@ class DockStarGlyphObservation:
         for name, value in (
             ("shape_score", self.shape_score),
             ("fill_ratio", self.fill_ratio),
+            ("upper_fill_ratio", self.upper_fill_ratio),
+            ("fill_match_score", self.fill_match_score),
         ):
             if (
                 not isinstance(value, float)
@@ -441,6 +445,7 @@ class DockStarScanner:
     STAR_TEMPLATE_SIZE = 19
     STAR_SPACING = 14.5
     FIRST_MATCH_MIN = 0.25
+    FIRST_RELATIVE_SCORE_MIN = 0.65
     FIRST_CENTER_TOLERANCE = 2.5
     # The UI centers rows of the three source-proven totals differently. The
     # total is selected from the visually matched first filled star, never
@@ -451,10 +456,17 @@ class DockStarScanner:
         6: 34.5,
     }
     FILLED_RATIO_MIN = 0.35
+    FILLED_UPPER_RATIO_MIN = 0.20
+    FILLED_MATCH_MIN = 0.26
+    FILLED_MATCH_RATIO_MIN = 0.32
+    FILLED_WEAK_MATCH_MIN = 0.18
+    FILLED_WEAK_RATIO_MIN = 0.25
+    FILLED_WEAK_UPPER_RATIO_MIN = 0.23
     # Real outlined empty glyphs retain small yellow anti-aliased/highlight
-    # fragments; calibrated empty evidence stays <= 0.178 while filled starts
-    # at 0.400 on the acceptance frame set.
-    EMPTY_RATIO_MAX = 0.20
+    # fragments. The calibrated cutoff stays below the weakest continuous
+    # filled-row evidence on the acceptance frame sets.
+    EMPTY_RATIO_MAX = 0.245
+    TRAILING_FILLED_RATIO_MIN = 0.26
     SHAPE_SCORE_MIN = 0.45
     GLYPH_ALIGNMENT_RADIUS = 2
 
@@ -463,6 +475,12 @@ class DockStarScanner:
         self._inner_template = cv2.erode(
             self._fill_template, np.ones((3, 3), dtype=np.uint8)
         )
+        y_coordinates = np.indices(self._inner_template.shape)[0]
+        self._upper_inner_template = np.where(
+            (self._inner_template > 0) & (y_coordinates <= 10),
+            255,
+            0,
+        ).astype(np.uint8)
         self._outline_distance = cv2.distanceTransform(
             255 - self._outline_template, cv2.DIST_L2, 3
         )
@@ -565,6 +583,7 @@ class DockStarScanner:
         first_center_x, first_center_y, total = first
         glyphs = []
         inner_y, inner_x = np.where(self._inner_template > 0)
+        upper_inner_y, upper_inner_x = np.where(self._upper_inner_template > 0)
         half = self.STAR_TEMPLATE_SIZE // 2
         for index in range(total):
             center_x = round(first_center_x + index * self.STAR_SPACING)
@@ -596,11 +615,37 @@ class DockStarScanner:
                     detected_total=total,
                     glyphs=tuple(glyphs),
                 )
-            shape_score = aligned[2]
+            left, top, shape_score = aligned
+            right = left + self.STAR_TEMPLATE_SIZE
+            bottom = top + self.STAR_TEMPLATE_SIZE
             fill_ratio = float(np.mean(yellow[top + inner_y, left + inner_x] > 0))
+            upper_fill_ratio = float(
+                np.mean(yellow[top + upper_inner_y, left + upper_inner_x] > 0)
+            )
+            match_neighborhood = matched[
+                max(0, top - 2) : min(matched.shape[0], top + 3),
+                max(0, left - 2) : min(matched.shape[1], left + 3),
+            ]
+            fill_match_score = float(max(0.0, np.max(match_neighborhood)))
             if shape_score < self.SHAPE_SCORE_MIN:
                 state = DockStarGlyphState.UNKNOWN
-            elif fill_ratio >= self.FILLED_RATIO_MIN:
+            elif (
+                (
+                    fill_ratio >= self.FILLED_RATIO_MIN
+                    and upper_fill_ratio >= self.FILLED_UPPER_RATIO_MIN
+                )
+                or (
+                    fill_match_score >= self.FILLED_MATCH_MIN
+                    and fill_ratio >= self.FILLED_MATCH_RATIO_MIN
+                )
+                or (
+                    self.FILLED_WEAK_MATCH_MIN
+                    <= fill_match_score
+                    < self.FILLED_MATCH_MIN
+                    and fill_ratio >= self.FILLED_WEAK_RATIO_MIN
+                    and upper_fill_ratio >= self.FILLED_WEAK_UPPER_RATIO_MIN
+                )
+            ):
                 state = DockStarGlyphState.FILLED
             elif fill_ratio <= self.EMPTY_RATIO_MAX:
                 state = DockStarGlyphState.EMPTY
@@ -613,8 +658,38 @@ class DockStarScanner:
                     area=(x1 + left, y1 + top, x1 + right, y1 + bottom),
                     shape_score=shape_score,
                     fill_ratio=fill_ratio,
+                    upper_fill_ratio=upper_fill_ratio,
+                    fill_match_score=fill_match_score,
                 )
             )
+        for index, glyph in enumerate(glyphs):
+            if glyph.state is not DockStarGlyphState.UNKNOWN:
+                continue
+            earlier = tuple(item.state for item in glyphs[:index])
+            later = tuple(item.state for item in glyphs[index + 1 :])
+            if (
+                DockStarGlyphState.FILLED in later
+                and DockStarGlyphState.EMPTY not in earlier
+            ):
+                glyphs[index] = replace(glyph, state=DockStarGlyphState.FILLED)
+            elif (
+                DockStarGlyphState.EMPTY in earlier
+                and DockStarGlyphState.FILLED not in later
+            ):
+                glyphs[index] = replace(glyph, state=DockStarGlyphState.EMPTY)
+        if DockStarGlyphState.EMPTY not in (item.state for item in glyphs):
+            for index, glyph in enumerate(glyphs):
+                if glyph.state is not DockStarGlyphState.UNKNOWN or index == 0:
+                    continue
+                if any(
+                    item.state is not DockStarGlyphState.FILLED
+                    for item in glyphs[:index]
+                ):
+                    break
+                if glyph.fill_ratio >= self.TRAILING_FILLED_RATIO_MIN:
+                    glyphs[index] = replace(glyph, state=DockStarGlyphState.FILLED)
+                else:
+                    break
         glyph_tuple = tuple(glyphs)
         if any(glyph.state is DockStarGlyphState.UNKNOWN for glyph in glyph_tuple):
             return DockStarScanObservation(
@@ -648,7 +723,7 @@ class DockStarScanner:
             )
         profile = np.max(matched, axis=0)
         half = self.STAR_TEMPLATE_SIZE // 2
-        candidates: list[tuple[int, int, int]] = []
+        candidates: list[tuple[int, int, int, float]] = []
         left_index = 22
         right_index = min(47, len(profile) - 1)
         for index in range(left_index, right_index + 1):
@@ -686,13 +761,21 @@ class DockStarScanner:
                     for glyph_index in range(total)
                 )
                 if row_is_proven:
-                    candidates.append((center_x, center_y, total))
+                    candidates.append((center_x, center_y, total, score))
         if not candidates:
             return None
+        best_score = max(value[3] for value in candidates)
+        candidates = [
+            value
+            for value in candidates
+            if value[3] >= best_score * self.FIRST_RELATIVE_SCORE_MIN
+        ]
         # A six-star row contains a four-star-aligned inner subsequence. Prefer
-        # the longest fully proven visual row rather than the strongest single
-        # yellow glyph or static identity metadata.
-        return max(candidates, key=lambda value: value[2])
+        # the longest fully proven row only while its first-glyph response is
+        # competitive with the strongest candidate. This rejects weak portrait
+        # peaks without consulting static identity metadata.
+        center_x, center_y, total, _score = max(candidates, key=lambda value: value[2])
+        return center_x, center_y, total
 
     def _best_shape_alignment(
         self,

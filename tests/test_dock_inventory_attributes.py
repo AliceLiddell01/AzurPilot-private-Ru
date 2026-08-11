@@ -238,6 +238,8 @@ def _glyph(index: int, area: tuple[int, int, int, int], filled: bool):
         area=(left, area[1], left + 9, area[1] + 19),
         shape_score=0.9,
         fill_ratio=0.9 if filled else 0.0,
+        upper_fill_ratio=0.9 if filled else 0.0,
+        fill_match_score=0.9 if filled else 0.0,
     )
 
 
@@ -393,10 +395,11 @@ def test_star_scanner_uses_dynamic_first_and_last_column_geometry() -> None:
     assert results[1].area[:2] == (1081, 481)
 
 
-def test_star_scanner_ignores_unproven_early_yellow_peak() -> None:
+@pytest.mark.parametrize("total", (4, 5))
+def test_star_scanner_ignores_unproven_early_yellow_peak(total: int) -> None:
     frame = np.full((720, 1280, 3), 70, dtype=np.uint8)
     slot = _slot(0, 211, DockCardPresence.PRESENT)
-    _draw_star_row(frame, slot, (DockStarGlyphState.FILLED,) * 4)
+    _draw_star_row(frame, slot, (DockStarGlyphState.FILLED,) * total)
     cv2.circle(
         frame,
         (slot.area[0] + 31, slot.area[1] + 193),
@@ -408,7 +411,7 @@ def test_star_scanner_ignores_unproven_early_yellow_peak() -> None:
     result = DockStarScanner().scan(frame, (slot,))[0]
 
     assert result.status is DockStarStatus.OBSERVED
-    assert result.stars == StarObservation(filled=4, empty=0, total=4)
+    assert result.stars == StarObservation(filled=total, empty=0, total=total)
 
 
 def test_ambiguous_glyph_clipped_roi_and_wrong_geometry_are_unknown() -> None:
