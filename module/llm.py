@@ -51,7 +51,12 @@ def _read_log_tail(path, max_bytes=64 * 1024, max_lines=200):
         first_newline = text.find("\n")
         if first_newline >= 0:
             text = text[first_newline + 1 :]
-    return "".join(text.splitlines(keepends=True)[-max_lines:])
+
+    result = "".join(text.splitlines(keepends=True)[-max_lines:])
+    encoded = result.encode("utf-8")
+    if len(encoded) > max_bytes:
+        result = encoded[-max_bytes:].decode("utf-8", errors="ignore")
+    return result
 
 
 def analyze_exception(config, error):
