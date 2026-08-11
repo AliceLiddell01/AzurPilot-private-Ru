@@ -1,0 +1,74 @@
+name: One-time restore intentional random background
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    if: ${{ github.head_ref == 'chatgpt/remove-upstream-announcements' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: chatgpt/remove-upstream-announcements
+          fetch-depth: 1
+
+      - name: Restore intentional WebUI background and regression guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          css = Path('assets/gui/css/advanced-material-alas.css')
+          text = css.read_text(encoding='utf-8')
+          old = '--alas-apple-bg-image: linear-gradient(135deg, rgba(226, 236, 255, 0.96) 0%, rgba(245, 245, 247, 0.94) 48%, rgba(232, 240, 255, 0.92) 100%);'
+          new = '--alas-apple-bg-image: url("https://api.yppp.net/api.php");'
+          if text.count(old) != 1:
+              raise SystemExit(f'CSS sentinel count must be 1, got {text.count(old)}')
+          css.write_text(text.replace(old, new, 1), encoding='utf-8', newline='')
+
+          test = Path('tests/test_no_upstream_project_network_defaults.py')
+          t = test.read_text(encoding='utf-8')
+          old_block = '''    # Advanced Material theme больше не делает скрытый браузерный запрос за случайным фоном.\n    external_background = "api.yppp" + ".net"\n    assert external_background not in theme\n    assert "--alas-apple-bg-image: linear-gradient(" in theme\n'''
+          new_block = '''    # Пользовательский случайный фон WebUI намеренно сохраняется до появления собственного аналога.\n    assert 'https://api.yppp.net/api.php' in theme\n    assert '--alas-apple-bg-image: url("https://api.yppp.net/api.php");' in theme\n'''
+          if t.count(old_block) != 1:
+              raise SystemExit(f'test sentinel count must be 1, got {t.count(old_block)}')
+          test.write_text(t.replace(old_block, new_block, 1), encoding='utf-8', newline='')
+          PY
+
+      - name: Verify ApiClient removal is isolated to announcements
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e module/base/api_client.py
+          if git grep -n -E 'module\.base\.api_client|ApiClient|get_announcement' -- '*.py' ':!tests/test_no_upstream_project_network_defaults.py' ':!tests/test_shared_handlers_base_runtime_messages.py'; then
+            echo 'Unexpected live ApiClient/announcement reference remains.' >&2
+            exit 1
+          fi
+          grep -F 'https://api.yppp.net/api.php' assets/gui/css/advanced-material-alas.css
+          git diff --check
+
+      - name: Retire this one-time workflow
+        shell: bash
+        run: rm .github/workflows/restore-yppp-background.yml
+
+      - name: Commit correction to cleanup branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --name-status
+          git diff --cached --quiet && { echo 'Expected yppp correction was not produced.' >&2; exit 1; }
+          git commit -m "fix(webui): восстановить согласованный случайный фон"
+          git push origin HEAD:chatgpt/remove-upstream-announcements
