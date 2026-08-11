@@ -583,16 +583,16 @@ class DockStarScanner:
             matched = cv2.matchTemplate(
                 yellow, self._fill_template, cv2.TM_CCOEFF_NORMED
             )
+            gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+            edges = cv2.Canny(gray, 40, 100)
+            edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
+            first = self._first_filled_star(
+                first_glyph_yellow,
+                matched,
+            )
         except cv2.error as exc:
             raise DockStarCvError(f"Операционный сбой Dock star CV: {exc}") from exc
 
-        gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
-        edges = cv2.Canny(gray, 40, 100)
-        edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
-        first = self._first_filled_star(
-            first_glyph_yellow,
-            matched,
-        )
         if first is None:
             return DockStarScanObservation(
                 status=DockStarStatus.UNKNOWN,
@@ -659,7 +659,9 @@ class DockStarScanner:
                     detected_total=total,
                     glyphs=tuple(glyphs),
                 )
-            fill_match_score = float(max(0.0, np.max(match_neighborhood)))
+            fill_match_score = float(
+                min(1.0, max(0.0, np.max(match_neighborhood)))
+            )
             if shape_score < self.SHAPE_SCORE_MIN:
                 state = DockStarGlyphState.UNKNOWN
             elif (

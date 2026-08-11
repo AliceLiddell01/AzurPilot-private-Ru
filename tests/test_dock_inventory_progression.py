@@ -126,6 +126,12 @@ def test_known_progression_requires_observed_stars_and_unknown_semantics_stay_va
     known = DockProgressionObservation(observed_stars=stars, **kwargs)
     assert known.observed_stars == stars
 
+    with pytest.raises(ValueError, match="is_max"):
+        DockProgressionObservation(
+            observed_stars=stars,
+            **{**kwargs, "is_max": None},
+        )
+
     unknown_without_stars = DockProgressionObservation(
         status=ProgressionStatus.UNKNOWN,
         kind=ProgressionKind.UNKNOWN,
@@ -283,6 +289,19 @@ def test_unknown_star_evidence_blocks_progression_before_identity() -> None:
     assert result.reason == "star_evidence_unknown"
 
 
+def test_identity_without_progression_family_is_unknown() -> None:
+    stars = StarObservation(2, 3, 5)
+    result = _derive(
+        _catalog(_standard_family(200, base=2, total=5)),
+        300,
+        stars,
+    )
+
+    assert result.status is ProgressionStatus.UNKNOWN
+    assert result.reason == "canonical_family_missing"
+    assert result.observed_stars == stars
+
+
 def test_catalog_rejects_nonstandard_state_with_limit_break_index() -> None:
     with pytest.raises(DockProgressionCatalogError):
         DockProgressionState(
@@ -292,6 +311,14 @@ def test_catalog_rejects_nonstandard_state_with_limit_break_index() -> None:
             total=5,
             stage_index=4,
         )
+
+
+def test_progression_catalog_invalid_utf8_is_typed_error(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "dock_progression_catalog.json"
+    catalog_path.write_bytes(b"\xff")
+
+    with pytest.raises(DockProgressionCatalogError, match="UTF-8"):
+        load_dock_progression_catalog(catalog_path)
 
 
 def test_tracked_progression_catalog_matches_identity_catalog_and_is_deterministic() -> (

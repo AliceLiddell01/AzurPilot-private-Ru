@@ -16,6 +16,7 @@ from module.dock_inventory.attributes import (
     DockLevelOcrError,
     DockLevelScanner,
     DockLevelStatus,
+    DockStarCvError,
     DockStarGlyphObservation,
     DockStarGlyphState,
     DockStarScanner,
@@ -458,6 +459,48 @@ def test_ambiguous_glyph_clipped_roi_and_wrong_geometry_are_unknown() -> None:
     )[0]
     assert blank.status is DockStarStatus.UNKNOWN
     assert blank.reason == "first_filled_star_not_proven"
+
+
+def test_cv_backend_failure_is_operational_error_not_visual_unknown(monkeypatch) -> None:
+    scanner = DockStarScanner()
+    frame = np.full((720, 1280, 3), 70, dtype=np.uint8)
+    slot = _slot(0, 77, DockCardPresence.PRESENT)
+
+    def broken_canny(*_args, **_kwargs):
+        raise cv2.error("backend broke")
+
+    monkeypatch.setattr(cv2, "Canny", broken_canny)
+
+    with pytest.raises(DockStarCvError, match="backend broke"):
+        scanner.scan(frame, (slot,))
+
+
+def test_match_template_score_above_one_is_clamped(monkeypatch) -> None:
+    scanner = DockStarScanner()
+    frame = np.full((720, 1280, 3), 70, dtype=np.uint8)
+    slot = _slot(0, 77, DockCardPresence.PRESENT)
+
+    monkeypatch.setattr(
+        cv2,
+        "matchTemplate",
+        lambda *_args, **_kwargs: np.full((8, 120), 1.0001, dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        scanner,
+        "_first_filled_star",
+        lambda *_args, **_kwargs: (49, 16, 4),
+    )
+    monkeypatch.setattr(
+        scanner,
+        "_best_shape_alignment",
+        lambda *_args, **_kwargs: (40, 7, 1.0),
+    )
+
+    result = scanner.scan(frame, (slot,))[0]
+
+    assert result.status is DockStarStatus.OBSERVED
+    assert result.glyphs
+    assert all(glyph.fill_match_score == 1.0 for glyph in result.glyphs)
 
 
 def test_empty_match_neighborhood_fails_closed_and_preserves_frame(monkeypatch) -> None:

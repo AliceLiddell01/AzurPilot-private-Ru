@@ -336,10 +336,12 @@ class DockProgressionObservation:
                 or len(self.matching_semantic_ids) != 1
             ):
                 raise ValueError("KNOWN progression требует ровно один semantic state.")
-            if self.reason is not None or self.is_max is None:
+            if self.reason is not None:
                 raise ValueError(
                     "KNOWN progression не должен содержать unknown reason."
                 )
+            if self.is_max is None:
+                raise ValueError("KNOWN progression требует is_max.")
             if self.observed_stars is None:
                 raise ValueError("KNOWN progression требует observed_stars.")
         else:
@@ -465,6 +467,10 @@ def load_dock_progression_catalog(
     except json.JSONDecodeError as exc:
         raise DockProgressionCatalogError(
             f"Progression catalog содержит неверный JSON: {source}."
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise DockProgressionCatalogError(
+            f"Progression catalog не является UTF-8: {source}."
         ) from exc
     return DockProgressionCatalog.from_mapping(payload)
 
