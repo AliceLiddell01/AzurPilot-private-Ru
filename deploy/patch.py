@@ -77,10 +77,11 @@ def check_running_directory():
 def patch_uiautomator2():
     """修补 uiautomator2 的资源下载路径。
 
-    uiautomator2 默认从 tool.appetizer.io 或 github.com/openatx 下载资源，
-    但这些地址在国内可能不可用或速度慢。因此修补为使用本地缓存 uiautomator2cache/cache。
+    uiautomator2 旧版安装器 может загружать ресурсы из внешних источников.
+    AzurPilot использует локальный uiautomator2cache/cache, чтобы установка не зависела
+    от скрытых сетевых fallback-адресов.
 
-    同时移除 minicap 安装，因为模拟器不需要它。
+    Одновременно отключается установка minicap, который эмуляторам не требуется.
     """
     cache_dir = site_package_file('uiautomator2cache', 'cache')
     init_file = site_package_file('uiautomator2', 'init.py')

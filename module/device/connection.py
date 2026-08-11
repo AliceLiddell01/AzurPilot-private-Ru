@@ -973,8 +973,8 @@ class Connection(ConnectionAttr):
         try:
             init.install()
         except ConnectionError:
-            u2.init.GITHUB_BASEURL = 'http://tool.appetizer.io/openatx'
-            init.install()
+            logger.error('[Устройство — соединение] Не удалось установить ресурсы uiautomator2; внешний fallback отключён')
+            raise
         self.uninstall_minicap()
 
     def uninstall_minicap(self):

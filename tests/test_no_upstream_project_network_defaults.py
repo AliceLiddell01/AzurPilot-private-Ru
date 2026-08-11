@@ -247,6 +247,21 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     ):
         assert token not in docker_deploy
 
+    # Старый uiautomator2 installer больше не переключается на скрытый внешний fallback.
+    u2_sources = [
+        (ROOT / "deploy/adb.py").read_text(encoding="utf-8"),
+        (ROOT / "deploy/Windows/adb.py").read_text(encoding="utf-8"),
+        (ROOT / "deploy/patch.py").read_text(encoding="utf-8"),
+        (ROOT / "module/device/connection.py").read_text(encoding="utf-8"),
+    ]
+    hidden_u2_host = "tool.appetizer" + ".io"
+    for source in u2_sources:
+        assert hidden_u2_host not in source
+    assert "uiautomator2cache" in u2_sources[2]
+    assert "внешний fallback отключён" in u2_sources[0]
+    assert "внешний fallback отключён" in u2_sources[1]
+    assert "внешний fallback отключён" in u2_sources[3]
+
     # MAA updater сохраняет обновление, но использует только официальный GitHub API и release assets.
     compile(maa_updater, str(maa_updater_path), "exec")
     assert "https://api.github.com/" in maa_updater
