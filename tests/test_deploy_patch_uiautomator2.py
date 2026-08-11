@@ -10,7 +10,7 @@ def test_patch_uiautomator2_fails_closed_without_local_cache(tmp_path: Path):
     missing_cache = tmp_path / "uiautomator2cache" / "cache"
     init_file = tmp_path / "uiautomator2" / "init.py"
     init_file.parent.mkdir(parents=True)
-    original = "appdir = '/remote/cache'\nself.minicap_urls = ['remote']\n"
+    original = "appdir = '/remote/cache'\nfor url in self.minicap_urls:\n    pass\n"
     init_file.write_text(original, encoding="utf-8")
 
     with patch(
@@ -29,7 +29,7 @@ def test_patch_uiautomator2_repoints_to_installed_local_cache(tmp_path: Path):
     init_file = tmp_path / "uiautomator2" / "init.py"
     init_file.parent.mkdir(parents=True)
     init_file.write_text(
-        "appdir = '/remote/cache'\nself.minicap_urls = ['remote']\n",
+        "appdir = '/remote/cache'\nfor url in self.minicap_urls:\n    pass\n",
         encoding="utf-8",
     )
 
@@ -41,5 +41,5 @@ def test_patch_uiautomator2_repoints_to_installed_local_cache(tmp_path: Path):
 
     result = init_file.read_text(encoding="utf-8")
     assert "self.minicap_urls" not in result
-    assert "[] = ['remote']" in result
+    assert "for url in []:" in result
     assert "../../uiautomator2cache" in result
