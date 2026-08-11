@@ -112,9 +112,9 @@ jobs:
           def test_legacy_remote_azurstats_config_is_absent():
               paths = (
                   "module/config/argument/argument.yaml",
-                  "module/config/args.json",
+                  "module/config/argument/args.json",
                   "module/config/config_generated.py",
-                  "module/config/template.json",
+                  "config/template.json",
                   "module/config/i18n/ru-RU.json",
                   "module/config/i18n/en-US.json",
                   "module/config/config_updater.py",
