@@ -77,6 +77,10 @@ class DockShipObservation:
     affinity: AffinityState = AffinityState.UNKNOWN
 
     def __post_init__(self) -> None:
+        if not isinstance(self.identity_status, IdentityStatus):
+            raise TypeError("identity_status must be an IdentityStatus")
+        if not isinstance(self.affinity, AffinityState):
+            raise TypeError("affinity must be an AffinityState")
         if self.ordinal < 0:
             raise ValueError("observation ordinal must be non-negative")
 
@@ -102,6 +106,9 @@ class DockInventoryScanResult:
     observations: tuple[DockShipObservation, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.observations, tuple):
+            raise TypeError("observations must be a tuple to preserve immutability")
+
         ordinals = [observation.ordinal for observation in self.observations]
         if len(ordinals) != len(set(ordinals)):
             raise ValueError("observation ordinals must be unique within a scan result")
