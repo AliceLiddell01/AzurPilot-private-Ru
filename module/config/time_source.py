@@ -26,13 +26,9 @@ NTP_PORT = 123
 NTP_PACKET = b'\x1b' + b'\0' * 47
 NTP_SERVERS_ENV = 'AZURPILOT_NTP_SERVERS'
 NTP_DISABLE_ENV = 'AZURPILOT_NTP_DISABLE'
-# 默认 NTP 服务器列表（中国优先）
+# Нейтральный глобальный NTP-провайдер; при необходимости список переопределяется через окружение.
 DEFAULT_NTP_SERVERS = (
-    'ntp.ntsc.ac.cn',
-    'ntp.aliyun.com',
-    'ntp.tencent.com',
-    'cn.pool.ntp.org',
-    'pool.ntp.org',
+    'time.cloudflare.com',
 )
 
 
