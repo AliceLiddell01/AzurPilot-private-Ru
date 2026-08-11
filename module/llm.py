@@ -37,6 +37,23 @@ def _get_analysis_from_response(response):
     return content.strip()
 
 
+def _read_log_tail(path, max_bytes=64 * 1024, max_lines=200):
+    """Прочитать ограниченный хвост журнала, не загружая весь файл в память."""
+    with open(path, "rb") as stream:
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        start = max(0, size - max_bytes)
+        stream.seek(start)
+        data = stream.read(max_bytes)
+
+    text = data.decode("utf-8", errors="replace")
+    if start:
+        first_newline = text.find("\n")
+        if first_newline >= 0:
+            text = text[first_newline + 1 :]
+    return "".join(text.splitlines(keepends=True)[-max_lines:])
+
+
 def analyze_exception(config, error):
     """Отправить один ограниченный диагностический пакет для анализа исключения."""
     if not getattr(config, "Error_LlmAnalysis", False):
@@ -95,9 +112,7 @@ def analyze_exception(config, error):
                 and logger.log_file
                 and os.path.exists(logger.log_file)
             ):
-                with open(logger.log_file, "r", encoding="utf-8") as stream:
-                    lines = stream.readlines()
-                    log_context = "".join(lines[-200:])
+                log_context = _read_log_tail(logger.log_file)
         except Exception:
             pass
 
