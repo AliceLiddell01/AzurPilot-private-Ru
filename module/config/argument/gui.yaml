@@ -39,7 +39,6 @@ MenuAlas:
 MenuDevelop:
   HomePage:
   Translate:
-  Announcement:
   Remote:
   Setting:
   Utils:
@@ -430,6 +429,8 @@ OOBE:
   ImportErrorInvalid:
   ImportErrorFailed:
   ImportErrorNoMatch:
+  ImportLegacyRequestFailed:
+  ImportLegacyUnknownError:
   WelcomeTitle:
   WelcomeDescription:
   WelcomeSelectLanguage:
