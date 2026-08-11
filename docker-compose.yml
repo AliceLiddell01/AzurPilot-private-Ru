@@ -13,7 +13,6 @@ services:
         init: true
         working_dir: /app/AzurPilot
         environment:
-            TZ: ${TZ:-Asia/Shanghai}
             PYTHONDONTWRITEBYTECODE: "1"
             PYTHONUNBUFFERED: "1"
         volumes:
