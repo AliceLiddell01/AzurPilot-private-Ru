@@ -80,6 +80,12 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     )
     docker_deploy_path = ROOT / "deploy/docker/deploy-image.sh"
     docker_deploy = docker_deploy_path.read_text(encoding="utf-8")
+    maa_argument = (
+        ROOT / "submodule/AlasMaaBridge/module/config/argument/argument.yaml"
+    ).read_text(encoding="utf-8")
+    maa_handler = (
+        ROOT / "submodule/AlasMaaBridge/module/handler/handler.py"
+    ).read_text(encoding="utf-8")
     maa_updater_path = ROOT / "submodule/AlasMaaBridge/module/asst/updater.py"
     maa_updater = maa_updater_path.read_text(encoding="utf-8")
 
@@ -168,3 +174,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
         "download.fastgit.org",
     ):
         assert host not in maa_updater
+
+    # Penguin/YiTuLiu — реальные opt-in возможности MAA, поэтому их не вырезаем как «китайский мусор».
+    assert "ReportToPenguin: false" in maa_argument
+    assert "ReportToYiTuLiu: false" in maa_argument
+    assert '"report_to_penguin": self.config.MaaRecord_ReportToPenguin' in maa_handler
+    assert '"report_to_yituliu": self.config.MaaRecord_ReportToYiTuLiu' in maa_handler
