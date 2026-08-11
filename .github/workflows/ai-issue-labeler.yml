@@ -15,6 +15,7 @@ on:
 permissions:
   contents: read
   issues: write
+  models: read
 
 concurrency:
   group: ai-issue-labeler-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}
@@ -41,8 +42,8 @@ jobs:
       - name: Analyze issue or pull request
         env:
           LABELER_PLATFORM: github
-          AI_BASE_URL: https://api.deepseek.com/v1
-          AI_MODEL: deepseek-v4-flash
-          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_BASE_URL: https://models.github.ai/inference
+          AI_MODEL: openai/gpt-4.1
+          AI_API_KEY: ${{ github.token }}
           GITHUB_TOKEN: ${{ secrets.AI_ISSUE_LABELER_TOKEN || github.token }}
         run: python .github/scripts/ai_issue_labeler.py
