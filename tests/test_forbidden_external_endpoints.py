@@ -38,7 +38,12 @@ def _tracked_text_files():
     for raw_path in output.split(b"\0"):
         if not raw_path:
             continue
-        path = ROOT / raw_path.decode("utf-8", errors="surrogateescape")
+        relative = Path(raw_path.decode("utf-8", errors="surrogateescape"))
+        # В regression-тестах удалённые адреса могут намеренно встречаться в отрицательных
+        # assertions. Проверяем продукт/конфигурацию/документацию, а не сами тестовые фикстуры.
+        if relative.parts and relative.parts[0] == "tests":
+            continue
+        path = ROOT / relative
         if not path.is_file():
             continue
         try:
@@ -51,7 +56,7 @@ def _tracked_text_files():
         yield path
 
 
-def test_reviewed_external_endpoints_do_not_return_anywhere_in_repository():
+def test_reviewed_external_endpoints_do_not_return_anywhere_in_product_tree():
     hits: dict[str, list[str]] = {}
     for path in _tracked_text_files():
         text = path.read_text(encoding="utf-8", errors="ignore").lower()
@@ -60,4 +65,4 @@ def test_reviewed_external_endpoints_do_not_return_anywhere_in_repository():
             if endpoint.lower() in text:
                 hits.setdefault(endpoint, []).append(relative)
 
-    assert not hits, "Проверенные удалённые endpoints вернулись в репозиторий: " + repr(hits)
+    assert not hits, "Проверенные удалённые endpoints вернулись в продукт: " + repr(hits)
