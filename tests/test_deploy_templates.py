@@ -42,7 +42,7 @@ class DeployTemplateTests(unittest.TestCase):
             "CheckUpdateInterval:",
             "AutoRestartTime:",
             "git://git.pull/AzurPilot",
-            "git.nanoda.work",
+            "git." + "nanoda" + ".work",
         )
         for relative_path in ACTIVE_TEMPLATES:
             with self.subTest(relative_path=relative_path):
