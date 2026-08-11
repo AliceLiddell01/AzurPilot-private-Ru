@@ -19,11 +19,17 @@ TEXT_SUFFIXES = {
     ".yml",
 }
 SCAN_ROOTS = (
+    ROOT / ".github",
     ROOT / "assets",
     ROOT / "config",
     ROOT / "deploy",
     ROOT / "dev_tools",
     ROOT / "module",
+    ROOT / "scripts",
+    ROOT / "submodule",
+    ROOT / "tests",
+    ROOT / "tools",
+    ROOT / "webapp",
 )
 SCAN_FILES = (
     ROOT / "README.md",
