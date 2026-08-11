@@ -32,6 +32,7 @@ FORBIDDEN = (
     "mirrors.tuna." + "tsinghua.edu.cn/docker-ce",
     "4." + "ipw.cn",
     "myip." + "ipip.net",
+    "ifconfig." + "me/ip",
 )
 
 
