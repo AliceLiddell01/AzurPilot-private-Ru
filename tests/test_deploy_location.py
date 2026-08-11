@@ -35,9 +35,9 @@ WebuiPort: 25548
 UnknownCustomKey: preserve-me
 """
 
-NANODA_CONFIG = LEGACY_CONFIG.replace(
+LEGACY_EXTERNAL_CONFIG = LEGACY_CONFIG.replace(
     "git://git.pull/AzurPilot",
-    "https://git.nanoda.work/git/AzurPilot",
+    "https://legacy.example.invalid/git/AzurPilot",
 )
 
 
@@ -98,7 +98,7 @@ class DeployConfigCompatibilityTests(unittest.TestCase):
                 self.assertFalse(hasattr(config, "GitOverCdn"))
 
     def test_old_repository_aliases_are_preserved_but_ignored(self):
-        for content in (LEGACY_CONFIG, NANODA_CONFIG):
+        for content in (LEGACY_CONFIG, LEGACY_EXTERNAL_CONFIG):
             for module in self.modules:
                 with self.subTest(module=module.__name__, content=content), tempfile.TemporaryDirectory() as tmp:
                     root = Path(tmp)
