@@ -46,7 +46,7 @@ class ProgressionGenerationError(RuntimeError):
     pass
 
 
-def _git(repo: Path, *args: str, binary: bool = False) -> str | bytes:
+def _git_bytes(repo: Path, *args: str) -> bytes:
     completed = subprocess.run(
         ["git", "-C", str(repo), *args],
         check=False,
@@ -55,7 +55,11 @@ def _git(repo: Path, *args: str, binary: bool = False) -> str | bytes:
     if completed.returncode:
         detail = completed.stderr.decode("utf-8", errors="replace").strip()
         raise ProgressionGenerationError(f"git {' '.join(args)} failed: {detail}")
-    return completed.stdout if binary else completed.stdout.decode("utf-8").strip()
+    return completed.stdout
+
+
+def _git_text(repo: Path, *args: str) -> str:
+    return _git_bytes(repo, *args).decode("utf-8").strip()
 
 
 def _read_pinned_blob(
@@ -66,19 +70,17 @@ def _read_pinned_blob(
     path: str,
     expected_blob_sha: str | None = None,
 ) -> tuple[bytes, str, str]:
-    resolved = str(_git(repo, "rev-parse", f"{commit}^{{commit}}"))
+    resolved = _git_text(repo, "rev-parse", f"{commit}^{{commit}}")
     if resolved != expected_commit:
         raise ProgressionGenerationError(
             f"Источник разрешился в {resolved}, ожидался {expected_commit}."
         )
-    blob_sha = str(_git(repo, "rev-parse", f"{resolved}:{path}"))
+    blob_sha = _git_text(repo, "rev-parse", f"{resolved}:{path}")
     if expected_blob_sha is not None and blob_sha != expected_blob_sha:
         raise ProgressionGenerationError(
             f"Blob {path} разрешился в {blob_sha}, ожидался {expected_blob_sha}."
         )
-    content = _git(repo, "show", f"{resolved}:{path}", binary=True)
-    if not isinstance(content, bytes):  # pragma: no cover
-        raise ProgressionGenerationError(f"Blob {path} не прочитан как bytes.")
+    content = _git_bytes(repo, "show", f"{resolved}:{path}")
     return content, blob_sha, resolved
 
 

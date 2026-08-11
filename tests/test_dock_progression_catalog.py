@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,9 @@ from dev_tools.dock_progression_catalog import (
     extract_maximum_level,
     extract_supplemental_templates,
 )
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+CATALOG_PATH = REPOSITORY_ROOT / "assets" / "ship" / "dock_progression_catalog.json"
 
 
 def _row(
@@ -198,11 +202,7 @@ def test_generator_rejects_missing_canonical_group() -> None:
 
 
 def test_tracked_payload_has_exact_schema_and_no_npc_records() -> None:
-    payload = json.loads(
-        __import__("pathlib")
-        .Path("assets/ship/dock_progression_catalog.json")
-        .read_text(encoding="utf-8")
-    )
+    payload = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     assert set(payload) == {
         "schema_version",
         "identity_scheme",

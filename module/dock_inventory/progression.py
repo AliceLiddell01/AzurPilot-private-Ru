@@ -340,6 +340,8 @@ class DockProgressionObservation:
                 raise ValueError(
                     "KNOWN progression не должен содержать unknown reason."
                 )
+            if self.observed_stars is None:
+                raise ValueError("KNOWN progression требует observed_stars.")
         else:
             if self.kind is not ProgressionKind.UNKNOWN:
                 raise ValueError("UNKNOWN progression должен иметь kind UNKNOWN.")

@@ -292,11 +292,11 @@ class DockAttributeScanResult:
             ("identity_catalog_fingerprint", self.identity_catalog_fingerprint),
             ("progression_catalog_fingerprint", self.progression_catalog_fingerprint),
         ):
-            if not re_full_sha256(value):
+            if not _is_sha256(value):
                 raise ValueError(f"{name} должен быть SHA-256")
 
 
-def re_full_sha256(value: object) -> bool:
+def _is_sha256(value: object) -> bool:
     return (
         isinstance(value, str)
         and len(value) == 64
@@ -484,15 +484,20 @@ class DockStarScanner:
 
     def __init__(self) -> None:
         self._fill_template, self._outline_template = self._build_templates()
+        self._outline_y, self._outline_x = np.where(self._outline_template > 0)
         self._inner_template = cv2.erode(
             self._fill_template, np.ones((3, 3), dtype=np.uint8)
         )
+        self._inner_y, self._inner_x = np.where(self._inner_template > 0)
         y_coordinates = np.indices(self._inner_template.shape)[0]
         self._upper_inner_template = np.where(
             (self._inner_template > 0) & (y_coordinates <= 10),
             255,
             0,
         ).astype(np.uint8)
+        self._upper_inner_y, self._upper_inner_x = np.where(
+            self._upper_inner_template > 0
+        )
         self._outline_distance = cv2.distanceTransform(
             255 - self._outline_template, cv2.DIST_L2, 3
         )
@@ -584,7 +589,6 @@ class DockStarScanner:
         gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
         edges = cv2.Canny(gray, 40, 100)
         edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
-        outline_y, outline_x = np.where(self._outline_template > 0)
         first = self._first_filled_star(
             first_glyph_yellow,
             matched,
@@ -597,8 +601,6 @@ class DockStarScanner:
             )
         first_center_x, first_center_y, total = first
         glyphs = []
-        inner_y, inner_x = np.where(self._inner_template > 0)
-        upper_inner_y, upper_inner_x = np.where(self._upper_inner_template > 0)
         half = self.STAR_TEMPLATE_SIZE // 2
         for index in range(total):
             center_x = round(first_center_x + index * self.STAR_SPACING)
@@ -619,8 +621,8 @@ class DockStarScanner:
                 edge_distance,
                 center_x,
                 first_center_y,
-                outline_x,
-                outline_y,
+                self._outline_x,
+                self._outline_y,
             )
             if aligned is None:
                 return DockStarScanObservation(
@@ -633,14 +635,30 @@ class DockStarScanner:
             left, top, shape_score = aligned
             right = left + self.STAR_TEMPLATE_SIZE
             bottom = top + self.STAR_TEMPLATE_SIZE
-            fill_ratio = float(np.mean(yellow[top + inner_y, left + inner_x] > 0))
+            fill_ratio = float(
+                np.mean(yellow[top + self._inner_y, left + self._inner_x] > 0)
+            )
             upper_fill_ratio = float(
-                np.mean(yellow[top + upper_inner_y, left + upper_inner_x] > 0)
+                np.mean(
+                    yellow[
+                        top + self._upper_inner_y,
+                        left + self._upper_inner_x,
+                    ]
+                    > 0
+                )
             )
             match_neighborhood = matched[
                 max(0, top - 2) : min(matched.shape[0], top + 3),
                 max(0, left - 2) : min(matched.shape[1], left + 3),
             ]
+            if not match_neighborhood.size:
+                return DockStarScanObservation(
+                    status=DockStarStatus.UNKNOWN,
+                    area=area,
+                    reason="star_geometry_clipped",
+                    detected_total=total,
+                    glyphs=tuple(glyphs),
+                )
             fill_match_score = float(max(0.0, np.max(match_neighborhood)))
             if shape_score < self.SHAPE_SCORE_MIN:
                 state = DockStarGlyphState.UNKNOWN
@@ -760,8 +778,8 @@ class DockStarScanner:
         if not candidates:
             return None
         # The inner four glyphs of a six-star row align with a standalone
-        # four-star row. The leftmost high-confidence filled-glyph component is
-        # therefore the only visual authority for the longest proven layout.
+        # four-star row. A shorter layout is therefore a subset of a longer one,
+        # so the candidate with the largest proven total wins.
         return max(candidates, key=lambda value: value[2])
 
     def _best_shape_alignment(
