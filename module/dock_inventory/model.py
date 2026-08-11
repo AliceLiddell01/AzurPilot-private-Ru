@@ -22,6 +22,11 @@ class AffinityState(Enum):
     OATH = "oath"
 
 
+def _require_int(value: object, field_name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be an int")
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalShipIdentity:
     """Opaque canonical ship key, never a concrete ship-instance identifier.
@@ -34,6 +39,8 @@ class CanonicalShipIdentity:
     key: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.key, str):
+            raise TypeError("canonical identity key must be a string")
         if not self.key.strip():
             raise ValueError("canonical identity key must not be blank")
 
@@ -47,6 +54,13 @@ class StarObservation:
     total: int
 
     def __post_init__(self) -> None:
+        for field_name, value in (
+            ("filled", self.filled),
+            ("empty", self.empty),
+            ("total", self.total),
+        ):
+            _require_int(value, field_name)
+
         if self.filled < 0:
             raise ValueError("filled star count must be non-negative")
         if self.empty < 0:
@@ -77,10 +91,29 @@ class DockShipObservation:
     affinity: AffinityState = AffinityState.UNKNOWN
 
     def __post_init__(self) -> None:
+        _require_int(self.ordinal, "ordinal")
+        if self.level is not None:
+            _require_int(self.level, "level")
+
         if not isinstance(self.identity_status, IdentityStatus):
             raise TypeError("identity_status must be an IdentityStatus")
         if not isinstance(self.affinity, AffinityState):
             raise TypeError("affinity must be an AffinityState")
+        if self.canonical_identity is not None and not isinstance(
+            self.canonical_identity, CanonicalShipIdentity
+        ):
+            raise TypeError("canonical_identity must be a CanonicalShipIdentity")
+        if self.stars is not None and not isinstance(self.stars, StarObservation):
+            raise TypeError("stars must be a StarObservation")
+
+        for field_name, value in (
+            ("raw_name_ocr", self.raw_name_ocr),
+            ("displayed_name", self.displayed_name),
+            ("canonical_name", self.canonical_name),
+        ):
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"{field_name} must be a string or None")
+
         if self.ordinal < 0:
             raise ValueError("observation ordinal must be non-negative")
 
@@ -108,6 +141,11 @@ class DockInventoryScanResult:
     def __post_init__(self) -> None:
         if not isinstance(self.observations, tuple):
             raise TypeError("observations must be a tuple to preserve immutability")
+        if not all(
+            isinstance(observation, DockShipObservation)
+            for observation in self.observations
+        ):
+            raise TypeError("observations must contain DockShipObservation values")
 
         ordinals = [observation.ordinal for observation in self.observations]
         if len(ordinals) != len(set(ordinals)):
