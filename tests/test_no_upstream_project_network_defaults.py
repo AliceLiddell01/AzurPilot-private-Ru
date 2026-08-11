@@ -73,6 +73,8 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     docker_publish = (ROOT / ".github/workflows/docker-publish.yml").read_text(
         encoding="utf-8"
     )
+    maa_updater_path = ROOT / "submodule/AlasMaaBridge/module/asst/updater.py"
+    maa_updater = maa_updater_path.read_text(encoding="utf-8")
 
     # Пользовательский случайный фон WebUI пока намеренно сохраняется.
     assert 'https://api.yppp.net/api.php' in theme
@@ -123,3 +125,14 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "DOCKERHUB_USERNAME" not in docker_publish
     assert "DOCKERHUB_TOKEN" not in docker_publish
     assert "hajiming/azurlaneautoscript" not in docker_publish
+
+    # MAA updater сохраняет обновление, но использует только официальный GitHub API и release assets.
+    compile(maa_updater, str(maa_updater_path), "exec")
+    assert "https://api.github.com/" in maa_updater
+    assert "browser_download_url" in maa_updater
+    for host in (
+        "api.kgithub.com",
+        "ota.maa.plus",
+        "download.fastgit.org",
+    ):
+        assert host not in maa_updater
