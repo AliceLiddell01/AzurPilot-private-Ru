@@ -124,8 +124,10 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
 
     # AI labeler остаётся доступен, но запускается только вручную и не навязывает провайдера/модель.
     assert "workflow_dispatch:" in issue_labeler
-    assert "issues:" not in issue_labeler
     assert "required: true" in issue_labeler
+    assert "github.event.issue" not in issue_labeler
+    assert "- opened" not in issue_labeler
+    assert "- edited" not in issue_labeler
     assert "AI_BASE_URL: ${{ vars.AI_LABELER_BASE_URL }}" in issue_labeler
     assert "AI_MODEL: ${{ vars.AI_LABELER_MODEL }}" in issue_labeler
     assert "AI_API_KEY: ${{ secrets.AI_LABELER_API_KEY }}" in issue_labeler
