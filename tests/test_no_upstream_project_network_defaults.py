@@ -104,10 +104,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     maa_updater_path = ROOT / "submodule/AlasMaaBridge/module/asst/updater.py"
     maa_updater = maa_updater_path.read_text(encoding="utf-8")
 
-    # Advanced Material theme больше не делает скрытый браузерный запрос за случайным фоном.
-    external_background = "api.yppp" + ".net"
-    assert external_background not in theme
-    assert "--alas-apple-bg-image: linear-gradient(" in theme
+    # Пользовательский случайный фон WebUI намеренно сохраняется до появления собственного аналога.
+    assert 'https://api.yppp.net/api.php' in theme
+    assert '--alas-apple-bg-image: url("https://api.yppp.net/api.php");' in theme
 
     # Полезный сервис статуса игровых серверов сохраняется без изменений endpoint.
     assert 'http://sc.shiratama.cn' in server_checker
