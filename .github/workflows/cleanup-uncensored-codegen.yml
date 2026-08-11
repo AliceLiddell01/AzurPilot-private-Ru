@@ -70,6 +70,10 @@ jobs:
               "        AzurLaneUncensored(config=self.config, device=self.device, task=\"AzurLaneUncensored\").run()\n"
               "\n",
           )
+          replace_once(
+              "module/submodule/utils.py",
+              "        'AzurLaneUncensored',\n",
+          )
 
           test_path = Path("tests/test_no_upstream_project_network_defaults.py")
           test_text = test_path.read_text(encoding="utf-8")
@@ -95,19 +99,37 @@ jobs:
           uv run --locked -m dev_tools.button_extract
           uv run --locked -m module.config.config_updater
 
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("module/config/i18n/en-US.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          task = data.get("Task", {})
+          removed_task = task.pop("AzurLaneUncensored", None)
+          removed_group = data.pop("AzurLaneUncensored", None)
+          if removed_task is None or removed_group is None:
+              raise SystemExit("en-US legacy uncensored entries were not both present")
+          path.write_text(
+              json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+              newline="",
+          )
+          PY
+
       - name: Verify complete removal and focused regressions
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n 'AzurLaneUncensored' -- . ':!tests/test_no_upstream_project_network_defaults.py'; then
+          if git grep -n 'AzurLaneUncensored' -- . ':!tests/test_no_upstream_project_network_defaults.py' ':!.github/workflows/cleanup-uncensored-codegen.yml'; then
             echo 'AzurLaneUncensored references remain after regeneration.' >&2
             exit 1
           fi
-          if git grep -n 'gitee.com/LmeSzinc/AzurLaneUncensored' -- .; then
+          if git grep -n 'gitee.com/LmeSzinc/AzurLaneUncensored' -- . ':!.github/workflows/cleanup-uncensored-codegen.yml'; then
             echo 'Gitee uncensored endpoint remains after regeneration.' >&2
             exit 1
           fi
-          if git grep -n 'e.coding.net/llop18870/alas/AzurLaneUncensored.git' -- .; then
+          if git grep -n 'e.coding.net/llop18870/alas/AzurLaneUncensored.git' -- . ':!.github/workflows/cleanup-uncensored-codegen.yml'; then
             echo 'Coding.net uncensored mirror remains after regeneration.' >&2
             exit 1
           fi
