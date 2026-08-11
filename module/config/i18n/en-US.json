@@ -731,16 +731,6 @@
       "name": "Drop Save Directory",
       "help": ""
     },
-    "AzurStatsID": {
-      "name": "AzurStat ID",
-      "help": "The client ID declared when uploading to https://azur-stats.lyoko.io\nComposed of random characters and can be modified at will"
-    },
-    "API": {
-      "name": "Upload Route",
-      "help": "If users in China cannot connect to AzurStat, they can use \"China Reverse Proxy\"",
-      "default": "Default (Cloudflare)",
-      "cn_gz_reverse_proxy": "China Reverse Proxy (Guangzhou)"
-    },
     "ResearchRecord": {
       "name": "Research Screenshot",
       "help": "",

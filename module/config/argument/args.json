@@ -500,18 +500,6 @@
         "type": "input",
         "value": "./screenshots"
       },
-      "AzurStatsID": {
-        "type": "input",
-        "value": null
-      },
-      "API": {
-        "type": "select",
-        "value": "default",
-        "option": [
-          "default",
-          "cn_gz_reverse_proxy"
-        ]
-      },
       "ResearchRecord": {
         "type": "select",
         "value": "do_not",

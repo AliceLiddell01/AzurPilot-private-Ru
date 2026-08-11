@@ -235,10 +235,6 @@ Optimization:
     option: [stay_there, goto_main, close_game]
 DropRecord:
   SaveFolder: ./screenshots
-  AzurStatsID: null
-  API:
-    value: default
-    option: [default, cn_gz_reverse_proxy]
   ResearchRecord:
     value: do_not
     option: [do_not, save, upload, save_and_upload]
