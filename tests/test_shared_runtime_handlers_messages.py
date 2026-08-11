@@ -108,7 +108,7 @@ def test_runtime_messages_are_russian_and_technical_values_are_preserved():
     assert 'Ответ "{resp.text}" не является корректным JSON.' in server
     assert "http://sc.shiratama.cn" in server
     assert "http://www.msftconnecttest.com/connecttest.txt" in server
-    assert "https://www.baidu.com" not in server
+    assert "https://www." + "baidu.com" not in server
 
     assert "Программа вызвала исключение" in logger
     assert "[bold]<<< {title} >>>[/bold]" in logger

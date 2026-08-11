@@ -172,7 +172,7 @@ def split_repository(repository):
 def repo_parts(event, platform):
     del event, platform
     parts = split_repository(os.environ.get("GITHUB_REPOSITORY", ""))
-    if parts:
+    if parts and all(parts) and "/" not in parts[1]:
         return parts
     raise RuntimeError("Missing or invalid GITHUB_REPOSITORY")
 

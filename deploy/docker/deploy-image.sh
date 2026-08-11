@@ -335,8 +335,13 @@ install_docker_debian() {
         | run_as_root gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     run_as_root chmod a+r /etc/apt/keyrings/docker.gpg
 
+    local codename="${VERSION_CODENAME}"
+    if [ "${distro}" = "ubuntu" ]; then
+        codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"
+    fi
+
     printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' \
-        "$(dpkg --print-architecture)" "${distro}" "${VERSION_CODENAME}" \
+        "$(dpkg --print-architecture)" "${distro}" "${codename}" \
         | run_as_root tee /etc/apt/sources.list.d/docker.list >/dev/null
 
     run_as_root apt-get update

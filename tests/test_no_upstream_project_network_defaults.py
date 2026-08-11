@@ -41,15 +41,26 @@ SCAN_FILES = (
 
 
 def _iter_text_files():
-    for path in SCAN_FILES:
-        if path.is_file():
-            yield path
-    for root in SCAN_ROOTS:
-        if not root.exists():
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    for raw_path in tracked.split(b"\0"):
+        if not raw_path:
             continue
-        for path in root.rglob("*"):
-            if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:
-                yield path
+        path = ROOT / raw_path.decode("utf-8", errors="surrogateescape")
+        if not path.is_file():
+            continue
+        try:
+            with path.open("rb") as stream:
+                prefix = stream.read(8192)
+        except OSError:
+            continue
+        if b"\0" in prefix:
+            continue
+        yield path
 
 
 def test_upstream_project_domains_are_not_present_in_personal_runtime_or_templates():
@@ -125,7 +136,11 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert 'LlmModel:\n    value: ""' in llm_argument
     assert "if not api_key or not api_base or not model:" in llm_runtime
     assert "max_tokens=1200" in llm_runtime
-    assert "lines[-200:]" in llm_runtime
+    assert "_read_log_tail(logger.log_file)" in llm_runtime
+    assert "max_bytes=64 * 1024" in llm_runtime
+    assert "max_lines=200" in llm_runtime
+    assert "stream.read(max_bytes)" in llm_runtime
+    assert ".readlines()" not in llm_runtime
     assert "Предустановленного провайдера нет" in llm_ru_i18n
     for token in (
         "xiaomimimo" + ".com",
@@ -249,6 +264,8 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git" in docker_deploy
     assert 'BRANCH="${BRANCH:-personal/stable}"' in docker_deploy
     assert "https://download.docker.com/linux/" in docker_deploy
+    assert 'codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"' in docker_deploy
+    assert '"${distro}" "${codename}"' in docker_deploy
     assert 'IMAGE="${IMAGE:-azurpilot-private-ru:local}"' in docker_deploy
     assert 'docker_cmd build --pull -t "${IMAGE}"' in docker_deploy
     assert 'merge --ff-only "origin/${BRANCH}"' in docker_deploy
@@ -283,6 +300,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     for source in u2_sources:
         assert hidden_u2_host not in source
     assert "uiautomator2cache" in u2_sources[2]
+    assert "if not cache_dir or not os.path.isdir(cache_dir):" in u2_sources[2]
+    assert "raise RuntimeError(message)" in u2_sources[2]
+    assert "внешний источник ресурсов" in u2_sources[2]
     assert "внешний fallback отключён" in u2_sources[0]
     assert "внешний fallback отключён" in u2_sources[1]
     assert "внешний fallback отключён" in u2_sources[3]
