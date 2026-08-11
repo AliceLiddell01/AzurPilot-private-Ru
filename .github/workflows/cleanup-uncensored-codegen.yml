@@ -1,16 +1,16 @@
 name: One-time uncensored cleanup codegen
 
 on:
-  push:
+  pull_request:
     branches:
-      - chatgpt/remove-upstream-announcements
+      - personal/stable
 
 permissions:
   contents: write
 
 jobs:
   cleanup:
-    if: ${{ contains(github.event.head_commit.message, '[uncensored-codegen]') }}
+    if: ${{ github.head_ref == 'chatgpt/remove-upstream-announcements' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
