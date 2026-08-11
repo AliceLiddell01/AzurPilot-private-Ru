@@ -117,19 +117,26 @@ jobs:
           )
           PY
 
+      - name: Retire one-time workflow before validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/cleanup-uncensored-codegen.yml
+          printf '%s\n' 'generated cleanup complete; remove this marker with the GitHub connector' > .github/uncensored-cleanup.done
+
       - name: Verify complete removal and focused regressions
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n 'AzurLaneUncensored' -- . ':!tests/test_no_upstream_project_network_defaults.py' ':!.github/workflows/cleanup-uncensored-codegen.yml'; then
+          if git grep -n 'AzurLaneUncensored' -- . ':!tests/test_no_upstream_project_network_defaults.py'; then
             echo 'AzurLaneUncensored references remain after regeneration.' >&2
             exit 1
           fi
-          if git grep -n 'gitee.com/LmeSzinc/AzurLaneUncensored' -- . ':!.github/workflows/cleanup-uncensored-codegen.yml'; then
+          if git grep -n 'gitee.com/LmeSzinc/AzurLaneUncensored' -- .; then
             echo 'Gitee uncensored endpoint remains after regeneration.' >&2
             exit 1
           fi
-          if git grep -n 'e.coding.net/llop18870/alas/AzurLaneUncensored.git' -- . ':!.github/workflows/cleanup-uncensored-codegen.yml'; then
+          if git grep -n 'e.coding.net/llop18870/alas/AzurLaneUncensored.git' -- .; then
             echo 'Coding.net uncensored mirror remains after regeneration.' >&2
             exit 1
           fi
