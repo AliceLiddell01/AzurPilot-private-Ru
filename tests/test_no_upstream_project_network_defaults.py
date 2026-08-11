@@ -76,6 +76,14 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     issue_labeler = (ROOT / ".github/workflows/ai-issue-labeler.yml").read_text(
         encoding="utf-8"
     )
+    issue_labeler_script = (ROOT / ".github/scripts/ai_issue_labeler.py").read_text(
+        encoding="utf-8"
+    )
+    alas_utils = (ROOT / "assets/gui/js/alas-utils.js").read_text(encoding="utf-8")
+    gui_argument = (ROOT / "module/config/argument/gui.yaml").read_text(encoding="utf-8")
+    ru_i18n = (ROOT / "module/config/i18n/ru-RU.json").read_text(encoding="utf-8")
+    en_i18n = (ROOT / "module/config/i18n/en-US.json").read_text(encoding="utf-8")
+    combat_runtime = (ROOT / "module/combat/combat.py").read_text(encoding="utf-8")
     docker_publish = (ROOT / ".github/workflows/docker-publish.yml").read_text(
         encoding="utf-8"
     )
@@ -145,6 +153,28 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     # Мёртвая ссылка на отсутствующий китайский Dockerfile удалена, рабочий Dockerfile сохранён.
     assert "dockerfile: ./deploy/docker/Dockerfile" in docker_compose
     assert "Dockerfile.cn" not in docker_compose
+
+    # Остатки удалённой announcement/API инфраструктуры не должны возвращаться.
+    announcement_tokens = (
+        "alasShow" + "Announcement",
+        "alas_shown_" + "announcements",
+        "alas-announcement-" + "modal",
+    )
+    for token in announcement_tokens:
+        assert token not in alas_utils
+    assert "  Announcement:\n" not in gui_argument
+    assert '"Announcement":' not in ru_i18n
+    assert '"Announcement":' not in en_i18n
+    assert not (ROOT / "module/base/api_client.py").exists()
+    assert "module.base." + "api_client" not in combat_runtime
+    assert "Api" + "Client" not in combat_runtime
+
+    # Labeler теперь GitHub-only: dormant GitCode transport/event compatibility удалена.
+    gitcode_token = "git" + "code"
+    assert gitcode_token not in issue_labeler_script.lower()
+    assert "LABELER_PLATFORM" not in issue_labeler
+    assert "GITHUB_REPOSITORY" in issue_labeler_script
+    assert "https://api.github.com" in issue_labeler_script
 
     # AI labeler остаётся доступен, но запускается только вручную и не навязывает провайдера/модель.
     assert "workflow_dispatch:" in issue_labeler
