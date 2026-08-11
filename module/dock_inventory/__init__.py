@@ -1,5 +1,11 @@
 """Dock Inventory subsystem public Stage 1 model contract."""
 
+from module.dock_inventory.catalog import (
+    DockCanonicalShip,
+    DockIdentityCatalog,
+    DockIdentityCatalogError,
+    load_dock_identity_catalog,
+)
 from module.dock_inventory.model import (
     AffinityState,
     CanonicalShipIdentity,
@@ -12,8 +18,12 @@ from module.dock_inventory.model import (
 __all__ = [
     "AffinityState",
     "CanonicalShipIdentity",
+    "DockCanonicalShip",
+    "DockIdentityCatalog",
+    "DockIdentityCatalogError",
     "DockInventoryScanResult",
     "DockShipObservation",
     "IdentityStatus",
     "StarObservation",
+    "load_dock_identity_catalog",
 ]

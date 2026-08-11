@@ -1,0 +1,4466 @@
+{
+  "schema_version": 1,
+  "language": "en",
+  "identity_scheme": "azur_lane_ship_group",
+  "provenance": {
+    "source_repository": "wess09/AzurPilot",
+    "source_commit": "42ffc9566870ce3074c12d4faabf19bfaaafaf71",
+    "source_path": "assets/ship/ship_data.json",
+    "source_blob_sha": "6f3bd2c21966a40b40c91b2c5f889019f83063fa",
+    "source_sha256": "12a542d477d561070f67ca1982d617858f32d2db57baf0a2ca7f90eabb66eb85",
+    "source_generator_path": "dev_tools/ship_data_extractor.py",
+    "source_generator_blob_sha": "5c3394374e107c3362f193c999febe00b34d12a5",
+    "supplemental_source_repository": "AzurLaneTools/AzurLaneLuaScripts",
+    "supplemental_source_commit": "89048396054a2ad908dc12f14ef6f29a2bd552c9",
+    "supplemental_source_path": "EN/sharecfg/fleet_tech_ship_class.lua",
+    "supplemental_source_blob_sha": "fcdd46ac985dcf5478a9685bdc5b248076b68ae0",
+    "selection_contract": "group_type with a canonical progression template (ship_id//10 == group_type), plus that group's retrofit/type-II records; EN names only; NPC/special records excluded; new EN fleet-tech groups absent from the derived source are appended from the exact supplemental Lua blob"
+  },
+  "records": [
+    {
+      "canonical_id": "azur_lane_ship_group:10000",
+      "canonical_name": "Universal Bulin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10001",
+      "canonical_name": "Prototype Bulin MKII",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10002",
+      "canonical_name": "Specialized Bulin Custom MKIII",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10102",
+      "canonical_name": "Dewey",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10103",
+      "canonical_name": "Cassin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10104",
+      "canonical_name": "Downes",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10105",
+      "canonical_name": "Gridley",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10106",
+      "canonical_name": "Craven",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10107",
+      "canonical_name": "McCall",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10108",
+      "canonical_name": "Maury",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10109",
+      "canonical_name": "Fletcher",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10110",
+      "canonical_name": "William D. Porter",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10111",
+      "canonical_name": "Charles Ausburne",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10112",
+      "canonical_name": "Thatcher",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10113",
+      "canonical_name": "Aulick",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10114",
+      "canonical_name": "Foote",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10115",
+      "canonical_name": "Spence",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10116",
+      "canonical_name": "Benson",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10117",
+      "canonical_name": "Laffey",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10124",
+      "canonical_name": "Sims",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10125",
+      "canonical_name": "Hammann",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10126",
+      "canonical_name": "Eldridge",
+      "aliases": [
+        "Eldridge (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10127",
+      "canonical_name": "Bailey",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10129",
+      "canonical_name": "Radford",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10130",
+      "canonical_name": "Jenkins",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10131",
+      "canonical_name": "Nicholas",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10133",
+      "canonical_name": "Bush",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10134",
+      "canonical_name": "Hazelwood",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10135",
+      "canonical_name": "Bache",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10136",
+      "canonical_name": "Hobby",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10137",
+      "canonical_name": "Kalk",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10138",
+      "canonical_name": "Kimberly",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10139",
+      "canonical_name": "Mullany",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10140",
+      "canonical_name": "Aylwin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10141",
+      "canonical_name": "Stanly",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10142",
+      "canonical_name": "Smalley",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10143",
+      "canonical_name": "Halsey Powell",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10144",
+      "canonical_name": "Cooper",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10145",
+      "canonical_name": "Allen M. Sumner",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10146",
+      "canonical_name": "Stephen Potter",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10147",
+      "canonical_name": "Morrison",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10148",
+      "canonical_name": "Ingraham",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10149",
+      "canonical_name": "Bristol",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10150",
+      "canonical_name": "Hammann II",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10151",
+      "canonical_name": "Laffey II",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10152",
+      "canonical_name": "Bell",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10153",
+      "canonical_name": "Miller",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10155",
+      "canonical_name": "Clarence K. Bronson",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10201",
+      "canonical_name": "Omaha",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10202",
+      "canonical_name": "Raleigh",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10203",
+      "canonical_name": "Brooklyn",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10204",
+      "canonical_name": "Phoenix",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10205",
+      "canonical_name": "Helena",
+      "aliases": [
+        "Helena Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10206",
+      "canonical_name": "Atlanta",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10207",
+      "canonical_name": "Juneau",
+      "aliases": [
+        "Juneau Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10208",
+      "canonical_name": "San Diego",
+      "aliases": [
+        "San Diego Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10209",
+      "canonical_name": "Cleveland",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10210",
+      "canonical_name": "Columbia",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10211",
+      "canonical_name": "Richmond",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10212",
+      "canonical_name": "Honolulu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10213",
+      "canonical_name": "St. Louis",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10214",
+      "canonical_name": "Montpelier",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10215",
+      "canonical_name": "Denver",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10216",
+      "canonical_name": "Memphis",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10218",
+      "canonical_name": "Concord",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10219",
+      "canonical_name": "Lena",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10220",
+      "canonical_name": "Clevelad",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10221",
+      "canonical_name": "Li'l Sandy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10222",
+      "canonical_name": "San Juan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10223",
+      "canonical_name": "Birmingham",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10224",
+      "canonical_name": "Cleveland μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10225",
+      "canonical_name": "Biloxi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10226",
+      "canonical_name": "Reno",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10227",
+      "canonical_name": "Marblehead",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10229",
+      "canonical_name": "Boise",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10231",
+      "canonical_name": "Houston II",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10232",
+      "canonical_name": "Boise μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10233",
+      "canonical_name": "Fargo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10234",
+      "canonical_name": "Santa Fe",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10235",
+      "canonical_name": "Pasadena",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10301",
+      "canonical_name": "Pensacola",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10302",
+      "canonical_name": "Salt Lake City",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10303",
+      "canonical_name": "Northampton",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10304",
+      "canonical_name": "Chicago",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10305",
+      "canonical_name": "Houston",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10306",
+      "canonical_name": "Portland",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10307",
+      "canonical_name": "Indianapolis",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10308",
+      "canonical_name": "Astoria",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10309",
+      "canonical_name": "Quincy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10310",
+      "canonical_name": "Vincennes",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10311",
+      "canonical_name": "Wichita",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10312",
+      "canonical_name": "New Orleans",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10313",
+      "canonical_name": "Minneapolis",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10314",
+      "canonical_name": "San Francisco",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10316",
+      "canonical_name": "Baltimore",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10324",
+      "canonical_name": "Bremerton",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10325",
+      "canonical_name": "Baltimore μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10326",
+      "canonical_name": "Northampton II",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10327",
+      "canonical_name": "Louisville",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10328",
+      "canonical_name": "Pittsburgh",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10329",
+      "canonical_name": "Little Anchorage",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10401",
+      "canonical_name": "Constellation",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10501",
+      "canonical_name": "Nevada",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10502",
+      "canonical_name": "Oklahoma",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10503",
+      "canonical_name": "Pennsylvania",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10504",
+      "canonical_name": "Arizona",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10507",
+      "canonical_name": "Tennessee",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10508",
+      "canonical_name": "California",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10509",
+      "canonical_name": "Colorado",
+      "aliases": [
+        "Colorado (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10510",
+      "canonical_name": "Maryland",
+      "aliases": [
+        "Maryland (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10511",
+      "canonical_name": "West Virginia",
+      "aliases": [
+        "West Virginia (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10512",
+      "canonical_name": "North Carolina",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10513",
+      "canonical_name": "Washington",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10514",
+      "canonical_name": "South Dakota",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10515",
+      "canonical_name": "Indiana",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10517",
+      "canonical_name": "New Jersey",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10519",
+      "canonical_name": "Massachusetts",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10520",
+      "canonical_name": "Alabama",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10601",
+      "canonical_name": "Long Island",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10602",
+      "canonical_name": "Bogue",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10655",
+      "canonical_name": "Casablanca",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10701",
+      "canonical_name": "Langley",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10702",
+      "canonical_name": "Lexington",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10703",
+      "canonical_name": "Saratoga",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10704",
+      "canonical_name": "Ranger",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10705",
+      "canonical_name": "Yorktown",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10706",
+      "canonical_name": "Enterprise",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10707",
+      "canonical_name": "Hornet",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10708",
+      "canonical_name": "Wasp",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10709",
+      "canonical_name": "Essex",
+      "aliases": [
+        "Essex (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10710",
+      "canonical_name": "Yorktown II",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10711",
+      "canonical_name": "Intrepid",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10712",
+      "canonical_name": "Hornet II",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10713",
+      "canonical_name": "Franklin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10714",
+      "canonical_name": "Ticonderoga",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10716",
+      "canonical_name": "Lexington II",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10717",
+      "canonical_name": "Bunker Hill",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10722",
+      "canonical_name": "Independence",
+      "aliases": [
+        "Independence Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10723",
+      "canonical_name": "Princeton",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10725",
+      "canonical_name": "Cowpens",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10727",
+      "canonical_name": "Langley II",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10729",
+      "canonical_name": "Bataan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10730",
+      "canonical_name": "San Jacinto",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10738",
+      "canonical_name": "Shangri-La",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10799",
+      "canonical_name": "Little Enterprise",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10801",
+      "canonical_name": "Dace",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10802",
+      "canonical_name": "Albacore",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10803",
+      "canonical_name": "Cavalla",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10804",
+      "canonical_name": "Bluegill",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10805",
+      "canonical_name": "Albacore μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10806",
+      "canonical_name": "Archerfish",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10807",
+      "canonical_name": "Nautilus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10808",
+      "canonical_name": "Flasher",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:10809",
+      "canonical_name": "Herring",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:11201",
+      "canonical_name": "Vestal",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:11802",
+      "canonical_name": "Guam",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:19901",
+      "canonical_name": "Seattle",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:19902",
+      "canonical_name": "Georgia",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:19903",
+      "canonical_name": "Anchorage",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:19904",
+      "canonical_name": "Kearsarge",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:19905",
+      "canonical_name": "Halford",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:19906",
+      "canonical_name": "Kansas",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20101",
+      "canonical_name": "Amazon",
+      "aliases": [
+        "Amazon Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20102",
+      "canonical_name": "Acasta",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20103",
+      "canonical_name": "Ardent",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20106",
+      "canonical_name": "Beagle",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20107",
+      "canonical_name": "Bulldog",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20108",
+      "canonical_name": "Comet",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20109",
+      "canonical_name": "Crescent",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20110",
+      "canonical_name": "Cygnet",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20111",
+      "canonical_name": "Foxhound",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20112",
+      "canonical_name": "Fortune",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20113",
+      "canonical_name": "Grenville",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20114",
+      "canonical_name": "Glowworm",
+      "aliases": [
+        "Glowworm (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20115",
+      "canonical_name": "Griffin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20116",
+      "canonical_name": "Hardy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20120",
+      "canonical_name": "Hunter",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20121",
+      "canonical_name": "Javelin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20122",
+      "canonical_name": "Juno",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20123",
+      "canonical_name": "Vampire",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20124",
+      "canonical_name": "Jupiter",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20125",
+      "canonical_name": "Jersey",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20126",
+      "canonical_name": "Matchless",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20127",
+      "canonical_name": "Musketeer",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20129",
+      "canonical_name": "Echo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20132",
+      "canonical_name": "Eskimo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20133",
+      "canonical_name": "Icarus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20134",
+      "canonical_name": "Jervis",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20135",
+      "canonical_name": "Janus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20136",
+      "canonical_name": "Hero",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20137",
+      "canonical_name": "Nubian",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20138",
+      "canonical_name": "Trafalgar",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20139",
+      "canonical_name": "Gallant",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20201",
+      "canonical_name": "Leander",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20202",
+      "canonical_name": "Achilles",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20203",
+      "canonical_name": "Ajax",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20204",
+      "canonical_name": "Dido",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20207",
+      "canonical_name": "Southampton",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20208",
+      "canonical_name": "Sheffield",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20209",
+      "canonical_name": "Manchester",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20210",
+      "canonical_name": "Gloucester",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20211",
+      "canonical_name": "Edinburgh",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20212",
+      "canonical_name": "Belfast",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20213",
+      "canonical_name": "Arethusa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20214",
+      "canonical_name": "Galatea",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20215",
+      "canonical_name": "Aurora",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20216",
+      "canonical_name": "Fiji",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20217",
+      "canonical_name": "Jamaica",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20218",
+      "canonical_name": "Little Bel",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20219",
+      "canonical_name": "Newcastle",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20220",
+      "canonical_name": "Sirius",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20221",
+      "canonical_name": "Curacoa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20222",
+      "canonical_name": "Curlew",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20223",
+      "canonical_name": "Swiftsure",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20224",
+      "canonical_name": "Black Prince",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20225",
+      "canonical_name": "Sheffield μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20226",
+      "canonical_name": "Glasgow",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20227",
+      "canonical_name": "Hermione",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20228",
+      "canonical_name": "Dido μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20229",
+      "canonical_name": "Penelope",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20230",
+      "canonical_name": "Charybdis",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20231",
+      "canonical_name": "Bellona",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20232",
+      "canonical_name": "Enterprise",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20233",
+      "canonical_name": "Scylla",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20234",
+      "canonical_name": "Liverpool",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20235",
+      "canonical_name": "Cleopatra",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20236",
+      "canonical_name": "Trinidad",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20237",
+      "canonical_name": "Superb",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20301",
+      "canonical_name": "London",
+      "aliases": [
+        "London (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20302",
+      "canonical_name": "Shropshire",
+      "aliases": [
+        "Shropshire (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20303",
+      "canonical_name": "Kent",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20304",
+      "canonical_name": "Suffolk",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20305",
+      "canonical_name": "Norfolk",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20306",
+      "canonical_name": "Dorsetshire",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20307",
+      "canonical_name": "York",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20308",
+      "canonical_name": "Exeter",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20309",
+      "canonical_name": "Sussex",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20310",
+      "canonical_name": "Little Cheshire",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20313",
+      "canonical_name": "Devonshire",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20314",
+      "canonical_name": "Surrey",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20401",
+      "canonical_name": "Renown",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20402",
+      "canonical_name": "Repulse",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20403",
+      "canonical_name": "Hood",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20404",
+      "canonical_name": "Little Renown",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20501",
+      "canonical_name": "Queen Elizabeth",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20502",
+      "canonical_name": "Warspite",
+      "aliases": [
+        "Warspite (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20503",
+      "canonical_name": "Nelson",
+      "aliases": [
+        "Nelson (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20504",
+      "canonical_name": "Rodney",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20505",
+      "canonical_name": "King George V",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20506",
+      "canonical_name": "Prince of Wales",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20507",
+      "canonical_name": "Duke of York",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20509",
+      "canonical_name": "Howe",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20510",
+      "canonical_name": "Valiant",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20511",
+      "canonical_name": "Revenge",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20513",
+      "canonical_name": "Vanguard",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20514",
+      "canonical_name": "Royal Oak",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20516",
+      "canonical_name": "Lion",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20601",
+      "canonical_name": "Hermes",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20602",
+      "canonical_name": "Argus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20603",
+      "canonical_name": "Unicorn",
+      "aliases": [
+        "Unicorn (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20604",
+      "canonical_name": "Centaur",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20605",
+      "canonical_name": "Chaser",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20606",
+      "canonical_name": "Perseus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20607",
+      "canonical_name": "Albion",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20608",
+      "canonical_name": "Theseus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20701",
+      "canonical_name": "Eagle",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20702",
+      "canonical_name": "Ark Royal",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20703",
+      "canonical_name": "Illustrious",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20704",
+      "canonical_name": "Victorious",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20705",
+      "canonical_name": "Formidable",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20706",
+      "canonical_name": "Glorious",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20707",
+      "canonical_name": "Implacable",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20709",
+      "canonical_name": "Little Illustrious",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20711",
+      "canonical_name": "Illustrious μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20712",
+      "canonical_name": "Indomitable",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20713",
+      "canonical_name": "Little Formidable",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:20714",
+      "canonical_name": "Formidable μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:21301",
+      "canonical_name": "Erebus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:21302",
+      "canonical_name": "Terror",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:21304",
+      "canonical_name": "Abercrombie",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:29901",
+      "canonical_name": "Neptune",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:29902",
+      "canonical_name": "Monarch",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:29903",
+      "canonical_name": "Cheshire",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:29904",
+      "canonical_name": "Drake",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:29905",
+      "canonical_name": "Plymouth",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:29906",
+      "canonical_name": "Duncan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30101",
+      "canonical_name": "Fubuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30102",
+      "canonical_name": "Shirayuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30104",
+      "canonical_name": "Miyuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30105",
+      "canonical_name": "Ayanami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30109",
+      "canonical_name": "Akatsuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30110",
+      "canonical_name": "Hibiki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30111",
+      "canonical_name": "Ikazuchi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30112",
+      "canonical_name": "Inazuma",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30113",
+      "canonical_name": "Shiratsuyu",
+      "aliases": [
+        "Shiratsuyu (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30114",
+      "canonical_name": "Yuudachi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30115",
+      "canonical_name": "Shigure",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30116",
+      "canonical_name": "Yukikaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30117",
+      "canonical_name": "Kagerou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30118",
+      "canonical_name": "Shiranui",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30120",
+      "canonical_name": "Nowaki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30121",
+      "canonical_name": "Hatsuharu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30123",
+      "canonical_name": "Wakaba",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30124",
+      "canonical_name": "Hatsushimo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30125",
+      "canonical_name": "Ariake",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30126",
+      "canonical_name": "Yuugure",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30127",
+      "canonical_name": "Kuroshio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30128",
+      "canonical_name": "Oyashio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30129",
+      "canonical_name": "Shimakaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30130",
+      "canonical_name": "Kamikaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30131",
+      "canonical_name": "Matsukaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30132",
+      "canonical_name": "Mutsuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30133",
+      "canonical_name": "Kisaragi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30135",
+      "canonical_name": "Uzuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30137",
+      "canonical_name": "Minazuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30138",
+      "canonical_name": "Fumizuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30139",
+      "canonical_name": "Nagatsuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30141",
+      "canonical_name": "Mikazuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30147",
+      "canonical_name": "Umikaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30148",
+      "canonical_name": "Yamakaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30149",
+      "canonical_name": "Kawakaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30154",
+      "canonical_name": "Kiyonami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30156",
+      "canonical_name": "Niizuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30157",
+      "canonical_name": "Harutsuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30158",
+      "canonical_name": "Yoizuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30159",
+      "canonical_name": "Urakaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30160",
+      "canonical_name": "Isokaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30161",
+      "canonical_name": "Hamakaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30162",
+      "canonical_name": "Tanikaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30163",
+      "canonical_name": "Asashio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30164",
+      "canonical_name": "Ooshio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30165",
+      "canonical_name": "Michishio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30166",
+      "canonical_name": "Arashio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30172",
+      "canonical_name": "Uranami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30179",
+      "canonical_name": "Hatakaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30180",
+      "canonical_name": "Makinami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30181",
+      "canonical_name": "Kasumi",
+      "aliases": [
+        "Kasumi Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30182",
+      "canonical_name": "Hanazuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30183",
+      "canonical_name": "Naganami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30184",
+      "canonical_name": "Suzutsuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30185",
+      "canonical_name": "Oite",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30186",
+      "canonical_name": "Kazagumo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30188",
+      "canonical_name": "Wakatsuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30189",
+      "canonical_name": "Hatsuzuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30190",
+      "canonical_name": "Asanagi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30191",
+      "canonical_name": "Suzunami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30192",
+      "canonical_name": "Taekaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30194",
+      "canonical_name": "Fujinami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30201",
+      "canonical_name": "Yuubari",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30204",
+      "canonical_name": "Nagara",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30205",
+      "canonical_name": "Isuzu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30206",
+      "canonical_name": "Natori",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30207",
+      "canonical_name": "Yura",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30208",
+      "canonical_name": "Kinu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30209",
+      "canonical_name": "Abukuma",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30210",
+      "canonical_name": "Mogami",
+      "aliases": [
+        "Mogami Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30211",
+      "canonical_name": "Mikuma",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30212",
+      "canonical_name": "Sendai",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30213",
+      "canonical_name": "Jintsuu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30214",
+      "canonical_name": "Naka",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30220",
+      "canonical_name": "Agano",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30221",
+      "canonical_name": "Noshiro",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30223",
+      "canonical_name": "Sakawa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30224",
+      "canonical_name": "Noshiro μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30225",
+      "canonical_name": "Watarase",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30226",
+      "canonical_name": "Ayase",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30227",
+      "canonical_name": "Minase",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30228",
+      "canonical_name": "Kizu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30229",
+      "canonical_name": "Nayoro",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30301",
+      "canonical_name": "Furutaka",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30302",
+      "canonical_name": "Kako",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30303",
+      "canonical_name": "Aoba",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30304",
+      "canonical_name": "Kinugasa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30306",
+      "canonical_name": "Chikuma",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30307",
+      "canonical_name": "Myoukou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30308",
+      "canonical_name": "Nachi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30309",
+      "canonical_name": "Ashigara",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30310",
+      "canonical_name": "Haguro",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30311",
+      "canonical_name": "Takao",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30312",
+      "canonical_name": "Atago",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30313",
+      "canonical_name": "Maya",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30314",
+      "canonical_name": "Choukai",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30317",
+      "canonical_name": "Suzuya",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30318",
+      "canonical_name": "Kumano",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30319",
+      "canonical_name": "Unzen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30320",
+      "canonical_name": "Asama",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30321",
+      "canonical_name": "Unzen-chan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30401",
+      "canonical_name": "Kongou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30402",
+      "canonical_name": "Hiei",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30403",
+      "canonical_name": "Haruna",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30404",
+      "canonical_name": "Kirishima",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30405",
+      "canonical_name": "Amagi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30406",
+      "canonical_name": "Hiei-chan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30407",
+      "canonical_name": "Amagi-chan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30408",
+      "canonical_name": "Kongou μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30501",
+      "canonical_name": "Fusou",
+      "aliases": [
+        "Fusou Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30502",
+      "canonical_name": "Yamashiro",
+      "aliases": [
+        "Yamashiro Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30503",
+      "canonical_name": "Ise",
+      "aliases": [
+        "Ise Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30504",
+      "canonical_name": "Hyuuga",
+      "aliases": [
+        "Hyuuga Retrofit"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30505",
+      "canonical_name": "Nagato",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30506",
+      "canonical_name": "Mutsu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30507",
+      "canonical_name": "Kaga(BB)",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30508",
+      "canonical_name": "Tosa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30510",
+      "canonical_name": "Musashi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30511",
+      "canonical_name": "Mikasa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30512",
+      "canonical_name": "Kii",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30513",
+      "canonical_name": "Owari",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30514",
+      "canonical_name": "Suruga",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30516",
+      "canonical_name": "Oumi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30517",
+      "canonical_name": "Musashi-chan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30601",
+      "canonical_name": "Hiyou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30602",
+      "canonical_name": "Junyou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30603",
+      "canonical_name": "Houshou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30604",
+      "canonical_name": "Zuihou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30605",
+      "canonical_name": "Shouhou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30606",
+      "canonical_name": "Ryuujou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30607",
+      "canonical_name": "Ryuuhou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30608",
+      "canonical_name": "Chitose",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30609",
+      "canonical_name": "Chiyoda",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30701",
+      "canonical_name": "Akagi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30702",
+      "canonical_name": "Kaga",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30703",
+      "canonical_name": "Souryuu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30704",
+      "canonical_name": "Hiryuu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30705",
+      "canonical_name": "Shoukaku",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30706",
+      "canonical_name": "Zuikaku",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30707",
+      "canonical_name": "Taihou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30708",
+      "canonical_name": "Shinano",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30709",
+      "canonical_name": "Akagi-chan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30710",
+      "canonical_name": "Akagi μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30711",
+      "canonical_name": "Taihou μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30712",
+      "canonical_name": "Katsuragi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30713",
+      "canonical_name": "Taihou-chan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30714",
+      "canonical_name": "Shinano-chan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30715",
+      "canonical_name": "Amagi(CV)",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30716",
+      "canonical_name": "Hakuhou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30717",
+      "canonical_name": "Unryuu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30801",
+      "canonical_name": "I-19",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30802",
+      "canonical_name": "I-26",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30803",
+      "canonical_name": "I-58",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30804",
+      "canonical_name": "I-25",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30805",
+      "canonical_name": "I-56",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:30806",
+      "canonical_name": "I-168",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:31201",
+      "canonical_name": "Akashi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:31701",
+      "canonical_name": "I-13",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:31702",
+      "canonical_name": "I-404",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:31901",
+      "canonical_name": "Kashino",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:39901",
+      "canonical_name": "Ibuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:39902",
+      "canonical_name": "Izumo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:39903",
+      "canonical_name": "Kitakaze",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:39904",
+      "canonical_name": "Azuma",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:39905",
+      "canonical_name": "Hakuryuu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:39906",
+      "canonical_name": "Shimanto",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:39907",
+      "canonical_name": "Daisen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:39908",
+      "canonical_name": "Takahashi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40101",
+      "canonical_name": "Z1",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40102",
+      "canonical_name": "Z2",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40109",
+      "canonical_name": "Z9",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40111",
+      "canonical_name": "Z11",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40113",
+      "canonical_name": "Z13",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40114",
+      "canonical_name": "Z14",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40115",
+      "canonical_name": "Z15",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40116",
+      "canonical_name": "Z16",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40118",
+      "canonical_name": "Z18",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40119",
+      "canonical_name": "Z19",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40120",
+      "canonical_name": "Z20",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40121",
+      "canonical_name": "Z21",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40123",
+      "canonical_name": "Z23",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40124",
+      "canonical_name": "Z24",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40125",
+      "canonical_name": "Z25",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40126",
+      "canonical_name": "Z26",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40128",
+      "canonical_name": "Z28",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40135",
+      "canonical_name": "Z35",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40136",
+      "canonical_name": "Z36",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40143",
+      "canonical_name": "Z43",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40146",
+      "canonical_name": "Z46",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40147",
+      "canonical_name": "Z47",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40152",
+      "canonical_name": "Z52",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40199",
+      "canonical_name": "Otto von Alvensleben",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40201",
+      "canonical_name": "Königsberg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40202",
+      "canonical_name": "Karlsruhe",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40203",
+      "canonical_name": "Köln",
+      "aliases": [
+        "Köln (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40204",
+      "canonical_name": "Leipzig",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40205",
+      "canonical_name": "Nürnberg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40206",
+      "canonical_name": "Magdeburg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40207",
+      "canonical_name": "Emden",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40208",
+      "canonical_name": "Elbing",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40210",
+      "canonical_name": "Regensburg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40211",
+      "canonical_name": "Duisburg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40301",
+      "canonical_name": "Admiral Hipper",
+      "aliases": [
+        "Admiral Hipper (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40302",
+      "canonical_name": "Blücher",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40303",
+      "canonical_name": "Prinz Eugen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40304",
+      "canonical_name": "Deutschland",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40305",
+      "canonical_name": "Admiral Graf Spee",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40307",
+      "canonical_name": "Admiral Hipper μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40308",
+      "canonical_name": "Roon μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40309",
+      "canonical_name": "Prinz Heinrich",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40310",
+      "canonical_name": "Prinz Adalbert",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40311",
+      "canonical_name": "Yorck",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40312",
+      "canonical_name": "Little Prinz Eugen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40313",
+      "canonical_name": "Little Spee",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40314",
+      "canonical_name": "Friedrich Carl",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40315",
+      "canonical_name": "Prinz Eugen μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40316",
+      "canonical_name": "Little Ägir",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40317",
+      "canonical_name": "Prinz Moritz",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40401",
+      "canonical_name": "Scharnhorst",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40402",
+      "canonical_name": "Gneisenau",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40403",
+      "canonical_name": "Seydlitz",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40404",
+      "canonical_name": "Lützow",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40405",
+      "canonical_name": "Brünhilde",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40406",
+      "canonical_name": "Alvitr",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40407",
+      "canonical_name": "Admiral Zenker",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40501",
+      "canonical_name": "Bismarck",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40502",
+      "canonical_name": "Tirpitz",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40503",
+      "canonical_name": "Ulrich von Hutten",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40504",
+      "canonical_name": "Thüringen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40505",
+      "canonical_name": "Bismarck Zwei",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40506",
+      "canonical_name": "Little Friedrich",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40507",
+      "canonical_name": "Götz von Berlichingen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40601",
+      "canonical_name": "Weser",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40602",
+      "canonical_name": "Elbe",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40603",
+      "canonical_name": "Jade",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40701",
+      "canonical_name": "Graf Zeppelin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40702",
+      "canonical_name": "Zeppy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40703",
+      "canonical_name": "Peter Strasser",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40704",
+      "canonical_name": "Fritz Rumey",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40801",
+      "canonical_name": "U-81",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40802",
+      "canonical_name": "U-47",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40803",
+      "canonical_name": "U-557",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40804",
+      "canonical_name": "U-556",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40805",
+      "canonical_name": "U-73",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40806",
+      "canonical_name": "U-101",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40807",
+      "canonical_name": "U-522",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40808",
+      "canonical_name": "U-110",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40809",
+      "canonical_name": "U-96",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40810",
+      "canonical_name": "U-37",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40811",
+      "canonical_name": "U-410",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40812",
+      "canonical_name": "U-1206",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40813",
+      "canonical_name": "U-31",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40814",
+      "canonical_name": "U-552",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:40815",
+      "canonical_name": "U-2501",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49901",
+      "canonical_name": "Roon",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49902",
+      "canonical_name": "Friedrich der Große",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49903",
+      "canonical_name": "Mainz",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49904",
+      "canonical_name": "Odin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49905",
+      "canonical_name": "Ägir",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49906",
+      "canonical_name": "August von Parseval",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49907",
+      "canonical_name": "Prinz Rupprecht",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49908",
+      "canonical_name": "Felix Schultz",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49909",
+      "canonical_name": "Hindenburg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49910",
+      "canonical_name": "Mecklenburg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:49911",
+      "canonical_name": "Max Immelmann",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50101",
+      "canonical_name": "An Shan",
+      "aliases": [
+        "An Shan (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50102",
+      "canonical_name": "Fu Shun",
+      "aliases": [
+        "Fu Shun (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50103",
+      "canonical_name": "Chang Chun",
+      "aliases": [
+        "Chang Chun (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50104",
+      "canonical_name": "Tai Yuan",
+      "aliases": [
+        "Tai Yuan (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50105",
+      "canonical_name": "Lung Wu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50106",
+      "canonical_name": "Hu Pen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50107",
+      "canonical_name": "Fei Yuen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50108",
+      "canonical_name": "Chang Feng",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50109",
+      "canonical_name": "Fu Po",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50201",
+      "canonical_name": "Yat Sen",
+      "aliases": [
+        "Yat Sen (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50202",
+      "canonical_name": "Ning Hai",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50203",
+      "canonical_name": "Ping Hai",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50204",
+      "canonical_name": "Ying Swei",
+      "aliases": [
+        "Ying Swei (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50205",
+      "canonical_name": "Chao Ho",
+      "aliases": [
+        "Chao Ho (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50207",
+      "canonical_name": "Hai Tien",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50208",
+      "canonical_name": "Hai Chi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50209",
+      "canonical_name": "Chi An",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50210",
+      "canonical_name": "Hai Yung",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50212",
+      "canonical_name": "Hai Chou",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50301",
+      "canonical_name": "Chien Wu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50302",
+      "canonical_name": "Chang Wu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50401",
+      "canonical_name": "Huan Ch'ang",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50601",
+      "canonical_name": "Chen Hai",
+      "aliases": [
+        "Chen Hai (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:50602",
+      "canonical_name": "Hwah Jah",
+      "aliases": [
+        "Hwah Jah (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:51901",
+      "canonical_name": "Ting An",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:59901",
+      "canonical_name": "Harbin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60102",
+      "canonical_name": "Carabiniere",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60103",
+      "canonical_name": "Vincenzo Gioberti",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60104",
+      "canonical_name": "Maestrale",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60105",
+      "canonical_name": "Libeccio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60106",
+      "canonical_name": "Nicoloso da Recco",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60107",
+      "canonical_name": "Pompeo Magno",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60108",
+      "canonical_name": "Alfredo Oriani",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60109",
+      "canonical_name": "Emanuele Pessagno",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60110",
+      "canonical_name": "Attilio Regolo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60111",
+      "canonical_name": "Giosuè Carducci",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60112",
+      "canonical_name": "Ugolino Vivaldi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60201",
+      "canonical_name": "Duca degli Abruzzi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60202",
+      "canonical_name": "Giuseppe Garibaldi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60203",
+      "canonical_name": "Bartolomeo Colleoni",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60204",
+      "canonical_name": "Alberto di Giussano",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60301",
+      "canonical_name": "Trento",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60302",
+      "canonical_name": "Zara",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60303",
+      "canonical_name": "Pola",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60304",
+      "canonical_name": "Trieste",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60305",
+      "canonical_name": "Bolzano",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60306",
+      "canonical_name": "Gorizia",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60501",
+      "canonical_name": "Vittorio Veneto",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60502",
+      "canonical_name": "Littorio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60503",
+      "canonical_name": "Roma",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60505",
+      "canonical_name": "Conte di Cavour",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60506",
+      "canonical_name": "Giulio Cesare",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60507",
+      "canonical_name": "Andrea Doria",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60508",
+      "canonical_name": "Raffaello",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60509",
+      "canonical_name": "Francesco Caracciolo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60701",
+      "canonical_name": "Aquila",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60702",
+      "canonical_name": "Impero",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60801",
+      "canonical_name": "Torricelli",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60802",
+      "canonical_name": "Leonardo da Vinci",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:60803",
+      "canonical_name": "Maggiore Baracca",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:69901",
+      "canonical_name": "Marco Polo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:69902",
+      "canonical_name": "Napoli",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:69903",
+      "canonical_name": "Vittorio Cuniberti",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70102",
+      "canonical_name": "Grozny",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70103",
+      "canonical_name": "Minsk",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70104",
+      "canonical_name": "Tashkent",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70105",
+      "canonical_name": "Tashkent μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70106",
+      "canonical_name": "Stremitelny",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70107",
+      "canonical_name": "Gremyashchy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70108",
+      "canonical_name": "Gromky",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70109",
+      "canonical_name": "Soobrazitelny",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70110",
+      "canonical_name": "Kiev",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70111",
+      "canonical_name": "Ognevoy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70112",
+      "canonical_name": "Svirepy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70113",
+      "canonical_name": "Ozornoy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70201",
+      "canonical_name": "Avrora",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70202",
+      "canonical_name": "Pamiat' Merkuria",
+      "aliases": [
+        "Pamiat' Merkuria (Retrofit)"
+      ]
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70203",
+      "canonical_name": "Chapayev",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70204",
+      "canonical_name": "Kirov",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70205",
+      "canonical_name": "Kuybyshev",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70206",
+      "canonical_name": "Murmansk",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70207",
+      "canonical_name": "Voroshilov",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70208",
+      "canonical_name": "Oleg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70209",
+      "canonical_name": "Krasny Kavkaz",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70210",
+      "canonical_name": "Bogatyr",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70301",
+      "canonical_name": "Tallinn",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70302",
+      "canonical_name": "Kursk",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70303",
+      "canonical_name": "Moskva",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70501",
+      "canonical_name": "Gangut",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70502",
+      "canonical_name": "Sovetsky Soyuz",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70504",
+      "canonical_name": "Sovetskaya Belorussiya",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70505",
+      "canonical_name": "Sovetskaya Rossiya",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70506",
+      "canonical_name": "Arkhangelsk",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70507",
+      "canonical_name": "Sevastopol",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70508",
+      "canonical_name": "Poltava",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70509",
+      "canonical_name": "Kazan",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:70701",
+      "canonical_name": "Volga",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:71801",
+      "canonical_name": "Kronshtadt",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:79901",
+      "canonical_name": "Chkalov",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:79902",
+      "canonical_name": "Admiral Nakhimov",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:79903",
+      "canonical_name": "Dmitri Donskoi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80101",
+      "canonical_name": "Le Triomphant",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80102",
+      "canonical_name": "Forbin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80103",
+      "canonical_name": "Le Téméraire",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80104",
+      "canonical_name": "L'Opiniâtre",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80105",
+      "canonical_name": "Le Hardi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80106",
+      "canonical_name": "L'Intrépide",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80107",
+      "canonical_name": "Le Terrible",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80108",
+      "canonical_name": "Maillé Brézé",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80109",
+      "canonical_name": "Le Téméraire μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80201",
+      "canonical_name": "Émile Bertin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80202",
+      "canonical_name": "Jeanne d'Arc",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80203",
+      "canonical_name": "Guichen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80204",
+      "canonical_name": "Duguay-Trouin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80301",
+      "canonical_name": "Suffren",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80302",
+      "canonical_name": "Brennus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80303",
+      "canonical_name": "Duquesne",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80401",
+      "canonical_name": "Masséna",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80501",
+      "canonical_name": "Richelieu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80502",
+      "canonical_name": "Lyon",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80503",
+      "canonical_name": "Alsace",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80601",
+      "canonical_name": "Bois Belleau",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80602",
+      "canonical_name": "Arromanches",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80701",
+      "canonical_name": "Béarn",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80702",
+      "canonical_name": "Painlevé",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:80801",
+      "canonical_name": "Surcouf",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:81801",
+      "canonical_name": "Cherbourg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:89901",
+      "canonical_name": "Saint Louis",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:89902",
+      "canonical_name": "Champagne",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:89903",
+      "canonical_name": "Brest",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:89904",
+      "canonical_name": "Bayard",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:89905",
+      "canonical_name": "Orage",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90101",
+      "canonical_name": "Le Mars",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90102",
+      "canonical_name": "Tartu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90103",
+      "canonical_name": "Vauquelin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90104",
+      "canonical_name": "Kersaint",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90105",
+      "canonical_name": "Fleuret",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90106",
+      "canonical_name": "Épée",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90107",
+      "canonical_name": "Mogador",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90111",
+      "canonical_name": "Le Malin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90112",
+      "canonical_name": "Le Malin μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90113",
+      "canonical_name": "L'Indomptable",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90114",
+      "canonical_name": "L'Audacieux",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90201",
+      "canonical_name": "La Galissonnière",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90202",
+      "canonical_name": "Marseillaise",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90301",
+      "canonical_name": "Foch",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90302",
+      "canonical_name": "Algérie",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90303",
+      "canonical_name": "Dupleix",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90401",
+      "canonical_name": "Dunkerque",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90402",
+      "canonical_name": "Strasbourg",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90501",
+      "canonical_name": "Jean Bart",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90502",
+      "canonical_name": "Clemenceau",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90503",
+      "canonical_name": "Gascogne μ",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:90701",
+      "canonical_name": "Joffre",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:99901",
+      "canonical_name": "Gascogne",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:99902",
+      "canonical_name": "Flandre",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:110101",
+      "canonical_name": "Evertsen",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:110201",
+      "canonical_name": "De Zeven Provinciën",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:119901",
+      "canonical_name": "Gouden Leeuw",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:129901",
+      "canonical_name": "Valparaíso",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960001",
+      "canonical_name": "Royal Fortune",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960002",
+      "canonical_name": "São Martinho",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960003",
+      "canonical_name": "Golden Hind",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960004",
+      "canonical_name": "Mary Celeste",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960005",
+      "canonical_name": "Whydah",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960006",
+      "canonical_name": "Adventure Galley",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960007",
+      "canonical_name": "Ganj-i-Sawai",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960008",
+      "canonical_name": "Fancy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960009",
+      "canonical_name": "Amity",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960010",
+      "canonical_name": "Portsmouth Adventure",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960011",
+      "canonical_name": "Dolphin",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960012",
+      "canonical_name": "Queen Anne's Revenge",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960013",
+      "canonical_name": "Lyme",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960014",
+      "canonical_name": "Pearl",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960015",
+      "canonical_name": "Royal James",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:960016",
+      "canonical_name": "Adventure",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970101",
+      "canonical_name": "Hunter META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970102",
+      "canonical_name": "Fortune META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970103",
+      "canonical_name": "Hatakaze META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970104",
+      "canonical_name": "Kimberly META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970105",
+      "canonical_name": "Vampire META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970106",
+      "canonical_name": "Kasumi META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970107",
+      "canonical_name": "Grenville META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970108",
+      "canonical_name": "Kawakaze META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970109",
+      "canonical_name": "Yuudachi META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970110",
+      "canonical_name": "Dewey META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970111",
+      "canonical_name": "Carabiniere META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970112",
+      "canonical_name": "Bristol META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970201",
+      "canonical_name": "Helena META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970202",
+      "canonical_name": "Memphis META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970203",
+      "canonical_name": "Sheffield META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970204",
+      "canonical_name": "La Galissonnière META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970205",
+      "canonical_name": "Jintsuu META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970206",
+      "canonical_name": "Kirov META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970207",
+      "canonical_name": "Pamiat' Merkuria META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970208",
+      "canonical_name": "Boise META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970209",
+      "canonical_name": "Cleveland META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970210",
+      "canonical_name": "Köln META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970211",
+      "canonical_name": "Regensburg META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970212",
+      "canonical_name": "Königsberg META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970213",
+      "canonical_name": "Nürnberg META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970301",
+      "canonical_name": "Trento META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970302",
+      "canonical_name": "Algérie META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970303",
+      "canonical_name": "Foch META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970304",
+      "canonical_name": "Wichita META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970305",
+      "canonical_name": "Admiral Hipper META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970306",
+      "canonical_name": "Bolzano META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970401",
+      "canonical_name": "Gneisenau META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970402",
+      "canonical_name": "Scharnhorst META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970403",
+      "canonical_name": "Repulse META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970404",
+      "canonical_name": "Renown META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970405",
+      "canonical_name": "Hiei META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970406",
+      "canonical_name": "Dunkerque META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970501",
+      "canonical_name": "Fusou META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970502",
+      "canonical_name": "Yamashiro META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970503",
+      "canonical_name": "Arizona META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970504",
+      "canonical_name": "Queen Elizabeth META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970505",
+      "canonical_name": "Rodney META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970506",
+      "canonical_name": "Nagato META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970507",
+      "canonical_name": "Giulio Cesare META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970508",
+      "canonical_name": "Andrea Doria META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970509",
+      "canonical_name": "Nevada META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970510",
+      "canonical_name": "Gangut META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970601",
+      "canonical_name": "Hiyou META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970602",
+      "canonical_name": "Junyou META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970603",
+      "canonical_name": "Princeton META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970604",
+      "canonical_name": "Houshou META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970605",
+      "canonical_name": "Elbe META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970701",
+      "canonical_name": "Hiryuu META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970702",
+      "canonical_name": "Ark Royal META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970703",
+      "canonical_name": "Souryuu META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970704",
+      "canonical_name": "Béarn META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970705",
+      "canonical_name": "Taihou META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970706",
+      "canonical_name": "Hornet META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970707",
+      "canonical_name": "Glorious META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970708",
+      "canonical_name": "Yorktown META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:970801",
+      "canonical_name": "U-556 META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:971201",
+      "canonical_name": "Vestal META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:971301",
+      "canonical_name": "Erebus META",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1010001",
+      "canonical_name": "Neptune",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1010002",
+      "canonical_name": "Noire",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1010003",
+      "canonical_name": "Blanc",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1010004",
+      "canonical_name": "Vert",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1010005",
+      "canonical_name": "Purple Heart",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1010006",
+      "canonical_name": "Black Heart",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1010007",
+      "canonical_name": "White Heart",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1010008",
+      "canonical_name": "Green Heart",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1040001",
+      "canonical_name": "Kizuna AI",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1040002",
+      "canonical_name": "Elegant Kizuna AI",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1040003",
+      "canonical_name": "Anniversary Kizuna AI",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1040004",
+      "canonical_name": "Super Gamer Kizuna AI",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1050001",
+      "canonical_name": "Shirakami Fubuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1050002",
+      "canonical_name": "Tokino Sora",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1050003",
+      "canonical_name": "Minato Aqua",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1050004",
+      "canonical_name": "Natsuiro Matsuri",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1050005",
+      "canonical_name": "Nakiri Ayame",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1050006",
+      "canonical_name": "Murasaki Shion",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1050007",
+      "canonical_name": "Ōkami Mio",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060001",
+      "canonical_name": "Marie Rose",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060002",
+      "canonical_name": "Honoka",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060003",
+      "canonical_name": "Kasumi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060004",
+      "canonical_name": "Misaki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060005",
+      "canonical_name": "Nagisa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060006",
+      "canonical_name": "Nyotengu",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060007",
+      "canonical_name": "Monica",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060008",
+      "canonical_name": "Luna",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060009",
+      "canonical_name": "Tamaki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060010",
+      "canonical_name": "Elise",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060011",
+      "canonical_name": "Shizuku",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060012",
+      "canonical_name": "Shandy",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060013",
+      "canonical_name": "Tsukushi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060014",
+      "canonical_name": "Patty",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1060015",
+      "canonical_name": "Yukino",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1070001",
+      "canonical_name": "Haruka Amami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1070002",
+      "canonical_name": "Chihaya Kisaragi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1070003",
+      "canonical_name": "Iori Minase",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1070004",
+      "canonical_name": "Azusa Miura",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1070005",
+      "canonical_name": "Ritsuko Akizuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1070006",
+      "canonical_name": "Ami Futami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1070007",
+      "canonical_name": "Mami Futami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080001",
+      "canonical_name": "Rikka Takarada",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080002",
+      "canonical_name": "Akane Shinjo",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080003",
+      "canonical_name": "Hass",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080004",
+      "canonical_name": "Namiko",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080005",
+      "canonical_name": "Yume Minami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080006",
+      "canonical_name": "Chise Asukagawa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080007",
+      "canonical_name": "Mujina",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080008",
+      "canonical_name": "The 2nd",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1080009",
+      "canonical_name": "Princess Hime",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1090001",
+      "canonical_name": "Reisalin Stout",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1090002",
+      "canonical_name": "Klaudia Valentz",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1090003",
+      "canonical_name": "Patricia Abelheim",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1090004",
+      "canonical_name": "Lila Decyrus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1090005",
+      "canonical_name": "Serri Glaus",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1090006",
+      "canonical_name": "Kala Ideas",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1100001",
+      "canonical_name": "Asuka",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1100002",
+      "canonical_name": "Ikaruga",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1100003",
+      "canonical_name": "Homura",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1100004",
+      "canonical_name": "Yumi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1100005",
+      "canonical_name": "Fubuki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1100006",
+      "canonical_name": "Murasaki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1100007",
+      "canonical_name": "Yūyaki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1110001",
+      "canonical_name": "Lala Satalin Deviluke",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1110002",
+      "canonical_name": "Nana Astar Deviluke",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1110003",
+      "canonical_name": "Momo Belia Deviluke",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1110004",
+      "canonical_name": "Golden Darkness",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1110005",
+      "canonical_name": "Haruna Sairenji",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1110006",
+      "canonical_name": "Yui Kotegawa",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1120001",
+      "canonical_name": "BLACK★ROCK SHOOTER",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1120002",
+      "canonical_name": "DEAD MASTER",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1130001",
+      "canonical_name": "Yumia Liessfeldt",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1130002",
+      "canonical_name": "Isla von Duerer",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1130003",
+      "canonical_name": "Nina Friede",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1130004",
+      "canonical_name": "Lenja",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1140001",
+      "canonical_name": "Hestia",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1140002",
+      "canonical_name": "Ryu Lion",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1150001",
+      "canonical_name": "Tohka Yatogami",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1150002",
+      "canonical_name": "Origami Tobiichi",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1150003",
+      "canonical_name": "Kotori Itsuka",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1150004",
+      "canonical_name": "Yoshino",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1150005",
+      "canonical_name": "Kurumi Tokisaki",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1150006",
+      "canonical_name": "Kaguya Yamai・Yuzuru Yamai",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1170001",
+      "canonical_name": "A2",
+      "aliases": []
+    },
+    {
+      "canonical_id": "azur_lane_ship_group:1170002",
+      "canonical_name": "2B",
+      "aliases": []
+    }
+  ]
+}
