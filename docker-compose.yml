@@ -5,7 +5,6 @@ services:
         build:
             context: .
             dockerfile: ./deploy/docker/Dockerfile
-            # dockerfile: ./deploy/docker/Dockerfile.cn
             args:
                 UV_INDEX_URL: ${UV_INDEX_URL:-https://pypi.org/simple}
                 UV_EXTRA_INDEX_URL: ${UV_EXTRA_INDEX_URL:-}
