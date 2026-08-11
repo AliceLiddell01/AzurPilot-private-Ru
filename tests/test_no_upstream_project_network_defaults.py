@@ -64,6 +64,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     issue_labeler = (ROOT / ".github/workflows/ai-issue-labeler.yml").read_text(
         encoding="utf-8"
     )
+    docker_publish = (ROOT / ".github/workflows/docker-publish.yml").read_text(
+        encoding="utf-8"
+    )
 
     # Пользовательский случайный фон WebUI пока намеренно сохраняется.
     assert 'https://api.yppp.net/api.php' in theme
@@ -105,3 +108,12 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "AI_API_KEY: ${{ github.token }}" in issue_labeler
     assert "api.deepseek.com" not in issue_labeler
     assert "deepseek-v4-flash" not in issue_labeler
+
+    # Docker publish остаётся, но публикует image в GHCR самого форка без DockerHub secrets.
+    assert "REGISTRY: ghcr.io" in docker_publish
+    assert "IMAGE_NAME: ${{ github.repository }}" in docker_publish
+    assert "username: ${{ github.actor }}" in docker_publish
+    assert "password: ${{ secrets.GITHUB_TOKEN }}" in docker_publish
+    assert "DOCKERHUB_USERNAME" not in docker_publish
+    assert "DOCKERHUB_TOKEN" not in docker_publish
+    assert "hajiming/azurlaneautoscript" not in docker_publish
