@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the compact deterministic Dock identity catalog from upstream data."""
+"""Сгенерировать компактный детерминированный Dock identity catalog из upstream data."""
 
 from __future__ import annotations
 
@@ -110,11 +110,11 @@ def build_catalog(
     known_ids = {record["canonical_id"] for record in records}
     for supplemental in supplemental_records:
         if set(supplemental) != {"canonical_id", "canonical_name", "aliases"}:
-            raise CatalogGenerationError("Supplemental record schema is invalid.")
+            raise CatalogGenerationError("Схема supplemental record некорректна.")
         canonical_id = supplemental["canonical_id"]
         if canonical_id in known_ids:
             raise CatalogGenerationError(
-                f"Supplemental canonical identity already exists: {canonical_id}."
+                f"Supplemental canonical identity уже существует: {canonical_id}."
             )
         records.append(
             {
@@ -128,7 +128,7 @@ def build_catalog(
     records.sort(key=lambda record: int(str(record["canonical_id"]).rsplit(":", 1)[1]))
 
     if not records:
-        raise CatalogGenerationError("Generated catalog unexpectedly empty.")
+        raise CatalogGenerationError("Сгенерированный каталог неожиданно оказался пустым.")
     return {
         "schema_version": 1,
         "language": "en",
@@ -163,21 +163,21 @@ def _read_pinned_blob(
     expected_commit: str,
     path: str,
     expected_blob_sha: str | None = None,
-) -> tuple[bytes, str]:
+) -> tuple[bytes, str, str]:
     resolved = str(_git(repo, "rev-parse", f"{commit}^{{commit}}"))
     if resolved != expected_commit:
         raise CatalogGenerationError(
-            f"Source ref resolved to {resolved}, expected exact commit {expected_commit}."
+            f"Source ref разрешился в {resolved}, ожидался exact commit {expected_commit}."
         )
     blob_sha = str(_git(repo, "rev-parse", f"{resolved}:{path}"))
     if expected_blob_sha is not None and blob_sha != expected_blob_sha:
         raise CatalogGenerationError(
-            f"Source blob {path} resolved to {blob_sha}, expected {expected_blob_sha}."
+            f"Source blob {path} разрешился в {blob_sha}, ожидался {expected_blob_sha}."
         )
     source = _git(repo, "show", f"{resolved}:{path}", binary=True)
     if not isinstance(source, bytes):  # pragma: no cover - guarded by binary=True
-        raise CatalogGenerationError(f"Source blob {path} was not read as bytes.")
-    return source, blob_sha
+        raise CatalogGenerationError(f"Source blob {path} не прочитан как bytes.")
+    return source, blob_sha, resolved
 
 
 def _lua_table_body(source: str, group_type: int) -> str:
@@ -187,7 +187,7 @@ def _lua_table_body(source: str, group_type: int) -> str:
     matches = tuple(assignment.finditer(source))
     if len(matches) != 1:
         raise CatalogGenerationError(
-            f"Supplemental fleet-tech group {group_type} must appear exactly once."
+            f"Supplemental fleet-tech group {group_type} должен встречаться ровно один раз."
         )
     opening = matches[0].end() - 1
     depth = 0
@@ -214,7 +214,7 @@ def _lua_table_body(source: str, group_type: int) -> str:
             if depth < 0:
                 break
     raise CatalogGenerationError(
-        f"Supplemental fleet-tech group {group_type} has malformed Lua table syntax."
+        f"Supplemental fleet-tech group {group_type} содержит некорректную Lua table."
     )
 
 
@@ -222,7 +222,7 @@ def _single_lua_field(pattern: str, body: str, *, field: str, group_type: int) -
     matches = re.findall(pattern, body, flags=re.MULTILINE)
     if len(matches) != 1:
         raise CatalogGenerationError(
-            f"Supplemental group {group_type} must contain exactly one {field} field."
+            f"Supplemental group {group_type} должен содержать ровно одно поле {field}."
         )
     return matches[0]
 
@@ -232,7 +232,7 @@ def extract_supplemental_records(source_bytes: bytes) -> tuple[dict[str, object]
         source = source_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise CatalogGenerationError(
-            "Supplemental fleet-tech source is not valid UTF-8 Lua."
+            "Supplemental fleet-tech source не является корректным UTF-8 Lua."
         ) from exc
 
     records = []
@@ -261,12 +261,12 @@ def extract_supplemental_records(source_bytes: bytes) -> tuple[dict[str, object]
         name = _clean_name(raw_name)
         if int(raw_id) != expected_group or residual or ships != (expected_group,):
             raise CatalogGenerationError(
-                f"Supplemental group {expected_group} has inconsistent id/ships evidence."
+                f"Supplemental group {expected_group} содержит несогласованные id/ships."
             )
         if name != expected_name:
             raise CatalogGenerationError(
-                f"Supplemental group {expected_group} EN name is {name!r}, "
-                f"expected {expected_name!r}."
+                f"Supplemental group {expected_group}: EN name {name!r}, "
+                f"ожидалось {expected_name!r}."
             )
         records.append(
             {
@@ -285,15 +285,15 @@ def read_supplemental_records_from_git(
     expected_commit: str = SUPPLEMENTAL_SOURCE_COMMIT,
     expected_blob_sha: str = SUPPLEMENTAL_SOURCE_BLOB_SHA,
     source_path: str = SUPPLEMENTAL_SOURCE_PATH,
-) -> tuple[tuple[dict[str, object], ...], str]:
-    source_bytes, blob_sha = _read_pinned_blob(
+) -> tuple[tuple[dict[str, object], ...], str, str]:
+    source_bytes, blob_sha, resolved_commit = _read_pinned_blob(
         repo,
         commit=commit,
         expected_commit=expected_commit,
         path=source_path,
         expected_blob_sha=expected_blob_sha,
     )
-    return extract_supplemental_records(source_bytes), blob_sha
+    return extract_supplemental_records(source_bytes), blob_sha, resolved_commit
 
 
 def build_from_git(
@@ -301,32 +301,44 @@ def build_from_git(
     commit: str,
     supplemental_repo: Path,
     supplemental_commit: str,
+    *,
+    expected_source_commit: str = SOURCE_COMMIT,
+    expected_supplemental_commit: str = SUPPLEMENTAL_SOURCE_COMMIT,
+    expected_supplemental_blob_sha: str = SUPPLEMENTAL_SOURCE_BLOB_SHA,
 ) -> dict[str, object]:
-    source_bytes, source_blob = _read_pinned_blob(
+    source_bytes, source_blob, resolved_source_commit = _read_pinned_blob(
         repo,
         commit=commit,
-        expected_commit=SOURCE_COMMIT,
+        expected_commit=expected_source_commit,
         path=SOURCE_PATH,
     )
-    generator_blob = str(_git(repo, "rev-parse", f"{commit}:{SOURCE_GENERATOR_PATH}"))
+    generator_blob = str(
+        _git(repo, "rev-parse", f"{resolved_source_commit}:{SOURCE_GENERATOR_PATH}")
+    )
     try:
         source = json.loads(source_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise CatalogGenerationError("Upstream ship_data is not valid UTF-8 JSON.") from exc
-    supplemental_records, supplemental_blob = read_supplemental_records_from_git(
-        supplemental_repo,
-        supplemental_commit,
+        raise CatalogGenerationError(
+            "Upstream ship_data не является корректным UTF-8 JSON."
+        ) from exc
+    supplemental_records, supplemental_blob, resolved_supplemental_commit = (
+        read_supplemental_records_from_git(
+            supplemental_repo,
+            supplemental_commit,
+            expected_commit=expected_supplemental_commit,
+            expected_blob_sha=expected_supplemental_blob_sha,
+        )
     )
     provenance = {
         "source_repository": SOURCE_REPOSITORY,
-        "source_commit": commit,
+        "source_commit": resolved_source_commit,
         "source_path": SOURCE_PATH,
         "source_blob_sha": source_blob,
         "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
         "source_generator_path": SOURCE_GENERATOR_PATH,
         "source_generator_blob_sha": generator_blob,
         "supplemental_source_repository": SUPPLEMENTAL_SOURCE_REPOSITORY,
-        "supplemental_source_commit": supplemental_commit,
+        "supplemental_source_commit": resolved_supplemental_commit,
         "supplemental_source_path": SUPPLEMENTAL_SOURCE_PATH,
         "supplemental_source_blob_sha": supplemental_blob,
         "selection_contract": SELECTION_CONTRACT,
@@ -363,11 +375,11 @@ def main(argv: list[str] | None = None) -> int:
                 actual = args.output.read_bytes()
             except OSError as exc:
                 raise CatalogGenerationError(
-                    f"Generated catalog is unavailable: {args.output}."
+                    f"Generated catalog недоступен: {args.output}."
                 ) from exc
             if actual != expected:
                 raise CatalogGenerationError(
-                    "Tracked dock_identity_catalog.json is stale; regenerate it."
+                    "Tracked dock_identity_catalog.json устарел; перегенерируйте его."
                 )
         else:
             args.output.parent.mkdir(parents=True, exist_ok=True)

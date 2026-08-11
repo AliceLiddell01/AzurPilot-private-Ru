@@ -8,6 +8,7 @@ import pytest
 from dev_tools.dock_identity_catalog import (
     CatalogGenerationError,
     build_catalog,
+    build_from_git,
     canonical_json_bytes,
     extract_supplemental_records,
     read_supplemental_records_from_git,
@@ -257,7 +258,7 @@ def _supplemental_repo(tmp_path: Path) -> tuple[Path, str, str]:
 def test_supplemental_source_correct_commit_and_blob_pass(tmp_path: Path) -> None:
     repo, commit, blob = _supplemental_repo(tmp_path)
 
-    records, actual_blob = read_supplemental_records_from_git(
+    records, actual_blob, resolved_commit = read_supplemental_records_from_git(
         repo,
         commit,
         expected_commit=commit,
@@ -265,6 +266,7 @@ def test_supplemental_source_correct_commit_and_blob_pass(tmp_path: Path) -> Non
     )
 
     assert actual_blob == blob
+    assert resolved_commit == commit
     assert records == (
         {
             "canonical_id": "azur_lane_ship_group:970213",
@@ -277,7 +279,7 @@ def test_supplemental_source_correct_commit_and_blob_pass(tmp_path: Path) -> Non
 def test_supplemental_source_wrong_commit_fails(tmp_path: Path) -> None:
     repo, commit, blob = _supplemental_repo(tmp_path)
 
-    with pytest.raises(CatalogGenerationError, match="expected exact commit"):
+    with pytest.raises(CatalogGenerationError, match="ожидался exact commit"):
         read_supplemental_records_from_git(
             repo,
             commit,
@@ -289,7 +291,7 @@ def test_supplemental_source_wrong_commit_fails(tmp_path: Path) -> None:
 def test_supplemental_source_wrong_blob_fails(tmp_path: Path) -> None:
     repo, commit, _blob = _supplemental_repo(tmp_path)
 
-    with pytest.raises(CatalogGenerationError, match="expected"):
+    with pytest.raises(CatalogGenerationError, match="ожидался"):
         read_supplemental_records_from_git(
             repo,
             commit,
@@ -312,7 +314,7 @@ def test_supplemental_source_missing_path_fails(tmp_path: Path) -> None:
 
 
 def test_supplemental_source_target_group_absent_fails() -> None:
-    with pytest.raises(CatalogGenerationError, match="must appear exactly once"):
+    with pytest.raises(CatalogGenerationError, match="должен встречаться ровно один раз"):
         extract_supplemental_records(b"return {}\n")
 
 
@@ -326,5 +328,55 @@ def test_supplemental_source_name_mismatch_fails() -> None:
 def test_supplemental_source_malformed_lua_fails() -> None:
     source = _supplemental_lua(closing="").encode("utf-8")
 
-    with pytest.raises(CatalogGenerationError, match="malformed Lua"):
+    with pytest.raises(CatalogGenerationError, match="некорректную Lua"):
         extract_supplemental_records(source)
+
+
+def _main_source_repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "main-source"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Fixture")
+    _git(repo, "config", "user.email", "fixture@example.invalid")
+    source = repo / "assets" / "ship" / "ship_data.json"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        json.dumps(
+            {
+                "100001": {
+                    "group_type": 10000,
+                    "name": {"en": "Fixture Ship"},
+                    "is_retrofit": False,
+                    "is_type2": False,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    generator = repo / "dev_tools" / "ship_data_extractor.py"
+    generator.parent.mkdir()
+    generator.write_text("# fixture\n", encoding="utf-8")
+    _git(repo, "add", "assets/ship/ship_data.json", "dev_tools/ship_data_extractor.py")
+    _git(repo, "commit", "-m", "fixture")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def test_build_from_symbolic_refs_persists_resolved_commits(tmp_path: Path) -> None:
+    source_repo, source_commit = _main_source_repo(tmp_path)
+    supplemental_repo, supplemental_commit, supplemental_blob = _supplemental_repo(
+        tmp_path
+    )
+
+    payload = build_from_git(
+        source_repo,
+        "HEAD",
+        supplemental_repo,
+        "HEAD",
+        expected_source_commit=source_commit,
+        expected_supplemental_commit=supplemental_commit,
+        expected_supplemental_blob_sha=supplemental_blob,
+    )
+
+    assert payload["provenance"]["source_commit"] == source_commit
+    assert payload["provenance"]["supplemental_source_commit"] == supplemental_commit
+    DockIdentityCatalog.from_mapping(payload)

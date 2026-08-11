@@ -1,4 +1,4 @@
-"""Dock Inventory public models and offline canonical identity catalog."""
+"""Публичные модели Dock Inventory и offline-каталог canonical identity."""
 
 from module.dock_inventory.catalog import (
     DockCanonicalShip,
