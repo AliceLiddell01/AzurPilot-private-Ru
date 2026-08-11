@@ -5,24 +5,19 @@ on:
     inputs:
       issue_number:
         description: Issue number to label
-        required: false
+        required: true
         type: number
-  issues:
-    types:
-      - opened
-      - edited
 
 permissions:
   contents: read
   issues: write
 
 concurrency:
-  group: ai-issue-labeler-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}
+  group: ai-issue-labeler-${{ github.event.inputs.issue_number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   label:
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -38,11 +33,11 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install "openai>=1,<2"
 
-      - name: Analyze issue or pull request
+      - name: Analyze issue
         env:
           LABELER_PLATFORM: github
-          AI_BASE_URL: https://api.deepseek.com/v1
-          AI_MODEL: deepseek-v4-flash
-          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_BASE_URL: ${{ vars.AI_LABELER_BASE_URL }}
+          AI_MODEL: ${{ vars.AI_LABELER_MODEL }}
+          AI_API_KEY: ${{ secrets.AI_LABELER_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.AI_ISSUE_LABELER_TOKEN || github.token }}
         run: python .github/scripts/ai_issue_labeler.py
