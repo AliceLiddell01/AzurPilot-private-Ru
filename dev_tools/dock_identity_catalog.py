@@ -167,16 +167,18 @@ def _read_pinned_blob(
     resolved = str(_git(repo, "rev-parse", f"{commit}^{{commit}}"))
     if resolved != expected_commit:
         raise CatalogGenerationError(
-            f"Source ref разрешился в {resolved}, ожидался exact commit {expected_commit}."
+            f"Ссылка на источник разрешилась в {resolved}, "
+            f"ожидался точный коммит {expected_commit}."
         )
     blob_sha = str(_git(repo, "rev-parse", f"{resolved}:{path}"))
     if expected_blob_sha is not None and blob_sha != expected_blob_sha:
         raise CatalogGenerationError(
-            f"Source blob {path} разрешился в {blob_sha}, ожидался {expected_blob_sha}."
+            f"Blob источника {path} разрешился в {blob_sha}, "
+            f"ожидался {expected_blob_sha}."
         )
     source = _git(repo, "show", f"{resolved}:{path}", binary=True)
     if not isinstance(source, bytes):  # pragma: no cover - guarded by binary=True
-        raise CatalogGenerationError(f"Source blob {path} не прочитан как bytes.")
+        raise CatalogGenerationError(f"Blob источника {path} не прочитан как bytes.")
     return source, blob_sha, resolved
 
 
@@ -265,7 +267,7 @@ def extract_supplemental_records(source_bytes: bytes) -> tuple[dict[str, object]
             )
         if name != expected_name:
             raise CatalogGenerationError(
-                f"Supplemental group {expected_group}: EN name {name!r}, "
+                f"Supplemental group {expected_group}: имя EN {name!r}, "
                 f"ожидалось {expected_name!r}."
             )
         records.append(

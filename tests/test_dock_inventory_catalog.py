@@ -250,7 +250,7 @@ def _supplemental_repo(tmp_path: Path) -> tuple[Path, str, str]:
     source.parent.mkdir(parents=True)
     source.write_text(_supplemental_lua(), encoding="utf-8")
     _git(repo, "add", "EN/sharecfg/fleet_tech_ship_class.lua")
-    _git(repo, "commit", "-m", "fixture")
+    _git(repo, "commit", "-m", "тестовый источник")
     commit = _git(repo, "rev-parse", "HEAD")
     blob = _git(repo, "rev-parse", f"{commit}:EN/sharecfg/fleet_tech_ship_class.lua")
     return repo, commit, blob
@@ -280,7 +280,7 @@ def test_supplemental_source_correct_commit_and_blob_pass(tmp_path: Path) -> Non
 def test_supplemental_source_wrong_commit_fails(tmp_path: Path) -> None:
     repo, commit, blob = _supplemental_repo(tmp_path)
 
-    with pytest.raises(CatalogGenerationError, match="ожидался exact commit"):
+    with pytest.raises(CatalogGenerationError, match="ожидался точный коммит"):
         read_supplemental_records_from_git(
             repo,
             commit,
@@ -322,7 +322,7 @@ def test_supplemental_source_target_group_absent_fails() -> None:
 def test_supplemental_source_name_mismatch_fails() -> None:
     source = _supplemental_lua(name="Wrong Name").encode("utf-8")
 
-    with pytest.raises(CatalogGenerationError, match="EN name"):
+    with pytest.raises(CatalogGenerationError, match="имя EN"):
         extract_supplemental_records(source)
 
 
@@ -358,7 +358,7 @@ def _main_source_repo(tmp_path: Path) -> tuple[Path, str]:
     generator.parent.mkdir()
     generator.write_text("# fixture\n", encoding="utf-8")
     _git(repo, "add", "assets/ship/ship_data.json", "dev_tools/ship_data_extractor.py")
-    _git(repo, "commit", "-m", "fixture")
+    _git(repo, "commit", "-m", "тестовый источник")
     return repo, _git(repo, "rev-parse", "HEAD")
 
 
