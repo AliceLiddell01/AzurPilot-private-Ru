@@ -1,6 +1,9 @@
 name: One-time explicit public IP cleanup
 
 on:
+  push:
+    branches:
+      - chatgpt/remove-upstream-announcements
   pull_request:
     branches:
       - personal/stable
@@ -10,7 +13,7 @@ permissions:
 
 jobs:
   cleanup:
-    if: ${{ github.head_ref == 'chatgpt/remove-upstream-announcements' }}
+    if: ${{ github.ref_name == 'chatgpt/remove-upstream-announcements' || github.head_ref == 'chatgpt/remove-upstream-announcements' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
