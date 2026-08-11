@@ -417,7 +417,7 @@ def test_star_scanner_ignores_unproven_early_yellow_peak(total: int) -> None:
     _draw_star_row(frame, slot, (DockStarGlyphState.FILLED,) * total)
     cv2.circle(
         frame,
-        (slot.area[0] + 22, slot.area[1] + DockStarScanner.STAR_TOP + 8),
+        (slot.area[0] + 22, slot.area[1] + DockStarScanner.STAR_TOP + 16),
         5,
         (245, 205, 60),
         -1,
