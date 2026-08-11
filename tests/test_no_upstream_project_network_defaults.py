@@ -61,6 +61,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     server_checker = (ROOT / "module/server_checker.py").read_text(encoding="utf-8")
     time_source = (ROOT / "module/config/time_source.py").read_text(encoding="utf-8")
     docker_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    issue_labeler = (ROOT / ".github/workflows/ai-issue-labeler.yml").read_text(
+        encoding="utf-8"
+    )
 
     # Пользовательский случайный фон WebUI пока намеренно сохраняется.
     assert 'https://api.yppp.net/api.php' in theme
@@ -94,3 +97,11 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     # Мёртвая ссылка на отсутствующий китайский Dockerfile удалена, рабочий Dockerfile сохранён.
     assert "dockerfile: ./deploy/docker/Dockerfile" in docker_compose
     assert "Dockerfile.cn" not in docker_compose
+
+    # AI labeler остаётся функциональным, но использует GitHub Models вместо DeepSeek.
+    assert "models: read" in issue_labeler
+    assert "https://models.github.ai/inference" in issue_labeler
+    assert "openai/gpt-4.1" in issue_labeler
+    assert "AI_API_KEY: ${{ github.token }}" in issue_labeler
+    assert "api.deepseek.com" not in issue_labeler
+    assert "deepseek-v4-flash" not in issue_labeler
