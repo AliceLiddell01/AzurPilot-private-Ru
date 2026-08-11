@@ -130,7 +130,6 @@ from module.webui.event_calculator import (
     build_event_calculator_js,
     load_event_calculator,
 )
-from module.base.device_id import get_device_id
 
 # PyWebIO 1.7.1 未发布 PEP 561 类型信息，运行时装饰器还会扩展下列 API。
 # 在共享边界归一化为动态可调用对象，页面模块无需重复写类型忽略标记。
@@ -178,10 +177,6 @@ patch_mimetype()
 fix_py37_subprocess_communicate()
 
 task_handler = TaskHandler()
-RESTRICTED_DEVICE_IDS = {"1", "2"}
-RESTRICTED_DEVICE_MESSAGE = (
-    "Доступ с этого устройства ограничен. Проверьте настройки безопасности WebUI."
-)
 PUBLIC_WEBUI_PASSWORD_GENERATE_FAILED_MESSAGE = (
     "WebUI доступна всем устройствам, но создать пароль автоматически не удалось. "
     "Укажите Password в config/deploy.yaml и перезапустите AzurPilot."
