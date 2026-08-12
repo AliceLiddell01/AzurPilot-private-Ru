@@ -3,6 +3,8 @@ from __future__ import annotations
 import inspect
 import math
 from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -43,7 +45,11 @@ from module.dock_inventory.model import (
     IdentityStatus,
     StarObservation,
 )
-from module.dock_inventory.navigation import DockInventoryNavigator
+from module.dock_inventory.navigation import (
+    DockInventoryNavigator,
+    DockInventoryStage2Result,
+    DockPrerequisiteEvidence,
+)
 from module.dock_inventory.progression import (
     DockProgressionCatalog,
     DockProgressionFamily,
@@ -52,7 +58,12 @@ from module.dock_inventory.progression import (
     ProgressionKind,
     ProgressionStatus,
 )
-from module.dock_inventory.traversal import DockTraversalViewport
+from module.dock_inventory.traversal import DockTraversalResult, DockTraversalViewport
+from module.game_settings.model import GameSettingState
+from module.game_settings.snapshot import (
+    GameSettingsSnapshotAccessSource,
+    GameSettingsSnapshotStatus,
+)
 
 SLOT_X = (93, 258, 422, 587, 752, 916, 1081)
 
@@ -242,6 +253,55 @@ class _ForbiddenNavigator(DockInventoryNavigator):
         raise AssertionError("Stage 2 navigation must not run for fingerprint mismatch")
 
 
+class _FakeCardScanner:
+    def __init__(self, scan: DockViewportCardScan) -> None:
+        self.scan = scan
+
+    def scan_viewport(self, viewport: DockTraversalViewport) -> DockViewportCardScan:
+        assert viewport.index == self.scan.viewport_index
+        return self.scan
+
+
+class _FakeIdentityScanner:
+    def __init__(self, catalog, scan: DockViewportIdentityScan) -> None:
+        self.catalog = catalog
+        self.scan = scan
+
+    def scan_viewport(
+        self,
+        viewport: DockTraversalViewport,
+        card_scan: DockViewportCardScan,
+    ) -> DockViewportIdentityScan:
+        assert viewport.index == self.scan.viewport_index
+        assert card_scan == self.scan.card_scan
+        return self.scan
+
+
+class _SuccessfulNavigator(DockInventoryNavigator):
+    def __init__(self, viewport: DockTraversalViewport) -> None:
+        self.viewport = viewport
+
+    def run_stage2(self, visitor, **_kwargs) -> DockInventoryStage2Result:
+        visitor(self.viewport)
+        prerequisite = DockPrerequisiteEvidence(
+            snapshot_path=Path("fixture-snapshot.json"),
+            snapshot_source=GameSettingsSnapshotAccessSource.SNAPSHOT,
+            cache_status=GameSettingsSnapshotStatus.VALID,
+            scanned_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            detected=GameSettingState.OFF,
+            required=GameSettingState.OFF,
+            compatible=True,
+        )
+        traversal = DockTraversalResult(
+            visited_viewports=1,
+            positions=(float(self.viewport.scroll_position),),
+            reached_bottom=True,
+            final_viewport_visited=True,
+            no_progress_retries=0,
+        )
+        return DockInventoryStage2Result(prerequisite, traversal)
+
+
 def _observed_stars(
     slot: DockCardSlotObservation, filled: int = 2
 ) -> DockStarScanObservation:
@@ -252,7 +312,6 @@ def _observed_stars(
         stars=StarObservation(filled=filled, empty=5 - filled, total=5),
         detected_total=5,
         glyphs=tuple(
-            # Runtime aggregation only needs typed, fully classified glyphs.
             _glyph(index, area, index < filled)
             for index in range(5)
         ),
@@ -304,6 +363,17 @@ def test_level_roi_outside_frame_is_operational_input_error() -> None:
 
     with pytest.raises(DockAttributeInputError, match="level ROI"):
         scanner.scan(np.zeros((720, 1280, 3), dtype=np.uint8), (slot,))
+
+
+def test_level_ocr_result_count_mismatch_is_operational_error() -> None:
+    scanner = DockLevelScanner(125, ocr=_FakeLevelOcr((42,)))
+    slots = (
+        _slot(0, 77, DockCardPresence.PRESENT),
+        _slot(1, 77, DockCardPresence.PRESENT),
+    )
+
+    with pytest.raises(DockLevelOcrError, match="не совпало"):
+        scanner.scan(np.zeros((720, 1280, 3), dtype=np.uint8), slots)
 
 
 @pytest.mark.parametrize(
@@ -497,6 +567,31 @@ def test_cv_backend_failure_is_operational_error_not_visual_unknown(monkeypatch)
         scanner.scan(frame, (slot,))
 
 
+@pytest.mark.parametrize(
+    "template_response",
+    (
+        np.full((8, 120), np.nan, dtype=np.float32),
+        np.zeros((4, 4), dtype=np.float32),
+    ),
+    ids=("non-finite", "wrong-shape"),
+)
+def test_first_filled_star_invalid_template_response_is_operational_error(
+    monkeypatch, template_response: np.ndarray
+) -> None:
+    scanner = DockStarScanner()
+    frame = np.full((720, 1280, 3), 70, dtype=np.uint8)
+    slot = _slot(0, 77, DockCardPresence.PRESENT)
+
+    monkeypatch.setattr(
+        cv2,
+        "matchTemplate",
+        lambda *_args, **_kwargs: template_response,
+    )
+
+    with pytest.raises(DockStarCvError):
+        scanner.scan(frame, (slot,))
+
+
 def test_match_template_score_above_one_is_clamped(monkeypatch) -> None:
     scanner = DockStarScanner()
     frame = np.full((720, 1280, 3), 70, dtype=np.uint8)
@@ -584,9 +679,7 @@ def test_any_ambiguous_glyph_keeps_aggregate_unknown(ambiguous_index: int) -> No
     assert result.stars is None
 
 
-def test_composition_scans_only_present_blocks_unknown_and_preserves_duplicates() -> (
-    None
-):
+def test_composition_scans_only_present_blocks_unknown_and_preserves_duplicates() -> None:
     card_scan = _card_scan(present_indexes=(0, 1))
     identity_scan = _identity_scan(card_scan)
     present = tuple(
@@ -644,6 +737,41 @@ def test_scanner_mutating_caller_frame_is_operational_input_error() -> None:
         scanner.scan_viewport(_viewport(card_scan, frame), card_scan, identity_scan)
 
 
+def test_validate_inputs_rejects_viewport_index_mismatch() -> None:
+    card_scan = _card_scan(present_indexes=(0,))
+    identity_scan = _identity_scan(card_scan)
+    viewport = replace(
+        _viewport(card_scan, np.zeros((720, 1280, 3), dtype=np.uint8)),
+        index=1,
+        is_top=False,
+    )
+
+    with pytest.raises(DockAttributeInputError, match="index mismatch"):
+        DockAttributeScanner._validate_inputs(viewport, card_scan, identity_scan)
+
+
+def test_validate_inputs_rejects_scroll_position_mismatch() -> None:
+    card_scan = _card_scan(present_indexes=(0,), scroll_position=0.25)
+    identity_scan = _identity_scan(card_scan)
+    viewport = replace(
+        _viewport(card_scan, np.zeros((720, 1280, 3), dtype=np.uint8)),
+        scroll_position=0.5,
+    )
+
+    with pytest.raises(DockAttributeInputError, match="scroll-position mismatch"):
+        DockAttributeScanner._validate_inputs(viewport, card_scan, identity_scan)
+
+
+def test_validate_inputs_rejects_foreign_stage3_scan() -> None:
+    card_scan = _card_scan(present_indexes=(0,))
+    foreign_card_scan = _card_scan(present_indexes=(0, 1))
+    identity_scan = _identity_scan(foreign_card_scan)
+    viewport = _viewport(card_scan, np.zeros((720, 1280, 3), dtype=np.uint8))
+
+    with pytest.raises(DockAttributeInputError, match="другой Stage 3"):
+        DockAttributeScanner._validate_inputs(viewport, card_scan, identity_scan)
+
+
 def test_composition_rejects_mixed_identity_geometry() -> None:
     card_scan = _card_scan(present_indexes=(0,))
     identity_scan = _identity_scan(card_scan)
@@ -697,6 +825,39 @@ def test_ambiguous_identity_keeps_level_and_stars_but_progression_unknown() -> N
     assert observation.stars.stars == StarObservation(2, 3, 5)
     assert observation.progression.status is ProgressionStatus.UNKNOWN
     assert observation.progression.reason == "identity_not_unique"
+
+
+def test_scan_dock_attributes_success_matches_traversal_viewport_count() -> None:
+    identity_catalog = load_dock_identity_catalog()
+    progression_catalog = replace(
+        _catalog(), identity_fingerprint=identity_catalog.fingerprint
+    )
+    card_scan = _card_scan(present_indexes=(0,))
+    identity_scan = _identity_scan(card_scan)
+    frame = np.full((720, 1280, 3), 80, dtype=np.uint8)
+    viewport = _viewport(card_scan, frame)
+    navigator = _SuccessfulNavigator(viewport)
+    identity_scanner = _FakeIdentityScanner(identity_catalog, identity_scan)
+    attribute_scanner = DockAttributeScanner(
+        progression_catalog,
+        level_scanner=DockLevelScanner(125, ocr=_FakeLevelOcr((42,))),
+        star_scanner=_FakeStarScanner((_observed_stars(card_scan.slots[0]),)),
+    )
+
+    result = scan_dock_attributes(
+        navigator,
+        identity_catalog=identity_catalog,
+        progression_catalog=progression_catalog,
+        identity_scanner=identity_scanner,
+        attribute_scanner=attribute_scanner,
+        card_scanner=_FakeCardScanner(card_scan),
+    )
+
+    assert len(result.viewports) == result.traversal.visited_viewports == 1
+    assert result.viewports[0].level_attempts == 1
+    assert result.viewports[0].star_attempts == 1
+    assert result.identity_catalog_fingerprint == identity_catalog.fingerprint
+    assert result.progression_catalog_fingerprint == progression_catalog.fingerprint
 
 
 def test_scan_dock_attributes_rejects_catalog_fingerprint_mismatch_before_stage2() -> None:
