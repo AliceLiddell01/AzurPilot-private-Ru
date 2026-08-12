@@ -22,6 +22,11 @@ class DockLevelOcr(LevelOcr):
     MIN_HEIGHT = 23
     MIN_WIDTH = 54
 
+    # На 387 реальных Dock ROI и умеренных stress-вариантах минимальный raw
+    # dynamic range равен 197. Этот guard оставляет большой запас и отсекает
+    # пустые/почти константные входы до цветовой нормализации.
+    RAW_RANGE_MIN = 64
+
     ONES_AREA = (44, 2, 54, 23)
     ONES_THRESHOLD = 140
     ONES_PIXEL_MIN = 15
@@ -74,6 +79,10 @@ class DockLevelOcr(LevelOcr):
             or image.shape[0] < self.MIN_HEIGHT
             or image.shape[1] < self.MIN_WIDTH
         ):
+            return np.array([[255]], dtype=np.uint8)
+
+        raw_range = int(image.max()) - int(image.min())
+        if raw_range < self.RAW_RANGE_MIN:
             return np.array([[255]], dtype=np.uint8)
 
         normalized = self._normalize_level_pixels(image)
