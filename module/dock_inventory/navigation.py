@@ -23,8 +23,8 @@ from module.game_settings.snapshot import (
 from module.logger import logger
 from module.ui.page import page_dock, page_main, page_main_white
 
+from module.dock_inventory.mumu_traversal import DockMuMuInventoryTraversal
 from module.dock_inventory.traversal import (
-    DockInventoryTraversal,
     DockTraversalResult,
     DockViewportVisitor,
 )
@@ -188,7 +188,7 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
         visitor: DockViewportVisitor,
         **traversal_kwargs: object,
     ) -> DockTraversalResult:
-        return DockInventoryTraversal(self, **traversal_kwargs).traverse(visitor)
+        return DockMuMuInventoryTraversal(self, **traversal_kwargs).traverse(visitor)
 
     def run_stage2(
         self,
