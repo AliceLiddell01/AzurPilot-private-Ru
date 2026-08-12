@@ -47,7 +47,11 @@ _GENERAL_OCR_NAMES = frozenset(
         "pearl_weekly_purchase",
     }
 )
-_GENERAL_OCR_NAME_PREFIXES = ("TEXT_POS", "pearl_rank_price")
+_GENERAL_OCR_NAME_PREFIXES = (
+    "DOCK_LEVEL_DIGIT_PROOF_",
+    "TEXT_POS",
+    "pearl_rank_price",
+)
 _GENERAL_OCR_TYPES = frozenset({"RaidCounter", "RaidCounterPostMixin"})
 _TRAILING_ROMAN_RE = re.compile(r"(?<![A-Z])(VI|IV|V|III|II|I)$", re.IGNORECASE)
 _ROMAN_COMPONENT_MAP = {
