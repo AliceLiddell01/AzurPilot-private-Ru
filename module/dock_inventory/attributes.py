@@ -453,7 +453,7 @@ class DockStarScanner:
     FIRST_COMPONENT_WIDTH_MAX = 15
     FIRST_COMPONENT_HEIGHT_MIN = 7
     FIRST_COMPONENT_HEIGHT_MAX = 15
-    FIRST_COMPONENT_CENTER_Y_MIN = 13.0
+    FIRST_COMPONENT_CENTER_Y_MIN = 12.75
     FIRST_COMPONENT_CENTER_Y_MAX = 21.0
     # The UI centers rows of the three source-proven totals differently. The
     # total is selected from the bright component of the first filled star, never
@@ -473,8 +473,8 @@ class DockStarScanner:
     # Some real filled glyphs have a dim upper point but retain a dense lower
     # body. Keep this as a per-glyph visual rule: neighbouring glyph states
     # must never upgrade an ambiguous observation.
-    FILLED_LOWER_HEAVY_RATIO_MIN = 0.30
-    FILLED_LOWER_HEAVY_UPPER_RATIO_MIN = 0.16
+    FILLED_LOWER_HEAVY_RATIO_MIN = 0.28
+    FILLED_LOWER_HEAVY_UPPER_RATIO_MIN = 0.13
     # Real outlined empty glyphs retain small yellow anti-aliased/highlight
     # fragments. The calibrated cutoff stays below the weakest continuous
     # filled-row evidence on the acceptance frame sets.
