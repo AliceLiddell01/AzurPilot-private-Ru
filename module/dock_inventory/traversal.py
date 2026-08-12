@@ -176,20 +176,23 @@ class DockInventoryTraversal:
         return frame, position
 
     def _clear_confirmed_scroll_control_history(self) -> None:
-        """Forget only proven-successful Dock scroll controls.
+        """Удалить только последнюю подтверждённо успешную запись Dock scroll.
 
-        The global device click guard is designed to catch repeated controls that
-        may indicate a stuck UI. A complete Dock traversal can legitimately need
-        more than twelve ``DOCK_SCROLL`` swipes, while this traversal already has
-        independent monotonic-progress, retry, step, and viewport safety guards.
-        Remove only this scroll control after a newly captured frame proves
-        forward progress. Failed/no-progress attempts remain in the device
-        history and still participate in the generic safety guard.
+        Глобальный click guard должен продолжать видеть неуспешные попытки,
+        указывающие на потенциально зависший UI. После нового стабильного кадра
+        и доказанного продвижения снимается только самая свежая запись именно
+        этого ``DOCK_SCROLL``. Более ранние failed/no-progress записи остаются
+        в истории и по-прежнему участвуют в общем safety guard.
         """
-        remover = getattr(self.main.device, "click_record_remove", None)
+        history = getattr(self.main.device, "click_record", None)
         control_name = getattr(self.scroll, "name", None)
-        if callable(remover) and isinstance(control_name, str) and control_name:
-            remover(control_name)
+        if history is None or not isinstance(control_name, str) or not control_name:
+            return
+        try:
+            if len(history) and history[-1] == str(control_name):
+                history.pop()
+        except (AttributeError, IndexError, TypeError):
+            return
 
     def traverse(self, visitor: DockViewportVisitor) -> DockTraversalResult:
         """Visit top through the confirmed final bottom viewport exactly once."""
@@ -205,8 +208,8 @@ class DockInventoryTraversal:
                 scroll_position=position,
                 is_top=position <= self.scroll.edge_threshold,
                 is_bottom=is_bottom,
-                # The visitor must not be able to mutate the UI owner's
-                # current evidence frame before the next controlled move.
+                # Visitor не должен менять текущий evidence frame владельца UI
+                # до следующего контролируемого перемещения.
                 frame=np.array(frame, copy=True),
             )
             visitor(viewport)
