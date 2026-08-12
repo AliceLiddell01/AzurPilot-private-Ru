@@ -47,6 +47,42 @@
     display: none !important;
 }
 
+/* Event advanced groups: native details keeps PyWebIO group scopes unique. */
+.event-advanced-details {
+    margin: .55rem 0;
+    overflow: hidden;
+    border: 1px solid var(--alas-apple-glass-border, rgba(148, 163, 184, .18));
+    border-radius: var(--radius-md, 12px);
+    background-color: var(--alas-apple-card-bg, rgba(15, 23, 42, .58));
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+}
+
+.event-advanced-details > summary {
+    padding: .8rem 1rem;
+    cursor: pointer;
+    font-weight: 600;
+    user-select: none;
+}
+
+.event-advanced-details[open] > summary {
+    border-bottom: 1px solid var(--alas-apple-border, rgba(148, 163, 184, .14));
+}
+
+.event-advanced-description {
+    padding: .65rem 1rem .25rem;
+    opacity: .78;
+    font-size: .9rem;
+}
+
+.event-advanced-body {
+    padding: 0 .4rem .4rem;
+}
+
+.event-advanced-body > [id^="pywebio-scope-group_"] {
+    margin-top: .4rem;
+}
+
 @media (max-width: 640px) {
     .modal-dialog:has(.event-profile-dialog-marker) {
         width: calc(100vw - 1rem) !important;

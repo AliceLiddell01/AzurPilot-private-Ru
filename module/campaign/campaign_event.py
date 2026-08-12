@@ -21,6 +21,7 @@ import re
 
 from module.campaign.campaign_status import CampaignStatus
 from module.config.config_updater import COALITIONS, EVENTS, GEMS_FARMINGS, HOSPITAL, MARITIME_ESCORTS, RAIDS
+from module.config.time_sentinel import is_default_time
 from module.config.time_source import now as current_time
 from module.config.utils import DEFAULT_TIME
 from module.logger import logger
@@ -154,7 +155,7 @@ class CampaignEvent(CampaignStatus):
         limit = self.config.EventGeneral_TimeLimit
         tasks = EVENTS + RAIDS + COALITIONS + GEMS_FARMINGS + MARITIME_ESCORTS + HOSPITAL
         command = self.config.Scheduler_Command
-        if command not in tasks or limit == DEFAULT_TIME:
+        if command not in tasks or is_default_time(limit):
             return False
         if command in GEMS_FARMINGS and self.stage_is_main(self.config.Campaign_Name):
             return False
