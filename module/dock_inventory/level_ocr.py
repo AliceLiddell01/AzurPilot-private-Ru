@@ -19,8 +19,8 @@ class DockLevelOcr(LevelOcr):
     занятых numeric slots доказывается непосредственно по правой части ROI.
     """
 
-    MIN_HEIGHT = 23
-    MIN_WIDTH = 54
+    EXPECTED_HEIGHT = 31
+    EXPECTED_WIDTH = 58
 
     # На 387 реальных Dock ROI и умеренных stress-вариантах минимальный raw
     # dynamic range равен 197. Этот guard оставляет большой запас и отсекает
@@ -76,8 +76,8 @@ class DockLevelOcr(LevelOcr):
             not isinstance(image, np.ndarray)
             or image.ndim != 3
             or image.shape[2] != 3
-            or image.shape[0] < self.MIN_HEIGHT
-            or image.shape[1] < self.MIN_WIDTH
+            or image.shape[0] != self.EXPECTED_HEIGHT
+            or image.shape[1] != self.EXPECTED_WIDTH
         ):
             return np.array([[255]], dtype=np.uint8)
 
