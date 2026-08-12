@@ -5,8 +5,10 @@ from module.webui.event_rose_tower_fixture import (
     ROSE_TOWER_ACTIVITY_ID,
     ROSE_TOWER_MEDAL_GROUP_ID,
     ROSE_TOWER_MEDAL_TASK_IDS,
+    ROSE_TOWER_MEMORY_GROUP_ID,
     ROSE_TOWER_SHOP_TEMPLATE_ID,
     ROSE_TOWER_SOURCE_KIND,
+    ROSE_TOWER_SOURCE_REPOSITORY,
     ROSE_TOWER_SOURCE_REVISION,
     empty_event_plan_without_fixture,
     rose_tower_fixture_plan,
@@ -37,8 +39,10 @@ def test_rose_tower_fixture_uses_real_source_identity_without_inventing_rows():
     assert plan["extra"] == []
     assert plan["shop_items"] == []
 
+    assert ROSE_TOWER_SOURCE_REPOSITORY == "AzurLaneTools/AzurLaneLuaScripts"
     assert ROSE_TOWER_ACTIVITY_ID == "5941"
     assert ROSE_TOWER_SHOP_TEMPLATE_ID == "71136"
+    assert ROSE_TOWER_MEMORY_GROUP_ID == "329"
     assert ROSE_TOWER_MEDAL_GROUP_ID == "5970"
     assert ROSE_TOWER_MEDAL_TASK_IDS == tuple(range(21714, 21723))
 
