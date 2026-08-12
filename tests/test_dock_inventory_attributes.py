@@ -219,6 +219,20 @@ class _FakeStarScanner:
         return self.observations
 
 
+class _CallerFrameMutatingStarScanner:
+    def __init__(
+        self,
+        observations: tuple[DockStarScanObservation, ...],
+        target: np.ndarray,
+    ) -> None:
+        self.observations = observations
+        self.target = target
+
+    def scan(self, _frame, _slots):
+        self.target[:] = 0
+        return self.observations
+
+
 class _ForbiddenNavigator(DockInventoryNavigator):
     def __init__(self) -> None:
         self.stage2_called = False
@@ -611,6 +625,23 @@ def test_composition_scans_only_present_blocks_unknown_and_preserves_duplicates(
             blocked_cards,
             _identity_scan(blocked_cards),
         )
+
+
+def test_scanner_mutating_caller_frame_is_operational_input_error() -> None:
+    card_scan = _card_scan(present_indexes=(0,))
+    identity_scan = _identity_scan(card_scan)
+    frame = np.full((720, 1280, 3), 80, dtype=np.uint8)
+    scanner = DockAttributeScanner(
+        _catalog(),
+        level_scanner=DockLevelScanner(125, ocr=_FakeLevelOcr((42,))),
+        star_scanner=_CallerFrameMutatingStarScanner(
+            (_observed_stars(card_scan.slots[0]),),
+            frame,
+        ),
+    )
+
+    with pytest.raises(DockAttributeInputError, match="caller-owned frame"):
+        scanner.scan_viewport(_viewport(card_scan, frame), card_scan, identity_scan)
 
 
 def test_composition_rejects_mixed_identity_geometry() -> None:
