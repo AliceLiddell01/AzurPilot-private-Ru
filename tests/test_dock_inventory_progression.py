@@ -321,6 +321,17 @@ def test_progression_catalog_invalid_utf8_is_typed_error(tmp_path: Path) -> None
         load_dock_progression_catalog(catalog_path)
 
 
+@pytest.mark.parametrize("identity_fingerprint", [None, 123])
+def test_progression_catalog_non_string_identity_fingerprint_is_typed_error(
+    identity_fingerprint: object,
+) -> None:
+    payload = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    payload["identity_fingerprint"] = identity_fingerprint
+
+    with pytest.raises(DockProgressionCatalogError, match="identity_fingerprint"):
+        DockProgressionCatalog.from_mapping(payload)
+
+
 def test_tracked_progression_catalog_matches_identity_catalog_and_is_deterministic() -> (
     None
 ):
