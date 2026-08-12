@@ -127,8 +127,15 @@ crop
   заменяющий только Dock-specific preprocessing числового блока; combat OCR не
   изменяется, multi-pass proof OCR/reconciliation не используются, а значение
   принимается только после проверки диапазона из pinned `ship_level` source;
+- low-level стиль реального v15 `Lv.1` допускает отдельный low-contrast
+  one-digit preprocessing только после raw-range и правого digit-slot evidence;
+  preprocessing не подставляет значение и заканчивается тем же единственным
+  bundled OCR-проходом. Реальный v15 fixture обязан дать OCR `1` и через
+  production `DockLevelOcrAdapter`;
 - raw stars определяются визуально как filled/empty/total, без подстановки из
-  identity catalog;
+  identity catalog. First-glyph proof откалиброван также на low-level стиле v15;
+  изменение проверено против всего v15 star corpus и ideal corpus без изменения
+  ранее наблюдавшихся результатов;
 - progression выводится только из raw stars и ровно одной совместимой static
   semantic state; retrofit/research и конфликтующие состояния не получают
   вымышленную ordinary limit-break метку;
@@ -144,29 +151,47 @@ per-slot presence scan с хотя бы одним `PRESENT`. При отсут�
 строка не восстанавливается; identity/name/ship/slot-specific данные в этом
 решении не участвуют.
 
-После доказанного перехода к top traversal один раз выполняет малый
-детерминированный initial viewport nudge: swipe `(640, 360) -> (640, 338)` с
-медленной duration `0.25`. Его задача — убрать штатное верхнее смещение Dock,
-чтобы до первого visitor полностью помещались три card rows. Nudge принимается
-только если после нового stable frame scrollbar всё ещё находится внутри
-подтверждённого top threshold. Если nudge вывел scrollbar за top, traversal
-выполняет verified `Scroll.set_top`, повторно подтверждает top и не считает
-нормализацию применённой. Ошибка input backend или невозможность получить
-stable frame остаётся operational failure и не маскируется продолжением scan.
+### Dock Inventory: MuMu-first traversal
 
-После initial normalization обычное движение не зависит от числа кораблей или
-длины scrollbar thumb. Traversal использует scrollbar как независимый источник
-истины о позиции, верхе, низе и факте прогресса. Известное host-side поведение
-стрелок MuMu не считается доказательством эквивалентности Android keyevent:
-runtime сначала пробует `KEYCODE_DPAD_UP`/`KEYCODE_DPAD_DOWN` через ADB и после
-каждого действия обязан получить новый стабильный кадр и измерить scrollbar.
-DPAD сохраняется только при доказанном движении в ожидаемую сторону; ошибка
-именно отправки keyevent или потеря scrollbar evidence после DPAD отключает
-этот path и переводит traversal на canonical `Scroll` fallback. Невозможность
-получить стабильный кадр не маскируется fallback-логикой и остаётся operational
-failure. `DockTraversalResult` сохраняет `initial_nudge_applied`,
-`dpad_actions`, `dpad_progress_actions` и `scroll_fallback_calls`, чтобы реальный
-smoke мог явно показать, какой путь движения сработал.
+MuMu является основным runtime для текущего Stage 5. Его host-side Slide mapping
+воспроизводится не Android `DPAD` keyevent, а непосредственным ADB swipe. Реальный
+v15 показал `2` отправленных `KEYCODE_DPAD_DOWN` и `0` доказанных progress
+actions, после чего весь traversal выполнил `Scroll` fallback; поэтому DPAD не
+является preferred production path.
+
+После доказанного перехода к top `DockMuMuInventoryTraversal` один раз пробует
+малый initial viewport nudge через ADB swipe `(640, 360) -> (640, 336)`. Сам
+факт изменения пикселей кадра не является evidence: Dock содержит локальные
+анимации, которые в v15 дали ложный `initial_nudge_applied`. Новый nudge
+принимается только при одновременном выполнении условий:
+
+- после нового stable frame scrollbar всё ещё внутри подтверждённого top
+  threshold;
+- phase correlation по центральной Dock ROI доказывает почти вертикальный
+  глобальный сдвиг: `|dx| <= 8`, `-36 <= dy <= -12`;
+- phase-correlation response не ниже `0.55`.
+
+Если nudge не доказан или вывел scrollbar за top threshold, traversal выполняет
+verified `Scroll.set_top`, повторно подтверждает top и не считает нормализацию
+применённой. Ошибка input backend или невозможность получить stable frame
+остаётся operational failure и не маскируется продолжением scan.
+
+После initial normalization основной MuMu path посылает фиксированный ADB swipe
+`(640, 560) -> (640, 160)`. Ни отправка команды, ни длина жеста сами по себе не
+доказывают progress. После каждого swipe обязательно берётся новый stable frame
+и измеряется scrollbar. Scrollbar остаётся независимым authority для позиции,
+верхней/нижней границы и факта движения; число кораблей и длина scrollbar thumb
+не используются для вычисления позиции следующего окна.
+
+Если MuMu ADB swipe недоступен, бросает transport error, теряет scrollbar
+evidence или ограниченное число попыток не подтверждает движение к низу, этот
+path отключается и traversal продолжает через существующий canonical
+`Scroll.next_page` fallback. Невозможность получить stable frame не маскируется
+fallback-логикой. `DockMuMuTraversalResult` сохраняет
+`mumu_swipe_actions`, `mumu_swipe_progress_actions`,
+`initial_nudge_shift_y`, `initial_nudge_phase_response`, а базовый контракт
+сохраняет `scroll_fallback_calls` и `initial_nudge_applied`, чтобы реальный smoke
+явно показывал фактически использованный путь движения.
 
 Runtime не читает сеть: identity и progression catalogs являются отдельными
 детерминированными generated sidecars с независимыми fingerprints.
