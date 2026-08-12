@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from module.dock_inventory.navigation import (
+    DockInventoryNavigationError,
+    DockInventoryNavigator,
+)
+
+
+class _SequenceDevice:
+    def __init__(self, values: list[int]) -> None:
+        self.values = list(values)
+        self.shared = np.zeros((8, 8, 3), dtype=np.uint8)
+        self.image = self.shared
+        self.screenshot_calls = 0
+
+    def screenshot(self) -> None:
+        self.screenshot_calls += 1
+        self.shared.fill(self.values.pop(0))
+        self.image = self.shared
+
+
+class _ChangingDevice:
+    def __init__(self) -> None:
+        self.shared = np.zeros((8, 8, 3), dtype=np.uint8)
+        self.image = self.shared
+        self.screenshot_calls = 0
+
+    def screenshot(self) -> None:
+        self.screenshot_calls += 1
+        self.shared.fill(self.screenshot_calls % 255)
+        self.image = self.shared
+
+
+class _HashGenerator:
+    def scan(self, image, cached=False, output=False):
+        return [int(image[0, 0, 0])]
+
+
+def test_fast_capture_can_stabilize_after_more_than_twelve_frames(monkeypatch) -> None:
+    import module.retire.scanner as retire_scanner
+
+    monkeypatch.setattr(retire_scanner, "HashGenerator", _HashGenerator)
+    navigator = object.__new__(DockInventoryNavigator)
+    navigator.device = _SequenceDevice(list(range(1, 15)) + [14])
+
+    frame = navigator.capture_stable_dock_frame()
+
+    assert navigator.device.screenshot_calls == 15
+    assert int(frame[0, 0, 0]) == 14
+    assert navigator._dock_stability_failure_frame is None
+    assert navigator._dock_stability_failure_hashes == ()
+
+
+def test_real_timeout_preserves_detached_failure_evidence(monkeypatch) -> None:
+    import module.retire.scanner as retire_scanner
+
+    monkeypatch.setattr(retire_scanner, "HashGenerator", _HashGenerator)
+    navigator = object.__new__(DockInventoryNavigator)
+    navigator.device = _ChangingDevice()
+    navigator.DOCK_STABILITY_TIMEOUT = 0.0
+
+    with pytest.raises(
+        DockInventoryNavigationError,
+        match=r"captures=3, elapsed=.*timeout=0\.0s",
+    ):
+        navigator.capture_stable_dock_frame()
+
+    assert navigator.device.screenshot_calls == 3
+    failure_frame = navigator._dock_stability_failure_frame
+    assert isinstance(failure_frame, np.ndarray)
+    assert int(failure_frame[0, 0, 0]) == 3
+    assert navigator._dock_stability_failure_hashes == ("3",)
+
+    navigator.device.shared.fill(99)
+    assert int(failure_frame[0, 0, 0]) == 3
