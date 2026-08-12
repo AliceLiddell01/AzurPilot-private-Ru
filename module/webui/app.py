@@ -39,6 +39,7 @@ from module.webui.app_dependencies import (
 from module.webui.app_developer_menu import DeveloperMenuMixin
 from module.webui.app_developer_settings import DeveloperSettingsMixin
 from module.webui.app_developer_tools import DeveloperToolsMixin
+from module.webui.app_event_fixture import EventFixtureMixin
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.app_event_shop_safety import EventShopSafetyMixin
@@ -100,6 +101,7 @@ class AlasGUI(
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
     EventProfilesMixin,
+    EventFixtureMixin,
     EventShopSafetyMixin,
     EventLayoutMixin,
     TaskConfigMixin,
