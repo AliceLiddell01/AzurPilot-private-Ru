@@ -8,6 +8,7 @@ import pytest
 from module.dock_inventory.traversal import (
     DockInventoryTraversal,
     DockInventoryTraversalError,
+    DockTraversalResult,
 )
 
 
@@ -224,6 +225,9 @@ def test_dpad_down_is_preferred_when_scrollbar_proves_progress() -> None:
 
     assert result.positions == (0.0, 0.22, 0.47, 0.73, 1.0)
     assert keyevents == [DockInventoryTraversal.DPAD_DOWN] * 4
+    assert result.dpad_actions == 4
+    assert result.dpad_progress_actions == 4
+    assert result.scroll_fallback_calls == 0
     assert scroll.next_page_calls == 0
     # Initial stable frame plus one proven stable frame after each DPAD action.
     assert runtime.capture_calls == 5
@@ -247,6 +251,9 @@ def test_dpad_down_without_progress_disables_it_and_uses_scroll_fallback() -> No
 
     assert result.positions == (0.0, 1.0)
     assert keyevents == [DockInventoryTraversal.DPAD_DOWN] * 2
+    assert result.dpad_actions == 2
+    assert result.dpad_progress_actions == 0
+    assert result.scroll_fallback_calls == 1
     assert scroll.next_page_calls == 1
     assert result.no_progress_retries == 2
 
@@ -291,3 +298,16 @@ def test_dpad_up_without_progress_falls_back_to_verified_set_top() -> None:
     assert position == 0.0
     assert keyevents == [DockInventoryTraversal.DPAD_UP] * 2
     assert scroll.set_top_calls == 1
+
+
+def test_traversal_result_rejects_impossible_dpad_evidence() -> None:
+    with pytest.raises(ValueError, match="не может превышать"):
+        DockTraversalResult(
+            visited_viewports=1,
+            positions=(1.0,),
+            reached_bottom=True,
+            final_viewport_visited=True,
+            no_progress_retries=0,
+            dpad_actions=1,
+            dpad_progress_actions=2,
+        )
