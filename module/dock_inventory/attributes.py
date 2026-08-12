@@ -373,7 +373,9 @@ class DockLevelOcrAdapter:
             primary_result if isinstance(primary_result, list) else [primary_result]
         )
         if len(primary_values) != len(areas):
-            return tuple(primary_values)
+            raise DockLevelOcrError(
+                "Число primary level OCR results не совпало с числом areas."
+            )
 
         height, width = frame.shape[:2]
         proof_areas: list[tuple[int, int, int, int]] = []
