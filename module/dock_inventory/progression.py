@@ -176,7 +176,9 @@ class DockProgressionCatalog:
             raise DockProgressionCatalogError("Неподдерживаемая progression schema.")
         if self.identity_scheme != "azur_lane_ship_group":
             raise DockProgressionCatalogError("Неподдерживаемая identity scheme.")
-        if not re.fullmatch(r"[0-9a-f]{64}", self.identity_fingerprint):
+        if not isinstance(self.identity_fingerprint, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", self.identity_fingerprint
+        ):
             raise DockProgressionCatalogError(
                 "identity_fingerprint должен быть SHA-256."
             )
