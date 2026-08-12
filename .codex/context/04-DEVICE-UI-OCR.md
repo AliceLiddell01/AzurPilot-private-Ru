@@ -117,6 +117,8 @@ crop
 совпадение index, scroll position, порядка `PRESENT` и `slot.area`.
 
 - level ROI и star ROI вычисляются только относительно `slot.area`;
+- Stage 5 принимает RGB `uint8` frame; преобразование BGR → RGB выполняется на
+  границе поставщика кадра, а не внутри scanner;
 - `ABSENT` не передаётся OCR/CV, а любой Stage 3 `UNKNOWN` блокирует полный pass;
 - level использует `LevelOcr`, но не legacy clamp; диапазон берётся из pinned
   `ship_level` source, непрошедшее значение остаётся typed `UNKNOWN`;
