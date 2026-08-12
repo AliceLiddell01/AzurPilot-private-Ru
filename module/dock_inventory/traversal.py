@@ -50,6 +50,7 @@ class DockTraversalResult:
     dpad_actions: int = 0
     dpad_progress_actions: int = 0
     scroll_fallback_calls: int = 0
+    initial_nudge_applied: bool = False
 
     def __post_init__(self) -> None:
         if type(self.visited_viewports) is not int or self.visited_viewports < 0:
@@ -64,6 +65,7 @@ class DockTraversalResult:
         if (
             type(self.reached_bottom) is not bool
             or type(self.final_viewport_visited) is not bool
+            or type(self.initial_nudge_applied) is not bool
         ):
             raise TypeError("Флаги результата обхода должны быть bool")
         for name, value in (
@@ -98,6 +100,7 @@ class _DockScroll(Protocol):
 
 DockViewportVisitor = Callable[[DockTraversalViewport], object]
 DockKeyeventSender = Callable[[str], object]
+DockInitialNudgeSender = Callable[[], object]
 
 
 class DockInventoryTraversal:
@@ -108,6 +111,10 @@ class DockInventoryTraversal:
     kept only when the scrollbar independently proves the expected movement.
     If ADB keyevents are unavailable or ineffective, traversal disables them
     and falls back to the previously accepted canonical ``Scroll`` movement.
+
+    Before the first visitor, one small deterministic upward swipe may normalize
+    the top viewport so three complete card rows fit on screen. It is accepted
+    only while scrollbar evidence remains inside the proven top threshold.
 
     Stage 2 intentionally requires a visible, non-degenerate scrollbar. A
     reliable single-viewport/small-Dock distinction needs card-presence data
@@ -124,6 +131,9 @@ class DockInventoryTraversal:
     KEYEVENT_NO_PROGRESS_RETRIES = 1
     DPAD_UP = "KEYCODE_DPAD_UP"
     DPAD_DOWN = "KEYCODE_DPAD_DOWN"
+    INITIAL_NUDGE_START = (640, 360)
+    INITIAL_NUDGE_END = (640, 338)
+    INITIAL_NUDGE_DURATION = (0.25, 0.25)
 
     def __init__(
         self,
@@ -140,6 +150,8 @@ class DockInventoryTraversal:
         keyevent_no_progress_retries: int = KEYEVENT_NO_PROGRESS_RETRIES,
         prefer_keyevents: bool = True,
         keyevent_sender: DockKeyeventSender | None = None,
+        normalize_initial_viewport: bool = True,
+        initial_nudge_sender: DockInitialNudgeSender | None = None,
     ) -> None:
         if not 0.0 < page_step < 1.0:
             raise ValueError("page_step должен быть в диапазоне (0, 1)")
@@ -166,10 +178,12 @@ class DockInventoryTraversal:
             raise ValueError(
                 "Лимиты шагов должны быть >= 1, лимиты повторов должны быть >= 0"
             )
-        if type(prefer_keyevents) is not bool:
-            raise TypeError("prefer_keyevents должен быть bool")
+        if type(prefer_keyevents) is not bool or type(normalize_initial_viewport) is not bool:
+            raise TypeError("prefer_keyevents и normalize_initial_viewport должны быть bool")
         if keyevent_sender is not None and not callable(keyevent_sender):
             raise TypeError("keyevent_sender должен быть callable или None")
+        if initial_nudge_sender is not None and not callable(initial_nudge_sender):
+            raise TypeError("initial_nudge_sender должен быть callable или None")
 
         self.main = main
         self.scroll = scroll
@@ -184,12 +198,18 @@ class DockInventoryTraversal:
         self._keyevent_sender = (
             self._resolve_keyevent_sender(keyevent_sender) if prefer_keyevents else None
         )
+        self._initial_nudge_sender = (
+            self._resolve_initial_nudge_sender(initial_nudge_sender)
+            if normalize_initial_viewport
+            else None
+        )
         self._reset_movement_evidence()
 
     def _reset_movement_evidence(self) -> None:
         self._dpad_actions = 0
         self._dpad_progress_actions = 0
         self._scroll_fallback_calls = 0
+        self._initial_nudge_applied = False
 
     def _resolve_keyevent_sender(
         self,
@@ -203,6 +223,26 @@ class DockInventoryTraversal:
 
         def send(keycode: str) -> object:
             return adb_shell(["input", "keyevent", keycode])
+
+        return send
+
+    def _resolve_initial_nudge_sender(
+        self,
+        explicit: DockInitialNudgeSender | None,
+    ) -> DockInitialNudgeSender | None:
+        if explicit is not None:
+            return explicit
+        swipe = getattr(self.main.device, "swipe", None)
+        if not callable(swipe):
+            return None
+
+        def send() -> object:
+            return swipe(
+                self.INITIAL_NUDGE_START,
+                self.INITIAL_NUDGE_END,
+                duration=self.INITIAL_NUDGE_DURATION,
+                name="НОРМАЛИЗАЦИЯ_ПЕРВОГО_ОКНА_ДОКА",
+            )
 
         return send
 
@@ -328,10 +368,62 @@ class DockInventoryTraversal:
             )
         return frame, position
 
+    def _normalize_initial_viewport(
+        self,
+        frame: np.ndarray,
+        position: float,
+    ) -> tuple[np.ndarray, float]:
+        sender = self._initial_nudge_sender
+        if sender is None:
+            return frame, position
+        try:
+            sender()
+        except Exception as exc:
+            raise DockInventoryTraversalError(
+                "Стартовая нормализация Dock завершилась ошибкой input backend: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        candidate_frame = self.capture_stable_frame()
+        candidate = self.read_scroll_position()
+        if candidate > self.scroll.edge_threshold:
+            logger.warning(
+                "[Инвентарь дока] Стартовый nudge вышел за top threshold: "
+                "до=%.6f, после=%.6f; восстановление начала Dock.",
+                position,
+                candidate,
+            )
+            self._scroll_fallback_calls += 1
+            self.scroll.set_top(self.main, skip_first_screenshot=True)
+            restored_frame = self.capture_stable_frame()
+            restored = self.read_scroll_position()
+            if restored > self.scroll.edge_threshold:
+                raise DockInventoryTraversalError(
+                    "После отката стартового nudge начало Dock не подтверждено: "
+                    f"position={restored:.6f}."
+                )
+            return restored_frame, restored
+
+        if np.array_equal(candidate_frame, frame):
+            logger.warning(
+                "[Инвентарь дока] Стартовый nudge не изменил стабильный frame; "
+                "используется исходное верхнее окно."
+            )
+            return candidate_frame, candidate
+
+        self._initial_nudge_applied = True
+        logger.info(
+            "[Инвентарь дока] Стартовая нормализация применена: до=%.6f, после=%.6f.",
+            position,
+            candidate,
+        )
+        return candidate_frame, candidate
+
     def traverse(self, visitor: DockViewportVisitor) -> DockTraversalResult:
         """Visit top through the confirmed final bottom viewport exactly once."""
         self._reset_movement_evidence()
         frame, position = self.canonicalize_top()
+        frame, position = self._normalize_initial_viewport(frame, position)
         positions: list[float] = []
         no_progress_retries = 0
         steps = 0
@@ -360,6 +452,7 @@ class DockInventoryTraversal:
                     dpad_actions=self._dpad_actions,
                     dpad_progress_actions=self._dpad_progress_actions,
                     scroll_fallback_calls=self._scroll_fallback_calls,
+                    initial_nudge_applied=self._initial_nudge_applied,
                 )
 
             next_frame: np.ndarray | None = None
