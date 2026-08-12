@@ -37,8 +37,9 @@ SELECTION_CONTRACT = (
     "except blueprint families; Type II remains a separate canonical group; source-only "
     "or retrofit states are nonstandard"
 )
-CATALOG_PATH = (
-    Path(__file__).parents[1] / "assets" / "ship" / "dock_progression_catalog.json"
+CATALOG_PATH = REPOSITORY_ROOT / "assets" / "ship" / "dock_progression_catalog.json"
+IDENTITY_CATALOG_PATH = (
+    REPOSITORY_ROOT / "assets" / "ship" / "dock_identity_catalog.json"
 )
 
 
@@ -84,20 +85,20 @@ def _read_pinned_blob(
 
 def _lua_brace_body(source: str, opening: int, *, label: str) -> str:
     depth = 0
-    quoted = False
+    quote: str | None = None
     escaped = False
     for index in range(opening, len(source)):
         char = source[index]
-        if quoted:
+        if quote is not None:
             if escaped:
                 escaped = False
             elif char == "\\":
                 escaped = True
-            elif char == '"':
-                quoted = False
+            elif char == quote:
+                quote = None
             continue
-        if char == '"':
-            quoted = True
+        if char in ('"', "'"):
+            quote = char
         elif char == "{":
             depth += 1
         elif char == "}":
@@ -421,9 +422,7 @@ def build_from_git(
         raise ProgressionGenerationError(
             "Upstream ship_data не является UTF-8 JSON."
         ) from exc
-    identity_catalog = load_dock_identity_catalog(
-        repo / "assets/ship/dock_identity_catalog.json"
-    )
+    identity_catalog = load_dock_identity_catalog(IDENTITY_CATALOG_PATH)
     provenance = {
         "source_repository": SOURCE_REPOSITORY,
         "source_commit": resolved_source,
