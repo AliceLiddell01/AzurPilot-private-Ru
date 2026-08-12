@@ -22,29 +22,46 @@ class _PrimaryLevelOcr:
         return list(type(self).values)
 
 
-class _FallbackDigit:
-    values: list[int] = []
-    calls: list[tuple[tuple[int, int, int, int], ...]] = []
+class _ProofDigit:
+    values_by_threshold: dict[int, list[int]] = {}
+    calls: list[
+        tuple[tuple[tuple[int, int, int, int], ...], dict[str, object]]
+    ] = []
 
-    def __init__(self, buttons, **_kwargs) -> None:
+    def __init__(self, buttons, **kwargs) -> None:
         self.buttons = tuple(buttons)
+        self.kwargs = dict(kwargs)
 
     def ocr(self, _frame):
-        type(self).calls.append(self.buttons)
-        return list(type(self).values)
+        type(self).calls.append((self.buttons, self.kwargs))
+        threshold = self.kwargs["threshold"]
+        assert type(threshold) is int
+        return list(type(self).values_by_threshold[threshold])
 
 
-def _install_level_fakes(monkeypatch, primary: list[int], fallback: list[int]) -> None:
+def _install_level_fakes(
+    monkeypatch,
+    primary: list[int],
+    proof_runs: dict[int, list[int]],
+) -> None:
     _PrimaryLevelOcr.values = list(primary)
     _PrimaryLevelOcr.calls = []
-    _FallbackDigit.values = list(fallback)
-    _FallbackDigit.calls = []
+    _ProofDigit.values_by_threshold = {
+        threshold: list(values)
+        for threshold, values in proof_runs.items()
+    }
+    _ProofDigit.calls = []
     monkeypatch.setattr(attributes, "LevelOcr", _PrimaryLevelOcr)
-    monkeypatch.setattr(attributes, "Digit", _FallbackDigit)
+    monkeypatch.setattr(attributes, "Digit", _ProofDigit)
 
 
-def test_level_adapter_retries_only_zeroes_on_digit_only_roi(monkeypatch) -> None:
-    _install_level_fakes(monkeypatch, [125, 0, 0], [99, 89])
+def test_level_adapter_proves_all_values_on_digit_only_roi(monkeypatch) -> None:
+    proof = [125, 99, 89]
+    _install_level_fakes(
+        monkeypatch,
+        [125, 0, 0],
+        {96: proof, 128: proof, 160: proof},
+    )
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     areas = (
         (170, 100, 228, 131),
@@ -56,16 +73,27 @@ def test_level_adapter_retries_only_zeroes_on_digit_only_roi(monkeypatch) -> Non
 
     assert result == (125, 99, 89)
     assert _PrimaryLevelOcr.calls == [areas]
-    assert _FallbackDigit.calls == [
-        (
-            (358, 202, 392, 229),
-            (523, 302, 557, 329),
-        )
+    expected_proof_areas = (
+        (194, 100, 228, 122),
+        (358, 200, 392, 222),
+        (523, 300, 557, 322),
+    )
+    assert [call[0] for call in _ProofDigit.calls] == [
+        expected_proof_areas,
+        expected_proof_areas,
+        expected_proof_areas,
     ]
 
 
-def test_level_adapter_does_not_retry_positive_primary_values(monkeypatch) -> None:
-    _install_level_fakes(monkeypatch, [125, 120], [])
+def test_level_adapter_independently_confirms_positive_primary_values(
+    monkeypatch,
+) -> None:
+    proof = [125, 120]
+    _install_level_fakes(
+        monkeypatch,
+        [125, 120],
+        {96: proof, 128: proof, 160: proof},
+    )
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     areas = (
         (170, 100, 228, 131),
@@ -73,18 +101,26 @@ def test_level_adapter_does_not_retry_positive_primary_values(monkeypatch) -> No
     )
 
     assert attributes.DockLevelOcrAdapter().read_levels(frame, areas) == (125, 120)
-    assert _FallbackDigit.calls == []
+    assert len(_ProofDigit.calls) == 3
 
 
-def test_level_adapter_fallback_count_mismatch_is_typed_error(monkeypatch) -> None:
-    _install_level_fakes(monkeypatch, [0, 0], [99])
+def test_level_adapter_proof_count_mismatch_is_typed_error(monkeypatch) -> None:
+    _install_level_fakes(
+        monkeypatch,
+        [0, 0],
+        {
+            96: [99],
+            128: [99, 89],
+            160: [99, 89],
+        },
+    )
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     areas = (
         (170, 100, 228, 131),
         (334, 200, 392, 231),
     )
 
-    with pytest.raises(DockLevelOcrError, match="fallback level OCR results"):
+    with pytest.raises(DockLevelOcrError, match="proof level OCR results"):
         attributes.DockLevelOcrAdapter().read_levels(frame, areas)
 
 
