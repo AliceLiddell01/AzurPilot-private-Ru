@@ -258,6 +258,51 @@ def test_dpad_down_without_progress_disables_it_and_uses_scroll_fallback() -> No
     assert result.no_progress_retries == 2
 
 
+def test_dpad_down_sender_error_disables_it_and_uses_scroll_fallback() -> None:
+    scroll = _Scroll(0.0, moves=[1.0])
+
+    def send(_keycode: str) -> None:
+        raise RuntimeError("adb transport failed")
+
+    traversal = DockInventoryTraversal(
+        _Runtime(),
+        scroll=scroll,
+        keyevent_sender=send,
+    )
+    result = traversal.traverse(lambda _viewport: None)
+
+    assert result.positions == (0.0, 1.0)
+    assert result.dpad_actions == 0
+    assert result.dpad_progress_actions == 0
+    assert result.scroll_fallback_calls == 1
+    assert scroll.next_page_calls == 1
+
+
+def test_dpad_down_scrollbar_loss_disables_it_and_uses_scroll_fallback() -> None:
+    scroll = _Scroll(
+        0.0,
+        moves=[1.0],
+        appear_results=[True, False, True],
+    )
+
+    def send(keycode: str) -> None:
+        assert keycode == DockInventoryTraversal.DPAD_DOWN
+        scroll.current = 0.2
+
+    traversal = DockInventoryTraversal(
+        _Runtime(),
+        scroll=scroll,
+        keyevent_sender=send,
+    )
+    result = traversal.traverse(lambda _viewport: None)
+
+    assert result.positions == (0.0, 1.0)
+    assert result.dpad_actions == 1
+    assert result.dpad_progress_actions == 0
+    assert result.scroll_fallback_calls == 1
+    assert scroll.next_page_calls == 1
+
+
 def test_dpad_up_canonicalizes_top_without_scroll_drag() -> None:
     scroll = _Scroll(0.52)
     runtime = _Runtime()
@@ -297,6 +342,23 @@ def test_dpad_up_without_progress_falls_back_to_verified_set_top() -> None:
 
     assert position == 0.0
     assert keyevents == [DockInventoryTraversal.DPAD_UP] * 2
+    assert scroll.set_top_calls == 1
+
+
+def test_dpad_up_sender_error_falls_back_to_verified_set_top() -> None:
+    scroll = _Scroll(0.52, top_result=0.0)
+
+    def send(_keycode: str) -> None:
+        raise RuntimeError("adb transport failed")
+
+    traversal = DockInventoryTraversal(
+        _Runtime(),
+        scroll=scroll,
+        keyevent_sender=send,
+    )
+    _frame, position = traversal.canonicalize_top()
+
+    assert position == 0.0
     assert scroll.set_top_calls == 1
 
 
