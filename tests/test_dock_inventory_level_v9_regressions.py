@@ -131,6 +131,28 @@ def test_level_reconciliation_accepts_primary_with_one_independent_agreement() -
     assert reconcile(120, (120, 119, 121)) == 120
 
 
+def test_level_primary_result_count_mismatch_is_operational_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ocr_doubles(
+        monkeypatch,
+        primary=(120,),
+        proof_runs={
+            96: (120, 70),
+            128: (120, 70),
+            160: (120, 70),
+        },
+    )
+
+    with pytest.raises(DockLevelOcrError, match="primary level OCR results"):
+        attributes.DockLevelOcrAdapter().read_levels(
+            np.zeros((720, 1280, 3), dtype=np.uint8),
+            ((100, 50, 160, 81), (200, 50, 260, 81)),
+        )
+
+    assert _FakeDigit.calls == []
+
+
 def test_level_proof_result_count_mismatch_is_operational_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
