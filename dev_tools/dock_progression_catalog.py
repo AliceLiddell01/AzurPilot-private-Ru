@@ -484,8 +484,13 @@ def main(argv: list[str] | None = None) -> int:
                     "Tracked dock_progression_catalog.json устарел; перегенерируйте его."
                 )
         else:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_bytes(expected)
+            try:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_bytes(expected)
+            except OSError as exc:
+                raise ProgressionGenerationError(
+                    f"Не удалось записать progression catalog: {args.output}."
+                ) from exc
     except ProgressionGenerationError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
