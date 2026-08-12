@@ -94,9 +94,14 @@ def test_v9_visual_level_failures_are_recovered_by_independent_proof(
         expected_proof_areas,
     ]
     assert [call["kwargs"]["lang"] for call in _FakeDigit.calls] == [
-        "english_text",
-        "english_text",
-        "english_text",
+        "azur_lane",
+        "azur_lane",
+        "azur_lane",
+    ]
+    assert [call["kwargs"]["name"] for call in _FakeDigit.calls] == [
+        "DOCK_LEVEL_DIGIT_PROOF_96",
+        "DOCK_LEVEL_DIGIT_PROOF_128",
+        "DOCK_LEVEL_DIGIT_PROOF_160",
     ]
     assert [call["kwargs"]["threshold"] for call in _FakeDigit.calls] == [
         96,
