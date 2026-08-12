@@ -396,7 +396,7 @@ class DockLevelOcrAdapter:
         for threshold in self.DIGIT_PROOF_THRESHOLDS:
             proof_result = Digit(
                 proof_areas,
-                lang="english_text",
+                lang="azur_lane",
                 name=f"DOCK_LEVEL_DIGIT_PROOF_{threshold}",
                 threshold=threshold,
             ).ocr(frame)
