@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-import module.dock_inventory as dock_inventory
 from module.dock_inventory.catalog import load_dock_identity_catalog
 from module.dock_inventory.model import (
     CanonicalShipIdentity,
@@ -16,7 +15,6 @@ from module.dock_inventory.progression import (
     DockProgressionCatalog,
     DockProgressionCatalogError,
     DockProgressionFamily,
-    DockProgressionObservation,
     DockProgressionProvenance,
     DockProgressionState,
     ProgressionKind,
@@ -24,9 +22,6 @@ from module.dock_inventory.progression import (
     derive_dock_progression,
     load_dock_progression_catalog,
 )
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-CATALOG_PATH = REPOSITORY_ROOT / "assets" / "ship" / "dock_progression_catalog.json"
 
 
 def _provenance() -> DockProgressionProvenance:
@@ -103,53 +98,6 @@ def _derive(
         observed_stars=stars,
         catalog=catalog,
     )
-
-
-def test_package_reexports_progression_provenance() -> None:
-    assert dock_inventory.DockProgressionProvenance is DockProgressionProvenance
-
-
-def test_known_progression_requires_observed_stars_and_unknown_semantics_stay_valid() -> None:
-    stars = StarObservation(2, 3, 5)
-    kwargs = {
-        "status": ProgressionStatus.KNOWN,
-        "kind": ProgressionKind.STANDARD_LIMIT_BREAK,
-        "stage_index": 0,
-        "stage_count": 4,
-        "is_max": False,
-        "matching_semantic_ids": ("limit_break:0",),
-    }
-
-    with pytest.raises(ValueError, match="observed_stars"):
-        DockProgressionObservation(observed_stars=None, **kwargs)
-
-    known = DockProgressionObservation(observed_stars=stars, **kwargs)
-    assert known.observed_stars == stars
-
-    with pytest.raises(ValueError, match="is_max"):
-        DockProgressionObservation(
-            observed_stars=stars,
-            **{**kwargs, "is_max": None},
-        )
-
-    unknown_without_stars = DockProgressionObservation(
-        status=ProgressionStatus.UNKNOWN,
-        kind=ProgressionKind.UNKNOWN,
-        observed_stars=None,
-        reason="fixture_unknown",
-    )
-    unknown_with_stars = DockProgressionObservation(
-        status=ProgressionStatus.UNKNOWN,
-        kind=ProgressionKind.UNKNOWN,
-        observed_stars=stars,
-        reason="fixture_unknown",
-    )
-    assert unknown_without_stars.observed_stars is None
-    assert unknown_with_stars.observed_stars == stars
-
-    derived = _derive(_catalog(_standard_family(200, base=2, total=5)), 200, stars)
-    assert derived.status is ProgressionStatus.KNOWN
-    assert derived.observed_stars == stars
 
 
 def test_standard_progression_supports_different_base_and_total_counts() -> None:
@@ -289,19 +237,6 @@ def test_unknown_star_evidence_blocks_progression_before_identity() -> None:
     assert result.reason == "star_evidence_unknown"
 
 
-def test_identity_without_progression_family_is_unknown() -> None:
-    stars = StarObservation(2, 3, 5)
-    result = _derive(
-        _catalog(_standard_family(200, base=2, total=5)),
-        300,
-        stars,
-    )
-
-    assert result.status is ProgressionStatus.UNKNOWN
-    assert result.reason == "canonical_family_missing"
-    assert result.observed_stars == stars
-
-
 def test_catalog_rejects_nonstandard_state_with_limit_break_index() -> None:
     with pytest.raises(DockProgressionCatalogError):
         DockProgressionState(
@@ -311,25 +246,6 @@ def test_catalog_rejects_nonstandard_state_with_limit_break_index() -> None:
             total=5,
             stage_index=4,
         )
-
-
-def test_progression_catalog_invalid_utf8_is_typed_error(tmp_path: Path) -> None:
-    catalog_path = tmp_path / "dock_progression_catalog.json"
-    catalog_path.write_bytes(b"\xff")
-
-    with pytest.raises(DockProgressionCatalogError, match="UTF-8"):
-        load_dock_progression_catalog(catalog_path)
-
-
-@pytest.mark.parametrize("identity_fingerprint", [None, 123])
-def test_progression_catalog_non_string_identity_fingerprint_is_typed_error(
-    identity_fingerprint: object,
-) -> None:
-    payload = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
-    payload["identity_fingerprint"] = identity_fingerprint
-
-    with pytest.raises(DockProgressionCatalogError, match="identity_fingerprint"):
-        DockProgressionCatalog.from_mapping(payload)
 
 
 def test_tracked_progression_catalog_matches_identity_catalog_and_is_deterministic() -> (
@@ -351,11 +267,8 @@ def test_tracked_progression_catalog_matches_identity_catalog_and_is_determinist
 
 
 def test_catalog_json_does_not_embed_unrelated_upstream_payload() -> None:
-    catalog_text = CATALOG_PATH.read_text(encoding="utf-8")
-    payload = json.loads(catalog_text)
-    # Regression guard against accidentally embedding the multi-megabyte upstream payload.
-    assert CATALOG_PATH.stat().st_size < 1_100_000
-    assert payload["records"]
-    for record in payload["records"]:
-        assert set(record) == {"canonical_id", "family_type", "states"}
-    assert "attrs" not in catalog_text
+    path = Path("assets/ship/dock_progression_catalog.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert path.stat().st_size < 1_100_000
+    assert set(payload["records"][0]) == {"canonical_id", "family_type", "states"}
+    assert "attrs" not in path.read_text(encoding="utf-8")

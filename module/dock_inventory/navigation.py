@@ -65,10 +65,7 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
     game_settings_snapshot_path: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH
     DOCK_STABILITY_TIMEOUT = 3.0
     DOCK_STABILITY_MIN_CAPTURES = 2
-    # В production намеренно нет лимита по числу captures: быстрый NemuIPC
-    # не должен завершать проверку раньше wall-clock timeout только из-за
-    # количества кадров. Явный override сохранён для тестов и debug-probe.
-    DOCK_STABILITY_MAX_CAPTURES: int | None = None
+    DOCK_STABILITY_MAX_CAPTURES = 12
 
     def _make_game_settings_scanner(self) -> GameSettingsPreflightScanner:
         # Reuse this UI/device owner so a cache miss performs one controlled
@@ -139,7 +136,7 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
         return evidence
 
     def capture_stable_dock_frame(self) -> np.ndarray:
-        """Снимать Dock до первого последовательного совпадения card-hash."""
+        """Require repeated card hashes and detach the proven stable frame."""
         from module.retire.scanner import HashGenerator
 
         scanner = HashGenerator()
@@ -149,53 +146,20 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
             count=self.DOCK_STABILITY_MIN_CAPTURES,
         ).start()
         captures = 0
-        last_frame: np.ndarray | None = None
-        last_hashes: tuple[str, ...] = ()
-        capture_limit = self.DOCK_STABILITY_MAX_CAPTURES
-        if capture_limit is not None and (
-            type(capture_limit) is not int or capture_limit < 1
-        ):
-            raise DockInventoryNavigationError(
-                "DOCK_STABILITY_MAX_CAPTURES override должен быть положительным int или None."
-            )
-
-        # device.screenshot() уже соблюдает собственный capture interval.
-        # В production count-cap отсутствует: проверка завершается при первом
-        # последовательном совпадении card-hash либо по wall-clock timeout.
-        while True:
+        while captures < self.DOCK_STABILITY_MAX_CAPTURES:
             self.device.screenshot()
             captures += 1
             frame = np.array(self.device.image, copy=True)
             current = scanner.scan(frame, cached=False, output=False)
-            last_frame = frame
-            last_hashes = tuple(str(value) for value in current)
-
-            # Wall-clock deadline является абсолютным: кадр, завершивший
-            # обработку уже после timeout, нельзя принять как stable даже если
-            # его card-hash совпал с предыдущим capture.
-            if timeout.current_time() > self.DOCK_STABILITY_TIMEOUT:
-                break
-
             if previous is not None and current == previous:
                 self.device.image = frame
-                self._dock_stability_failure_frame = None
-                self._dock_stability_failure_hashes = ()
                 return frame
             previous = current
-            if capture_limit is not None and captures >= capture_limit:
-                break
             if timeout.reached():
                 break
-
-        elapsed = timeout.current_time()
-        self._dock_stability_failure_frame = (
-            None if last_frame is None else np.array(last_frame, copy=True)
-        )
-        self._dock_stability_failure_hashes = last_hashes
         raise DockInventoryNavigationError(
             "Dock не достиг стабильного состояния по последовательным card-hash "
-            f"кадрам: captures={captures}, elapsed={elapsed:.3f}s, "
-            f"timeout={self.DOCK_STABILITY_TIMEOUT:.1f}s."
+            f"кадрам: captures={captures}, timeout={self.DOCK_STABILITY_TIMEOUT:.1f}s."
         )
 
     def enter_dock(self) -> bool:

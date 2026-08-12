@@ -40,7 +40,6 @@ from module.dock_inventory.progression import (
 )
 from module.dock_inventory.traversal import DockTraversalResult, DockTraversalViewport
 from module.logger import logger
-from module.ocr.ocr import Digit
 
 
 class DockLevelStatus(Enum):
@@ -293,11 +292,11 @@ class DockAttributeScanResult:
             ("identity_catalog_fingerprint", self.identity_catalog_fingerprint),
             ("progression_catalog_fingerprint", self.progression_catalog_fingerprint),
         ):
-            if not _is_sha256(value):
+            if not re_full_sha256(value):
                 raise ValueError(f"{name} должен быть SHA-256")
 
 
-def _is_sha256(value: object) -> bool:
+def re_full_sha256(value: object) -> bool:
     return (
         isinstance(value, str)
         and len(value) == 64
@@ -314,47 +313,7 @@ class _DockLevelOcr(Protocol):
 
 
 class DockLevelOcrAdapter:
-    """Сначала читает LevelOcr, затем независимо подтверждает Dock digits."""
-
-    DIGIT_PROOF_LEFT = 24
-    DIGIT_PROOF_TOP = 0
-    DIGIT_PROOF_BOTTOM = 22
-    DIGIT_PROOF_THRESHOLDS = (96, 128, 160)
-
-    @staticmethod
-    def _is_positive_int(value: object) -> bool:
-        return type(value) is int and value > 0
-
-    @classmethod
-    def _proof_consensus(cls, values: Sequence[object]) -> int | None:
-        for candidate in values:
-            if cls._is_positive_int(candidate) and sum(
-                value == candidate for value in values
-            ) >= 2:
-                return candidate
-        return None
-
-    @classmethod
-    def _reconcile_value(
-        cls,
-        primary: object,
-        proof_values: Sequence[object],
-    ) -> object:
-        consensus = cls._proof_consensus(proof_values)
-        primary_valid = cls._is_positive_int(primary)
-        if consensus is not None:
-            if not primary_valid or consensus == primary:
-                return consensus
-            if (
-                10 <= primary <= 25
-                and 100 <= consensus <= 125
-                and consensus % 100 == primary
-            ):
-                return consensus
-            return 0
-        if primary_valid and any(value == primary for value in proof_values):
-            return primary
-        return 0
+    """Small adapter around the existing level OCR primitive."""
 
     def read_levels(
         self,
@@ -364,60 +323,9 @@ class DockLevelOcrAdapter:
         areas = tuple(areas)
         if not areas:
             return ()
-        primary_result = LevelOcr(
-            list(areas),
-            name="DOCK_LEVEL_OCR",
-            threshold=64,
-        ).ocr(frame)
-        primary_values = list(
-            primary_result if isinstance(primary_result, list) else [primary_result]
-        )
-        if len(primary_values) != len(areas):
-            raise DockLevelOcrError(
-                "Число primary level OCR results не совпало с числом areas."
-            )
-
-        height, width = frame.shape[:2]
-        proof_areas: list[tuple[int, int, int, int]] = []
-        for area in areas:
-            left, top, right, _bottom = area
-            proof = (
-                left + self.DIGIT_PROOF_LEFT,
-                top + self.DIGIT_PROOF_TOP,
-                right,
-                top + self.DIGIT_PROOF_BOTTOM,
-            )
-            px1, py1, px2, py2 = proof
-            if px1 < 0 or py1 < 0 or px2 > width or py2 > height:
-                raise DockLevelOcrError(
-                    f"Dock level proof ROI выходит за frame: {proof}."
-                )
-            proof_areas.append(proof)
-
-        proof_runs: list[list[object]] = []
-        for threshold in self.DIGIT_PROOF_THRESHOLDS:
-            proof_result = Digit(
-                proof_areas,
-                lang="azur_lane",
-                name=f"DOCK_LEVEL_DIGIT_PROOF_{threshold}",
-                threshold=threshold,
-            ).ocr(frame)
-            proof_values = list(
-                proof_result if isinstance(proof_result, list) else [proof_result]
-            )
-            if len(proof_values) != len(areas):
-                raise DockLevelOcrError(
-                    "Число proof level OCR results не совпало с числом areas."
-                )
-            proof_runs.append(proof_values)
-
-        return tuple(
-            self._reconcile_value(
-                primary,
-                tuple(run[index] for run in proof_runs),
-            )
-            for index, primary in enumerate(primary_values)
-        )
+        result = LevelOcr(list(areas), name="DOCK_LEVEL_OCR", threshold=64).ocr(frame)
+        values = result if isinstance(result, list) else [result]
+        return tuple(values)
 
 
 class DockLevelScanner:
@@ -547,8 +455,9 @@ class DockStarScanner:
     FIRST_COMPONENT_HEIGHT_MAX = 15
     FIRST_COMPONENT_CENTER_Y_MIN = 13.0
     FIRST_COMPONENT_CENTER_Y_MAX = 21.0
-    # The UI centers a complete row as one unit, so the first center is derived
-    # from the candidate total rather than guessed from the first yellow pixel.
+    # The UI centers rows of the three source-proven totals differently. The
+    # total is selected from the bright component of the first filled star, never
+    # copied from identity metadata.
     SUPPORTED_TOTAL_FIRST_CENTERS: ClassVar[dict[int, float]] = {
         4: 48.5,
         5: 41.5,
@@ -561,37 +470,32 @@ class DockStarScanner:
     FILLED_WEAK_MATCH_MIN = 0.18
     FILLED_WEAK_RATIO_MIN = 0.25
     FILLED_WEAK_UPPER_RATIO_MIN = 0.23
-    # Some real filled stars are lower-heavy because the card art/anti-aliasing masks
-    # their top half. Accept them only with stronger whole-glyph support.
+    # Some real filled glyphs have a dim upper point but retain a dense lower
+    # body. Keep this as a per-glyph visual rule: neighbouring glyph states
+    # must never upgrade an ambiguous observation.
     FILLED_LOWER_HEAVY_RATIO_MIN = 0.30
     FILLED_LOWER_HEAVY_UPPER_RATIO_MIN = 0.16
-    # Real outlined empties retain a small yellow lower edge in some cards. Keep the
-    # band narrow: anything above it still fails closed instead of being silently
-    # promoted to EMPTY.
+    # Real outlined empty glyphs retain small yellow anti-aliased/highlight
+    # fragments. The calibrated cutoff stays below the weakest continuous
+    # filled-row evidence on the acceptance frame sets.
     EMPTY_RATIO_MAX = 0.245
     SHAPE_SCORE_MIN = 0.45
     GLYPH_ALIGNMENT_RADIUS = 2
 
     def __init__(self) -> None:
         self._fill_template, self._outline_template = self._build_templates()
-        self._outline_y, self._outline_x = np.where(self._outline_template > 0)
         self._inner_template = cv2.erode(
             self._fill_template, np.ones((3, 3), dtype=np.uint8)
         )
-        self._inner_y, self._inner_x = np.where(self._inner_template > 0)
         y_coordinates = np.indices(self._inner_template.shape)[0]
         self._upper_inner_template = np.where(
             (self._inner_template > 0) & (y_coordinates <= 10),
             255,
             0,
         ).astype(np.uint8)
-        self._upper_inner_y, self._upper_inner_x = np.where(
-            self._upper_inner_template > 0
-        )
         self._outline_distance = cv2.distanceTransform(
             255 - self._outline_template, cv2.DIST_L2, 3
         )
-        self._outline_falloff = np.exp(-(self._outline_distance**2) / 4.0)
 
     @classmethod
     def _build_templates(cls) -> tuple[np.ndarray, np.ndarray]:
@@ -674,14 +578,17 @@ class DockStarScanner:
             matched = cv2.matchTemplate(
                 yellow, self._fill_template, cv2.TM_CCOEFF_NORMED
             )
-            gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
-            edges = cv2.Canny(gray, 40, 100)
-            edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
-            edge_falloff = np.exp(-(edge_distance**2) / 4.0)
-            first = self._first_filled_star(first_glyph_yellow, matched)
         except cv2.error as exc:
             raise DockStarCvError(f"Операционный сбой Dock star CV: {exc}") from exc
 
+        gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+        edges = cv2.Canny(gray, 40, 100)
+        edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
+        outline_y, outline_x = np.where(self._outline_template > 0)
+        first = self._first_filled_star(
+            first_glyph_yellow,
+            matched,
+        )
         if first is None:
             return DockStarScanObservation(
                 status=DockStarStatus.UNKNOWN,
@@ -690,6 +597,8 @@ class DockStarScanner:
             )
         first_center_x, first_center_y, total = first
         glyphs = []
+        inner_y, inner_x = np.where(self._inner_template > 0)
+        upper_inner_y, upper_inner_x = np.where(self._upper_inner_template > 0)
         half = self.STAR_TEMPLATE_SIZE // 2
         for index in range(total):
             center_x = round(first_center_x + index * self.STAR_SPACING)
@@ -707,11 +616,11 @@ class DockStarScanner:
                 )
             aligned = self._best_shape_alignment(
                 edges,
-                edge_falloff,
+                edge_distance,
                 center_x,
                 first_center_y,
-                self._outline_x,
-                self._outline_y,
+                outline_x,
+                outline_y,
             )
             if aligned is None:
                 return DockStarScanObservation(
@@ -724,39 +633,48 @@ class DockStarScanner:
             left, top, shape_score = aligned
             right = left + self.STAR_TEMPLATE_SIZE
             bottom = top + self.STAR_TEMPLATE_SIZE
-            fill_ratio = float(
-                np.mean(yellow[top + self._inner_y, left + self._inner_x] > 0)
-            )
+            fill_ratio = float(np.mean(yellow[top + inner_y, left + inner_x] > 0))
             upper_fill_ratio = float(
-                np.mean(
-                    yellow[
-                        top + self._upper_inner_y,
-                        left + self._upper_inner_x,
-                    ]
-                    > 0
-                )
+                np.mean(yellow[top + upper_inner_y, left + upper_inner_x] > 0)
             )
             match_neighborhood = matched[
                 max(0, top - 2) : min(matched.shape[0], top + 3),
                 max(0, left - 2) : min(matched.shape[1], left + 3),
             ]
-            if not match_neighborhood.size:
-                return DockStarScanObservation(
-                    status=DockStarStatus.UNKNOWN,
-                    area=area,
-                    reason="star_geometry_clipped",
-                    detected_total=total,
-                    glyphs=tuple(glyphs),
+            fill_match_score = float(max(0.0, np.max(match_neighborhood)))
+            if shape_score < self.SHAPE_SCORE_MIN:
+                state = DockStarGlyphState.UNKNOWN
+            elif (
+                (
+                    fill_ratio >= self.FILLED_RATIO_MIN
+                    and upper_fill_ratio >= self.FILLED_UPPER_RATIO_MIN
                 )
-            fill_match_score = float(
-                min(1.0, max(0.0, np.max(match_neighborhood)))
-            )
-            state = self._classify_glyph(
-                shape_score=shape_score,
-                fill_ratio=fill_ratio,
-                upper_fill_ratio=upper_fill_ratio,
-                fill_match_score=fill_match_score,
-            )
+                or (
+                    fill_match_score >= self.FILLED_MATCH_MIN
+                    and fill_ratio >= self.FILLED_MATCH_RATIO_MIN
+                )
+                or (
+                    self.FILLED_WEAK_MATCH_MIN
+                    <= fill_match_score
+                    < self.FILLED_MATCH_MIN
+                    and (
+                        (
+                            fill_ratio >= self.FILLED_WEAK_RATIO_MIN
+                            and upper_fill_ratio >= self.FILLED_WEAK_UPPER_RATIO_MIN
+                        )
+                        or (
+                            fill_ratio >= self.FILLED_LOWER_HEAVY_RATIO_MIN
+                            and upper_fill_ratio
+                            >= self.FILLED_LOWER_HEAVY_UPPER_RATIO_MIN
+                        )
+                    )
+                )
+            ):
+                state = DockStarGlyphState.FILLED
+            elif fill_ratio <= self.EMPTY_RATIO_MAX:
+                state = DockStarGlyphState.EMPTY
+            else:
+                state = DockStarGlyphState.UNKNOWN
             glyphs.append(
                 DockStarGlyphObservation(
                     index=index,
@@ -786,47 +704,6 @@ class DockStarScanner:
             detected_total=total,
             glyphs=glyph_tuple,
         )
-
-    def _classify_glyph(
-        self,
-        *,
-        shape_score: float,
-        fill_ratio: float,
-        upper_fill_ratio: float,
-        fill_match_score: float,
-    ) -> DockStarGlyphState:
-        if shape_score < self.SHAPE_SCORE_MIN:
-            return DockStarGlyphState.UNKNOWN
-        if (
-            (
-                fill_ratio >= self.FILLED_RATIO_MIN
-                and upper_fill_ratio >= self.FILLED_UPPER_RATIO_MIN
-            )
-            or (
-                fill_match_score >= self.FILLED_MATCH_MIN
-                and fill_ratio >= self.FILLED_MATCH_RATIO_MIN
-            )
-            or (
-                self.FILLED_WEAK_MATCH_MIN
-                <= fill_match_score
-                < self.FILLED_MATCH_MIN
-                and (
-                    (
-                        fill_ratio >= self.FILLED_WEAK_RATIO_MIN
-                        and upper_fill_ratio >= self.FILLED_WEAK_UPPER_RATIO_MIN
-                    )
-                    or (
-                        fill_ratio >= self.FILLED_LOWER_HEAVY_RATIO_MIN
-                        and upper_fill_ratio
-                        >= self.FILLED_LOWER_HEAVY_UPPER_RATIO_MIN
-                    )
-                )
-            )
-        ):
-            return DockStarGlyphState.FILLED
-        if fill_ratio <= self.EMPTY_RATIO_MAX:
-            return DockStarGlyphState.EMPTY
-        return DockStarGlyphState.UNKNOWN
 
     def _first_filled_star(
         self,
@@ -882,47 +759,15 @@ class DockStarScanner:
             candidates.append((canonical_center_x, canonical_center_y, total))
         if not candidates:
             return None
-        # A fragmented six-star first glyph can leave its second/middle filled
-        # component near the calibrated 4-star first center.  The old detector
-        # then confidently interpreted the inner four stars of a six-star row as
-        # 4/4.  If a 4-star candidate still has fill-template evidence at both
-        # outer endpoints of the six-star layout, the total is visually ambiguous
-        # and must fail closed instead of returning the shorter layout.
-        candidate = max(candidates, key=lambda value: value[2])
-        if candidate[2] == 4 and self._six_star_endpoints_are_plausible(
-            matched,
-            center_y=candidate[1],
-        ):
-            return None
-        return candidate
-
-    def _six_star_endpoints_are_plausible(
-        self,
-        matched: np.ndarray,
-        *,
-        center_y: int,
-    ) -> bool:
-        half = self.STAR_TEMPLATE_SIZE // 2
-        first_center = self.SUPPORTED_TOTAL_FIRST_CENTERS[6]
-        scores = []
-        for index in (0, 5):
-            center_x = round(first_center + index * self.STAR_SPACING)
-            left = center_x - half
-            top = center_y - half
-            neighborhood = matched[
-                max(0, top - 2) : min(matched.shape[0], top + 3),
-                max(0, left - 2) : min(matched.shape[1], left + 3),
-            ]
-            if not neighborhood.size:
-                return False
-            score = float(min(1.0, max(0.0, np.max(neighborhood))))
-            scores.append(score)
-        return all(score >= self.FILLED_WEAK_MATCH_MIN for score in scores)
+        # The inner four glyphs of a six-star row align with a standalone
+        # four-star row. The leftmost high-confidence filled-glyph component is
+        # therefore the only visual authority for the longest proven layout.
+        return max(candidates, key=lambda value: value[2])
 
     def _best_shape_alignment(
         self,
         edges: np.ndarray,
-        edge_falloff: np.ndarray,
+        edge_distance: np.ndarray,
         center_x: int,
         center_y: int,
         outline_x: np.ndarray,
@@ -950,7 +795,7 @@ class DockStarScanner:
                     continue
                 score = self._shape_score(
                     edges[top:bottom, left:right],
-                    edge_falloff,
+                    edge_distance,
                     left,
                     top,
                     outline_x,
@@ -964,19 +809,23 @@ class DockStarScanner:
     def _shape_score(
         self,
         edge_patch: np.ndarray,
-        edge_falloff: np.ndarray,
+        edge_distance: np.ndarray,
         left: int,
         top: int,
         outline_x: np.ndarray,
         outline_y: np.ndarray,
     ) -> float:
         template_to_image = float(
-            edge_falloff[top + outline_y, left + outline_x].mean()
+            np.exp(
+                -(edge_distance[top + outline_y, left + outline_x] ** 2) / 4.0
+            ).mean()
         )
         edge_y, edge_x = np.where(edge_patch > 0)
         if not len(edge_y):
             return 0.0
-        image_to_template = float(self._outline_falloff[edge_y, edge_x].mean())
+        image_to_template = float(
+            np.exp(-(self._outline_distance[edge_y, edge_x] ** 2) / 4.0).mean()
+        )
         denominator = template_to_image + image_to_template
         if denominator <= 0.0:
             return 0.0

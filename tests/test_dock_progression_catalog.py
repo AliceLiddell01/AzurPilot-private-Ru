@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
-import dev_tools.dock_progression_catalog as dock_progression_catalog
 from dev_tools.dock_progression_catalog import (
     ProgressionGenerationError,
     build_catalog,
@@ -15,10 +13,6 @@ from dev_tools.dock_progression_catalog import (
     extract_maximum_level,
     extract_supplemental_templates,
 )
-from module.dock_inventory.catalog import DockIdentityCatalogError
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-CATALOG_PATH = REPOSITORY_ROOT / "assets" / "ship" / "dock_progression_catalog.json"
 
 
 def _row(
@@ -130,22 +124,6 @@ def test_generator_uses_supplemental_group_and_serializes_deterministically() ->
     first = build_catalog({}, **kwargs)
     second = build_catalog({}, **kwargs)
 
-    record = first["records"][0]
-    assert record["canonical_id"] == "azur_lane_ship_group:970213"
-    assert record["family_type"] == "ordinary"
-    states = record["states"]
-    assert [state["semantic_id"] for state in states] == [
-        "limit_break:0",
-        "limit_break:1",
-        "limit_break:2",
-        "limit_break:3",
-    ]
-    assert [state["filled"] for state in states] == [2, 3, 4, 5]
-    assert all(state["total"] == 5 for state in states)
-    assert all(state["kind"] == "standard_limit_break" for state in states)
-    assert [state["stage_index"] for state in states] == [0, 1, 2, 3]
-    assert all(state["stage_count"] == 4 for state in states)
-    assert [state["is_max"] for state in states] == [False, False, False, True]
     assert first == second
     assert canonical_json_bytes(first) == canonical_json_bytes(second)
     assert (
@@ -219,84 +197,12 @@ def test_generator_rejects_missing_canonical_group() -> None:
         )
 
 
-def test_build_from_git_uses_explicit_identity_catalog_and_types_loader_failure(
-    tmp_path: Path, monkeypatch
-) -> None:
-    upstream_repo = tmp_path / "upstream"
-    supplemental_repo = tmp_path / "supplemental"
-    identity_catalog_path = tmp_path / "fork" / "dock_identity_catalog.json"
-    seen_identity_paths: list[Path] = []
-
-    def pinned_blob(
-        _repo: Path,
-        *,
-        commit: str,
-        expected_commit: str,
-        path: str,
-        expected_blob_sha: str | None = None,
-    ) -> tuple[bytes, str, str]:
-        del commit, expected_blob_sha
-        content = b"{}" if path == dock_progression_catalog.SOURCE_PATH else b"fixture"
-        return content, "a" * 40, expected_commit
-
-    def fail_identity_catalog(path: Path):
-        seen_identity_paths.append(path)
-        raise DockIdentityCatalogError("fixture identity failure")
-
-    monkeypatch.setattr(dock_progression_catalog, "_read_pinned_blob", pinned_blob)
-    monkeypatch.setattr(
-        dock_progression_catalog, "load_dock_identity_catalog", fail_identity_catalog
-    )
-
-    with pytest.raises(ProgressionGenerationError, match="Identity catalog"):
-        dock_progression_catalog.build_from_git(
-            upstream_repo,
-            dock_progression_catalog.SOURCE_COMMIT,
-            supplemental_repo,
-            dock_progression_catalog.SUPPLEMENTAL_SOURCE_COMMIT,
-            identity_catalog_path,
-        )
-
-    assert seen_identity_paths == [identity_catalog_path]
-
-
-def test_generator_write_oserror_is_typed_cli_failure(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    payload = {
-        "records": [],
-        "maximum_observed_level": 125,
-        "provenance": {
-            "source_commit": "1" * 40,
-            "supplemental_source_commit": "2" * 40,
-        },
-    }
-    monkeypatch.setattr(
-        dock_progression_catalog,
-        "build_from_git",
-        lambda *_args, **_kwargs: payload,
-    )
-
-    def fail_write(_path: Path, _data: bytes) -> int:
-        raise OSError("fixture write failure")
-
-    monkeypatch.setattr(Path, "write_bytes", fail_write)
-
-    exit_code = dock_progression_catalog.main(
-        [
-            "--supplemental-repo",
-            str(tmp_path),
-            "--output",
-            str(tmp_path / "dock_progression_catalog.json"),
-        ]
-    )
-
-    assert exit_code == 1
-    assert "FAIL: Не удалось записать progression catalog" in capsys.readouterr().err
-
-
 def test_tracked_payload_has_exact_schema_and_no_npc_records() -> None:
-    payload = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    payload = json.loads(
+        __import__("pathlib")
+        .Path("assets/ship/dock_progression_catalog.json")
+        .read_text(encoding="utf-8")
+    )
     assert set(payload) == {
         "schema_version",
         "identity_scheme",

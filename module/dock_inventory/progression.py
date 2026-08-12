@@ -170,16 +170,13 @@ class DockProgressionCatalog:
     _by_canonical_id: dict[str, DockProgressionFamily] = field(
         init=False, repr=False, compare=False
     )
-    _fingerprint: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.schema_version != PROGRESSION_SCHEMA_VERSION:
             raise DockProgressionCatalogError("Неподдерживаемая progression schema.")
         if self.identity_scheme != "azur_lane_ship_group":
             raise DockProgressionCatalogError("Неподдерживаемая identity scheme.")
-        if not isinstance(self.identity_fingerprint, str) or not re.fullmatch(
-            r"[0-9a-f]{64}", self.identity_fingerprint
-        ):
+        if not re.fullmatch(r"[0-9a-f]{64}", self.identity_fingerprint):
             raise DockProgressionCatalogError(
                 "identity_fingerprint должен быть SHA-256."
             )
@@ -206,6 +203,9 @@ class DockProgressionCatalog:
             "_by_canonical_id",
             {record.canonical_id: record for record in self.records},
         )
+
+    @property
+    def fingerprint(self) -> str:
         semantic = {
             "schema_version": self.schema_version,
             "identity_scheme": self.identity_scheme,
@@ -215,11 +215,7 @@ class DockProgressionCatalog:
         encoded = json.dumps(
             semantic, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-        object.__setattr__(self, "_fingerprint", hashlib.sha256(encoded).hexdigest())
-
-    @property
-    def fingerprint(self) -> str:
-        return self._fingerprint
+        return hashlib.sha256(encoded).hexdigest()
 
     def family_for(
         self, identity: CanonicalShipIdentity
@@ -340,14 +336,10 @@ class DockProgressionObservation:
                 or len(self.matching_semantic_ids) != 1
             ):
                 raise ValueError("KNOWN progression требует ровно один semantic state.")
-            if self.reason is not None:
+            if self.reason is not None or self.is_max is None:
                 raise ValueError(
                     "KNOWN progression не должен содержать unknown reason."
                 )
-            if self.is_max is None:
-                raise ValueError("KNOWN progression требует is_max.")
-            if self.observed_stars is None:
-                raise ValueError("KNOWN progression требует observed_stars.")
         else:
             if self.kind is not ProgressionKind.UNKNOWN:
                 raise ValueError("UNKNOWN progression должен иметь kind UNKNOWN.")
@@ -471,10 +463,6 @@ def load_dock_progression_catalog(
     except json.JSONDecodeError as exc:
         raise DockProgressionCatalogError(
             f"Progression catalog содержит неверный JSON: {source}."
-        ) from exc
-    except UnicodeDecodeError as exc:
-        raise DockProgressionCatalogError(
-            f"Progression catalog не является UTF-8: {source}."
         ) from exc
     return DockProgressionCatalog.from_mapping(payload)
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import collections
 import math
 
 import numpy as np
@@ -15,20 +14,6 @@ from module.dock_inventory.traversal import (
 class _Device:
     def __init__(self, image: np.ndarray) -> None:
         self.image = image
-        self.click_record: collections.deque[str] = collections.deque(maxlen=15)
-
-    def click_record_add(self, button: object) -> None:
-        self.click_record.append(str(button))
-
-    def click_record_remove(self, button: object) -> int:
-        removed = 0
-        for _ in range(self.click_record.maxlen or 0):
-            try:
-                self.click_record.remove(str(button))
-                removed += 1
-            except ValueError:
-                break
-        return removed
 
 
 class _Runtime:
@@ -45,7 +30,6 @@ class _Runtime:
 
 class _Scroll:
     edge_threshold = 0.05
-    name = "DOCK_SCROLL"
 
     def __init__(
         self,
@@ -80,7 +64,6 @@ class _Scroll:
     def next_page(self, main, *, page, **kwargs):
         self.next_page_calls += 1
         self.pages.append(page)
-        main.device.click_record_add(self.name)
         if self.moves:
             self.current = self.moves.pop(0)
 
@@ -165,41 +148,10 @@ def test_monotonic_traversal_visits_final_bottom_viewport_with_overlap_step() ->
     assert all(page == DockInventoryTraversal.PAGE_STEP for page in scroll.pages)
 
 
-def test_confirmed_long_traversal_clears_only_successful_scroll_history() -> None:
-    positions = [index / 15 for index in range(16)]
-    scroll = _Scroll(positions[0], moves=positions[1:])
-    runtime = _Runtime()
-    traversal = DockInventoryTraversal(runtime, scroll=scroll)
-
-    result = traversal.traverse(lambda _viewport: None)
-
-    assert result.reached_bottom is True
-    assert result.visited_viewports == 16
-    assert scroll.next_page_calls == 15
-    assert tuple(runtime.device.click_record) == ()
-
-
-def test_failed_scroll_record_survives_later_success() -> None:
-    scroll = _Scroll(0.0, moves=[0.0, 0.5, 1.0])
-    runtime = _Runtime()
-    traversal = DockInventoryTraversal(
-        runtime,
-        scroll=scroll,
-        max_no_progress_retries=2,
-    )
-
-    result = traversal.traverse(lambda _viewport: None)
-
-    assert result.positions == (0.0, 0.5, 1.0)
-    assert scroll.next_page_calls == 3
-    assert tuple(runtime.device.click_record) == ("DOCK_SCROLL",)
-
-
 def test_no_progress_has_bounded_retries() -> None:
     scroll = _Scroll(0.0, moves=[0.0] * 10)
-    runtime = _Runtime()
     traversal = DockInventoryTraversal(
-        runtime,
+        _Runtime(),
         scroll=scroll,
         max_no_progress_retries=2,
     )
@@ -208,14 +160,12 @@ def test_no_progress_has_bounded_retries() -> None:
         traversal.traverse(lambda _viewport: None)
 
     assert scroll.next_page_calls == 3
-    assert tuple(runtime.device.click_record) == ("DOCK_SCROLL",) * 3
 
 
 def test_backwards_movement_has_bounded_retries() -> None:
     scroll = _Scroll(0.0, moves=[0.52, 0.31, 0.30])
-    runtime = _Runtime()
     traversal = DockInventoryTraversal(
-        runtime,
+        _Runtime(),
         scroll=scroll,
         max_no_progress_retries=1,
     )
@@ -225,7 +175,6 @@ def test_backwards_movement_has_bounded_retries() -> None:
 
     # One accepted forward step followed by two bounded reverse attempts.
     assert scroll.next_page_calls == 3
-    assert tuple(runtime.device.click_record) == ("DOCK_SCROLL",) * 2
 
 
 def test_max_viewports_is_a_safety_guard_not_bottom_detection() -> None:

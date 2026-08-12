@@ -175,25 +175,6 @@ class DockInventoryTraversal:
             )
         return frame, position
 
-    def _clear_confirmed_scroll_control_history(self) -> None:
-        """Удалить только последнюю подтверждённо успешную запись Dock scroll.
-
-        Глобальный click guard должен продолжать видеть неуспешные попытки,
-        указывающие на потенциально зависший UI. После нового стабильного кадра
-        и доказанного продвижения снимается только самая свежая запись именно
-        этого ``DOCK_SCROLL``. Более ранние failed/no-progress записи остаются
-        в истории и по-прежнему участвуют в общем safety guard.
-        """
-        history = getattr(self.main.device, "click_record", None)
-        control_name = getattr(self.scroll, "name", None)
-        if history is None or not isinstance(control_name, str) or not control_name:
-            return
-        try:
-            if len(history) and history[-1] == str(control_name):
-                history.pop()
-        except (AttributeError, IndexError, TypeError):
-            return
-
     def traverse(self, visitor: DockViewportVisitor) -> DockTraversalResult:
         """Visit top through the confirmed final bottom viewport exactly once."""
         frame, position = self.canonicalize_top()
@@ -208,8 +189,8 @@ class DockInventoryTraversal:
                 scroll_position=position,
                 is_top=position <= self.scroll.edge_threshold,
                 is_bottom=is_bottom,
-                # Visitor не должен менять текущий evidence frame владельца UI
-                # до следующего контролируемого перемещения.
+                # The visitor must not be able to mutate the UI owner's
+                # current evidence frame before the next controlled move.
                 frame=np.array(frame, copy=True),
             )
             visitor(viewport)
@@ -244,7 +225,6 @@ class DockInventoryTraversal:
                 progressed = candidate > position + self.progress_epsilon
                 reversed_too_far = candidate < position - self.reverse_tolerance
                 if reached_bottom or (progressed and not reversed_too_far):
-                    self._clear_confirmed_scroll_control_history()
                     next_frame = candidate_frame
                     next_position = candidate
                     break

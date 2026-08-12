@@ -17,10 +17,7 @@ REPOSITORY_ROOT = Path(__file__).parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from module.dock_inventory.catalog import (
-    DockIdentityCatalogError,
-    load_dock_identity_catalog,
-)
+from module.dock_inventory.catalog import load_dock_identity_catalog
 
 SOURCE_REPOSITORY = "wess09/AzurPilot"
 SOURCE_COMMIT = "42ffc9566870ce3074c12d4faabf19bfaaafaf71"
@@ -43,16 +40,13 @@ SELECTION_CONTRACT = (
 CATALOG_PATH = (
     Path(__file__).parents[1] / "assets" / "ship" / "dock_progression_catalog.json"
 )
-IDENTITY_CATALOG_PATH = (
-    Path(__file__).parents[1] / "assets" / "ship" / "dock_identity_catalog.json"
-)
 
 
 class ProgressionGenerationError(RuntimeError):
     pass
 
 
-def _git_bytes(repo: Path, *args: str) -> bytes:
+def _git(repo: Path, *args: str, binary: bool = False) -> str | bytes:
     completed = subprocess.run(
         ["git", "-C", str(repo), *args],
         check=False,
@@ -61,11 +55,7 @@ def _git_bytes(repo: Path, *args: str) -> bytes:
     if completed.returncode:
         detail = completed.stderr.decode("utf-8", errors="replace").strip()
         raise ProgressionGenerationError(f"git {' '.join(args)} failed: {detail}")
-    return completed.stdout
-
-
-def _git_text(repo: Path, *args: str) -> str:
-    return _git_bytes(repo, *args).decode("utf-8").strip()
+    return completed.stdout if binary else completed.stdout.decode("utf-8").strip()
 
 
 def _read_pinned_blob(
@@ -76,17 +66,19 @@ def _read_pinned_blob(
     path: str,
     expected_blob_sha: str | None = None,
 ) -> tuple[bytes, str, str]:
-    resolved = _git_text(repo, "rev-parse", f"{commit}^{{commit}}")
+    resolved = str(_git(repo, "rev-parse", f"{commit}^{{commit}}"))
     if resolved != expected_commit:
         raise ProgressionGenerationError(
             f"Источник разрешился в {resolved}, ожидался {expected_commit}."
         )
-    blob_sha = _git_text(repo, "rev-parse", f"{resolved}:{path}")
+    blob_sha = str(_git(repo, "rev-parse", f"{resolved}:{path}"))
     if expected_blob_sha is not None and blob_sha != expected_blob_sha:
         raise ProgressionGenerationError(
             f"Blob {path} разрешился в {blob_sha}, ожидался {expected_blob_sha}."
         )
-    content = _git_bytes(repo, "show", f"{resolved}:{path}")
+    content = _git(repo, "show", f"{resolved}:{path}", binary=True)
+    if not isinstance(content, bytes):  # pragma: no cover
+        raise ProgressionGenerationError(f"Blob {path} не прочитан как bytes.")
     return content, blob_sha, resolved
 
 
@@ -395,7 +387,6 @@ def build_from_git(
     source_commit: str,
     supplemental_repo: Path,
     supplemental_commit: str,
-    identity_catalog_path: Path = IDENTITY_CATALOG_PATH,
 ) -> dict[str, object]:
     source_bytes, source_blob, resolved_source = _read_pinned_blob(
         repo,
@@ -430,12 +421,9 @@ def build_from_git(
         raise ProgressionGenerationError(
             "Upstream ship_data не является UTF-8 JSON."
         ) from exc
-    try:
-        identity_catalog = load_dock_identity_catalog(identity_catalog_path)
-    except DockIdentityCatalogError as exc:
-        raise ProgressionGenerationError(
-            f"Identity catalog недоступен или некорректен: {identity_catalog_path}."
-        ) from exc
+    identity_catalog = load_dock_identity_catalog(
+        repo / "assets/ship/dock_identity_catalog.json"
+    )
     provenance = {
         "source_repository": SOURCE_REPOSITORY,
         "source_commit": resolved_source,
@@ -467,7 +455,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--supplemental-repo", type=Path, required=True)
-    parser.add_argument("--identity-catalog", type=Path, default=IDENTITY_CATALOG_PATH)
     parser.add_argument("--source-commit", default=SOURCE_COMMIT)
     parser.add_argument(
         "--supplemental-source-commit", default=SUPPLEMENTAL_SOURCE_COMMIT
@@ -481,7 +468,6 @@ def main(argv: list[str] | None = None) -> int:
             args.source_commit,
             args.supplemental_repo.resolve(),
             args.supplemental_source_commit,
-            args.identity_catalog.resolve(),
         )
         expected = canonical_json_bytes(payload)
         if args.check:
@@ -496,13 +482,8 @@ def main(argv: list[str] | None = None) -> int:
                     "Tracked dock_progression_catalog.json устарел; перегенерируйте его."
                 )
         else:
-            try:
-                args.output.parent.mkdir(parents=True, exist_ok=True)
-                args.output.write_bytes(expected)
-            except OSError as exc:
-                raise ProgressionGenerationError(
-                    f"Не удалось записать progression catalog: {args.output}."
-                ) from exc
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_bytes(expected)
     except ProgressionGenerationError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
