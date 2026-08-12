@@ -170,6 +170,7 @@ class DockProgressionCatalog:
     _by_canonical_id: dict[str, DockProgressionFamily] = field(
         init=False, repr=False, compare=False
     )
+    _fingerprint: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.schema_version != PROGRESSION_SCHEMA_VERSION:
@@ -205,9 +206,6 @@ class DockProgressionCatalog:
             "_by_canonical_id",
             {record.canonical_id: record for record in self.records},
         )
-
-    @property
-    def fingerprint(self) -> str:
         semantic = {
             "schema_version": self.schema_version,
             "identity_scheme": self.identity_scheme,
@@ -217,7 +215,11 @@ class DockProgressionCatalog:
         encoded = json.dumps(
             semantic, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
+        object.__setattr__(self, "_fingerprint", hashlib.sha256(encoded).hexdigest())
+
+    @property
+    def fingerprint(self) -> str:
+        return self._fingerprint
 
     def family_for(
         self, identity: CanonicalShipIdentity
