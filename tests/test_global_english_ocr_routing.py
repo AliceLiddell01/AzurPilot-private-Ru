@@ -13,6 +13,15 @@ class GlobalEnglishOcrRoutingTests(unittest.TestCase):
     def test_dock_ship_name_uses_general_english(self) -> None:
         self.assertTrue(should_use_general_english(None, name="DOCK_SHIP_NAME"))
 
+    def test_dock_level_digit_proof_uses_general_english(self) -> None:
+        self.assertTrue(
+            should_use_general_english(
+                "0123456789IDSB",
+                name="DOCK_LEVEL_DIGIT_PROOF_96",
+                recognizer_type="Digit",
+            )
+        )
+
     def test_audited_zone_name_uses_general_english(self) -> None:
         self.assertTrue(should_use_general_english(None, name="OCR_OS_MAP_NAME"))
 
@@ -39,6 +48,19 @@ class GlobalEnglishOcrRoutingTests(unittest.TestCase):
         router.text = Mock()
 
         selected = router.for_request(None, name="COMMISSION", recognizer_type="Ocr")
+
+        self.assertIs(selected, router.text)
+
+    def test_router_selects_text_model_for_dock_level_digit_proof(self) -> None:
+        router = GlobalEnglishOcr()
+        router.compact = Mock()
+        router.text = Mock()
+
+        selected = router.for_request(
+            "0123456789IDSB",
+            name="DOCK_LEVEL_DIGIT_PROOF_128",
+            recognizer_type="Digit",
+        )
 
         self.assertIs(selected, router.text)
 
