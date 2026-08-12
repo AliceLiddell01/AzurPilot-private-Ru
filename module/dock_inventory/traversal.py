@@ -56,9 +56,15 @@ class DockTraversalResult:
             raise ValueError("visited_viewports должен быть неотрицательным int")
         if self.visited_viewports != len(self.positions):
             raise ValueError("visited_viewports должен совпадать с числом positions")
-        if any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in self.positions):
+        if any(
+            not math.isfinite(value) or not 0.0 <= value <= 1.0
+            for value in self.positions
+        ):
             raise ValueError("positions должны содержать конечные значения в [0, 1]")
-        if type(self.reached_bottom) is not bool or type(self.final_viewport_visited) is not bool:
+        if (
+            type(self.reached_bottom) is not bool
+            or type(self.final_viewport_visited) is not bool
+        ):
             raise TypeError("Флаги результата обхода должны быть bool")
         for name, value in (
             ("no_progress_retries", self.no_progress_retries),
@@ -157,7 +163,9 @@ class DockInventoryTraversal:
             or max_top_keyevent_steps < 1
             or keyevent_no_progress_retries < 0
         ):
-            raise ValueError("Лимиты обхода должны быть положительными")
+            raise ValueError(
+                "Лимиты шагов должны быть >= 1, лимиты повторов должны быть >= 0"
+            )
         if type(prefer_keyevents) is not bool:
             raise TypeError("prefer_keyevents должен быть bool")
         if keyevent_sender is not None and not callable(keyevent_sender):
@@ -207,16 +215,31 @@ class DockInventoryTraversal:
         )
         self._keyevent_sender = None
 
-    def _keyevent_candidate(self, keycode: str) -> tuple[np.ndarray, float]:
+    def _keyevent_candidate(self, keycode: str) -> tuple[np.ndarray, float] | None:
         sender = self._keyevent_sender
         if sender is None:
             raise DockInventoryTraversalError(
                 "Внутренняя ошибка: DPAD action запрошен после его отключения."
             )
-        sender(keycode)
+        try:
+            sender(keycode)
+        except Exception as exc:
+            self._disable_keyevents(
+                f"{keycode}: отправка ADB keyevent завершилась ошибкой "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return None
+
         self._dpad_actions += 1
         frame = self.capture_stable_frame()
-        return frame, self.read_scroll_position()
+        try:
+            position = self.read_scroll_position()
+        except DockInventoryTraversalError as exc:
+            self._disable_keyevents(
+                f"{keycode}: после DPAD не подтверждена полоса прокрутки: {exc}"
+            )
+            return None
+        return frame, position
 
     def capture_stable_frame(self) -> np.ndarray:
         """Detach the current stable frame from a potentially reused backend buffer."""
@@ -258,7 +281,10 @@ class DockInventoryTraversal:
             no_progress = 0
             for _step in range(self.max_top_keyevent_steps):
                 previous = position
-                candidate_frame, candidate = self._keyevent_candidate(self.DPAD_UP)
+                candidate_result = self._keyevent_candidate(self.DPAD_UP)
+                if candidate_result is None:
+                    break
+                candidate_frame, candidate = candidate_result
                 if candidate <= self.scroll.edge_threshold:
                     self._dpad_progress_actions += 1
                     return candidate_frame, candidate
@@ -346,8 +372,11 @@ class DockInventoryTraversal:
                         raise DockInventoryTraversalError(
                             f"Достигнут safety-лимит шагов Dock: {self.max_steps}."
                         )
-                    candidate_frame, candidate = self._keyevent_candidate(self.DPAD_DOWN)
+                    candidate_result = self._keyevent_candidate(self.DPAD_DOWN)
                     steps += 1
+                    if candidate_result is None:
+                        break
+                    candidate_frame, candidate = candidate_result
                     reached_bottom = candidate >= 1.0 - self.scroll.edge_threshold
                     progressed = candidate > position + self.progress_epsilon
                     reversed_too_far = candidate < position - self.reverse_tolerance
