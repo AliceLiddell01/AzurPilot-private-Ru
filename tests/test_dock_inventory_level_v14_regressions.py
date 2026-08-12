@@ -82,6 +82,22 @@ def test_dock_level_preprocessing_isolates_real_v14_digit_regions(
     assert np.count_nonzero(dock < 127) > 0
 
 
+@pytest.mark.parametrize("shape", ((31, 57, 3), (30, 58, 3), (32, 58, 3)))
+def test_dock_level_preprocessing_rejects_noncanonical_roi_geometry(
+    shape: tuple[int, int, int],
+) -> None:
+    image = np.zeros(shape, dtype=np.uint8)
+    image[0, 0] = 255
+
+    result = DockLevelOcr(
+        (0, 0, shape[1], shape[0]),
+        name="TEST_DOCK_LEVEL_GEOMETRY",
+    ).pre_process(image)
+
+    assert result.shape == (1, 1)
+    assert int(result[0, 0]) == 255
+
+
 def test_dock_level_preprocessing_fails_closed_without_digit_evidence() -> None:
     blank = np.full((31, 58, 3), 255, dtype=np.uint8)
 
