@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+import pytest
 
 from module.dock_inventory.mumu_traversal import DockMuMuInventoryTraversal
+from module.dock_inventory.traversal import DockInventoryTraversalError
 
 
 class _Device:
@@ -38,9 +40,10 @@ class _Scroll:
         self.moves = [] if moves is None else list(moves)
         self.set_top_calls = 0
         self.next_page_calls = 0
+        self.visible = True
 
     def appear(self, _main) -> bool:
-        return True
+        return self.visible
 
     def cal_position(self, _main) -> float:
         return self.current
@@ -144,6 +147,28 @@ def test_mumu_swipe_without_progress_disables_it_and_uses_scroll_fallback() -> N
     assert scroll.next_page_calls == 1
 
 
+def test_sender_error_does_not_consume_main_swipe_safety_budget() -> None:
+    scroll = _Scroll(0.0, moves=[1.0])
+
+    def fail_send(_start: tuple[int, int], _end: tuple[int, int]) -> None:
+        raise RuntimeError("adb transport down")
+
+    traversal = DockMuMuInventoryTraversal(
+        _Runtime(),
+        scroll=scroll,
+        mumu_swipe_sender=fail_send,
+        normalize_initial_viewport=False,
+        max_steps=1,
+    )
+
+    result = traversal.traverse(lambda _viewport: None)
+
+    assert result.positions == (0.0, 1.0)
+    assert result.mumu_swipe_actions == 0
+    assert result.scroll_fallback_calls == 1
+    assert scroll.next_page_calls == 1
+
+
 def test_phase_correlation_proves_expected_small_upward_content_shift() -> None:
     before = _texture()
     after = _shift_y(before, -22)
@@ -158,47 +183,150 @@ def test_phase_correlation_proves_expected_small_upward_content_shift() -> None:
     assert response > DockMuMuInventoryTraversal.INITIAL_NUDGE_MIN_PHASE_RESPONSE
 
 
-def test_animation_only_change_does_not_mark_initial_nudge_as_applied() -> None:
+def test_unsupported_motion_proof_geometry_skips_nudge_before_input() -> None:
+    small = np.zeros((600, 800, 3), dtype=np.uint8)
+    sends: list[tuple[tuple[int, int], tuple[int, int]]] = []
+    traversal = DockMuMuInventoryTraversal(
+        _Runtime(),
+        scroll=_Scroll(0.0),
+        mumu_swipe_sender=lambda start, end: sends.append((start, end)),
+    )
+
+    frame, position = traversal._normalize_mumu_initial_viewport(small, 0.0)
+
+    assert frame is small
+    assert position == 0.0
+    assert sends == []
+    assert traversal._mumu_swipe_actions == 0
+
+
+def test_animation_only_change_uses_original_top_without_set_top() -> None:
     before = _texture()
     animated = np.array(before, copy=True)
     animated[200:235, 300:350] = 255 - animated[200:235, 300:350]
-    restored = np.array(before, copy=True)
-    scroll = _Scroll(0.0, moves=[1.0])
-    runtime = _Runtime([before, animated, restored, _texture(2)])
-
+    scroll = _Scroll(0.0)
     traversal = DockMuMuInventoryTraversal(
-        runtime,
+        _Runtime([animated]),
         scroll=scroll,
         mumu_swipe_sender=lambda _start, _end: None,
     )
-    result = traversal.traverse(lambda _viewport: None)
 
-    assert result.initial_nudge_applied is False
-    assert result.initial_nudge_shift_y is not None
-    assert abs(result.initial_nudge_shift_y) < 12.0
+    frame, position = traversal._normalize_mumu_initial_viewport(before, 0.0)
+
+    assert frame is before
+    assert position == 0.0
+    assert traversal._initial_nudge_applied is False
+    assert traversal._initial_nudge_reverted is False
+    assert traversal._initial_nudge_shift_y is not None
+    assert abs(traversal._initial_nudge_shift_y) <= 4.0
+    assert scroll.set_top_calls == 0
+    assert traversal._scroll_fallback_calls == 0
+
+
+def test_wrong_micro_shift_is_operational_failure_not_fake_restore() -> None:
+    before = _texture()
+    wrong = _shift_y(before, -8)
+    scroll = _Scroll(0.0)
+    traversal = DockMuMuInventoryTraversal(
+        _Runtime([wrong]),
+        scroll=scroll,
+        mumu_swipe_sender=lambda _start, _end: None,
+    )
+
+    with pytest.raises(DockInventoryTraversalError, match="вне доказанного целевого"):
+        traversal._normalize_mumu_initial_viewport(before, 0.0)
+
+    assert scroll.set_top_calls == 0
+    assert traversal._initial_nudge_applied is False
+
+
+def test_post_nudge_scroll_evidence_loss_after_real_action_is_operational() -> None:
+    before = _texture()
+    candidate = _shift_y(before, -22)
+    scroll = _Scroll(0.0)
+
+    def send(_start: tuple[int, int], _end: tuple[int, int]) -> None:
+        scroll.visible = False
+
+    traversal = DockMuMuInventoryTraversal(
+        _Runtime([candidate]),
+        scroll=scroll,
+        mumu_swipe_sender=send,
+    )
+
+    with pytest.raises(DockInventoryTraversalError, match="post-swipe scrollbar evidence"):
+        traversal._normalize_mumu_initial_viewport(before, 0.0)
+
+    assert traversal._mumu_swipe_actions == 1
+
+
+def test_nudge_that_leaves_top_requires_phase_verified_restore() -> None:
+    before = _texture()
+    candidate = _shift_y(before, -30)
+    restored = np.array(before, copy=True)
+    scroll = _Scroll(0.0)
+
+    def send(_start: tuple[int, int], _end: tuple[int, int]) -> None:
+        scroll.current = 0.2
+
+    traversal = DockMuMuInventoryTraversal(
+        _Runtime([candidate, restored]),
+        scroll=scroll,
+        mumu_swipe_sender=send,
+    )
+
+    frame, position = traversal._normalize_mumu_initial_viewport(before, 0.0)
+
+    assert np.array_equal(frame, restored)
+    assert position == 0.0
+    assert traversal._initial_nudge_applied is False
+    assert traversal._initial_nudge_reverted is True
     assert scroll.set_top_calls == 1
-    assert result.scroll_fallback_calls >= 2
+    assert traversal._scroll_fallback_calls == 0
+
+
+def test_nudge_restore_rejects_same_scrollbar_top_with_wrong_content_phase() -> None:
+    before = _texture()
+    candidate = _shift_y(before, -30)
+    wrong_restored = _shift_y(before, -8)
+    scroll = _Scroll(0.0)
+
+    def send(_start: tuple[int, int], _end: tuple[int, int]) -> None:
+        scroll.current = 0.2
+
+    traversal = DockMuMuInventoryTraversal(
+        _Runtime([candidate, wrong_restored]),
+        scroll=scroll,
+        mumu_swipe_sender=send,
+    )
+
+    with pytest.raises(DockInventoryTraversalError, match="исходной геометрии Dock"):
+        traversal._normalize_mumu_initial_viewport(before, 0.0)
+
+    assert traversal._initial_nudge_reverted is True
+    assert scroll.set_top_calls == 1
 
 
 def test_proven_initial_nudge_records_motion_evidence() -> None:
     before = _texture()
     shifted = _shift_y(before, -22)
-    bottom = _texture(3)
-    scroll = _Scroll(0.0, moves=[1.0])
-    runtime = _Runtime([before, shifted, bottom])
-
+    scroll = _Scroll(0.0)
     traversal = DockMuMuInventoryTraversal(
-        runtime,
+        _Runtime([shifted]),
         scroll=scroll,
         mumu_swipe_sender=lambda _start, _end: None,
     )
-    result = traversal.traverse(lambda _viewport: None)
 
-    assert result.initial_nudge_applied is True
-    assert result.initial_nudge_shift_y is not None
-    assert -23.0 < result.initial_nudge_shift_y < -21.0
-    assert result.initial_nudge_phase_response is not None
+    frame, position = traversal._normalize_mumu_initial_viewport(before, 0.0)
+
+    assert np.array_equal(frame, shifted)
+    assert position == 0.0
+    assert traversal._initial_nudge_applied is True
+    assert traversal._initial_nudge_reverted is False
+    assert traversal._initial_nudge_shift_y is not None
+    assert -23.0 < traversal._initial_nudge_shift_y < -21.0
+    assert traversal._initial_nudge_phase_response is not None
     assert (
-        result.initial_nudge_phase_response
+        traversal._initial_nudge_phase_response
         > DockMuMuInventoryTraversal.INITIAL_NUDGE_MIN_PHASE_RESPONSE
     )
