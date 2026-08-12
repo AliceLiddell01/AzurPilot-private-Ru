@@ -65,9 +65,9 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
     game_settings_snapshot_path: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH
     DOCK_STABILITY_TIMEOUT = 3.0
     DOCK_STABILITY_MIN_CAPTURES = 2
-    # Production deliberately has no capture-count ceiling: fast NemuIPC must
-    # receive the full wall-clock timeout.  A non-None instance override is kept
-    # only for deterministic tests/debug probes that explicitly request a cap.
+    # В production намеренно нет лимита по числу captures: быстрый NemuIPC
+    # не должен завершать проверку раньше wall-clock timeout только из-за
+    # количества кадров. Явный override сохранён для тестов и debug-probe.
     DOCK_STABILITY_MAX_CAPTURES: int | None = None
 
     def _make_game_settings_scanner(self) -> GameSettingsPreflightScanner:
@@ -139,7 +139,7 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
         return evidence
 
     def capture_stable_dock_frame(self) -> np.ndarray:
-        """Require repeated card hashes for the full wall-clock stability window."""
+        """Снимать Dock до первого последовательного совпадения card-hash."""
         from module.retire.scanner import HashGenerator
 
         scanner = HashGenerator()
@@ -159,9 +159,9 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
                 "DOCK_STABILITY_MAX_CAPTURES override должен быть положительным int или None."
             )
 
-        # ``device.screenshot()`` already owns its capture interval. Production
-        # does not impose a capture-count ceiling, so fast NemuIPC cannot exhaust
-        # a small frame cap before the advertised wall-clock timeout.
+        # device.screenshot() уже соблюдает собственный capture interval.
+        # В production count-cap отсутствует: проверка завершается при первом
+        # последовательном совпадении card-hash либо по wall-clock timeout.
         while True:
             self.device.screenshot()
             captures += 1
