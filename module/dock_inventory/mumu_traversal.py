@@ -287,6 +287,40 @@ class DockMuMuInventoryTraversal(DockInventoryTraversal):
             and response >= cls.INITIAL_NUDGE_MIN_PHASE_RESPONSE
         )
 
+    @staticmethod
+    def _three_full_rows_proven(frame: np.ndarray) -> tuple[int, ...]:
+        """Вернуть три доказанные Stage 3 строки без UI/input побочных эффектов."""
+        # Local import не создаёт import-time цикл navigation -> mumu -> card_grid;
+        # к моменту runtime normalization navigation уже полностью загружен.
+        from module.dock_inventory.card_grid import (
+            DockCardGridError,
+            DockCardGridScanner,
+        )
+
+        try:
+            origins = DockCardGridScanner().register_rows(frame)
+        except DockCardGridError:
+            return ()
+        return origins if len(origins) >= 3 else ()
+
+    @classmethod
+    def _structural_short_nudge_proven(
+        cls,
+        frame: np.ndarray,
+        shift_x: float,
+        shift_y: float,
+        response: float,
+    ) -> tuple[int, ...]:
+        """Разрешить короткий motion только при прямом доказательстве трёх строк."""
+        if not (
+            abs(shift_x) <= cls.INITIAL_NUDGE_MAX_SHIFT_X
+            and -cls.INITIAL_NUDGE_MAX_SHIFT_Y <= shift_y
+            < -cls.INITIAL_NUDGE_NO_MOTION_MAX_SHIFT
+            and response >= cls.INITIAL_NUDGE_MIN_PHASE_RESPONSE
+        ):
+            return ()
+        return cls._three_full_rows_proven(frame)
+
     def _restore_verified_top(
         self,
         reference_frame: np.ndarray,
@@ -372,6 +406,26 @@ class DockMuMuInventoryTraversal(DockInventoryTraversal):
             )
             return candidate_frame, candidate
 
+        structural_rows = self._structural_short_nudge_proven(
+            candidate_frame,
+            shift_x,
+            shift_y,
+            response,
+        )
+        if structural_rows:
+            self._initial_nudge_applied = True
+            logger.info(
+                "[Инвентарь дока] MuMu initial nudge принят по прямому "
+                "трёхстрочному Stage 3 proof: dx=%.3f, dy=%.3f, response=%.3f, "
+                "scrollbar=%.6f, строки=%s.",
+                shift_x,
+                shift_y,
+                response,
+                candidate,
+                structural_rows,
+            )
+            return candidate_frame, candidate
+
         if self._no_motion_proven(shift_x, shift_y, response):
             logger.warning(
                 "[Инвентарь дока] Initial nudge не сдвинул Dock: "
@@ -383,8 +437,9 @@ class DockMuMuInventoryTraversal(DockInventoryTraversal):
             return frame, position
 
         raise DockInventoryTraversalError(
-            "Initial nudge изменил Dock вне доказанного целевого диапазона; "
-            "scrollbar top недостаточен для безопасного восстановления micro-shift: "
+            "Initial nudge изменил Dock вне доказанного целевого диапазона и "
+            "не доказал три полностью видимые Stage 3 строки; scrollbar top "
+            "недостаточен для безопасного восстановления micro-shift: "
             f"dx={shift_x:.3f}, dy={shift_y:.3f}, response={response:.3f}."
         )
 
