@@ -65,6 +65,10 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
     game_settings_snapshot_path: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH
     DOCK_STABILITY_TIMEOUT = 3.0
     DOCK_STABILITY_MIN_CAPTURES = 2
+    # Production deliberately has no capture-count ceiling: fast NemuIPC must
+    # receive the full wall-clock timeout.  A non-None instance override is kept
+    # only for deterministic tests/debug probes that explicitly request a cap.
+    DOCK_STABILITY_MAX_CAPTURES: int | None = None
 
     def _make_game_settings_scanner(self) -> GameSettingsPreflightScanner:
         # Reuse this UI/device owner so a cache miss performs one controlled
@@ -147,11 +151,17 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
         captures = 0
         last_frame: np.ndarray | None = None
         last_hashes: tuple[str, ...] = ()
+        capture_limit = self.DOCK_STABILITY_MAX_CAPTURES
+        if capture_limit is not None and (
+            type(capture_limit) is not int or capture_limit < 1
+        ):
+            raise DockInventoryNavigationError(
+                "DOCK_STABILITY_MAX_CAPTURES override должен быть положительным int или None."
+            )
 
-        # ``device.screenshot()`` already owns its capture interval. Do not impose
-        # a small capture-count ceiling here: on fast NemuIPC a cap such as 12
-        # frames can expire in well under the advertised 3-second timeout and
-        # reject a Dock that is still finishing a legitimate scroll animation.
+        # ``device.screenshot()`` already owns its capture interval. Production
+        # does not impose a capture-count ceiling, so fast NemuIPC cannot exhaust
+        # a small frame cap before the advertised wall-clock timeout.
         while True:
             self.device.screenshot()
             captures += 1
@@ -165,6 +175,8 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
                 self._dock_stability_failure_hashes = ()
                 return frame
             previous = current
+            if capture_limit is not None and captures >= capture_limit:
+                break
             if timeout.reached():
                 break
 
