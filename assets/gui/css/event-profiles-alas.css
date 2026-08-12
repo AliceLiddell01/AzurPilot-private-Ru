@@ -1,0 +1,55 @@
+/* Event profile editor: scoped modal glass-card. */
+
+.modal-dialog:has(.event-profile-dialog-marker) {
+    width: min(44rem, calc(100vw - 2rem)) !important;
+    max-width: 44rem !important;
+    margin: 1.5rem auto !important;
+}
+
+.modal-content:has(.event-profile-dialog-marker) {
+    overflow: hidden !important;
+    border: 1px solid var(--alas-apple-glass-border, rgba(148, 163, 184, .24)) !important;
+    border-radius: var(--radius-lg, 16px) !important;
+    background-color: var(--alas-apple-card-bg, rgba(15, 23, 42, .78)) !important;
+    backdrop-filter: blur(20px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+    box-shadow: var(--alas-apple-shadow-lg, 0 18px 42px rgba(0, 0, 0, .46)) !important;
+}
+
+.modal-content:has(.event-profile-dialog-marker) .modal-header,
+.modal-content:has(.event-profile-dialog-marker) .modal-body,
+.modal-content:has(.event-profile-dialog-marker) .modal-footer {
+    background-color: transparent !important;
+    border-color: var(--alas-apple-border, rgba(148, 163, 184, .18)) !important;
+}
+
+.modal-content:has(.event-profile-dialog-marker) .modal-header {
+    padding: .85rem 1rem .6rem !important;
+}
+
+.modal-content:has(.event-profile-dialog-marker) .modal-body {
+    padding: .75rem 1rem 1rem !important;
+}
+
+.modal-content:has(.event-profile-dialog-marker) .form-group {
+    margin-bottom: .7rem !important;
+}
+
+.modal-content:has(.event-profile-dialog-marker) .form-control {
+    border-radius: var(--radius-sm, 8px) !important;
+}
+
+.modal-content:has(.event-profile-dialog-marker) .btn {
+    border-radius: var(--radius-sm, 8px) !important;
+}
+
+.event-profile-dialog-marker {
+    display: none !important;
+}
+
+@media (max-width: 640px) {
+    .modal-dialog:has(.event-profile-dialog-marker) {
+        width: calc(100vw - 1rem) !important;
+        margin: .5rem auto !important;
+    }
+}

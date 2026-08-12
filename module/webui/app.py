@@ -39,6 +39,7 @@ from module.webui.app_dependencies import (
 from module.webui.app_developer_menu import DeveloperMenuMixin
 from module.webui.app_developer_settings import DeveloperSettingsMixin
 from module.webui.app_developer_tools import DeveloperToolsMixin
+from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.app_event_tools import EventToolsMixin
 from module.webui.app_helpers import (
     DEMO_DEVICE_ID_TEXT,
@@ -96,6 +97,7 @@ class AlasGUI(
     OpsiExportMixin,
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
+    EventProfilesMixin,
     TaskConfigMixin,
     EventToolsMixin,
     OverviewMixin,
