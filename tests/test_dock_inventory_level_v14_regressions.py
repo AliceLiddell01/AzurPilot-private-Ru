@@ -17,12 +17,14 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures" / "dock_inventory" / "v14_level
 CASES = (
     (
         "120_a.png.b64",
+        1,
         "3034a651653e19727d2691705adc8c6831944ffe02af7f0f15615a4e22463d97",
         120,
         34,
     ),
     (
         "58_a.png.b64",
+        8,
         "aa50b3c0e4e627141921c1311cda7e7017ad9e138fd8efd9d72ac499b4ed7caa",
         58,
         26,
@@ -30,8 +32,17 @@ CASES = (
 )
 
 
-def _load_rgb(filename: str, expected_sha256: str) -> np.ndarray:
-    encoded = (FIXTURE_DIR / filename).read_text(encoding="ascii")
+def _read_fixture_base64(filename: str, part_count: int) -> str:
+    if part_count == 1:
+        return (FIXTURE_DIR / filename).read_text(encoding="ascii")
+
+    parts = sorted(FIXTURE_DIR.glob(f"{filename}.part*"))
+    assert len(parts) == part_count
+    return "".join(part.read_text(encoding="ascii") for part in parts)
+
+
+def _load_rgb(filename: str, part_count: int, expected_sha256: str) -> np.ndarray:
+    encoded = _read_fixture_base64(filename, part_count)
     payload = base64.b64decode(encoded, validate=True)
     assert hashlib.sha256(payload).hexdigest() == expected_sha256
 
@@ -44,16 +55,23 @@ def _load_rgb(filename: str, expected_sha256: str) -> np.ndarray:
 
 
 @pytest.mark.parametrize(
-    ("filename", "fixture_sha256", "_expected_level", "expected_width"),
+    (
+        "filename",
+        "part_count",
+        "fixture_sha256",
+        "_expected_level",
+        "expected_width",
+    ),
     CASES,
 )
 def test_dock_level_preprocessing_isolates_real_v14_digit_regions(
     filename: str,
+    part_count: int,
     fixture_sha256: str,
     _expected_level: int,
     expected_width: int,
 ) -> None:
-    rgb = _load_rgb(filename, fixture_sha256)
+    rgb = _load_rgb(filename, part_count, fixture_sha256)
 
     combat = LevelOcr((0, 0, 58, 31), name="TEST_COMBAT_LEVEL").pre_process(rgb)
     dock = DockLevelOcr((0, 0, 58, 31), name="TEST_DOCK_LEVEL").pre_process(rgb)
@@ -76,8 +94,14 @@ def test_dock_level_preprocessing_fails_closed_without_digit_evidence() -> None:
 
 
 def test_dock_level_ocr_reads_real_v14_failures() -> None:
-    images = [_load_rgb(filename, digest) for filename, digest, *_rest in CASES]
-    expected = [expected_level for _filename, _digest, expected_level, _width in CASES]
+    images = [
+        _load_rgb(filename, part_count, digest)
+        for filename, part_count, digest, *_rest in CASES
+    ]
+    expected = [
+        expected_level
+        for _filename, _part_count, _digest, expected_level, _width in CASES
+    ]
     dummy_areas = [(0, 0, 58, 31)] * len(images)
 
     result = DockLevelOcr(
