@@ -40,6 +40,7 @@ from module.dock_inventory.progression import (
 )
 from module.dock_inventory.traversal import DockTraversalResult, DockTraversalViewport
 from module.logger import logger
+from module.ocr.ocr import Digit
 
 
 class DockLevelStatus(Enum):
@@ -313,7 +314,11 @@ class _DockLevelOcr(Protocol):
 
 
 class DockLevelOcrAdapter:
-    """Small adapter around the existing level OCR primitive."""
+    """Reuse LevelOcr first, then retry only zeroes on a digit-only Dock ROI."""
+
+    DIGIT_FALLBACK_LEFT = 24
+    DIGIT_FALLBACK_TOP = 2
+    DIGIT_FALLBACK_BOTTOM = 29
 
     def read_levels(
         self,
@@ -324,7 +329,48 @@ class DockLevelOcrAdapter:
         if not areas:
             return ()
         result = LevelOcr(list(areas), name="DOCK_LEVEL_OCR", threshold=64).ocr(frame)
-        values = result if isinstance(result, list) else [result]
+        values = list(result if isinstance(result, list) else [result])
+        if len(values) != len(areas):
+            return tuple(values)
+
+        height, width = frame.shape[:2]
+        retry_indexes: list[int] = []
+        retry_areas: list[tuple[int, int, int, int]] = []
+        for index, (area, value) in enumerate(zip(areas, values)):
+            if type(value) is not int or value > 0:
+                continue
+            left, top, right, _bottom = area
+            fallback = (
+                left + self.DIGIT_FALLBACK_LEFT,
+                top + self.DIGIT_FALLBACK_TOP,
+                right,
+                top + self.DIGIT_FALLBACK_BOTTOM,
+            )
+            fx1, fy1, fx2, fy2 = fallback
+            if fx1 < 0 or fy1 < 0 or fx2 > width or fy2 > height:
+                continue
+            retry_indexes.append(index)
+            retry_areas.append(fallback)
+
+        if retry_areas:
+            fallback_result = Digit(
+                retry_areas,
+                name="DOCK_LEVEL_DIGIT_FALLBACK",
+                threshold=64,
+            ).ocr(frame)
+            fallback_values = (
+                fallback_result
+                if isinstance(fallback_result, list)
+                else [fallback_result]
+            )
+            if len(fallback_values) != len(retry_indexes):
+                raise DockLevelOcrError(
+                    "Число fallback level OCR results не совпало с числом retry areas."
+                )
+            for index, fallback_value in zip(retry_indexes, fallback_values):
+                if type(fallback_value) is int and fallback_value > 0:
+                    values[index] = fallback_value
+
         return tuple(values)
 
 
@@ -790,10 +836,42 @@ class DockStarScanner:
             candidates.append((canonical_center_x, canonical_center_y, total))
         if not candidates:
             return None
-        # The inner four/five glyph layout is a strict subset of the longer row;
-        # once the same calibrated first component proves multiple layouts, the
-        # largest proven total is the least lossy interpretation.
-        return max(candidates, key=lambda value: value[2])
+        # A fragmented six-star first glyph can leave its second/middle filled
+        # component near the calibrated 4-star first center.  The old detector
+        # then confidently interpreted the inner four stars of a six-star row as
+        # 4/4.  If a 4-star candidate still has fill-template evidence at both
+        # outer endpoints of the six-star layout, the total is visually ambiguous
+        # and must fail closed instead of returning the shorter layout.
+        candidate = max(candidates, key=lambda value: value[2])
+        if candidate[2] == 4 and self._six_star_endpoints_are_plausible(
+            matched,
+            center_y=candidate[1],
+        ):
+            return None
+        return candidate
+
+    def _six_star_endpoints_are_plausible(
+        self,
+        matched: np.ndarray,
+        *,
+        center_y: int,
+    ) -> bool:
+        half = self.STAR_TEMPLATE_SIZE // 2
+        first_center = self.SUPPORTED_TOTAL_FIRST_CENTERS[6]
+        scores = []
+        for index in (0, 5):
+            center_x = round(first_center + index * self.STAR_SPACING)
+            left = center_x - half
+            top = center_y - half
+            neighborhood = matched[
+                max(0, top - 2) : min(matched.shape[0], top + 3),
+                max(0, left - 2) : min(matched.shape[1], left + 3),
+            ]
+            if not neighborhood.size:
+                return False
+            score = float(min(1.0, max(0.0, np.max(neighborhood))))
+            scores.append(score)
+        return all(score >= self.FILLED_WEAK_MATCH_MIN for score in scores)
 
     def _best_shape_alignment(
         self,
