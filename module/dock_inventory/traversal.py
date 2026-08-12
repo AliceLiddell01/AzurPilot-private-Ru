@@ -86,11 +86,11 @@ DockKeyeventSender = Callable[[str], object]
 class DockInventoryTraversal:
     """Visit every stable Dock viewport with independently proven progress.
 
-    The preferred movement path uses Android DPAD keyevents because MuMu exposes
-    smooth Dock scrolling to keyboard arrows. The scrollbar is still the sole
-    authority for top/bottom/progress evidence. If ADB keyevents are unavailable
-    or do not move the Dock, traversal disables them and falls back to the
-    previously accepted canonical ``Scroll`` movement instead of guessing.
+    MuMu host-side arrow keys are known to scroll Dock smoothly, so runtime
+    probes the Android DPAD equivalent as the preferred movement path. DPAD is
+    kept only when the scrollbar independently proves the expected movement.
+    If ADB keyevents are unavailable or ineffective, traversal disables them
+    and falls back to the previously accepted canonical ``Scroll`` movement.
 
     Stage 2 intentionally requires a visible, non-degenerate scrollbar. A
     reliable single-viewport/small-Dock distinction needs card-presence data
@@ -185,7 +185,7 @@ class DockInventoryTraversal:
         if self._keyevent_sender is None:
             return
         logger.warning(
-            "[Dock Inventory] ADB DPAD отключён: %s; используется canonical Scroll fallback.",
+            "[Инвентарь дока] ADB DPAD отключён: %s; используется проверенный резервный Scroll.",
             reason,
         )
         self._keyevent_sender = None
@@ -255,8 +255,8 @@ class DockInventoryTraversal:
                 no_progress += 1
                 reason = "обратное движение" if reversed_too_far else "нет прогресса"
                 logger.warning(
-                    "[Dock Inventory] DPAD_UP: %s: previous=%.6f, current=%.6f, "
-                    "retry=%s/%s",
+                    "[Инвентарь дока] DPAD_UP: %s: до=%.6f, после=%.6f, "
+                    "повтор=%s/%s",
                     reason,
                     previous,
                     candidate,
@@ -335,8 +335,8 @@ class DockInventoryTraversal:
                     no_progress_retries += 1
                     reason = "обратное движение" if reversed_too_far else "нет прогресса"
                     logger.warning(
-                        "[Dock Inventory] DPAD_DOWN: %s: previous=%.6f, current=%.6f, "
-                        "retry=%s/%s",
+                        "[Инвентарь дока] DPAD_DOWN: %s: до=%.6f, после=%.6f, "
+                        "повтор=%s/%s",
                         reason,
                         position,
                         candidate,
@@ -373,8 +373,8 @@ class DockInventoryTraversal:
                     no_progress_retries += 1
                     reason = "обратное движение" if reversed_too_far else "нет прогресса"
                     logger.warning(
-                        "[Dock Inventory] %s после Scroll fallback: previous=%.6f, "
-                        "current=%.6f, retry=%s/%s",
+                        "[Инвентарь дока] %s после резервного Scroll: до=%.6f, "
+                        "после=%.6f, повтор=%s/%s",
                         reason,
                         position,
                         candidate,
