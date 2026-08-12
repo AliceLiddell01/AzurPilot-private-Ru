@@ -11,7 +11,7 @@ from typing import ClassVar, Protocol
 import cv2
 import numpy as np
 
-from module.combat.level import LevelOcr
+from module.dock_inventory.level_ocr import DockLevelOcr as LevelOcr
 from module.dock_inventory.card_grid import (
     DockCardGridScanner,
     DockCardPresence,
