@@ -171,3 +171,21 @@ def test_level_proof_result_count_mismatch_is_operational_error(
             np.zeros((720, 1280, 3), dtype=np.uint8),
             ((100, 50, 160, 81), (200, 50, 260, 81)),
         )
+
+
+def test_level_proof_roi_outside_frame_is_operational_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ocr_doubles(
+        monkeypatch,
+        primary=(120,),
+        proof_runs={96: (120,), 128: (120,), 160: (120,)},
+    )
+
+    with pytest.raises(DockLevelOcrError, match="proof ROI"):
+        attributes.DockLevelOcrAdapter().read_levels(
+            np.zeros((720, 1280, 3), dtype=np.uint8),
+            ((1230, 50, 1290, 81),),
+        )
+
+    assert _FakeDigit.calls == []
