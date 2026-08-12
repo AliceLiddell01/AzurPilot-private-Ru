@@ -281,7 +281,7 @@ class DockAttributeScanResult:
         if not isinstance(self.prerequisite, DockPrerequisiteEvidence):
             raise TypeError("prerequisite имеет неверный тип")
         if not isinstance(self.traversal, DockTraversalResult):
-            raise TypeError("traversal должен быть DockTraversalResult")
+            raise TypeError("traversal имеет неверный тип")
         if not isinstance(self.viewports, tuple) or not all(
             isinstance(value, DockViewportAttributeScan) for value in self.viewports
         ):
