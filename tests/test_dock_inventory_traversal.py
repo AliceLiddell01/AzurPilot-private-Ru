@@ -202,3 +202,92 @@ def test_each_visitor_frame_owns_its_pixels_when_backend_reuses_buffer() -> None
 
     assert len({id(frame) for frame in frames}) == 3
     assert [int(frame[0, 0, 0]) for frame in frames] == [1, 2, 3]
+
+
+def test_dpad_down_is_preferred_when_scrollbar_proves_progress() -> None:
+    scroll = _Scroll(0.0)
+    runtime = _Runtime()
+    moves = iter((0.22, 0.47, 0.73, 1.0))
+    keyevents: list[str] = []
+
+    def send(keycode: str) -> None:
+        keyevents.append(keycode)
+        assert keycode == DockInventoryTraversal.DPAD_DOWN
+        scroll.current = next(moves)
+
+    traversal = DockInventoryTraversal(
+        runtime,
+        scroll=scroll,
+        keyevent_sender=send,
+    )
+    result = traversal.traverse(lambda _viewport: None)
+
+    assert result.positions == (0.0, 0.22, 0.47, 0.73, 1.0)
+    assert keyevents == [DockInventoryTraversal.DPAD_DOWN] * 4
+    assert scroll.next_page_calls == 0
+    # Initial stable frame plus one proven stable frame after each DPAD action.
+    assert runtime.capture_calls == 5
+
+
+def test_dpad_down_without_progress_disables_it_and_uses_scroll_fallback() -> None:
+    scroll = _Scroll(0.0, moves=[1.0])
+    runtime = _Runtime()
+    keyevents: list[str] = []
+
+    def send(keycode: str) -> None:
+        keyevents.append(keycode)
+
+    traversal = DockInventoryTraversal(
+        runtime,
+        scroll=scroll,
+        keyevent_sender=send,
+        keyevent_no_progress_retries=1,
+    )
+    result = traversal.traverse(lambda _viewport: None)
+
+    assert result.positions == (0.0, 1.0)
+    assert keyevents == [DockInventoryTraversal.DPAD_DOWN] * 2
+    assert scroll.next_page_calls == 1
+    assert result.no_progress_retries == 2
+
+
+def test_dpad_up_canonicalizes_top_without_scroll_drag() -> None:
+    scroll = _Scroll(0.52)
+    runtime = _Runtime()
+    moves = iter((0.28, 0.0))
+    keyevents: list[str] = []
+
+    def send(keycode: str) -> None:
+        keyevents.append(keycode)
+        assert keycode == DockInventoryTraversal.DPAD_UP
+        scroll.current = next(moves)
+
+    traversal = DockInventoryTraversal(
+        runtime,
+        scroll=scroll,
+        keyevent_sender=send,
+    )
+    _frame, position = traversal.canonicalize_top()
+
+    assert position == 0.0
+    assert keyevents == [DockInventoryTraversal.DPAD_UP] * 2
+    assert scroll.set_top_calls == 0
+    assert runtime.capture_calls == 3
+
+
+def test_dpad_up_without_progress_falls_back_to_verified_set_top() -> None:
+    scroll = _Scroll(0.52, top_result=0.0)
+    runtime = _Runtime()
+    keyevents: list[str] = []
+
+    traversal = DockInventoryTraversal(
+        runtime,
+        scroll=scroll,
+        keyevent_sender=keyevents.append,
+        keyevent_no_progress_retries=1,
+    )
+    _frame, position = traversal.canonicalize_top()
+
+    assert position == 0.0
+    assert keyevents == [DockInventoryTraversal.DPAD_UP] * 2
+    assert scroll.set_top_calls == 1
