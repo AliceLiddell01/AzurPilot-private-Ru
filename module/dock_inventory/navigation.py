@@ -65,7 +65,6 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
     game_settings_snapshot_path: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH
     DOCK_STABILITY_TIMEOUT = 3.0
     DOCK_STABILITY_MIN_CAPTURES = 2
-    DOCK_STABILITY_MAX_CAPTURES = 12
 
     def _make_game_settings_scanner(self) -> GameSettingsPreflightScanner:
         # Reuse this UI/device owner so a cache miss performs one controlled
@@ -136,7 +135,7 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
         return evidence
 
     def capture_stable_dock_frame(self) -> np.ndarray:
-        """Require repeated card hashes and detach the proven stable frame."""
+        """Require repeated card hashes for the full wall-clock stability window."""
         from module.retire.scanner import HashGenerator
 
         scanner = HashGenerator()
@@ -146,20 +145,38 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
             count=self.DOCK_STABILITY_MIN_CAPTURES,
         ).start()
         captures = 0
-        while captures < self.DOCK_STABILITY_MAX_CAPTURES:
+        last_frame: np.ndarray | None = None
+        last_hashes: tuple[str, ...] = ()
+
+        # ``device.screenshot()`` already owns its capture interval. Do not impose
+        # a small capture-count ceiling here: on fast NemuIPC a cap such as 12
+        # frames can expire in well under the advertised 3-second timeout and
+        # reject a Dock that is still finishing a legitimate scroll animation.
+        while True:
             self.device.screenshot()
             captures += 1
             frame = np.array(self.device.image, copy=True)
             current = scanner.scan(frame, cached=False, output=False)
+            last_frame = frame
+            last_hashes = tuple(str(value) for value in current)
             if previous is not None and current == previous:
                 self.device.image = frame
+                self._dock_stability_failure_frame = None
+                self._dock_stability_failure_hashes = ()
                 return frame
             previous = current
             if timeout.reached():
                 break
+
+        elapsed = timeout.current_time()
+        self._dock_stability_failure_frame = (
+            None if last_frame is None else np.array(last_frame, copy=True)
+        )
+        self._dock_stability_failure_hashes = last_hashes
         raise DockInventoryNavigationError(
             "Dock не достиг стабильного состояния по последовательным card-hash "
-            f"кадрам: captures={captures}, timeout={self.DOCK_STABILITY_TIMEOUT:.1f}s."
+            f"кадрам: captures={captures}, elapsed={elapsed:.3f}s, "
+            f"timeout={self.DOCK_STABILITY_TIMEOUT:.1f}s."
         )
 
     def enter_dock(self) -> bool:
