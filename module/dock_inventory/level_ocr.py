@@ -31,6 +31,13 @@ class DockLevelOcr(LevelOcr):
     ONES_THRESHOLD = 140
     ONES_PIXEL_MIN = 15
 
+    # Реальный v15 показал отдельный low-level стиль: тонкая серая цифра ``1``
+    # может быть светлее strong evidence. Fallback лишь разрешает тот же один
+    # OCR-проход и не подставляет значение. На ideal corpus strong path остаётся
+    # достаточным для всех 380 PRESENT level ROI.
+    LOW_CONTRAST_ONES_THRESHOLD = 170
+    LOW_CONTRAST_ONES_PIXEL_MIN = 16
+
     HUNDREDS_AREA = (26, 2, 29, 22)
     HUNDREDS_THRESHOLD = 127
     HUNDREDS_PIXEL_MIN = 13
@@ -44,6 +51,10 @@ class DockLevelOcr(LevelOcr):
         2: 32,
         3: 24,
     }
+
+    ONE_DIGIT_TOP = 2
+    ONE_DIGIT_BOTTOM = 23
+    ONE_DIGIT_BINARY_THRESHOLD = 200
 
     @staticmethod
     def _normalize_level_pixels(image: np.ndarray) -> np.ndarray:
@@ -71,6 +82,20 @@ class DockLevelOcr(LevelOcr):
         left, top, right, bottom = area
         return int(np.count_nonzero(image[top:bottom, left:right] < threshold))
 
+    def _one_digit_region(self, normalized: np.ndarray) -> np.ndarray:
+        left = self.DIGIT_LEFT_BY_COUNT[1]
+        region = normalized[
+            self.ONE_DIGIT_TOP : self.ONE_DIGIT_BOTTOM,
+            left:,
+        ]
+        _threshold, binary = cv2.threshold(
+            region,
+            self.ONE_DIGIT_BINARY_THRESHOLD,
+            255,
+            cv2.THRESH_BINARY,
+        )
+        return binary
+
     def pre_process(self, image: np.ndarray) -> np.ndarray:
         if (
             not isinstance(image, np.ndarray)
@@ -93,7 +118,13 @@ class DockLevelOcr(LevelOcr):
             self.ONES_THRESHOLD,
         )
         if ones < self.ONES_PIXEL_MIN:
-            return np.array([[255]], dtype=np.uint8)
+            relaxed_ones = self._dark_pixel_count(
+                normalized,
+                self.ONES_AREA,
+                self.LOW_CONTRAST_ONES_THRESHOLD,
+            )
+            if relaxed_ones < self.LOW_CONTRAST_ONES_PIXEL_MIN:
+                return np.array([[255]], dtype=np.uint8)
 
         hundreds = self._dark_pixel_count(
             normalized,
@@ -110,6 +141,8 @@ class DockLevelOcr(LevelOcr):
             )
             digit_count = 2 if tens >= self.TENS_PIXEL_MIN else 1
 
+        if digit_count == 1:
+            return self._one_digit_region(normalized)
         return normalized[:, self.DIGIT_LEFT_BY_COUNT[digit_count] :]
 
 
