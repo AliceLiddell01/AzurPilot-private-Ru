@@ -281,7 +281,7 @@ class DockAttributeScanResult:
         if not isinstance(self.prerequisite, DockPrerequisiteEvidence):
             raise TypeError("prerequisite имеет неверный тип")
         if not isinstance(self.traversal, DockTraversalResult):
-            raise TypeError("traversal имеет неверный тип")
+            raise TypeError("traversal должен быть DockTraversalResult")
         if not isinstance(self.viewports, tuple) or not all(
             isinstance(value, DockViewportAttributeScan) for value in self.viewports
         ):
@@ -443,8 +443,8 @@ class DockStarScanner:
     YELLOW_HUE_MAX = 45
     YELLOW_SATURATION_MIN = 80
     YELLOW_VALUE_MIN = 100
-    FIRST_GLYPH_SATURATION_MIN = 100
-    FIRST_GLYPH_VALUE_MIN = 200
+    FIRST_GLYPH_SATURATION_MIN = 90
+    FIRST_GLYPH_VALUE_MIN = 160
 
     STAR_TEMPLATE_SIZE = 19
     STAR_SPACING = 14.5
