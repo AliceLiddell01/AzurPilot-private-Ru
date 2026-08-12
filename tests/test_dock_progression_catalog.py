@@ -15,6 +15,7 @@ from dev_tools.dock_progression_catalog import (
     extract_maximum_level,
     extract_supplemental_templates,
 )
+from module.dock_inventory.catalog import DockIdentityCatalogError
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = REPOSITORY_ROOT / "assets" / "ship" / "dock_progression_catalog.json"
@@ -216,6 +217,47 @@ def test_generator_rejects_missing_canonical_group() -> None:
             maximum_observed_level=125,
             provenance=_provenance(),
         )
+
+
+def test_build_from_git_uses_explicit_identity_catalog_and_types_loader_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    upstream_repo = tmp_path / "upstream"
+    supplemental_repo = tmp_path / "supplemental"
+    identity_catalog_path = tmp_path / "fork" / "dock_identity_catalog.json"
+    seen_identity_paths: list[Path] = []
+
+    def pinned_blob(
+        _repo: Path,
+        *,
+        commit: str,
+        expected_commit: str,
+        path: str,
+        expected_blob_sha: str | None = None,
+    ) -> tuple[bytes, str, str]:
+        del commit, expected_blob_sha
+        content = b"{}" if path == dock_progression_catalog.SOURCE_PATH else b"fixture"
+        return content, "a" * 40, expected_commit
+
+    def fail_identity_catalog(path: Path):
+        seen_identity_paths.append(path)
+        raise DockIdentityCatalogError("fixture identity failure")
+
+    monkeypatch.setattr(dock_progression_catalog, "_read_pinned_blob", pinned_blob)
+    monkeypatch.setattr(
+        dock_progression_catalog, "load_dock_identity_catalog", fail_identity_catalog
+    )
+
+    with pytest.raises(ProgressionGenerationError, match="Identity catalog"):
+        dock_progression_catalog.build_from_git(
+            upstream_repo,
+            dock_progression_catalog.SOURCE_COMMIT,
+            supplemental_repo,
+            dock_progression_catalog.SUPPLEMENTAL_SOURCE_COMMIT,
+            identity_catalog_path,
+        )
+
+    assert seen_identity_paths == [identity_catalog_path]
 
 
 def test_generator_write_oserror_is_typed_cli_failure(
