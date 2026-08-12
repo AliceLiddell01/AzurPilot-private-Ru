@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import dev_tools.dock_progression_catalog as dock_progression_catalog
 from dev_tools.dock_progression_catalog import (
     ProgressionGenerationError,
     build_catalog,
@@ -215,6 +216,41 @@ def test_generator_rejects_missing_canonical_group() -> None:
             maximum_observed_level=125,
             provenance=_provenance(),
         )
+
+
+def test_generator_write_oserror_is_typed_cli_failure(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    payload = {
+        "records": [],
+        "maximum_observed_level": 125,
+        "provenance": {
+            "source_commit": "1" * 40,
+            "supplemental_source_commit": "2" * 40,
+        },
+    }
+    monkeypatch.setattr(
+        dock_progression_catalog,
+        "build_from_git",
+        lambda *_args, **_kwargs: payload,
+    )
+
+    def fail_write(_path: Path, _data: bytes) -> int:
+        raise OSError("fixture write failure")
+
+    monkeypatch.setattr(Path, "write_bytes", fail_write)
+
+    exit_code = dock_progression_catalog.main(
+        [
+            "--supplemental-repo",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "dock_progression_catalog.json"),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "FAIL: Не удалось записать progression catalog" in capsys.readouterr().err
 
 
 def test_tracked_payload_has_exact_schema_and_no_npc_records() -> None:
