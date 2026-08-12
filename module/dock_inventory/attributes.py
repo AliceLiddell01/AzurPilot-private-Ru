@@ -331,6 +331,9 @@ class DockLevelOcrAdapter:
 class DockLevelScanner:
     """Read levels from dynamic slot-relative ROIs without legacy clamping."""
 
+    # The legacy EN CARD_LEVEL_GRIDS authority is (77, 5, 138, 27). Real
+    # 1280x720 calibration extends its vertical anti-aliasing margin and drops
+    # the rightmost decoration column which otherwise becomes a false "1".
     LEVEL_LEFT = 77
     LEVEL_TOP = 0
     LEVEL_RIGHT = 135
@@ -452,6 +455,8 @@ class DockStarScanner:
     FIRST_COMPONENT_HEIGHT_MAX = 15
     FIRST_COMPONENT_CENTER_Y_MIN = 13.0
     FIRST_COMPONENT_CENTER_Y_MAX = 21.0
+    # The UI centers a complete row as one unit, so the first center is derived
+    # from the candidate total rather than guessed from the first yellow pixel.
     SUPPORTED_TOTAL_FIRST_CENTERS: ClassVar[dict[int, float]] = {
         4: 48.5,
         5: 41.5,
@@ -464,8 +469,13 @@ class DockStarScanner:
     FILLED_WEAK_MATCH_MIN = 0.18
     FILLED_WEAK_RATIO_MIN = 0.25
     FILLED_WEAK_UPPER_RATIO_MIN = 0.23
+    # Some real filled stars are lower-heavy because the card art/anti-aliasing masks
+    # their top half. Accept them only with stronger whole-glyph support.
     FILLED_LOWER_HEAVY_RATIO_MIN = 0.30
     FILLED_LOWER_HEAVY_UPPER_RATIO_MIN = 0.16
+    # Real outlined empties retain a small yellow lower edge in some cards. Keep the
+    # band narrow: anything above it still fails closed instead of being silently
+    # promoted to EMPTY.
     EMPTY_RATIO_MAX = 0.245
     SHAPE_SCORE_MIN = 0.45
     GLYPH_ALIGNMENT_RADIUS = 2
@@ -780,6 +790,9 @@ class DockStarScanner:
             candidates.append((canonical_center_x, canonical_center_y, total))
         if not candidates:
             return None
+        # The inner four/five glyph layout is a strict subset of the longer row;
+        # once the same calibrated first component proves multiple layouts, the
+        # largest proven total is the least lossy interpretation.
         return max(candidates, key=lambda value: value[2])
 
     def _best_shape_alignment(
