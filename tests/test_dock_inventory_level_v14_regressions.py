@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from module.combat.level import LevelOcr
+from module.dock_inventory.attributes import DockLevelOcrAdapter
 from module.dock_inventory.level_ocr import DockLevelOcr
 
 
@@ -111,3 +112,21 @@ def test_dock_level_ocr_reads_real_v14_failures() -> None:
     ).ocr(images, direct_ocr=True)
 
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("filename", "part_count", "fixture_sha256", "expected_level", "_width"),
+    CASES,
+)
+def test_production_level_adapter_uses_dock_specific_ocr_on_v14_failures(
+    filename: str,
+    part_count: int,
+    fixture_sha256: str,
+    expected_level: int,
+    _width: int,
+) -> None:
+    rgb = _load_rgb(filename, part_count, fixture_sha256)
+
+    result = DockLevelOcrAdapter().read_levels(rgb, ((0, 0, 58, 31),))
+
+    assert result == (expected_level,)
