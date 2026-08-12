@@ -314,11 +314,47 @@ class _DockLevelOcr(Protocol):
 
 
 class DockLevelOcrAdapter:
-    """Reuse LevelOcr first, then retry only zeroes on a digit-only Dock ROI."""
+    """Сначала читает LevelOcr, затем независимо подтверждает Dock digits."""
 
-    DIGIT_FALLBACK_LEFT = 24
-    DIGIT_FALLBACK_TOP = 2
-    DIGIT_FALLBACK_BOTTOM = 29
+    DIGIT_PROOF_LEFT = 24
+    DIGIT_PROOF_TOP = 0
+    DIGIT_PROOF_BOTTOM = 22
+    DIGIT_PROOF_THRESHOLDS = (96, 128, 160)
+
+    @staticmethod
+    def _is_positive_int(value: object) -> bool:
+        return type(value) is int and value > 0
+
+    @classmethod
+    def _proof_consensus(cls, values: Sequence[object]) -> int | None:
+        for candidate in values:
+            if cls._is_positive_int(candidate) and sum(
+                value == candidate for value in values
+            ) >= 2:
+                return candidate
+        return None
+
+    @classmethod
+    def _reconcile_value(
+        cls,
+        primary: object,
+        proof_values: Sequence[object],
+    ) -> object:
+        consensus = cls._proof_consensus(proof_values)
+        primary_valid = cls._is_positive_int(primary)
+        if consensus is not None:
+            if not primary_valid or consensus == primary:
+                return consensus
+            if (
+                10 <= primary <= 25
+                and 100 <= consensus <= 125
+                and consensus % 100 == primary
+            ):
+                return consensus
+            return 0
+        if primary_valid and any(value == primary for value in proof_values):
+            return primary
+        return 0
 
     def read_levels(
         self,
@@ -328,50 +364,58 @@ class DockLevelOcrAdapter:
         areas = tuple(areas)
         if not areas:
             return ()
-        result = LevelOcr(list(areas), name="DOCK_LEVEL_OCR", threshold=64).ocr(frame)
-        values = list(result if isinstance(result, list) else [result])
-        if len(values) != len(areas):
-            return tuple(values)
+        primary_result = LevelOcr(
+            list(areas),
+            name="DOCK_LEVEL_OCR",
+            threshold=64,
+        ).ocr(frame)
+        primary_values = list(
+            primary_result if isinstance(primary_result, list) else [primary_result]
+        )
+        if len(primary_values) != len(areas):
+            return tuple(primary_values)
 
         height, width = frame.shape[:2]
-        retry_indexes: list[int] = []
-        retry_areas: list[tuple[int, int, int, int]] = []
-        for index, (area, value) in enumerate(zip(areas, values)):
-            if type(value) is not int or value > 0:
-                continue
+        proof_areas: list[tuple[int, int, int, int]] = []
+        for area in areas:
             left, top, right, _bottom = area
-            fallback = (
-                left + self.DIGIT_FALLBACK_LEFT,
-                top + self.DIGIT_FALLBACK_TOP,
+            proof = (
+                left + self.DIGIT_PROOF_LEFT,
+                top + self.DIGIT_PROOF_TOP,
                 right,
-                top + self.DIGIT_FALLBACK_BOTTOM,
+                top + self.DIGIT_PROOF_BOTTOM,
             )
-            fx1, fy1, fx2, fy2 = fallback
-            if fx1 < 0 or fy1 < 0 or fx2 > width or fy2 > height:
-                continue
-            retry_indexes.append(index)
-            retry_areas.append(fallback)
-
-        if retry_areas:
-            fallback_result = Digit(
-                retry_areas,
-                name="DOCK_LEVEL_DIGIT_FALLBACK",
-                threshold=64,
-            ).ocr(frame)
-            fallback_values = (
-                fallback_result
-                if isinstance(fallback_result, list)
-                else [fallback_result]
-            )
-            if len(fallback_values) != len(retry_indexes):
+            px1, py1, px2, py2 = proof
+            if px1 < 0 or py1 < 0 or px2 > width or py2 > height:
                 raise DockLevelOcrError(
-                    "Число fallback level OCR results не совпало с числом retry areas."
+                    f"Dock level proof ROI выходит за frame: {proof}."
                 )
-            for index, fallback_value in zip(retry_indexes, fallback_values):
-                if type(fallback_value) is int and fallback_value > 0:
-                    values[index] = fallback_value
+            proof_areas.append(proof)
 
-        return tuple(values)
+        proof_runs: list[list[object]] = []
+        for threshold in self.DIGIT_PROOF_THRESHOLDS:
+            proof_result = Digit(
+                proof_areas,
+                lang="english_text",
+                name=f"DOCK_LEVEL_DIGIT_PROOF_{threshold}",
+                threshold=threshold,
+            ).ocr(frame)
+            proof_values = list(
+                proof_result if isinstance(proof_result, list) else [proof_result]
+            )
+            if len(proof_values) != len(areas):
+                raise DockLevelOcrError(
+                    "Число proof level OCR results не совпало с числом areas."
+                )
+            proof_runs.append(proof_values)
+
+        return tuple(
+            self._reconcile_value(
+                primary,
+                tuple(run[index] for run in proof_runs),
+            )
+            for index, primary in enumerate(primary_values)
+        )
 
 
 class DockLevelScanner:
