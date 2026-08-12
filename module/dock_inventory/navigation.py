@@ -169,6 +169,13 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
             current = scanner.scan(frame, cached=False, output=False)
             last_frame = frame
             last_hashes = tuple(str(value) for value in current)
+
+            # Wall-clock deadline является абсолютным: кадр, завершивший
+            # обработку уже после timeout, нельзя принять как stable даже если
+            # его card-hash совпал с предыдущим capture.
+            if timeout.current_time() > self.DOCK_STABILITY_TIMEOUT:
+                break
+
             if previous is not None and current == previous:
                 self.device.image = frame
                 self._dock_stability_failure_frame = None
