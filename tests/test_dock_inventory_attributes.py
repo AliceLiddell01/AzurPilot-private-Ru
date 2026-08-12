@@ -284,6 +284,14 @@ def test_level_roi_is_slot_relative_for_first_last_and_shifted_rows() -> None:
     assert [item.value for item in result] == [12, 34]
 
 
+def test_level_roi_outside_frame_is_operational_input_error() -> None:
+    scanner = DockLevelScanner(125, ocr=_FakeLevelOcr((42,)))
+    slot = _slot(6, 700, DockCardPresence.PRESENT)
+
+    with pytest.raises(DockAttributeInputError, match="level ROI"):
+        scanner.scan(np.zeros((720, 1280, 3), dtype=np.uint8), (slot,))
+
+
 @pytest.mark.parametrize(
     ("raw", "reason"),
     [
