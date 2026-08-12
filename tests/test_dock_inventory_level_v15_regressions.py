@@ -11,18 +11,16 @@ from module.dock_inventory.attributes import DockLevelOcrAdapter
 from module.dock_inventory.level_ocr import DockLevelOcr
 
 
-FIXTURE_PATH = (
-    Path(__file__).parent
-    / "fixtures"
-    / "dock_inventory"
-    / "v15_levels"
-    / "level1_dim.png.b64"
-)
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "dock_inventory" / "v15_levels"
+FIXTURE_PREFIX = "level1_dim.png.b64.part"
+FIXTURE_PART_COUNT = 8
 FIXTURE_SHA256 = "a9180403f7758273c6912306ef2333202a82362f3110275dfba339cdc151709b"
 
 
 def _load_rgb() -> np.ndarray:
-    encoded = FIXTURE_PATH.read_text(encoding="ascii")
+    parts = sorted(FIXTURE_DIR.glob(f"{FIXTURE_PREFIX}*"))
+    assert len(parts) == FIXTURE_PART_COUNT
+    encoded = "".join(part.read_text(encoding="ascii") for part in parts)
     payload = base64.b64decode(encoded, validate=True)
     assert hashlib.sha256(payload).hexdigest() == FIXTURE_SHA256
     bgr = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
