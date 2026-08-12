@@ -118,6 +118,11 @@ crop
 
 - level ROI и star ROI вычисляются только относительно `slot.area`;
 - `ABSENT` не передаётся OCR/CV, а любой Stage 3 `UNKNOWN` блокирует полный pass;
+- canonical level ROI имеет точную геометрию `58x31`; выход этого ROI за frame
+  означает нарушение входной геометрии Stage 3→5 и является
+  `DockAttributeInputError`, а не guessed `UNKNOWN` level;
+- clipped star ROI остаётся per-slot визуальным `UNKNOWN` с причиной
+  `star_roi_clipped`; это не ослабляет отдельный input-contract level scanner;
 - level использует отдельный `DockLevelOcr`, наследующий общий `LevelOcr`, но
   заменяющий только Dock-specific preprocessing числового блока; combat OCR не
   изменяется, multi-pass proof OCR/reconciliation не используются, а значение
@@ -135,10 +140,13 @@ Traversal использует scrollbar как независимый исто�
 считается доказательством эквивалентности Android keyevent: runtime сначала
 пробует `KEYCODE_DPAD_UP`/`KEYCODE_DPAD_DOWN` через ADB и после каждого действия
 обязан получить новый стабильный кадр и измерить scrollbar. DPAD сохраняется
-только при доказанном движении в ожидаемую сторону; иначе он отключается и
-используется ранее принятый canonical `Scroll` fallback. `DockTraversalResult`
-сохраняет `dpad_actions`, `dpad_progress_actions` и `scroll_fallback_calls`,
-чтобы реальный smoke мог явно показать, какой путь движения сработал.
+только при доказанном движении в ожидаемую сторону; ошибка именно отправки
+keyevent или потеря scrollbar evidence после DPAD отключает этот path и
+переводит traversal на canonical `Scroll` fallback. Невозможность получить
+стабильный кадр не маскируется fallback-логикой и остаётся operational failure.
+`DockTraversalResult` сохраняет `dpad_actions`, `dpad_progress_actions` и
+`scroll_fallback_calls`, чтобы реальный smoke мог явно показать, какой путь
+движения сработал.
 
 Runtime не читает сеть: identity и progression catalogs являются отдельными
 детерминированными generated sidecars с независимыми fingerprints.
