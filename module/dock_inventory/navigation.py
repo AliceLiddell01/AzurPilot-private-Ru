@@ -65,7 +65,11 @@ class DockInventoryNavigator(GameSettingsPreflightScanner):
     game_settings_snapshot_path: Path | str = DEFAULT_GAME_SETTINGS_SNAPSHOT_PATH
     DOCK_STABILITY_TIMEOUT = 3.0
     DOCK_STABILITY_MIN_CAPTURES = 2
-    DOCK_STABILITY_MAX_CAPTURES = 12
+    # MuMu/NemuIPC uses an approximately 0.05 s screenshot interval. Twelve
+    # captures exhausted the secondary safety cap long before the declared
+    # three-second timeout after a real drag. Keep the hash proof unchanged,
+    # but let the time-based guard remain the effective bound.
+    DOCK_STABILITY_MAX_CAPTURES = 64
 
     def _make_game_settings_scanner(self) -> GameSettingsPreflightScanner:
         # Reuse this UI/device owner so a cache miss performs one controlled
