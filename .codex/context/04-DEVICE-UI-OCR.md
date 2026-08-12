@@ -108,6 +108,29 @@ crop
 - разные значения OCR;
 - server/theme variants, если затронуты.
 
+## Dock Inventory: стабильный кадр и атрибуты карточки
+
+`module/dock_inventory/` разделяет обход Dock на последовательные доказуемые
+этапы: prerequisite/navigation, стабильный detached viewport, динамическая
+регистрация карточек, canonical identity и атрибуты. Stage 5 принимает один и
+тот же viewport вместе с результатами card-grid/identity и обязан проверить
+совпадение index, scroll position, порядка `PRESENT` и `slot.area`.
+
+- level ROI и star ROI вычисляются только относительно `slot.area`;
+- `ABSENT` не передаётся OCR/CV, а любой Stage 3 `UNKNOWN` блокирует полный pass;
+- level использует `LevelOcr`, но не legacy clamp; диапазон берётся из pinned
+  `ship_level` source, непрошедшее значение остаётся typed `UNKNOWN`;
+- raw stars определяются визуально как filled/empty/total, без подстановки из
+  identity catalog;
+- progression выводится только из raw stars и ровно одной совместимой static
+  semantic state; retrofit/research и конфликтующие состояния не получают
+  вымышленную ordinary limit-break метку;
+- overlap соседних viewport сохраняется: cross-viewport dedup относится к
+  следующему этапу, а не к scanner атрибутов.
+
+Runtime не читает сеть: identity и progression catalogs являются отдельными
+детерминированными generated sidecars с независимыми fingerprints.
+
 ## Global/EN asset и OCR contract
 
 - canonical root — `assets/en`; CN/JP/TW roots и string fallback недопустимы;
