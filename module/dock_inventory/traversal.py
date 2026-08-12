@@ -47,6 +47,9 @@ class DockTraversalResult:
     reached_bottom: bool
     final_viewport_visited: bool
     no_progress_retries: int
+    dpad_actions: int = 0
+    dpad_progress_actions: int = 0
+    scroll_fallback_calls: int = 0
 
     def __post_init__(self) -> None:
         if type(self.visited_viewports) is not int or self.visited_viewports < 0:
@@ -57,8 +60,16 @@ class DockTraversalResult:
             raise ValueError("positions должны содержать конечные значения в [0, 1]")
         if type(self.reached_bottom) is not bool or type(self.final_viewport_visited) is not bool:
             raise TypeError("Флаги результата обхода должны быть bool")
-        if type(self.no_progress_retries) is not int or self.no_progress_retries < 0:
-            raise ValueError("no_progress_retries должен быть неотрицательным int")
+        for name, value in (
+            ("no_progress_retries", self.no_progress_retries),
+            ("dpad_actions", self.dpad_actions),
+            ("dpad_progress_actions", self.dpad_progress_actions),
+            ("scroll_fallback_calls", self.scroll_fallback_calls),
+        ):
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} должен быть неотрицательным int")
+        if self.dpad_progress_actions > self.dpad_actions:
+            raise ValueError("dpad_progress_actions не может превышать dpad_actions")
 
 
 class _DockRuntime(Protocol):
@@ -165,6 +176,12 @@ class DockInventoryTraversal:
         self._keyevent_sender = (
             self._resolve_keyevent_sender(keyevent_sender) if prefer_keyevents else None
         )
+        self._reset_movement_evidence()
+
+    def _reset_movement_evidence(self) -> None:
+        self._dpad_actions = 0
+        self._dpad_progress_actions = 0
+        self._scroll_fallback_calls = 0
 
     def _resolve_keyevent_sender(
         self,
@@ -197,6 +214,7 @@ class DockInventoryTraversal:
                 "Внутренняя ошибка: DPAD action запрошен после его отключения."
             )
         sender(keycode)
+        self._dpad_actions += 1
         frame = self.capture_stable_frame()
         return frame, self.read_scroll_position()
 
@@ -242,11 +260,13 @@ class DockInventoryTraversal:
                 previous = position
                 candidate_frame, candidate = self._keyevent_candidate(self.DPAD_UP)
                 if candidate <= self.scroll.edge_threshold:
+                    self._dpad_progress_actions += 1
                     return candidate_frame, candidate
 
                 progressed = candidate < previous - self.progress_epsilon
                 reversed_too_far = candidate > previous + self.reverse_tolerance
                 if progressed and not reversed_too_far:
+                    self._dpad_progress_actions += 1
                     frame = candidate_frame
                     position = candidate
                     no_progress = 0
@@ -271,6 +291,7 @@ class DockInventoryTraversal:
                     f"DPAD_UP достиг лимита {self.max_top_keyevent_steps} действий"
                 )
 
+        self._scroll_fallback_calls += 1
         self.scroll.set_top(self.main, skip_first_screenshot=True)
         frame = self.capture_stable_frame()
         position = self.read_scroll_position()
@@ -283,6 +304,7 @@ class DockInventoryTraversal:
 
     def traverse(self, visitor: DockViewportVisitor) -> DockTraversalResult:
         """Visit top through the confirmed final bottom viewport exactly once."""
+        self._reset_movement_evidence()
         frame, position = self.canonicalize_top()
         positions: list[float] = []
         no_progress_retries = 0
@@ -309,6 +331,9 @@ class DockInventoryTraversal:
                     reached_bottom=True,
                     final_viewport_visited=True,
                     no_progress_retries=no_progress_retries,
+                    dpad_actions=self._dpad_actions,
+                    dpad_progress_actions=self._dpad_progress_actions,
+                    scroll_fallback_calls=self._scroll_fallback_calls,
                 )
 
             next_frame: np.ndarray | None = None
@@ -327,6 +352,7 @@ class DockInventoryTraversal:
                     progressed = candidate > position + self.progress_epsilon
                     reversed_too_far = candidate < position - self.reverse_tolerance
                     if reached_bottom or (progressed and not reversed_too_far):
+                        self._dpad_progress_actions += 1
                         next_frame = candidate_frame
                         next_position = candidate
                         break
@@ -353,6 +379,7 @@ class DockInventoryTraversal:
                         raise DockInventoryTraversalError(
                             f"Достигнут safety-лимит шагов Dock: {self.max_steps}."
                         )
+                    self._scroll_fallback_calls += 1
                     self.scroll.next_page(
                         self.main,
                         page=self.page_step,
