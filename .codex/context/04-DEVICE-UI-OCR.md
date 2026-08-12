@@ -135,18 +135,38 @@ crop
 - overlap соседних viewport сохраняется: cross-viewport dedup относится к
   следующему этапу, а не к scanner атрибутов.
 
-Traversal использует scrollbar как независимый источник истины о позиции,
-верхе, низе и факте прогресса. Известное host-side поведение стрелок MuMu не
-считается доказательством эквивалентности Android keyevent: runtime сначала
-пробует `KEYCODE_DPAD_UP`/`KEYCODE_DPAD_DOWN` через ADB и после каждого действия
-обязан получить новый стабильный кадр и измерить scrollbar. DPAD сохраняется
-только при доказанном движении в ожидаемую сторону; ошибка именно отправки
-keyevent или потеря scrollbar evidence после DPAD отключает этот path и
-переводит traversal на canonical `Scroll` fallback. Невозможность получить
-стабильный кадр не маскируется fallback-логикой и остаётся operational failure.
-`DockTraversalResult` сохраняет `dpad_actions`, `dpad_progress_actions` и
-`scroll_fallback_calls`, чтобы реальный smoke мог явно показать, какой путь
-движения сработал.
+Stage 3 не обязан видеть separator над самой верхней полностью видимой строкой.
+Если уже доказаны минимум две последовательные строки с canonical
+`ROW_DELTA`, scanner может вывести ровно один preceding row origin из их grid
+phase. Такой origin не принимается по одной геометрии: inferred row должен
+полностью помещаться в supported scan area и независимо пройти обычный
+per-slot presence scan с хотя бы одним `PRESENT`. При отсутствии presence
+строка не восстанавливается; identity/name/ship/slot-specific данные в этом
+решении не участвуют.
+
+После доказанного перехода к top traversal один раз выполняет малый
+детерминированный initial viewport nudge: swipe `(640, 360) -> (640, 338)` с
+медленной duration `0.25`. Его задача — убрать штатное верхнее смещение Dock,
+чтобы до первого visitor полностью помещались три card rows. Nudge принимается
+только если после нового stable frame scrollbar всё ещё находится внутри
+подтверждённого top threshold. Если nudge вывел scrollbar за top, traversal
+выполняет verified `Scroll.set_top`, повторно подтверждает top и не считает
+нормализацию применённой. Ошибка input backend или невозможность получить
+stable frame остаётся operational failure и не маскируется продолжением scan.
+
+После initial normalization обычное движение не зависит от числа кораблей или
+длины scrollbar thumb. Traversal использует scrollbar как независимый источник
+истины о позиции, верхе, низе и факте прогресса. Известное host-side поведение
+стрелок MuMu не считается доказательством эквивалентности Android keyevent:
+runtime сначала пробует `KEYCODE_DPAD_UP`/`KEYCODE_DPAD_DOWN` через ADB и после
+каждого действия обязан получить новый стабильный кадр и измерить scrollbar.
+DPAD сохраняется только при доказанном движении в ожидаемую сторону; ошибка
+именно отправки keyevent или потеря scrollbar evidence после DPAD отключает
+этот path и переводит traversal на canonical `Scroll` fallback. Невозможность
+получить стабильный кадр не маскируется fallback-логикой и остаётся operational
+failure. `DockTraversalResult` сохраняет `initial_nudge_applied`,
+`dpad_actions`, `dpad_progress_actions` и `scroll_fallback_calls`, чтобы реальный
+smoke мог явно показать, какой путь движения сработал.
 
 Runtime не читает сеть: identity и progression catalogs являются отдельными
 детерминированными generated sidecars с независимыми fingerprints.
