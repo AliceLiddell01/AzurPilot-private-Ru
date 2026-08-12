@@ -17,7 +17,10 @@ REPOSITORY_ROOT = Path(__file__).parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from module.dock_inventory.catalog import load_dock_identity_catalog
+from module.dock_inventory.catalog import (
+    DockIdentityCatalogError,
+    load_dock_identity_catalog,
+)
 
 SOURCE_REPOSITORY = "wess09/AzurPilot"
 SOURCE_COMMIT = "42ffc9566870ce3074c12d4faabf19bfaaafaf71"
@@ -39,6 +42,9 @@ SELECTION_CONTRACT = (
 )
 CATALOG_PATH = (
     Path(__file__).parents[1] / "assets" / "ship" / "dock_progression_catalog.json"
+)
+IDENTITY_CATALOG_PATH = (
+    Path(__file__).parents[1] / "assets" / "ship" / "dock_identity_catalog.json"
 )
 
 
@@ -389,6 +395,7 @@ def build_from_git(
     source_commit: str,
     supplemental_repo: Path,
     supplemental_commit: str,
+    identity_catalog_path: Path = IDENTITY_CATALOG_PATH,
 ) -> dict[str, object]:
     source_bytes, source_blob, resolved_source = _read_pinned_blob(
         repo,
@@ -423,9 +430,12 @@ def build_from_git(
         raise ProgressionGenerationError(
             "Upstream ship_data не является UTF-8 JSON."
         ) from exc
-    identity_catalog = load_dock_identity_catalog(
-        repo / "assets/ship/dock_identity_catalog.json"
-    )
+    try:
+        identity_catalog = load_dock_identity_catalog(identity_catalog_path)
+    except DockIdentityCatalogError as exc:
+        raise ProgressionGenerationError(
+            f"Identity catalog недоступен или некорректен: {identity_catalog_path}."
+        ) from exc
     provenance = {
         "source_repository": SOURCE_REPOSITORY,
         "source_commit": resolved_source,
@@ -457,6 +467,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument("--supplemental-repo", type=Path, required=True)
+    parser.add_argument("--identity-catalog", type=Path, default=IDENTITY_CATALOG_PATH)
     parser.add_argument("--source-commit", default=SOURCE_COMMIT)
     parser.add_argument(
         "--supplemental-source-commit", default=SUPPLEMENTAL_SOURCE_COMMIT
@@ -470,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
             args.source_commit,
             args.supplemental_repo.resolve(),
             args.supplemental_source_commit,
+            args.identity_catalog.resolve(),
         )
         expected = canonical_json_bytes(payload)
         if args.check:
