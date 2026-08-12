@@ -56,6 +56,18 @@ class DockLevelOcr(LevelOcr):
     ONE_DIGIT_BOTTOM = 23
     ONE_DIGIT_BINARY_THRESHOLD = 200
 
+    # v16.4: семь реальных ``Lv.1`` имели соседний artwork, который переживал
+    # обычный threshold. Отдельный более тёмный proof ищет длинный вертикальный
+    # stroke только в каноническом numeric core. Если proof не сложился, старый
+    # one-digit preprocessing остаётся полностью неизменным — это важно для
+    # будущих однозначных цифр, не похожих на ``1``.
+    ONE_DIGIT_STROKE_BINARY_THRESHOLD = 180
+    ONE_DIGIT_STROKE_CORE_LEFT = 1
+    ONE_DIGIT_STROKE_CORE_RIGHT = 6
+    ONE_DIGIT_STROKE_COLUMN_MIN = 14
+    ONE_DIGIT_STROKE_WIDTH_MAX = 3
+    ONE_DIGIT_STROKE_WINDOW_PADDING = 2
+
     @staticmethod
     def _normalize_level_pixels(image: np.ndarray) -> np.ndarray:
         image = np.array(image, copy=True)
@@ -94,7 +106,56 @@ class DockLevelOcr(LevelOcr):
             255,
             cv2.THRESH_BINARY,
         )
-        return binary
+        _threshold, stroke_binary = cv2.threshold(
+            region,
+            self.ONE_DIGIT_STROKE_BINARY_THRESHOLD,
+            255,
+            cv2.THRESH_BINARY,
+        )
+
+        foreground = stroke_binary < 128
+        column_counts = np.count_nonzero(foreground, axis=0)
+        core_counts = column_counts[
+            self.ONE_DIGIT_STROKE_CORE_LEFT : self.ONE_DIGIT_STROKE_CORE_RIGHT
+        ]
+        stroke_columns = np.flatnonzero(
+            core_counts >= self.ONE_DIGIT_STROKE_COLUMN_MIN
+        ) + self.ONE_DIGIT_STROKE_CORE_LEFT
+        if not 1 <= len(stroke_columns) <= self.ONE_DIGIT_STROKE_WIDTH_MAX:
+            return binary
+        if len(stroke_columns) > 1 and np.any(np.diff(stroke_columns) != 1):
+            return binary
+
+        # Не превращаем proof в нарисованную цифру: сохраняем реальные pixels
+        # вокруг доказанного stroke и только отбрасываем дальний artwork.
+        window_left = max(
+            0,
+            int(stroke_columns[0]) - self.ONE_DIGIT_STROKE_WINDOW_PADDING,
+        )
+        window_right = min(
+            stroke_binary.shape[1],
+            int(stroke_columns[-1]) + self.ONE_DIGIT_STROKE_WINDOW_PADDING + 1,
+        )
+        cleaned = np.full_like(stroke_binary, 255)
+        cleaned[:, window_left:window_right] = stroke_binary[:, window_left:window_right]
+        return cleaned
+
+    def _multi_digit_region(
+        self,
+        normalized: np.ndarray,
+        digit_count: int,
+    ) -> np.ndarray:
+        left = self.DIGIT_LEFT_BY_COUNT[digit_count]
+        region = np.array(normalized[:, left:], copy=True)
+
+        # ONES_AREA уже является canonical authority правого numeric slot.
+        # Всё правее его exclusive-right не участвовало в доказательстве цифры.
+        # v16.4 Roon ``Lv.125`` показал там длинный artwork-штрих, который OCR
+        # прочитал как четвёртую ``1``. Форму region сохраняем для старого OCR,
+        # но недоказанный хвост делаем белым до единственного OCR-прогона.
+        numeric_right = self.ONES_AREA[2] - left
+        region[:, numeric_right:] = 255
+        return region
 
     def pre_process(self, image: np.ndarray) -> np.ndarray:
         if (
@@ -143,7 +204,7 @@ class DockLevelOcr(LevelOcr):
 
         if digit_count == 1:
             return self._one_digit_region(normalized)
-        return normalized[:, self.DIGIT_LEFT_BY_COUNT[digit_count] :]
+        return self._multi_digit_region(normalized, digit_count)
 
 
 __all__ = ["DockLevelOcr"]
