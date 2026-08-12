@@ -175,6 +175,22 @@ class DockInventoryTraversal:
             )
         return frame, position
 
+    def _clear_confirmed_scroll_control_history(self) -> None:
+        """Forget only proven-successful Dock scroll controls.
+
+        The global device click guard is designed to catch repeated controls that
+        may indicate a stuck UI. A complete Dock traversal can legitimately need
+        more than twelve ``DOCK_SCROLL`` swipes, while this traversal already has
+        independent monotonic-progress, retry, step, and viewport safety guards.
+        Remove only this scroll control after a newly captured frame proves
+        forward progress. Failed/no-progress attempts remain in the device
+        history and still participate in the generic safety guard.
+        """
+        remover = getattr(self.main.device, "click_record_remove", None)
+        control_name = getattr(self.scroll, "name", None)
+        if callable(remover) and isinstance(control_name, str) and control_name:
+            remover(control_name)
+
     def traverse(self, visitor: DockViewportVisitor) -> DockTraversalResult:
         """Visit top through the confirmed final bottom viewport exactly once."""
         frame, position = self.canonicalize_top()
@@ -225,6 +241,7 @@ class DockInventoryTraversal:
                 progressed = candidate > position + self.progress_epsilon
                 reversed_too_far = candidate < position - self.reverse_tolerance
                 if reached_bottom or (progressed and not reversed_too_far):
+                    self._clear_confirmed_scroll_control_history()
                     next_frame = candidate_frame
                     next_position = candidate
                     break
