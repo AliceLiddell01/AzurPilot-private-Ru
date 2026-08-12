@@ -11,7 +11,7 @@ from typing import ClassVar, Protocol
 import cv2
 import numpy as np
 
-from module.dock_inventory.level_ocr import DockLevelOcr as LevelOcr
+from module.dock_inventory.level_ocr import DockLevelOcr
 from module.dock_inventory.card_grid import (
     DockCardGridScanner,
     DockCardPresence,
@@ -323,7 +323,9 @@ class DockLevelOcrAdapter:
         areas = tuple(areas)
         if not areas:
             return ()
-        result = LevelOcr(list(areas), name="DOCK_LEVEL_OCR", threshold=64).ocr(frame)
+        result = DockLevelOcr(
+            list(areas), name="DOCK_LEVEL_OCR", threshold=64
+        ).ocr(frame)
         values = result if isinstance(result, list) else [result]
         return tuple(values)
 
@@ -578,12 +580,12 @@ class DockStarScanner:
             matched = cv2.matchTemplate(
                 yellow, self._fill_template, cv2.TM_CCOEFF_NORMED
             )
+            gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+            edges = cv2.Canny(gray, 40, 100)
+            edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
         except cv2.error as exc:
             raise DockStarCvError(f"Операционный сбой Dock star CV: {exc}") from exc
 
-        gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
-        edges = cv2.Canny(gray, 40, 100)
-        edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
         outline_y, outline_x = np.where(self._outline_template > 0)
         first = self._first_filled_star(
             first_glyph_yellow,
@@ -641,7 +643,9 @@ class DockStarScanner:
                 max(0, top - 2) : min(matched.shape[0], top + 3),
                 max(0, left - 2) : min(matched.shape[1], left + 3),
             ]
-            fill_match_score = float(max(0.0, np.max(match_neighborhood)))
+            fill_match_score = float(
+                min(1.0, max(0.0, float(np.max(match_neighborhood))))
+            )
             if shape_score < self.SHAPE_SCORE_MIN:
                 state = DockStarGlyphState.UNKNOWN
             elif (
