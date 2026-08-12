@@ -19,9 +19,14 @@ STAR_ROI_SHAPE = (26, 138, 3)
 
 
 def _load_patch_rgb() -> np.ndarray:
-    parts = sorted(FIXTURE_DIR.glob(f"{FIXTURE_PREFIX}*"))
-    assert len(parts) == FIXTURE_PART_COUNT
-    encoded = "".join(part.read_text(encoding="ascii") for part in parts)
+    parts = tuple(
+        FIXTURE_DIR / f"{FIXTURE_PREFIX}{index:02d}"
+        for index in range(1, FIXTURE_PART_COUNT + 1)
+    )
+    assert all(part.is_file() for part in parts)
+    encoded = "".join(
+        "".join(part.read_text(encoding="ascii").split()) for part in parts
+    )
     payload = base64.b64decode(encoded, validate=True)
     assert hashlib.sha256(payload).hexdigest() == FIXTURE_SHA256
     bgr = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
