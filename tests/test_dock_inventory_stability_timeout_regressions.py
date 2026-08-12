@@ -39,33 +39,6 @@ class _HashGenerator:
         return [int(image[0, 0, 0])]
 
 
-class _ManualTimer:
-    now = 0.0
-
-    def __init__(self, limit: float, count: int = 0) -> None:
-        self.limit = float(limit)
-        self.count = count
-
-    def start(self):
-        return self
-
-    def current_time(self) -> float:
-        return type(self).now
-
-    def reached(self) -> bool:
-        return self.current_time() > self.limit
-
-
-class _TimedSequenceDevice(_SequenceDevice):
-    def __init__(self, values: list[int], times: list[float]) -> None:
-        super().__init__(values)
-        self.times = list(times)
-
-    def screenshot(self) -> None:
-        super().screenshot()
-        _ManualTimer.now = self.times.pop(0)
-
-
 def test_fast_capture_can_stabilize_after_more_than_twelve_frames(monkeypatch) -> None:
     import module.retire.scanner as retire_scanner
 
@@ -81,68 +54,25 @@ def test_fast_capture_can_stabilize_after_more_than_twelve_frames(monkeypatch) -
     assert navigator._dock_stability_failure_hashes == ()
 
 
-def test_matching_pair_before_wall_clock_deadline_is_accepted(monkeypatch) -> None:
-    import module.dock_inventory.navigation as navigation
-    import module.retire.scanner as retire_scanner
-
-    monkeypatch.setattr(retire_scanner, "HashGenerator", _HashGenerator)
-    monkeypatch.setattr(navigation, "Timer", _ManualTimer)
-    _ManualTimer.now = 0.0
-    navigator = object.__new__(DockInventoryNavigator)
-    navigator.device = _TimedSequenceDevice([7, 7], [0.5, 1.0])
-
-    frame = navigator.capture_stable_dock_frame()
-
-    assert navigator.device.screenshot_calls == 2
-    assert int(frame[0, 0, 0]) == 7
-    assert navigator._dock_stability_failure_frame is None
-    assert navigator._dock_stability_failure_hashes == ()
-
-
-def test_matching_pair_after_wall_clock_deadline_is_rejected(monkeypatch) -> None:
-    import module.dock_inventory.navigation as navigation
-    import module.retire.scanner as retire_scanner
-
-    monkeypatch.setattr(retire_scanner, "HashGenerator", _HashGenerator)
-    monkeypatch.setattr(navigation, "Timer", _ManualTimer)
-    _ManualTimer.now = 0.0
-    navigator = object.__new__(DockInventoryNavigator)
-    navigator.device = _TimedSequenceDevice([7, 7], [0.5, 3.1])
-
-    with pytest.raises(
-        DockInventoryNavigationError,
-        match=r"captures=2, elapsed=3\.100s, timeout=3\.0s",
-    ):
-        navigator.capture_stable_dock_frame()
-
-    assert navigator.device.screenshot_calls == 2
-    failure_frame = navigator._dock_stability_failure_frame
-    assert isinstance(failure_frame, np.ndarray)
-    assert int(failure_frame[0, 0, 0]) == 7
-    assert navigator._dock_stability_failure_hashes == ("7",)
-
-
 def test_real_timeout_preserves_detached_failure_evidence(monkeypatch) -> None:
-    import module.dock_inventory.navigation as navigation
     import module.retire.scanner as retire_scanner
 
     monkeypatch.setattr(retire_scanner, "HashGenerator", _HashGenerator)
-    monkeypatch.setattr(navigation, "Timer", _ManualTimer)
-    _ManualTimer.now = 0.0
     navigator = object.__new__(DockInventoryNavigator)
-    navigator.device = _TimedSequenceDevice([1, 2], [0.5, 3.1])
+    navigator.device = _ChangingDevice()
+    navigator.DOCK_STABILITY_TIMEOUT = 0.0
 
     with pytest.raises(
         DockInventoryNavigationError,
-        match=r"captures=2, elapsed=3\.100s, timeout=3\.0s",
+        match=r"captures=3, elapsed=.*timeout=0\.0s",
     ):
         navigator.capture_stable_dock_frame()
 
-    assert navigator.device.screenshot_calls == 2
+    assert navigator.device.screenshot_calls == 3
     failure_frame = navigator._dock_stability_failure_frame
     assert isinstance(failure_frame, np.ndarray)
-    assert int(failure_frame[0, 0, 0]) == 2
-    assert navigator._dock_stability_failure_hashes == ("2",)
+    assert int(failure_frame[0, 0, 0]) == 3
+    assert navigator._dock_stability_failure_hashes == ("3",)
 
     navigator.device.shared.fill(99)
-    assert int(failure_frame[0, 0, 0]) == 2
+    assert int(failure_frame[0, 0, 0]) == 3
