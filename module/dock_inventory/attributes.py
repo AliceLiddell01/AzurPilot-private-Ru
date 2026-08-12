@@ -331,9 +331,6 @@ class DockLevelOcrAdapter:
 class DockLevelScanner:
     """Read levels from dynamic slot-relative ROIs without legacy clamping."""
 
-    # The legacy EN CARD_LEVEL_GRIDS authority is (77, 5, 138, 27). Real
-    # 1280x720 calibration extends its vertical anti-aliasing margin and drops
-    # the rightmost decoration column which otherwise becomes a false "1".
     LEVEL_LEFT = 77
     LEVEL_TOP = 0
     LEVEL_RIGHT = 135
@@ -455,9 +452,6 @@ class DockStarScanner:
     FIRST_COMPONENT_HEIGHT_MAX = 15
     FIRST_COMPONENT_CENTER_Y_MIN = 13.0
     FIRST_COMPONENT_CENTER_Y_MAX = 21.0
-    # The UI centers rows of the three source-proven totals differently. The
-    # total is selected from the bright component of the first filled star, never
-    # copied from identity metadata.
     SUPPORTED_TOTAL_FIRST_CENTERS: ClassVar[dict[int, float]] = {
         4: 48.5,
         5: 41.5,
@@ -470,14 +464,8 @@ class DockStarScanner:
     FILLED_WEAK_MATCH_MIN = 0.18
     FILLED_WEAK_RATIO_MIN = 0.25
     FILLED_WEAK_UPPER_RATIO_MIN = 0.23
-    # Some real filled glyphs have a dim upper point but retain a dense lower
-    # body. Keep this as a per-glyph visual rule: neighbouring glyph states
-    # must never upgrade an ambiguous observation.
     FILLED_LOWER_HEAVY_RATIO_MIN = 0.30
     FILLED_LOWER_HEAVY_UPPER_RATIO_MIN = 0.16
-    # Real outlined empty glyphs retain small yellow anti-aliased/highlight
-    # fragments. The calibrated cutoff stays below the weakest continuous
-    # filled-row evidence on the acceptance frame sets.
     EMPTY_RATIO_MAX = 0.245
     SHAPE_SCORE_MIN = 0.45
     GLYPH_ALIGNMENT_RADIUS = 2
@@ -501,6 +489,7 @@ class DockStarScanner:
         self._outline_distance = cv2.distanceTransform(
             255 - self._outline_template, cv2.DIST_L2, 3
         )
+        self._outline_falloff = np.exp(-(self._outline_distance**2) / 4.0)
 
     @classmethod
     def _build_templates(cls) -> tuple[np.ndarray, np.ndarray]:
@@ -586,10 +575,8 @@ class DockStarScanner:
             gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
             edges = cv2.Canny(gray, 40, 100)
             edge_distance = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
-            first = self._first_filled_star(
-                first_glyph_yellow,
-                matched,
-            )
+            edge_falloff = np.exp(-(edge_distance**2) / 4.0)
+            first = self._first_filled_star(first_glyph_yellow, matched)
         except cv2.error as exc:
             raise DockStarCvError(f"Операционный сбой Dock star CV: {exc}") from exc
 
@@ -618,7 +605,7 @@ class DockStarScanner:
                 )
             aligned = self._best_shape_alignment(
                 edges,
-                edge_distance,
+                edge_falloff,
                 center_x,
                 first_center_y,
                 self._outline_x,
@@ -793,15 +780,12 @@ class DockStarScanner:
             candidates.append((canonical_center_x, canonical_center_y, total))
         if not candidates:
             return None
-        # The inner four glyphs of a six-star row align with a standalone
-        # four-star row. A shorter layout is therefore a subset of a longer one,
-        # so the candidate with the largest proven total wins.
         return max(candidates, key=lambda value: value[2])
 
     def _best_shape_alignment(
         self,
         edges: np.ndarray,
-        edge_distance: np.ndarray,
+        edge_falloff: np.ndarray,
         center_x: int,
         center_y: int,
         outline_x: np.ndarray,
@@ -829,7 +813,7 @@ class DockStarScanner:
                     continue
                 score = self._shape_score(
                     edges[top:bottom, left:right],
-                    edge_distance,
+                    edge_falloff,
                     left,
                     top,
                     outline_x,
@@ -843,23 +827,19 @@ class DockStarScanner:
     def _shape_score(
         self,
         edge_patch: np.ndarray,
-        edge_distance: np.ndarray,
+        edge_falloff: np.ndarray,
         left: int,
         top: int,
         outline_x: np.ndarray,
         outline_y: np.ndarray,
     ) -> float:
         template_to_image = float(
-            np.exp(
-                -(edge_distance[top + outline_y, left + outline_x] ** 2) / 4.0
-            ).mean()
+            edge_falloff[top + outline_y, left + outline_x].mean()
         )
         edge_y, edge_x = np.where(edge_patch > 0)
         if not len(edge_y):
             return 0.0
-        image_to_template = float(
-            np.exp(-(self._outline_distance[edge_y, edge_x] ** 2) / 4.0).mean()
-        )
+        image_to_template = float(self._outline_falloff[edge_y, edge_x].mean())
         denominator = template_to_image + image_to_template
         if denominator <= 0.0:
             return 0.0
