@@ -162,19 +162,38 @@ actions, после чего весь traversal выполнил `Scroll` fallba
 После доказанного перехода к top `DockMuMuInventoryTraversal` один раз пробует
 малый initial viewport nudge через ADB swipe `(640, 360) -> (640, 336)`. Сам
 факт изменения пикселей кадра не является evidence: Dock содержит локальные
-анимации, которые в v15 дали ложный `initial_nudge_applied`. Новый nudge
-принимается только при одновременном выполнении условий:
+анимации, которые в v15 дали ложный `initial_nudge_applied`.
 
-- после нового stable frame scrollbar всё ещё внутри подтверждённого top
-  threshold;
+Nudge вообще не отправляется, если исходный stable frame не поддерживает
+MuMu 1280x720 motion-proof ROI. Это сохраняет generic fallback для другой
+геометрии и не оставляет UI в неизвестном положении после жеста, который нельзя
+проверить.
+
+После отправленного nudge новый stable frame принимается только при
+одновременном выполнении условий:
+
+- scrollbar всё ещё внутри подтверждённого top threshold;
 - phase correlation по центральной Dock ROI доказывает почти вертикальный
   глобальный сдвиг: `|dx| <= 8`, `-36 <= dy <= -12`;
 - phase-correlation response не ниже `0.55`.
 
-Если nudge не доказан или вывел scrollbar за top threshold, traversal выполняет
-verified `Scroll.set_top`, повторно подтверждает top и не считает нормализацию
-применённой. Ошибка input backend или невозможность получить stable frame
-остаётся operational failure и не маскируется продолжением scan.
+Если phase correlation при хорошем response доказывает практически отсутствие
+глобального движения (`|dy| <= 4`), traversal использует исходный detached top
+frame и не вызывает `Scroll.set_top`: это отделяет локальную анимацию от
+реального движения списка.
+
+Если scrollbar после nudge действительно вышел за top threshold,
+`Scroll.set_top` разрешён только как rollback. После него traversal обязан не
+только снова увидеть top scrollbar, но и phase-correlation доказать возврат к
+исходной content-phase (`|dy| <= 4`). Такой rollback отмечается отдельным
+`initial_nudge_reverted` и не увеличивает счётчик реальных
+`Scroll.next_page` fallback-переходов.
+
+Любой другой доказанный micro-shift, слишком слабый phase response либо потеря
+scrollbar evidence после уже отправленного nudge являются operational failure.
+Top-position scrollbar сам по себе не считается доказательством исходной
+геометрии: реальные пользовательские screenshots показали, что содержимое может
+быть сдвинуто примерно на одну малую фазу при неизменном top thumb.
 
 После initial normalization основной MuMu path посылает фиксированный ADB swipe
 `(640, 560) -> (640, 160)`. Ни отправка команды, ни длина жеста сами по себе не
@@ -183,13 +202,18 @@ verified `Scroll.set_top`, повторно подтверждает top и не
 верхней/нижней границы и факта движения; число кораблей и длина scrollbar thumb
 не используются для вычисления позиции следующего окна.
 
-Если MuMu ADB swipe недоступен, бросает transport error, теряет scrollbar
-evidence или ограниченное число попыток не подтверждает движение к низу, этот
-path отключается и traversal продолжает через существующий canonical
-`Scroll.next_page` fallback. Невозможность получить stable frame не маскируется
-fallback-логикой. `DockMuMuTraversalResult` сохраняет
-`mumu_swipe_actions`, `mumu_swipe_progress_actions`,
-`initial_nudge_shift_y`, `initial_nudge_phase_response`, а базовый контракт
+Safety-счётчик основного traversal увеличивается только на реально отправленные
+MuMu swipe либо выполненные `Scroll.next_page`; ошибка ADB sender до отправки
+жеста не расходует бюджет fallback. Одноразовый setup nudge и его максимум один
+rollback ограничены самим control-flow и отдельно отражаются в evidence.
+
+Если MuMu ADB swipe недоступен, бросает transport error или ограниченное число
+попыток не подтверждает движение к низу, этот path отключается и traversal
+продолжает через существующий canonical `Scroll.next_page` fallback.
+Невозможность получить stable frame не маскируется fallback-логикой.
+`DockMuMuTraversalResult` сохраняет `mumu_swipe_actions`,
+`mumu_swipe_progress_actions`, `initial_nudge_shift_y`,
+`initial_nudge_phase_response`, `initial_nudge_reverted`, а базовый контракт
 сохраняет `scroll_fallback_calls` и `initial_nudge_applied`, чтобы реальный smoke
 явно показывал фактически использованный путь движения.
 
