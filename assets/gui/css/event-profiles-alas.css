@@ -1,91 +1,525 @@
-/* Event profile editor: scoped modal glass-card. */
+/* Modern Event experience: scoped dashboard, compact actions and progressive disclosure. */
 
-.modal-dialog:has(.event-profile-dialog-marker) {
-    width: min(44rem, calc(100vw - 2rem)) !important;
-    max-width: 44rem !important;
-    margin: 1.5rem auto !important;
+:root {
+    --event-surface: color-mix(in srgb, var(--alas-apple-card-bg) 88%, transparent);
+    --event-surface-strong: color-mix(in srgb, var(--alas-apple-card-bg-solid) 82%, transparent);
+    --event-surface-soft: color-mix(in srgb, var(--alas-apple-card-bg) 62%, transparent);
+    --event-border: var(--alas-apple-glass-border);
+    --event-divider: var(--alas-apple-border);
+    --event-text: var(--alas-apple-text);
+    --event-muted: var(--alas-apple-text-secondary);
+    --event-accent: var(--alas-apple-accent);
+    --event-accent-soft: var(--alas-apple-accent-light);
+    --event-success: #34c759;
+    --event-warning: #ff9f0a;
+    --event-radius: var(--radius-xl, 20px);
+    --event-shadow: var(--alas-apple-shadow-md);
+    --event-shadow-lg: var(--alas-apple-shadow-lg);
+    --event-ease: 180ms cubic-bezier(.2, .8, .2, 1);
 }
 
-.modal-content:has(.event-profile-dialog-marker) {
-    overflow: hidden !important;
-    border: 1px solid var(--alas-apple-glass-border, rgba(148, 163, 184, .24)) !important;
-    border-radius: var(--radius-lg, 16px) !important;
-    background-color: var(--alas-apple-card-bg, rgba(15, 23, 42, .78)) !important;
-    backdrop-filter: blur(20px) saturate(180%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-    box-shadow: var(--alas-apple-shadow-lg, 0 18px 42px rgba(0, 0, 0, .46)) !important;
-}
-
-.modal-content:has(.event-profile-dialog-marker) .modal-header,
-.modal-content:has(.event-profile-dialog-marker) .modal-body,
-.modal-content:has(.event-profile-dialog-marker) .modal-footer {
-    background-color: transparent !important;
-    border-color: var(--alas-apple-border, rgba(148, 163, 184, .18)) !important;
-}
-
-.modal-content:has(.event-profile-dialog-marker) .modal-header {
-    padding: .85rem 1rem .6rem !important;
-}
-
-.modal-content:has(.event-profile-dialog-marker) .modal-body {
-    padding: .75rem 1rem 1rem !important;
-}
-
-.modal-content:has(.event-profile-dialog-marker) .form-group {
-    margin-bottom: .7rem !important;
-}
-
-.modal-content:has(.event-profile-dialog-marker) .form-control {
-    border-radius: var(--radius-sm, 8px) !important;
-}
-
-.modal-content:has(.event-profile-dialog-marker) .btn {
-    border-radius: var(--radius-sm, 8px) !important;
-}
-
-.event-profile-dialog-marker {
+.event-profile-dialog-marker,
+.event-modern-dialog-marker {
     display: none !important;
 }
 
-/* Event advanced groups: native details keeps PyWebIO group scopes unique. */
-.event-advanced-details {
-    margin: .55rem 0;
+.modal-dialog:has(.event-profile-dialog-marker),
+.modal-dialog:has(.event-modern-dialog-marker) {
+    width: min(48rem, calc(100vw - 2rem)) !important;
+    max-width: 48rem !important;
+    margin: 1.5rem auto !important;
+}
+
+.modal-content:has(.event-profile-dialog-marker),
+.modal-content:has(.event-modern-dialog-marker),
+body.event-modern-active .modal-content {
+    overflow: hidden !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: var(--event-radius) !important;
+    background: var(--event-surface-strong) !important;
+    backdrop-filter: blur(24px) saturate(170%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(170%) !important;
+    box-shadow: var(--event-shadow-lg) !important;
+}
+
+body.event-modern-active .modal-content .modal-header,
+body.event-modern-active .modal-content .modal-body,
+body.event-modern-active .modal-content .modal-footer,
+.modal-content:has(.event-profile-dialog-marker) .modal-header,
+.modal-content:has(.event-profile-dialog-marker) .modal-body,
+.modal-content:has(.event-profile-dialog-marker) .modal-footer {
+    background: transparent !important;
+    border-color: var(--event-divider) !important;
+}
+
+body.event-modern-active .modal-content .modal-header,
+.modal-content:has(.event-profile-dialog-marker) .modal-header {
+    padding: 1rem 1.15rem .7rem !important;
+}
+
+body.event-modern-active .modal-content .modal-body,
+.modal-content:has(.event-profile-dialog-marker) .modal-body {
+    padding: .8rem 1.15rem 1.15rem !important;
+}
+
+/* Event-only shell: stronger hierarchy than the stock PyWebIO cards. */
+#pywebio-scope-content.event-modern-page #pywebio-scope-groups {
+    overflow: visible !important;
+}
+
+#pywebio-scope-content.event-modern-page #pywebio-scope-groups > *,
+#pywebio-scope-content.event-modern-page [id^="pywebio-scope-group_"] {
+    border: 1px solid var(--event-border) !important;
+    border-radius: var(--event-radius) !important;
+    background: var(--event-surface) !important;
+    backdrop-filter: blur(18px) saturate(155%) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(155%) !important;
+    box-shadow: var(--event-shadow) !important;
+    padding: 18px !important;
+    margin-bottom: 14px !important;
+    transition: border-color var(--event-ease), box-shadow var(--event-ease), transform var(--event-ease) !important;
+}
+
+#pywebio-scope-content.event-modern-page #pywebio-scope-groups > *:hover,
+#pywebio-scope-content.event-modern-page [id^="pywebio-scope-group_"]:hover {
+    box-shadow: var(--event-shadow-lg) !important;
+}
+
+#pywebio-scope-content.event-modern-page .btn:not(.btn-menu):not(.btn-aside) {
+    border-radius: 12px !important;
+    margin: 3px 0 !important;
+    padding: 8px 14px !important;
+    line-height: 1.2 !important;
+    transition: transform var(--event-ease), background-color var(--event-ease), border-color var(--event-ease), box-shadow var(--event-ease) !important;
+}
+
+#pywebio-scope-content.event-modern-page .btn:not(.btn-menu):not(.btn-aside):hover {
+    transform: translateY(-1px);
+}
+
+#pywebio-scope-content.event-modern-page .btn:not(.btn-menu):not(.btn-aside):active {
+    transform: translateY(0) scale(.97) !important;
+}
+
+.event-dashboard-hero,
+.event-shop-hero {
+    position: relative;
     overflow: hidden;
-    border: 1px solid var(--alas-apple-glass-border, rgba(148, 163, 184, .18));
-    border-radius: var(--radius-md, 12px);
-    background-color: var(--alas-apple-card-bg, rgba(15, 23, 42, .58));
-    backdrop-filter: blur(14px) saturate(150%);
-    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    border: 1px solid color-mix(in srgb, var(--event-accent) 22%, var(--event-border));
+    border-radius: calc(var(--event-radius) - 2px);
+    background:
+        radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--event-accent) 18%, transparent) 0, transparent 34%),
+        linear-gradient(135deg, color-mix(in srgb, var(--event-surface-strong) 90%, transparent), var(--event-surface-soft));
+    padding: clamp(18px, 2vw, 28px);
+    margin-bottom: 12px;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+}
+
+.event-dashboard-hero::after,
+.event-shop-hero::after {
+    content: "";
+    position: absolute;
+    width: 260px;
+    height: 260px;
+    right: -120px;
+    top: -150px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--event-accent) 11%, transparent);
+    pointer-events: none;
+}
+
+.event-eyebrow {
+    margin-bottom: 5px;
+    color: var(--event-accent);
+    font-size: .76rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.event-dashboard-hero h3,
+.event-shop-hero h3 {
+    margin: 0;
+    color: var(--event-text);
+    font-size: clamp(1.25rem, 1.8vw, 1.75rem);
+    font-weight: 720;
+    letter-spacing: -.025em;
+}
+
+.event-hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    margin-top: 9px;
+    color: var(--event-muted);
+    font-size: .88rem;
+}
+
+.event-hero-meta strong {
+    color: var(--event-text);
+}
+
+.event-status-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 4px 9px;
+    border: 1px solid var(--event-border);
+    border-radius: 999px;
+    background: var(--event-surface-soft);
+    color: var(--event-muted);
+    font-size: .76rem;
+    font-weight: 600;
+}
+
+.event-status-success { color: var(--event-success); }
+.event-status-warning { color: var(--event-warning); }
+
+.event-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.event-metric-card {
+    min-width: 0;
+    border: 1px solid var(--event-border);
+    border-radius: 15px;
+    background: color-mix(in srgb, var(--event-surface-strong) 72%, transparent);
+    padding: 14px 15px;
+    transition: transform var(--event-ease), border-color var(--event-ease);
+}
+
+.event-metric-card:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--event-accent) 30%, var(--event-border));
+}
+
+.event-metric-card.event-metric-accent {
+    background: linear-gradient(145deg, color-mix(in srgb, var(--event-accent) 17%, var(--event-surface-strong)), var(--event-surface-strong));
+}
+
+.event-metric-label,
+.event-metric-card > small {
+    display: block;
+    color: var(--event-muted);
+    font-size: .75rem;
+}
+
+.event-metric-card > strong {
+    display: block;
+    overflow: hidden;
+    margin: 4px 0;
+    color: var(--event-text);
+    font-size: clamp(1.05rem, 1.4vw, 1.38rem);
+    font-weight: 740;
+    text-overflow: ellipsis;
+}
+
+.event-progress-label {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 13px;
+    border-top: 1px solid var(--event-divider);
+    color: var(--event-muted);
+    font-size: .8rem;
+}
+
+.event-progress-label strong { color: var(--event-text); }
+
+.event-progress-track {
+    overflow: hidden;
+    height: 7px;
+    margin-top: 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--event-muted) 14%, transparent);
+}
+
+.event-progress-track > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--event-accent), color-mix(in srgb, var(--event-accent) 62%, #7dd3fc));
+    box-shadow: 0 0 16px color-mix(in srgb, var(--event-accent) 25%, transparent);
+    transition: width 380ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.event-section-heading,
+.event-subsection-heading,
+.event-map-intro {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.event-section-heading {
+    margin: 22px 0 10px;
+}
+
+.event-section-heading > span,
+.event-map-intro > span {
+    color: var(--event-text);
+    font-size: 1rem;
+    font-weight: 720;
+}
+
+.event-section-heading > small,
+.event-map-intro > small {
+    color: var(--event-muted);
+    font-size: .79rem;
+}
+
+.event-subsection-heading {
+    margin: 12px 0 6px;
+}
+
+.event-subsection-heading > span:first-child {
+    color: var(--event-text);
+    font-size: .86rem;
+    font-weight: 650;
+}
+
+.event-subsection-count {
+    display: inline-flex;
+    min-width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--event-border);
+    border-radius: 999px;
+    background: var(--event-surface-soft);
+    color: var(--event-muted);
+    font-size: .7rem;
+}
+
+.event-inline-empty,
+.event-empty-card {
+    border: 1px dashed color-mix(in srgb, var(--event-muted) 28%, transparent);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--event-surface-soft) 70%, transparent);
+    color: var(--event-muted);
+}
+
+.event-inline-empty { padding: 11px 13px; font-size: .82rem; }
+.event-empty-card { display: flex; flex-direction: column; gap: 3px; padding: 18px; margin: 10px 0; }
+.event-empty-card strong { color: var(--event-text); font-size: .9rem; }
+.event-empty-card small { color: var(--event-muted); font-size: .78rem; }
+
+/* Compact data surfaces instead of stock admin tables. */
+#pywebio-scope-content.event-modern-page .table {
+    overflow: hidden;
+    margin: 8px 0 10px !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: 14px !important;
+    background: color-mix(in srgb, var(--event-surface-strong) 64%, transparent) !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    box-shadow: none !important;
+}
+
+#pywebio-scope-content.event-modern-page .table thead th {
+    border: 0 !important;
+    border-bottom: 1px solid var(--event-divider) !important;
+    background: color-mix(in srgb, var(--event-surface-strong) 82%, transparent) !important;
+    color: var(--event-muted) !important;
+    padding: 9px 11px !important;
+    font-size: .72rem !important;
+    font-weight: 680 !important;
+}
+
+#pywebio-scope-content.event-modern-page .table tbody td {
+    border: 0 !important;
+    border-bottom: 1px solid var(--event-divider) !important;
+    background: transparent !important;
+    color: var(--event-text) !important;
+    padding: 9px 11px !important;
+    vertical-align: middle !important;
+    font-size: .82rem !important;
+}
+
+#pywebio-scope-content.event-modern-page .table tbody tr:last-child td { border-bottom: 0 !important; }
+#pywebio-scope-content.event-modern-page .table tbody tr:hover td { background: color-mix(in srgb, var(--event-accent) 7%, transparent) !important; }
+#pywebio-scope-content.event-modern-page .table .btn { padding: 6px 10px !important; font-size: .76rem !important; }
+
+.event-shop-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+}
+
+.event-shop-hero p {
+    max-width: 720px;
+    margin: 7px 0 0;
+    color: var(--event-muted);
+    font-size: .84rem;
+}
+
+.event-shop-total {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    min-width: 150px;
+    flex-direction: column;
+    align-items: flex-end;
+    border: 1px solid color-mix(in srgb, var(--event-accent) 24%, var(--event-border));
+    border-radius: 15px;
+    background: color-mix(in srgb, var(--event-surface-strong) 76%, transparent);
+    padding: 12px 14px;
+}
+
+.event-shop-total > span,
+.event-shop-total > small { color: var(--event-muted); font-size: .72rem; }
+.event-shop-total > strong { margin: 2px 0; color: var(--event-text); font-size: 1.55rem; }
+
+.event-automation-status,
+.event-inline-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 10px 0;
+    border: 1px solid var(--event-border);
+    border-radius: 13px;
+    background: var(--event-surface-soft);
+    padding: 11px 13px;
+}
+
+.event-automation-status > div { display: flex; min-width: 0; flex-direction: column; }
+.event-automation-status strong,
+.event-inline-note strong { color: var(--event-text); font-size: .82rem; }
+.event-automation-status small,
+.event-inline-note span { margin-top: 2px; color: var(--event-muted); font-size: .76rem; line-height: 1.4; }
+
+.event-automation-icon {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: var(--event-muted);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--event-muted) 10%, transparent);
+}
+
+.event-automation-status.event-status-success .event-automation-icon { background: var(--event-success); }
+.event-automation-status.event-status-warning .event-automation-icon { background: var(--event-warning); }
+.event-inline-note { flex-direction: column; }
+.event-inline-note-warning { border-color: color-mix(in srgb, var(--event-warning) 26%, var(--event-border)); }
+
+.event-map-intro {
+    border: 1px solid color-mix(in srgb, var(--event-accent) 18%, var(--event-border));
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--event-accent-soft), transparent);
+    padding: 13px 15px;
+}
+
+/* Progressive disclosure for rare runtime controls. */
+.event-advanced-details {
+    overflow: hidden;
+    margin: 10px 0 14px;
+    border: 1px solid var(--event-border);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--event-surface) 86%, transparent);
+    backdrop-filter: blur(16px) saturate(145%);
+    -webkit-backdrop-filter: blur(16px) saturate(145%);
 }
 
 .event-advanced-details > summary {
-    padding: .8rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 15px;
     cursor: pointer;
-    font-weight: 600;
+    color: var(--event-text);
+    font-size: .84rem;
+    font-weight: 650;
+    list-style: none;
     user-select: none;
 }
 
-.event-advanced-details[open] > summary {
-    border-bottom: 1px solid var(--alas-apple-border, rgba(148, 163, 184, .14));
+.event-advanced-details > summary::-webkit-details-marker { display: none; }
+.event-advanced-details[open] > summary { border-bottom: 1px solid var(--event-divider); }
+.event-advanced-description { padding: 10px 15px 6px; color: var(--event-muted); font-size: .78rem; }
+.event-advanced-body { padding: 0 8px 8px; }
+
+.event-details-chevron {
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid var(--event-muted);
+    border-bottom: 1.5px solid var(--event-muted);
+    transform: rotate(45deg) translateY(-2px);
+    transition: transform var(--event-ease);
 }
 
-.event-advanced-description {
-    padding: .65rem 1rem .25rem;
-    opacity: .78;
-    font-size: .9rem;
+.event-advanced-details[open] .event-details-chevron { transform: rotate(225deg) translate(-2px, -2px); }
+
+#pywebio-scope-content.event-modern-page .event-advanced-body > [id^="pywebio-scope-group_"] {
+    margin: 6px 0 0 !important;
+    border-radius: 13px !important;
+    background: color-mix(in srgb, var(--event-surface-soft) 76%, transparent) !important;
+    box-shadow: none !important;
 }
 
-.event-advanced-body {
-    padding: 0 .4rem .4rem;
+/* Native maintenance collapses are deliberately subordinate. */
+#pywebio-scope-content.event-modern-page details:not(.event-advanced-details) {
+    overflow: hidden;
+    margin-top: 10px;
+    border: 1px solid var(--event-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--event-surface-soft) 78%, transparent);
 }
 
-.event-advanced-body > [id^="pywebio-scope-group_"] {
-    margin-top: .4rem;
+#pywebio-scope-content.event-modern-page details:not(.event-advanced-details) > summary {
+    padding: 11px 13px;
+    color: var(--event-muted);
+    font-size: .8rem;
+    font-weight: 620;
 }
 
-@media (max-width: 640px) {
-    .modal-dialog:has(.event-profile-dialog-marker) {
+/* Additional Event profiles inherit the same compact surface. */
+#pywebio-scope-group_EventProfiles .pywebio-output > div,
+#pywebio-scope-group_EventProfiles .row {
+    gap: 8px;
+}
+
+@media (max-width: 1100px) {
+    .event-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+    #pywebio-scope-content.event-modern-page #pywebio-scope-groups > *,
+    #pywebio-scope-content.event-modern-page [id^="pywebio-scope-group_"] {
+        padding: 13px !important;
+        border-radius: 16px !important;
+    }
+    .event-dashboard-hero,
+    .event-shop-hero { padding: 16px; border-radius: 15px; }
+    .event-shop-hero { grid-template-columns: 1fr; }
+    .event-shop-total { width: 100%; align-items: flex-start; }
+    .event-metrics-grid { grid-template-columns: 1fr 1fr; }
+    .event-hero-meta { flex-direction: column; align-items: flex-start; gap: 5px; }
+    .event-section-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+}
+
+@media (max-width: 520px) {
+    .modal-dialog:has(.event-profile-dialog-marker),
+    .modal-dialog:has(.event-modern-dialog-marker) {
         width: calc(100vw - 1rem) !important;
         margin: .5rem auto !important;
+    }
+    .event-metrics-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #pywebio-scope-content.event-modern-page *,
+    body.event-modern-active .modal-content * {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
     }
 }
