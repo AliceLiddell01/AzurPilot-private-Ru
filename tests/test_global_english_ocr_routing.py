@@ -22,6 +22,15 @@ class GlobalEnglishOcrRoutingTests(unittest.TestCase):
             )
         )
 
+    def test_dock_primary_level_name_keeps_compact_model(self) -> None:
+        self.assertFalse(
+            should_use_general_english(
+                "0123456789IDSB",
+                name="DOCK_LEVEL_OCR",
+                recognizer_type="Digit",
+            )
+        )
+
     def test_audited_zone_name_uses_general_english(self) -> None:
         self.assertTrue(should_use_general_english(None, name="OCR_OS_MAP_NAME"))
 
