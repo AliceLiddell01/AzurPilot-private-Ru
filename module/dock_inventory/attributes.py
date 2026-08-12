@@ -468,7 +468,11 @@ class DockStarScanner:
     FILLED_RATIO_MIN = 0.35
     FILLED_UPPER_RATIO_MIN = 0.20
     FILLED_MATCH_MIN = 0.26
-    FILLED_MATCH_RATIO_MIN = 0.28
+    FILLED_MATCH_RATIO_MIN = 0.32
+    FILLED_UPPER_HEAVY_MATCH_MIN = 0.26
+    FILLED_UPPER_HEAVY_RATIO_MIN = 0.30
+    FILLED_UPPER_HEAVY_UPPER_RATIO_MIN = 0.35
+    FILLED_LOWER_HEAVY_STRONG_MATCH_MIN = 0.31
     FILLED_WEAK_MATCH_MIN = 0.18
     FILLED_WEAK_RATIO_MIN = 0.25
     FILLED_WEAK_UPPER_RATIO_MIN = 0.23
@@ -656,6 +660,16 @@ class DockStarScanner:
                 or (
                     fill_match_score >= self.FILLED_MATCH_MIN
                     and fill_ratio >= self.FILLED_MATCH_RATIO_MIN
+                )
+                or (
+                    fill_match_score >= self.FILLED_UPPER_HEAVY_MATCH_MIN
+                    and fill_ratio >= self.FILLED_UPPER_HEAVY_RATIO_MIN
+                    and upper_fill_ratio >= self.FILLED_UPPER_HEAVY_UPPER_RATIO_MIN
+                )
+                or (
+                    fill_match_score >= self.FILLED_LOWER_HEAVY_STRONG_MATCH_MIN
+                    and fill_ratio >= self.FILLED_LOWER_HEAVY_RATIO_MIN
+                    and upper_fill_ratio >= self.FILLED_LOWER_HEAVY_UPPER_RATIO_MIN
                 )
                 or (
                     self.FILLED_WEAK_MATCH_MIN
