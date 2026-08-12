@@ -118,8 +118,10 @@ crop
 
 - level ROI и star ROI вычисляются только относительно `slot.area`;
 - `ABSENT` не передаётся OCR/CV, а любой Stage 3 `UNKNOWN` блокирует полный pass;
-- level использует `LevelOcr`, но не legacy clamp; диапазон берётся из pinned
-  `ship_level` source, непрошедшее значение остаётся typed `UNKNOWN`;
+- level использует отдельный `DockLevelOcr`, наследующий общий `LevelOcr`, но
+  заменяющий только Dock-specific preprocessing числового блока; combat OCR не
+  изменяется, multi-pass proof OCR/reconciliation не используются, а значение
+  принимается только после проверки диапазона из pinned `ship_level` source;
 - raw stars определяются визуально как filled/empty/total, без подстановки из
   identity catalog;
 - progression выводится только из raw stars и ровно одной совместимой static
@@ -127,6 +129,16 @@ crop
   вымышленную ordinary limit-break метку;
 - overlap соседних viewport сохраняется: cross-viewport dedup относится к
   следующему этапу, а не к scanner атрибутов.
+
+Traversal использует scrollbar как независимый источник истины о позиции,
+верхе, низе и факте прогресса. Известное host-side поведение стрелок MuMu не
+считается доказательством эквивалентности Android keyevent: runtime сначала
+пробует `KEYCODE_DPAD_UP`/`KEYCODE_DPAD_DOWN` через ADB и после каждого действия
+обязан получить новый стабильный кадр и измерить scrollbar. DPAD сохраняется
+только при доказанном движении в ожидаемую сторону; иначе он отключается и
+используется ранее принятый canonical `Scroll` fallback. `DockTraversalResult`
+сохраняет `dpad_actions`, `dpad_progress_actions` и `scroll_fallback_calls`,
+чтобы реальный smoke мог явно показать, какой путь движения сработал.
 
 Runtime не читает сеть: identity и progression catalogs являются отдельными
 детерминированными generated sidecars с независимыми fingerprints.
