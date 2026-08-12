@@ -71,16 +71,18 @@ class DockMuMuInventoryTraversal(DockInventoryTraversal):
     canonical ``Scroll`` fallback базового traversal.
     """
 
-    # Основной жест примерно сдвигает содержимое на две строки, сохраняя overlap.
-    MUMU_DOWN_START = (640, 560)
-    MUMU_DOWN_END = (640, 160)
+    # Основной жест сдвигает содержимое контролируемо, без быстрого fling.
+    MUMU_DOWN_START = (640, 540)
+    MUMU_DOWN_END = (640, 240)
+    MUMU_DOWN_DURATION_MS = 700
     MUMU_NO_PROGRESS_RETRIES = 1
 
     # Отдельный малый top-nudge нужен только для полного третьего ряда.
     INITIAL_NUDGE_START = (640, 360)
-    INITIAL_NUDGE_END = (640, 336)
-    INITIAL_NUDGE_MIN_SHIFT_Y = 12.0
-    INITIAL_NUDGE_MAX_SHIFT_Y = 40.0
+    INITIAL_NUDGE_END = (640, 346)
+    INITIAL_NUDGE_DURATION_MS = 300
+    INITIAL_NUDGE_MIN_SHIFT_Y = 16.0
+    INITIAL_NUDGE_MAX_SHIFT_Y = 24.0
     INITIAL_NUDGE_MAX_SHIFT_X = 8.0
     INITIAL_NUDGE_NO_MOTION_MAX_SHIFT = 4.0
     INITIAL_NUDGE_MIN_PHASE_RESPONSE = 0.55
@@ -140,6 +142,14 @@ class DockMuMuInventoryTraversal(DockInventoryTraversal):
             return None
 
         def send(start: tuple[int, int], end: tuple[int, int]) -> object:
+            is_initial_nudge = (
+                start == self.INITIAL_NUDGE_START and end == self.INITIAL_NUDGE_END
+            )
+            duration_ms = (
+                self.INITIAL_NUDGE_DURATION_MS
+                if is_initial_nudge
+                else self.MUMU_DOWN_DURATION_MS
+            )
             return adb_shell(
                 [
                     "input",
@@ -148,6 +158,7 @@ class DockMuMuInventoryTraversal(DockInventoryTraversal):
                     str(start[1]),
                     str(end[0]),
                     str(end[1]),
+                    str(duration_ms),
                 ]
             )
 
