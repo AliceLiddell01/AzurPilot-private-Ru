@@ -73,7 +73,7 @@ def _shift_y(frame: np.ndarray, shift_y: int) -> np.ndarray:
     )
 
 
-def test_default_mumu_sender_uses_adb_input_swipe() -> None:
+def test_default_mumu_sender_uses_controlled_main_swipe() -> None:
     runtime = _Runtime()
     traversal = DockMuMuInventoryTraversal(
         runtime,
@@ -82,10 +82,44 @@ def test_default_mumu_sender_uses_adb_input_swipe() -> None:
     )
 
     assert traversal._mumu_swipe_sender is not None
-    traversal._mumu_swipe_sender((640, 560), (640, 160))
+    traversal._mumu_swipe_sender(
+        DockMuMuInventoryTraversal.MUMU_DOWN_START,
+        DockMuMuInventoryTraversal.MUMU_DOWN_END,
+    )
 
     assert runtime.device.adb_calls == [
-        ["input", "swipe", "640", "560", "640", "160"]
+        [
+            "input",
+            "swipe",
+            "640",
+            "540",
+            "640",
+            "240",
+            str(DockMuMuInventoryTraversal.MUMU_DOWN_DURATION_MS),
+        ]
+    ]
+
+
+def test_default_mumu_sender_uses_shorter_initial_nudge_duration() -> None:
+    runtime = _Runtime()
+    traversal = DockMuMuInventoryTraversal(runtime, scroll=_Scroll(0.0))
+
+    assert traversal._mumu_swipe_sender is not None
+    traversal._mumu_swipe_sender(
+        DockMuMuInventoryTraversal.INITIAL_NUDGE_START,
+        DockMuMuInventoryTraversal.INITIAL_NUDGE_END,
+    )
+
+    assert runtime.device.adb_calls == [
+        [
+            "input",
+            "swipe",
+            "640",
+            "360",
+            "640",
+            "346",
+            str(DockMuMuInventoryTraversal.INITIAL_NUDGE_DURATION_MS),
+        ]
     ]
 
 
