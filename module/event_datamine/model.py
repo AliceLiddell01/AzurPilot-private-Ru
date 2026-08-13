@@ -7,6 +7,16 @@ from typing import Any, Literal
 
 Severity = Literal["error", "warning", "info"]
 SourceStatus = Literal["verified", "partial", "unsupported"]
+PtSourceKind = Literal[
+    "daily",
+    "weekly",
+    "one_time",
+    "first_clear",
+    "daily_first_clear",
+    "repeatable_map_clear",
+    "challenge",
+    "unknown",
+]
 
 
 @dataclass(frozen=True)
@@ -50,6 +60,7 @@ class CurrencySpec:
     id: int
     name: str
     asset: AssetReference
+    runtime_token: str = ""
 
 
 @dataclass(frozen=True)
