@@ -1,9 +1,4 @@
-"""Persistent provider-neutral planning model for Event WebUI.
-
-The model is intentionally independent from campaign runtime and from any concrete
-external data source. A plan may be entered manually today and later populated by
-an AzurLaneLuaScripts provider without changing the three Event pages again.
-"""
+"""Legacy EventPlan helpers and calculations used by the source-backed UI projection."""
 
 from __future__ import annotations
 
@@ -250,28 +245,6 @@ def save_event_plan(
             )
         raise
     return path
-
-
-def import_legacy_event_calculator(data: Mapping[str, Any], server: str = "EN") -> Dict[str, Any]:
-    """Normalize an already-cached legacy BWiki payload without performing network I/O."""
-    plan = empty_event_plan(server)
-    event = plan["event"]
-    event["name"] = str(data.get("event_name") or "").strip()
-    event["farm_end"] = str(data.get("end_date") or "").strip()
-    event["source"] = {
-        "kind": "legacy_bwiki",
-        "verified": False,
-        "updated_at": str(
-            data.get("updated_at")
-            or datetime.now().replace(microsecond=0).isoformat(sep=" ")
-        ),
-        "revision": "",
-    }
-    plan["stages"] = _normalize_points(data.get("stages"))
-    plan["daily"] = _normalize_recurring_points(data.get("daily"))
-    plan["extra"] = _normalize_recurring_points(data.get("extra"))
-    plan["shop_items"] = _normalize_shop(data.get("shop_items"))
-    return plan
 
 
 def shop_plan_total(plan: Mapping[str, Any]) -> int:

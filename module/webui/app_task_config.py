@@ -149,10 +149,6 @@ class TaskConfigMixin(WebUIMixinBase):
         for group, arg_dict in deep_iter(self.ALAS_ARGS[task], depth=1):
             if self.set_group(group, arg_dict, config, task):
                 self.set_navigator(group)
-                if task == "EventGeneral" and group[0] == "EventGeneral":
-                    with use_scope("groups"):
-                        put_scope("group_EventCalculator")
-                    self._render_event_calculator(config)
 
     @use_scope("groups")
     def set_group(self, group, arg_dict, config: Dict[str, Any], task: str) -> int:

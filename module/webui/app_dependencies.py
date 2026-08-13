@@ -125,12 +125,6 @@ from module.webui.widgets import (
     put_output,
 )
 from module.webui.dashboard_utils import get_dashboard_scope_id, get_group_scope_id
-from module.webui.event_calculator import (
-    build_error_html,
-    build_event_calculator_html,
-    build_event_calculator_js,
-    load_event_calculator,
-)
 
 # PyWebIO 1.7.1 未发布 PEP 561 类型信息，运行时装饰器还会扩展下列 API。
 # 在共享边界归一化为动态可调用对象，页面模块无需重复写类型忽略标记。

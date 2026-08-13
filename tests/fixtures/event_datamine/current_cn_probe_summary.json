@@ -1,0 +1,19 @@
+{
+  "activity_id": 51101,
+  "currencies": [741],
+  "eligible": true,
+  "event_id": "cn:51101",
+  "map_count": 15,
+  "milestone_count": 43,
+  "name": "沉溺于星光之城",
+  "non_production": true,
+  "repository": "AzurLaneTools/AzurLaneLuaScripts",
+  "revision": "f44b48853d48b400b92738b1f1cf6fcdf1d69169",
+  "server": "CN",
+  "shop_count": 26,
+  "source_status": "partial",
+  "structured_findings": {
+    "asset_unresolved": 5,
+    "map_pt_amount_unavailable": 1
+  }
+}

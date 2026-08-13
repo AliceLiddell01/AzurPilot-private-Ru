@@ -3,6 +3,7 @@ from pathlib import Path
 import yaml
 
 from module.webui.app import AlasGUI
+from module.webui.app_event_datamine import EventDatamineMixin
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.app_event_shop_safety import EventShopSafetyMixin
@@ -20,10 +21,16 @@ EVENT_CSS = ROOT / "assets" / "gui" / "css" / "event-profiles-alas.css"
 def test_event_layout_is_inserted_before_generic_task_renderer():
     mro = AlasGUI.__mro__
     profiles = mro.index(EventProfilesMixin)
+    datamine = mro.index(EventDatamineMixin)
     safety = mro.index(EventShopSafetyMixin)
     layout = mro.index(EventLayoutMixin)
     generic = mro.index(TaskConfigMixin)
-    assert profiles < safety < layout < generic
+    assert profiles < datamine < safety < layout < generic
+
+
+def test_datamine_source_does_not_bypass_shop_safety_write_wrapper():
+    assert "_event_plan_write" not in EventDatamineMixin.__dict__
+    assert AlasGUI._event_plan_write is EventShopSafetyMixin._event_plan_write
 
 
 def test_event_pages_mark_only_event_content_for_modern_styles():
@@ -32,7 +39,7 @@ def test_event_pages_mark_only_event_content_for_modern_styles():
     assert 'content.classList.add("event-modern-page")' in source
     assert 'document.body.classList.add("event-modern-active")' in source
     assert 'content.classList.remove("event-modern-page")' in source
-    assert 'if task not in EVENT_LAYOUT_TASKS:' in source
+    assert "if task not in EVENT_LAYOUT_TASKS:" in source
     assert "self._unmark_event_page()" in source
     assert "return super().alas_set_group(task)" in source
 
@@ -55,10 +62,10 @@ def test_advanced_groups_do_not_precreate_generic_pywebio_scopes():
     assert "body.appendChild(node)" in source
 
 
-def test_event_general_uses_one_settings_action_and_automates_stop_values():
+def test_event_general_uses_one_explicit_target_action():
     source = LAYOUT.read_text(encoding="utf-8")
     assert 'put_scope("group_EventStop")' not in source
-    assert '"Настроить ивент"' in source
+    assert '"Настроить цель фарма"' in source
 
     obsolete_actions = (
         "Изменить целевой PT",
@@ -79,18 +86,16 @@ def test_event_general_dashboard_uses_local_plan_and_automatic_calculation():
     assert "event-metrics-grid" in layout
     assert "event-progress-track" in layout
     assert "planning_target = max(target, shop_total)" in layout
-    assert "forecast['recurring_pt']" in layout
-    assert "forecast['farm_required_pt']" in layout
-    assert '"Добавить источник PT"' in layout
-    assert '"Добавить этап"' in layout
-    assert 'put_collapse("Обслуживание локального плана"' in layout
-    assert 'put_collapse("Резервный источник — BWiki (legacy)"' in layout
-    assert "load_event_calculator(force_refresh=True)" in layout
+    assert 'forecast["recurring_pt"]' in layout
+    assert 'forecast["farm_required_pt"]' in layout
+    assert '"Добавить источник PT"' not in layout
+    assert '"Добавить этап"' not in layout
+    assert "BWiki" not in layout
 
     assert 'deep_get(config, "Dashboard.Pt.Value", 0)' in planner
     assert 'deep_get(config, "Dashboard.Pt.Record", "")' in planner
-    assert 'progress.get("current_pt", 0)' in planner
-    assert 'progress.get("pt_mode")' in planner
+    assert 'return 0, "OCR PT ещё не записан или устарел"' in planner
+    assert '"manual"' not in planner
 
 
 def test_event_shop_has_one_primary_action_and_auto_syncs_fail_closed():
@@ -99,7 +104,7 @@ def test_event_shop_has_one_primary_action_and_auto_syncs_fail_closed():
 
     assert 'put_scope("group_EventShopPlan")' in layout
     assert "event-shop-hero" in layout
-    assert '"Добавить товар"' in layout
+    assert '"Добавить товар"' not in layout
     assert 'title="Расширенные настройки — автоматизация магазина"' in layout
     assert layout.index('put_scope("group_EventShopPlan")') < layout.index(
         'self._render_named_group(task, "Scheduler", group_map, config)'
