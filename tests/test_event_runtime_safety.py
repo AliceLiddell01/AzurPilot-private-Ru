@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from module.webui import app_event_layout, app_event_planner, app_event_shop_safety
+from module.webui import app_event_layout, app_event_shop_safety
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_planner import EventPlannerMixin
 from module.webui.app_event_shop_safety import EventShopSafetyMixin
@@ -239,25 +239,19 @@ def test_event_dom_marker_is_removed_when_overview_becomes_active():
 
 
 def test_timezone_aware_dashboard_record_is_accepted_without_mixed_datetime_error():
-    config = {
-        "Dashboard": {
-            "Pt": {
-                "Value": 4567,
-                "Record": "2026-08-13T10:00:00+07:00",
-            }
-        }
-    }
-    plan = empty_event_plan()
+    from module.webui.event_observation import dashboard_pt_observation
 
-    with patch.object(
-        app_event_planner,
-        "current_time",
-        return_value=datetime(2026, 8, 13, 11, 0, 0),
-    ):
-        current_pt, source = EventPlannerMixin._current_pt_for_plan(config, plan)
+    result = dashboard_pt_observation(
+        instance="ap",
+        event_id="en:5941",
+        server="EN",
+        value=4567,
+        recorded_at="2026-08-13T10:00:00+07:00",
+        now=datetime(2026, 8, 13, 11, 0, 0),
+    )
 
-    assert current_pt == 4567
-    assert source.startswith("Автоматически из OCR")
+    assert result["current_pt"] == 4567
+    assert not any(item["code"] == "observation_stale" for item in result["findings"])
 
 
 class PlanMutationProbe(EventPlannerMixin):

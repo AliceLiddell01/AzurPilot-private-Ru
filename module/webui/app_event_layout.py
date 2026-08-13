@@ -12,14 +12,12 @@ from typing import Any
 from module.config.time_sentinel import DEFAULT_TIME_TEXT, is_default_time
 from module.webui.app_dependencies import (
     close_popup,
-    current_time,
     deep_get,
     deep_iter,
     logger,
     pin,
     popup,
     put_button,
-    put_buttons,
     put_collapse,
     put_html,
     put_input,
@@ -35,9 +33,9 @@ from module.webui.app_dependencies import (
 from module.webui.app_event_planner import EventPlannerMixin
 from module.webui.app_helpers import is_demo_mode
 from module.webui.event_plan import (
-    event_farm_summary,
     shop_plan_total,
 )
+from module.webui.event_assets import event_reward_asset_url, event_shop_asset_url
 
 EVENT_MAP_TASKS = frozenset({"Event", "Event2", "Event3"})
 EVENT_LAYOUT_TASKS = EVENT_MAP_TASKS | {"EventGeneral", "EventShop"}
@@ -254,45 +252,39 @@ class EventLayoutMixin(EventPlannerMixin):
         toast("Цель PT сохранена", color="success")
         self._refresh_event_plan_page()
 
-    def _render_modern_sources(self, plan: Mapping[str, Any], kind: str) -> None:
-        title = "Ежедневные источники" if kind == "daily" else "Дополнительно за день"
-        rows = list(plan.get(kind, []))
-        put_html(
-            f'<div class="event-subsection-heading"><span>{title}</span>'
-            f'<span class="event-subsection-count">{len(rows)}</span></div>'
-        )
-        if not rows:
-            put_html('<div class="event-inline-empty">Пока ничего не добавлено.</div>')
-            return
-        today = current_time().date().isoformat()
-        table = []
-        for item in rows:
-            if item.get("skip"):
-                state = "Пропускается"
-            elif item.get("completed_date") == today:
-                state = "Получено сегодня"
-            else:
-                state = "Ожидается"
-            table.append(
-                [
-                    item["name"],
-                    self._fmt(item["points"]),
-                    state,
-                    put_buttons(
-                        [
-                            {"label": "Получено", "value": "done", "color": "off"},
-                            {"label": "Пропуск", "value": "skip", "color": "off"},
-                        ],
-                        onclick=partial(
-                            self._point_source_action,
-                            kind,
-                            item["id"],
-                            item["points"],
-                        ),
-                    ),
-                ]
+    def _render_modern_sources(self, plan: Mapping[str, Any]) -> None:
+        labels = {
+            "daily": "Ежедневные задания",
+            "weekly": "Еженедельные задания",
+            "one_time": "Разовые задания",
+            "first_clear": "Первое прохождение",
+            "daily_first_clear": "Ежедневное первое прохождение",
+            "repeatable_map_clear": "Повторяемый фарм карт",
+            "challenge": "Испытания",
+            "unknown": "Не классифицировано",
+        }
+        sources = list(plan.get("pt_sources", []))
+        for kind, title in labels.items():
+            rows = [item for item in sources if item.get("kind") == kind]
+            if not rows:
+                continue
+            put_html(
+                f'<div class="event-subsection-heading"><span>{title}</span>'
+                f'<span class="event-subsection-count">{len(rows)}</span></div>'
             )
-        put_table(table, header=["Источник", "PT/день", "Сегодня", ""])
+            put_table(
+                [
+                    [
+                        item.get("name") or item.get("id"),
+                        self._fmt(item["points"])
+                        if item.get("points") is not None
+                        else "Нет данных",
+                        "Автостатус пока недоступен",
+                    ]
+                    for item in rows
+                ],
+                header=["Источник", "PT", "Наблюдение"],
+            )
 
     def _render_event_plan_general(self, config: Mapping[str, Any]) -> None:
         self._event_plan_active_task = "EventGeneral"
@@ -304,16 +296,27 @@ class EventLayoutMixin(EventPlannerMixin):
         )
         shop_total = shop_plan_total(plan)
         planning_target = max(target, shop_total)
-        current_pt, current_source = self._current_pt_for_plan(config, plan)
-        forecast = event_farm_summary(
-            plan,
-            planning_target,
-            current_pt=current_pt,
-            today=current_time().replace(tzinfo=None, microsecond=0),
+        progress_data = plan.get("progress", {})
+        current_pt = (
+            progress_data.get("current_pt")
+            if isinstance(progress_data, Mapping)
+            else None
+        )
+        current_source = {
+            "observed": f"Автоматически из OCR ({progress_data.get('observed_at')})",
+            "stale": "OCR-наблюдение устарело",
+            "unavailable": "OCR PT ещё не записан",
+        }.get(
+            str(progress_data.get("status") or "unavailable"), "Наблюдение недоступно"
+        )
+        remaining_pt = (
+            max(planning_target - current_pt, 0)
+            if isinstance(current_pt, int)
+            else None
         )
         progress = (
             max(0, min(100, round(current_pt * 100 / planning_target)))
-            if planning_target > 0
+            if planning_target > 0 and isinstance(current_pt, int)
             else 0
         )
         farm_end = escape(str(event.get("farm_end") or "Не задано"))
@@ -324,12 +327,12 @@ class EventLayoutMixin(EventPlannerMixin):
   <h3>{escape(str(event.get("name") or "Текущий ивент не задан"))}</h3>
   <div class="event-hero-meta"><span>Фарм до <strong>{farm_end}</strong></span><span>Магазин до <strong>{shop_end}</strong></span>{self._source_badge(plan)}</div></div>
   <div class="event-metrics-grid">
-    <div class="event-metric-card event-metric-accent"><span class="event-metric-label">Текущий PT</span><strong>{self._fmt(current_pt)}</strong><small>{escape(current_source)}</small></div>
+    <div class="event-metric-card event-metric-accent"><span class="event-metric-label">Текущий PT</span><strong>{self._fmt(current_pt) if current_pt is not None else "Нет данных"}</strong><small>{escape(current_source)}</small></div>
     <div class="event-metric-card"><span class="event-metric-label">Автостоп</span><strong>{self._fmt(target) + " PT" if target else "Выключен"}</strong><small>{escape(self._time_label(time_limit))}</small></div>
     <div class="event-metric-card"><span class="event-metric-label">План магазина</span><strong>{self._fmt(shop_total)} PT</strong><small>В расчёте автоматически</small></div>
-    <div class="event-metric-card"><span class="event-metric-label">Осталось нафармить</span><strong>{self._fmt(forecast["farm_required_pt"])} PT</strong><small>Ежедневные: {self._fmt(forecast["recurring_pt"])} PT</small></div>
+    <div class="event-metric-card"><span class="event-metric-label">Осталось нафармить</span><strong>{self._fmt(remaining_pt) + " PT" if remaining_pt is not None else "Нет данных"}</strong><small>Автопрогноз источников недоступен</small></div>
   </div>
-  <div class="event-progress-label"><span>Прогресс к расчётной цели</span><strong>{progress}%</strong></div>
+  <div class="event-progress-label"><span>Прогресс к расчётной цели</span><strong>{str(progress) + "%" if current_pt is not None else "—"}</strong></div>
   <div class="event-progress-track"><span style="width:{progress}%"></span></div>
 </section>""")
         put_row(
@@ -354,6 +357,9 @@ class EventLayoutMixin(EventPlannerMixin):
                 size="auto",
             )
         source = event.get("source", {})
+        finding_items = list(plan.get("source_findings", [])) + list(
+            plan.get("observation", {}).get("findings", [])
+        )
         findings = [
             [
                 str(item.get("severity") or ""),
@@ -361,7 +367,7 @@ class EventLayoutMixin(EventPlannerMixin):
                 str(item.get("path") or ""),
                 str(item.get("message") or ""),
             ]
-            for item in plan.get("source_findings", [])
+            for item in finding_items
             if isinstance(item, Mapping)
         ]
         diagnostics = [
@@ -384,30 +390,72 @@ class EventLayoutMixin(EventPlannerMixin):
         put_collapse("Источник и диагностика", diagnostics, open=False)
 
         put_html(
-            '<div class="event-section-heading"><span>Источники PT</span><small>Учитываются в прогнозе автоматически.</small></div>'
+            '<div class="event-section-heading"><span>Источники PT</span><small>Только источниковые факты; ручные статусы не используются.</small></div>'
         )
-        self._render_modern_sources(plan, "daily")
-        self._render_modern_sources(plan, "extra")
+        self._render_modern_sources(plan)
 
         put_html(
             '<div class="event-section-heading"><span>Этапы фарма</span><small>Прогноз проходов пересчитывается автоматически.</small></div>'
         )
-        stage_rows = []
+        stage_cards = []
         for stage in plan.get("stages", []):
-            points = int(stage.get("points", 0) or 0)
+            points = stage.get("points")
             runs = (
                 "—"
-                if points <= 0
-                else self._fmt((forecast["farm_required_pt"] + points - 1) // points)
+                if not isinstance(points, int) or points <= 0 or remaining_pt is None
+                else self._fmt((remaining_pt + points - 1) // points)
             )
-            stage_rows.append(
-                [stage["name"], self._fmt(points) if points else "Нет в source", runs]
+            status = (
+                "Наблюдение синхронизировано"
+                if stage.get("observation_status") == "observed"
+                else "Автостатус пока недоступен"
             )
-        if stage_rows:
-            put_table(stage_rows, header=["Этап", "PT/проход", "Нужно проходов"])
+            stage_cards.append(
+                f'<article class="event-farm-card"><div class="event-farm-card-head"><strong>{escape(str(stage["name"]))}</strong><span>{escape(status)}</span></div>'
+                f'<div class="event-farm-facts"><span><small>PT</small><b>{escape(self._fmt(points) if points is not None else "Нет данных")}</b></span>'
+                f"<span><small>Нефть</small><b>{escape(self._fmt(stage.get('oil')) if stage.get('oil') is not None else 'Нет данных')}</b></span>"
+                f"<span><small>Монеты</small><b>{escape(self._fmt(stage.get('coin')) if stage.get('coin') is not None else 'Нет данных')}</b></span>"
+                f"<span><small>Звёзды</small><b>{escape(str(stage.get('stars')) if stage.get('stars') is not None else 'Нет данных')}</b></span>"
+                f"<span><small>Проходы</small><b>{escape(runs)}</b></span></div></article>"
+            )
+        if stage_cards:
+            put_html(f'<div class="event-farm-grid">{"".join(stage_cards)}</div>')
         else:
             put_html(
                 '<div class="event-empty-card"><strong>Этапы отсутствуют в datamine artifact</strong></div>'
+            )
+        milestone_rows = []
+        for milestone in plan.get("milestones", []):
+            rewards = "".join(
+                f'<span class="event-reward-chip"><img src="{escape(event_reward_asset_url(int(reward.get("reward_type", 0) or 0), int(reward.get("reward_id", 0) or 0)))}" alt=""><span>{escape(str(reward.get("name") or reward.get("reward_id")))} × {escape(self._fmt(reward.get("amount")))}</span></span>'
+                for reward in milestone.get("rewards", [])
+                if isinstance(reward, Mapping)
+            )
+            threshold = int(milestone.get("threshold", 0) or 0)
+            if isinstance(current_pt, int):
+                milestone_status = (
+                    "Порог достигнут; получение не подтверждено"
+                    if current_pt >= threshold
+                    else f"До порога: {self._fmt(threshold - current_pt)} PT"
+                )
+            else:
+                milestone_status = "Прогресс недоступен"
+            milestone_rows.append(
+                [
+                    self._fmt(threshold),
+                    put_html(rewards) if rewards else "Нет данных",
+                    milestone_status,
+                ]
+            )
+        if milestone_rows:
+            put_collapse(
+                f"Награды за накопление PT · {len(milestone_rows)}",
+                [
+                    put_table(
+                        milestone_rows, header=["Порог PT", "Награда", "Получение"]
+                    )
+                ],
+                open=False,
             )
 
     def _render_event_shop_plan(self, config: Mapping[str, Any]) -> None:
@@ -426,20 +474,38 @@ class EventLayoutMixin(EventPlannerMixin):
             rows = []
             for item in items:
                 identity = self._shop_item_identity(item)
+                observation_label = {
+                    "matched": "Синхронизировано",
+                    "ambiguous": "Неоднозначно",
+                    "unmatched": "Не сопоставлено",
+                    "invalid_counter": "Ошибка счётчика",
+                    "unavailable": "Нет наблюдения",
+                }.get(str(item.get("match_status") or "unavailable"), "Нет наблюдения")
                 rows.append(
                     [
-                        item["name"],
+                        put_html(
+                            f'<div class="event-shop-item"><img src="{escape(event_shop_asset_url(item.get("filter", "")))}" alt=""><span>{escape(str(item["name"]))}<small>{escape(observation_label)}</small></span></div>'
+                        ),
                         self._fmt(item["price"]),
+                        self._fmt(item.get("purchased"))
+                        if item.get("purchased") is not None
+                        else "Нет данных",
+                        self._fmt(item.get("remaining"))
+                        if item.get("remaining") is not None
+                        else "Нет данных",
                         f"{self._fmt(item['selected'])} / {self._fmt(item['stock'])}",
                         self._fmt(int(item["price"]) * int(item["selected"])),
                         put_button(
-                            "Количество",
+                            "Изменить цель",
                             onclick=partial(self._shop_quantity_popup, identity),
                             color="off",
                         ),
                     ]
                 )
-            put_table(rows, header=["Товар", "Цена", "Количество", "Итого PT", ""])
+            put_table(
+                rows,
+                header=["Товар", "Цена", "Куплено", "Осталось", "Цель", "План PT", ""],
+            )
         else:
             put_html(
                 '<div class="event-empty-card"><strong>Каталог магазина отсутствует в datamine artifact</strong></div>'

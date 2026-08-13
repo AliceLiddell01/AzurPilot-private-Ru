@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timedelta
 from functools import partial
 from threading import RLock
 from typing import Any
 
-from module.config.time_sentinel import is_default_time
 from module.webui.app_dependencies import (
     close_popup,
-    current_time,
-    deep_get,
     logger,
     pin,
     popup,
@@ -108,29 +104,6 @@ class EventPlannerMixin(WebUIMixinBase):
         toast(
             "Источник события обновился; страница будет перезагружена.", color="warning"
         )
-
-    def _point_source_action(
-        self, kind: str, source_id: str, _points: int, action: str
-    ) -> None:
-        if kind not in {"daily", "extra"} or action not in {"skip", "done"}:
-            return
-
-        def mutation(plan):
-            item = next((row for row in plan[kind] if row.get("id") == source_id), None)
-            if item is None:
-                return _STALE_EVENT_PLAN
-            if action == "skip":
-                item["skip"] = not bool(item.get("skip"))
-            else:
-                today = current_time().date().isoformat()
-                item["completed_date"] = (
-                    "" if item.get("completed_date") == today else today
-                )
-
-        if self._event_plan_mutate(
-            mutation, "Пользовательская политика источника PT обновлена"
-        ):
-            self._refresh_event_plan_page()
 
     def _shop_quantity_popup(self, identity: tuple[str, str, str, int, int]) -> None:
         plan = self._event_plan()
@@ -228,25 +201,3 @@ class EventPlannerMixin(WebUIMixinBase):
         self.alas_config.load()
         toast("План синхронизирован с EventShop", color="success")
         self._refresh_event_plan_page()
-
-    @staticmethod
-    def _current_pt_for_plan(
-        config: Mapping[str, Any], _plan: Mapping[str, Any]
-    ) -> tuple[int, str]:
-        dashboard_pt = int(deep_get(config, "Dashboard.Pt.Value", 0) or 0)
-        record = str(deep_get(config, "Dashboard.Pt.Record", "") or "").strip()
-        try:
-            recorded_at = datetime.fromisoformat(record.replace("T", " ")).replace(
-                tzinfo=None, microsecond=0
-            )
-        except ValueError:
-            recorded_at = None
-        now = current_time().replace(tzinfo=None, microsecond=0)
-        valid = bool(
-            recorded_at is not None
-            and not is_default_time(recorded_at)
-            and timedelta(0) <= now - recorded_at <= timedelta(hours=48)
-        )
-        if valid:
-            return dashboard_pt, f"Автоматически из OCR ({record})"
-        return 0, "OCR PT ещё не записан или устарел"
