@@ -87,6 +87,24 @@ def test_invalid_replacement_does_not_destroy_previous_artifact(tmp_path: Path):
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    "field,value,match",
+    [
+        ("role", "fixture", "роль"),
+        ("metadata", [], "metadata"),
+    ],
+)
+def test_artifact_read_validates_envelope_fields(tmp_path: Path, field, value, match):
+    artifact = build_artifact({"id": "en:1"})
+    artifact[field] = value
+    artifact["digest"] = artifact_digest(artifact)
+    path = tmp_path / "invalid-envelope.json"
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        load_artifact(path)
+
+
 def test_rose_tower_golden_is_source_derived_and_complete_except_declared_gaps():
     spec = load_builtin_artifact("rose_tower.json")["event_spec"]
 

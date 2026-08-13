@@ -51,6 +51,9 @@ class ShareCfgLoader:
         "TW": ("TW", "zh-TW", "zh-tw"),
         "KR": ("KR", "ko-KR", "ko-kr"),
     }
+    EMPTY_JSON_TABLES: ClassVar[frozenset[str]] = frozenset(
+        {"activity_medal_group", "map_event_list", "map_event_template"}
+    )
 
     def __init__(self, snapshot: SourceSnapshot) -> None:
         self.snapshot = snapshot
@@ -150,9 +153,9 @@ class ShareCfgLoader:
         if table in self._cache:
             return self._cache[table]
 
-        # Derived test fixtures use a deterministic JSON representation of the
-        # same decoded ShareCfg rows.  This path never evaluates Lua and keeps
-        # the normal production source format unchanged.
+        # Производные test fixtures используют детерминированное JSON-
+        # представление уже декодированных строк ShareCfg. Этот путь не
+        # исполняет Lua и не меняет production-формат источника.
         fixture = self.server_root / "sharecfgjson" / f"{table}.json"
         if fixture.is_file():
             try:
@@ -167,14 +170,32 @@ class ShareCfgLoader:
                     f"Fixture ShareCfg {table} должен быть JSON object",
                     table=table,
                 )
+            if not raw and table not in self.EMPTY_JSON_TABLES:
+                raise ShareCfgError(
+                    "unsupported_table_shape",
+                    f"Fixture ShareCfg {table} не содержит строк данных",
+                    table=table,
+                )
 
             def restore_keys(value: Any) -> Any:
                 if isinstance(value, dict):
-                    return {
-                        int(key) if isinstance(key, str) and key.isdecimal() else key:
-                        restore_keys(item)
-                        for key, item in value.items()
-                    }
+                    restored = {}
+                    for key, item in value.items():
+                        normalized = key
+                        if isinstance(key, str) and re.fullmatch(r"-?\d+", key):
+                            normalized = int(key)
+                        elif isinstance(key, str) and re.fullmatch(
+                            r"-?\d+\.\d+", key
+                        ):
+                            normalized = float(key)
+                        if normalized in restored:
+                            raise ShareCfgError(
+                                "fixture_key_collision",
+                                f"Fixture ShareCfg {table} содержит конфликт числовых ключей",
+                                table=table,
+                            )
+                        restored[normalized] = restore_keys(item)
+                    return restored
                 if isinstance(value, list):
                     return [restore_keys(item) for item in value]
                 return value

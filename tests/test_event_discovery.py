@@ -7,6 +7,7 @@ from module.event_datamine.discovery import (
     discover_major_events,
     resolve_current_candidate,
 )
+from module.event_datamine.source import ShareCfgError
 
 
 def _time(start, end):
@@ -44,7 +45,12 @@ class FakeSource:
         }
 
     def load_table(self, name):
-        return self.tables[name]
+        try:
+            return self.tables[name]
+        except KeyError as exc:
+            raise ShareCfgError(
+                "table_missing", f"ShareCfg {name} отсутствует", table=name
+            ) from exc
 
 
 def _two_event_source():
@@ -129,6 +135,31 @@ def test_ambiguous_campaign_root_is_visible_but_unsupported():
             (candidate,), server="EN", now=datetime(2026, 8, 20)
         )
     assert caught.value.code == "ambiguous_campaign_root"
+
+
+def test_multiple_named_campaign_roots_are_visible_but_unsupported():
+    start = datetime(2026, 8, 1)
+    end = datetime(2026, 8, 30)
+    activities = {
+        40: _activity(40, 400, 12, [4001], start, end),
+        41: _activity(41, 400, 12, [4002], start, end),
+    }
+    memories = {
+        1: {"link_event": 40, "title": "First"},
+        2: {"link_event": 41, "title": "Second"},
+    }
+
+    candidate = discover_major_events(
+        FakeSource(activities, {4001: {}, 4002: {}}, memories)
+    )[0]
+
+    assert not candidate.supported
+    with pytest.raises(EventDiscoveryError) as caught:
+        resolve_current_candidate(
+            (candidate,), server="EN", now=datetime(2026, 8, 20)
+        )
+    assert caught.value.code == "ambiguous_campaign_root"
+    assert caught.value.candidates == ("en:40", "en:41")
 
 
 def test_malformed_dates_do_not_become_candidates():

@@ -153,3 +153,20 @@ def test_event_shop_pt_ocr_is_persisted_under_exact_revision(tmp_path: Path):
     assert load_event_observation(
         "ap", "en:51101", "EN", "d" * 40, root=tmp_path
     )["current_pt"] is None
+
+
+def test_old_event_shop_pt_ocr_is_persisted_as_stale(tmp_path: Path):
+    observed = datetime.now(timezone.utc) - timedelta(hours=49)
+
+    result = persist_current_pt_observation(
+        instance="ap",
+        event_id="en:51101",
+        server="EN",
+        source_revision="c" * 40,
+        value=123,
+        observed_at=observed,
+        root=tmp_path,
+    )
+
+    assert result["current_pt"] == 123
+    assert result["current_pt_status"] == "stale"

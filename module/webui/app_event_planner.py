@@ -35,6 +35,7 @@ from module.webui.event_source import (
 _SHOP_SELECTED_PIN = "event_plan_shop_selected"
 _EVENT_PLAN_MUTATION_LOCK = RLock()
 _STALE_EVENT_PLAN = object()
+_UNCHANGED_EVENT_PLAN = object()
 
 
 class EventPlannerMixin(WebUIMixinBase):
@@ -68,8 +69,11 @@ class EventPlannerMixin(WebUIMixinBase):
     def _event_plan_mutate(self, mutation, message: str) -> bool:
         with _EVENT_PLAN_MUTATION_LOCK:
             plan = self._event_plan()
-            if mutation(plan) is _STALE_EVENT_PLAN:
+            result = mutation(plan)
+            if result is _STALE_EVENT_PLAN:
                 self._stale_plan_message()
+                return False
+            if result is _UNCHANGED_EVENT_PLAN:
                 return False
             return self._event_plan_write(plan, message)
 
@@ -180,7 +184,10 @@ class EventPlannerMixin(WebUIMixinBase):
                 value = 0
             else:
                 raise ValueError(f"Неизвестная операция количества: {operation}")
-            item["selected"] = min(max(value, 0), stock)
+            selected = min(max(value, 0), stock)
+            if selected == current:
+                return _UNCHANGED_EVENT_PLAN
+            item["selected"] = selected
 
         if self._event_plan_mutate(mutation, "Количество в плане обновлено"):
             self._refresh_event_plan_page()

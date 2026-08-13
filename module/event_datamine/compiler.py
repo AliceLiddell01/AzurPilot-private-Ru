@@ -22,6 +22,7 @@ from module.event_datamine.model import (
 )
 from module.event_datamine.patches import patches_for
 from module.event_datamine.source import ShareCfgError, ShareCfgLoader
+from module.shop_event.selector import FILTER_REGEX
 
 RESOURCE_NAMES = {1: "Coins", 2: "Oil", 4: "Gems", 14: "Medals"}
 ITEM_CATEGORIES = {1: "resource", 2: "item", 3: "equipment", 4: "ship"}
@@ -220,18 +221,22 @@ class EventCompiler:
         rarity: int | None,
         source_path: str,
     ) -> str:
-        known = RUNTIME_FILTER_BY_GAME_ID.get((item_type, item_id), "")
-        if known:
-            return known
+        token = RUNTIME_FILTER_BY_GAME_ID.get((item_type, item_id), "")
+        if token:
+            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
         if item_type == 4 and rarity == 5:
-            return "ShipSSR"
+            token = "ShipSSR"
+            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
         if item_type == 3 and rarity == 5:
-            return "EquipSSR"
+            token = "EquipSSR"
+            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
         if "appearancebox" in source_path.lower() or "gear skin box" in name.lower():
-            return "SkinBox"
+            token = "SkinBox"
+            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
         blueprint = _BLUEPRINT_SERIES.fullmatch(name)
         if blueprint:
-            return f"{'DR' if blueprint.group(1) else 'PR'}S{blueprint.group(2)}"
+            token = f"{'DR' if blueprint.group(1) else 'PR'}S{blueprint.group(2)}"
+            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
         return ""
 
     def _reward(
@@ -657,10 +662,11 @@ class EventCompiler:
             )
         )
 
-        if len(currency_ids) == 1 and not runtime_currency_tokens:
-            runtime_currency_tokens[next(iter(currency_ids))] = "pt"
+        valid_currency_ids = {value for value in currency_ids if value}
+        if len(valid_currency_ids) == 1 and not runtime_currency_tokens:
+            runtime_currency_tokens[next(iter(valid_currency_ids))] = "pt"
         currencies = []
-        for currency_id in sorted(value for value in currency_ids if value):
+        for currency_id in sorted(valid_currency_ids):
             resource = resources.get(currency_id, {})
             resource = resource if isinstance(resource, Mapping) else {}
             item_id = int(resource.get("itemid", 0) or 0)
@@ -668,10 +674,12 @@ class EventCompiler:
             currencies.append(
                 CurrencySpec(
                     currency_id,
-                    str(
+                    self._name(
                         item.get("name")
                         or RESOURCE_NAMES.get(currency_id)
-                        or f"Event currency {currency_id}"
+                        or "",
+                        f"Event currency {currency_id}",
+                        f"currencies.{currency_id}.name",
                     ),
                     self._asset(
                         kind="activity_currency",

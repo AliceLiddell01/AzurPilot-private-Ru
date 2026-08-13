@@ -60,6 +60,11 @@ def validate_artifact(data: Any) -> dict[str, Any]:
     spec = result.get("event_spec")
     if not isinstance(spec, Mapping) or not spec.get("id"):
         raise ValueError("Event artifact не содержит EventSpec identity")
+    role = str(result.get("role") or "")
+    if role not in {"production", "demo"}:
+        raise ValueError(f"Неподдерживаемая роль Event artifact: {role}")
+    if "metadata" in result and not isinstance(result["metadata"], Mapping):
+        raise ValueError("Event artifact metadata должен быть JSON object")
     expected = str(result.get("digest") or "")
     actual = artifact_digest(result)
     if expected != actual:

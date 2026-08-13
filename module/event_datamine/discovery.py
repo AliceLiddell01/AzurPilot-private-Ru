@@ -90,13 +90,12 @@ def _linked_name(
 
 
 def discover_major_events(source: ShareCfgLoader) -> tuple[EventCandidate, ...]:
-    """Find coherent map-backed activity groups using only ShareCfg relations.
+    """Найти согласованные группы map-backed activities только по связям ShareCfg.
 
-    Activity type 12 is the established ShareCfg relation that owns campaign map
-    IDs.  A group becomes a candidate only when those IDs resolve in
-    ``chapter_template`` and one campaign activity is structurally identifiable
-    as the named root.  No name, ID range, newest-ID or internal view-class
-    heuristic participates in selection.
+    Activity type 12 владеет ID карт кампании. Группа становится кандидатом,
+    только когда эти ID разрешаются в ``chapter_template``, а одна campaign
+    activity структурно определяется как именованный корень. Имена, диапазоны
+    ID, newest-ID и внутренние view-классы в выборе не участвуют.
     """
 
     activities = source.load_table("activity_template")
@@ -134,11 +133,11 @@ def discover_major_events(source: ShareCfgLoader) -> tuple[EventCandidate, ...]:
         if not campaign_rows:
             continue
 
-        named_roots = [
-            (activity_id, row, map_ids, _linked_name(activity_id, memories, medals))
-            for activity_id, row, map_ids in campaign_rows
-            if _linked_name(activity_id, memories, medals)
-        ]
+        named_roots = []
+        for activity_id, row, map_ids in campaign_rows:
+            linked_name = _linked_name(activity_id, memories, medals)
+            if linked_name:
+                named_roots.append((activity_id, row, map_ids, linked_name))
         supported = len(named_roots) == 1 or (
             not named_roots and len(campaign_rows) == 1
         )

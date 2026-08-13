@@ -546,7 +546,7 @@ class EventLayoutMixin(EventPlannerMixin):
                             f'<small>Куплено: {escape(self._fmt(item.get("purchased")) if item.get("purchased") is not None else "Нет данных")} · Осталось: {escape(self._fmt(item.get("remaining")) if item.get("remaining") is not None else "Нет данных")}</small></div>'
                             '<div class="event-shop-desired">'
                             f'<span>Цель</span><strong>{escape(self._fmt(item.get("selected")))} / {escape(self._fmt(item.get("stock")))}</strong>'
-                            f'<small>Стоимость: {escape(self._fmt(int(item["price"]) * int(item["selected"])))}</small></div>'
+                            f'<small>Стоимость: {escape(self._fmt(int(item.get("price", 0) or 0) * int(item.get("selected", 0) or 0)))}</small></div>'
                             f'<div class="event-shop-automation">{"Совместимо с автоматизацией" if item.get("filter") else "Автоматизация не поддерживается"}</div>'
                         )
                         put_row(

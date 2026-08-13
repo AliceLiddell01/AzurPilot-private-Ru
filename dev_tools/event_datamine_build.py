@@ -70,6 +70,13 @@ def build_current_event(
     current = resolve_current_candidate(candidates, server=server, now=now)
     if current is None:
         raise ValueError(f"Для {server.upper()} нет active/redemption major event")
+    artifact_path = (
+        output_root
+        / "production"
+        / f"{server.lower()}-{current.activity_id}.json"
+    )
+    if artifact_path.exists() and not overwrite:
+        raise FileExistsError(artifact_path)
     spec = EventCompiler(loader).compile(current.activity_id)
     if {item.id for item in spec.maps} != set(current.map_ids):
         raise ValueError("Compiler map inventory не совпадает со structural discovery")
@@ -86,11 +93,13 @@ def build_current_event(
                     marker,
                     '"""Generated Event map modules; do not edit manually."""\n',
                 )
+    updated_maps = tuple(
+        replace(item, source_status=_map_status(item)) for item in spec.maps
+    )
     map_records = []
     used_names: set[str] = set()
-    for map_spec in spec.maps:
-        status = _map_status(map_spec)
-        map_spec = replace(map_spec, source_status=status)
+    for map_spec in updated_maps:
+        status = map_spec.source_status
         base_name = map_module_name(map_spec.chapter_name)
         module_name = base_name
         if module_name in used_names:
@@ -111,12 +120,7 @@ def build_current_event(
             target = event_maps_output / f"{module_name}.py"
             content = generate_map_module(map_spec)
             write_map_module(target, content, overwrite=overwrite)
-    spec = replace(
-        spec,
-        maps=tuple(
-            replace(item, source_status=_map_status(item)) for item in spec.maps
-        ),
-    )
+    spec = replace(spec, maps=updated_maps)
 
     artifact = build_artifact(
         spec.to_dict(),
@@ -131,13 +135,6 @@ def build_current_event(
             "generated_maps": map_records,
         },
     )
-    artifact_path = (
-        output_root
-        / "production"
-        / f"{server.lower()}-{current.activity_id}.json"
-    )
-    if artifact_path.exists() and not overwrite:
-        raise FileExistsError(artifact_path)
     write_artifact(artifact_path, artifact)
     write_registry(output_root)
     write_asset_catalog(output_root, asset_root=asset_root)

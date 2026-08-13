@@ -265,14 +265,20 @@ def test_timezone_aware_dashboard_record_is_accepted_without_mixed_datetime_erro
 class PlanMutationProbe(EventPlannerMixin):
     def __init__(self):
         self.store = empty_event_plan()
+        self.writes = 0
+        self.refreshes = 0
 
     def _event_plan(self):
         return deepcopy(self.store)
 
     def _event_plan_write(self, plan, _message):
         sleep(0.01)
+        self.writes += 1
         self.store = deepcopy(plan)
         return True
+
+    def _refresh_event_plan_page(self):
+        self.refreshes += 1
 
 
 def test_event_plan_mutations_are_serialized_across_sessions():
@@ -296,6 +302,25 @@ def test_event_plan_mutations_are_serialized_across_sessions():
         thread.join()
 
     assert {item["name"] for item in probe.store["stages"]} == {"A", "B"}
+
+
+def test_shop_quantity_noop_skips_write_and_refresh():
+    probe = PlanMutationProbe()
+    item = {
+        "id": "1",
+        "name": "Chip",
+        "filter": "Chip",
+        "price": 300,
+        "stock": 100,
+        "selected": 0,
+    }
+    probe.store["shop_items"] = [item]
+
+    probe._change_shop_quantity(probe._shop_item_identity(item), "decrement")
+
+    assert probe.writes == 0
+    assert probe.refreshes == 0
+    assert probe.store["shop_items"][0]["selected"] == 0
 
 
 def test_event_profile_mutations_share_one_read_modify_write_lock():

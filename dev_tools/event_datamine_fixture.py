@@ -146,10 +146,7 @@ def extract_current_fixture(
     expedition_ids: set[int] = set()
     for table in ("chapter_template", "chapter_template_loop"):
         for row in selected[table].values():
-            expedition_ids.update(
-                int(value)
-                for value in _values(_mapping(row).get("ai_expedition_list"))
-            )
+            expedition_ids.update(_ints(_mapping(row).get("ai_expedition_list")))
     selected["expedition_data_template"] = {
         row_id: row
         for row_id, row in loaded["expedition_data_template"].items()

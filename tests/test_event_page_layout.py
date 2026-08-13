@@ -99,7 +99,8 @@ def test_event_general_dashboard_uses_local_plan_and_automatic_calculation():
     assert 'deep_get(config, "Dashboard.Pt.Value", None)' in datamine
     assert 'deep_get(config, "Dashboard.Pt.Record", "")' in datamine
     assert "dashboard_pt_observation" in datamine
-    assert 'dashboard_observation["current_pt_status"] == "observed"' in datamine
+    assert "load_event_plan_from_artifact" in datamine
+    assert "load_current_event_plan" not in datamine
     assert '"manual"' not in planner
 
 

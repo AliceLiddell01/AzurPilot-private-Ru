@@ -8,9 +8,9 @@ from module.webui.app_dependencies import current_time, deep_get, toast
 from module.webui.app_helpers import is_demo_mode
 from module.webui.event_observation import dashboard_pt_observation
 from module.webui.event_source import (
-    load_builtin_event_plan,
-    load_current_event_plan,
+    load_event_plan_from_artifact,
     load_event_user_state,
+    resolve_current_event_artifact,
     save_event_user_state,
 )
 
@@ -21,23 +21,14 @@ class EventDatamineMixin:
         now = current_time()
         if is_demo_mode():
             artifact = load_builtin_artifact("rose_tower.json")
-            spec = artifact["event_spec"]
         else:
-            preview = load_current_event_plan(
-                self.alas_name,
-                server="EN",
-                now=now,
+            artifact, unavailable = resolve_current_event_artifact(
+                server="EN", now=now
             )
-            if not preview.get("event", {}).get("id"):
-                return preview
-            event = preview["event"]
-            spec = {
-                "id": event["id"],
-                "server": event["server"],
-                "provenance": {
-                    "revision": event.get("source", {}).get("revision", "")
-                },
-            }
+            if artifact is None:
+                assert unavailable is not None
+                return unavailable
+        spec = artifact["event_spec"]
         revision = str(spec.get("provenance", {}).get("revision") or "")
         dashboard_observation = dashboard_pt_observation(
             instance=self.alas_name,
@@ -48,20 +39,8 @@ class EventDatamineMixin:
             recorded_at=deep_get(config, "Dashboard.Pt.Record", ""),
             now=now,
         )
-        observation = (
-            dashboard_observation
-            if dashboard_observation["current_pt_status"] == "observed"
-            else None
-        )
-        if is_demo_mode():
-            return load_builtin_event_plan(
-                self.alas_name, "rose_tower.json", observation
-            )
-        return load_current_event_plan(
-            self.alas_name,
-            observation,
-            server="EN",
-            now=now,
+        return load_event_plan_from_artifact(
+            self.alas_name, artifact, dashboard_observation
         )
 
     def _activate_generated_event_source(self) -> None:

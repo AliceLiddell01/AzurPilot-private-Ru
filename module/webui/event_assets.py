@@ -17,7 +17,8 @@ PLACEHOLDER_URL = "/static/assets/gui/icon/event-placeholder.svg"
 
 
 @lru_cache(maxsize=4)
-def _catalog(path: str) -> dict[str, str]:
+def _catalog(path: str, modified_ns: int, size: int) -> dict[str, str]:
+    del modified_ns, size
     data = validate_asset_catalog(json.loads(Path(path).read_text(encoding="utf-8")))
     return {str(key): str(value) for key, value in data["entries"].items()}
 
@@ -34,7 +35,11 @@ def event_asset_url(
     if not key:
         return PLACEHOLDER_URL
     try:
-        url = _catalog(str(Path(catalog_path).resolve())).get(key, "")
+        resolved_catalog = Path(catalog_path).resolve()
+        stat = resolved_catalog.stat()
+        url = _catalog(
+            str(resolved_catalog), stat.st_mtime_ns, stat.st_size
+        ).get(key, "")
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return PLACEHOLDER_URL
     prefix = "/static/assets/"
@@ -50,8 +55,8 @@ def event_asset_url(
     return url
 
 
-def event_asset_resolved(asset: Mapping[str, Any] | None) -> bool:
-    return event_asset_url(asset) != PLACEHOLDER_URL
+def event_asset_resolved(asset: Mapping[str, Any] | None, **kwargs: Any) -> bool:
+    return event_asset_url(asset, **kwargs) != PLACEHOLDER_URL
 
 
 def event_shop_asset_url(

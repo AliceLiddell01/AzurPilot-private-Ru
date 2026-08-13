@@ -85,3 +85,34 @@ def test_loader_instances_do_not_leak_source_roots(tmp_path: Path):
     second = ShareCfgLoader(snapshot(roots[1]))
     assert set(first.load_table("activity_template")) == {1}
     assert set(second.load_table("activity_template")) == {2}
+
+
+def test_required_empty_json_fixture_fails_closed(tmp_path: Path):
+    folder = tmp_path / "EN" / "sharecfgjson"
+    folder.mkdir(parents=True)
+    (folder / "chapter_template.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ShareCfgError) as caught:
+        ShareCfgLoader(snapshot(tmp_path)).load_table("chapter_template")
+
+    assert caught.value.code == "unsupported_table_shape"
+
+
+def test_declared_optional_empty_json_fixture_is_supported(tmp_path: Path):
+    folder = tmp_path / "EN" / "sharecfgjson"
+    folder.mkdir(parents=True)
+    (folder / "map_event_list.json").write_text("{}", encoding="utf-8")
+
+    assert ShareCfgLoader(snapshot(tmp_path)).load_table("map_event_list") == {}
+
+
+def test_json_fixture_restores_lua_numeric_float_keys(tmp_path: Path):
+    folder = tmp_path / "EN" / "sharecfgjson"
+    folder.mkdir(parents=True)
+    (folder / "chapter_template.json").write_text(
+        '{"1": {"weights": {"1.0": -50}}}', encoding="utf-8"
+    )
+
+    row = ShareCfgLoader(snapshot(tmp_path)).load_table("chapter_template")[1]
+
+    assert list(row["weights"]) == [1.0]

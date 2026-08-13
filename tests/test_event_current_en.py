@@ -3,6 +3,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
+from dev_tools.event_datamine_build import build_current_event
 from module.event_datamine.artifact import build_artifact, load_artifact
 from module.event_datamine.compiler import EventCompiler
 from module.event_datamine.discovery import (
@@ -12,7 +15,6 @@ from module.event_datamine.discovery import (
 from module.event_datamine.map_compiler import _values
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 from module.webui.event_source import load_current_event_plan
-from dev_tools.event_datamine_build import build_current_event
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "event_datamine" / "current_en"
@@ -31,11 +33,13 @@ def _loader():
 
 
 def _current(loader):
-    return resolve_current_candidate(
+    candidate = resolve_current_candidate(
         discover_major_events(loader),
         server="EN",
         now=datetime(2026, 8, 13, 20),
     )
+    assert candidate is not None
+    return candidate
 
 
 def test_current_fixture_preserves_source_identity_and_hashes():
@@ -80,7 +84,7 @@ def test_current_fixture_compiles_complete_relations_with_independent_oracles():
     assert spec.to_dict() == EventCompiler(_loader()).compile(candidate.activity_id).to_dict()
 
 
-def test_committed_current_artifact_and_production_resolver_use_fixture_result(tmp_path: Path):
+def test_committed_current_artifact_and_production_resolver_use_fixture_result():
     compiled = EventCompiler(_loader()).compile(_current(_loader()).activity_id).to_dict()
     artifact = load_artifact(
         ROOT / "module" / "event_datamine" / "data" / "production" / "en-51101.json"
@@ -136,3 +140,26 @@ def test_current_builder_is_id_free_and_byte_deterministic(tmp_path: Path):
         )
     assert outputs[0] == outputs[1]
     assert len([path for path in outputs[0] if path.endswith(".py")]) == 17
+
+
+def test_current_builder_preflights_artifact_before_writing_maps(tmp_path: Path):
+    output_root = tmp_path / "data"
+    artifact = output_root / "production" / "en-51101.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("reserved", encoding="utf-8")
+    maps_output = tmp_path / "maps"
+
+    with pytest.raises(FileExistsError):
+        build_current_event(
+            source_root=FIXTURE,
+            server="EN",
+            repository="AzurLaneTools/AzurLaneLuaScripts",
+            revision=REVISION,
+            output_root=output_root,
+            asset_root=ROOT / "assets",
+            now=datetime(2026, 8, 13, 20),
+            maps_output=maps_output,
+            verify_git=False,
+        )
+
+    assert not maps_output.exists()

@@ -471,6 +471,39 @@ def _unavailable_current_plan(
     return plan
 
 
+def resolve_current_event_artifact(
+    *,
+    server: str = "EN",
+    now: datetime | None = None,
+    registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Разрешить current artifact один раз либо вернуть typed unavailable plan."""
+
+    current_time = now or datetime.now()
+    try:
+        artifact = EventArtifactRegistry(registry_root).resolve_current(
+            server, current_time
+        )
+    except EventDiscoveryError as exc:
+        return None, _unavailable_current_plan(
+            server,
+            code=exc.code,
+            message=str(exc),
+            candidates=exc.candidates,
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        return None, _unavailable_current_plan(
+            server, code="event_registry_invalid", message=str(exc)
+        )
+    if artifact is None:
+        return None, _unavailable_current_plan(
+            server,
+            code="current_event_unavailable",
+            message="Для текущего server-local lifecycle нет production Event artifact",
+        )
+    return artifact, None
+
+
 def load_current_event_plan(
     instance: str,
     runtime_observation: Mapping[str, Any] | None = None,
@@ -479,28 +512,12 @@ def load_current_event_plan(
     now: datetime | None = None,
     registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
 ) -> dict[str, Any]:
-    current_time = now or datetime.now()
-    try:
-        artifact = EventArtifactRegistry(registry_root).resolve_current(
-            server, current_time
-        )
-    except EventDiscoveryError as exc:
-        return _unavailable_current_plan(
-            server,
-            code=exc.code,
-            message=str(exc),
-            candidates=exc.candidates,
-        )
-    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        return _unavailable_current_plan(
-            server, code="event_registry_invalid", message=str(exc)
-        )
+    artifact, unavailable = resolve_current_event_artifact(
+        server=server, now=now, registry_root=registry_root
+    )
     if artifact is None:
-        return _unavailable_current_plan(
-            server,
-            code="current_event_unavailable",
-            message="Для текущего server-local lifecycle нет production Event artifact",
-        )
+        assert unavailable is not None
+        return unavailable
     return load_event_plan_from_artifact(instance, artifact, runtime_observation)
 
 

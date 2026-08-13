@@ -373,8 +373,14 @@ def persist_current_pt_observation(
     observation["current_pt_source"] = source
     observation["current_pt_observed_at"] = timestamp
     observation["current_pt"] = _optional_non_negative_int(value)
+    current_pt_evidence = {"observed_at": timestamp}
     observation["current_pt_status"] = (
-        "observed" if observation["current_pt"] is not None else "unavailable"
+        "observed"
+        if observation["current_pt"] is not None
+        and observation_is_fresh(current_pt_evidence)
+        else "stale"
+        if observation["current_pt"] is not None
+        else "unavailable"
     )
     observation["findings"] = [
         item
