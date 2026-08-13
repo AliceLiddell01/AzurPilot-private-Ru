@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from module.event_datamine.artifact import load_builtin_artifact
 from module.webui.event_shop_observation import (
@@ -77,7 +78,14 @@ def test_duplicate_runtime_claims_are_not_accepted_as_two_observations():
     spec = load_builtin_artifact()["event_spec"]
     catalog = next(item for item in spec["shop_items"] if item["row_id"] == 3009)
     item = RuntimeItem(
-        "chip", None, None, catalog["price"], catalog["stock"], 8, "pt", catalog["amount"]
+        "chip",
+        None,
+        None,
+        catalog["price"],
+        catalog["stock"],
+        8,
+        "pt",
+        catalog["amount"],
     )
 
     rows, findings = reconcile_event_shop(spec, [item, item])
@@ -136,3 +144,18 @@ def test_desired_quantity_never_changes_observed_purchase_count():
 
     assert item["selected"] == 7
     assert item["purchased"] == 2
+
+
+def test_runtime_invalidates_snapshot_before_attempting_purchase():
+    source = (
+        Path(__file__).resolve().parents[1] / "module/shop_event/shop_event.py"
+    ).read_text(encoding="utf-8")
+    method = source[
+        source.index("    def event_shop_buy_item(") : source.index(
+            "    def get_current_pts("
+        )
+    ]
+
+    assert method.index("invalidate_event_shop_observation(") < method.index(
+        "return super().event_shop_buy_item"
+    )

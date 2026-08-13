@@ -52,7 +52,8 @@ class EventShop(EventShopClerk):
     pt_preserved = 0
 
     def event_shop_buy_item(self, item_to_buy, amount=None):
-        result = super().event_shop_buy_item(item_to_buy, amount=amount)
+        # Fail closed before the click: even a partially successful purchase
+        # must never leave the pre-purchase snapshot looking fresh.
         try:
             from module.event_datamine.artifact import load_builtin_artifact
             from module.webui.event_shop_observation import invalidate_event_shop_observation
@@ -65,7 +66,7 @@ class EventShop(EventShopClerk):
             )
         except (OSError, TypeError, ValueError) as exc:
             logger.warning(f"[Магазин события — наблюдение] Не удалось инвалидировать snapshot: {exc}")
-        return result
+        return super().event_shop_buy_item(item_to_buy, amount=amount)
 
     def get_current_pts(self):
         self.pt = self.event_shop_get_pt()
