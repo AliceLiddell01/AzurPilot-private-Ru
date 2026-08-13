@@ -186,11 +186,13 @@ def save_event_observation(
 ) -> Path:
     event_id = str(observation.get("event_id") or "")
     server = str(observation.get("server") or "").upper()
+    if not event_id or not server:
+        raise ValueError("EventObservation требует event_id и server")
+    if str(observation.get("instance") or "") != str(instance):
+        raise ValueError("EventObservation относится к другому профилю")
     normalized = normalize_event_observation(
         observation, event_id=event_id, server=server, instance=instance
     )
-    if not event_id or not server:
-        raise ValueError("EventObservation требует event_id и server")
     if normalized["source"] in {"fixture", "replay"} and not allow_nonproduction:
         raise ValueError(
             "Fixture/replay evidence запрещено сохранять как production observation"

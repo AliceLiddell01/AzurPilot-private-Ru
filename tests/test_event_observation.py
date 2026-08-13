@@ -63,6 +63,18 @@ def test_fixture_and_replay_cannot_become_production_truth(tmp_path: Path):
     assert production["findings"][0]["code"] == "nonproduction_evidence_rejected"
 
 
+def test_save_rejects_missing_identity_and_cross_profile_before_write(tmp_path: Path):
+    missing_identity = empty_event_observation("", "", "alpha")
+    with pytest.raises(ValueError, match="event_id и server"):
+        save_event_observation("alpha", missing_identity, root=tmp_path)
+
+    cross_profile = empty_event_observation("en:5941", "EN", "beta")
+    with pytest.raises(ValueError, match="другому профилю"):
+        save_event_observation("alpha", cross_profile, root=tmp_path)
+
+    assert list(tmp_path.rglob("*.json")) == []
+
+
 def test_missing_or_stale_dashboard_pt_stays_unknown_not_zero():
     now = datetime(2026, 8, 13, 12, tzinfo=timezone.utc)
     missing = dashboard_pt_observation(
