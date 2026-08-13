@@ -98,6 +98,8 @@ def build_current_event(
         module_name = base_name
         if module_name in used_names:
             module_name = f"{base_name}_{map_spec.id}"
+        if module_name in used_names:
+            raise ValueError(f"Неуникальное имя generated map module: {module_name}")
         used_names.add(module_name)
         record = {
             "map_id": map_spec.id,
@@ -138,7 +140,6 @@ def build_current_event(
             write_map_module(target, content, overwrite=overwrite)
 
     spec = replace(spec, maps=updated_maps)
-
     artifact = build_artifact(
         spec.to_dict(),
         compiler_version=str(EventCompiler.SCHEMA_VERSION),
