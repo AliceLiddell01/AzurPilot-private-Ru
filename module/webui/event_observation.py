@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Mapping
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
+from threading import Lock
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
@@ -32,6 +35,8 @@ ObservationSource = Literal[
     "fixture",
     "replay",
 ]
+_OBSERVATION_PROCESS_LOCKS_GUARD = Lock()
+_OBSERVATION_PROCESS_LOCKS: dict[str, Lock] = {}
 
 
 class ObservationFinding(TypedDict):
@@ -226,6 +231,47 @@ def _current_pt_candidate_is_newer(
     )
 
 
+def _process_observation_lock(path: Path) -> Lock:
+    key = str(path.resolve())
+    with _OBSERVATION_PROCESS_LOCKS_GUARD:
+        lock = _OBSERVATION_PROCESS_LOCKS.get(key)
+        if lock is None:
+            lock = Lock()
+            _OBSERVATION_PROCESS_LOCKS[key] = lock
+        return lock
+
+
+@contextmanager
+def _event_observation_write_lock(path: Path):
+    """Сериализовать read-modify-write observation внутри процесса и между процессами."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    process_lock = _process_observation_lock(path)
+    with process_lock, path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0, 2)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def save_event_observation(
     instance: str,
     observation: Mapping[str, Any],
@@ -380,46 +426,55 @@ def persist_current_pt_observation(
 ) -> dict[str, Any]:
     """Persist fresh OCR evidence under the exact current-event identity."""
 
-    observation = load_event_observation(
-        instance,
-        event_id,
-        server,
-        source_revision,
-        root=root,
-    )
     timestamp = (
         (observed_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
     )
-    if not _current_pt_candidate_is_newer(timestamp, observation):
-        return observation
-    if not observation.get("source"):
-        observation["source"] = source
-    if not observation.get("observed_at"):
-        observation["observed_at"] = timestamp
-    observation["current_pt_source"] = source
-    observation["current_pt_observed_at"] = timestamp
-    observation["current_pt"] = _optional_non_negative_int(value)
-    current_pt_evidence = {"observed_at": timestamp}
-    observation["current_pt_status"] = (
-        "observed"
-        if observation["current_pt"] is not None
-        and observation_is_fresh(current_pt_evidence)
-        else "stale"
-        if observation["current_pt"] is not None
-        else "unavailable"
+    observation_path = event_observation_path(
+        instance,
+        event_id,
+        server,
+        root,
+        source_revision=source_revision,
     )
-    observation["findings"] = [
-        item
-        for item in observation.get("findings", [])
-        if item.get("path") != "current_pt"
-    ]
-    if observation["current_pt"] is None:
-        observation["findings"].append(
-            _finding(
-                "current_pt_unavailable",
-                "OCR не предоставил валидный баланс PT",
-                "current_pt",
-            )
+    lock_path = observation_path.with_suffix(f"{observation_path.suffix}.lock")
+    with _event_observation_write_lock(lock_path):
+        observation = load_event_observation(
+            instance,
+            event_id,
+            server,
+            source_revision,
+            root=root,
         )
-    save_event_observation(instance, observation, root=root)
-    return observation
+        if not _current_pt_candidate_is_newer(timestamp, observation):
+            return observation
+        if not observation.get("source"):
+            observation["source"] = source
+        if not observation.get("observed_at"):
+            observation["observed_at"] = timestamp
+        observation["current_pt_source"] = source
+        observation["current_pt_observed_at"] = timestamp
+        observation["current_pt"] = _optional_non_negative_int(value)
+        current_pt_evidence = {"observed_at": timestamp}
+        observation["current_pt_status"] = (
+            "observed"
+            if observation["current_pt"] is not None
+            and observation_is_fresh(current_pt_evidence)
+            else "stale"
+            if observation["current_pt"] is not None
+            else "unavailable"
+        )
+        observation["findings"] = [
+            item
+            for item in observation.get("findings", [])
+            if item.get("path") != "current_pt"
+        ]
+        if observation["current_pt"] is None:
+            observation["findings"].append(
+                _finding(
+                    "current_pt_unavailable",
+                    "OCR не предоставил валидный баланс PT",
+                    "current_pt",
+                )
+            )
+        save_event_observation(instance, observation, root=root)
+        return observation
