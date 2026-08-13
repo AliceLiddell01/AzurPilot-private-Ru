@@ -100,7 +100,7 @@ def test_rose_tower_golden_is_source_derived_and_complete_except_declared_gaps()
         "revision": "f44b48853d48b400b92738b1f1cf6fcdf1d69169",
         "server": "EN",
         "activity_id": 5941,
-        "schema_version": 1,
+        "schema_version": 2,
     }
     assert len(spec["maps"]) == 15
     assert len(spec["shop_items"]) == 31

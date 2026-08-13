@@ -224,6 +224,91 @@ body.event-modern-active .modal-content .modal-body,
     gap: 12px;
 }
 
+.event-shop-item {
+    display: flex;
+    min-width: 180px;
+    align-items: center;
+    gap: 10px;
+}
+
+.event-shop-item img {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    border: 1px solid var(--event-border);
+    border-radius: 10px;
+    background: var(--event-surface-soft);
+    object-fit: contain;
+}
+
+.event-shop-item span {
+    display: flex;
+    flex-direction: column;
+    overflow-wrap: anywhere;
+}
+
+.event-shop-item small {
+    color: var(--event-muted);
+    font-size: .68rem;
+}
+
+.event-farm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 10px;
+}
+
+.event-farm-card {
+    padding: 14px;
+    border: 1px solid var(--event-border);
+    border-radius: 14px;
+    background: var(--event-surface-soft);
+}
+
+.event-farm-card-head,
+.event-farm-facts,
+.event-farm-facts span {
+    display: flex;
+}
+
+.event-reward-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.event-reward-chip img {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    object-fit: contain;
+}
+
+.event-farm-card-head {
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.event-farm-card-head span,
+.event-farm-facts small {
+    color: var(--event-muted);
+    font-size: .7rem;
+}
+
+.event-farm-facts {
+    margin-top: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.event-farm-facts span {
+    min-width: 78px;
+    flex: 1 1 78px;
+    flex-direction: column;
+    gap: 2px;
+}
+
 .event-section-heading {
     margin: 22px 0 10px;
 }
@@ -493,22 +578,15 @@ body.event-modern-active .modal-content .modal-body,
         flex-wrap: wrap !important;
         gap: 4px !important;
     }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table,
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table thead,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table thead,
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table tbody,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tbody {
         display: block !important;
         width: 100% !important;
     }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table tr,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tr {
         display: grid !important;
         width: 100% !important;
-    }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table tr {
-        grid-template-columns: minmax(0, 1.2fr) minmax(0, .7fr) minmax(0, .9fr) minmax(0, 1fr) !important;
     }
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table thead,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tbody > tr:first-child:has(th) {
@@ -524,9 +602,7 @@ body.event-modern-active .modal-content .modal-body,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tr {
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table th,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table th,
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table td,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td {
         width: auto !important;
         overflow-wrap: anywhere !important;
@@ -545,8 +621,10 @@ body.event-modern-active .modal-content .modal-body,
     }
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(1)::before { content: "Товар"; }
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(2)::before { content: "Цена"; }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(3)::before { content: "Количество"; }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(4)::before { content: "Итого PT"; }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(3)::before { content: "Куплено"; }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(4)::before { content: "Осталось"; }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(5)::before { content: "Цель"; }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(6)::before { content: "План PT"; }
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:last-child {
         grid-column: 1 / -1;
         min-height: 0;
@@ -564,6 +642,7 @@ body.event-modern-active .modal-content .modal-body,
     .event-metrics-grid { grid-template-columns: 1fr 1fr; }
     .event-hero-meta { flex-direction: column; align-items: flex-start; gap: 5px; }
     .event-section-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+    .event-shop-item { min-width: 0; }
 }
 
 @media (max-width: 520px) {

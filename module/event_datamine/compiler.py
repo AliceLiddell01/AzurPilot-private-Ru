@@ -76,8 +76,32 @@ def _activity_times(row: Mapping[str, Any]) -> tuple[str, str]:
     return _date_part(_at(value, 1, {})), _date_part(_at(value, 2, {}))
 
 
+def classify_pt_task_config(
+    configs: Any, *, task_ids: set[int], map_ids: set[int]
+) -> tuple[dict[int, str], set[int]]:
+    """Classify only by the numeric source relation encoded in taskConfig."""
+    group_kinds = {
+        1: "first_clear",
+        2: "daily_first_clear",
+        3: "daily",
+        4: "challenge",
+    }
+    tasks: dict[int, str] = {}
+    daily_first_clear_maps: set[int] = set()
+    for config in _values(configs):
+        kind = group_kinds.get(int(_at(config, 0, 0) or 0), "unknown")
+        for value in _values(_at(config, 2, {})):
+            if not isinstance(value, int):
+                continue
+            if value in task_ids:
+                tasks[value] = kind
+            elif kind == "daily_first_clear" and value in map_ids:
+                daily_first_clear_maps.add(value)
+    return tasks, daily_first_clear_maps
+
+
 class EventCompiler:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, source: ShareCfgLoader) -> None:
         self.source = source
@@ -495,17 +519,26 @@ class EventCompiler:
         tasks = self._table("task_data_template", required=False)
         pt_sources: list[PtSourceSpec] = []
         task_ids: set[int] = set()
+        task_kinds: dict[int, str] = {}
+        daily_first_clear_map_ids: set[int] = set()
+        runtime_currency_tokens: dict[int, str] = {}
         for row in related.values():
             if int(row.get("type", 0) or 0) == 13:
                 task_ids.update(int(value) for value in _values(row.get("config_data")))
             client = row.get("config_client")
             if isinstance(client, Mapping):
-                for config in _values(client.get("taskConfig")):
-                    task_ids.update(
-                        int(value)
-                        for value in _values(_at(config, 2, {}))
-                        if isinstance(value, int) and value in tasks
-                    )
+                for field, token in (("ptId", "pt"), ("uPtId", "URpt")):
+                    currency_id = int(client.get(field, 0) or 0)
+                    if currency_id:
+                        runtime_currency_tokens[currency_id] = token
+                classified_tasks, classified_maps = classify_pt_task_config(
+                    client.get("taskConfig"),
+                    task_ids=set(tasks),
+                    map_ids=map_ids,
+                )
+                task_ids.update(classified_tasks)
+                task_kinds.update(classified_tasks)
+                daily_first_clear_map_ids.update(classified_maps)
         for task_id in sorted(task_ids):
             task = tasks.get(task_id)
             if not isinstance(task, Mapping):
@@ -515,22 +548,44 @@ class EventCompiler:
                     int(_at(reward, 0, 0) or 0) == 1
                     and int(_at(reward, 1, 0) or 0) in currency_ids
                 ):
+                    kind = task_kinds.get(task_id, "unknown")
+                    if kind == "unknown":
+                        self.findings.append(
+                            ValidationFinding(
+                                "pt_source_kind_unknown",
+                                "warning",
+                                f"Не классифицирована структурная связь PT task {task_id}",
+                                f"pt_sources.task:{task_id}",
+                            )
+                        )
                     pt_sources.append(
                         PtSourceSpec(
                             f"task:{task_id}",
-                            "task",
+                            kind,
                             str(task.get("desc") or task.get("name") or task_id),
                             int(_at(reward, 2, 0) or 0),
-                            bool(task.get("is_head")),
+                            kind in {"daily", "weekly", "daily_first_clear"},
                             (task_id,),
                         )
                     )
+        for map_id in sorted(daily_first_clear_map_ids):
+            chapter = chapters.get(map_id, {})
+            pt_sources.append(
+                PtSourceSpec(
+                    f"map-daily-first-clear:{map_id}",
+                    "daily_first_clear",
+                    str(chapter.get("chapter_name") or map_id),
+                    None,
+                    True,
+                    (map_id,),
+                )
+            )
         for map_id in sorted(map_ids):
             chapter = chapters.get(map_id, {})
             pt_sources.append(
                 PtSourceSpec(
                     f"map:{map_id}",
-                    "map_clear",
+                    "repeatable_map_clear",
                     str(chapter.get("chapter_name") or map_id),
                     None,
                     False,
@@ -555,6 +610,7 @@ class EventCompiler:
                     game_id=currency_id,
                     path=f"activity_currency/{currency_id}",
                 ),
+                runtime_currency_tokens.get(currency_id, ""),
             )
             for currency_id in sorted(value for value in currency_ids if value)
         )

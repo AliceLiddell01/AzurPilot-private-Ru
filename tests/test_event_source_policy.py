@@ -37,10 +37,9 @@ def test_generated_facts_and_user_policy_are_separate_round_trip(tmp_path: Path)
         "schema_version",
         "source_event_id",
         "explicit_empty",
-        "progress",
         "shop_selections",
-        "recurring_status",
         "legacy_unverified",
+        "legacy_debug_evidence",
     }
 
 
@@ -78,7 +77,9 @@ def test_stage2_migration_preserves_intent_without_activating_manual_facts(
         ]
         == 1
     )
-    assert projected["progress"]["pt_mode"] == "auto"
+    assert projected["progress"]["current_pt"] is None
+    assert projected["progress"]["status"] == "unavailable"
+    assert state["legacy_debug_evidence"]["manual_current_pt"] == 900
 
 
 def test_stage2_shop_selection_without_id_maps_only_by_unique_source_facts():
@@ -148,12 +149,18 @@ def test_policy_from_another_event_does_not_leak_into_new_source():
     state = empty_event_user_state()
     state["source_event_id"] = "en:previous"
     state["shop_selections"] = {"3009": 3}
-    state["recurring_status"] = {"task:1": {"skip": True}}
+    state["legacy_debug_evidence"] = {
+        "manual_recurring_status": {"task:1": {"skip": True}}
+    }
 
     projected = event_plan_from_source(spec, state)
 
     assert all(item["selected"] == 0 for item in projected["shop_items"])
-    assert all(not item["skip"] for item in projected["daily"] + projected["extra"])
+    assert projected["daily"] == []
+    assert projected["extra"] == []
+    assert all(
+        item["observation_status"] == "unavailable" for item in projected["pt_sources"]
+    )
 
 
 def test_malformed_policy_quantities_are_ignored_during_normalization():
@@ -170,4 +177,7 @@ def test_malformed_policy_quantities_are_ignored_during_normalization():
     )
 
     assert state["shop_selections"] == {"valid": 2, "negative": 0}
-    assert state["recurring_status"] == {"valid": {"skip": True}}
+    assert state["legacy_debug_evidence"]["manual_recurring_status"] == {
+        "valid": {"skip": True},
+        "invalid": "yes",
+    }

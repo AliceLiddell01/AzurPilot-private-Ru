@@ -86,15 +86,19 @@ def test_event_general_dashboard_uses_local_plan_and_automatic_calculation():
     assert "event-metrics-grid" in layout
     assert "event-progress-track" in layout
     assert "planning_target = max(target, shop_total)" in layout
-    assert 'forecast["recurring_pt"]' in layout
-    assert 'forecast["farm_required_pt"]' in layout
+    assert "Автопрогноз источников недоступен" in layout
+    assert "remaining_pt" in layout
+    assert "Автостатус пока недоступен" in layout
+    assert '"Получено"' not in layout
+    assert '"Пропуск"' not in layout
     assert '"Добавить источник PT"' not in layout
     assert '"Добавить этап"' not in layout
     assert "BWiki" not in layout
 
-    assert 'deep_get(config, "Dashboard.Pt.Value", 0)' in planner
-    assert 'deep_get(config, "Dashboard.Pt.Record", "")' in planner
-    assert 'return 0, "OCR PT ещё не записан или устарел"' in planner
+    datamine = (ROOT / "module/webui/app_event_datamine.py").read_text(encoding="utf-8")
+    assert 'deep_get(config, "Dashboard.Pt.Value", None)' in datamine
+    assert 'deep_get(config, "Dashboard.Pt.Record", "")' in datamine
+    assert "dashboard_pt_observation" in datamine
     assert '"manual"' not in planner
 
 
@@ -148,6 +152,7 @@ def test_event_css_defines_modern_responsive_visual_system():
         ".event-metric-card",
         ".event-progress-track",
         ".event-shop-hero",
+        ".event-shop-item",
         ".event-automation-status",
         ".event-advanced-details",
     ):
@@ -159,7 +164,8 @@ def test_event_css_defines_modern_responsive_visual_system():
     assert ".event-dashboard-hero::after" not in css
     assert "radial-gradient" not in css
     assert "width: min(100%, 1120px)" not in css
-    assert "grid-template-columns: minmax(0, 1.2fr)" in css
+    assert "grid-template-columns: repeat(auto-fit, minmax(250px, 1fr))" in css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css
     assert "clip-path: inset(50%)" in css
     assert "@media (max-width: 760px)" in css
     assert "@media (prefers-reduced-motion: reduce)" in css

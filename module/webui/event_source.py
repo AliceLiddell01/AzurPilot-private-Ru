@@ -20,9 +20,13 @@ from deploy.atomic import (
 )
 from module.event_datamine.artifact import load_builtin_artifact
 from module.logger import logger
+from module.webui.event_observation import (
+    load_event_observation,
+    observation_is_fresh,
+)
 from module.webui.event_plan import EVENT_PLAN_ROOT, empty_event_plan, load_event_plan
 
-EVENT_USER_STATE_SCHEMA_VERSION = 1
+EVENT_USER_STATE_SCHEMA_VERSION = 2
 EVENT_USER_STATE_ROOT = Path("./config/state/event_user_state")
 
 
@@ -44,10 +48,9 @@ def empty_event_user_state() -> dict[str, Any]:
         "schema_version": EVENT_USER_STATE_SCHEMA_VERSION,
         "source_event_id": "en:5941",
         "explicit_empty": False,
-        "progress": {"current_pt": 0, "pt_mode": "auto"},
         "shop_selections": {},
-        "recurring_status": {},
         "legacy_unverified": None,
+        "legacy_debug_evidence": None,
     }
 
 
@@ -57,12 +60,6 @@ def normalize_event_user_state(raw: Any) -> dict[str, Any]:
         return result
     result["source_event_id"] = str(raw.get("source_event_id") or "en:5941")
     result["explicit_empty"] = bool(raw.get("explicit_empty"))
-    progress = raw.get("progress")
-    if isinstance(progress, Mapping):
-        result["progress"]["current_pt"] = max(
-            int(progress.get("current_pt", 0) or 0), 0
-        )
-        result["progress"]["pt_mode"] = "auto"
     selections = raw.get("shop_selections")
     if isinstance(selections, Mapping):
         for item, value in selections.items():
@@ -72,15 +69,24 @@ def normalize_event_user_state(raw: Any) -> dict[str, Any]:
                 result["shop_selections"][str(item)] = max(int(value or 0), 0)
             except TypeError, ValueError, OverflowError:
                 continue
-    recurring = raw.get("recurring_status")
-    if isinstance(recurring, Mapping):
-        result["recurring_status"] = {
-            str(item): dict(value)
-            for item, value in recurring.items()
-            if isinstance(value, Mapping)
-        }
     legacy = raw.get("legacy_unverified")
     result["legacy_unverified"] = dict(legacy) if isinstance(legacy, Mapping) else None
+    debug = raw.get("legacy_debug_evidence")
+    result["legacy_debug_evidence"] = (
+        dict(debug) if isinstance(debug, Mapping) else None
+    )
+    progress = raw.get("progress")
+    recurring = raw.get("recurring_status")
+    if isinstance(progress, Mapping) or isinstance(recurring, Mapping):
+        result["legacy_debug_evidence"] = {
+            "manual_progress": dict(progress)
+            if isinstance(progress, Mapping)
+            else None,
+            "manual_recurring_status": dict(recurring)
+            if isinstance(recurring, Mapping)
+            else None,
+            "note": "Stage 3 manual observation retained for diagnostics only",
+        }
     return result
 
 
@@ -92,10 +98,6 @@ def migrate_stage2_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         isinstance(source, Mapping) and source.get("kind") == "manual_empty"
     )
     progress = plan.get("progress", {})
-    if isinstance(progress, Mapping):
-        state["progress"]["current_pt"] = max(
-            int(progress.get("current_pt", 0) or 0), 0
-        )
     for item in plan.get("shop_items", []):
         if not isinstance(item, Mapping):
             continue
@@ -121,6 +123,18 @@ def migrate_stage2_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(progress, Mapping)
             else 0,
             "note": "Stage 2 facts retained as unverified migration evidence; not an active provider",
+        }
+        state["legacy_debug_evidence"] = {
+            "manual_current_pt": int(progress.get("current_pt", 0) or 0)
+            if isinstance(progress, Mapping)
+            else 0,
+            "manual_sources": [
+                dict(item)
+                for kind in ("daily", "extra")
+                for item in plan.get(kind, [])
+                if isinstance(item, Mapping)
+            ],
+            "note": "Legacy manual values are debug evidence and never production truth",
         }
     return state
 
@@ -179,13 +193,21 @@ def load_event_user_state(
 
 
 def event_plan_from_source(
-    spec: Mapping[str, Any], state: Mapping[str, Any]
+    spec: Mapping[str, Any],
+    state: Mapping[str, Any],
+    observation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     saved_source_id = str(state.get("source_event_id") or "")
     state = normalize_event_user_state(state)
     if state["explicit_empty"]:
         plan = empty_event_plan(str(spec.get("server") or "EN"))
         plan["event"]["source"]["kind"] = "manual_empty"
+        plan["progress"] = {
+            "current_pt": None,
+            "source": "",
+            "observed_at": "",
+            "status": "unavailable",
+        }
         return plan
     provenance = spec.get("provenance", {})
     status = str(spec.get("source_status") or "unsupported")
@@ -205,47 +227,87 @@ def event_plan_from_source(
             "repository": str(provenance.get("repository") or ""),
         },
     }
-    plan["progress"] = dict(state["progress"])
+    observation = observation if isinstance(observation, Mapping) else {}
+    current_fresh = str(observation.get("current_pt_status") or "") == "observed"
+    if not observation.get("current_pt_status"):
+        current_fresh = observation_is_fresh(
+            {
+                "observed_at": observation.get("current_pt_observed_at")
+                or observation.get("observed_at")
+            }
+        )
+    shop_fresh = observation_is_fresh(
+        {"observed_at": observation.get("shop_observed_at") or ""}
+    )
+    current_pt = observation.get("current_pt") if current_fresh else None
+    plan["progress"] = {
+        "current_pt": current_pt
+        if isinstance(current_pt, int) and current_pt >= 0
+        else None,
+        "source": str(
+            observation.get("current_pt_source") or observation.get("source") or ""
+        ),
+        "observed_at": str(
+            observation.get("current_pt_observed_at")
+            or observation.get("observed_at")
+            or ""
+        ),
+        "status": "observed"
+        if current_fresh and isinstance(current_pt, int)
+        else "stale"
+        if observation.get("current_pt") is not None
+        else "unavailable",
+    }
     same_source = not saved_source_id or saved_source_id == plan["event"]["id"]
     legacy = state.get("legacy_unverified") if same_source else None
-    legacy_recurring = []
-    if isinstance(legacy, Mapping):
-        legacy_recurring = [
-            item
-            for kind in ("daily", "extra")
-            for item in legacy.get(kind, [])
-            if isinstance(item, Mapping)
-        ]
+    plan["pt_sources"] = []
     for source in spec.get("pt_sources", []):
-        if not isinstance(source, Mapping) or source.get("points") is None:
+        if not isinstance(source, Mapping):
             continue
-        row = {
-            "id": str(source.get("id") or ""),
-            "name": str(source.get("name") or ""),
-            "points": max(int(source.get("points", 0) or 0), 0),
-            "skip": False,
-            "completed_date": "",
-        }
-        saved = state["recurring_status"].get(row["id"]) if same_source else None
-        if not isinstance(saved, Mapping):
-            matches = [
-                item
-                for item in legacy_recurring
-                if str(item.get("name") or "") == row["name"]
-                and int(item.get("points", 0) or 0) == row["points"]
-            ]
-            saved = matches[0] if len(matches) == 1 else None
-        if isinstance(saved, Mapping):
-            row["skip"] = bool(saved.get("skip"))
-            row["completed_date"] = str(saved.get("completed_date") or "")
-        plan["daily" if source.get("recurring") else "extra"].append(row)
+        plan["pt_sources"].append(
+            {
+                "id": str(source.get("id") or ""),
+                "name": str(source.get("name") or ""),
+                "kind": str(source.get("kind") or "unknown"),
+                "points": int(source["points"])
+                if source.get("points") is not None
+                else None,
+                "recurring": bool(source.get("recurring")),
+                "source_ids": list(source.get("source_ids") or []),
+                "observation_status": "unavailable",
+            }
+        )
+    map_observations = {
+        str(item.get("map_id") or item.get("id") or ""): item
+        for item in observation.get("maps", [])
+        if isinstance(item, Mapping)
+    }
     for item in spec.get("maps", []):
         if isinstance(item, Mapping):
+            identity = str(item.get("id") or "")
+            runtime = map_observations.get(identity, {})
             plan["stages"].append(
                 {
-                    "id": str(item.get("id") or ""),
+                    "id": identity,
                     "name": str(item.get("chapter_name") or item.get("id") or ""),
-                    "points": 0,
+                    "points": runtime.get("points")
+                    if observation_is_fresh(observation)
+                    else None,
+                    "oil": runtime.get("oil")
+                    if observation_is_fresh(observation)
+                    else None,
+                    "coin": runtime.get("coin")
+                    if observation_is_fresh(observation)
+                    else None,
+                    "stars": runtime.get("stars")
+                    if observation_is_fresh(observation)
+                    else None,
+                    "clear_count": runtime.get("clear_count")
+                    if observation_is_fresh(observation)
+                    else None,
+                    "observation_status": "observed"
+                    if observation_is_fresh(observation) and runtime
+                    else "unavailable",
                 }
             )
     selections = dict(state["shop_selections"]) if same_source else {}
@@ -269,11 +331,18 @@ def event_plan_from_source(
                 selections.setdefault(
                     identity, max(int(old.get("selected", 0) or 0), 0)
                 )
+    shop_observed_fresh = shop_fresh
+    shop_observations = {
+        str(item.get("row_id")): item
+        for item in observation.get("shop_items", [])
+        if isinstance(item, Mapping) and item.get("row_id") is not None
+    }
     for item in spec.get("shop_items", []):
         if not isinstance(item, Mapping):
             continue
         identity = str(item.get("row_id") or "")
         stock = max(int(item.get("stock", 0) or 0), 0)
+        runtime = shop_observations.get(identity, {})
         plan["shop_items"].append(
             {
                 "id": identity,
@@ -284,18 +353,49 @@ def event_plan_from_source(
                 "filter": str(item.get("event_shop_filter") or ""),
                 "currency_id": int(item.get("currency_id", 0) or 0),
                 "asset": dict(item.get("asset") or {}),
+                "amount": int(item.get("amount", 1) or 1),
+                "remaining": runtime.get("remaining") if shop_observed_fresh else None,
+                "purchased": runtime.get("purchased") if shop_observed_fresh else None,
+                "match_status": str(runtime.get("status") or "unmatched")
+                if shop_observed_fresh
+                else "unavailable",
             }
         )
+    plan["milestones"] = [
+        dict(item) for item in spec.get("milestones", []) if isinstance(item, Mapping)
+    ]
+    plan["observation"] = {
+        "status": "fresh"
+        if observation_is_fresh(observation)
+        else "stale"
+        if observation.get("observed_at")
+        else "unavailable",
+        "observed_at": str(observation.get("observed_at") or ""),
+        "findings": list(observation.get("findings", [])),
+    }
     plan["source_findings"] = list(spec.get("findings", []))
     plan["source_status"] = status
     return plan
 
 
-def load_builtin_event_plan(instance: str) -> dict[str, Any]:
+def load_builtin_event_plan(
+    instance: str, runtime_observation: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     artifact = load_builtin_artifact()
-    return event_plan_from_source(
-        artifact["event_spec"], load_event_user_state(instance)
+    spec = artifact["event_spec"]
+    observation = load_event_observation(
+        instance, str(spec.get("id") or ""), str(spec.get("server") or "EN")
     )
+    if isinstance(runtime_observation, Mapping):
+        for field in (
+            "current_pt",
+            "current_pt_source",
+            "current_pt_observed_at",
+            "current_pt_status",
+        ):
+            if field in runtime_observation:
+                observation[field] = runtime_observation[field]
+    return event_plan_from_source(spec, load_event_user_state(instance), observation)
 
 
 def user_state_from_plan(
@@ -305,24 +405,9 @@ def user_state_from_plan(
     event = plan.get("event")
     if isinstance(event, Mapping) and event.get("id"):
         state["source_event_id"] = str(event["id"])
-    progress = plan.get("progress")
-    if isinstance(progress, Mapping):
-        state["progress"] = {
-            "current_pt": max(int(progress.get("current_pt", 0) or 0), 0),
-            "pt_mode": "auto",
-        }
     state["shop_selections"] = {
         str(item.get("id")): max(int(item.get("selected", 0) or 0), 0)
         for item in plan.get("shop_items", [])
-        if isinstance(item, Mapping) and item.get("id")
-    }
-    state["recurring_status"] = {
-        str(item.get("id")): {
-            "skip": bool(item.get("skip")),
-            "completed_date": str(item.get("completed_date") or ""),
-        }
-        for kind in ("daily", "extra")
-        for item in plan.get(kind, [])
         if isinstance(item, Mapping) and item.get("id")
     }
     return state

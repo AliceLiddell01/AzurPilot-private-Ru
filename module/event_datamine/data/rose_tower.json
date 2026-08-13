@@ -1,7 +1,7 @@
 {
   "artifact_schema_version": 1,
-  "compiler_version": "1",
-  "digest": "8418458b24e2cffa5cb36e39eb8ee7176b641007cbfe92bfbc9fbbd2fee2aa9d",
+  "compiler_version": "2",
+  "digest": "4d38386507600f717bb02136ea7850b0948edf50b5b2853b8b1c70e9636cad68",
   "event_spec": {
     "currencies": [
       {
@@ -12,7 +12,8 @@
           "source_path": "activity_currency/498"
         },
         "id": 498,
-        "name": "Event currency 498"
+        "name": "Event currency 498",
+        "runtime_token": "pt"
       },
       {
         "asset": {
@@ -22,7 +23,8 @@
           "source_path": "activity_currency/499"
         },
         "id": 499,
-        "name": "Event currency 499"
+        "name": "Event currency 499",
+        "runtime_token": "URpt"
       }
     ],
     "eligible": true,
@@ -3233,13 +3235,13 @@
       "provider": "AzurLaneLuaScripts",
       "repository": "AzurLaneTools/AzurLaneLuaScripts",
       "revision": "f44b48853d48b400b92738b1f1cf6fcdf1d69169",
-      "schema_version": 1,
+      "schema_version": 2,
       "server": "EN"
     },
     "pt_sources": [
       {
         "id": "task:21741",
-        "kind": "task",
+        "kind": "first_clear",
         "name": "Clear the SP stage in A Rose on the High Tower.",
         "points": 50,
         "recurring": false,
@@ -3249,7 +3251,7 @@
       },
       {
         "id": "task:23643",
-        "kind": "task",
+        "kind": "daily",
         "name": "Clear any event stage 3 times.",
         "points": 5,
         "recurring": true,
@@ -3259,7 +3261,7 @@
       },
       {
         "id": "task:23644",
-        "kind": "task",
+        "kind": "daily",
         "name": "Enhance gear 2 times.",
         "points": 5,
         "recurring": true,
@@ -3269,7 +3271,7 @@
       },
       {
         "id": "task:23645",
-        "kind": "task",
+        "kind": "daily",
         "name": "Complete 2 commissions.",
         "points": 5,
         "recurring": true,
@@ -3279,7 +3281,7 @@
       },
       {
         "id": "task:23646",
-        "kind": "task",
+        "kind": "daily",
         "name": "Conduct 2 exercises.",
         "points": 5,
         "recurring": true,
@@ -3289,7 +3291,7 @@
       },
       {
         "id": "task:23647",
-        "kind": "task",
+        "kind": "daily",
         "name": "Retire 2 ships.",
         "points": 5,
         "recurring": true,
@@ -3299,7 +3301,7 @@
       },
       {
         "id": "task:23648",
-        "kind": "task",
+        "kind": "daily",
         "name": "Build 1 ship.",
         "points": 5,
         "recurring": true,
@@ -3309,7 +3311,7 @@
       },
       {
         "id": "task:23649",
-        "kind": "task",
+        "kind": "daily",
         "name": "Conduct tactical training 2 times.",
         "points": 5,
         "recurring": true,
@@ -3319,7 +3321,7 @@
       },
       {
         "id": "task:23650",
-        "kind": "task",
+        "kind": "daily",
         "name": "Defeat 20 enemies.",
         "points": 5,
         "recurring": true,
@@ -3329,7 +3331,7 @@
       },
       {
         "id": "task:23651",
-        "kind": "task",
+        "kind": "daily",
         "name": "Restock snacks in your dorm 5 times.",
         "points": 5,
         "recurring": true,
@@ -3339,7 +3341,7 @@
       },
       {
         "id": "task:23652",
-        "kind": "task",
+        "kind": "daily",
         "name": "Spend a total of 300 Oil.",
         "points": 5,
         "recurring": true,
@@ -3349,7 +3351,7 @@
       },
       {
         "id": "task:23653",
-        "kind": "task",
+        "kind": "daily",
         "name": "Enhance ship 5 times.",
         "points": 5,
         "recurring": true,
@@ -3359,7 +3361,7 @@
       },
       {
         "id": "task:23654",
-        "kind": "task",
+        "kind": "daily",
         "name": "Open 1 tech box",
         "points": 5,
         "recurring": true,
@@ -3369,7 +3371,7 @@
       },
       {
         "id": "task:23655",
-        "kind": "task",
+        "kind": "daily",
         "name": "Complete 1 Research Project.",
         "points": 5,
         "recurring": true,
@@ -3379,7 +3381,7 @@
       },
       {
         "id": "task:23656",
-        "kind": "task",
+        "kind": "daily",
         "name": "Interact with 1 ship in your dorm.",
         "points": 5,
         "recurring": true,
@@ -3389,7 +3391,7 @@
       },
       {
         "id": "task:23657",
-        "kind": "task",
+        "kind": "daily",
         "name": "Interact with your secretary ship 1 time.",
         "points": 5,
         "recurring": true,
@@ -3399,57 +3401,67 @@
       },
       {
         "id": "task:23658",
-        "kind": "task",
+        "kind": "challenge",
         "name": "With Lion afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
         "points": 10,
-        "recurring": true,
+        "recurring": false,
         "source_ids": [
           23658
         ]
       },
       {
         "id": "task:23659",
-        "kind": "task",
+        "kind": "challenge",
         "name": "With Glorious META afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
         "points": 10,
-        "recurring": true,
+        "recurring": false,
         "source_ids": [
           23659
         ]
       },
       {
         "id": "task:23660",
-        "kind": "task",
+        "kind": "challenge",
         "name": "With Cleopatra afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
         "points": 10,
-        "recurring": true,
+        "recurring": false,
         "source_ids": [
           23660
         ]
       },
       {
         "id": "task:23661",
-        "kind": "task",
+        "kind": "challenge",
         "name": "With Gallant afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
         "points": 10,
-        "recurring": true,
+        "recurring": false,
         "source_ids": [
           23661
         ]
       },
       {
         "id": "task:23662",
-        "kind": "task",
+        "kind": "challenge",
         "name": "With Trinidad afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
         "points": 10,
-        "recurring": true,
+        "recurring": false,
         "source_ids": [
           23662
         ]
       },
       {
+        "id": "map-daily-first-clear:1920041",
+        "kind": "daily_first_clear",
+        "name": "SP",
+        "points": null,
+        "recurring": true,
+        "source_ids": [
+          1920041
+        ]
+      },
+      {
         "id": "map:1920001",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "A1",
         "points": null,
         "recurring": false,
@@ -3459,7 +3471,7 @@
       },
       {
         "id": "map:1920002",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "A2",
         "points": null,
         "recurring": false,
@@ -3469,7 +3481,7 @@
       },
       {
         "id": "map:1920003",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "A3",
         "points": null,
         "recurring": false,
@@ -3479,7 +3491,7 @@
       },
       {
         "id": "map:1920004",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "B1",
         "points": null,
         "recurring": false,
@@ -3489,7 +3501,7 @@
       },
       {
         "id": "map:1920005",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "B2",
         "points": null,
         "recurring": false,
@@ -3499,7 +3511,7 @@
       },
       {
         "id": "map:1920006",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "B3",
         "points": null,
         "recurring": false,
@@ -3509,7 +3521,7 @@
       },
       {
         "id": "map:1920021",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "C1",
         "points": null,
         "recurring": false,
@@ -3519,7 +3531,7 @@
       },
       {
         "id": "map:1920022",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "C2",
         "points": null,
         "recurring": false,
@@ -3529,7 +3541,7 @@
       },
       {
         "id": "map:1920023",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "C3",
         "points": null,
         "recurring": false,
@@ -3539,7 +3551,7 @@
       },
       {
         "id": "map:1920024",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "D1",
         "points": null,
         "recurring": false,
@@ -3549,7 +3561,7 @@
       },
       {
         "id": "map:1920025",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "D2",
         "points": null,
         "recurring": false,
@@ -3559,7 +3571,7 @@
       },
       {
         "id": "map:1920026",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "D3",
         "points": null,
         "recurring": false,
@@ -3569,7 +3581,7 @@
       },
       {
         "id": "map:1920041",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "SP",
         "points": null,
         "recurring": false,
@@ -3579,7 +3591,7 @@
       },
       {
         "id": "map:1920051",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "EXTRA",
         "points": null,
         "recurring": false,
@@ -3589,7 +3601,7 @@
       },
       {
         "id": "map:1920052",
-        "kind": "map_clear",
+        "kind": "repeatable_map_clear",
         "name": "EXTRA",
         "points": null,
         "recurring": false,
