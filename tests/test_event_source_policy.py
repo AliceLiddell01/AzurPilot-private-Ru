@@ -9,6 +9,7 @@ from module.webui.event_source import (
     event_user_state_path,
     load_event_user_state,
     migrate_stage2_plan,
+    normalize_event_user_state,
     save_event_user_state,
     user_state_from_plan,
 )
@@ -140,3 +141,33 @@ def test_corrupt_user_state_is_preserved_before_safe_fallback(tmp_path: Path):
     backups = list(root.glob(f"{path.name}.corrupt-*"))
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == '{"shop_selections":'
+
+
+def test_policy_from_another_event_does_not_leak_into_new_source():
+    spec = load_builtin_artifact()["event_spec"]
+    state = empty_event_user_state()
+    state["source_event_id"] = "en:previous"
+    state["shop_selections"] = {"3009": 3}
+    state["recurring_status"] = {"task:1": {"skip": True}}
+
+    projected = event_plan_from_source(spec, state)
+
+    assert all(item["selected"] == 0 for item in projected["shop_items"])
+    assert all(not item["skip"] for item in projected["daily"] + projected["extra"])
+
+
+def test_malformed_policy_quantities_are_ignored_during_normalization():
+    state = normalize_event_user_state(
+        {
+            "shop_selections": {
+                "valid": "2",
+                "negative": -3,
+                "text": "many",
+                "mapping": {"value": 4},
+            },
+            "recurring_status": {"valid": {"skip": True}, "invalid": "yes"},
+        }
+    )
+
+    assert state["shop_selections"] == {"valid": 2, "negative": 0}
+    assert state["recurring_status"] == {"valid": {"skip": True}}

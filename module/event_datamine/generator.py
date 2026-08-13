@@ -12,7 +12,9 @@ from module.event_datamine.patches import CompatibilityPatch
 
 def map_module_name(chapter_name: str) -> str:
     name = chapter_name.replace("-", "_").replace(".", "").lower()
-    return f"campaign_{name}" if name and name[0].isdigit() else name
+    if not name:
+        raise ValueError("chapter_name не может быть пустым")
+    return f"campaign_{name}" if name[0].isdigit() else name
 
 
 def _matrix(value: tuple[tuple[str, ...], ...]) -> list[str]:

@@ -63,10 +63,22 @@ def normalize_event_user_state(raw: Any) -> dict[str, Any]:
             int(progress.get("current_pt", 0) or 0), 0
         )
         result["progress"]["pt_mode"] = "auto"
-    for key in ("shop_selections", "recurring_status"):
-        value = raw.get(key)
-        if isinstance(value, Mapping):
-            result[key] = {str(item): data for item, data in value.items()}
+    selections = raw.get("shop_selections")
+    if isinstance(selections, Mapping):
+        for item, value in selections.items():
+            if isinstance(value, (Mapping, list, tuple)):
+                continue
+            try:
+                result["shop_selections"][str(item)] = max(int(value or 0), 0)
+            except TypeError, ValueError, OverflowError:
+                continue
+    recurring = raw.get("recurring_status")
+    if isinstance(recurring, Mapping):
+        result["recurring_status"] = {
+            str(item): dict(value)
+            for item, value in recurring.items()
+            if isinstance(value, Mapping)
+        }
     legacy = raw.get("legacy_unverified")
     result["legacy_unverified"] = dict(legacy) if isinstance(legacy, Mapping) else None
     return result
@@ -169,6 +181,7 @@ def load_event_user_state(
 def event_plan_from_source(
     spec: Mapping[str, Any], state: Mapping[str, Any]
 ) -> dict[str, Any]:
+    saved_source_id = str(state.get("source_event_id") or "")
     state = normalize_event_user_state(state)
     if state["explicit_empty"]:
         plan = empty_event_plan(str(spec.get("server") or "EN"))
@@ -193,7 +206,8 @@ def event_plan_from_source(
         },
     }
     plan["progress"] = dict(state["progress"])
-    legacy = state.get("legacy_unverified")
+    same_source = not saved_source_id or saved_source_id == plan["event"]["id"]
+    legacy = state.get("legacy_unverified") if same_source else None
     legacy_recurring = []
     if isinstance(legacy, Mapping):
         legacy_recurring = [
@@ -212,7 +226,7 @@ def event_plan_from_source(
             "skip": False,
             "completed_date": "",
         }
-        saved = state["recurring_status"].get(row["id"])
+        saved = state["recurring_status"].get(row["id"]) if same_source else None
         if not isinstance(saved, Mapping):
             matches = [
                 item
@@ -234,7 +248,7 @@ def event_plan_from_source(
                     "points": 0,
                 }
             )
-    selections = dict(state["shop_selections"])
+    selections = dict(state["shop_selections"]) if same_source else {}
     if isinstance(legacy, Mapping):
         source_rows = [
             item for item in spec.get("shop_items", []) if isinstance(item, Mapping)
@@ -288,6 +302,9 @@ def user_state_from_plan(
     plan: Mapping[str, Any], previous: Mapping[str, Any]
 ) -> dict[str, Any]:
     state = normalize_event_user_state(previous)
+    event = plan.get("event")
+    if isinstance(event, Mapping) and event.get("id"):
+        state["source_event_id"] = str(event["id"])
     progress = plan.get("progress")
     if isinstance(progress, Mapping):
         state["progress"] = {

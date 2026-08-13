@@ -115,36 +115,87 @@ class MapCompiler:
 
     @staticmethod
     def _spawn(
-        row: Mapping[str, Any], enemies: list[Any]
+        row: Mapping[str, Any],
+        enemies: list[Any],
+        findings: list[ValidationFinding],
+        path: str,
     ) -> tuple[dict[str, int], ...]:
         boss = int(row.get("boss_refresh", 0) or 0)
-        refresh_groups = [
-            row.get("enemy_refresh"),
-            row.get("ai_refresh"),
-            row.get("box_refresh"),
-        ]
-        max_wave = boss
-        for group in refresh_groups:
-            if isinstance(group, Mapping) and group:
-                max_wave = max(
-                    max_wave, max(int(key) for key in group if isinstance(key, int))
-                )
-        rows = [{"battle": index} for index in range(max_wave + 1)]
-        for key, label in (
-            ("enemy_refresh", "enemy"),
-            ("ai_refresh", "siren"),
-            ("box_refresh", "mystery"),
-        ):
-            for wave, count in (row.get(key) or {}).items():
-                if int(count or 0) > 0:
-                    rows[int(wave)][label] = rows[int(wave)].get(label, 0) + int(count)
-        elite = row.get("elite_refresh") or {}
-        if "".join(str(value) for value in _values(elite)) != "100":
-            for wave, count in elite.items():
-                if int(count or 0) > 0:
-                    rows[int(wave)]["enemy"] = rows[int(wave)].get("enemy", 0) + int(
-                        count
+
+        def wave_counts(value: Any, label: str) -> list[tuple[int, int]]:
+            if isinstance(value, Mapping):
+                entries = value.items()
+            elif isinstance(value, (list, tuple)):
+                entries = enumerate(value)
+            elif value in (None, ""):
+                return []
+            else:
+                findings.append(
+                    ValidationFinding(
+                        "spawn_data_invalid",
+                        "error",
+                        f"{label} имеет неподдерживаемую форму",
+                        path,
                     )
+                )
+                return []
+            result: list[tuple[int, int]] = []
+            for wave, count in entries:
+                try:
+                    wave_number = int(wave)
+                    count_number = int(count or 0)
+                except TypeError, ValueError, OverflowError:
+                    findings.append(
+                        ValidationFinding(
+                            "spawn_data_invalid",
+                            "error",
+                            f"{label} содержит нечисловую wave/count запись",
+                            path,
+                        )
+                    )
+                    continue
+                if wave_number < 0 or count_number < 0:
+                    findings.append(
+                        ValidationFinding(
+                            "spawn_data_invalid",
+                            "error",
+                            f"{label} содержит отрицательную wave/count запись",
+                            path,
+                        )
+                    )
+                    continue
+                result.append((wave_number, count_number))
+            return result
+
+        groups = {
+            "enemy": wave_counts(row.get("enemy_refresh"), "enemy_refresh"),
+            "siren": wave_counts(row.get("ai_refresh"), "ai_refresh"),
+            "mystery": wave_counts(row.get("box_refresh"), "box_refresh"),
+        }
+        elite = wave_counts(row.get("elite_refresh"), "elite_refresh")
+        active_elite = (
+            elite if "".join(str(count) for _, count in elite) != "100" else []
+        )
+        max_wave = max(
+            [
+                boss,
+                *(
+                    wave
+                    for values in groups.values()
+                    for wave, count in values
+                    if count > 0
+                ),
+                *(wave for wave, count in active_elite if count > 0),
+            ]
+        )
+        rows = [{"battle": index} for index in range(max_wave + 1)]
+        for label, values in groups.items():
+            for wave, count in values:
+                if count > 0:
+                    rows[wave][label] = rows[wave].get(label, 0) + count
+        for wave, count in active_elite:
+            if count > 0:
+                rows[wave]["enemy"] = rows[wave].get("enemy", 0) + count
         for wave, entries in enumerate(enemies):
             count = len(_values(entries))
             if count:
@@ -350,9 +401,16 @@ class MapCompiler:
                 else 2
             )
 
-        spawn = self._spawn(row, normal_effects.enemy_waves)
+        spawn = self._spawn(
+            row, normal_effects.enemy_waves, findings, f"maps.{map_id}.spawn_data"
+        )
         spawn_loop = (
-            self._spawn(loop, loop_effects.enemy_waves)
+            self._spawn(
+                loop,
+                loop_effects.enemy_waves,
+                findings,
+                f"maps.{map_id}.spawn_data_loop",
+            )
             if isinstance(loop, Mapping)
             else None
         )

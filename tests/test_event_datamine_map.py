@@ -1,4 +1,7 @@
-from module.event_datamine.generator import generate_map_module
+import pytest
+
+from dev_tools.map_extractor import select_maps
+from module.event_datamine.generator import generate_map_module, map_module_name
 from module.event_datamine.map_compiler import MapCompiler
 
 
@@ -115,3 +118,37 @@ def test_supported_land_based_data_is_preserved_in_generated_map():
     generated = generate_map_module(spec)
     assert "MAP.land_based_data = [('A2', 'up')]" in generated
     assert "MAP_HAS_LAND_BASED = True" in generated
+
+
+def test_spawn_accepts_numeric_string_waves_and_sequence_elites():
+    row = chapter()
+    row["enemy_refresh"] = {"5": 2}
+    row["elite_refresh"] = [0, 0, 0, 0, 0, 1]
+
+    spec, findings = compiler(row).compile(1001)
+
+    assert not findings
+    assert spec is not None
+    assert spec.spawn_data[5] == {"battle": 5, "enemy": 3}
+
+
+def test_invalid_spawn_shape_fails_closed_with_structured_finding():
+    row = chapter()
+    row["elite_refresh"] = "unexpected"
+
+    spec, findings = compiler(row).compile(1001)
+
+    assert spec is not None
+    assert any(
+        item.code == "spawn_data_invalid" and item.severity == "error"
+        for item in findings
+    )
+
+
+def test_generator_rejects_empty_module_name_and_cli_rejects_unknown_map_id():
+    with pytest.raises(ValueError, match="chapter_name"):
+        map_module_name("")
+    spec, findings = compiler(chapter()).compile(1001)
+    assert not findings
+    with pytest.raises(SystemExit, match="9999"):
+        select_maps((spec,), {9999})

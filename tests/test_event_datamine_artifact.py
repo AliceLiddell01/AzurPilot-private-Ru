@@ -60,6 +60,18 @@ def test_artifact_serialization_is_deterministic_and_tamper_evident(tmp_path: Pa
         load_artifact(path)
 
 
+def test_artifact_normalizes_nested_mapping_keys_before_digest(tmp_path: Path):
+    artifact = build_artifact({"id": "en:1", "nested": {1: {2: "value"}}})
+    path = write_artifact(tmp_path / "normalized.json", artifact)
+
+    restored = load_artifact(path)
+
+    assert restored["event_spec"]["nested"] == {"1": {"2": "value"}}
+    assert restored["digest"] == artifact["digest"]
+    with pytest.raises(ValueError, match="Дублирующийся JSON key"):
+        build_artifact({"id": "en:1", "nested": {1: "a", "1": "b"}})
+
+
 def test_invalid_replacement_does_not_destroy_previous_artifact(tmp_path: Path):
     path = write_artifact(tmp_path / "event.json", build_artifact({"id": "en:1"}))
     before = path.read_bytes()
@@ -99,9 +111,7 @@ def test_rose_tower_golden_is_source_derived_and_complete_except_declared_gaps()
     )
     assert {item["row_id"] for item in spec["shop_items"]} == set(range(3001, 3032))
     assert 71136 not in {item["row_id"] for item in spec["shop_items"]}
-    filters = {
-        item["row_id"]: item["event_shop_filter"] for item in spec["shop_items"]
-    }
+    filters = {item["row_id"]: item["event_shop_filter"] for item in spec["shop_items"]}
     assert filters[3001] == ""
     assert filters[3004] == ""
     assert filters[3005] == "ShipSSR"

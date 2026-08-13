@@ -16,6 +16,14 @@ from module.event_datamine.patches import patches_for
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 
 
+def select_maps(maps, selected_ids: set[int]):
+    available_ids = {item.id for item in maps}
+    missing_ids = sorted(selected_ids - available_ids)
+    if missing_ids:
+        raise SystemExit(f"Неизвестные map ID в EventSpec: {missing_ids}")
+    return tuple(item for item in maps if not selected_ids or item.id in selected_ids)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Компиляция EventSpec из закреплённого AzurLaneLuaScripts snapshot"
@@ -54,9 +62,7 @@ def main(argv: list[str] | None = None) -> int:
                 "EventSpec не eligible для production map generation; см. findings artifact"
             )
         selected_ids = set(args.map_id or ())
-        for item in spec.maps:
-            if selected_ids and item.id not in selected_ids:
-                continue
+        for item in select_maps(spec.maps, selected_ids):
             path = args.maps_output / f"{map_module_name(item.chapter_name)}.py"
             content = generate_map_module(item, patches=patches_for(spec.id, item.id))
             write_map_module(path, content, overwrite=args.overwrite)

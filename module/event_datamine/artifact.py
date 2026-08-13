@@ -14,8 +14,32 @@ EVENT_ARTIFACT_SCHEMA_VERSION = 1
 BUILTIN_ARTIFACT_ROOT = Path(__file__).with_name("data")
 
 
+def _normalize_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized_key = str(key)
+            if normalized_key in result:
+                raise ValueError(
+                    f"Дублирующийся JSON key после нормализации: {normalized_key}"
+                )
+            result[normalized_key] = _normalize_json(item)
+        return result
+    if isinstance(value, (list, tuple)):
+        return [_normalize_json(item) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    raise TypeError(f"Неподдерживаемый тип Event artifact: {type(value).__name__}")
+
+
 def canonical_json(data: Mapping[str, Any]) -> str:
-    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        _normalize_json(data),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
 
 
 def artifact_digest(data: Mapping[str, Any]) -> str:
@@ -27,7 +51,7 @@ def artifact_digest(data: Mapping[str, Any]) -> str:
 def validate_artifact(data: Any) -> dict[str, Any]:
     if not isinstance(data, Mapping):
         raise TypeError("Event artifact должен быть JSON object")
-    result = dict(data)
+    result = _normalize_json(data)
     if (
         int(result.get("artifact_schema_version", 0) or 0)
         != EVENT_ARTIFACT_SCHEMA_VERSION
@@ -49,7 +73,7 @@ def build_artifact(
     result = {
         "artifact_schema_version": EVENT_ARTIFACT_SCHEMA_VERSION,
         "compiler_version": str(compiler_version),
-        "event_spec": dict(spec),
+        "event_spec": _normalize_json(spec),
     }
     result["digest"] = artifact_digest(result)
     return result
