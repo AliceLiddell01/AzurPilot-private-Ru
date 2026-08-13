@@ -15,7 +15,8 @@ from module.webui.app_event_shop_safety import EventShopSafetyMixin
 from module.webui.event_config import mutate_event_config, update_event_config
 from module.webui.event_plan import empty_event_plan
 from module.webui.event_profiles import add_event_profile, get_event_profile_metadata
-from module.webui.event_rose_tower_fixture import rose_tower_fixture_plan
+from module.event_datamine.artifact import load_builtin_artifact
+from module.webui.event_source import empty_event_user_state, event_plan_from_source
 
 
 class MemoryConfig:
@@ -185,56 +186,24 @@ class LayoutProbe(EventLayoutMixin):
         pass
 
 
-def _settings_pins(plan, *, farm_end=None, shop_end=None, target=321):
-    event = plan["event"]
-    return {
-        app_event_layout._NAME: event["name"],
-        app_event_layout._FARM_END: event["farm_end"] if farm_end is None else farm_end,
-        app_event_layout._SHOP_END: event["shop_end"] if shop_end is None else shop_end,
-        app_event_layout._PT_MODE: "auto",
-        app_event_layout._CURRENT_PT: 0,
-        app_event_layout._TARGET_PT: target,
-    }
-
-
-def test_shop_date_edit_does_not_verify_or_apply_imported_farm_end():
-    fixture = rose_tower_fixture_plan()
+def test_settings_action_only_applies_explicit_pt_target():
+    fixture = event_plan_from_source(load_builtin_artifact()["event_spec"], empty_event_user_state())
     probe = LayoutProbe(fixture)
-    pins = _settings_pins(fixture, shop_end="2025-06-19 23:59:59")
+    pins = {app_event_layout._TARGET_PT: 321}
 
     with patch.object(app_event_layout, "pin", pins), patch.object(
         app_event_layout, "close_popup"
     ), patch.object(app_event_layout, "toast"):
         probe._save_settings_popup()
 
-    assert probe.plan["event"]["source"]["kind"] == "manual"
-    assert probe.plan["event"]["source"]["verified"] is False
+    assert probe.plan == fixture
     assert probe.runtime_updates == [{"EventGeneral.EventGeneral.PtLimit": 321}]
 
 
-def test_manual_farm_date_edit_applies_runtime_time_limit():
-    fixture = rose_tower_fixture_plan()
-    probe = LayoutProbe(fixture)
-    pins = _settings_pins(fixture, farm_end="2025-06-12 23:59:59")
-
-    with patch.object(app_event_layout, "pin", pins), patch.object(
-        app_event_layout, "close_popup"
-    ), patch.object(app_event_layout, "toast"):
-        probe._save_settings_popup()
-
-    assert probe.plan["event"]["source"]["verified"] is True
-    assert probe.runtime_updates == [
-        {
-            "EventGeneral.EventGeneral.PtLimit": 321,
-            "EventGeneral.EventGeneral.TimeLimit": "2025-06-12 23:59:59",
-        }
-    ]
-
-
-def test_settings_runtime_write_failure_rolls_back_local_plan():
-    fixture = rose_tower_fixture_plan()
+def test_settings_runtime_write_failure_does_not_mutate_source_plan():
+    fixture = event_plan_from_source(load_builtin_artifact()["event_spec"], empty_event_user_state())
     probe = LayoutProbe(fixture, fail_runtime_write=True)
-    pins = _settings_pins(fixture, farm_end="2025-06-12 23:59:59")
+    pins = {app_event_layout._TARGET_PT: 321}
 
     with patch.object(app_event_layout, "pin", pins), patch.object(
         app_event_layout, "close_popup"

@@ -593,7 +593,7 @@ jobs:
             tests.test_binary_log_audit \
             tests.test_binary_log_audit_arguments \
             tests.test_exception_context_audit \
-            tests.test_webui_event_calculator_security \
+            tests.test_event_datamine_security \
             tests.test_device_security \
             tests.test_ocr_debug_privacy \
             tests.test_ocr_rpc_security \

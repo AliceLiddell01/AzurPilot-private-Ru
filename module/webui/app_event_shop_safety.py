@@ -2,34 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from html import escape
-from typing import Any, Mapping
+from typing import Any
 
-from module.webui.app_dependencies import deep_get, logger, pin, put_html, toast, use_scope
-from module.webui.app_event_planner import _SHOP_FILTER_PIN
+from module.webui.app_dependencies import deep_get, logger, put_html, toast, use_scope
 from module.webui.app_types import WebUIMixinBase
 from module.webui.event_plan import shop_plan_total
 from module.webui.event_shop_bridge import (
     build_event_shop_automation_plan,
-    canonical_event_shop_filter_token,
 )
 
 
 class EventShopSafetyMixin(WebUIMixinBase):
     """Keep visual shop edits synchronized without weakening EventShop safety."""
-
-    def _save_shop_item_popup(self) -> None:
-        raw_token = str(pin[_SHOP_FILTER_PIN] or "").strip()
-        if raw_token and canonical_event_shop_filter_token(raw_token) is None:
-            toast(
-                "Токен EventShop должен быть одним точным штатным селектором без «>», "
-                "суффикса «:N» и широких категорий вроде PlateT3. Количество задаётся "
-                "отдельным полем плана.",
-                color="warning",
-                duration=8,
-            )
-            return
-        return super()._save_shop_item_popup()
 
     def _set_event_shop_scheduler(self, enabled: bool) -> bool:
         """Change only EventShop Scheduler.Enable and report whether it was written."""
@@ -49,9 +35,8 @@ class EventShopSafetyMixin(WebUIMixinBase):
     @staticmethod
     def _compiled_shop_problem(compiled) -> str:
         if compiled.invalid_items:
-            return (
-                "Нет безопасного токена EventShop для: "
-                + ", ".join(compiled.invalid_items)
+            return "Нет безопасного токена EventShop для: " + ", ".join(
+                compiled.invalid_items
             )
         if compiled.conflicts:
             details = "; ".join(
@@ -150,9 +135,7 @@ class EventShopSafetyMixin(WebUIMixinBase):
         total = shop_plan_total(plan)
         compiled = build_event_shop_automation_plan(plan)
         shop_enabled = bool(deep_get(config, "EventShop.Scheduler.Enable", False))
-        pt_limit = int(
-            deep_get(config, "EventGeneral.EventGeneral.PtLimit", 0) or 0
-        )
+        pt_limit = int(deep_get(config, "EventGeneral.EventGeneral.PtLimit", 0) or 0)
 
         problem = self._compiled_shop_problem(compiled) if total > 0 else ""
         if total <= 0:
@@ -185,8 +168,8 @@ class EventShopSafetyMixin(WebUIMixinBase):
             put_html(
                 f'<div class="event-automation-status event-status-{tone}">'
                 '<span class="event-automation-icon"></span>'
-                f'<div><strong>{escape(title)}</strong>'
-                f'<small>{escape(detail)}</small></div>'
+                f"<div><strong>{escape(title)}</strong>"
+                f"<small>{escape(detail)}</small></div>"
                 "</div>"
             )
 

@@ -48,6 +48,9 @@ AzurPilot автоматизирует Azur Lane через цикл распо�
 ### Инфраструктура
 
 - `module/webui/` — UI-сервер, процессы и настройки.
+- `module/event_datamine/` — безопасный ShareCfg loader, normalized `EventSpec`, validation, map compiler/generator, provenance и атомарные локальные artifacts.
+- `module/webui/event_source.py` — проекция immutable event facts и отдельно сохраняемой пользовательской политики; runtime Event UI не загружает базовые факты из сети.
+- `dev_tools/map_extractor.py` — тонкий CLI Event Datamine без import-time запуска и global extraction state.
 - `module/statistics/`, `module/azur_stats/` — локальные данные и аналитика, если присутствуют.
 - `module/notify/` — уведомления.
 - `deploy/`, `config/` — deployment и пользовательские шаблоны.

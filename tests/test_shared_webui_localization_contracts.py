@@ -207,10 +207,6 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
         self.assertIn("{v}", task_source)
         self.assertIn("{k}", task_source)
 
-        calculator_source = _source("module/webui/event_calculator.py")
-        self.assertIn("{escape(message)}", calculator_source)
-        self.assertNotIn("{message}</div>", calculator_source)
-
         remote_source = _source("module/webui/remote_access.py")
         self.assertIn("[{host}]", remote_source)
         self.assertIn("{allowed_hosts}", remote_source)

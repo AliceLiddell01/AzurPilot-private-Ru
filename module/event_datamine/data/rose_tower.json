@@ -1,0 +1,4270 @@
+{
+  "artifact_schema_version": 1,
+  "compiler_version": "1",
+  "digest": "8418458b24e2cffa5cb36e39eb8ee7176b641007cbfe92bfbc9fbbd2fee2aa9d",
+  "event_spec": {
+    "currencies": [
+      {
+        "asset": {
+          "game_id": "498",
+          "kind": "activity_currency",
+          "resolved": true,
+          "source_path": "activity_currency/498"
+        },
+        "id": 498,
+        "name": "Event currency 498"
+      },
+      {
+        "asset": {
+          "game_id": "499",
+          "kind": "activity_currency",
+          "resolved": true,
+          "source_path": "activity_currency/499"
+        },
+        "id": 499,
+        "name": "Event currency 499"
+      }
+    ],
+    "eligible": true,
+    "farm_end": "2025-06-11 23:59:59",
+    "farm_start": "2025-05-20 00:00:00",
+    "findings": [
+      {
+        "code": "asset_unresolved",
+        "message": "Не разрешён asset награды 1:1",
+        "path": "milestones.3",
+        "severity": "warning"
+      },
+      {
+        "code": "asset_unresolved",
+        "message": "Не разрешён asset награды 1:1",
+        "path": "milestones.5",
+        "severity": "warning"
+      },
+      {
+        "code": "asset_unresolved",
+        "message": "Не разрешён asset награды 1:1",
+        "path": "milestones.8",
+        "severity": "warning"
+      },
+      {
+        "code": "asset_unresolved",
+        "message": "Не разрешён asset товара 1:1",
+        "path": "shop.3003.asset",
+        "severity": "warning"
+      },
+      {
+        "code": "asset_unresolved",
+        "message": "Не разрешён asset товара 1:499",
+        "path": "shop.3004.asset",
+        "severity": "warning"
+      },
+      {
+        "code": "asset_unresolved",
+        "message": "Не разрешён asset товара 1:1",
+        "path": "shop.3029.asset",
+        "severity": "warning"
+      },
+      {
+        "code": "asset_unresolved",
+        "message": "Не разрешён asset товара 1:2",
+        "path": "shop.3030.asset",
+        "severity": "warning"
+      },
+      {
+        "code": "map_pt_amount_unavailable",
+        "message": "ShareCfg snapshot не содержит достоверное количество PT за повторное прохождение карты",
+        "path": "pt_sources.maps",
+        "severity": "warning"
+      }
+    ],
+    "id": "en:5941",
+    "maps": [
+      {
+        "boss_refresh": 3,
+        "camera_data": [
+          "D3",
+          "D6",
+          "E3",
+          "E6"
+        ],
+        "camera_spawn_points": [
+          "D3"
+        ],
+        "chapter_name": "A1",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920001,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "SP",
+            "++",
+            "Me",
+            "--",
+            "Me",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "SP",
+            "--",
+            "--",
+            "--",
+            "--",
+            "++",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "MS",
+            "--",
+            "Me",
+            "++",
+            "ME",
+            "--",
+            "--"
+          ],
+          [
+            "++",
+            "MS",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "__",
+            "++",
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "MB",
+            "--",
+            "ME",
+            "--",
+            "--",
+            "++",
+            "++",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "--",
+            "++",
+            "++",
+            "--",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Landmark Moment",
+        "portals": [],
+        "shape": "I8",
+        "siren_templates": [
+          "unknownV_qz2"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 1
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 1
+          },
+          {
+            "battle": 3,
+            "boss": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 4,
+        "camera_data": [
+          "D3",
+          "D6",
+          "E3",
+          "E6"
+        ],
+        "camera_spawn_points": [
+          "D3",
+          "E3"
+        ],
+        "chapter_name": "A2",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920002,
+        "land_based": [],
+        "map_data": [
+          [
+            "++",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "Me",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "__",
+            "--",
+            "--",
+            "--",
+            "Me",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "MS",
+            "--",
+            "MS",
+            "--",
+            "ME",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "MB",
+            "--",
+            "--",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "++",
+            "++",
+            "++",
+            "ME",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "ME",
+            "--",
+            "--",
+            "++",
+            "--",
+            "--",
+            "ME",
+            "++",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "The Train and the Barque",
+        "portals": [],
+        "shape": "I8",
+        "siren_templates": [
+          "unknownV_qz2"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 1
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 1
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "boss": 1,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 4,
+        "camera_data": [
+          "D5",
+          "D7",
+          "F5",
+          "F7"
+        ],
+        "camera_spawn_points": [
+          "F5",
+          "D5"
+        ],
+        "chapter_name": "A3",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920003,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "ME",
+            "++"
+          ],
+          [
+            "ME",
+            "--",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "--",
+            "ME"
+          ],
+          [
+            "--",
+            "Me",
+            "--",
+            "--",
+            "__",
+            "--",
+            "--",
+            "--",
+            "ME"
+          ],
+          [
+            "--",
+            "++",
+            "Me",
+            "--",
+            "MB",
+            "--",
+            "Me",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "MS",
+            "--",
+            "MS",
+            "--",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "ME",
+            "--",
+            "++",
+            "--",
+            "ME",
+            "--",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Transcendental Insight",
+        "portals": [],
+        "shape": "I9",
+        "siren_templates": [
+          "unknownV_qz3"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 1
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 1
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "boss": 1,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 4,
+        "camera_data": [
+          "E3",
+          "E6",
+          "H3",
+          "H6"
+        ],
+        "camera_spawn_points": [
+          "H6"
+        ],
+        "chapter_name": "B1",
+        "compatibility_patch_ids": [
+          "rose-tower-land-code-10-1920004"
+        ],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920004,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "++",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "--",
+            "++",
+            "ME",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "++",
+            "--",
+            "ME",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "++",
+            "--",
+            "Me",
+            "--",
+            "--",
+            "__",
+            "--",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "++",
+            "Me",
+            "--",
+            "MS",
+            "--",
+            "Me"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "--",
+            "--",
+            "++",
+            "--",
+            "MS",
+            "MB",
+            "MS",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Compiler the Reliable",
+        "portals": [],
+        "shape": "K8",
+        "siren_templates": [
+          "unknownV_qz2",
+          "unknownV_zl2"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 1
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "boss": 1,
+            "enemy": 2
+          },
+          {
+            "battle": 5,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 5,
+        "camera_data": [
+          "D4",
+          "D6",
+          "G4",
+          "G6"
+        ],
+        "camera_spawn_points": [
+          "D4"
+        ],
+        "chapter_name": "B2",
+        "compatibility_patch_ids": [
+          "rose-tower-land-code-10-1920005"
+        ],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920005,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--",
+            "++",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "ME",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "++",
+            "ME",
+            "--",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "--",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "__",
+            "--",
+            "--",
+            "Me",
+            "--",
+            "--",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "Me",
+            "--",
+            "MS",
+            "--",
+            "Me",
+            "++",
+            "++",
+            "ME",
+            "ME",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "MS",
+            "MB",
+            "MS",
+            "--",
+            "++",
+            "++",
+            "--",
+            "--",
+            "++",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Class II Mimic Entity",
+        "portals": [],
+        "shape": "K8",
+        "siren_templates": [
+          "unknownV_qz3",
+          "unknownV_zl3"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 1
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "enemy": 2
+          },
+          {
+            "battle": 5,
+            "boss": 1,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 5,
+        "camera_data": [
+          "D3",
+          "D7",
+          "E3",
+          "E7"
+        ],
+        "camera_spawn_points": [
+          "D3",
+          "E3"
+        ],
+        "chapter_name": "B3",
+        "compatibility_patch_ids": [
+          "rose-tower-land-code-10-1920006"
+        ],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920006,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "ME",
+            "++",
+            "++",
+            "++",
+            "ME",
+            "++",
+            "--"
+          ],
+          [
+            "++",
+            "Me",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "Me",
+            "--"
+          ],
+          [
+            "ME",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "--",
+            "__",
+            "--",
+            "--",
+            "ME",
+            "++"
+          ],
+          [
+            "ME",
+            "++",
+            "ME",
+            "--",
+            "MS",
+            "--",
+            "ME",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "MS",
+            "--",
+            "MS",
+            "--",
+            "++",
+            "++"
+          ],
+          [
+            "++",
+            "--",
+            "Me",
+            "--",
+            "MB",
+            "--",
+            "Me",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "++",
+            "--",
+            "++",
+            "--",
+            "--",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Glorious's Choice",
+        "portals": [],
+        "shape": "I10",
+        "siren_templates": [
+          "unknownV_qz3",
+          "unknownV_zl3"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 2
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "enemy": 2
+          },
+          {
+            "battle": 5,
+            "boss": 1,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 4,
+        "camera_data": [
+          "D3",
+          "D6",
+          "E3",
+          "E6"
+        ],
+        "camera_spawn_points": [
+          "D3"
+        ],
+        "chapter_name": "C1",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920021,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "SP",
+            "++",
+            "Me",
+            "--",
+            "Me",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "SP",
+            "--",
+            "--",
+            "--",
+            "--",
+            "++",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "MS",
+            "--",
+            "Me",
+            "++",
+            "ME",
+            "--",
+            "--"
+          ],
+          [
+            "++",
+            "MS",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "__",
+            "++",
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "MB",
+            "--",
+            "ME",
+            "--",
+            "--",
+            "++",
+            "++",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "--",
+            "++",
+            "++",
+            "--",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Landmark Moment",
+        "portals": [],
+        "shape": "I8",
+        "siren_templates": [
+          "unknownV_qz2",
+          "unknownV_zl2"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 2
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "boss": 1,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 4,
+        "camera_data": [
+          "D3",
+          "D6",
+          "E3",
+          "E6"
+        ],
+        "camera_spawn_points": [
+          "D3",
+          "E3"
+        ],
+        "chapter_name": "C2",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920022,
+        "land_based": [],
+        "map_data": [
+          [
+            "++",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "Me",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "__",
+            "--",
+            "--",
+            "--",
+            "Me",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "MS",
+            "--",
+            "MS",
+            "--",
+            "ME",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "MB",
+            "--",
+            "--",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "++",
+            "++",
+            "++",
+            "ME",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "ME",
+            "--",
+            "--",
+            "++",
+            "--",
+            "--",
+            "ME",
+            "++",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "The Train and the Barque",
+        "portals": [],
+        "shape": "I8",
+        "siren_templates": [
+          "unknownV_qz2",
+          "unknownV_zl2"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 2
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "boss": 1,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 5,
+        "camera_data": [
+          "D5",
+          "D7",
+          "F5",
+          "F7"
+        ],
+        "camera_spawn_points": [
+          "F5",
+          "D5"
+        ],
+        "chapter_name": "C3",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920023,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "ME",
+            "++"
+          ],
+          [
+            "ME",
+            "--",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "--",
+            "ME"
+          ],
+          [
+            "--",
+            "Me",
+            "--",
+            "--",
+            "__",
+            "--",
+            "--",
+            "--",
+            "ME"
+          ],
+          [
+            "--",
+            "++",
+            "Me",
+            "--",
+            "MB",
+            "--",
+            "Me",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "MS",
+            "--",
+            "MS",
+            "--",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "ME",
+            "--",
+            "++",
+            "--",
+            "ME",
+            "--",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Transcendental Insight",
+        "portals": [],
+        "shape": "I9",
+        "siren_templates": [
+          "unknownV_qz3",
+          "unknownV_zl3"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 2
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "enemy": 1
+          },
+          {
+            "battle": 5,
+            "boss": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 5,
+        "camera_data": [
+          "E3",
+          "E6",
+          "H3",
+          "H6"
+        ],
+        "camera_spawn_points": [
+          "H6"
+        ],
+        "chapter_name": "D1",
+        "compatibility_patch_ids": [
+          "rose-tower-land-code-10-1920024"
+        ],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920024,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "++",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "--",
+            "++",
+            "ME",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "++",
+            "--",
+            "ME",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "++",
+            "--",
+            "Me",
+            "--",
+            "--",
+            "__",
+            "--",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "++",
+            "Me",
+            "--",
+            "MS",
+            "--",
+            "Me"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "--",
+            "--",
+            "++",
+            "--",
+            "MS",
+            "MB",
+            "MS",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Compiler the Reliable",
+        "portals": [],
+        "shape": "K8",
+        "siren_templates": [
+          "unknownV_zl2",
+          "unknownV_hm2"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 2
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "enemy": 2
+          },
+          {
+            "battle": 5,
+            "boss": 1,
+            "enemy": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 6,
+        "camera_data": [
+          "D4",
+          "D6",
+          "G4",
+          "G6"
+        ],
+        "camera_spawn_points": [
+          "D4"
+        ],
+        "chapter_name": "D2",
+        "compatibility_patch_ids": [
+          "rose-tower-land-code-10-1920025"
+        ],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920025,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "++",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--",
+            "++",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "ME",
+            "--",
+            "ME",
+            "ME",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "++",
+            "ME",
+            "--",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "--",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "__",
+            "--",
+            "--",
+            "Me",
+            "--",
+            "--",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "Me",
+            "--",
+            "MS",
+            "--",
+            "Me",
+            "++",
+            "++",
+            "ME",
+            "ME",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "MS",
+            "MB",
+            "MS",
+            "--",
+            "++",
+            "++",
+            "--",
+            "--",
+            "++",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Class II Mimic Entity",
+        "portals": [],
+        "shape": "K8",
+        "siren_templates": [
+          "unknownV_zl3",
+          "unknownV_hm3"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 2
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2,
+            "siren": 1
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "enemy": 2
+          },
+          {
+            "battle": 5,
+            "enemy": 1
+          },
+          {
+            "battle": 6,
+            "boss": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 6,
+        "camera_data": [
+          "D3",
+          "D7",
+          "E3",
+          "E7"
+        ],
+        "camera_spawn_points": [
+          "D3",
+          "E3"
+        ],
+        "chapter_name": "D3",
+        "compatibility_patch_ids": [
+          "rose-tower-land-code-10-1920026"
+        ],
+        "has_ambush": false,
+        "has_fleet_step": true,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920026,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "ME",
+            "++",
+            "++",
+            "++",
+            "ME",
+            "++",
+            "--"
+          ],
+          [
+            "++",
+            "Me",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "Me",
+            "--"
+          ],
+          [
+            "ME",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "--",
+            "__",
+            "--",
+            "--",
+            "ME",
+            "++"
+          ],
+          [
+            "ME",
+            "++",
+            "ME",
+            "--",
+            "MS",
+            "--",
+            "ME",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "MS",
+            "--",
+            "MS",
+            "--",
+            "++",
+            "++"
+          ],
+          [
+            "++",
+            "--",
+            "Me",
+            "--",
+            "MB",
+            "--",
+            "Me",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "++",
+            "--",
+            "++",
+            "--",
+            "--",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "Glorious's Choice",
+        "portals": [],
+        "shape": "I10",
+        "siren_templates": [
+          "unknownV_zl3",
+          "unknownV_hm3"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 2,
+            "siren": 2
+          },
+          {
+            "battle": 1,
+            "enemy": 1
+          },
+          {
+            "battle": 2,
+            "enemy": 2,
+            "siren": 1
+          },
+          {
+            "battle": 3,
+            "enemy": 1
+          },
+          {
+            "battle": 4,
+            "enemy": 2
+          },
+          {
+            "battle": 5,
+            "enemy": 1
+          },
+          {
+            "battle": 6,
+            "boss": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          1,
+          2,
+          3
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 7,
+        "camera_data": [
+          "E6",
+          "E8"
+        ],
+        "camera_spawn_points": [
+          "E8"
+        ],
+        "chapter_name": "SP",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": false,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920041,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "++",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "--",
+            "++",
+            "++",
+            "++",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "--",
+            "--",
+            "ME",
+            "--",
+            "MB",
+            "--",
+            "ME",
+            "--",
+            "--"
+          ],
+          [
+            "--",
+            "ME",
+            "--",
+            "MS",
+            "--",
+            "MS",
+            "--",
+            "ME",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "ME",
+            "--",
+            "MS",
+            "--",
+            "ME",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "--",
+            "--",
+            "__",
+            "--",
+            "--",
+            "++",
+            "++"
+          ],
+          [
+            "++",
+            "ME",
+            "--",
+            "SP",
+            "--",
+            "SP",
+            "--",
+            "ME",
+            "--"
+          ],
+          [
+            "--",
+            "--",
+            "ME",
+            "++",
+            "++",
+            "++",
+            "ME",
+            "--",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [
+          2
+        ],
+        "name": "The Prisoner of the Tower",
+        "portals": [],
+        "shape": "I10",
+        "siren_templates": [
+          "RoyalOak",
+          "Victorious"
+        ],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "enemy": 10,
+            "siren": 3
+          },
+          {
+            "battle": 1
+          },
+          {
+            "battle": 2
+          },
+          {
+            "battle": 3
+          },
+          {
+            "battle": 4
+          },
+          {
+            "battle": 5
+          },
+          {
+            "battle": 6
+          },
+          {
+            "battle": 7,
+            "boss": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          0,
+          0,
+          0
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 0,
+        "camera_data": [
+          "C3"
+        ],
+        "camera_spawn_points": [
+          "C3"
+        ],
+        "chapter_name": "EXTRA",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": false,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920051,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "++",
+            "--",
+            "MB",
+            "--",
+            "++"
+          ],
+          [
+            "++",
+            "--",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "++",
+            "++",
+            "SP",
+            "++",
+            "++"
+          ],
+          [
+            "++",
+            "++",
+            "--",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [],
+        "name": "The Usherer of a New Age",
+        "portals": [],
+        "shape": "E7",
+        "siren_templates": [],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "boss": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          0,
+          0,
+          0
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      },
+      {
+        "boss_refresh": 0,
+        "camera_data": [
+          "C3"
+        ],
+        "camera_spawn_points": [
+          "C3"
+        ],
+        "chapter_name": "EXTRA",
+        "compatibility_patch_ids": [],
+        "has_ambush": false,
+        "has_fleet_step": false,
+        "has_mystery": false,
+        "has_story": false,
+        "id": 1920052,
+        "land_based": [],
+        "map_data": [
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ],
+          [
+            "++",
+            "--",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "++",
+            "--",
+            "MB",
+            "--",
+            "++"
+          ],
+          [
+            "++",
+            "--",
+            "--",
+            "--",
+            "++"
+          ],
+          [
+            "++",
+            "++",
+            "SP",
+            "++",
+            "++"
+          ],
+          [
+            "++",
+            "++",
+            "--",
+            "++",
+            "++"
+          ],
+          [
+            "--",
+            "++",
+            "++",
+            "++",
+            "--"
+          ]
+        ],
+        "map_data_loop": null,
+        "movable_enemy_turns": [],
+        "name": "The Usherer of a New Age",
+        "portals": [],
+        "shape": "E7",
+        "siren_templates": [],
+        "spawn_data": [
+          {
+            "battle": 0,
+            "boss": 1
+          }
+        ],
+        "spawn_data_loop": null,
+        "star_requirements": [
+          0,
+          0,
+          0
+        ],
+        "unknown_effects": [],
+        "unknown_grid_types": []
+      }
+    ],
+    "milestones": [
+      {
+        "rewards": [
+          {
+            "amount": 5,
+            "asset": {
+              "game_id": "54005",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/54002"
+            },
+            "name": "T2 Mystery Skill Book",
+            "rarity": 3,
+            "reward_id": 54005,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 100
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "18012",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/18012"
+            },
+            "name": "T2 Cruiser Retrofit Blueprint",
+            "rarity": 3,
+            "reward_id": 18012,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 300
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "18002",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/18002"
+            },
+            "name": "T2 Destroyer Retrofit Blueprint",
+            "rarity": 3,
+            "reward_id": 18002,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 3000,
+            "asset": {
+              "game_id": "1",
+              "kind": "resource",
+              "resolved": false,
+              "source_path": ""
+            },
+            "name": "Coins",
+            "rarity": null,
+            "reward_id": 1,
+            "reward_type": 1
+          }
+        ],
+        "threshold": 700
+      },
+      {
+        "rewards": [
+          {
+            "amount": 200,
+            "asset": {
+              "game_id": "15008",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15008"
+            },
+            "name": "Cognitive Chips",
+            "rarity": 4,
+            "reward_id": 15008,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 1000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 3000,
+            "asset": {
+              "game_id": "1",
+              "kind": "resource",
+              "resolved": false,
+              "source_path": ""
+            },
+            "name": "Coins",
+            "rarity": null,
+            "reward_id": 1,
+            "reward_type": 1
+          }
+        ],
+        "threshold": 1500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "18022",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/18022"
+            },
+            "name": "T2 Battleship Retrofit Blueprint",
+            "rarity": 3,
+            "reward_id": 18022,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 2000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "18032",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/18032"
+            },
+            "name": "T2 Carrier Retrofit Blueprint",
+            "rarity": 3,
+            "reward_id": 18032,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 2500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 4000,
+            "asset": {
+              "game_id": "1",
+              "kind": "resource",
+              "resolved": false,
+              "source_path": ""
+            },
+            "name": "Coins",
+            "rarity": null,
+            "reward_id": 1,
+            "reward_type": 1
+          }
+        ],
+        "threshold": 3000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 300,
+            "asset": {
+              "game_id": "15008",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15008"
+            },
+            "name": "Cognitive Chips",
+            "rarity": 4,
+            "reward_id": 15008,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 3500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "18013",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/18013"
+            },
+            "name": "T3 Cruiser Retrofit Blueprint",
+            "rarity": 4,
+            "reward_id": 18013,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 4000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "18003",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/18003"
+            },
+            "name": "T3 Destroyer Retrofit Blueprint",
+            "rarity": 4,
+            "reward_id": 18003,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 4500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "16003",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/16003"
+            },
+            "name": "T3 Offensive Skill Book",
+            "rarity": 4,
+            "reward_id": 16003,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 5000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 300,
+            "asset": {
+              "game_id": "15008",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15008"
+            },
+            "name": "Cognitive Chips",
+            "rarity": 4,
+            "reward_id": 15008,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 5500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "18023",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/18023"
+            },
+            "name": "T3 Battleship Retrofit Blueprint",
+            "rarity": 4,
+            "reward_id": 18023,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 6000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "18033",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/18033"
+            },
+            "name": "T3 Carrier Retrofit Blueprint",
+            "rarity": 4,
+            "reward_id": 18033,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 6500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "16023",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/16023"
+            },
+            "name": "T3 Support Skill Book",
+            "rarity": 4,
+            "reward_id": 16023,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 7000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 300,
+            "asset": {
+              "game_id": "15008",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15008"
+            },
+            "name": "Cognitive Chips",
+            "rarity": 4,
+            "reward_id": 15008,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 7500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "54051",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/54033"
+            },
+            "name": "T3 Mystery Retrofit Blueprint",
+            "rarity": 4,
+            "reward_id": 54051,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 8000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "16013",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/16013"
+            },
+            "name": "T3 Defensive Skill Book",
+            "rarity": 4,
+            "reward_id": 16013,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 8500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 300,
+            "asset": {
+              "game_id": "15008",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15008"
+            },
+            "name": "Cognitive Chips",
+            "rarity": 4,
+            "reward_id": 15008,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 9000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "54051",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/54033"
+            },
+            "name": "T3 Mystery Retrofit Blueprint",
+            "rarity": 4,
+            "reward_id": 54051,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 9500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "202361",
+              "kind": "ship",
+              "resolved": true,
+              "source_path": "ship_skin/202360"
+            },
+            "name": "Trinidad",
+            "rarity": 4,
+            "reward_id": 202361,
+            "reward_type": 4
+          }
+        ],
+        "threshold": 10000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "54006",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/54003"
+            },
+            "name": "T3 Mystery Skill Book",
+            "rarity": 4,
+            "reward_id": 54006,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 11000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 500,
+            "asset": {
+              "game_id": "15008",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15008"
+            },
+            "name": "Cognitive Chips",
+            "rarity": 4,
+            "reward_id": 15008,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 12000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "54051",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/54033"
+            },
+            "name": "T3 Mystery Retrofit Blueprint",
+            "rarity": 4,
+            "reward_id": 54051,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 13000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 3,
+            "asset": {
+              "game_id": "15017",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15017"
+            },
+            "name": "Augment Module Stone T3",
+            "rarity": 4,
+            "reward_id": 15017,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 14000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "42066",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/42066"
+            },
+            "name": "Special General Blueprint - Series 7",
+            "rarity": 5,
+            "reward_id": 42066,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 15000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 3,
+            "asset": {
+              "game_id": "15021",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15020"
+            },
+            "name": "Augment Module Conversion Stone T2",
+            "rarity": 4,
+            "reward_id": 15021,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 17500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "202361",
+              "kind": "ship",
+              "resolved": true,
+              "source_path": "ship_skin/202360"
+            },
+            "name": "Trinidad",
+            "rarity": 4,
+            "reward_id": 202361,
+            "reward_type": 4
+          }
+        ],
+        "threshold": 20000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 5,
+            "asset": {
+              "game_id": "30114",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/30114"
+            },
+            "name": "Universal T4 Part",
+            "rarity": 4,
+            "reward_id": 30114,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 22500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 5,
+            "asset": {
+              "game_id": "15014",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15014"
+            },
+            "name": "Augment Module Core",
+            "rarity": 4,
+            "reward_id": 15014,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 25000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "42066",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/42066"
+            },
+            "name": "Special General Blueprint - Series 7",
+            "rarity": 5,
+            "reward_id": 42066,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 27500
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "100021",
+              "kind": "ship",
+              "resolved": true,
+              "source_path": "ship_skin/100020"
+            },
+            "name": "Specialized Bulin Custom MKIII",
+            "rarity": 6,
+            "reward_id": 100021,
+            "reward_type": 4
+          }
+        ],
+        "threshold": 30000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 5,
+            "asset": {
+              "game_id": "30114",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/30114"
+            },
+            "name": "Universal T4 Part",
+            "rarity": 4,
+            "reward_id": 30114,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 35000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "202361",
+              "kind": "ship",
+              "resolved": true,
+              "source_path": "ship_skin/202360"
+            },
+            "name": "Trinidad",
+            "rarity": 4,
+            "reward_id": 202361,
+            "reward_type": 4
+          }
+        ],
+        "threshold": 40000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 3,
+            "asset": {
+              "game_id": "15017",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/15017"
+            },
+            "name": "Augment Module Stone T3",
+            "rarity": 4,
+            "reward_id": 15017,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 45000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "42066",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/42066"
+            },
+            "name": "Special General Blueprint - Series 7",
+            "rarity": 5,
+            "reward_id": 42066,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 50000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 10,
+            "asset": {
+              "game_id": "30114",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/30114"
+            },
+            "name": "Universal T4 Part",
+            "rarity": 4,
+            "reward_id": 30114,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 55000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "202361",
+              "kind": "ship",
+              "resolved": true,
+              "source_path": "ship_skin/202360"
+            },
+            "name": "Trinidad",
+            "rarity": 4,
+            "reward_id": 202361,
+            "reward_type": 4
+          }
+        ],
+        "threshold": 60000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 2,
+            "asset": {
+              "game_id": "54007",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/54004"
+            },
+            "name": "T4 Mystery Skill Book",
+            "rarity": 5,
+            "reward_id": 54007,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 70000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "30015",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/30005"
+            },
+            "name": "T5 Eagle Tech Pack",
+            "rarity": 5,
+            "reward_id": 30015,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 80000
+      },
+      {
+        "rewards": [
+          {
+            "amount": 1,
+            "asset": {
+              "game_id": "30015",
+              "kind": "item",
+              "resolved": true,
+              "source_path": "Props/30005"
+            },
+            "name": "T5 Eagle Tech Pack",
+            "rarity": 5,
+            "reward_id": 30015,
+            "reward_type": 2
+          }
+        ],
+        "threshold": 100000
+      }
+    ],
+    "name": "A Rose on the High Tower",
+    "provenance": {
+      "activity_id": 5941,
+      "provider": "AzurLaneLuaScripts",
+      "repository": "AzurLaneTools/AzurLaneLuaScripts",
+      "revision": "f44b48853d48b400b92738b1f1cf6fcdf1d69169",
+      "schema_version": 1,
+      "server": "EN"
+    },
+    "pt_sources": [
+      {
+        "id": "task:21741",
+        "kind": "task",
+        "name": "Clear the SP stage in A Rose on the High Tower.",
+        "points": 50,
+        "recurring": false,
+        "source_ids": [
+          21741
+        ]
+      },
+      {
+        "id": "task:23643",
+        "kind": "task",
+        "name": "Clear any event stage 3 times.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23643
+        ]
+      },
+      {
+        "id": "task:23644",
+        "kind": "task",
+        "name": "Enhance gear 2 times.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23644
+        ]
+      },
+      {
+        "id": "task:23645",
+        "kind": "task",
+        "name": "Complete 2 commissions.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23645
+        ]
+      },
+      {
+        "id": "task:23646",
+        "kind": "task",
+        "name": "Conduct 2 exercises.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23646
+        ]
+      },
+      {
+        "id": "task:23647",
+        "kind": "task",
+        "name": "Retire 2 ships.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23647
+        ]
+      },
+      {
+        "id": "task:23648",
+        "kind": "task",
+        "name": "Build 1 ship.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23648
+        ]
+      },
+      {
+        "id": "task:23649",
+        "kind": "task",
+        "name": "Conduct tactical training 2 times.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23649
+        ]
+      },
+      {
+        "id": "task:23650",
+        "kind": "task",
+        "name": "Defeat 20 enemies.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23650
+        ]
+      },
+      {
+        "id": "task:23651",
+        "kind": "task",
+        "name": "Restock snacks in your dorm 5 times.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23651
+        ]
+      },
+      {
+        "id": "task:23652",
+        "kind": "task",
+        "name": "Spend a total of 300 Oil.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23652
+        ]
+      },
+      {
+        "id": "task:23653",
+        "kind": "task",
+        "name": "Enhance ship 5 times.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23653
+        ]
+      },
+      {
+        "id": "task:23654",
+        "kind": "task",
+        "name": "Open 1 tech box",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23654
+        ]
+      },
+      {
+        "id": "task:23655",
+        "kind": "task",
+        "name": "Complete 1 Research Project.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23655
+        ]
+      },
+      {
+        "id": "task:23656",
+        "kind": "task",
+        "name": "Interact with 1 ship in your dorm.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23656
+        ]
+      },
+      {
+        "id": "task:23657",
+        "kind": "task",
+        "name": "Interact with your secretary ship 1 time.",
+        "points": 5,
+        "recurring": true,
+        "source_ids": [
+          23657
+        ]
+      },
+      {
+        "id": "task:23658",
+        "kind": "task",
+        "name": "With Lion afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
+        "points": 10,
+        "recurring": true,
+        "source_ids": [
+          23658
+        ]
+      },
+      {
+        "id": "task:23659",
+        "kind": "task",
+        "name": "With Glorious META afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
+        "points": 10,
+        "recurring": true,
+        "source_ids": [
+          23659
+        ]
+      },
+      {
+        "id": "task:23660",
+        "kind": "task",
+        "name": "With Cleopatra afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
+        "points": 10,
+        "recurring": true,
+        "source_ids": [
+          23660
+        ]
+      },
+      {
+        "id": "task:23661",
+        "kind": "task",
+        "name": "With Gallant afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
+        "points": 10,
+        "recurring": true,
+        "source_ids": [
+          23661
+        ]
+      },
+      {
+        "id": "task:23662",
+        "kind": "task",
+        "name": "With Trinidad afloat in your fleet, defeat the Boss fleet of stage B3/D3.",
+        "points": 10,
+        "recurring": true,
+        "source_ids": [
+          23662
+        ]
+      },
+      {
+        "id": "map:1920001",
+        "kind": "map_clear",
+        "name": "A1",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920001
+        ]
+      },
+      {
+        "id": "map:1920002",
+        "kind": "map_clear",
+        "name": "A2",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920002
+        ]
+      },
+      {
+        "id": "map:1920003",
+        "kind": "map_clear",
+        "name": "A3",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920003
+        ]
+      },
+      {
+        "id": "map:1920004",
+        "kind": "map_clear",
+        "name": "B1",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920004
+        ]
+      },
+      {
+        "id": "map:1920005",
+        "kind": "map_clear",
+        "name": "B2",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920005
+        ]
+      },
+      {
+        "id": "map:1920006",
+        "kind": "map_clear",
+        "name": "B3",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920006
+        ]
+      },
+      {
+        "id": "map:1920021",
+        "kind": "map_clear",
+        "name": "C1",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920021
+        ]
+      },
+      {
+        "id": "map:1920022",
+        "kind": "map_clear",
+        "name": "C2",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920022
+        ]
+      },
+      {
+        "id": "map:1920023",
+        "kind": "map_clear",
+        "name": "C3",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920023
+        ]
+      },
+      {
+        "id": "map:1920024",
+        "kind": "map_clear",
+        "name": "D1",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920024
+        ]
+      },
+      {
+        "id": "map:1920025",
+        "kind": "map_clear",
+        "name": "D2",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920025
+        ]
+      },
+      {
+        "id": "map:1920026",
+        "kind": "map_clear",
+        "name": "D3",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920026
+        ]
+      },
+      {
+        "id": "map:1920041",
+        "kind": "map_clear",
+        "name": "SP",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920041
+        ]
+      },
+      {
+        "id": "map:1920051",
+        "kind": "map_clear",
+        "name": "EXTRA",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920051
+        ]
+      },
+      {
+        "id": "map:1920052",
+        "kind": "map_clear",
+        "name": "EXTRA",
+        "points": null,
+        "recurring": false,
+        "source_ids": [
+          1920052
+        ]
+      }
+    ],
+    "related_activity_ids": [
+      5927,
+      5941,
+      5942,
+      5951,
+      5952,
+      5953,
+      5954,
+      5955,
+      5956,
+      5957,
+      5958,
+      5959,
+      5960,
+      5962,
+      5963,
+      5964,
+      5965,
+      5966,
+      5967,
+      5968,
+      5969,
+      5970,
+      5971,
+      5972,
+      5973,
+      5975,
+      5976,
+      50612,
+      50614,
+      50615
+    ],
+    "server": "EN",
+    "shop_end": "2025-06-18 23:59:59",
+    "shop_items": [
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "201381",
+          "kind": "ship",
+          "resolved": true,
+          "source_path": "ship_skin/201380"
+        },
+        "category": "ship",
+        "currency_id": 499,
+        "event_shop_filter": "",
+        "item_id": 201381,
+        "item_type": 4,
+        "limit_args": "",
+        "name": "Trafalgar",
+        "price": 200,
+        "rarity": 6,
+        "row_id": 3001,
+        "stock": 1
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "201381",
+          "kind": "ship",
+          "resolved": true,
+          "source_path": "ship_skin/201380"
+        },
+        "category": "ship",
+        "currency_id": 499,
+        "event_shop_filter": "",
+        "item_id": 201381,
+        "item_type": 4,
+        "limit_args": "",
+        "name": "Trafalgar",
+        "price": 300,
+        "rarity": 6,
+        "row_id": 3002,
+        "stock": 1
+      },
+      {
+        "amount": 100,
+        "asset": {
+          "game_id": "1",
+          "kind": "resource",
+          "resolved": false,
+          "source_path": ""
+        },
+        "category": "resource",
+        "currency_id": 499,
+        "event_shop_filter": "Coin",
+        "item_id": 1,
+        "item_type": 1,
+        "limit_args": "",
+        "name": "Coins",
+        "price": 1,
+        "rarity": null,
+        "row_id": 3003,
+        "stock": 350
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "499",
+          "kind": "resource",
+          "resolved": false,
+          "source_path": ""
+        },
+        "category": "resource",
+        "currency_id": 498,
+        "event_shop_filter": "",
+        "item_id": 499,
+        "item_type": 1,
+        "limit_args": "",
+        "name": "Game resource 499",
+        "price": 150,
+        "rarity": null,
+        "row_id": 3004,
+        "stock": 500
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "9707071",
+          "kind": "ship",
+          "resolved": true,
+          "source_path": "ship_skin/9707070"
+        },
+        "category": "ship",
+        "currency_id": 498,
+        "event_shop_filter": "ShipSSR",
+        "item_id": 9707071,
+        "item_type": 4,
+        "limit_args": "",
+        "name": "Glorious META",
+        "price": 8000,
+        "rarity": 5,
+        "row_id": 3005,
+        "stock": 1
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "21048",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/21048"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "Meta",
+        "item_id": 21048,
+        "item_type": 2,
+        "limit_args": {
+          "0": {
+            "0": 3,
+            "1": 970707,
+            "2": 1,
+            "3": {
+              "0": 2,
+              "1": 21000,
+              "2": 10
+            }
+          }
+        },
+        "name": "META Crystal – Glorious META",
+        "price": 2000,
+        "rarity": 4,
+        "row_id": 3006,
+        "stock": 4
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "24400",
+          "kind": "equipment",
+          "resolved": true,
+          "source_path": "Equips/24400"
+        },
+        "category": "equipment",
+        "currency_id": 498,
+        "event_shop_filter": "EquipUR",
+        "item_id": 24400,
+        "item_type": 3,
+        "limit_args": "",
+        "name": "Prototype Triple 406mm Mk.II Main Gun Mount",
+        "price": 10000,
+        "rarity": 6,
+        "row_id": 3007,
+        "stock": 1
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "30368",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/appearanceboxhaibin"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "SkinBox",
+        "item_id": 30368,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Gear Skin Box (Seaside)",
+        "price": 2000,
+        "rarity": 4,
+        "row_id": 3008,
+        "stock": 10
+      },
+      {
+        "amount": 100,
+        "asset": {
+          "game_id": "15008",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/15008"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "Chip",
+        "item_id": 15008,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Cognitive Chips",
+        "price": 300,
+        "rarity": 4,
+        "row_id": 3009,
+        "stock": 10
+      },
+      {
+        "amount": 10,
+        "asset": {
+          "game_id": "15012",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/15012"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "Array",
+        "item_id": 15012,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Cognitive Array",
+        "price": 1000,
+        "rarity": 4,
+        "row_id": 3010,
+        "stock": 5
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "42060",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/42060"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "PRS7",
+        "item_id": 42060,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "General Blueprint - Series 7",
+        "price": 500,
+        "rarity": 4,
+        "row_id": 3011,
+        "stock": 30
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "42066",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/42066"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "DRS7",
+        "item_id": 42066,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Special General Blueprint - Series 7",
+        "price": 1000,
+        "rarity": 5,
+        "row_id": 3012,
+        "stock": 10
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "20011",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/20011"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "CatT1",
+        "item_id": 20011,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Rare Cat Box",
+        "price": 250,
+        "rarity": 2,
+        "row_id": 3013,
+        "stock": 10
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "20012",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/20012"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "CatT2",
+        "item_id": 20012,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Elite Cat Box",
+        "price": 500,
+        "rarity": 3,
+        "row_id": 3014,
+        "stock": 5
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "20013",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/20013"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "CatT3",
+        "item_id": 20013,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Super Rare Cat Box",
+        "price": 3000,
+        "rarity": 4,
+        "row_id": 3015,
+        "stock": 2
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "15014",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/15014"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "AugmentCore",
+        "item_id": 15014,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Augment Module Core",
+        "price": 300,
+        "rarity": 4,
+        "row_id": 3016,
+        "stock": 5
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "15016",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/15016"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "AugmentEnhanceT2",
+        "item_id": 15016,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Augment Module Stone T2",
+        "price": 90,
+        "rarity": 3,
+        "row_id": 3017,
+        "stock": 50
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "15020",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/15019"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "AugmentChangeT1",
+        "item_id": 15020,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Augment Module Conversion Stone T1",
+        "price": 600,
+        "rarity": 3,
+        "row_id": 3018,
+        "stock": 10
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "15021",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/15020"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "AugmentChangeT2",
+        "item_id": 15021,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Augment Module Conversion Stone T2",
+        "price": 2500,
+        "rarity": 4,
+        "row_id": 3019,
+        "stock": 2
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "30014",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/30004"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "BoxT4",
+        "item_id": 30014,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T4 Eagle Tech Pack",
+        "price": 300,
+        "rarity": 4,
+        "row_id": 3020,
+        "stock": 4
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "30024",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/30004"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "BoxT4",
+        "item_id": 30024,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T4 Royal Tech Pack",
+        "price": 300,
+        "rarity": 4,
+        "row_id": 3021,
+        "stock": 4
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "30034",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/30004"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "BoxT4",
+        "item_id": 30034,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T4 Sakura Tech Pack",
+        "price": 300,
+        "rarity": 4,
+        "row_id": 3022,
+        "stock": 4
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "30044",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/30004"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "BoxT4",
+        "item_id": 30044,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T4 Iron Blood Tech Pack",
+        "price": 300,
+        "rarity": 4,
+        "row_id": 3023,
+        "stock": 4
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "17003",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/17003"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "PlateGeneralT3",
+        "item_id": 17003,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T3 General Part",
+        "price": 30,
+        "rarity": 3,
+        "row_id": 3024,
+        "stock": 30
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "17013",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/17013"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "PlateGunT3",
+        "item_id": 17013,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T3 Main Gun Part",
+        "price": 30,
+        "rarity": 3,
+        "row_id": 3025,
+        "stock": 30
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "17023",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/17023"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "PlateTorpedoT3",
+        "item_id": 17023,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T3 Torpedo Part",
+        "price": 30,
+        "rarity": 3,
+        "row_id": 3026,
+        "stock": 30
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "17033",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/17033"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "PlateAntiairT3",
+        "item_id": 17033,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T3 Anti-Air Gun Part",
+        "price": 30,
+        "rarity": 3,
+        "row_id": 3027,
+        "stock": 30
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "17043",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/17043"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "PlatePlaneT3",
+        "item_id": 17043,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "T3 Aircraft Part",
+        "price": 30,
+        "rarity": 3,
+        "row_id": 3028,
+        "stock": 30
+      },
+      {
+        "amount": 2000,
+        "asset": {
+          "game_id": "1",
+          "kind": "resource",
+          "resolved": false,
+          "source_path": ""
+        },
+        "category": "resource",
+        "currency_id": 498,
+        "event_shop_filter": "Coin",
+        "item_id": 1,
+        "item_type": 1,
+        "limit_args": "",
+        "name": "Coins",
+        "price": 500,
+        "rarity": null,
+        "row_id": 3029,
+        "stock": 5
+      },
+      {
+        "amount": 1000,
+        "asset": {
+          "game_id": "2",
+          "kind": "resource",
+          "resolved": false,
+          "source_path": ""
+        },
+        "category": "resource",
+        "currency_id": 498,
+        "event_shop_filter": "Oil",
+        "item_id": 2,
+        "item_type": 1,
+        "limit_args": "",
+        "name": "Oil",
+        "price": 450,
+        "rarity": null,
+        "row_id": 3030,
+        "stock": 5
+      },
+      {
+        "amount": 1,
+        "asset": {
+          "game_id": "50001",
+          "kind": "item",
+          "resolved": true,
+          "source_path": "Props/suansukele"
+        },
+        "category": "item",
+        "currency_id": 498,
+        "event_shop_filter": "FoodT1",
+        "item_id": 50001,
+        "item_type": 2,
+        "limit_args": "",
+        "name": "Oxy-cola",
+        "price": 15,
+        "rarity": 2,
+        "row_id": 3031,
+        "stock": 100
+      }
+    ],
+    "source_status": "partial"
+  }
+}

@@ -10,7 +10,6 @@ from module.webui.event_plan import (
     estimate_stage_runs,
     event_farm_summary,
     event_plan_path,
-    import_legacy_event_calculator,
     load_event_plan,
     normalize_event_plan,
     projected_recurring_pt,
@@ -99,29 +98,6 @@ def test_schema_v1_plan_migrates_without_losing_old_point_rows():
         {"name": "Daily", "points": 300, "skip": False, "completed_date": ""}
     ]
     assert plan["extra"][0]["name"] == "SP"
-
-
-def test_legacy_import_is_explicitly_unverified_and_provider_neutral():
-    plan = import_legacy_event_calculator(
-        {
-            "event_name": "Legacy Event",
-            "end_date": "2026-08-20",
-            "updated_at": "2026-08-13 00:00:00",
-            "stages": [{"name": "HT3", "points": 180}],
-            "daily": [{"name": "Daily", "points": 300}],
-            "extra": [{"name": "SP", "points": 800}],
-            "shop_items": [
-                {"name": "Cube", "price": 100, "quantity": 5, "filter": "Cube"}
-            ],
-        },
-        server="EN",
-    )
-
-    assert plan["event"]["source"]["kind"] == "legacy_bwiki"
-    assert plan["event"]["source"]["verified"] is False
-    assert plan["event"]["shop_end"] == ""
-    assert plan["shop_items"][0]["stock"] == 5
-    assert plan["daily"][0]["skip"] is False
 
 
 def test_shop_plan_total_filter_and_fail_closed_constraints():
