@@ -1,7 +1,10 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from module.webui import app_event_profiles
+from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.event_profiles import (
     add_event_profile,
     delete_event_profile,
@@ -116,14 +119,48 @@ def test_profile_metadata_is_hidden_from_visible_task_storage():
     }
 
 
-def test_event_profile_editor_does_not_use_global_blocking_input_container():
-    source = Path("module/webui/app_event_profiles.py").read_text(encoding="utf-8")
-    css = Path("assets/gui/css/event-profiles-alas.css").read_text(encoding="utf-8")
+class ProfilePopupProbe(EventProfilesMixin):
+    def _ensure_event_profile_styles(self):
+        pass
 
-    assert "input_group" not in source
-    assert "pywebio.input" not in source
+
+def test_event_profile_editor_uses_scoped_non_blocking_popup():
+    css = Path("assets/gui/css/event-profiles-alas.css").read_text(encoding="utf-8")
+    callback = object()
+    probe = ProfilePopupProbe()
+
+    with patch.object(
+        app_event_profiles, "put_html", return_value="marker"
+    ) as put_html, patch.object(
+        app_event_profiles, "put_input", return_value="name-input"
+    ) as put_input, patch.object(
+        app_event_profiles, "put_buttons", return_value="actions"
+    ) as put_buttons, patch.object(app_event_profiles, "popup") as popup:
+        probe._event_profile_name_popup(
+            title="Профиль",
+            label="Имя",
+            confirm_label="Сохранить",
+            confirm_callback=callback,
+            value="Текущий",
+            placeholder="Новый",
+        )
+
+    put_html.assert_called_once_with(
+        '<span class="event-profile-dialog-marker" aria-hidden="true"></span>'
+    )
+    put_input.assert_called_once_with(
+        "event_profile_name",
+        label="Имя",
+        value="Текущий",
+        placeholder="Новый",
+    )
+    assert put_buttons.call_args.kwargs["onclick"][0] is callback
+    popup.assert_called_once_with(
+        "Профиль",
+        ["marker", "name-input", "actions"],
+        closable=True,
+        implicit_close=True,
+    )
+
     assert "#input-container" not in css
-    assert "popup(" in source
-    assert "put_input(" in source
-    assert "event-profile-dialog-marker" in source
     assert ".modal-content:has(.event-profile-dialog-marker)" in css

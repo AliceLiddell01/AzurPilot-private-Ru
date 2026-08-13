@@ -22,8 +22,9 @@ class EventShopSafetyMixin(WebUIMixinBase):
         raw_token = str(pin[_SHOP_FILTER_PIN] or "").strip()
         if raw_token and canonical_event_shop_filter_token(raw_token) is None:
             toast(
-                "Токен EventShop должен быть одним штатным селектором без «>» "
-                "и суффикса «:N». Количество задаётся отдельным полем плана.",
+                "Токен EventShop должен быть одним точным штатным селектором без «>», "
+                "суффикса «:N» и широких категорий вроде PlateT3. Количество задаётся "
+                "отдельным полем плана.",
                 color="warning",
                 duration=8,
             )
@@ -33,12 +34,7 @@ class EventShopSafetyMixin(WebUIMixinBase):
     def _set_event_shop_scheduler(self, enabled: bool) -> bool:
         """Change only EventShop Scheduler.Enable and report whether it was written."""
         try:
-            self._save_config(
-                {"EventShop.Scheduler.Enable": bool(enabled)},
-                self.alas_name,
-                self.alas_config,
-            )
-            self.alas_config.load()
+            self._event_config_update({"EventShop.Scheduler.Enable": bool(enabled)})
         except Exception as exc:
             logger.exception(exc)
             toast(
@@ -105,17 +101,14 @@ class EventShopSafetyMixin(WebUIMixinBase):
             return False
 
         try:
-            self._save_config(
+            self._event_config_update(
                 {
                     "EventShop.EventShop.UnlockSSRShip": False,
                     "EventShop.EventShop.BuyURShip": 0,
                     "EventShop.EventShop.PresetFilter": "custom",
                     "EventShop.EventShop.CustomFilter": compiled.filter_text,
-                },
-                self.alas_name,
-                self.alas_config,
+                }
             )
-            self.alas_config.load()
         except Exception as exc:
             logger.exception(exc)
             paused = self._set_event_shop_scheduler(False)

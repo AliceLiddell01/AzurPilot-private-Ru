@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import datetime
 from functools import partial
 from html import escape
@@ -15,6 +16,7 @@ from module.webui.app_dependencies import (
     deep_get,
     deep_iter,
     load_event_calculator,
+    logger,
     pin,
     popup,
     put_button,
@@ -33,7 +35,7 @@ from module.webui.app_dependencies import (
     toast,
     use_scope,
 )
-from module.webui.app_event_planner import EventPlannerMixin
+from module.webui.app_event_planner import EventPlannerMixin, _EVENT_PLAN_MUTATION_LOCK
 from module.webui.app_helpers import is_demo_mode
 from module.webui.event_plan import estimate_stage_runs, event_farm_summary, shop_plan_total
 
@@ -130,6 +132,12 @@ class EventLayoutMixin(EventPlannerMixin):
 """
         )
 
+    def init_menu(self, collapse_menu: bool = True, name: str | None = None) -> None:
+        """Remove Event-only DOM state whenever another WebUI surface becomes active."""
+        if name not in EVENT_LAYOUT_TASKS:
+            self._unmark_event_page()
+        super().init_menu(collapse_menu=collapse_menu, name=name)
+
     def _render_named_group(self, task, name, group_map, config, navigator=True) -> int:
         item = group_map.get(name)
         if item is None:
@@ -222,28 +230,59 @@ class EventLayoutMixin(EventPlannerMixin):
         if pt_mode not in {"auto", "manual"}:
             pt_mode = "auto"
 
-        plan = self._event_plan()
-        event = plan["event"]
-        changed_date = farm_end != str(event.get("farm_end") or "") or shop_end != str(event.get("shop_end") or "")
-        event.update({"name": name, "farm_end": farm_end, "shop_end": shop_end})
-        if changed_date:
-            event["source"] = {"kind": "manual", "verified": True, "updated_at": "", "revision": ""}
-        plan["progress"].update({"current_pt": current_pt, "pt_mode": pt_mode})
-        if not self._event_plan_write(plan, "Данные ивента сохранены"):
-            return
+        with _EVENT_PLAN_MUTATION_LOCK:
+            previous_plan = self._event_plan()
+            plan = deepcopy(previous_plan)
+            event = plan["event"]
+            old_farm_end = str(event.get("farm_end") or "")
+            old_shop_end = str(event.get("shop_end") or "")
+            farm_end_changed = farm_end != old_farm_end
+            shop_end_changed = shop_end != old_shop_end
+            source = event.get("source", {})
+            source_verified = bool(source.get("verified")) if isinstance(source, Mapping) else False
 
-        updates = {"EventGeneral.EventGeneral.PtLimit": target_pt}
-        source = event.get("source", {})
-        verified = bool(source.get("verified")) if isinstance(source, Mapping) else False
-        time_applied = False
-        if not farm_end:
-            updates["EventGeneral.EventGeneral.TimeLimit"] = _DISABLED_EVENT_TIME
-            time_applied = True
-        elif verified:
-            updates["EventGeneral.EventGeneral.TimeLimit"] = self._config_datetime(farm_end)
-            time_applied = True
-        self._save_config(updates, self.alas_name, self.alas_config)
-        self.alas_config.load()
+            event.update({"name": name, "farm_end": farm_end, "shop_end": shop_end})
+            if farm_end_changed:
+                event["source"] = {
+                    "kind": "manual",
+                    "verified": True,
+                    "updated_at": "",
+                    "revision": "",
+                }
+            elif shop_end_changed and not source_verified:
+                event["source"] = {
+                    "kind": "manual",
+                    "verified": False,
+                    "updated_at": "",
+                    "revision": "",
+                }
+            plan["progress"].update({"current_pt": current_pt, "pt_mode": pt_mode})
+
+            updates = {"EventGeneral.EventGeneral.PtLimit": target_pt}
+            verified = bool(event.get("source", {}).get("verified"))
+            time_applied = False
+            if not farm_end:
+                updates["EventGeneral.EventGeneral.TimeLimit"] = _DISABLED_EVENT_TIME
+                time_applied = True
+            elif verified:
+                updates["EventGeneral.EventGeneral.TimeLimit"] = self._config_datetime(farm_end)
+                time_applied = True
+
+            if not self._event_plan_write(plan, ""):
+                return
+            try:
+                self._event_config_update(updates)
+            except Exception as exc:
+                logger.exception(exc)
+                rolled_back = self._event_plan_write(previous_plan, "")
+                detail = "Локальный план восстановлен." if rolled_back else "Восстановить локальный план не удалось."
+                toast(
+                    f"Не удалось сохранить runtime-настройки ивента: {exc} {detail}",
+                    color="error",
+                    duration=10,
+                )
+                return
+
         close_popup()
         if time_applied:
             toast("План и автостоп синхронизированы", color="success")
@@ -293,11 +332,14 @@ class EventLayoutMixin(EventPlannerMixin):
         if kind not in {"daily", "extra"} or not name or points <= 0:
             toast("Укажите тип, название и положительное количество PT", color="warning")
             return
-        plan = self._event_plan()
-        rows = [item for item in plan[kind] if item["name"] != name]
-        rows.append({"name": name, "points": points, "skip": False, "completed_date": ""})
-        plan[kind] = rows
-        if self._event_plan_write(plan, f"Источник «{name}» добавлен"):
+        def mutation(plan):
+            rows = [item for item in plan[kind] if item["name"] != name]
+            rows.append(
+                {"name": name, "points": points, "skip": False, "completed_date": ""}
+            )
+            plan[kind] = rows
+
+        if self._event_plan_mutate(mutation, f"Источник «{name}» добавлен"):
             close_popup()
             self._refresh_event_plan_page()
 

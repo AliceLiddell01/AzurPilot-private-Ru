@@ -23,6 +23,22 @@ from module.webui.event_plan import normalize_event_plan
 _SPECIAL_RUNTIME_TOKENS = frozenset({"shipur", "ptur"})
 
 
+def _ambiguous_runtime_selector(match: re.Match[str]) -> bool:
+    """Reject broad categories that can select several unrelated runtime rows."""
+    group, sub_genre, tier = match.groups()
+    if group in {"ship", "equip", "pt"}:
+        return sub_genre is None
+    if group in {"cat", "expbook", "box", "food"}:
+        return tier is None
+    if group == "augment":
+        return sub_genre is None
+    if group == "plate":
+        return sub_genre is None or tier is None
+    if group in {"pr", "dr"}:
+        return tier is None
+    return False
+
+
 @dataclass(frozen=True)
 class EventShopAutomationPlan:
     filter_text: str
@@ -47,7 +63,7 @@ def canonical_event_shop_filter_token(value: Any) -> str | None:
         return None
     compact = re.sub(r"\s+", "", raw).lower()
     match = FILTER_REGEX.fullmatch(compact)
-    if match is None:
+    if match is None or _ambiguous_runtime_selector(match):
         return None
     return "".join(part or "" for part in match.groups())
 

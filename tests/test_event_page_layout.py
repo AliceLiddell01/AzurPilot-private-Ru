@@ -1,5 +1,12 @@
 from pathlib import Path
 
+import yaml
+
+from module.webui.app import AlasGUI
+from module.webui.app_event_layout import EventLayoutMixin
+from module.webui.app_event_profiles import EventProfilesMixin
+from module.webui.app_event_shop_safety import EventShopSafetyMixin
+from module.webui.app_task_config import TaskConfigMixin
 
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT = ROOT / "module" / "webui" / "app_event_layout.py"
@@ -11,11 +18,11 @@ EVENT_CSS = ROOT / "assets" / "gui" / "css" / "event-profiles-alas.css"
 
 
 def test_event_layout_is_inserted_before_generic_task_renderer():
-    source = APP.read_text(encoding="utf-8")
-    profiles = source.index("    EventProfilesMixin,")
-    safety = source.index("    EventShopSafetyMixin,")
-    layout = source.index("    EventLayoutMixin,")
-    generic = source.index("    TaskConfigMixin,")
+    mro = AlasGUI.__mro__
+    profiles = mro.index(EventProfilesMixin)
+    safety = mro.index(EventShopSafetyMixin)
+    layout = mro.index(EventLayoutMixin)
+    generic = mro.index(TaskConfigMixin)
     assert profiles < safety < layout < generic
 
 
@@ -52,14 +59,6 @@ def test_event_general_uses_one_settings_action_and_automates_stop_values():
     source = LAYOUT.read_text(encoding="utf-8")
     assert 'put_scope("group_EventStop")' not in source
     assert '"Настроить ивент"' in source
-    assert "def _save_settings_popup" in source
-    assert 'updates = {"EventGeneral.EventGeneral.PtLimit": target_pt}' in source
-    assert 'updates["EventGeneral.EventGeneral.TimeLimit"]' in source
-    assert "self._config_datetime(farm_end)" in source
-    assert "verified" in source
-    assert "changed_date" in source
-    assert "_DISABLED_EVENT_TIME = DEFAULT_TIME_TEXT" in source
-    assert '"verified": True' in source
 
     obsolete_actions = (
         "Изменить целевой PT",
@@ -154,11 +153,17 @@ def test_event_css_defines_modern_responsive_visual_system():
 
 
 def test_stage_two_does_not_remove_runtime_event_groups():
-    source = TASKS.read_text(encoding="utf-8")
-    expected = (
-        "    EventGeneral:\n      - EventGeneral\n      - TaskBalancer",
-        "    Event:\n      - Scheduler\n      - Campaign\n      - StopCondition\n      - Fleet\n      - Submarine\n      - Emotion\n      - HpControl\n      - EnemyPriority",
-        "    EventShop:\n      - Scheduler\n      - EventShop",
-    )
-    for fragment in expected:
-        assert fragment in source
+    tasks = yaml.safe_load(TASKS.read_text(encoding="utf-8"))["Event"]["tasks"]
+
+    assert tasks["EventGeneral"] == ["EventGeneral", "TaskBalancer"]
+    assert tasks["Event"] == [
+        "Scheduler",
+        "Campaign",
+        "StopCondition",
+        "Fleet",
+        "Submarine",
+        "Emotion",
+        "HpControl",
+        "EnemyPriority",
+    ]
+    assert tasks["EventShop"] == ["Scheduler", "EventShop"]

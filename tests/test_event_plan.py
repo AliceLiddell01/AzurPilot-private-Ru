@@ -1,5 +1,8 @@
 from datetime import date, datetime
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from module.shop_event.selector import parse_filter_amount
 from module.webui.event_plan import (
@@ -57,6 +60,22 @@ def test_corrupt_event_plan_is_preserved_before_empty_fallback(tmp_path: Path):
     save_event_plan("alas", restored, root=tmp_path)
     assert load_event_plan("alas", root=tmp_path)["event"]["name"] == "Recovered"
     assert backups[0].read_text(encoding="utf-8") == '{"event": '
+
+
+def test_failed_event_plan_write_removes_its_temporary_file(tmp_path: Path):
+    from module.webui import event_plan
+
+    real_file_write = event_plan.file_write
+
+    def partial_write_then_fail(path, content):
+        real_file_write(path, content)
+        raise OSError("simulated fsync failure")
+
+    with patch.object(event_plan, "file_write", partial_write_then_fail):
+        with pytest.raises(OSError, match="simulated fsync failure"):
+            save_event_plan("ap", empty_event_plan(), root=tmp_path)
+
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
 def test_default_event_plan_storage_lives_under_ignored_runtime_state():

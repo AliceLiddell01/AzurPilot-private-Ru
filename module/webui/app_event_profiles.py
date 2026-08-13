@@ -24,6 +24,8 @@ from module.webui.app_dependencies import (
     use_scope,
 )
 from module.webui.app_helpers import is_demo_mode
+from module.webui.app_types import WebUIMixinBase
+from module.webui.event_config import mutate_event_config
 from module.webui.event_profiles import (
     EVENT_MENU_LABEL,
     OPTIONAL_EVENT_PROFILE_SLOTS,
@@ -35,7 +37,6 @@ from module.webui.event_profiles import (
     get_event_profile_metadata,
     next_available_event_profile_slot,
     rename_event_profile,
-    validate_event_profile_name,
 )
 
 
@@ -45,7 +46,7 @@ _EVENT_PROFILE_MANAGER_SCOPE = "group_EventProfiles"
 _EVENT_PROFILE_NAME_PIN = "event_profile_name"
 
 
-class EventProfilesMixin:
+class EventProfilesMixin(WebUIMixinBase):
     """Keep legacy event task IDs stable while presenting a compact Event UI."""
 
     def _ensure_event_profile_styles(self) -> None:
@@ -206,24 +207,32 @@ class EventProfilesMixin:
             with use_scope(_EVENT_PROFILE_MANAGER_SCOPE, clear=True):
                 self._render_event_profile_manager(config)
 
-    def _write_event_profile_config(
-        self, config: MutableMapping[str, Any], success_message: str
-    ) -> bool:
+    def _mutate_event_profile_config(self, mutation, verify, success_message: str):
+        """Serialize profile CRUD and verify the exact fields written to disk."""
         if is_demo_mode():
             toast(
                 "В демонстрационном режиме изменение профилей отключено.",
                 color="warning",
             )
-            return False
+            return None
         try:
-            self.alas_config.write_file(self.alas_name, config)
+            result = mutate_event_config(
+                self.alas_config,
+                self.alas_name,
+                mutation,
+                verify=verify,
+            )
+            self.alas_config.load()
+        except ValueError as exc:
+            toast(str(exc), color="error")
+            return None
         except Exception as exc:
             logger.exception(exc)
             toast(f"Не удалось сохранить ивентовые профили: {exc}", color="error")
-            return False
+            return None
         logger.info(f"[WebUI — Ивент] {success_message}")
         toast(success_message, color="success")
-        return True
+        return result
 
     def _refresh_event_profile_ui(self) -> None:
         """Refresh only Event-owned scopes after a profile mutation."""
@@ -282,21 +291,21 @@ class EventProfilesMixin:
         )
 
     def _confirm_add_event_profile(self) -> None:
-        try:
-            config = self._read_event_profile_config()
-            name = pin[_EVENT_PROFILE_NAME_PIN]
-            add_event_profile(config, name)
-        except ValueError as exc:
-            toast(str(exc), color="error")
-            return
-        except Exception as exc:
-            logger.exception(exc)
-            toast(f"Не удалось прочитать конфигурацию: {exc}", color="error")
-            return
+        name = pin[_EVENT_PROFILE_NAME_PIN]
 
-        if self._write_event_profile_config(
-            config, "Дополнительный ивентовый профиль добавлен."
-        ):
+        def mutation(config):
+            slot = add_event_profile(config, name)
+            return slot, get_event_profile_metadata(config)[slot]["name"]
+
+        def verify(config, result):
+            slot, expected_name = result
+            return get_event_profile_metadata(config).get(slot, {}).get("name") == expected_name
+
+        if self._mutate_event_profile_config(
+            mutation,
+            verify,
+            "Дополнительный ивентовый профиль добавлен.",
+        ) is not None:
             close_popup()
             self._refresh_event_profile_ui()
 
@@ -324,25 +333,20 @@ class EventProfilesMixin:
         )
 
     def _confirm_rename_event_profile(self, slot: str) -> None:
-        try:
-            config = self._read_event_profile_config()
-            name = pin[_EVENT_PROFILE_NAME_PIN]
-            error = validate_event_profile_name(config, name, current_slot=slot)
-            if error is not None:
-                toast(error, color="error")
-                return
-            rename_event_profile(config, slot, name)
-        except ValueError as exc:
-            toast(str(exc), color="error")
-            return
-        except Exception as exc:
-            logger.exception(exc)
-            toast(f"Не удалось прочитать конфигурацию: {exc}", color="error")
-            return
+        name = pin[_EVENT_PROFILE_NAME_PIN]
 
-        if self._write_event_profile_config(
-            config, "Название ивентового профиля изменено."
-        ):
+        def mutation(config):
+            rename_event_profile(config, slot, name)
+            return get_event_profile_metadata(config)[slot]["name"]
+
+        def verify(config, expected_name):
+            return get_event_profile_metadata(config).get(slot, {}).get("name") == expected_name
+
+        if self._mutate_event_profile_config(
+            mutation,
+            verify,
+            "Название ивентового профиля изменено.",
+        ) is not None:
             close_popup()
             self._refresh_event_profile_ui()
 
@@ -365,20 +369,23 @@ class EventProfilesMixin:
         )
 
     def _confirm_delete_event_profile(self, slot: str) -> None:
-        try:
-            config = self._read_event_profile_config()
+        def mutation(config):
             delete_event_profile(config, slot)
-        except ValueError as exc:
-            toast(str(exc), color="error")
-            return
-        except Exception as exc:
-            logger.exception(exc)
-            toast(f"Не удалось прочитать конфигурацию: {exc}", color="error")
-            return
+            return slot
 
-        if self._write_event_profile_config(
-            config, "Дополнительный ивентовый профиль удалён."
-        ):
+        def verify(config, deleted_slot):
+            return (
+                deleted_slot not in get_event_profile_metadata(config)
+                and not bool(
+                    config.get(deleted_slot, {}).get("Scheduler", {}).get("Enable", False)
+                )
+            )
+
+        if self._mutate_event_profile_config(
+            mutation,
+            verify,
+            "Дополнительный ивентовый профиль удалён.",
+        ) is not None:
             close_popup()
             self._refresh_event_profile_ui()
 

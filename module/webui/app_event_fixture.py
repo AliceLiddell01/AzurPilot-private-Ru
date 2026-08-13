@@ -26,10 +26,11 @@ class EventFixtureMixin:
 
     def _clear_event_plan(self) -> None:
         """Clear explicitly without immediately re-seeding the temporary fixture."""
-        if self._event_plan_write(
-            empty_event_plan_without_fixture("EN"),
-            "Локальный план ивента очищен",
-        ):
+        def mutation(plan):
+            plan.clear()
+            plan.update(empty_event_plan_without_fixture("EN"))
+
+        if self._event_plan_mutate(mutation, "Локальный план ивента очищен"):
             self._refresh_event_plan_page()
 
     def _event_plan_source_label(self, plan: Mapping[str, Any]) -> str:

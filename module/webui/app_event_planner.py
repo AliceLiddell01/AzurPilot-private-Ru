@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 from functools import partial
+from threading import RLock
 from typing import Any, Dict, Mapping
 
 from module.config.time_sentinel import is_default_time
@@ -33,6 +34,7 @@ from module.webui.app_dependencies import (
 )
 from module.webui.app_helpers import is_demo_mode
 from module.webui.app_types import WebUIMixinBase
+from module.webui.event_config import update_event_config
 from module.webui.event_plan import (
     empty_event_plan,
     estimate_stage_runs,
@@ -66,6 +68,9 @@ _POINT_GROUP_LABELS = {
     "extra": "Дополнительно за день",
 }
 
+_EVENT_PLAN_MUTATION_LOCK = RLock()
+_STALE_EVENT_PLAN = object()
+
 
 class EventPlannerMixin(WebUIMixinBase):
     """Render and mutate the local Event plan without coupling it to a provider."""
@@ -78,13 +83,29 @@ class EventPlannerMixin(WebUIMixinBase):
             toast("В демонстрационном режиме изменение плана ивента отключено.", color="warning")
             return False
         try:
-            save_event_plan(self.alas_name, plan)
+            with _EVENT_PLAN_MUTATION_LOCK:
+                save_event_plan(self.alas_name, plan)
         except Exception as exc:
             logger.exception(exc)
             toast(f"Не удалось сохранить план ивента: {exc}", color="error")
             return False
-        toast(message, color="success")
+        if message:
+            toast(message, color="success")
         return True
+
+    def _event_plan_mutate(self, mutation, message: str) -> bool:
+        """Serialize one load-mutate-save cycle across concurrent WebUI sessions."""
+        with _EVENT_PLAN_MUTATION_LOCK:
+            plan = self._event_plan()
+            if mutation(plan) is _STALE_EVENT_PLAN:
+                self._stale_plan_message()
+                return False
+            return self._event_plan_write(plan, message)
+
+    def _event_config_update(self, updates: Mapping[str, Any]) -> None:
+        """Write Event runtime fields and surface failures to the caller."""
+        update_event_config(self.alas_config, self.alas_name, updates)
+        self.alas_config.load()
 
     @staticmethod
     def _event_plan_source_label(plan: Mapping[str, Any]) -> str:
@@ -245,25 +266,26 @@ class EventPlannerMixin(WebUIMixinBase):
             toast("Дата должна быть в формате YYYY-MM-DD или YYYY-MM-DD HH:MM:SS", color="warning")
             return
 
-        plan = self._event_plan()
-        event = plan["event"]
-        date_changed = (
-            farm_end != str(event.get("farm_end") or "")
-            or shop_end != str(event.get("shop_end") or "")
-        )
-        event.update({"name": name, "farm_end": farm_end, "shop_end": shop_end})
-        # Do not launder imported/unverified dates merely because the user renamed
-        # the event. Dates become trusted only after explicit manual editing or an
-        # explicit confirmation action.
-        if date_changed or confirm_dates:
-            event["source"] = {
-                "kind": "manual",
-                "verified": True,
-                "updated_at": "",
-                "revision": "",
-            }
-        plan["progress"].update({"current_pt": current_pt, "pt_mode": pt_mode})
-        if self._event_plan_write(plan, "Данные и прогресс ивента сохранены"):
+        def mutation(plan):
+            event = plan["event"]
+            date_changed = (
+                farm_end != str(event.get("farm_end") or "")
+                or shop_end != str(event.get("shop_end") or "")
+            )
+            event.update({"name": name, "farm_end": farm_end, "shop_end": shop_end})
+            # Do not launder imported/unverified dates merely because the user renamed
+            # the event. Dates become trusted only after explicit manual editing or an
+            # explicit confirmation action.
+            if date_changed or confirm_dates:
+                event["source"] = {
+                    "kind": "manual",
+                    "verified": True,
+                    "updated_at": "",
+                    "revision": "",
+                }
+            plan["progress"].update({"current_pt": current_pt, "pt_mode": pt_mode})
+
+        if self._event_plan_mutate(mutation, "Данные и прогресс ивента сохранены"):
             close_popup()
             self._refresh_event_plan_page()
 
@@ -292,25 +314,27 @@ class EventPlannerMixin(WebUIMixinBase):
         if not name or points <= 0:
             toast("Укажите название этапа и положительное количество PT", color="warning")
             return
-        plan = self._event_plan()
-        stages = [item for item in plan["stages"] if item["name"].upper() != name]
-        stages.append({"name": name, "points": points})
-        plan["stages"] = stages
-        if self._event_plan_write(plan, f"Этап {name} добавлен в план"):
+        def mutation(plan):
+            stages = [item for item in plan["stages"] if item["name"].upper() != name]
+            stages.append({"name": name, "points": points})
+            plan["stages"] = stages
+
+        if self._event_plan_mutate(mutation, f"Этап {name} добавлен в план"):
             close_popup()
             self._refresh_event_plan_page()
 
     def _delete_stage(self, name: str, points: int) -> None:
-        plan = self._event_plan()
-        index = self._find_exact_row(
-            plan["stages"],
-            lambda item: item.get("name") == name and int(item.get("points", 0) or 0) == points,
-        )
-        if index is None:
-            self._stale_plan_message()
-            return
-        del plan["stages"][index]
-        if self._event_plan_write(plan, f"Этап {name} удалён из плана"):
+        def mutation(plan):
+            index = self._find_exact_row(
+                plan["stages"],
+                lambda item: item.get("name") == name
+                and int(item.get("points", 0) or 0) == points,
+            )
+            if index is None:
+                return _STALE_EVENT_PLAN
+            del plan["stages"][index]
+
+        if self._event_plan_mutate(mutation, f"Этап {name} удалён из плана"):
             self._refresh_event_plan_page()
 
     def _add_point_source_popup(self, kind: str) -> None:
@@ -347,40 +371,46 @@ class EventPlannerMixin(WebUIMixinBase):
         if not name or points <= 0:
             toast("Укажите название и положительное количество PT", color="warning")
             return
-        plan = self._event_plan()
-        rows = [item for item in plan[kind] if item["name"] != name]
-        rows.append({"name": name, "points": points, "skip": False, "completed_date": ""})
-        plan[kind] = rows
-        if self._event_plan_write(plan, f"Источник «{name}» добавлен"):
+        def mutation(plan):
+            rows = [item for item in plan[kind] if item["name"] != name]
+            rows.append(
+                {"name": name, "points": points, "skip": False, "completed_date": ""}
+            )
+            plan[kind] = rows
+
+        if self._event_plan_mutate(mutation, f"Источник «{name}» добавлен"):
             close_popup()
             self._refresh_event_plan_page()
 
     def _point_source_action(self, kind: str, name: str, points: int, action: str) -> None:
         if kind not in _POINT_GROUP_LABELS:
             return
-        plan = self._event_plan()
-        index = self._find_exact_row(
-            plan[kind],
-            lambda item: item.get("name") == name and int(item.get("points", 0) or 0) == points,
-        )
-        if index is None:
-            self._stale_plan_message()
+        message = {
+            "skip": "Статус пропуска источника обновлён",
+            "done": "Статус получения за сегодня обновлён",
+            "delete": f"Источник «{name}» удалён",
+        }.get(action)
+        if message is None:
             return
-        item = plan[kind][index]
-        if action == "skip":
-            item["skip"] = not bool(item.get("skip"))
-            message = "Источник исключён из расчёта" if item["skip"] else "Источник возвращён в расчёт"
-        elif action == "done":
-            today = current_time().date().isoformat()
-            item["completed_date"] = "" if item.get("completed_date") == today else today
-            message = "Статус получения за сегодня обновлён"
-        elif action == "delete":
-            name = item["name"]
-            del plan[kind][index]
-            message = f"Источник «{name}» удалён"
-        else:
-            return
-        if self._event_plan_write(plan, message):
+
+        def mutation(plan):
+            index = self._find_exact_row(
+                plan[kind],
+                lambda item: item.get("name") == name
+                and int(item.get("points", 0) or 0) == points,
+            )
+            if index is None:
+                return _STALE_EVENT_PLAN
+            item = plan[kind][index]
+            if action == "skip":
+                item["skip"] = not bool(item.get("skip"))
+            elif action == "done":
+                today = current_time().date().isoformat()
+                item["completed_date"] = "" if item.get("completed_date") == today else today
+            else:
+                del plan[kind][index]
+
+        if self._event_plan_mutate(mutation, message):
             self._refresh_event_plan_page()
 
     def _render_point_sources(self, plan: Mapping[str, Any], kind: str) -> None:
@@ -425,17 +455,24 @@ class EventPlannerMixin(WebUIMixinBase):
                 duration=6,
             )
             return
-        old = self._event_plan()
-        plan = import_legacy_event_calculator(data, server="EN")
-        plan["progress"] = old["progress"]
-        if self._event_plan_write(
-            plan,
+        def mutation(plan):
+            imported = import_legacy_event_calculator(data, server="EN")
+            imported["progress"] = plan["progress"]
+            plan.clear()
+            plan.update(imported)
+
+        if self._event_plan_mutate(
+            mutation,
             "Legacy BWiki импортирован в локальный план. Данные помечены как неподтверждённые.",
         ):
             self._refresh_event_plan_page()
 
     def _clear_event_plan(self) -> None:
-        if self._event_plan_write(empty_event_plan("EN"), "Локальный план ивента очищен"):
+        def mutation(plan):
+            plan.clear()
+            plan.update(empty_event_plan("EN"))
+
+        if self._event_plan_mutate(mutation, "Локальный план ивента очищен"):
             self._refresh_event_plan_page()
 
     def _apply_farm_end(self) -> None:
@@ -454,12 +491,12 @@ class EventPlannerMixin(WebUIMixinBase):
             )
             return
         value = self._config_datetime(farm_end)
-        self._save_config(
-            {"EventGeneral.EventGeneral.TimeLimit": value},
-            self.alas_name,
-            self.alas_config,
-        )
-        self.alas_config.load()
+        try:
+            self._event_config_update({"EventGeneral.EventGeneral.TimeLimit": value})
+        except Exception as exc:
+            logger.exception(exc)
+            toast(f"Не удалось записать окончание фарма: {exc}", color="error")
+            return
         toast("Окончание фарма записано в автостоп", color="success")
         self._refresh_event_plan_page()
 
@@ -468,12 +505,12 @@ class EventPlannerMixin(WebUIMixinBase):
         if total <= 0:
             toast("В плане магазина пока нет выбранных товаров", color="warning")
             return
-        self._save_config(
-            {"EventGeneral.EventGeneral.PtLimit": total},
-            self.alas_name,
-            self.alas_config,
-        )
-        self.alas_config.load()
+        try:
+            self._event_config_update({"EventGeneral.EventGeneral.PtLimit": total})
+        except Exception as exc:
+            logger.exception(exc)
+            toast(f"Не удалось записать целевой PT: {exc}", color="error")
+            return
         toast(f"Целевой PT установлен по плану магазина: {total}", color="success")
         self._refresh_event_plan_page()
 
@@ -514,17 +551,18 @@ class EventPlannerMixin(WebUIMixinBase):
         if not name or price <= 0 or stock <= 0:
             toast("Укажите название, положительную цену и количество", color="warning")
             return
-        plan = self._event_plan()
-        plan["shop_items"].append(
-            {
-                "name": name,
-                "price": price,
-                "stock": stock,
-                "selected": stock,
-                "filter": filter_token,
-            }
-        )
-        if self._event_plan_write(plan, f"Товар «{name}» добавлен в план"):
+        def mutation(plan):
+            plan["shop_items"].append(
+                {
+                    "name": name,
+                    "price": price,
+                    "stock": stock,
+                    "selected": stock,
+                    "filter": filter_token,
+                }
+            )
+
+        if self._event_plan_mutate(mutation, f"Товар «{name}» добавлен в план"):
             close_popup()
             self._refresh_event_plan_page()
 
@@ -561,42 +599,46 @@ class EventPlannerMixin(WebUIMixinBase):
         )
 
     def _save_shop_quantity_popup(self, identity: tuple[str, str, str, int, int]) -> None:
-        plan = self._event_plan()
-        index = self._find_shop_item(plan["shop_items"], identity)
-        if index is None:
-            close_popup()
-            self._stale_plan_message()
-            return
-        item = plan["shop_items"][index]
         try:
             selected = int(pin[_SHOP_SELECTED_PIN] or 0)
         except (TypeError, ValueError):
             selected = -1
-        if selected < 0 or selected > item["stock"]:
-            toast(f"Количество должно быть от 0 до {item['stock']}", color="warning")
+
+        max_stock = identity[4]
+        if selected < 0 or selected > max_stock:
+            toast(f"Количество должно быть от 0 до {max_stock}", color="warning")
             return
-        item["selected"] = selected
-        if self._event_plan_write(plan, "Количество в плане обновлено"):
+
+        def mutation(plan):
+            index = self._find_shop_item(plan["shop_items"], identity)
+            if index is None:
+                return _STALE_EVENT_PLAN
+            item = plan["shop_items"][index]
+            item["selected"] = selected
+
+        if self._event_plan_mutate(mutation, "Количество в плане обновлено"):
             close_popup()
             self._refresh_event_plan_page()
 
     def _delete_shop_item(self, identity: tuple[str, str, str, int, int]) -> None:
-        plan = self._event_plan()
-        index = self._find_shop_item(plan["shop_items"], identity)
-        if index is None:
-            self._stale_plan_message()
-            return
-        name = plan["shop_items"][index]["name"]
-        del plan["shop_items"][index]
-        if self._event_plan_write(plan, f"Товар «{name}» удалён из плана"):
+        name = identity[1]
+
+        def mutation(plan):
+            index = self._find_shop_item(plan["shop_items"], identity)
+            if index is None:
+                return _STALE_EVENT_PLAN
+            del plan["shop_items"][index]
+
+        if self._event_plan_mutate(mutation, f"Товар «{name}» удалён из плана"):
             self._refresh_event_plan_page()
 
     def _set_all_shop_quantities(self, selected_all: bool) -> None:
-        plan = self._event_plan()
-        for item in plan["shop_items"]:
-            item["selected"] = item["stock"] if selected_all else 0
+        def mutation(plan):
+            for item in plan["shop_items"]:
+                item["selected"] = item["stock"] if selected_all else 0
+
         message = "Все товары выбраны" if selected_all else "План покупок очищен"
-        if self._event_plan_write(plan, message):
+        if self._event_plan_mutate(mutation, message):
             self._refresh_event_plan_page()
 
     def _apply_shop_plan_to_automation(self) -> None:

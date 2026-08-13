@@ -57,3 +57,21 @@ def test_manifest_refresh_preserves_local_progress_and_compatible_shop_choice():
     assert merged["progress"]["current_pt"] == 12345
     assert merged["shop_items"][0]["selected"] == 2
     assert merged["event"]["source"]["revision"] == "next"
+
+
+def test_manifest_price_change_does_not_reselect_an_excluded_item():
+    old = empty_event_plan()
+    old["shop_items"] = [
+        {"name": "Cube", "price": 80, "stock": 5, "selected": 0, "filter": "Cube"}
+    ]
+    manifest = _manifest()
+
+    merged = merge_event_manifest(
+        old,
+        manifest,
+        source_kind="azurlane_lua",
+        verified=True,
+    )
+
+    assert merged["shop_items"][0]["price"] == 100
+    assert merged["shop_items"][0]["selected"] == 0

@@ -16,7 +16,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping
 from uuid import uuid4
 
-from deploy.atomic import atomic_read_text, atomic_replace, atomic_write
+from deploy.atomic import (
+    atomic_read_text,
+    atomic_replace,
+    file_remove,
+    file_write,
+    replace_tmp,
+    to_tmp_file,
+)
 from module.logger import logger
 
 
@@ -230,7 +237,18 @@ def save_event_plan(
     path = event_plan_path(instance, root)
     path.parent.mkdir(parents=True, exist_ok=True)
     content = json.dumps(normalized, ensure_ascii=False, indent=2) + "\n"
-    atomic_write(str(path), content)
+    temp = to_tmp_file(str(path))
+    try:
+        file_write(temp, content)
+        replace_tmp(temp, str(path))
+    except BaseException:
+        try:
+            file_remove(temp)
+        except OSError as cleanup_exc:
+            logger.warning(
+                f"[WebUI — План ивента] Не удалось удалить временный файл {temp}: {cleanup_exc}"
+            )
+        raise
     return path
 
 

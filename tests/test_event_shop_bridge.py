@@ -16,6 +16,8 @@ def test_filter_token_validation_uses_runtime_event_shop_grammar():
     assert canonical_event_shop_filter_token(" Cube ") == "cube"
     assert canonical_event_shop_filter_token("EquipSSR") == "equipssr"
     assert canonical_event_shop_filter_token("Plate General T3") == "plategeneralt3"
+    assert canonical_event_shop_filter_token("PlateT3") is None
+    assert canonical_event_shop_filter_token("Equip") is None
     assert canonical_event_shop_filter_token("ShipUR") == "shipur"
     assert canonical_event_shop_filter_token("PtUR") == "ptur"
     assert canonical_event_shop_filter_token("Cube:3") is None
