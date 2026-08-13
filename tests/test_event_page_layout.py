@@ -154,6 +154,8 @@ def test_event_css_defines_modern_responsive_visual_system():
     assert ".event-dashboard-hero::after" not in css
     assert "radial-gradient" not in css
     assert "width: min(100%, 1120px)" not in css
+    assert "grid-template-columns: minmax(0, 1.2fr)" in css
+    assert "clip-path: inset(50%)" in css
     assert "@media (max-width: 760px)" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
 

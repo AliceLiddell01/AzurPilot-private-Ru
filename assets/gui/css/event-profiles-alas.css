@@ -508,13 +508,18 @@ body.event-modern-active .modal-content .modal-body,
         width: 100% !important;
     }
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table tr {
-        grid-template-columns: minmax(70px, 1.2fr) 64px 82px minmax(86px, 1fr) !important;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, .7fr) minmax(0, .9fr) minmax(0, 1fr) !important;
     }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table thead {
-        display: none !important;
-    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table thead,
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tbody > tr:first-child:has(th) {
-        display: none !important;
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0 0 0 0) !important;
+        clip-path: inset(50%) !important;
+        white-space: nowrap !important;
     }
     #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tr {
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
