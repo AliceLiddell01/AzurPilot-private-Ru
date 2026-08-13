@@ -134,7 +134,7 @@ def build_current_event(
             if not marker.exists():
                 write_map_module(
                     marker,
-                    '"""Generated Event map modules; do not edit manually."""\n',
+                    '"""Сгенерированные модули Event-карт; не редактировать вручную."""\n',
                 )
         for target, content in map_writes:
             write_map_module(target, content, overwrite=overwrite)
