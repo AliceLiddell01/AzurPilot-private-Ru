@@ -25,9 +25,17 @@ _SAFE_TOKEN = re.compile(r"[A-Za-z0-9_-]+")
 def asset_key(asset: Mapping[str, Any]) -> str:
     kind = str(asset.get("kind") or "").strip()
     source_path = str(asset.get("source_path") or "").strip()
-    if not kind or not source_path or not _SAFE_SOURCE_PATH.fullmatch(source_path):
+    if not kind:
         return ""
-    return f"{kind}:{source_path}"
+    if source_path:
+        if not _SAFE_SOURCE_PATH.fullmatch(source_path):
+            return ""
+        return f"{kind}:{source_path}"
+    if kind == "resource":
+        game_id = str(asset.get("game_id") or "").strip()
+        if game_id.isdecimal() and int(game_id) > 0:
+            return f"resource-id:{int(game_id)}"
+    return ""
 
 
 def asset_catalog_digest(data: Mapping[str, Any]) -> str:
@@ -70,13 +78,29 @@ def build_asset_catalog(
             token = str(item.get("event_shop_filter") or "")
             if not key or not _SAFE_TOKEN.fullmatch(token):
                 continue
-            candidate = (local_root / "shop" / "event" / f"{token}.png").resolve()
-            expected = (local_root / "shop" / "event").resolve()
-            if expected not in candidate.parents or not candidate.is_file():
+            candidates = (
+                (
+                    local_root / "webui" / "event_shop" / f"{token}.png",
+                    f"/static/assets/webui/event_shop/{token}.png",
+                    local_root / "webui" / "event_shop",
+                ),
+                (
+                    local_root / "shop" / "event" / f"{token}.png",
+                    f"/static/assets/shop/event/{token}.png",
+                    local_root / "shop" / "event",
+                ),
+            )
+            resolved_url = ""
+            for candidate, url, expected_root in candidates:
+                candidate = candidate.resolve()
+                expected = expected_root.resolve()
+                if expected in candidate.parents and candidate.is_file():
+                    resolved_url = url
+                    break
+            if not resolved_url:
                 continue
-            url = f"/static/assets/shop/event/{token}.png"
-            previous = mappings.setdefault(key, url)
-            if previous != url:
+            previous = mappings.setdefault(key, resolved_url)
+            if previous != resolved_url:
                 raise ValueError(f"Конфликт local asset для canonical key {key}")
     result = {
         "asset_catalog_schema_version": EVENT_ASSET_CATALOG_SCHEMA_VERSION,
