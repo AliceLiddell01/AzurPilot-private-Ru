@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from module.event_datamine.assets import asset_catalog_digest
+from module.event_datamine.assets import (
+    asset_catalog_digest,
+    asset_key,
+    build_asset_catalog,
+)
 from module.webui.event_assets import (
     PLACEHOLDER_URL,
     event_asset_resolved,
@@ -78,3 +82,27 @@ def test_asset_catalog_cache_invalidates_when_file_changes(tmp_path: Path):
     assert event_shop_asset_url(
         asset, catalog_path=catalog_path, asset_root=tmp_path
     ).endswith("/Array.png")
+
+
+def test_resource_asset_identity_falls_back_to_stable_resource_id():
+    assert asset_key({"kind": "resource", "source_path": "", "game_id": "1"}) == "resource-id:1"
+    assert asset_key({"kind": "resource", "source_path": "", "game_id": 2}) == "resource-id:2"
+    assert asset_key({"kind": "resource", "source_path": "Props/1", "game_id": 1}) == "resource:Props/1"
+    assert asset_key({"kind": "resource", "source_path": "", "game_id": 0}) == ""
+    assert asset_key({"kind": "item", "source_path": "", "game_id": 15008}) == ""
+
+
+def test_asset_catalog_prefers_webui_display_asset_and_keeps_scanner_fallback(tmp_path: Path):
+    scanner = tmp_path / "shop" / "event"
+    display = tmp_path / "webui" / "event_shop"
+    scanner.mkdir(parents=True)
+    display.mkdir(parents=True)
+    (scanner / "Chip.png").write_bytes(b"scanner")
+    (display / "Chip.png").write_bytes(b"display")
+
+    catalog = build_asset_catalog(asset_root=tmp_path)
+    assert catalog["entries"]["item:Props/15008"] == "/static/assets/webui/event_shop/Chip.png"
+
+    (display / "Chip.png").unlink()
+    catalog = build_asset_catalog(asset_root=tmp_path)
+    assert catalog["entries"]["item:Props/15008"] == "/static/assets/shop/event/Chip.png"
