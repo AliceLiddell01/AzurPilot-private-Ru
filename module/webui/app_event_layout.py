@@ -499,11 +499,11 @@ class EventLayoutMixin(EventPlannerMixin):
                               names=EVENT_MAP_ADVANCED_GROUPS, group_map=group_map, config=config)
 
     def _render_event_shop_layout(self, *, task, group_map, config) -> None:
-        self._render_named_group(task, "Scheduler", group_map, config)
         with use_scope("groups"):
             put_scope("group_EventShopPlan")
         with use_scope("group_EventShopPlan", clear=True):
             self._render_event_shop_plan(config)
+        self._render_named_group(task, "Scheduler", group_map, config)
         self._render_advanced(task=task, title="Расширенные настройки — автоматизация магазина",
                               description="Ручной DSL и редкие SSR/UR-сценарии.", names=("EventShop",), group_map=group_map, config=config)
 

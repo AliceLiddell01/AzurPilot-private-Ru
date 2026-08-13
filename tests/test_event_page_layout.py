@@ -101,6 +101,9 @@ def test_event_shop_has_one_primary_action_and_auto_syncs_fail_closed():
     assert "event-shop-hero" in layout
     assert '"Добавить товар"' in layout
     assert 'title="Расширенные настройки — автоматизация магазина"' in layout
+    assert layout.index('put_scope("group_EventShopPlan")') < layout.index(
+        'self._render_named_group(task, "Scheduler", group_map, config)'
+    )
 
     for label in (
         "Выбрать всё",
@@ -144,10 +147,12 @@ def test_event_css_defines_modern_responsive_visual_system():
         ".event-advanced-details",
     ):
         assert selector in css
-    assert "var(--alas-apple-card-bg)" in css
-    assert "var(--alas-apple-accent)" in css
+    assert "var(--alas-entry-surface" in css
+    assert "var(--alas-entry-accent" in css
+    assert "var(--alas-apple-card-bg" in css
     assert "border-radius" in css
-    assert "backdrop-filter" in css
+    assert ".event-dashboard-hero::after" not in css
+    assert "radial-gradient" not in css
     assert "@media (max-width: 760px)" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
 

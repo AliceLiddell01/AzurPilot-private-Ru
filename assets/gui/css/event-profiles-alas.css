@@ -1,20 +1,26 @@
 /* Modern Event experience: scoped dashboard, compact actions and progressive disclosure. */
 
 :root {
-    --event-surface: color-mix(in srgb, var(--alas-apple-card-bg) 88%, transparent);
-    --event-surface-strong: color-mix(in srgb, var(--alas-apple-card-bg-solid) 82%, transparent);
-    --event-surface-soft: color-mix(in srgb, var(--alas-apple-card-bg) 62%, transparent);
-    --event-border: var(--alas-apple-glass-border);
-    --event-divider: var(--alas-apple-border);
-    --event-text: var(--alas-apple-text);
-    --event-muted: var(--alas-apple-text-secondary);
-    --event-accent: var(--alas-apple-accent);
-    --event-accent-soft: var(--alas-apple-accent-light);
+    /*
+     * Event pages run in every bundled theme.  The default theme exposes the
+     * stable --alas-entry-* contract, while the optional material theme also
+     * exposes --alas-apple-*.  Referencing only the latter invalidated entire
+     * declarations in the default theme and left the pages looking unstyled.
+     */
+    --event-surface: color-mix(in srgb, var(--alas-entry-surface, var(--alas-apple-card-bg, #fff)) 94%, transparent);
+    --event-surface-strong: var(--alas-entry-surface, var(--alas-apple-card-bg-solid, #fff));
+    --event-surface-soft: var(--alas-entry-surface-muted, var(--alas-apple-card-bg, #f7f7fa));
+    --event-border: var(--alas-entry-border, var(--alas-apple-glass-border, #dde0e5));
+    --event-divider: var(--alas-entry-divider, var(--alas-apple-border, #e7e9ed));
+    --event-text: var(--alas-entry-text, var(--alas-apple-text, #202124));
+    --event-muted: var(--alas-entry-muted, var(--alas-apple-text-secondary, #6f737a));
+    --event-accent: var(--alas-entry-accent, var(--alas-apple-accent, #4e4c97));
+    --event-accent-soft: var(--alas-entry-accent-soft, var(--alas-apple-accent-light, #e8e8f8));
     --event-success: #34c759;
     --event-warning: #ff9f0a;
-    --event-radius: var(--radius-xl, 20px);
-    --event-shadow: var(--alas-apple-shadow-md);
-    --event-shadow-lg: var(--alas-apple-shadow-lg);
+    --event-radius: var(--radius-md, 12px);
+    --event-shadow: 0 1px 3px rgba(32, 33, 36, .06);
+    --event-shadow-lg: 0 2px 8px rgba(32, 33, 36, .08);
     --event-ease: 180ms cubic-bezier(.2, .8, .2, 1);
 }
 
@@ -37,8 +43,6 @@ body.event-modern-active .modal-content {
     border: 1px solid var(--event-border) !important;
     border-radius: var(--event-radius) !important;
     background: var(--event-surface-strong) !important;
-    backdrop-filter: blur(24px) saturate(170%) !important;
-    -webkit-backdrop-filter: blur(24px) saturate(170%) !important;
     box-shadow: var(--event-shadow-lg) !important;
 }
 
@@ -65,6 +69,8 @@ body.event-modern-active .modal-content .modal-body,
 /* Event-only shell: stronger hierarchy than the stock PyWebIO cards. */
 #pywebio-scope-content.event-modern-page #pywebio-scope-groups {
     overflow: visible !important;
+    width: min(100%, 1120px) !important;
+    margin-inline: auto !important;
 }
 
 #pywebio-scope-content.event-modern-page #pywebio-scope-groups > *,
@@ -72,17 +78,10 @@ body.event-modern-active .modal-content .modal-body,
     border: 1px solid var(--event-border) !important;
     border-radius: var(--event-radius) !important;
     background: var(--event-surface) !important;
-    backdrop-filter: blur(18px) saturate(155%) !important;
-    -webkit-backdrop-filter: blur(18px) saturate(155%) !important;
     box-shadow: var(--event-shadow) !important;
     padding: 18px !important;
     margin-bottom: 14px !important;
     transition: border-color var(--event-ease), box-shadow var(--event-ease), transform var(--event-ease) !important;
-}
-
-#pywebio-scope-content.event-modern-page #pywebio-scope-groups > *:hover,
-#pywebio-scope-content.event-modern-page [id^="pywebio-scope-group_"]:hover {
-    box-shadow: var(--event-shadow-lg) !important;
 }
 
 #pywebio-scope-content.event-modern-page .btn:not(.btn-menu):not(.btn-aside) {
@@ -90,42 +89,18 @@ body.event-modern-active .modal-content .modal-body,
     margin: 3px 0 !important;
     padding: 8px 14px !important;
     line-height: 1.2 !important;
-    transition: transform var(--event-ease), background-color var(--event-ease), border-color var(--event-ease), box-shadow var(--event-ease) !important;
-}
-
-#pywebio-scope-content.event-modern-page .btn:not(.btn-menu):not(.btn-aside):hover {
-    transform: translateY(-1px);
-}
-
-#pywebio-scope-content.event-modern-page .btn:not(.btn-menu):not(.btn-aside):active {
-    transform: translateY(0) scale(.97) !important;
+    transition: background-color var(--event-ease), border-color var(--event-ease), box-shadow var(--event-ease) !important;
 }
 
 .event-dashboard-hero,
 .event-shop-hero {
-    position: relative;
     overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--event-accent) 22%, var(--event-border));
-    border-radius: calc(var(--event-radius) - 2px);
-    background:
-        radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--event-accent) 18%, transparent) 0, transparent 34%),
-        linear-gradient(135deg, color-mix(in srgb, var(--event-surface-strong) 90%, transparent), var(--event-surface-soft));
+    border: 1px solid var(--event-border);
+    border-left: 3px solid var(--event-accent);
+    border-radius: var(--event-radius);
+    background: var(--event-surface-strong);
     padding: clamp(18px, 2vw, 28px);
     margin-bottom: 12px;
-    box-shadow: inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
-}
-
-.event-dashboard-hero::after,
-.event-shop-hero::after {
-    content: "";
-    position: absolute;
-    width: 260px;
-    height: 260px;
-    right: -120px;
-    top: -150px;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--event-accent) 11%, transparent);
-    pointer-events: none;
 }
 
 .event-eyebrow {
@@ -186,19 +161,14 @@ body.event-modern-active .modal-content .modal-body,
 .event-metric-card {
     min-width: 0;
     border: 1px solid var(--event-border);
-    border-radius: 15px;
-    background: color-mix(in srgb, var(--event-surface-strong) 72%, transparent);
+    border-radius: 9px;
+    background: var(--event-surface-soft);
     padding: 14px 15px;
-    transition: transform var(--event-ease), border-color var(--event-ease);
-}
-
-.event-metric-card:hover {
-    transform: translateY(-2px);
-    border-color: color-mix(in srgb, var(--event-accent) 30%, var(--event-border));
 }
 
 .event-metric-card.event-metric-accent {
-    background: linear-gradient(145deg, color-mix(in srgb, var(--event-accent) 17%, var(--event-surface-strong)), var(--event-surface-strong));
+    border-color: color-mix(in srgb, var(--event-accent) 28%, var(--event-border));
+    background: var(--event-accent-soft);
 }
 
 .event-metric-label,
@@ -243,8 +213,7 @@ body.event-modern-active .modal-content .modal-body,
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, var(--event-accent), color-mix(in srgb, var(--event-accent) 62%, #7dd3fc));
-    box-shadow: 0 0 16px color-mix(in srgb, var(--event-accent) 25%, transparent);
+    background: var(--event-accent);
     transition: width 380ms cubic-bezier(.2, .8, .2, 1);
 }
 
@@ -311,7 +280,7 @@ body.event-modern-active .modal-content .modal-body,
 .event-empty-card small { color: var(--event-muted); font-size: .78rem; }
 
 /* Compact data surfaces instead of stock admin tables. */
-#pywebio-scope-content.event-modern-page .table {
+#pywebio-scope-content.event-modern-page table {
     overflow: hidden;
     margin: 8px 0 10px !important;
     border: 1px solid var(--event-border) !important;
@@ -322,7 +291,7 @@ body.event-modern-active .modal-content .modal-body,
     box-shadow: none !important;
 }
 
-#pywebio-scope-content.event-modern-page .table thead th {
+#pywebio-scope-content.event-modern-page table thead th {
     border: 0 !important;
     border-bottom: 1px solid var(--event-divider) !important;
     background: color-mix(in srgb, var(--event-surface-strong) 82%, transparent) !important;
@@ -332,7 +301,7 @@ body.event-modern-active .modal-content .modal-body,
     font-weight: 680 !important;
 }
 
-#pywebio-scope-content.event-modern-page .table tbody td {
+#pywebio-scope-content.event-modern-page table tbody td {
     border: 0 !important;
     border-bottom: 1px solid var(--event-divider) !important;
     background: transparent !important;
@@ -342,9 +311,9 @@ body.event-modern-active .modal-content .modal-body,
     font-size: .82rem !important;
 }
 
-#pywebio-scope-content.event-modern-page .table tbody tr:last-child td { border-bottom: 0 !important; }
-#pywebio-scope-content.event-modern-page .table tbody tr:hover td { background: color-mix(in srgb, var(--event-accent) 7%, transparent) !important; }
-#pywebio-scope-content.event-modern-page .table .btn { padding: 6px 10px !important; font-size: .76rem !important; }
+#pywebio-scope-content.event-modern-page table tbody tr:last-child td { border-bottom: 0 !important; }
+#pywebio-scope-content.event-modern-page table tbody tr:hover td { background: color-mix(in srgb, var(--event-accent) 7%, transparent) !important; }
+#pywebio-scope-content.event-modern-page table .btn { padding: 6px 10px !important; font-size: .76rem !important; }
 
 .event-shop-hero {
     display: grid;
@@ -412,8 +381,8 @@ body.event-modern-active .modal-content .modal-body,
 
 .event-map-intro {
     border: 1px solid color-mix(in srgb, var(--event-accent) 18%, var(--event-border));
-    border-radius: 14px;
-    background: linear-gradient(135deg, var(--event-accent-soft), transparent);
+    border-radius: var(--event-radius);
+    background: var(--event-surface-strong);
     padding: 13px 15px;
 }
 
@@ -424,8 +393,6 @@ body.event-modern-active .modal-content .modal-body,
     border: 1px solid var(--event-border);
     border-radius: 16px;
     background: color-mix(in srgb, var(--event-surface) 86%, transparent);
-    backdrop-filter: blur(16px) saturate(145%);
-    -webkit-backdrop-filter: blur(16px) saturate(145%);
 }
 
 .event-advanced-details > summary {
@@ -492,6 +459,96 @@ body.event-modern-active .modal-content .modal-body,
 }
 
 @media (max-width: 760px) {
+    #pywebio-scope-content.event-modern-page #pywebio-scope-_groups {
+        grid-template-columns: 0 minmax(0, 1fr) 0 !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-navigator {
+        display: none !important;
+    }
+    #pywebio-scope-content.event-modern-page [id^="pywebio-scope-arg_container-"] {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 180px) !important;
+    }
+    #pywebio-scope-content.event-modern-page [id^="pywebio-scope-arg_container-"] > * {
+        min-width: 0 !important;
+        max-width: 100% !important;
+    }
+    #pywebio-scope-content.event-modern-page .form-control,
+    #pywebio-scope-content.event-modern-page .form-group {
+        min-width: 0 !important;
+        max-width: 100% !important;
+    }
+    #pywebio-scope-content.event-modern-page input[widget_type="datetime"] {
+        font-size: .78rem !important;
+    }
+    #pywebio-scope-content.event-modern-page table th,
+    #pywebio-scope-content.event-modern-page table td {
+        min-width: 0 !important;
+        padding: 6px 7px !important;
+        white-space: normal !important;
+    }
+    #pywebio-scope-content.event-modern-page table .btn {
+        padding: 5px 7px !important;
+        font-size: .7rem !important;
+    }
+    #pywebio-scope-content.event-modern-page table .btn-group {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 4px !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table thead,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table thead,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table tbody,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tbody {
+        display: block !important;
+        width: 100% !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table tr,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tr {
+        display: grid !important;
+        width: 100% !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table tr {
+        grid-template-columns: minmax(70px, 1.2fr) 64px 82px minmax(86px, 1fr) !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table thead {
+        display: none !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tbody > tr:first-child:has(th) {
+        display: none !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tr {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table th,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table th,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventPlan table td,
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td {
+        width: auto !important;
+        overflow-wrap: anywhere !important;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td {
+        display: flex !important;
+        min-height: 48px;
+        flex-direction: column;
+        justify-content: center;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td::before {
+        margin-bottom: 2px;
+        color: var(--event-muted);
+        font-size: .65rem;
+        font-weight: 600;
+    }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(1)::before { content: "Товар"; }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(2)::before { content: "Цена"; }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(3)::before { content: "Количество"; }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(4)::before { content: "Итого PT"; }
+    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:last-child {
+        grid-column: 1 / -1;
+        min-height: 0;
+        align-items: flex-start;
+    }
     #pywebio-scope-content.event-modern-page #pywebio-scope-groups > *,
     #pywebio-scope-content.event-modern-page [id^="pywebio-scope-group_"] {
         padding: 13px !important;
