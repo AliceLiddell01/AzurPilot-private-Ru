@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -413,7 +413,9 @@ def load_event_plan_from_artifact(
         == str(spec.get("server") or "EN").upper()
         and str(runtime_observation.get("source_revision") or "") == revision
     )
-    if runtime_matches:
+    if runtime_matches and _current_pt_evidence_is_newer(
+        runtime_observation, observation
+    ):
         for field in (
             "current_pt",
             "current_pt_source",
@@ -431,6 +433,31 @@ def load_event_plan_from_artifact(
             }
         )
     return event_plan_from_source(spec, load_event_user_state(instance), observation)
+
+
+def _current_pt_evidence_is_newer(
+    candidate: Mapping[str, Any], existing: Mapping[str, Any]
+) -> bool:
+    """Не позволить более старому OCR evidence затереть свежую запись."""
+
+    def timestamp(value: Any) -> float | None:
+        try:
+            observed = datetime.fromisoformat(str(value or ""))
+        except ValueError:
+            return None
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        return observed.timestamp()
+
+    candidate_at = timestamp(
+        candidate.get("current_pt_observed_at") or candidate.get("observed_at")
+    )
+    existing_at = timestamp(
+        existing.get("current_pt_observed_at") or existing.get("observed_at")
+    )
+    return candidate_at is not None and (
+        existing_at is None or candidate_at >= existing_at
+    )
 
 
 def load_builtin_event_plan(

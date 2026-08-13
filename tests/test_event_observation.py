@@ -13,7 +13,11 @@ from module.webui.event_observation import (
     persist_current_pt_observation,
     save_event_observation,
 )
-from module.webui.event_source import empty_event_user_state, event_plan_from_source
+from module.webui.event_source import (
+    _current_pt_evidence_is_newer,
+    empty_event_user_state,
+    event_plan_from_source,
+)
 
 
 def test_observation_round_trip_is_event_server_and_profile_scoped(tmp_path: Path):
@@ -170,3 +174,17 @@ def test_old_event_shop_pt_ocr_is_persisted_as_stale(tmp_path: Path):
 
     assert result["current_pt"] == 123
     assert result["current_pt_status"] == "stale"
+
+
+def test_older_dashboard_evidence_cannot_replace_fresh_event_shop_ocr():
+    stored = {
+        "current_pt_observed_at": "2026-08-13T17:02:29+00:00",
+        "current_pt": 0,
+    }
+    dashboard = {
+        "current_pt_observed_at": "2026-08-11T10:00:00+00:00",
+        "current_pt": 42,
+    }
+
+    assert not _current_pt_evidence_is_newer(dashboard, stored)
+    assert _current_pt_evidence_is_newer(stored, dashboard)
