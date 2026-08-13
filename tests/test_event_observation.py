@@ -10,6 +10,7 @@ from module.webui.event_observation import (
     event_observation_path,
     load_event_observation,
     observation_is_fresh,
+    persist_current_pt_observation,
     save_event_observation,
 )
 from module.webui.event_source import empty_event_user_state, event_plan_from_source
@@ -17,7 +18,8 @@ from module.webui.event_source import empty_event_user_state, event_plan_from_so
 
 def test_observation_round_trip_is_event_server_and_profile_scoped(tmp_path: Path):
     root = tmp_path / "observations"
-    observation = empty_event_observation("en:5941", "EN", "alpha")
+    revision = "a" * 40
+    observation = empty_event_observation("en:5941", "EN", "alpha", revision)
     observation.update(
         {
             "observed_at": "2026-08-13T10:00:00+00:00",
@@ -28,7 +30,9 @@ def test_observation_round_trip_is_event_server_and_profile_scoped(tmp_path: Pat
     save_event_observation("alpha", observation, root=root)
 
     assert (
-        load_event_observation("alpha", "en:5941", "EN", root=root)["current_pt"]
+        load_event_observation("alpha", "en:5941", "EN", revision, root=root)[
+            "current_pt"
+        ]
         == 1234
     )
     assert (
@@ -38,8 +42,14 @@ def test_observation_round_trip_is_event_server_and_profile_scoped(tmp_path: Pat
         load_event_observation("alpha", "en:other", "EN", root=root)["current_pt"]
         is None
     )
+    assert (
+        load_event_observation(
+            "alpha", "en:5941", "EN", "b" * 40, root=root
+        )["current_pt"]
+        is None
+    )
     assert event_observation_path(
-        "alpha", "en:5941", "EN", root
+        "alpha", "en:5941", "EN", root, source_revision=revision
     ) != event_observation_path("alpha", "en:5941", "JP", root)
 
 
@@ -100,7 +110,9 @@ def test_missing_or_stale_dashboard_pt_stays_unknown_not_zero():
     assert not observation_is_fresh(stale, now=now)
 
     plan = event_plan_from_source(
-        load_builtin_artifact()["event_spec"], empty_event_user_state(), stale
+        load_builtin_artifact("rose_tower.json")["event_spec"],
+        empty_event_user_state(),
+        stale,
     )
     assert plan["progress"]["current_pt"] is None
     assert plan["progress"]["status"] == "stale"
@@ -116,3 +128,28 @@ def test_corrupt_observation_is_backed_up_before_fail_closed_fallback(tmp_path: 
     assert result["current_pt"] is None
     assert not path.exists()
     assert len(list(path.parent.glob(f"{path.name}.corrupt-*"))) == 1
+
+
+def test_event_shop_pt_ocr_is_persisted_under_exact_revision(tmp_path: Path):
+    observed = datetime(2026, 8, 13, 16, tzinfo=timezone.utc)
+    revision = "c" * 40
+
+    result = persist_current_pt_observation(
+        instance="ap",
+        event_id="en:51101",
+        server="EN",
+        source_revision=revision,
+        value=0,
+        observed_at=observed,
+        root=tmp_path,
+    )
+
+    assert result["current_pt"] == 0
+    assert result["current_pt_status"] == "observed"
+    assert result["current_pt_source"] == "event_shop_ocr"
+    assert load_event_observation(
+        "ap", "en:51101", "EN", revision, root=tmp_path
+    )["current_pt"] == 0
+    assert load_event_observation(
+        "ap", "en:51101", "EN", "d" * 40, root=tmp_path
+    )["current_pt"] is None

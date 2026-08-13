@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,6 +149,39 @@ class ShareCfgLoader:
         table = self._validate_table_name(table)
         if table in self._cache:
             return self._cache[table]
+
+        # Derived test fixtures use a deterministic JSON representation of the
+        # same decoded ShareCfg rows.  This path never evaluates Lua and keeps
+        # the normal production source format unchanged.
+        fixture = self.server_root / "sharecfgjson" / f"{table}.json"
+        if fixture.is_file():
+            try:
+                raw = json.loads(self._read(fixture, table))
+            except json.JSONDecodeError as exc:
+                raise ShareCfgError(
+                    "fixture_json_invalid", str(exc), table=table
+                ) from exc
+            if not isinstance(raw, dict):
+                raise ShareCfgError(
+                    "unsupported_table_shape",
+                    f"Fixture ShareCfg {table} должен быть JSON object",
+                    table=table,
+                )
+
+            def restore_keys(value: Any) -> Any:
+                if isinstance(value, dict):
+                    return {
+                        int(key) if isinstance(key, str) and key.isdecimal() else key:
+                        restore_keys(item)
+                        for key, item in value.items()
+                    }
+                if isinstance(value, list):
+                    return [restore_keys(item) for item in value]
+                return value
+
+            parsed = restore_keys(raw)
+            self._cache[table] = parsed
+            return parsed
 
         wrapper = self.server_root / "sharecfg" / f"{table}.lua"
         full = self.server_root / "sharecfgdata" / f"{table}.lua"

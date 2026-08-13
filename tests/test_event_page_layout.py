@@ -99,6 +99,7 @@ def test_event_general_dashboard_uses_local_plan_and_automatic_calculation():
     assert 'deep_get(config, "Dashboard.Pt.Value", None)' in datamine
     assert 'deep_get(config, "Dashboard.Pt.Record", "")' in datamine
     assert "dashboard_pt_observation" in datamine
+    assert 'dashboard_observation["current_pt_status"] == "observed"' in datamine
     assert '"manual"' not in planner
 
 
@@ -152,7 +153,8 @@ def test_event_css_defines_modern_responsive_visual_system():
         ".event-metric-card",
         ".event-progress-track",
         ".event-shop-hero",
-        ".event-shop-item",
+        ".event-shop-grid",
+        ".event-shop-card",
         ".event-automation-status",
         ".event-advanced-details",
     ):
@@ -166,7 +168,7 @@ def test_event_css_defines_modern_responsive_visual_system():
     assert "width: min(100%, 1120px)" not in css
     assert "grid-template-columns: repeat(auto-fit, minmax(250px, 1fr))" in css
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css
-    assert "clip-path: inset(50%)" in css
+    assert "grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))" in css
     assert "@media (max-width: 760px)" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
 

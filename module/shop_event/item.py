@@ -4,10 +4,9 @@ import cv2
 import numpy as np
 
 import module.config.server as server
-
-from module.base.utils import color_similarity_2d, color_similar, rgb2luma
+from module.base.utils import color_similar, color_similarity_2d, rgb2luma
 from module.logger import logger
-from module.ocr.ocr import Ocr, Digit
+from module.ocr.ocr import Digit, Ocr
 from module.shop_event.selector import FILTER_REGEX
 from module.statistics.item import Item, ItemGrid
 
@@ -175,13 +174,7 @@ class EventShopItem(Item):
                 self.name = 'URpt'
             elif self.name.isdigit():
                 logger.warning(f'[Магазин события — товар] Неопознанный товар, цена {self.price}, всего {self.total_count}; '
-                               # f'defaulting to EquipSSR')
-                               f'изображение сохранено для анализа.')
-                import os
-                from module.base.utils import save_image
-                os.mkdir('assets/shop/event/new_templates/') if not os.path.exists('assets/shop/event/new_templates/') else None
-                save_image(self.image, f'assets/shop/event/new_templates/{self.name}.png')
-                # self.name = 'EquipSSR'
+                               f'identity оставлена недоказанной без записи screenshot crop.')
 
     def predict_genre(self):
         self.group, self.sub_genre, self.tier = None, None, None

@@ -21,11 +21,16 @@ from deploy.atomic import (
 )
 from module.logger import logger
 
-EVENT_OBSERVATION_SCHEMA_VERSION = 1
+EVENT_OBSERVATION_SCHEMA_VERSION = 2
 EVENT_OBSERVATION_ROOT = Path("./config/state/event_observation")
 EVENT_OBSERVATION_MAX_AGE = timedelta(hours=48)
 ObservationSource = Literal[
-    "dashboard_ocr", "event_shop_scanner", "mission_scanner", "fixture", "replay"
+    "dashboard_ocr",
+    "event_shop_ocr",
+    "event_shop_scanner",
+    "mission_scanner",
+    "fixture",
+    "replay",
 ]
 
 
@@ -46,22 +51,28 @@ def event_observation_path(
     event_id: str,
     server: str,
     root: Path | str = EVENT_OBSERVATION_ROOT,
+    *,
+    source_revision: str = "",
 ) -> Path:
     return (
         Path(root)
         / _safe_key(instance, "alas")
-        / f"{_safe_key(server, 'EN')}-{_safe_key(event_id, 'event')}.json"
+        / (
+            f"{_safe_key(server, 'EN')}-{_safe_key(event_id, 'event')}-"
+            f"{_safe_key(source_revision, 'revision')}.json"
+        )
     )
 
 
 def empty_event_observation(
-    event_id: str, server: str, instance: str
+    event_id: str, server: str, instance: str, source_revision: str = ""
 ) -> dict[str, Any]:
     return {
         "schema_version": EVENT_OBSERVATION_SCHEMA_VERSION,
         "event_id": str(event_id),
         "server": str(server).upper(),
         "instance": str(instance),
+        "source_revision": str(source_revision),
         "observed_at": "",
         "source": "",
         "current_pt": None,
@@ -92,9 +103,14 @@ def _finding(code: str, message: str, path: str = "") -> ObservationFinding:
 
 
 def normalize_event_observation(
-    raw: Any, *, event_id: str, server: str, instance: str
+    raw: Any,
+    *,
+    event_id: str,
+    server: str,
+    instance: str,
+    source_revision: str = "",
 ) -> dict[str, Any]:
-    result = empty_event_observation(event_id, server, instance)
+    result = empty_event_observation(event_id, server, instance, source_revision)
     if not isinstance(raw, Mapping):
         return result
     if int(raw.get("schema_version", 0) or 0) != EVENT_OBSERVATION_SCHEMA_VERSION:
@@ -130,6 +146,15 @@ def normalize_event_observation(
                 "cross_profile_rejected",
                 "Наблюдение относится к другому профилю",
                 "instance",
+            )
+        )
+        return result
+    if str(raw.get("source_revision") or "") != str(source_revision):
+        result["findings"].append(
+            _finding(
+                "cross_revision_rejected",
+                "Наблюдение относится к другой source revision",
+                "source_revision",
             )
         )
         return result
@@ -191,13 +216,23 @@ def save_event_observation(
     if str(observation.get("instance") or "") != str(instance):
         raise ValueError("EventObservation относится к другому профилю")
     normalized = normalize_event_observation(
-        observation, event_id=event_id, server=server, instance=instance
+        observation,
+        event_id=event_id,
+        server=server,
+        instance=instance,
+        source_revision=str(observation.get("source_revision") or ""),
     )
     if normalized["source"] in {"fixture", "replay"} and not allow_nonproduction:
         raise ValueError(
             "Fixture/replay evidence запрещено сохранять как production observation"
         )
-    path = event_observation_path(instance, event_id, server, root)
+    path = event_observation_path(
+        instance,
+        event_id,
+        server,
+        root,
+        source_revision=str(observation.get("source_revision") or ""),
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = to_tmp_file(str(path))
     try:
@@ -219,18 +254,25 @@ def load_event_observation(
     instance: str,
     event_id: str,
     server: str,
+    source_revision: str = "",
     *,
     root: Path | str = EVENT_OBSERVATION_ROOT,
     allow_nonproduction: bool = False,
 ) -> dict[str, Any]:
-    path = event_observation_path(instance, event_id, server, root)
+    path = event_observation_path(
+        instance, event_id, server, root, source_revision=source_revision
+    )
     content = atomic_read_text(str(path))
     if not content:
-        return empty_event_observation(event_id, server, instance)
+        return empty_event_observation(event_id, server, instance, source_revision)
     try:
         raw = json.loads(content)
         result = normalize_event_observation(
-            raw, event_id=event_id, server=server, instance=instance
+            raw,
+            event_id=event_id,
+            server=server,
+            instance=instance,
+            source_revision=source_revision,
         )
     except (TypeError, ValueError) as exc:
         backup = path.with_name(f"{path.name}.corrupt-{uuid4().hex[:12]}")
@@ -244,9 +286,9 @@ def load_event_observation(
             logger.warning(
                 f"[WebUI — наблюдение ивента] Повреждённый файл {path} сохранён как {backup}: {exc}"
             )
-        return empty_event_observation(event_id, server, instance)
+        return empty_event_observation(event_id, server, instance, source_revision)
     if result["source"] in {"fixture", "replay"} and not allow_nonproduction:
-        clean = empty_event_observation(event_id, server, instance)
+        clean = empty_event_observation(event_id, server, instance, source_revision)
         clean["findings"].append(
             _finding(
                 "nonproduction_evidence_rejected",
@@ -265,9 +307,10 @@ def dashboard_pt_observation(
     server: str,
     value: Any,
     recorded_at: Any,
+    source_revision: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    result = empty_event_observation(event_id, server, instance)
+    result = empty_event_observation(event_id, server, instance, source_revision)
     result["source"] = "dashboard_ocr"
     result["observed_at"] = str(recorded_at or "")
     result["current_pt_source"] = "dashboard_ocr"
@@ -298,3 +341,53 @@ def dashboard_pt_observation(
             )
         )
     return result
+
+
+def persist_current_pt_observation(
+    *,
+    instance: str,
+    event_id: str,
+    server: str,
+    source_revision: str,
+    value: Any,
+    observed_at: datetime | None = None,
+    source: Literal["dashboard_ocr", "event_shop_ocr"] = "event_shop_ocr",
+    root: Path | str = EVENT_OBSERVATION_ROOT,
+) -> dict[str, Any]:
+    """Persist fresh OCR evidence under the exact current-event identity."""
+
+    observation = load_event_observation(
+        instance,
+        event_id,
+        server,
+        source_revision,
+        root=root,
+    )
+    timestamp = (
+        (observed_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
+    )
+    if not observation.get("source"):
+        observation["source"] = source
+    if not observation.get("observed_at"):
+        observation["observed_at"] = timestamp
+    observation["current_pt_source"] = source
+    observation["current_pt_observed_at"] = timestamp
+    observation["current_pt"] = _optional_non_negative_int(value)
+    observation["current_pt_status"] = (
+        "observed" if observation["current_pt"] is not None else "unavailable"
+    )
+    observation["findings"] = [
+        item
+        for item in observation.get("findings", [])
+        if item.get("path") != "current_pt"
+    ]
+    if observation["current_pt"] is None:
+        observation["findings"].append(
+            _finding(
+                "current_pt_unavailable",
+                "OCR не предоставил валидный баланс PT",
+                "current_pt",
+            )
+        )
+    save_event_observation(instance, observation, root=root)
+    return observation

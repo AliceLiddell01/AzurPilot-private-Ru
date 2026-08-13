@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
@@ -29,7 +30,7 @@ RUNTIME_FILTER_BY_GAME_ID = {
     (1, 2): "Oil",
     (2, 15008): "Chip",
     (2, 15012): "Array",
-    (2, 15014): "AugmentCore",
+    (2, 15014): "AugmentCoreT3",
     (2, 15016): "AugmentEnhanceT2",
     (2, 15020): "AugmentChangeT1",
     (2, 15021): "AugmentChangeT2",
@@ -53,6 +54,10 @@ RUNTIME_FILTER_BY_GAME_ID = {
     (3, 24400): "EquipUR",
     (4, 9707071): "ShipSSR",
 }
+_CJK_TEXT = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+_BLUEPRINT_SERIES = re.compile(
+    r"^(Special )?General Blueprint - Series (\d+)$", re.IGNORECASE
+)
 
 
 def _date_part(value: Any) -> str:
@@ -189,6 +194,46 @@ class EventCompiler:
             resolved=bool(source_path),
         )
 
+    def _name(self, value: Any, fallback: str, path: str) -> str:
+        name = str(value or "").strip()
+        if name and not (
+            self.source.snapshot.server == "EN" and _CJK_TEXT.search(name)
+        ):
+            return name
+        if name:
+            self.findings.append(
+                ValidationFinding(
+                    "source_name_unlocalized",
+                    "warning",
+                    "EN ShareCfg содержит нелокализованное имя; используется техническая identity",
+                    path,
+                )
+            )
+        return fallback
+
+    @staticmethod
+    def _runtime_filter(
+        *,
+        item_type: int,
+        item_id: int,
+        name: str,
+        rarity: int | None,
+        source_path: str,
+    ) -> str:
+        known = RUNTIME_FILTER_BY_GAME_ID.get((item_type, item_id), "")
+        if known:
+            return known
+        if item_type == 4 and rarity == 5:
+            return "ShipSSR"
+        if item_type == 3 and rarity == 5:
+            return "EquipSSR"
+        if "appearancebox" in source_path.lower() or "gear skin box" in name.lower():
+            return "SkinBox"
+        blueprint = _BLUEPRINT_SERIES.fullmatch(name)
+        if blueprint:
+            return f"{'DR' if blueprint.group(1) else 'PR'}S{blueprint.group(2)}"
+        return ""
+
     def _reward(
         self,
         value: Any,
@@ -204,11 +249,11 @@ class EventCompiler:
         row = self._game_record(
             reward_type, reward_id, normal_items, virtual_items, equipment, ships
         )
-        name = str(
-            row.get("name")
-            or RESOURCE_NAMES.get(reward_id)
-            or f"Game reward {reward_type}:{reward_id}"
-        ).strip()
+        name = self._name(
+            row.get("name") or RESOURCE_NAMES.get(reward_id),
+            f"Game reward {reward_type}:{reward_id}",
+            f"{path}.name",
+        )
         asset = self._asset(
             kind=ITEM_CATEGORIES.get(reward_type, "unknown"), game_id=reward_id, row=row
         )
@@ -296,9 +341,11 @@ class EventCompiler:
             if item_type == 1:
                 name = RESOURCE_NAMES.get(item_id, f"Game resource {item_id}")
             else:
-                name = str(
-                    item_row.get("name") or f"Game item {item_type}:{item_id}"
-                ).strip()
+                name = self._name(
+                    item_row.get("name"),
+                    f"Game item {item_type}:{item_id}",
+                    f"shop.{row_id}.name",
+                )
             asset = self._asset(
                 kind=ITEM_CATEGORIES.get(item_type, "unknown"),
                 game_id=item_id,
@@ -327,8 +374,16 @@ class EventCompiler:
                     rarity=int(item_row.get("rarity"))
                     if item_row.get("rarity") is not None
                     else None,
-                    event_shop_filter=RUNTIME_FILTER_BY_GAME_ID.get(
-                        (item_type, item_id), ""
+                    event_shop_filter=self._runtime_filter(
+                        item_type=item_type,
+                        item_id=item_id,
+                        name=name,
+                        rarity=(
+                            int(item_row.get("rarity"))
+                            if item_row.get("rarity") is not None
+                            else None
+                        ),
+                        source_path=asset.source_path,
                     ),
                     asset=asset,
                     limit_args=row.get("limit_args", ""),
@@ -379,6 +434,7 @@ class EventCompiler:
 
         normal_items = self._table("item_data_statistics", required=False)
         virtual_items = self._table("item_virtual_data_statistics", required=False)
+        resources = self._table("player_resource", required=False)
         equipment = self._table("equip_data_statistics", required=False)
         ships = self._table("ship_data_statistics", required=False)
         pt_rows = self._table("activity_event_pt", required=False)
@@ -601,25 +657,38 @@ class EventCompiler:
             )
         )
 
-        currencies = tuple(
-            CurrencySpec(
-                currency_id,
-                RESOURCE_NAMES.get(currency_id, f"Event currency {currency_id}"),
-                self._asset(
-                    kind="activity_currency",
-                    game_id=currency_id,
-                    path=f"activity_currency/{currency_id}",
-                ),
-                runtime_currency_tokens.get(currency_id, ""),
+        if len(currency_ids) == 1 and not runtime_currency_tokens:
+            runtime_currency_tokens[next(iter(currency_ids))] = "pt"
+        currencies = []
+        for currency_id in sorted(value for value in currency_ids if value):
+            resource = resources.get(currency_id, {})
+            resource = resource if isinstance(resource, Mapping) else {}
+            item_id = int(resource.get("itemid", 0) or 0)
+            item = self._item_record(item_id, normal_items, virtual_items)
+            currencies.append(
+                CurrencySpec(
+                    currency_id,
+                    str(
+                        item.get("name")
+                        or RESOURCE_NAMES.get(currency_id)
+                        or f"Event currency {currency_id}"
+                    ),
+                    self._asset(
+                        kind="activity_currency",
+                        game_id=currency_id,
+                        row=item,
+                        path=f"activity_currency/{currency_id}",
+                    ),
+                    runtime_currency_tokens.get(currency_id, ""),
+                )
             )
-            for currency_id in sorted(value for value in currency_ids if value)
-        )
         errors = any(item.severity == "error" for item in self.findings)
         partial_codes = {
             "map_pt_amount_unavailable",
             "asset_unresolved",
             "milestone_missing",
             "shop_activity_missing",
+            "source_name_unlocalized",
         }
         is_partial = any(item.code in partial_codes for item in self.findings)
         status = "unsupported" if errors else "partial" if is_partial else "verified"
@@ -641,7 +710,7 @@ class EventCompiler:
             source_status=status,
             provenance=provenance,
             related_activity_ids=tuple(sorted(related)),
-            currencies=currencies,
+            currencies=tuple(currencies),
             maps=tuple(maps),
             shop_items=shop_items,
             milestones=tuple(milestones),

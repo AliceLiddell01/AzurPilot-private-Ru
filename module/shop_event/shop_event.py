@@ -14,20 +14,25 @@ from typing import List, Tuple
 from module.base.decorator import del_cached_property
 from module.base.timer import Timer
 from module.logger import logger
-from module.shop.assets import NAV_GENERAL, NAV_EVENT
+from module.shop.assets import NAV_EVENT, NAV_GENERAL
 from module.shop_event.assets import NO_NAV_EVENT_CHECK
 from module.shop_event.clerk import EventShopClerk, ItemNotFoundError
-from module.shop_event.item import EventShopItem, UR_SHIP_PRICES_IN_URPT, COIN_PRICE_IN_URPT, URPT_PRICE_IN_PT
+from module.shop_event.item import (
+    COIN_PRICE_IN_URPT,
+    UR_SHIP_PRICES_IN_URPT,
+    URPT_PRICE_IN_PT,
+    EventShopItem,
+)
 from module.shop_event.selector import (
     EVENT_SHOP_PRESET_FILTER,
     FILTER,
     parse_filter_amount,
-    strip_filter_amount,
     parse_filter_tokens,
     rebuild_filter_tokens,
+    strip_filter_amount,
 )
 from module.ui.assets import SHOP_GOTO_MUNITIONS
-from module.ui.page import page_shop, page_munitions
+from module.ui.page import page_munitions, page_shop
 
 
 class EventShop(EventShopClerk):
@@ -55,15 +60,24 @@ class EventShop(EventShopClerk):
         # Fail closed before the click: even a partially successful purchase
         # must never leave the pre-purchase snapshot looking fresh.
         try:
-            from module.event_datamine.artifact import load_builtin_artifact
-            from module.webui.event_shop_observation import invalidate_event_shop_observation
+            from datetime import datetime
 
-            spec = load_builtin_artifact()["event_spec"]
-            invalidate_event_shop_observation(
-                instance=self.config.config_name,
-                event_id=str(spec.get("id") or ""),
-                server=str(spec.get("server") or "EN"),
+            from module.event_datamine.registry import EventArtifactRegistry
+            from module.webui.event_shop_observation import (
+                invalidate_event_shop_observation,
             )
+
+            artifact = EventArtifactRegistry().resolve_current("EN", datetime.now())
+            if artifact is not None:
+                spec = artifact["event_spec"]
+                invalidate_event_shop_observation(
+                    instance=self.config.config_name,
+                    event_id=str(spec.get("id") or ""),
+                    server=str(spec.get("server") or "EN"),
+                    source_revision=str(
+                        spec.get("provenance", {}).get("revision") or ""
+                    ),
+                )
         except (OSError, TypeError, ValueError) as exc:
             logger.warning(f"[Магазин события — наблюдение] Не удалось инвалидировать snapshot: {exc}")
         return super().event_shop_buy_item(item_to_buy, amount=amount)
@@ -72,6 +86,28 @@ class EventShop(EventShopClerk):
         self.pt = self.event_shop_get_pt()
         if self.event_shop_has_urpt:
             self.urpt = self.event_shop_get_urpt()
+        try:
+            from datetime import datetime
+
+            from module.event_datamine.registry import EventArtifactRegistry
+            from module.webui.event_observation import persist_current_pt_observation
+
+            artifact = EventArtifactRegistry().resolve_current("EN", datetime.now())
+            if artifact is not None:
+                spec = artifact["event_spec"]
+                persist_current_pt_observation(
+                    instance=self.config.config_name,
+                    event_id=str(spec.get("id") or ""),
+                    server=str(spec.get("server") or "EN"),
+                    source_revision=str(
+                        spec.get("provenance", {}).get("revision") or ""
+                    ),
+                    value=self.pt,
+                )
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                f"[Магазин события — наблюдение] Не удалось сохранить OCR PT: {exc}"
+            )
 
     def preserve_pt(self, amount: int):
         """
@@ -255,15 +291,20 @@ class EventShop(EventShopClerk):
         self.event_shop_load_ensure()
         items = self.scan_all()
         try:
-            from module.event_datamine.artifact import load_builtin_artifact
-            from module.webui.event_shop_observation import persist_event_shop_observation
+            from datetime import datetime
 
-            observation_spec = load_builtin_artifact()["event_spec"]
-            persist_event_shop_observation(
-                instance=self.config.config_name,
-                spec=observation_spec,
-                runtime_items=items,
+            from module.event_datamine.registry import EventArtifactRegistry
+            from module.webui.event_shop_observation import (
+                persist_event_shop_observation,
             )
+
+            artifact = EventArtifactRegistry().resolve_current("EN", datetime.now())
+            if artifact is not None:
+                persist_event_shop_observation(
+                    instance=self.config.config_name,
+                    spec=artifact["event_spec"],
+                    runtime_items=items,
+                )
         except (OSError, TypeError, ValueError) as exc:
             # Observation is additive evidence. Its storage failure must not
             # silently change the established EventShop purchase policy.

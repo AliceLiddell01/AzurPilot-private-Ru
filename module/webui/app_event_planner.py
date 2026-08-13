@@ -158,6 +158,33 @@ class EventPlannerMixin(WebUIMixinBase):
             close_popup()
             self._refresh_event_plan_page()
 
+    def _change_shop_quantity(
+        self,
+        identity: tuple[str, str, str, int, int],
+        operation: str,
+    ) -> None:
+        def mutation(plan):
+            index = self._find_shop_item(plan["shop_items"], identity)
+            if index is None:
+                return _STALE_EVENT_PLAN
+            item = plan["shop_items"][index]
+            current = int(item.get("selected", 0) or 0)
+            stock = int(item.get("stock", 0) or 0)
+            if operation == "decrement":
+                value = current - 1
+            elif operation == "increment":
+                value = current + 1
+            elif operation == "maximum":
+                value = stock
+            elif operation == "clear":
+                value = 0
+            else:
+                raise ValueError(f"Неизвестная операция количества: {operation}")
+            item["selected"] = min(max(value, 0), stock)
+
+        if self._event_plan_mutate(mutation, "Количество в плане обновлено"):
+            self._refresh_event_plan_page()
+
     def _use_shop_total_as_target(self) -> None:
         total = shop_plan_total(self._event_plan())
         if total <= 0:

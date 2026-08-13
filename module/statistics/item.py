@@ -15,7 +15,7 @@ from module.ocr.ocr import Digit, DigitYuv
 from module.statistics.utils import *
 
 ITEM_AMOUNT_MAX = {
-    'Chip': 50,
+    'Chip': 100,
     'Gem': 100,
     'Cube': 20,
     'Oil': 1000,

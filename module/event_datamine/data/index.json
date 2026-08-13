@@ -1,0 +1,30 @@
+{
+  "artifacts": [
+    {
+      "artifact_digest": "49b3a6ba54785569b7133a5f970f1c5ec3af13334a720d225de74d86484ec457",
+      "farm_end": "2026-08-26 23:59:59",
+      "farm_start": "2026-08-13 00:00:00",
+      "id": "en:51101",
+      "path": "production/en-51101.json",
+      "revision": "a6b6f81f8fdd1220ef0ad1015a362a7361eb3d91",
+      "role": "production",
+      "server": "EN",
+      "shop_end": "2026-09-03 23:59:59",
+      "source_status": "partial"
+    },
+    {
+      "artifact_digest": "41c8c0203b524770e2e071965a482dc79c03a5e4faf0d2695b08fb749a8af1c3",
+      "farm_end": "2025-06-11 23:59:59",
+      "farm_start": "2025-05-20 00:00:00",
+      "id": "en:5941",
+      "path": "rose_tower.json",
+      "revision": "f44b48853d48b400b92738b1f1cf6fcdf1d69169",
+      "role": "demo",
+      "server": "EN",
+      "shop_end": "2025-06-18 23:59:59",
+      "source_status": "partial"
+    }
+  ],
+  "digest": "4db7d2781662036ae43ee34be92ed0cb88840c12580633a12482c2feab683a73",
+  "registry_schema_version": 1
+}

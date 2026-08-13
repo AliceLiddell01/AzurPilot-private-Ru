@@ -88,7 +88,7 @@ def test_invalid_replacement_does_not_destroy_previous_artifact(tmp_path: Path):
 
 
 def test_rose_tower_golden_is_source_derived_and_complete_except_declared_gaps():
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
 
     assert spec["id"] == "en:5941"
     assert spec["name"] == "A Rose on the High Tower"
@@ -146,7 +146,7 @@ def test_rose_tower_golden_is_source_derived_and_complete_except_declared_gaps()
 
 
 def test_rose_tower_map_semantics_match_all_trusted_existing_campaign_files():
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     runtime_maps = [item for item in spec["maps"] if item["chapter_name"] != "EXTRA"]
     assert len(runtime_maps) == 13
 

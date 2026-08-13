@@ -1,7 +1,7 @@
 {
-  "artifact_schema_version": 1,
+  "artifact_schema_version": 2,
   "compiler_version": "2",
-  "digest": "4d38386507600f717bb02136ea7850b0948edf50b5b2853b8b1c70e9636cad68",
+  "digest": "41c8c0203b524770e2e071965a482dc79c03a5e4faf0d2695b08fb749a8af1c3",
   "event_spec": {
     "currencies": [
       {
@@ -4278,5 +4278,13 @@
       }
     ],
     "source_status": "partial"
-  }
+  },
+  "metadata": {
+    "classification": [
+      "historical",
+      "golden",
+      "regression"
+    ]
+  },
+  "role": "demo"
 }

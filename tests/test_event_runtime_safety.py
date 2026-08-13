@@ -8,6 +8,9 @@ from unittest.mock import patch
 
 import pytest
 
+from module.event_datamine.artifact import load_builtin_artifact
+from module.shop_event.clerk import EventShopClerk
+from module.statistics.item import ITEM_AMOUNT_MAX
 from module.webui import app_event_layout, app_event_shop_safety
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_planner import EventPlannerMixin
@@ -15,7 +18,6 @@ from module.webui.app_event_shop_safety import EventShopSafetyMixin
 from module.webui.event_config import mutate_event_config, update_event_config
 from module.webui.event_plan import empty_event_plan
 from module.webui.event_profiles import add_event_profile, get_event_profile_metadata
-from module.event_datamine.artifact import load_builtin_artifact
 from module.webui.event_source import empty_event_user_state, event_plan_from_source
 
 
@@ -187,7 +189,10 @@ class LayoutProbe(EventLayoutMixin):
 
 
 def test_settings_action_only_applies_explicit_pt_target():
-    fixture = event_plan_from_source(load_builtin_artifact()["event_spec"], empty_event_user_state())
+    fixture = event_plan_from_source(
+        load_builtin_artifact("rose_tower.json")["event_spec"],
+        empty_event_user_state(),
+    )
     probe = LayoutProbe(fixture)
     pins = {app_event_layout._TARGET_PT: 321}
 
@@ -201,7 +206,10 @@ def test_settings_action_only_applies_explicit_pt_target():
 
 
 def test_settings_runtime_write_failure_does_not_mutate_source_plan():
-    fixture = event_plan_from_source(load_builtin_artifact()["event_spec"], empty_event_user_state())
+    fixture = event_plan_from_source(
+        load_builtin_artifact("rose_tower.json")["event_spec"],
+        empty_event_user_state(),
+    )
     probe = LayoutProbe(fixture, fail_runtime_write=True)
     pins = {app_event_layout._TARGET_PT: 321}
 
@@ -312,3 +320,26 @@ def test_event_profile_mutations_share_one_read_modify_write_lock():
         thread.join()
 
     assert set(get_event_profile_metadata(config.data)) == {"Event2", "Event3"}
+
+
+class ScannerFact:
+    def __init__(self, name, *, price, count, total_count, cost="pt"):
+        self.name = name
+        self.price = price
+        self.count = count
+        self.total_count = total_count
+        self.cost = cost
+
+
+def test_shop_overlap_deduplication_uses_observed_facts_not_template_name():
+    left = ScannerFact("DefaultItem", price=300, count=10, total_count=10)
+    right = ScannerFact("Chip", price=300, count=10, total_count=10)
+
+    assert EventShopClerk._same_scanner_row(left, right) is True
+
+    right.price = 500
+    assert EventShopClerk._same_scanner_row(left, right) is False
+
+
+def test_current_event_cognitive_chip_bundle_is_not_truncated():
+    assert ITEM_AMOUNT_MAX["Chip"] >= 100

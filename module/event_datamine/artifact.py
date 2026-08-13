@@ -10,7 +10,7 @@ from typing import Any
 
 from deploy.atomic import file_remove, file_write, replace_tmp, to_tmp_file
 
-EVENT_ARTIFACT_SCHEMA_VERSION = 1
+EVENT_ARTIFACT_SCHEMA_VERSION = 2
 BUILTIN_ARTIFACT_ROOT = Path(__file__).with_name("data")
 
 
@@ -68,13 +68,22 @@ def validate_artifact(data: Any) -> dict[str, Any]:
 
 
 def build_artifact(
-    spec: Mapping[str, Any], compiler_version: str = "1"
+    spec: Mapping[str, Any],
+    compiler_version: str = "1",
+    *,
+    role: str = "production",
+    metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if role not in {"production", "demo"}:
+        raise ValueError(f"Неподдерживаемая роль Event artifact: {role}")
     result = {
         "artifact_schema_version": EVENT_ARTIFACT_SCHEMA_VERSION,
         "compiler_version": str(compiler_version),
+        "role": role,
         "event_spec": _normalize_json(spec),
     }
+    if metadata:
+        result["metadata"] = _normalize_json(metadata)
     result["digest"] = artifact_digest(result)
     return result
 
@@ -103,7 +112,7 @@ def load_artifact(path: Path | str) -> dict[str, Any]:
     return validate_artifact(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
-def load_builtin_artifact(name: str = "rose_tower.json") -> dict[str, Any]:
+def load_builtin_artifact(name: str) -> dict[str, Any]:
     if "/" in name or "\\" in name:
         raise ValueError("Имя builtin artifact не может содержать путь")
     return load_artifact(BUILTIN_ARTIFACT_ROOT / name)

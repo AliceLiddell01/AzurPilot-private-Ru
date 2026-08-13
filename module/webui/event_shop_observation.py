@@ -158,15 +158,24 @@ def persist_event_shop_observation(
 ) -> dict[str, Any]:
     rows, findings = reconcile_event_shop(spec, runtime_items)
     kwargs = {} if root is None else {"root": root}
+    provenance = spec.get("provenance")
+    revision = str(
+        (provenance.get("revision") if isinstance(provenance, Mapping) else "")
+        or ""
+    )
     observation = load_event_observation(
         instance,
         str(spec.get("id") or ""),
         str(spec.get("server") or "EN"),
+        revision,
         **kwargs,
     )
     if not observation.get("event_id"):
         observation = empty_event_observation(
-            str(spec.get("id") or ""), str(spec.get("server") or "EN"), instance
+            str(spec.get("id") or ""),
+            str(spec.get("server") or "EN"),
+            instance,
+            revision,
         )
     timestamp = (
         (observed_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
@@ -192,10 +201,17 @@ def persist_event_shop_observation(
 
 
 def invalidate_event_shop_observation(
-    *, instance: str, event_id: str, server: str, root=None
+    *,
+    instance: str,
+    event_id: str,
+    server: str,
+    source_revision: str = "",
+    root=None,
 ) -> None:
     kwargs = {} if root is None else {"root": root}
-    observation = load_event_observation(instance, event_id, server, **kwargs)
+    observation = load_event_observation(
+        instance, event_id, server, source_revision, **kwargs
+    )
     observation["observed_at"] = ""
     observation["shop_observed_at"] = ""
     observation["findings"].append(

@@ -1,0 +1,53 @@
+from module.campaign.campaign_base import CampaignBase
+from module.map.map_base import CampaignMap
+
+MAP = CampaignMap('SP')
+MAP.shape = 'I9'
+MAP.camera_data = ['D4', 'D6', 'F4', 'F6']
+MAP.camera_data_spawn_point = ['F4', 'D4']
+MAP.map_data = """
+    ++ ++ ++ -- ++ -- ++ ++ ++
+    -- ++ -- ++ ++ ++ -- ++ --
+    -- ME -- -- ++ -- -- ME --
+    ME -- -- SP -- SP -- -- ME
+    -- ME -- -- __ -- -- ME --
+    ++ -- ME -- MS -- ME -- ++
+    ++ ME -- MS -- MS -- ME ++
+    ++ ++ ME -- MB -- ME ++ ++
+    ++ ++ -- ++ -- ++ -- ++ ++
+"""
+MAP.weight_data = """
+    50 50 50 50 50 50 50 50 50
+    50 50 50 50 50 50 50 50 50
+    50 50 50 50 50 50 50 50 50
+    50 50 50 50 50 50 50 50 50
+    50 50 50 50 50 50 50 50 50
+    50 50 50 50 50 50 50 50 50
+    50 50 50 50 50 50 50 50 50
+    50 50 50 50 50 50 50 50 50
+    50 50 50 50 50 50 50 50 50
+"""
+MAP.spawn_data = [{'battle': 0, 'enemy': 12, 'siren': 3}, {'battle': 1}, {'battle': 2}, {'battle': 3}, {'battle': 4}, {'battle': 5}, {'battle': 6}, {'battle': 7, 'boss': 1}]
+
+class Config:
+    # Только факты карты; runtime policy задаётся отдельно.
+    MAP_HAS_MAP_STORY = False
+    MAP_HAS_FLEET_STEP = True
+    MAP_HAS_AMBUSH = False
+    MAP_HAS_MYSTERY = False
+    MAP_HAS_PORTAL = False
+    MAP_HAS_LAND_BASED = False
+    MAP_HAS_SIREN = True
+    MAP_HAS_MOVABLE_ENEMY = True
+    STAR_REQUIRE_1 = 0
+    STAR_REQUIRE_2 = 0
+    STAR_REQUIRE_3 = 0
+    MAP_SIREN_TEMPLATE = ['haorenlichade_m_qianting']
+    MOVABLE_ENEMY_TURN = (2,)
+
+class Campaign(CampaignBase):
+    MAP = MAP
+
+    def battle_7(self):
+        return self.fleet_boss.clear_boss()
+

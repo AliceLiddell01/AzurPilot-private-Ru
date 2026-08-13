@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from module.event_datamine.artifact import load_builtin_artifact
+from module.webui.event_observation import load_event_observation
 from module.webui.event_shop_observation import (
     invalidate_event_shop_observation,
     persist_event_shop_observation,
     reconcile_event_shop,
 )
-from module.webui.event_observation import load_event_observation
 from module.webui.event_source import empty_event_user_state, event_plan_from_source
 
 
@@ -25,7 +25,7 @@ class RuntimeItem:
 
 
 def test_unique_exact_match_derives_purchased_without_changing_desired_policy(tmp_path):
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     catalog = next(item for item in spec["shop_items"] if item["row_id"] == 3009)
     runtime = RuntimeItem(
         "chip",
@@ -53,12 +53,18 @@ def test_unique_exact_match_derives_purchased_without_changing_desired_policy(tm
         observed_at=datetime(2026, 8, 13, tzinfo=timezone.utc),
         root=tmp_path,
     )
-    stored = load_event_observation("ap", spec["id"], spec["server"], root=tmp_path)
+    stored = load_event_observation(
+        "ap",
+        spec["id"],
+        spec["server"],
+        spec["provenance"]["revision"],
+        root=tmp_path,
+    )
     assert stored["shop_items"][0]["purchased"] == 2
 
 
 def test_invalid_counter_and_ambiguous_catalog_fail_closed():
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     invalid = RuntimeItem("chip", None, None, 300, 10, 11, "pt")
     ambiguous = RuntimeItem("box", None, "t4", 300, 4, 2, "pt")
 
@@ -75,7 +81,7 @@ def test_invalid_counter_and_ambiguous_catalog_fail_closed():
 
 
 def test_duplicate_runtime_claims_are_not_accepted_as_two_observations():
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     catalog = next(item for item in spec["shop_items"] if item["row_id"] == 3009)
     item = RuntimeItem(
         "chip",
@@ -96,15 +102,25 @@ def test_duplicate_runtime_claims_are_not_accepted_as_two_observations():
 
 
 def test_purchase_invalidation_removes_freshness(tmp_path):
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     persist_event_shop_observation(
         instance="ap", spec=spec, runtime_items=[], root=tmp_path
     )
     invalidate_event_shop_observation(
-        instance="ap", event_id=spec["id"], server=spec["server"], root=tmp_path
+        instance="ap",
+        event_id=spec["id"],
+        server=spec["server"],
+        source_revision=spec["provenance"]["revision"],
+        root=tmp_path,
     )
 
-    stored = load_event_observation("ap", spec["id"], spec["server"], root=tmp_path)
+    stored = load_event_observation(
+        "ap",
+        spec["id"],
+        spec["server"],
+        spec["provenance"]["revision"],
+        root=tmp_path,
+    )
     assert stored["shop_observed_at"] == ""
     assert (
         stored["findings"][-1]["code"] == "shop_observation_invalidated_after_purchase"
@@ -112,7 +128,7 @@ def test_purchase_invalidation_removes_freshness(tmp_path):
 
 
 def test_desired_quantity_never_changes_observed_purchase_count():
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     catalog = next(item for item in spec["shop_items"] if item["row_id"] == 3009)
     runtime = RuntimeItem(
         "chip",

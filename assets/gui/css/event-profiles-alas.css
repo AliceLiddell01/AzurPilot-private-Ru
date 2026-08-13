@@ -133,6 +133,43 @@ body.event-modern-active .modal-content .modal-body,
     color: var(--event-text);
 }
 
+.event-provenance-row,
+.event-currency-chip {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+}
+
+.event-provenance-row {
+    flex-wrap: wrap;
+    margin-top: 10px;
+    color: var(--event-muted);
+    font-size: .76rem;
+}
+
+.event-provenance-row code {
+    border: 1px solid var(--event-border);
+    border-radius: 7px;
+    background: var(--event-surface-soft);
+    color: var(--event-text);
+    padding: 3px 6px;
+}
+
+.event-currency-chip {
+    border: 1px solid var(--event-border);
+    border-radius: 999px;
+    background: var(--event-surface-soft);
+    padding: 3px 8px 3px 4px;
+}
+
+.event-currency-chip img,
+.event-shop-currency img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
 .event-status-pill {
     display: inline-flex;
     align-items: center;
@@ -224,33 +261,42 @@ body.event-modern-active .modal-content .modal-body,
     gap: 12px;
 }
 
-.event-shop-item {
-    display: flex;
-    min-width: 180px;
-    align-items: center;
+.event-source-grid,
+.event-milestone-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 10px;
 }
 
-.event-shop-item img {
-    width: 42px;
-    height: 42px;
-    flex: 0 0 42px;
+.event-source-card,
+.event-milestone-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 5px;
     border: 1px solid var(--event-border);
-    border-radius: 10px;
+    border-radius: 13px;
     background: var(--event-surface-soft);
-    object-fit: contain;
+    padding: 12px;
 }
 
-.event-shop-item span {
-    display: flex;
-    flex-direction: column;
+.event-source-card strong,
+.event-milestone-card strong {
+    color: var(--event-text);
     overflow-wrap: anywhere;
 }
 
-.event-shop-item small {
+.event-source-card small,
+.event-source-kind,
+.event-milestone-card small,
+.event-map-identity {
     color: var(--event-muted);
-    font-size: .68rem;
+    font-size: .7rem;
 }
+
+.event-source-card b { color: var(--event-accent); font-size: .86rem; }
+.event-milestone-rewards { display: flex; flex-wrap: wrap; gap: 7px; }
+.event-map-identity { margin-top: 4px; overflow-wrap: anywhere; }
 
 .event-farm-grid {
     display: grid;
@@ -400,7 +446,7 @@ body.event-modern-active .modal-content .modal-body,
 
 .event-shop-hero {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, .9fr);
     align-items: center;
     gap: 18px;
 }
@@ -412,22 +458,53 @@ body.event-modern-active .modal-content .modal-body,
     font-size: .84rem;
 }
 
-.event-shop-total {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    min-width: 150px;
-    flex-direction: column;
-    align-items: flex-end;
-    border: 1px solid color-mix(in srgb, var(--event-accent) 24%, var(--event-border));
-    border-radius: 15px;
-    background: color-mix(in srgb, var(--event-surface-strong) 76%, transparent);
-    padding: 12px 14px;
+.event-shop-currency { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: var(--event-text); font-size: .8rem; }
+.event-shop-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.event-shop-totals > div { display: flex; min-width: 0; flex-direction: column; border: 1px solid var(--event-border); border-radius: 12px; background: var(--event-surface-soft); padding: 10px; }
+.event-shop-totals span,
+.event-shop-totals small { color: var(--event-muted); font-size: .66rem; }
+.event-shop-totals strong { margin: 3px 0; color: var(--event-text); font-size: 1rem; overflow-wrap: anywhere; }
+
+.event-shop-grid {
+    display: grid;
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
 }
 
-.event-shop-total > span,
-.event-shop-total > small { color: var(--event-muted); font-size: .72rem; }
-.event-shop-total > strong { margin: 2px 0; color: var(--event-text); font-size: 1.55rem; }
+.event-shop-card {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+    border: 1px solid var(--event-border);
+    border-radius: 15px;
+    background: var(--event-surface-soft);
+    padding: 12px;
+}
+
+.event-shop-card-visual { position: relative; display: flex; min-width: 0; flex-direction: column; align-items: center; text-align: center; }
+.event-shop-card-visual > img { width: min(112px, 52%); height: 112px; margin: 16px auto 8px; object-fit: contain; }
+.event-shop-card-visual h4 { min-height: 2.5em; margin: 7px 0 2px; color: var(--event-text); font-size: .88rem; line-height: 1.25; overflow-wrap: anywhere; }
+.event-shop-card-visual > small { color: var(--event-muted); font-size: .68rem; }
+.event-shop-stock { position: absolute; top: 0; left: 0; border-radius: 999px; background: var(--event-surface-strong); color: var(--event-muted); padding: 4px 7px; font-size: .66rem; }
+.event-shop-rarity { position: absolute; top: 0; right: 0; color: var(--event-accent); font-size: .64rem; font-weight: 700; }
+.event-shop-price { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--event-text); }
+.event-shop-price img { width: 24px; height: 24px; object-fit: contain; }
+.event-shop-observation,
+.event-shop-desired { display: flex; min-width: 0; flex-direction: column; gap: 2px; margin-top: 9px; border-top: 1px solid var(--event-divider); padding-top: 8px; }
+.event-shop-observation span,
+.event-shop-desired span { color: var(--event-muted); font-size: .68rem; }
+.event-shop-observation small,
+.event-shop-desired small { color: var(--event-muted); font-size: .66rem; overflow-wrap: anywhere; }
+.event-shop-desired strong { color: var(--event-text); }
+.event-shop-automation { margin: 8px 0 3px; color: var(--event-muted); font-size: .66rem; text-align: center; }
+.event-shop-card .row { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 !important; }
+.event-shop-card .row > div { min-width: 0; flex: 1 1 auto; padding: 0 !important; }
+.event-shop-card .btn { width: 100%; min-width: 44px; }
 
 .event-automation-status,
 .event-inline-note {
@@ -578,58 +655,6 @@ body.event-modern-active .modal-content .modal-body,
         flex-wrap: wrap !important;
         gap: 4px !important;
     }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table,
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table thead,
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tbody {
-        display: block !important;
-        width: 100% !important;
-    }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tr {
-        display: grid !important;
-        width: 100% !important;
-    }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table thead,
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tbody > tr:first-child:has(th) {
-        position: absolute !important;
-        width: 1px !important;
-        height: 1px !important;
-        margin: -1px !important;
-        overflow: hidden !important;
-        clip: rect(0 0 0 0) !important;
-        clip-path: inset(50%) !important;
-        white-space: nowrap !important;
-    }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table tr {
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table th,
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td {
-        width: auto !important;
-        overflow-wrap: anywhere !important;
-    }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td {
-        display: flex !important;
-        min-height: 48px;
-        flex-direction: column;
-        justify-content: center;
-    }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td::before {
-        margin-bottom: 2px;
-        color: var(--event-muted);
-        font-size: .65rem;
-        font-weight: 600;
-    }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(1)::before { content: "Товар"; }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(2)::before { content: "Цена"; }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(3)::before { content: "Куплено"; }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(4)::before { content: "Осталось"; }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(5)::before { content: "Цель"; }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:nth-child(6)::before { content: "План PT"; }
-    #pywebio-scope-content.event-modern-page #pywebio-scope-group_EventShopPlan table td:last-child {
-        grid-column: 1 / -1;
-        min-height: 0;
-        align-items: flex-start;
-    }
     #pywebio-scope-content.event-modern-page #pywebio-scope-groups > *,
     #pywebio-scope-content.event-modern-page [id^="pywebio-scope-group_"] {
         padding: 13px !important;
@@ -638,11 +663,11 @@ body.event-modern-active .modal-content .modal-body,
     .event-dashboard-hero,
     .event-shop-hero { padding: 16px; border-radius: 15px; }
     .event-shop-hero { grid-template-columns: 1fr; }
-    .event-shop-total { width: 100%; align-items: flex-start; }
+    .event-shop-totals { grid-template-columns: 1fr; }
+    .event-shop-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
     .event-metrics-grid { grid-template-columns: 1fr 1fr; }
     .event-hero-meta { flex-direction: column; align-items: flex-start; gap: 5px; }
     .event-section-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
-    .event-shop-item { min-width: 0; }
 }
 
 @media (max-width: 520px) {
@@ -652,6 +677,9 @@ body.event-modern-active .modal-content .modal-body,
         margin: .5rem auto !important;
     }
     .event-metrics-grid { grid-template-columns: 1fr; }
+    .event-source-grid,
+    .event-milestone-grid,
+    .event-shop-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

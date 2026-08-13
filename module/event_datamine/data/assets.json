@@ -1,0 +1,22 @@
+{
+  "asset_catalog_schema_version": 1,
+  "digest": "ae810dab862d7e0532dbd16455e5b25210ae9566dfe3ff5f671f95c5e4f5cdbb",
+  "entries": {
+    "item:Props/15008": "/static/assets/shop/event/Chip.png",
+    "item:Props/15012": "/static/assets/shop/event/Array.png",
+    "item:Props/15014": "/static/assets/shop/event/AugmentCoreT3.png",
+    "item:Props/15016": "/static/assets/shop/event/AugmentEnhanceT2.png",
+    "item:Props/15019": "/static/assets/shop/event/AugmentChangeT1.png",
+    "item:Props/15020": "/static/assets/shop/event/AugmentChangeT2.png",
+    "item:Props/17003": "/static/assets/shop/event/PlateGeneralT3.png",
+    "item:Props/17013": "/static/assets/shop/event/PlateGunT3.png",
+    "item:Props/17023": "/static/assets/shop/event/PlateTorpedoT3.png",
+    "item:Props/17033": "/static/assets/shop/event/PlateAntiairT3.png",
+    "item:Props/17043": "/static/assets/shop/event/PlatePlaneT3.png",
+    "item:Props/20011": "/static/assets/shop/event/CatT1.png",
+    "item:Props/20012": "/static/assets/shop/event/CatT2.png",
+    "item:Props/20013": "/static/assets/shop/event/CatT3.png",
+    "item:Props/30004": "/static/assets/shop/event/BoxT4.png",
+    "item:Props/suansukele": "/static/assets/shop/event/FoodT1.png"
+  }
+}

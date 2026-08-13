@@ -1,0 +1,47 @@
+{
+  "event_id": "en:51101",
+  "fixture_schema_version": 1,
+  "kind": "derived_sharecfg_subset",
+  "records": {
+    "activity_event_pt": 1,
+    "activity_medal_group": 0,
+    "activity_shop_template": 26,
+    "activity_template": 23,
+    "chapter_template": 15,
+    "chapter_template_loop": 13,
+    "equip_data_statistics": 1,
+    "expedition_data_template": 20,
+    "item_data_statistics": 36,
+    "item_virtual_data_statistics": 5,
+    "map_event_list": 0,
+    "map_event_template": 0,
+    "memory_group": 1,
+    "player_resource": 1,
+    "ship_data_statistics": 2,
+    "task_data_template": 42
+  },
+  "sha256": {
+    "EN/sharecfgjson/activity_event_pt.json": "a5fe809fca5397f21fe9133627d95b389abead41907bc5add878cc24bfb27847",
+    "EN/sharecfgjson/activity_medal_group.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "EN/sharecfgjson/activity_shop_template.json": "ac631410e7eef3dc70b40eca08847d24c8240a3cfd524154d0c044ba497f151f",
+    "EN/sharecfgjson/activity_template.json": "6847086aa3dce014a11c091f505ab8bec12102bac7b44ced28ebd95b1529eb5e",
+    "EN/sharecfgjson/chapter_template.json": "b1972925f3d4ae2bdf484522a6cd34581199f6eebe48fded606dc63ada51c04d",
+    "EN/sharecfgjson/chapter_template_loop.json": "5698a887a24452d3e43a007e1dacf58ef56af9320a53ec317a838184b633e190",
+    "EN/sharecfgjson/equip_data_statistics.json": "e7ceb87f3b69ba1e347c4e9d655a1a5f58850b125ee2612207da7214415890b6",
+    "EN/sharecfgjson/expedition_data_template.json": "9943339550fa1194c000f18cd379c83c92b1905f840536ab44ff174866faebf1",
+    "EN/sharecfgjson/item_data_statistics.json": "331143d9a6e13df7025f79f826b10d6f23f01e696513a8e57b1321b3fce91e2f",
+    "EN/sharecfgjson/item_virtual_data_statistics.json": "af9347a29f39c01c1a6dc71cf70108ffd88cdac87a0679c35693c477b958541a",
+    "EN/sharecfgjson/map_event_list.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "EN/sharecfgjson/map_event_template.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "EN/sharecfgjson/memory_group.json": "f9ab12f9146aca0def68698c563a6323ef40d25dc39dc4bd3c39d254990e3c90",
+    "EN/sharecfgjson/player_resource.json": "0abb07cd8c92082d0ced472f29ce27bd142c7b43250a09ffd1616a0fda10b472",
+    "EN/sharecfgjson/ship_data_statistics.json": "ad3ae003c5e4aee024ed62962f136c522b6bca1f59bb1c594a72f94a34cd0a34",
+    "EN/sharecfgjson/task_data_template.json": "46fcc2bf1e4642a70e9b4d02774fb286c3762c91da5ff9dce3f05e3584576676"
+  },
+  "source": {
+    "provider": "AzurLaneLuaScripts",
+    "repository": "AzurLaneTools/AzurLaneLuaScripts",
+    "revision": "a6b6f81f8fdd1220ef0ad1015a362a7361eb3d91",
+    "server": "EN"
+  }
+}

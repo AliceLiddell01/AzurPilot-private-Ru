@@ -13,16 +13,28 @@ from module.base.button import ButtonGrid
 from module.base.decorator import cached_property
 from module.base.timer import Timer
 from module.base.utils import color_similarity_2d, crop
-from module.combat.assets import GET_SHIP, GET_ITEMS_1, GET_ITEMS_3
+from module.combat.assets import GET_ITEMS_1, GET_ITEMS_3, GET_SHIP
 from module.logger import logger
 from module.map_detection.utils import Points
-from module.shop.assets import AMOUNT_PLUS, AMOUNT_MINUS, AMOUNT_MAX, SHOP_BUY_CONFIRM_AMOUNT, SHOP_BUY_CONFIRM, \
-    SHOP_CLICK_SAFE_AREA
+from module.shop.assets import (
+    AMOUNT_MAX,
+    AMOUNT_MINUS,
+    AMOUNT_PLUS,
+    SHOP_BUY_CONFIRM,
+    SHOP_BUY_CONFIRM_AMOUNT,
+    SHOP_CLICK_SAFE_AREA,
+)
 from module.shop.clerk import OCR_SHOP_AMOUNT
 from module.shop_event.assets import *
-from module.shop_event.item import ITEM_SHAPE, EventShopItemGrid, DELTA_PRICE_BACKGROUND, DELTA_ITEM, \
-    PRICE_BACKGROUND_COLOR, PRICE_THRESHOLD
-from module.shop_event.ui import EventShopUI, EVENT_SHOP_SCROLL
+from module.shop_event.item import (
+    DELTA_ITEM,
+    DELTA_PRICE_BACKGROUND,
+    ITEM_SHAPE,
+    PRICE_BACKGROUND_COLOR,
+    PRICE_THRESHOLD,
+    EventShopItemGrid,
+)
+from module.shop_event.ui import EVENT_SHOP_SCROLL, EventShopUI
 from module.ui_white.assets import BACK_ARROW_WHITE
 
 DETECT_AREA = (221, 194, 1049, 632)
@@ -35,6 +47,14 @@ class ItemNotFoundError(Exception):
 class EventShopClerk(EventShopUI):
     pt_image = None
     urpt_image = None
+
+    @staticmethod
+    def _same_scanner_row(left, right):
+        """Compare overlap by observed facts, not fallible template names."""
+        return all(
+            getattr(left, field, None) == getattr(right, field, None)
+            for field in ("price", "count", "total_count", "cost")
+        )
 
     def _get_event_shop_grid(self):
         mask = color_similarity_2d(self.device.image, PRICE_BACKGROUND_COLOR)
@@ -105,7 +125,8 @@ class EventShopClerk(EventShopUI):
                 new_first_row = [item for item in new_items if item.button[1] == new_items[0].button[1]]
                 new_second_row = [item for item in new_items if item.button[1] != new_items[0].button[1]]
                 if len(old_last_row) == len(new_first_row) and all(
-                        old.name == new.name for old, new in zip(old_last_row, new_first_row)):
+                        self._same_scanner_row(old, new)
+                        for old, new in zip(old_last_row, new_first_row)):
                     logger.info('[Магазин события — покупка] Повторяющиеся товары пропущены')
                     items += new_second_row
                 else:

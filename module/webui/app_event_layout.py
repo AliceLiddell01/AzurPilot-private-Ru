@@ -32,10 +32,10 @@ from module.webui.app_dependencies import (
 )
 from module.webui.app_event_planner import EventPlannerMixin
 from module.webui.app_helpers import is_demo_mode
+from module.webui.event_assets import event_asset_url
 from module.webui.event_plan import (
     shop_plan_total,
 )
-from module.webui.event_assets import event_reward_asset_url, event_shop_asset_url
 
 EVENT_MAP_TASKS = frozenset({"Event", "Event2", "Event3"})
 EVENT_LAYOUT_TASKS = EVENT_MAP_TASKS | {"EventGeneral", "EventShop"}
@@ -268,22 +268,18 @@ class EventLayoutMixin(EventPlannerMixin):
             rows = [item for item in sources if item.get("kind") == kind]
             if not rows:
                 continue
+            cards = "".join(
+                '<article class="event-source-card">'
+                f'<span class="event-source-kind">{escape(title)}</span>'
+                f'<strong>{escape(str(item.get("name") or item.get("id")))}</strong>'
+                f'<b>{escape(self._fmt(item["points"]) if item.get("points") is not None else "Нет данных")} PT</b>'
+                '<small>Автостатус пока недоступен</small></article>'
+                for item in rows
+            )
             put_html(
                 f'<div class="event-subsection-heading"><span>{title}</span>'
                 f'<span class="event-subsection-count">{len(rows)}</span></div>'
-            )
-            put_table(
-                [
-                    [
-                        item.get("name") or item.get("id"),
-                        self._fmt(item["points"])
-                        if item.get("points") is not None
-                        else "Нет данных",
-                        "Автостатус пока недоступен",
-                    ]
-                    for item in rows
-                ],
-                header=["Источник", "PT", "Наблюдение"],
+                f'<div class="event-source-grid">{cards}</div>'
             )
 
     def _render_event_plan_general(self, config: Mapping[str, Any]) -> None:
@@ -320,12 +316,24 @@ class EventLayoutMixin(EventPlannerMixin):
             else 0
         )
         farm_end = escape(str(event.get("farm_end") or "Не задано"))
+        farm_start = escape(str(event.get("farm_start") or "Не задано"))
         shop_end = escape(str(event.get("shop_end") or "Не задано"))
+        source = event.get("source", {})
+        source = source if isinstance(source, Mapping) else {}
+        revision = str(source.get("revision") or "")
+        currencies = "".join(
+            '<span class="event-currency-chip">'
+            f'<img src="{escape(event_asset_url(item.get("asset") if isinstance(item, Mapping) else None))}" alt="">'
+            f'<span>{escape(str(item.get("name") or item.get("id") or "Валюта"))}</span></span>'
+            for item in plan.get("currencies", [])
+            if isinstance(item, Mapping)
+        )
         put_html(f"""
 <section class="event-dashboard-hero">
   <div class="event-hero-copy"><div class="event-eyebrow">Текущий ивент · {escape(str(event.get("server") or "EN"))}</div>
   <h3>{escape(str(event.get("name") or "Текущий ивент не задан"))}</h3>
-  <div class="event-hero-meta"><span>Фарм до <strong>{farm_end}</strong></span><span>Магазин до <strong>{shop_end}</strong></span>{self._source_badge(plan)}</div></div>
+  <div class="event-hero-meta"><span>Фарм <strong>{farm_start}</strong> — <strong>{farm_end}</strong></span><span>Магазин до <strong>{shop_end}</strong></span>{self._source_badge(plan)}</div>
+  <div class="event-provenance-row"><span>{escape(str(source.get("provider") or "AzurLaneLuaScripts"))}</span><code>{escape(revision[:12] if revision else "revision unavailable")}</code>{currencies}</div></div>
   <div class="event-metrics-grid">
     <div class="event-metric-card event-metric-accent"><span class="event-metric-label">Текущий PT</span><strong>{self._fmt(current_pt) if current_pt is not None else "Нет данных"}</strong><small>{escape(current_source)}</small></div>
     <div class="event-metric-card"><span class="event-metric-label">Автостоп</span><strong>{self._fmt(target) + " PT" if target else "Выключен"}</strong><small>{escape(self._time_label(time_limit))}</small></div>
@@ -356,7 +364,6 @@ class EventLayoutMixin(EventPlannerMixin):
                 ],
                 size="auto",
             )
-        source = event.get("source", {})
         finding_items = list(plan.get("source_findings", [])) + list(
             plan.get("observation", {}).get("findings", [])
         )
@@ -410,8 +417,15 @@ class EventLayoutMixin(EventPlannerMixin):
                 if stage.get("observation_status") == "observed"
                 else "Автостатус пока недоступен"
             )
+            compiler_status = str(stage.get("source_status") or "unsupported")
+            runtime_label = (
+                "Runtime eligible"
+                if stage.get("runtime_eligible")
+                else "Runtime blocked"
+            )
             stage_cards.append(
                 f'<article class="event-farm-card"><div class="event-farm-card-head"><strong>{escape(str(stage["name"]))}</strong><span>{escape(status)}</span></div>'
+                f'<div class="event-map-identity">Map {escape(str(stage.get("id") or ""))} · {escape(compiler_status)} · {escape(runtime_label)}</div>'
                 f'<div class="event-farm-facts"><span><small>PT</small><b>{escape(self._fmt(points) if points is not None else "Нет данных")}</b></span>'
                 f"<span><small>Нефть</small><b>{escape(self._fmt(stage.get('oil')) if stage.get('oil') is not None else 'Нет данных')}</b></span>"
                 f"<span><small>Монеты</small><b>{escape(self._fmt(stage.get('coin')) if stage.get('coin') is not None else 'Нет данных')}</b></span>"
@@ -424,10 +438,10 @@ class EventLayoutMixin(EventPlannerMixin):
             put_html(
                 '<div class="event-empty-card"><strong>Этапы отсутствуют в datamine artifact</strong></div>'
             )
-        milestone_rows = []
+        milestone_cards = []
         for milestone in plan.get("milestones", []):
             rewards = "".join(
-                f'<span class="event-reward-chip"><img src="{escape(event_reward_asset_url(int(reward.get("reward_type", 0) or 0), int(reward.get("reward_id", 0) or 0)))}" alt=""><span>{escape(str(reward.get("name") or reward.get("reward_id")))} × {escape(self._fmt(reward.get("amount")))}</span></span>'
+                f'<span class="event-reward-chip"><img src="{escape(event_asset_url(reward.get("asset") if isinstance(reward, Mapping) else None))}" alt=""><span>{escape(str(reward.get("name") or reward.get("reward_id")))} × {escape(self._fmt(reward.get("amount")))}</span></span>'
                 for reward in milestone.get("rewards", [])
                 if isinstance(reward, Mapping)
             )
@@ -440,22 +454,17 @@ class EventLayoutMixin(EventPlannerMixin):
                 )
             else:
                 milestone_status = "Прогресс недоступен"
-            milestone_rows.append(
-                [
-                    self._fmt(threshold),
-                    put_html(rewards) if rewards else "Нет данных",
-                    milestone_status,
-                ]
+            milestone_cards.append(
+                '<article class="event-milestone-card">'
+                f'<div><small>Порог</small><strong>{escape(self._fmt(threshold))} PT</strong></div>'
+                f'<div class="event-milestone-rewards">{rewards or "<span>Нет данных</span>"}</div>'
+                f'<small>{escape(milestone_status)}</small></article>'
             )
-        if milestone_rows:
-            put_collapse(
-                f"Награды за накопление PT · {len(milestone_rows)}",
-                [
-                    put_table(
-                        milestone_rows, header=["Порог PT", "Награда", "Получение"]
-                    )
-                ],
-                open=False,
+        if milestone_cards:
+            put_html(
+                '<div class="event-section-heading"><span>Награды за накопление PT</span>'
+                f'<small>{len(milestone_cards)} порогов из datamine</small></div>'
+                f'<div class="event-milestone-grid">{"".join(milestone_cards)}</div>'
             )
 
     def _render_event_shop_plan(self, config: Mapping[str, Any]) -> None:
@@ -464,47 +473,135 @@ class EventLayoutMixin(EventPlannerMixin):
         items = list(plan["shop_items"])
         total = shop_plan_total(plan)
         selected = [item for item in items if int(item.get("selected", 0) or 0) > 0]
+        catalog_total = sum(
+            int(item.get("price", 0) or 0) * int(item.get("stock", 0) or 0)
+            for item in items
+        )
+        observed_known = bool(items) and all(
+            item.get("match_status") == "matched"
+            and isinstance(item.get("remaining"), int)
+            for item in items
+        )
+        observed_total = (
+            sum(int(item["price"]) * int(item["remaining"]) for item in items)
+            if observed_known
+            else None
+        )
+        currencies = {
+            int(item.get("id", 0) or 0): item
+            for item in plan.get("currencies", [])
+            if isinstance(item, Mapping)
+        }
+        primary_currency = next(iter(currencies.values()), {})
+        currency_icon = event_asset_url(
+            primary_currency.get("asset")
+            if isinstance(primary_currency, Mapping)
+            else None
+        )
+        shop_end = str(plan["event"].get("shop_end") or "Не задано")
         put_html(f"""
-<section class="event-shop-hero"><div><div class="event-eyebrow">План покупок</div>
+<section class="event-shop-hero"><div><div class="event-eyebrow">Каталог текущего EN-ивента</div>
 <h3>{escape(str(plan["event"].get("name") or "Текущий ивент не задан"))}</h3>
-<p>Безопасный план синхронизируется с EventShop автоматически.</p></div>
-<div class="event-shop-total"><span>Нужно PT</span><strong>{self._fmt(total)}</strong><small>{len(selected)} позиций выбрано</small></div></section>""")
+<p>Магазин доступен до {escape(shop_end)}. Желаемое количество не подменяет runtime-наблюдение.</p>
+<div class="event-shop-currency"><img src="{escape(currency_icon)}" alt=""><span>{escape(str(primary_currency.get("name") or "Валюта события"))}</span></div></div>
+<div class="event-shop-totals">
+  <div><span>Полный выкуп</span><strong>{self._fmt(catalog_total)}</strong><small>{len(items)} товаров</small></div>
+  <div><span>Ваш план</span><strong>{self._fmt(total)}</strong><small>{len(selected)} позиций</small></div>
+  <div><span>Осталось по scan</span><strong>{self._fmt(observed_total) if observed_total is not None else "Нет данных"}</strong><small>{"Полный snapshot" if observed_known else "Наблюдение недоступно"}</small></div>
+</div></section>""")
         put_scope("event_shop_safety_status")
         if items:
-            rows = []
-            for item in items:
-                identity = self._shop_item_identity(item)
-                observation_label = {
-                    "matched": "Синхронизировано",
-                    "ambiguous": "Неоднозначно",
-                    "unmatched": "Не сопоставлено",
-                    "invalid_counter": "Ошибка счётчика",
-                    "unavailable": "Нет наблюдения",
-                }.get(str(item.get("match_status") or "unavailable"), "Нет наблюдения")
-                rows.append(
-                    [
+            put_scope("event_shop_grid")
+            card_scope_ids = []
+            with use_scope("event_shop_grid"):
+                for index, item in enumerate(items):
+                    identity = self._shop_item_identity(item)
+                    observation_label = {
+                        "matched": "Наблюдение сопоставлено",
+                        "ambiguous": "Наблюдение неоднозначно",
+                        "unmatched": "Не сопоставлено",
+                        "invalid_counter": "Ошибка счётчика",
+                        "unavailable": "Нет наблюдения",
+                    }.get(
+                        str(item.get("match_status") or "unavailable"),
+                        "Нет наблюдения",
+                    )
+                    scope_id = f"event_shop_card_{index}"
+                    card_scope_ids.append(f"pywebio-scope-{scope_id}")
+                    put_scope(scope_id)
+                    currency = currencies.get(int(item.get("currency_id", 0) or 0), {})
+                    with use_scope(scope_id):
                         put_html(
-                            f'<div class="event-shop-item"><img src="{escape(event_shop_asset_url(item.get("filter", "")))}" alt=""><span>{escape(str(item["name"]))}<small>{escape(observation_label)}</small></span></div>'
-                        ),
-                        self._fmt(item["price"]),
-                        self._fmt(item.get("purchased"))
-                        if item.get("purchased") is not None
-                        else "Нет данных",
-                        self._fmt(item.get("remaining"))
-                        if item.get("remaining") is not None
-                        else "Нет данных",
-                        f"{self._fmt(item['selected'])} / {self._fmt(item['stock'])}",
-                        self._fmt(int(item["price"]) * int(item["selected"])),
-                        put_button(
-                            "Изменить цель",
-                            onclick=partial(self._shop_quantity_popup, identity),
-                            color="off",
-                        ),
-                    ]
-                )
-            put_table(
-                rows,
-                header=["Товар", "Цена", "Куплено", "Осталось", "Цель", "План PT", ""],
+                            '<div class="event-shop-card-visual">'
+                            f'<span class="event-shop-stock">Доступно: {escape(self._fmt(item.get("stock")))}</span>'
+                            f'<img src="{escape(event_asset_url(item.get("asset")))}" alt="{escape(str(item.get("name") or "Товар"))}">'
+                            f'<span class="event-shop-rarity event-rarity-{escape(str(item.get("rarity") or "unknown"))}">Rarity {escape(str(item.get("rarity") if item.get("rarity") is not None else "—"))}</span>'
+                            f'<h4>{escape(str(item.get("name") or "Без названия"))}</h4>'
+                            f'<small>{escape(str(item.get("category") or "unknown"))} · bundle ×{escape(self._fmt(item.get("amount", 1)))}</small>'
+                            '<div class="event-shop-price">'
+                            f'<img src="{escape(event_asset_url(currency.get("asset") if isinstance(currency, Mapping) else None))}" alt="">'
+                            f'<strong>{escape(self._fmt(item.get("price")))}</strong></div></div>'
+                            '<div class="event-shop-observation">'
+                            f'<span>{escape(observation_label)}</span>'
+                            f'<small>Куплено: {escape(self._fmt(item.get("purchased")) if item.get("purchased") is not None else "Нет данных")} · Осталось: {escape(self._fmt(item.get("remaining")) if item.get("remaining") is not None else "Нет данных")}</small></div>'
+                            '<div class="event-shop-desired">'
+                            f'<span>Цель</span><strong>{escape(self._fmt(item.get("selected")))} / {escape(self._fmt(item.get("stock")))}</strong>'
+                            f'<small>Стоимость: {escape(self._fmt(int(item["price"]) * int(item["selected"])))}</small></div>'
+                            f'<div class="event-shop-automation">{"Совместимо с автоматизацией" if item.get("filter") else "Автоматизация не поддерживается"}</div>'
+                        )
+                        put_row(
+                            [
+                                put_button(
+                                    "−",
+                                    onclick=partial(
+                                        self._change_shop_quantity,
+                                        identity,
+                                        "decrement",
+                                    ),
+                                    color="off",
+                                ),
+                                put_button(
+                                    "+",
+                                    onclick=partial(
+                                        self._change_shop_quantity,
+                                        identity,
+                                        "increment",
+                                    ),
+                                    color="off",
+                                ),
+                                put_button(
+                                    "MAX",
+                                    onclick=partial(
+                                        self._change_shop_quantity,
+                                        identity,
+                                        "maximum",
+                                    ),
+                                    color="off",
+                                ),
+                                put_button(
+                                    "Сброс",
+                                    onclick=partial(
+                                        self._change_shop_quantity,
+                                        identity,
+                                        "clear",
+                                    ),
+                                    color="off",
+                                ),
+                            ],
+                            size="auto auto auto auto",
+                        )
+            run_js(
+                """
+(() => {
+  const grid = document.getElementById("pywebio-scope-event_shop_grid");
+  if (grid) grid.classList.add("event-shop-grid");
+  for (const id of %s) {
+    const card = document.getElementById(id);
+    if (card) card.classList.add("event-shop-card");
+  }
+})();
+"""
+                % json.dumps(card_scope_ids)
             )
         else:
             put_html(
