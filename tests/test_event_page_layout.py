@@ -153,6 +153,7 @@ def test_event_css_defines_modern_responsive_visual_system():
     assert "border-radius" in css
     assert ".event-dashboard-hero::after" not in css
     assert "radial-gradient" not in css
+    assert "width: min(100%, 1120px)" not in css
     assert "@media (max-width: 760px)" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
 

@@ -69,8 +69,6 @@ body.event-modern-active .modal-content .modal-body,
 /* Event-only shell: stronger hierarchy than the stock PyWebIO cards. */
 #pywebio-scope-content.event-modern-page #pywebio-scope-groups {
     overflow: visible !important;
-    width: min(100%, 1120px) !important;
-    margin-inline: auto !important;
 }
 
 #pywebio-scope-content.event-modern-page #pywebio-scope-groups > *,
