@@ -126,10 +126,17 @@ def validate_event_profile_name(
     if value.casefold() in reserved:
         return "Это название уже используется постоянным пунктом раздела «Ивент»."
 
-    for slot, profile in get_event_profile_metadata(config).items():
+    for slot in OPTIONAL_EVENT_PROFILE_SLOTS:
         if slot == current_slot:
             continue
-        if profile["name"].casefold() == value.casefold():
+        if not event_task_visible(config, slot):
+            continue
+        existing = event_task_label(
+            config,
+            slot,
+            OPTIONAL_EVENT_PROFILE_DEFAULT_LABELS[slot],
+        )
+        if existing.casefold() == value.casefold():
             return "Дополнительный ивентовый профиль с таким названием уже существует."
     return None
 

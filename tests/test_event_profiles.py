@@ -17,6 +17,10 @@ from module.webui.event_profiles import (
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
+EVENT_CSS = ROOT / "assets" / "gui" / "css" / "event-profiles-alas.css"
+
+
 def _config():
     return {
         "EventGeneral": {"Storage": {"Storage": {}}},
@@ -104,6 +108,14 @@ def test_duplicate_and_reserved_profile_names_are_rejected():
         add_event_profile(config, "Ивентовая карта")
 
 
+def test_enabled_unnamed_slot_reserves_its_visible_default_label():
+    config = _config()
+    config["Event2"]["Scheduler"]["Enable"] = True
+
+    with pytest.raises(ValueError, match="уже существует"):
+        add_event_profile(config, "Доп. ивентовый профиль 1")
+
+
 def test_profile_metadata_is_hidden_from_visible_task_storage():
     config = _config()
     add_event_profile(config, "Фарм D3")
@@ -125,7 +137,7 @@ class ProfilePopupProbe(EventProfilesMixin):
 
 
 def test_event_profile_editor_uses_scoped_non_blocking_popup():
-    css = Path("assets/gui/css/event-profiles-alas.css").read_text(encoding="utf-8")
+    css = EVENT_CSS.read_text(encoding="utf-8")
     callback = object()
     probe = ProfilePopupProbe()
 

@@ -135,13 +135,12 @@ class EventShopSafetyMixin(WebUIMixinBase):
         return True
 
     def _event_plan_write(self, plan: Mapping[str, Any], message: str) -> bool:
-        """Persist EventPlan, then auto-sync shop edits only on the EventShop page."""
+        """Persist EventPlan, then keep EventShop automation consistent with it."""
         saved = super()._event_plan_write(plan, message)
         if not saved:
             return False
 
-        if getattr(self, "_event_plan_active_task", "") == "EventShop":
-            self._sync_shop_plan_fail_closed(plan, announce=False)
+        self._sync_shop_plan_fail_closed(plan, announce=False)
         return True
 
     def _render_event_shop_plan(self, config: Mapping[str, Any]) -> None:

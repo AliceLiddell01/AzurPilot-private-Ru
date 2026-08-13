@@ -688,6 +688,8 @@ class EventPlannerMixin(WebUIMixinBase):
                 dashboard_time = datetime.fromisoformat(dashboard_record.replace("T", " "))
             except ValueError:
                 dashboard_time = None
+            else:
+                dashboard_time = dashboard_time.replace(tzinfo=None, microsecond=0)
         now = current_time().replace(tzinfo=None, microsecond=0)
         dashboard_valid = bool(
             dashboard_time is not None

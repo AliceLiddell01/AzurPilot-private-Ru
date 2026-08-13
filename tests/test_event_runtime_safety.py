@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from threading import Barrier, Thread
 from time import sleep
 from unittest.mock import patch
 
-from module.webui import app_event_layout, app_event_shop_safety
+import pytest
+
+from module.webui import app_event_layout, app_event_planner, app_event_shop_safety
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_planner import EventPlannerMixin
 from module.webui.app_event_shop_safety import EventShopSafetyMixin
-from module.webui.event_config import mutate_event_config
+from module.webui.event_config import mutate_event_config, update_event_config
 from module.webui.event_plan import empty_event_plan
 from module.webui.event_profiles import add_event_profile, get_event_profile_metadata
 from module.webui.event_rose_tower_fixture import rose_tower_fixture_plan
@@ -31,6 +34,18 @@ class MemoryConfig:
 
     def load(self):
         self.load_count += 1
+
+
+class CorruptOnceConfig(MemoryConfig):
+    def __init__(self, data):
+        super().__init__(data)
+        self.corrupt_next_write = True
+
+    def write_file(self, name, data):
+        super().write_file(name, data)
+        if self.corrupt_next_write:
+            self.corrupt_next_write = False
+            self.data["EventShop"]["Scheduler"]["Enable"] = False
 
 
 class SafetyProbe(EventShopSafetyMixin, EventPlannerMixin):
@@ -95,6 +110,23 @@ def test_valid_shop_sync_preserves_pt_limit_and_scheduler_state():
     }
 
 
+def test_config_verification_failure_restores_original_and_names_bad_key():
+    original = _runtime_config()
+    config = CorruptOnceConfig(original)
+
+    with pytest.raises(
+        OSError,
+        match=r"EventShop\.Scheduler\.Enable",
+    ):
+        update_event_config(
+            config,
+            "ap",
+            {"EventShop.Scheduler.Enable": True},
+        )
+
+    assert config.data == original
+
+
 def test_ambiguous_shop_selector_disables_scheduler_without_reusing_old_filter():
     data = _runtime_config()
     data["EventShop"]["Scheduler"]["Enable"] = True
@@ -109,6 +141,21 @@ def test_ambiguous_shop_selector_disables_scheduler_without_reusing_old_filter()
     assert config.data["EventShop"]["Scheduler"]["Enable"] is False
     assert config.data["EventShop"]["EventShop"]["CustomFilter"] == "legacy"
     assert config.data["EventGeneral"]["EventGeneral"]["PtLimit"] == 777
+
+
+def test_plan_clear_from_another_event_page_still_pauses_shop_scheduler():
+    data = _runtime_config()
+    data["EventShop"]["Scheduler"]["Enable"] = True
+    config = MemoryConfig(data)
+    probe = SafetyProbe(config)
+    probe._event_plan_active_task = "EventGeneral"
+
+    with patch.object(
+        EventPlannerMixin, "_event_plan_write", return_value=True
+    ), patch.object(app_event_shop_safety, "toast"):
+        assert probe._event_plan_write(empty_event_plan(), "Очищено") is True
+
+    assert config.data["EventShop"]["Scheduler"]["Enable"] is False
 
 
 class LayoutProbe(EventLayoutMixin):
@@ -220,6 +267,28 @@ def test_event_dom_marker_is_removed_when_overview_becomes_active():
     assert probe.unmarked == 0
     assert probe.init_menu(name="Overview") is None
     assert probe.unmarked == 1
+
+
+def test_timezone_aware_dashboard_record_is_accepted_without_mixed_datetime_error():
+    config = {
+        "Dashboard": {
+            "Pt": {
+                "Value": 4567,
+                "Record": "2026-08-13T10:00:00+07:00",
+            }
+        }
+    }
+    plan = empty_event_plan()
+
+    with patch.object(
+        app_event_planner,
+        "current_time",
+        return_value=datetime(2026, 8, 13, 11, 0, 0),
+    ):
+        current_pt, source = EventPlannerMixin._current_pt_for_plan(config, plan)
+
+    assert current_pt == 4567
+    assert source.startswith("Автоматически из OCR")
 
 
 class PlanMutationProbe(EventPlannerMixin):
