@@ -1,6 +1,6 @@
 {
   "asset_catalog_schema_version": 1,
-  "digest": "ae810dab862d7e0532dbd16455e5b25210ae9566dfe3ff5f671f95c5e4f5cdbb",
+  "digest": "b02ee8f64ae7414273b20cf46b737f85bf3121f998f5ffd1b34dd91411725cad",
   "entries": {
     "item:Props/15008": "/static/assets/shop/event/Chip.png",
     "item:Props/15012": "/static/assets/shop/event/Array.png",
@@ -17,6 +17,10 @@
     "item:Props/20012": "/static/assets/shop/event/CatT2.png",
     "item:Props/20013": "/static/assets/shop/event/CatT3.png",
     "item:Props/30004": "/static/assets/shop/event/BoxT4.png",
-    "item:Props/suansukele": "/static/assets/shop/event/FoodT1.png"
+    "item:Props/42080": "/static/assets/webui/event_shop/PRS9.png",
+    "item:Props/42086": "/static/assets/webui/event_shop/DRS9.png",
+    "item:Props/suansukele": "/static/assets/shop/event/FoodT1.png",
+    "resource-id:1": "/static/assets/shop/event/Coin.png",
+    "resource-id:2": "/static/assets/shop/event/Oil.png"
   }
 }

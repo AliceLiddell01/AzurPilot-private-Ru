@@ -1,7 +1,7 @@
 {
   "artifact_schema_version": 2,
   "compiler_version": "2",
-  "digest": "6091076b8f527fd7542854a84f244ce3240fae796ea820de1b055bdbe6187843",
+  "digest": "10c3fa294fe0f8c9d089916d226d4160053f62ff0d979343b294542cfcb054e1",
   "event_spec": {
     "currencies": [
       {
@@ -3518,7 +3518,7 @@
         },
         "category": "item",
         "currency_id": 741,
-        "event_shop_filter": "",
+        "event_shop_filter": "PRS9",
         "item_id": 42080,
         "item_type": 2,
         "limit_args": "",
@@ -3538,7 +3538,7 @@
         },
         "category": "item",
         "currency_id": 741,
-        "event_shop_filter": "",
+        "event_shop_filter": "DRS9",
         "item_id": 42086,
         "item_type": 2,
         "limit_args": "",
@@ -3937,7 +3937,7 @@
         51101,
         51102
       ],
-      "candidate_count": 26,
+      "candidate_count": 1,
       "mark": 20260813
     },
     "generated_maps": [

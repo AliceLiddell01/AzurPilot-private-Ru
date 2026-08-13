@@ -1,1 +1,1 @@
-"""Generated Event map modules; do not edit manually."""
+"""Сгенерированные модули Event-карт; не редактировать вручную."""
