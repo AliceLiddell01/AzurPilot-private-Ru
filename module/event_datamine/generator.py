@@ -21,6 +21,11 @@ def _matrix(value: tuple[tuple[str, ...], ...]) -> list[str]:
     return ["    " + " ".join(row) for row in value]
 
 
+def _has_grid_token(spec: MapSpec, token: str) -> bool:
+    matrices = (spec.map_data, spec.map_data_loop or ())
+    return any(item == token for matrix in matrices for row in matrix for item in row)
+
+
 def generate_map_module(
     spec: MapSpec,
     *,
@@ -81,6 +86,8 @@ def generate_map_module(
     }
     for key, value in factual.items():
         lines.append(f"    {key} = {value!r}")
+    if _has_grid_token(spec, "Me"):
+        lines.append("    MAP_HAS_MOVABLE_NORMAL_ENEMY = True")
     if spec.siren_templates:
         lines.append(f"    MAP_SIREN_TEMPLATE = {list(spec.siren_templates)!r}")
         lines.append(f"    MOVABLE_ENEMY_TURN = {tuple(spec.movable_enemy_turns)!r}")

@@ -202,6 +202,30 @@ def observation_is_fresh(
     return age is not None and timedelta(0) <= age <= max_age
 
 
+def _pt_evidence_timestamp(value: Any) -> datetime | None:
+    try:
+        observed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=timezone.utc)
+    return observed.astimezone(timezone.utc)
+
+
+def _current_pt_candidate_is_newer(
+    candidate_timestamp: Any, existing: Mapping[str, Any]
+) -> bool:
+    """Принимать только доказанно более свежее PT evidence; равное время не заменяет запись."""
+
+    candidate_at = _pt_evidence_timestamp(candidate_timestamp)
+    existing_at = _pt_evidence_timestamp(
+        existing.get("current_pt_observed_at") or existing.get("observed_at")
+    )
+    return candidate_at is not None and (
+        existing_at is None or candidate_at > existing_at
+    )
+
+
 def save_event_observation(
     instance: str,
     observation: Mapping[str, Any],
@@ -366,6 +390,8 @@ def persist_current_pt_observation(
     timestamp = (
         (observed_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
     )
+    if not _current_pt_candidate_is_newer(timestamp, observation):
+        return observation
     if not observation.get("source"):
         observation["source"] = source
     if not observation.get("observed_at"):

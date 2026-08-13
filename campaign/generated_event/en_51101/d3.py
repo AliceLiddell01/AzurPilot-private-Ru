@@ -42,6 +42,7 @@ class Config:
     STAR_REQUIRE_1 = 1
     STAR_REQUIRE_2 = 2
     STAR_REQUIRE_3 = 3
+    MAP_HAS_MOVABLE_NORMAL_ENEMY = True
     MAP_SIREN_TEMPLATE = ['haorenlichade_m_zhanlie', 'haorenlichade_m_hangmu']
     MOVABLE_ENEMY_TURN = (2,)
 

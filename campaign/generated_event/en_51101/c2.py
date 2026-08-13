@@ -38,6 +38,7 @@ class Config:
     STAR_REQUIRE_1 = 1
     STAR_REQUIRE_2 = 2
     STAR_REQUIRE_3 = 3
+    MAP_HAS_MOVABLE_NORMAL_ENEMY = True
     MAP_SIREN_TEMPLATE = ['emotion_qz']
     MOVABLE_ENEMY_TURN = (2,)
 

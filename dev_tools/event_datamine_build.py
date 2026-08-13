@@ -86,17 +86,11 @@ def build_current_event(
         if maps_output is not None
         else None
     )
-    if event_maps_output is not None:
-        for marker in (maps_output / "__init__.py", event_maps_output / "__init__.py"):
-            if not marker.exists():
-                write_map_module(
-                    marker,
-                    '"""Generated Event map modules; do not edit manually."""\n',
-                )
     updated_maps = tuple(
         replace(item, source_status=_map_status(item)) for item in spec.maps
     )
     map_records = []
+    map_writes: list[tuple[Path, str]] = []
     used_names: set[str] = set()
     for map_spec in updated_maps:
         status = map_spec.source_status
@@ -119,7 +113,30 @@ def build_current_event(
         if event_maps_output is not None and status == "verified":
             target = event_maps_output / f"{module_name}.py"
             content = generate_map_module(map_spec)
+            map_writes.append((target, content))
+
+    if not overwrite:
+        collisions = [target for target, _ in map_writes if target.exists()]
+        if collisions:
+            raise FileExistsError(collisions[0])
+
+    if event_maps_output is not None:
+        markers = (
+            maps_output / "__init__.py",
+            event_maps_output / "__init__.py",
+        )
+        for marker in markers:
+            if marker.exists() and not marker.is_file():
+                raise FileExistsError(marker)
+        for marker in markers:
+            if not marker.exists():
+                write_map_module(
+                    marker,
+                    '"""Generated Event map modules; do not edit manually."""\n',
+                )
+        for target, content in map_writes:
             write_map_module(target, content, overwrite=overwrite)
+
     spec = replace(spec, maps=updated_maps)
 
     artifact = build_artifact(
