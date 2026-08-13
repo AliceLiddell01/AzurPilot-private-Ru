@@ -51,6 +51,22 @@ class EventShop(EventShopClerk):
     urpt = 0
     pt_preserved = 0
 
+    def event_shop_buy_item(self, item_to_buy, amount=None):
+        result = super().event_shop_buy_item(item_to_buy, amount=amount)
+        try:
+            from module.event_datamine.artifact import load_builtin_artifact
+            from module.webui.event_shop_observation import invalidate_event_shop_observation
+
+            spec = load_builtin_artifact()["event_spec"]
+            invalidate_event_shop_observation(
+                instance=self.config.config_name,
+                event_id=str(spec.get("id") or ""),
+                server=str(spec.get("server") or "EN"),
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(f"[Магазин события — наблюдение] Не удалось инвалидировать snapshot: {exc}")
+        return result
+
     def get_current_pts(self):
         self.pt = self.event_shop_get_pt()
         if self.event_shop_has_urpt:
@@ -237,6 +253,20 @@ class EventShop(EventShopClerk):
         """
         self.event_shop_load_ensure()
         items = self.scan_all()
+        try:
+            from module.event_datamine.artifact import load_builtin_artifact
+            from module.webui.event_shop_observation import persist_event_shop_observation
+
+            observation_spec = load_builtin_artifact()["event_spec"]
+            persist_event_shop_observation(
+                instance=self.config.config_name,
+                spec=observation_spec,
+                runtime_items=items,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            # Observation is additive evidence. Its storage failure must not
+            # silently change the established EventShop purchase policy.
+            logger.warning(f"[Магазин события — наблюдение] Не удалось сохранить snapshot: {exc}")
         if not len(items):
             logger.warning("[Магазин события] Товары в магазине события не найдены")
             return True
