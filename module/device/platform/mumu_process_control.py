@@ -1,8 +1,8 @@
-"""Instance-scoped process identity и hard-kill primitives для современного MuMu.
+"""Instance-scoped identity процессов и hard-kill primitives современного MuMu.
 
 Модуль не зависит от winreg/WinAPI и поэтому тестируется на любой платформе.
-Target set строится только от exact MuMuNxDevice.exe выбранного instance и его
-дочерних процессов. Shared/global процессы MuMu сюда не попадают.
+Целевой набор строится только от exact MuMuNxDevice.exe выбранного экземпляра
+и его дочерних процессов. Общие процессы MuMu сюда не попадают.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ class MuMuInstanceLike(Protocol):
 
 
 class MuMuInstanceIdentityError(RuntimeError):
-    """Instance-owned process set нельзя определить однозначно."""
+    """Набор процессов выбранного экземпляра нельзя определить однозначно."""
 
 
 def _process_name(proc: psutil.Process) -> str:
@@ -50,7 +50,7 @@ def _argument_value(tokens: list[str], flag: str) -> str | None:
 
 
 def is_mumu_instance_root(proc: psutil.Process, instance: MuMuInstanceLike) -> bool:
-    """Проверить строгую identity современного MuMuNxDevice процесса."""
+    """Проверить строгую identity корневого MuMuNxDevice процесса."""
     instance_id = instance.MuMuPlayer12_id
     if instance_id is None or not instance.name:
         return False
@@ -71,7 +71,7 @@ def find_mumu_instance_roots(
         instance: MuMuInstanceLike,
         processes: Iterable[psutil.Process] | None = None,
 ) -> list[psutil.Process]:
-    """Найти корневой MuMuNxDevice только выбранного instance."""
+    """Найти корневой MuMuNxDevice только выбранного экземпляра."""
     if instance.MuMuPlayer12_id is None or not instance.name:
         raise MuMuInstanceIdentityError(
             f'Неполная identity MuMu instance: name={instance.name!r}, id={instance.MuMuPlayer12_id!r}'
@@ -90,7 +90,7 @@ def find_mumu_instance_roots(
 
 
 def is_mumu_instance_running(instance: MuMuInstanceLike) -> bool:
-    """Фактический instance-state probe без зависимости от ADB или окна."""
+    """Проверить фактическое состояние instance без зависимости от ADB или окна."""
     return bool(find_mumu_instance_roots(instance))
 
 
@@ -100,7 +100,7 @@ def wait_mumu_instance_stopped(
         timeout: float = 15.0,
         interval: float = 0.5,
 ) -> bool:
-    """Ограниченно ждать исчезновения instance-owned root."""
+    """Ограниченно ждать исчезновения корневого instance-owned процесса."""
     deadline = time.monotonic() + timeout
     while True:
         if not is_mumu_instance_running(instance):
@@ -111,7 +111,7 @@ def wait_mumu_instance_stopped(
 
 
 def mumu_instance_owned_processes(instance: MuMuInstanceLike) -> list[psutil.Process]:
-    """Получить bounded target set: exact root + его descendants."""
+    """Получить ограниченный target set: exact root и его descendants."""
     roots = find_mumu_instance_roots(instance)
     if not roots:
         return []
@@ -124,7 +124,11 @@ def mumu_instance_owned_processes(instance: MuMuInstanceLike) -> list[psutil.Pro
             f'Не удалось безопасно перечислить дочерние процессы PID {root.pid}: {exc}'
         ) from exc
 
-    unique = {proc.pid: proc for proc in [*children, root]}
+    # Корень всегда хранится первым: force-stop не зависит от неявного порядка
+    # обхода descendants и гарантированно завершает root последним.
+    unique = {root.pid: root}
+    for proc in children:
+        unique.setdefault(proc.pid, proc)
     return list(unique.values())
 
 
@@ -144,8 +148,8 @@ def force_stop_mumu_instance(
         logger.info(f'[Устройство — Windows] MuMu instance {instance.name} уже остановлен')
         return True
 
-    root = targets[-1]
-    ordered = [proc for proc in targets if proc.pid != root.pid] + [root]
+    root = targets[0]
+    ordered = [proc for proc in targets[1:] if proc.pid != root.pid] + [root]
     for proc in ordered:
         try:
             logger.warning(
