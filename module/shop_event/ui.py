@@ -31,6 +31,27 @@ from module.ui.ui import UI
 
 
 class EventShopScroll(Scroll):
+    terminal_drag_threshold = 0.02
+
+    def _drag_threshold_for_target(self, position):
+        if position <= self.edge_threshold or position >= 1 - self.edge_threshold:
+            return min(self.terminal_drag_threshold, self.edge_threshold)
+        return self.drag_threshold
+
+    def set(self, position, main, random_range=(-0.05, 0.05), distance_check=True, skip_first_screenshot=True):
+        default_drag_threshold = self.drag_threshold
+        self.drag_threshold = self._drag_threshold_for_target(position)
+        try:
+            return super().set(
+                position,
+                main=main,
+                random_range=random_range,
+                distance_check=distance_check,
+                skip_first_screenshot=skip_first_screenshot,
+            )
+        finally:
+            self.drag_threshold = default_drag_threshold
+
     def match_color(self, main):
         background_transparency = 0.2
         button_transparency = 0.5
@@ -59,7 +80,7 @@ EVENT_SHOP_SCROLL = EventShopScroll(
     color=(44, 48, 56),
     name="EVENT_SHOP_SCROLL"
 )
-EVENT_SHOP_SCROLL.drag_threshold = 0.02
+EVENT_SHOP_SCROLL.drag_threshold = 0.1
 EVENT_SHOP_SCROLL.edge_threshold = 0.02
 
 
