@@ -3,7 +3,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from dev_tools.mumu_process_inventory import classify_relationship, mask_personal_path
+from dev_tools.mumu_process_inventory import (
+    classify_relationship,
+    display_report_path,
+    mask_personal_path,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +86,17 @@ def test_mask_personal_path_hides_other_windows_profiles_case_insensitively():
         mask_personal_path(r"c:/uSeRs/SecondUser/Desktop/report.txt")
         == r"%USERPROFILE%/Desktop/report.txt"
     )
+
+
+def test_display_report_path_hides_windows_profile_in_temp_path():
+    path = Path(
+        r"C:\Users\SensitiveUser\AppData\Local\Temp\AzurPilot-MuMu-Inventory-abc\mumu-process-inventory.json"
+    )
+
+    rendered = display_report_path(path)
+
+    assert rendered.startswith(r"%USERPROFILE%\AppData\Local\Temp")
+    assert "SensitiveUser" not in rendered
 
 
 def test_inventory_tool_contains_no_destructive_process_operation():
