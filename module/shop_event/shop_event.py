@@ -86,6 +86,16 @@ class EventShop(EventShopClerk):
         self.pt = self.event_shop_get_pt()
         if self.event_shop_has_urpt:
             self.urpt = self.event_shop_get_urpt()
+
+        try:
+            from module.log_res.log_res import LogRes
+
+            LogRes(config=self.config).Pt = self.pt
+        except Exception as exc:
+            logger.warning(
+                f"[Магазин события — ресурсы] Не удалось обновить PT в журнале: {exc}"
+            )
+
         try:
             from datetime import datetime
 
@@ -103,6 +113,7 @@ class EventShop(EventShopClerk):
                         spec.get("provenance", {}).get("revision") or ""
                     ),
                     value=self.pt,
+                    source="event_shop_ocr",
                 )
         except (OSError, TypeError, ValueError) as exc:
             logger.warning(
@@ -289,6 +300,9 @@ class EventShop(EventShopClerk):
             in: shop_event
         """
         self.event_shop_load_ensure()
+        # PT is a first-class observation of every EventShop pass, including
+        # the verification-only pass where no new purchase candidate remains.
+        self.get_current_pts()
         items = self.scan_all()
         try:
             from datetime import datetime
@@ -313,7 +327,6 @@ class EventShop(EventShopClerk):
             logger.warning("[Магазин события] Товары в магазине события не найдены")
             return True
         logger.hr("Покупки в магазине события", level=2)
-        self.get_current_pts()
         items, urpt_related_items = self.handle_items_related_with_urpt(items, self.config.EventShop_BuyURShip)
         self.get_current_pts()
         items, unobtained_multiple_stock_items = self.handle_unobtained_items(items, self.config.EventShop_UnlockSSRShip)
