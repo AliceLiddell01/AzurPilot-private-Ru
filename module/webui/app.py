@@ -218,6 +218,7 @@ def app():
         # магазина не зависел от асинхронной загрузки stylesheet через DOM.
         add_css(filepath_css("event-profiles-alas"))
         add_css(filepath_css("event-general-v2-alas"))
+        add_css(filepath_css("event-general-v2-polish-alas"))
         add_css(filepath_css("event-shop-stability-alas"))
         add_css(filepath_css("traceback-alas"))
         if _block_public_webui_password_error():
