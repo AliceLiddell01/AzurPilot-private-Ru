@@ -25,7 +25,7 @@ from module.logger import logger
 from module.webui.event_shop_observation import reconcile_event_shop
 from module.webui.event_source import load_event_user_state, save_event_user_state
 
-EVENT_SHOP_PRIORITY_SCHEMA_VERSION = 3
+EVENT_SHOP_PRIORITY_SCHEMA_VERSION = 4
 EVENT_SHOP_PRIORITY_ROOT = Path("./config/state/event_shop_priority")
 
 
@@ -58,6 +58,7 @@ def empty_event_shop_priority(event_id: str = "") -> dict[str, Any]:
         "purchased": [],
         "completed": [],
         "remaining": {},
+        "target_baselines": {},
         "blocked": {},
         "pending": {},
     }
@@ -90,15 +91,17 @@ def normalize_event_shop_priority(
             result[field] = sorted(
                 {str(row_id) for row_id in values if str(row_id).strip()}
             )
-    remaining = raw.get("remaining")
-    if isinstance(remaining, Mapping):
-        for row_id, value in remaining.items():
+    for field in ("remaining", "target_baselines"):
+        values = raw.get(field)
+        if not isinstance(values, Mapping):
+            continue
+        for row_id, value in values.items():
             try:
                 count = int(value)
             except (TypeError, ValueError, OverflowError):
                 continue
             if count >= 0:
-                result["remaining"][str(row_id)] = count
+                result[field][str(row_id)] = count
     blocked = raw.get("blocked")
     if isinstance(blocked, Mapping):
         result["blocked"] = {
@@ -195,8 +198,10 @@ def set_event_shop_priority(
 ) -> dict[str, Any]:
     state = load_event_shop_priority(instance, event_id, root=root)
     key = str(row_id)
+    was_terminal = key in state["purchased"] or key in state["completed"]
     if priority is None:
         state["priorities"].pop(key, None)
+        state["target_baselines"].pop(key, None)
     else:
         value = int(priority)
         if value < 0:
@@ -204,6 +209,8 @@ def set_event_shop_priority(
         state["priorities"][key] = value
         state["purchased"] = [item for item in state["purchased"] if item != key]
         state["completed"] = [item for item in state["completed"] if item != key]
+        if was_terminal:
+            state["target_baselines"].pop(key, None)
     if str(state.get("pending", {}).get("row_id") or "") != key:
         state["blocked"].pop(key, None)
     save_event_shop_priority(instance, state, root=root)
@@ -287,14 +294,20 @@ def _target_remaining(
     source: Mapping[str, Any],
     runtime: Any,
     selected: int,
+    baseline_remaining: int | None = None,
 ) -> int:
-    """Return how many more units may be bought without exceeding the user goal."""
+    """Return how many units remain in the current user goal."""
     stock = max(int(source.get("stock", 0) or 0), 0)
-    target = min(max(int(selected), 0), stock)
     current = max(int(getattr(runtime, "count", 0) or 0), 0)
     current = min(current, stock)
-    already_bought = max(stock - current, 0)
-    return max(target - already_bought, 0)
+    if baseline_remaining is None:
+        baseline = current
+    else:
+        baseline = min(max(int(baseline_remaining), 0), stock)
+        baseline = max(baseline, current)
+    target = min(max(int(selected), 0), baseline)
+    bought_for_goal = max(baseline - current, 0)
+    return max(target - bought_for_goal, 0)
 
 
 def _runtime_filter(item: Any) -> str:
@@ -347,12 +360,19 @@ def _verify_pending_purchase(
     state["blocked"].pop(row_id, None)
     stock = max(int(source.get("stock", 0) or 0), 0) if source else before
     selected = min(max(int(selected_targets.get(row_id, 0) or 0), 0), stock)
-    already_bought = max(stock - min(after, stock), 0)
-    target_done = selected > 0 and already_bought >= selected
+    baseline = min(
+        max(int(state["target_baselines"].get(row_id, before) or 0), 0),
+        stock,
+    )
+    baseline = max(baseline, after)
+    goal_size = min(selected, baseline)
+    bought_for_goal = max(baseline - min(after, baseline), 0)
+    target_done = selected > 0 and bought_for_goal >= goal_size
 
     if after == 0:
         if selected > 0:
             _clear_selected_target(config, state["event_id"], row_id, selected)
+        state["target_baselines"].pop(row_id, None)
         state["priorities"].pop(row_id, None)
         state["purchased"] = sorted(set(state["purchased"]) | {row_id})
         state["completed"] = [item for item in state["completed"] if item != row_id]
@@ -368,6 +388,7 @@ def _verify_pending_purchase(
         )
         state["purchased"] = [item for item in state["purchased"] if item != row_id]
         if target_cleared:
+            state["target_baselines"].pop(row_id, None)
             state["priorities"].pop(row_id, None)
             state["completed"] = sorted(set(state["completed"]) | {row_id})
             logger.info(
@@ -382,6 +403,7 @@ def _verify_pending_purchase(
         state["purchased"] = [item for item in state["purchased"] if item != row_id]
         state["completed"] = [item for item in state["completed"] if item != row_id]
         if selected <= 0:
+            state["target_baselines"].pop(row_id, None)
             state["priorities"].pop(row_id, None)
             logger.info(
                 f"[Магазин события — приоритеты] Повторный скан подтвердил остаток {after}; активная цель отсутствует, приоритет сброшен"
@@ -482,6 +504,8 @@ def prepare_event_shop_runtime_items(
 
         selected = selected_targets.get(row_id, 0)
         if selected <= 0:
+            if state["target_baselines"].pop(row_id, None) is not None:
+                changed = True
             continue
 
         runtime = runtime_by_row.get(row_id)
@@ -498,7 +522,20 @@ def prepare_event_shop_runtime_items(
             )
             continue
 
-        remaining_goal = _target_remaining(source, runtime, selected)
+        stock = max(int(source.get("stock", 0) or 0), 0)
+        current = min(max(int(getattr(runtime, "count", 0) or 0), 0), stock)
+        baseline = state["target_baselines"].get(row_id)
+        if baseline is None or int(baseline) < current or int(baseline) > stock:
+            baseline = current
+            state["target_baselines"][row_id] = baseline
+            changed = True
+
+        remaining_goal = _target_remaining(
+            source,
+            runtime,
+            selected,
+            baseline_remaining=baseline,
+        )
         if remaining_goal <= 0:
             continue
 
@@ -536,7 +573,8 @@ def prepare_event_shop_runtime_items(
     save_event_shop_priority(config.config_name, state, root=root)
 
     # One scanner snapshot authorizes at most one logical purchase. Quantity
-    # comes from the user's target and is capped against already bought stock.
+    # comes from the user's target and is capped against purchases made since
+    # this target was established.
     next_candidate = safe_candidates[:1]
     filter_tokens = []
     for _, _, _, source, runtime, remaining_goal in next_candidate:
@@ -648,13 +686,27 @@ def wake_event_shop_after_currency_increase(
             if source_row is None:
                 continue
             stock = max(int(source_row.get("stock", 0) or 0), 0)
-            selected = min(max(int(targets.get(row_id, 0)), 0), stock)
             observed_remaining = min(
                 max(int(state["remaining"].get(row_id, stock) or 0), 0),
                 stock,
             )
-            already_bought = max(stock - observed_remaining, 0)
-            if selected > already_bought:
+            baseline = min(
+                max(
+                    int(
+                        state["target_baselines"].get(
+                            row_id,
+                            observed_remaining,
+                        )
+                        or 0
+                    ),
+                    0,
+                ),
+                stock,
+            )
+            baseline = max(baseline, observed_remaining)
+            selected = min(max(int(targets.get(row_id, 0)), 0), baseline)
+            bought_for_goal = max(baseline - observed_remaining, 0)
+            if selected > bought_for_goal:
                 active = True
                 break
         if not active:
