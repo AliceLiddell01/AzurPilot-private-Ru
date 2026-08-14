@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from functools import partial
+from hashlib import sha256
 from threading import RLock
 from typing import Any
 
@@ -15,6 +17,7 @@ from module.webui.app_dependencies import (
     put_button,
     put_input,
     put_row,
+    run_js,
     toast,
     use_scope,
 )
@@ -102,12 +105,78 @@ class EventPlannerMixin(WebUIMixinBase):
             int(item.get("stock", 0) or 0),
         )
 
+    @staticmethod
+    def _shop_item_dom_key(identity: tuple[str, str, str, int, int]) -> str:
+        """Построить стабильный DOM-ключ из source-derived identity товара."""
+        payload = "\x1f".join(
+            (identity[0], identity[1], identity[2], str(identity[3]), str(identity[4]))
+        )
+        return sha256(payload.encode("utf-8")).hexdigest()[:16]
+
     @classmethod
     def _find_shop_item(cls, items, identity) -> int | None:
         for index, item in enumerate(items):
             if cls._shop_item_identity(item) == identity:
                 return index
         return None
+
+    @staticmethod
+    def _shop_live_snapshot(plan: Mapping[str, Any], item: Mapping[str, Any]) -> dict[str, int]:
+        selected = int(item.get("selected", 0) or 0)
+        return {
+            "selected": selected,
+            "cost": int(item.get("price", 0) or 0) * selected,
+            "total": shop_plan_total(plan),
+            "selected_count": sum(
+                1
+                for candidate in plan.get("shop_items", [])
+                if int(candidate.get("selected", 0) or 0) > 0
+            ),
+        }
+
+    def _patch_event_shop_plan_values(
+        self,
+        identity: tuple[str, str, str, int, int],
+        snapshot: Mapping[str, int],
+    ) -> None:
+        """Обновить только изменившиеся числа магазина без пересборки карточек."""
+        if getattr(self, "_event_plan_active_task", "") != "EventShop":
+            return
+        key = self._shop_item_dom_key(identity)
+        payload = {
+            "selected_id": f"event-shop-selected-{key}",
+            "cost_id": f"event-shop-cost-{key}",
+            "total_id": "event-shop-plan-total",
+            "count_id": "event-shop-plan-count",
+            "selected": f"{int(snapshot['selected']):,}".replace(",", " "),
+            "cost": f"{int(snapshot['cost']):,}".replace(",", " "),
+            "total": f"{int(snapshot['total']):,}".replace(",", " "),
+            "count": f"{int(snapshot['selected_count'])} позиций",
+        }
+        run_js(
+            """
+((update) => {
+  const apply = (id, value) => {
+    const node = document.getElementById(id);
+    if (!node || node.textContent === value) return;
+    node.textContent = value;
+    node.classList.remove("event-shop-value-updated");
+    requestAnimationFrame(() => {
+      node.classList.add("event-shop-value-updated");
+      window.setTimeout(
+        () => node.classList.remove("event-shop-value-updated"),
+        220,
+      );
+    });
+  };
+  apply(update.selected_id, update.selected);
+  apply(update.cost_id, update.cost);
+  apply(update.total_id, update.total);
+  apply(update.count_id, update.count);
+})(%s);
+"""
+            % json.dumps(payload, ensure_ascii=False)
+        )
 
     @staticmethod
     def _stale_plan_message() -> None:
@@ -158,21 +227,27 @@ class EventPlannerMixin(WebUIMixinBase):
             toast(f"Количество должно быть от 0 до {identity[4]}", color="warning")
             return
 
+        live_snapshot: dict[str, int] = {}
+
         def mutation(plan):
             index = self._find_shop_item(plan["shop_items"], identity)
             if index is None:
                 return _STALE_EVENT_PLAN
-            plan["shop_items"][index]["selected"] = selected
+            item = plan["shop_items"][index]
+            item["selected"] = selected
+            live_snapshot.update(self._shop_live_snapshot(plan, item))
 
         if self._event_plan_mutate(mutation, "Количество в плане обновлено"):
             close_popup()
-            self._refresh_event_plan_page()
+            self._patch_event_shop_plan_values(identity, live_snapshot)
 
     def _change_shop_quantity(
         self,
         identity: tuple[str, str, str, int, int],
         operation: str,
     ) -> None:
+        live_snapshot: dict[str, int] = {}
+
         def mutation(plan):
             index = self._find_shop_item(plan["shop_items"], identity)
             if index is None:
@@ -194,9 +269,10 @@ class EventPlannerMixin(WebUIMixinBase):
             if selected == current:
                 return _UNCHANGED_EVENT_PLAN
             item["selected"] = selected
+            live_snapshot.update(self._shop_live_snapshot(plan, item))
 
-        if self._event_plan_mutate(mutation, "Количество в плане обновлено"):
-            self._refresh_event_plan_page()
+        if self._event_plan_mutate(mutation, ""):
+            self._patch_event_shop_plan_values(identity, live_snapshot)
 
     def _use_shop_total_as_target(self) -> None:
         total = shop_plan_total(self._event_plan())
