@@ -53,12 +53,21 @@ class RecoveryPlatformWindows(PlatformWindows):
                 shell=False,
                 timeout=timeout,
                 close_fds=True,
+                capture_output=True,
+                text=True,
+                errors='replace',
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
         except subprocess.TimeoutExpired:
             logger.warning(f'[Устройство — Windows] Истёк тайм-аут команды: {timeout} с')
             return None
         logger.info(f'[Устройство — Windows] Команда завершилась с кодом {result.returncode}')
+        output = (result.stdout or '').strip()
+        error = (result.stderr or '').strip()
+        if output:
+            logger.info(f'[Устройство — Windows] Вывод MuMuManager: {output}')
+        if error:
+            logger.warning(f'[Устройство — Windows] Ошибки MuMuManager: {error}')
         return result
 
     def _mumu_manager_command(self, instance: EmulatorInstance, action: str):

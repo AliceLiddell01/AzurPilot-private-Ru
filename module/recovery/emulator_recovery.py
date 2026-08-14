@@ -39,6 +39,24 @@ def _fresh_recovery_device(config):
     return FreshRecoveryDevice(config=config)
 
 
+def _release_current_device(current_device) -> None:
+    """Освободить screenshot/IPC ресурсы старого Device перед остановкой эмулятора."""
+    if current_device is None:
+        return
+
+    release = getattr(current_device, 'release_during_wait', None)
+    if not callable(release):
+        return
+
+    try:
+        release()
+        logger.info('[Восстановление] Ресурсы старого Device освобождены')
+    except Exception as exc:
+        logger.warning(
+            f'[Восстановление] Не удалось полностью освободить ресурсы старого Device: {exc}'
+        )
+
+
 def recover_emulator_transport(
         config,
         *,
@@ -62,6 +80,7 @@ def recover_emulator_transport(
 
     instance_name = getattr(instance, 'name', '') or str(instance)
     logger.info(f'[Восстановление] Целевой экземпляр эмулятора определён: {instance_name}')
+    _release_current_device(current_device)
     logger.info('[Восстановление] Запрошена штатная остановка эмулятора')
 
     try:

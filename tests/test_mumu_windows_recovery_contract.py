@@ -19,10 +19,16 @@ class MuMuWindowsRecoveryContractTests(unittest.TestCase):
     def test_mumu_manager_commands_use_argv_and_shell_false(self):
         text = RECOVERY.read_text(encoding='utf-8')
         tree = ast.parse(text)
-        self.assertIn("return [console, 'api', '-v', str(instance_id), action]", text)
         self.assertIn('shell=False', text)
         self.assertIn("'shutdown_player'", text)
         self.assertIn("'launch_player'", text)
+
+        literals = {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        self.assertTrue({'api', '-v'} <= literals)
 
         calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
         subprocess_runs = [

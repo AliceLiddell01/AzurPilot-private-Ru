@@ -22,6 +22,9 @@ import psutil
 
 
 MUMU_PROCESS_HINT = re.compile(r"(?i)(mumu|nemu|muvm)")
+WINDOWS_PROFILE_ROOT = re.compile(
+    r'(?i)[a-z]:[\\/]users[\\/][^\\/\r\n"]+'
+)
 
 
 @dataclass
@@ -82,7 +85,7 @@ def mask_personal_path(value: str) -> str:
     if not value:
         return ""
 
-    result = value
+    result = WINDOWS_PROFILE_ROOT.sub("%USERPROFILE%", value)
     home = str(Path.home())
     if home and home not in {".", os.path.sep}:
         result = result.replace(home, "%USERPROFILE%")
@@ -111,6 +114,19 @@ def name_of(proc: psutil.Process) -> str:
         return ""
 
 
+def _has_instance_id_token(command_line: str, instance_id: int) -> bool:
+    tokens = command_line.split()
+    expected = str(instance_id)
+    for index, token in enumerate(tokens):
+        normalized = token.casefold()
+        if normalized in {"-v", "--instance"}:
+            if index + 1 < len(tokens) and tokens[index + 1] == expected:
+                return True
+        if normalized == f"--instance={expected}":
+            return True
+    return False
+
+
 def classify_relationship(
     *,
     name: str,
@@ -123,17 +139,11 @@ def classify_relationship(
     if instance_name and instance_name.casefold() in identity_searchable.casefold():
         return "selected-instance-token"
 
-    if instance_id is not None:
-        id_patterns = (
-            rf"(?i)(?:^|\s)-v\s+{instance_id}(?:\s|$)",
-            rf"(?i)(?:^|\s)--instance(?:=|\s+){instance_id}(?:\s|$)",
-        )
-        if any(re.search(pattern, command_line) for pattern in id_patterns):
-            return "selected-instance-id-token"
+    if instance_id is not None and _has_instance_id_token(command_line, instance_id):
+        return "selected-instance-id-token"
 
-    # Generic MuMu relevance is based only on the executable identity. Otherwise
-    # a tool such as python.exe becomes a false positive merely because its script
-    # argument contains the word "mumu".
+    # Общая принадлежность к MuMu определяется только по имени/пути процесса.
+    # Иначе python.exe становится ложным совпадением из-за слова "mumu" в аргументе скрипта.
     process_identity = f"{name} {executable}"
     if MUMU_PROCESS_HINT.search(process_identity):
         return "mumu-related-unclassified"
@@ -291,11 +301,14 @@ def main() -> int:
         "processes": [asdict(row) for row in rows],
     }
 
-    output_root = Path(tempfile.gettempdir()) / "AzurPilot-MuMu-Inventory"
-    output_root.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    json_path = output_root / f"mumu-process-inventory-{stamp}.json"
-    text_path = output_root / f"mumu-process-inventory-{stamp}.txt"
+    output_dir = Path(
+        tempfile.mkdtemp(
+            prefix="AzurPilot-MuMu-Inventory-",
+            dir=tempfile.gettempdir(),
+        )
+    )
+    json_path = output_dir / "mumu-process-inventory.json"
+    text_path = output_dir / "mumu-process-inventory.txt"
 
     json_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",

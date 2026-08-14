@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
-from dev_tools.mumu_process_inventory import classify_relationship
+from dev_tools.mumu_process_inventory import classify_relationship, mask_personal_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,17 +73,43 @@ def test_python_running_mumu_named_inventory_script_is_not_false_positive():
     assert relationship == "unrelated"
 
 
+def test_mask_personal_path_hides_other_windows_profiles_case_insensitively():
+    assert (
+        mask_personal_path(r"C:\Users\OtherUser\AppData\Local\MuMu\file.log")
+        == r"%USERPROFILE%\AppData\Local\MuMu\file.log"
+    )
+    assert (
+        mask_personal_path(r"c:/uSeRs/SecondUser/Desktop/report.txt")
+        == r"%USERPROFILE%/Desktop/report.txt"
+    )
+
+
 def test_inventory_tool_contains_no_destructive_process_operation():
     source = INVENTORY_TOOL.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(INVENTORY_TOOL))
 
-    for forbidden in (
-        ".kill(",
-        ".terminate(",
-        "taskkill",
-        "shutdown_player",
-        "launch_player",
-        "subprocess.run",
-        "subprocess.Popen",
-        "os.system",
-    ):
-        assert forbidden not in source
+    destructive_attributes = {"kill", "terminate", "send_signal"}
+    destructive_qualified_calls = {
+        ("os", "kill"),
+        ("os", "system"),
+        ("subprocess", "run"),
+        ("subprocess", "Popen"),
+        ("subprocess", "call"),
+        ("subprocess", "check_call"),
+        ("subprocess", "check_output"),
+    }
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        assert node.func.attr not in destructive_attributes
+        if isinstance(node.func.value, ast.Name):
+            assert (node.func.value.id, node.func.attr) not in destructive_qualified_calls
+
+    string_literals = {
+        node.value.casefold()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    for forbidden in ("taskkill", "shutdown_player", "launch_player"):
+        assert forbidden not in string_literals

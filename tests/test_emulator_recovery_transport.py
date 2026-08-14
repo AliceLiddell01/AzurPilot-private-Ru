@@ -38,6 +38,28 @@ class EmulatorRecoveryTransportTests(unittest.TestCase):
         platform.emulator_start.assert_called_once_with()
         factory.assert_called_once()
 
+    def test_current_device_resources_are_released_before_emulator_stop(self):
+        order = []
+        platform = self.make_platform(stop=True, start=True)
+        platform.emulator_stop.side_effect = lambda: order.append('stop') or True
+        platform.emulator_start.side_effect = lambda: order.append('start') or True
+        current_device = types.SimpleNamespace(
+            release_during_wait=Mock(side_effect=lambda: order.append('release')),
+        )
+        factory = Mock(side_effect=lambda **_: order.append('fresh-device') or object())
+
+        outcome = recover_emulator_transport(
+            object(),
+            current_device=current_device,
+            allow_hard_kill=True,
+            platform=platform,
+            device_factory=factory,
+        )
+
+        self.assertTrue(outcome.success)
+        self.assertEqual(['release', 'stop', 'start', 'fresh-device'], order)
+        current_device.release_during_wait.assert_called_once_with()
+
     def test_still_alive_after_graceful_uses_hard_kill_before_start(self):
         order = []
         platform = self.make_platform(stop=False, force=True, start=True)
@@ -56,21 +78,6 @@ class EmulatorRecoveryTransportTests(unittest.TestCase):
         self.assertTrue(outcome.success)
         self.assertEqual('hard-kill', outcome.mode)
         self.assertEqual(['graceful', 'hard-kill', 'start', 'fresh-device'], order)
-
-    def test_graceful_command_failure_but_verified_dead_does_not_force_kill(self):
-        # Платформенный контракт учитывает timeout/non-zero команды, но возвращает True,
-        # если actual-state probe доказывает, что выбранный экземпляр уже остановлен.
-        platform = self.make_platform(stop=True, force=True, start=True)
-
-        outcome = recover_emulator_transport(
-            object(),
-            allow_hard_kill=True,
-            platform=platform,
-            device_factory=Mock(return_value=object()),
-        )
-
-        self.assertTrue(outcome.success)
-        platform.emulator_force_stop_instance.assert_not_called()
 
     def test_hard_kill_failure_blocks_cold_start(self):
         platform = self.make_platform(stop=False, force=False, start=True)

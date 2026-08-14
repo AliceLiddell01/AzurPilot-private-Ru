@@ -140,6 +140,18 @@ class PlatformWindowsRecoveryBehaviorTests(unittest.TestCase):
         self.assertFalse(platform.emulator_start())
         platform.emulator_start_watch.assert_not_called()
 
+    def test_default_start_budget_is_three_launch_attempts(self):
+        module, platform = self.make_platform()
+        module.is_mumu_instance_running = mock.Mock(return_value=False)
+        platform._mumu_manager_command = mock.Mock(
+            return_value=types.SimpleNamespace(returncode=9)
+        )
+        platform.emulator_start_watch = mock.Mock(return_value=True)
+
+        self.assertFalse(platform.emulator_start())
+        self.assertEqual(3, platform._mumu_manager_command.call_count)
+        platform.emulator_start_watch.assert_not_called()
+
     def test_start_watch_failure_is_overall_failure(self):
         module, platform = self.make_platform()
         platform.MUMU_START_ATTEMPTS = 1
