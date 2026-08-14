@@ -1,11 +1,12 @@
-"""按钮与网格组件模块。
+"""Модуль кнопок и сеток.
 
-定义视觉交互系统的核心基类 Button 及 ButtonGrid，是所有 UI 交互的基本单位。
-包含坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
+Определяет основные классы Button и ButtonGrid визуальной системы взаимодействия Alas.
+Содержит логику смещения координат, распознавания цвета и шаблонов, а также выполнения кликов.
 """
 
-# 此文件定义了 Alas 视觉交互系统的核心基类：Button（按钮）及相关网格。
-# 它是所有 UI 交互的基本单位，包含了坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
+# Этот файл определяет основные классы визуальной системы взаимодействия Alas: Button (кнопка) и связанные сетки.
+# Они являются базовыми единицами взаимодействия с UI и содержат логику смещения координат,
+# распознавания цвета/шаблонов и выполнения кликов.
 import typing as t
 import os
 import traceback
@@ -22,16 +23,18 @@ from module.logger import logger
 
 class Button(Resource):
     def __init__(self, area, color, button, file=None, name=None):
-        """初始化 Button 实例。
+        """Инициализировать экземпляр Button.
 
         Args:
-            area (dict[tuple], tuple): 按钮在截图中出现的区域。
-                (左上角 x, 左上角 y, 右下角 x, 右下角 y)
-            color (dict[tuple], tuple): 期望该区域呈现的颜色。
+            area (dict[tuple], tuple): Область, в которой кнопка появляется на скриншоте.
+                (x левого верхнего угла, y левого верхнего угла,
+                x правого нижнего угла, y правого нижнего угла)
+            color (dict[tuple], tuple): Ожидаемый цвет указанной области.
                 (r, g, b)
-            button (dict[tuple], tuple): 按钮出现时的可点击区域。
-                (左上角 x, 左上角 y, 右下角 x, 右下角 y)
-                若传入空元组，则此对象仅作为检测器使用。
+            button (dict[tuple], tuple): Кликабельная область кнопки.
+                (x левого верхнего угла, y левого верхнего угла,
+                x правого нижнего угла, y правого нижнего угла)
+                Если передан пустой кортеж, объект используется только как детектор.
 
         Examples:
             BATTLE_PREPARATION = Button(
@@ -113,14 +116,14 @@ class Button(Resource):
             return self._button_offset
 
     def appear_on(self, image, threshold=10):
-        """检测按钮是否出现在截图上。
+        """Проверить, присутствует ли кнопка на скриншоте.
 
         Args:
-            image (np.ndarray): 截图。
-            threshold (int): 颜色相似度阈值，默认为 10。
+            image (np.ndarray): Скриншот.
+            threshold (int): Порог различия цветов, по умолчанию 10.
 
         Returns:
-            bool: 若按钮出现在截图上则返回 True。
+            bool: True, если кнопка присутствует на скриншоте.
         """
         return color_similar(
             color1=get_color(image, self.area),
@@ -129,13 +132,15 @@ class Button(Resource):
         )
 
     def load_color(self, image):
-        """从指定截图的对应区域加载颜色。此方法不可逆，仅在特殊场景下使用。
+        """Загрузить цвет из области кнопки на переданном скриншоте.
+
+        Операция необратима и предназначена только для специальных сценариев.
 
         Args:
-            image: 截图。
+            image: Скриншот.
 
         Returns:
-            tuple: 颜色值 (r, g, b)。
+            tuple: Цвет (r, g, b).
         """
         self.__dict__['color'] = get_color(image, self.area)
         self.image = crop(image, self.area)
@@ -143,10 +148,10 @@ class Button(Resource):
         return self.color
 
     def load_offset(self, button):
-        """从另一个按钮加载偏移量。
+        """Загрузить смещение относительно другой кнопки.
 
         Args:
-            button (Button): 参考按钮。
+            button (Button): Опорная кнопка.
         """
         offset = np.subtract(button.button, button._button)[:2]
         self._button_offset = area_offset(self._button, offset=offset)
@@ -155,7 +160,7 @@ class Button(Resource):
         self._button_offset = None
 
     def ensure_template(self):
-        """加载资源图像。若需调用 self.match，应先调用此方法。"""
+        """Загрузить изображение ресурса перед вызовом self.match."""
         if not self._match_init:
             if self.is_gif:
                 self.image = []
@@ -169,7 +174,7 @@ class Button(Resource):
             self._match_init = True
 
     def ensure_binary_template(self):
-        """加载二值化资源图像。若需调用 self.match_binary，应先调用此方法。"""
+        """Загрузить бинаризованный ресурс перед вызовом self.match_binary."""
         if not self._match_binary_init:
             if self.is_gif:
                 self.image_binary = []
@@ -203,15 +208,17 @@ class Button(Resource):
         self._match_luma_init = False
 
     def match(self, image, offset=30, similarity=0.85):
-        """通过模板匹配检测按钮。部分按钮的位置可能不固定。
+        """Найти кнопку с помощью сопоставления с шаблоном.
+
+        Положение некоторых кнопок может быть непостоянным.
 
         Args:
-            image: 截图。
-            offset (int, tuple): 检测区域偏移量。
-            similarity (float): 相似度阈值，范围 0-1。
+            image: Скриншот.
+            offset (int, tuple): Смещение области поиска.
+            similarity (float): Порог сходства в диапазоне 0-1.
 
         Returns:
-            bool: 匹配成功返回 True。
+            bool: True при успешном совпадении.
         """
         requested_similarity = float(similarity)
         similarity = lower_template_match_similarity(similarity)
@@ -258,15 +265,17 @@ class Button(Resource):
             return matched
 
     def match_binary(self, image, offset=30, similarity=0.85):
-        """通过二值化模板匹配检测按钮。部分按钮的位置可能不固定。
+        """Найти кнопку сопоставлением бинаризованного шаблона.
+
+        Положение некоторых кнопок может быть непостоянным.
 
         Args:
-            image: 截图。
-            offset (int, tuple): 检测区域偏移量。
-            similarity (float): 相似度阈值，范围 0-1。
+            image: Скриншот.
+            offset (int, tuple): Смещение области поиска.
+            similarity (float): Порог сходства в диапазоне 0-1.
 
         Returns:
-            bool: 匹配成功返回 True。
+            bool: True при успешном совпадении.
         """
         similarity = lower_template_match_similarity(similarity)
         self.ensure_template()
@@ -283,11 +292,11 @@ class Button(Resource):
 
         if self.is_gif:
             for template in self.image_binary:
-                # 灰度化
+                # Преобразование в оттенки серого.
                 image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                # 二值化
+                # Бинаризация.
                 _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-                # 模板匹配
+                # Сопоставление с шаблоном.
                 res = cv2.matchTemplate(template, image_binary, cv2.TM_CCOEFF_NORMED)
                 _, sim, _, point = cv2.minMaxLoc(res)
                 self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
@@ -295,26 +304,26 @@ class Button(Resource):
                     return True
             return False
         else:
-            # 灰度化
+            # Преобразование в оттенки серого.
             image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # 二值化
+            # Бинаризация.
             _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            # 模板匹配
+            # Сопоставление с шаблоном.
             res = cv2.matchTemplate(self.image_binary, image_binary, cv2.TM_CCOEFF_NORMED)
             _, sim, _, point = cv2.minMaxLoc(res)
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
             return sim > similarity
 
     def match_luma(self, image, offset=30, similarity=0.85):
-        """通过 Y 通道（亮度）模板匹配检测按钮。
+        """Найти кнопку по каналу Y (яркость) с помощью сопоставления шаблона.
 
         Args:
-            image: 截图。
-            offset (int, tuple): 检测区域偏移量。
-            similarity (float): 相似度阈值，范围 0-1。
+            image: Скриншот.
+            offset (int, tuple): Смещение области поиска.
+            similarity (float): Порог сходства в диапазоне 0-1.
 
         Returns:
-            bool: 匹配成功返回 True。
+            bool: True при успешном совпадении.
         """
         similarity = lower_template_match_similarity(similarity)
         self.ensure_template()
@@ -345,16 +354,16 @@ class Button(Resource):
             return sim > similarity
 
     def match_template_color(self, image, offset=(20, 20), similarity=0.85, threshold=30):
-        """先进行模板匹配，再进行颜色匹配。
+        """Сначала выполнить сопоставление шаблона, затем проверку цвета.
 
         Args:
-            image: 截图。
-            offset (int, tuple): 检测区域偏移量。
-            similarity (float): 模板匹配相似度阈值，范围 0-1。
-            threshold (int): 颜色相似度阈值，默认为 30。
+            image: Скриншот.
+            offset (int, tuple): Смещение области поиска.
+            similarity (float): Порог сходства шаблона в диапазоне 0-1.
+            threshold (int): Порог различия цветов, по умолчанию 30.
 
         Returns:
-            bool: 匹配成功返回 True。
+            bool: True при успешном совпадении.
         """
         if self.match_luma(image, offset=offset, similarity=similarity):
             diff = np.subtract(self.button, self._button)[:2]
@@ -365,15 +374,15 @@ class Button(Resource):
             return False
 
     def crop(self, area, image=None, name=None):
-        """根据相对坐标获取新的按钮。
+        """Создать новую кнопку из области относительно текущей кнопки.
 
         Args:
-            area (tuple): 相对于当前按钮的裁剪区域。
-            image (np.ndarray): 截图。若提供，则从中加载颜色和图像。
-            name (str): 新按钮的名称。
+            area (tuple): Область относительно self.area.
+            image (np.ndarray): Скриншот. Если передан, из него загружаются цвет и изображение.
+            name (str): Имя новой кнопки.
 
         Returns:
-            Button: 裁剪后的新按钮。
+            Button: Новая кнопка.
         """
         if name is None:
             name = self.name
@@ -385,15 +394,15 @@ class Button(Resource):
         return button
 
     def move(self, vector, image=None, name=None):
-        """移动按钮位置。
+        """Переместить кнопку на заданный вектор.
 
         Args:
-            vector (tuple): 移动向量。
-            image (np.ndarray): 截图。若提供，则从中加载颜色和图像。
-            name (str): 新按钮的名称。
+            vector (tuple): Вектор смещения.
+            image (np.ndarray): Скриншот. Если передан, из него загружаются цвет и изображение.
+            name (str): Имя новой кнопки.
 
         Returns:
-            Button: 移动后的新按钮。
+            Button: Перемещённая кнопка.
         """
         if name is None:
             name = self.name
@@ -405,10 +414,10 @@ class Button(Resource):
         return button
 
     def split_server(self):
-        """拆分为 4 个服务器专用按钮。
+        """Разделить ресурс на четыре кнопки для отдельных серверов.
 
         Returns:
-            dict[str, Button]: 以服务器名称为键、对应按钮为值的字典。
+            dict[str, Button]: Словарь, где ключ — имя сервера, а значение — соответствующая кнопка.
         """
         out = {}
         for s in VALID_SERVER:
@@ -449,14 +458,14 @@ class ButtonGrid:
         return list([button for _, _, button in self.generate()])
 
     def crop(self, area, name=None):
-        """根据相对坐标裁剪 ButtonGrid。
+        """Обрезать ButtonGrid по области относительно self.origin.
 
         Args:
-            area (tuple): 相对于 self.origin 的裁剪区域。
-            name (str): 新 ButtonGrid 实例的名称。
+            area (tuple): Область относительно self.origin.
+            name (str): Имя нового экземпляра ButtonGrid.
 
         Returns:
-            ButtonGrid: 裁剪后的新 ButtonGrid 实例。
+            ButtonGrid: Новый экземпляр ButtonGrid.
         """
         if name is None:
             name = self._name
@@ -466,14 +475,14 @@ class ButtonGrid:
             origin=origin, delta=self.delta, button_shape=button_shape, grid_shape=self.grid_shape, name=name)
 
     def move(self, vector, name=None):
-        """移动 ButtonGrid 位置。
+        """Переместить ButtonGrid на заданный вектор.
 
         Args:
-            vector (tuple): 移动向量。
-            name (str): 新 ButtonGrid 实例的名称。
+            vector (tuple): Вектор смещения.
+            name (str): Имя нового экземпляра ButtonGrid.
 
         Returns:
-            ButtonGrid: 移动后的新 ButtonGrid 实例。
+            ButtonGrid: Перемещённый экземпляр ButtonGrid.
         """
         if name is None:
             name = self._name
@@ -482,10 +491,10 @@ class ButtonGrid:
             origin=origin, delta=self.delta, button_shape=self.button_shape, grid_shape=self.grid_shape, name=name)
 
     def gen_mask(self):
-        """生成遮罩图像，用于调试显示此 ButtonGrid 对象。
+        """Сгенерировать маску для визуальной отладки ButtonGrid.
 
         Returns:
-            PIL.Image.Image: 区域为白色、背景为黑色的遮罩图像。
+            PIL.Image.Image: Маска с белыми областями кнопок на чёрном фоне.
         """
         image = Image.new("RGB", (1280, 720), (0, 0, 0))
         draw = ImageDraw.Draw(image)
@@ -497,5 +506,5 @@ class ButtonGrid:
         self.gen_mask().show()
 
     def save_mask(self):
-        """将遮罩图像保存为 {name}.png。"""
+        """Сохранить изображение маски как {name}.png."""
         self.gen_mask().save(f'{self._name}.png')
