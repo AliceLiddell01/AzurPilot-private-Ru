@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,8 @@ from module.event_datamine.assets import asset_key, validate_asset_catalog
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets"
 ASSET_CATALOG_PATH = BUILTIN_ARTIFACT_ROOT / "assets.json"
 PLACEHOLDER_URL = "/static/assets/gui/icon/event-placeholder.svg"
+_SAFE_DISPLAY_KIND = re.compile(r"[A-Za-z0-9_-]+")
+_DISPLAY_EXTENSIONS = (".png", ".svg", ".webp")
 
 
 @lru_cache(maxsize=4)
@@ -59,10 +62,48 @@ def event_asset_resolved(asset: Mapping[str, Any] | None, **kwargs: Any) -> bool
     return event_asset_url(asset, **kwargs) != PLACEHOLDER_URL
 
 
-def event_shop_asset_url(
-    asset: Mapping[str, Any] | None, **kwargs: Any
+def _event_shop_display_url(
+    asset: Mapping[str, Any], *, asset_root: Path | str
 ) -> str:
-    return event_asset_url(asset, **kwargs)
+    kind = str(asset.get("kind") or "").strip().lower()
+    game_id = str(asset.get("game_id") or "").strip()
+    if (
+        not kind
+        or not _SAFE_DISPLAY_KIND.fullmatch(kind)
+        or not game_id.isdecimal()
+        or int(game_id) <= 0
+    ):
+        return ""
+
+    root = Path(asset_root).resolve()
+    display_root = (root / "webui" / "event_shop").resolve()
+    for extension in _DISPLAY_EXTENSIONS:
+        filename = f"{kind}-{int(game_id)}{extension}"
+        candidate = (display_root / filename).resolve()
+        if display_root not in candidate.parents or not candidate.is_file():
+            continue
+        return f"/static/assets/webui/event_shop/{filename}"
+    return ""
+
+
+def event_shop_asset_url(
+    item_or_asset: Mapping[str, Any] | None,
+    *,
+    catalog_path: Path | str = ASSET_CATALOG_PATH,
+    asset_root: Path | str = ASSET_ROOT,
+) -> str:
+    if not isinstance(item_or_asset, Mapping):
+        return PLACEHOLDER_URL
+    nested = item_or_asset.get("asset")
+    asset = nested if isinstance(nested, Mapping) else item_or_asset
+    display_url = _event_shop_display_url(asset, asset_root=asset_root)
+    if display_url:
+        return display_url
+    return event_asset_url(
+        asset,
+        catalog_path=catalog_path,
+        asset_root=asset_root,
+    )
 
 
 def event_reward_asset_url(
