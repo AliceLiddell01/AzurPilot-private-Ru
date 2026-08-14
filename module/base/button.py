@@ -5,7 +5,7 @@
 """
 
 # 此文件定义了 Alas 视觉交互系统的核心基类：Button（按钮）及相关网格。
-# 它是所有 UI 交互的基本单位，包含坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
+# 它是所有 UI 交互的基本单位，包含了坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
 import typing as t
 import os
 import traceback
@@ -169,7 +169,7 @@ class Button(Resource):
             self._match_init = True
 
     def ensure_binary_template(self):
-        """加载二值化资源图像。若需调用 self.match，应先调用此方法。"""
+        """加载二值化资源图像。若需调用 self.match_binary，应先调用此方法。"""
         if not self._match_binary_init:
             if self.is_gif:
                 self.image_binary = []
@@ -463,8 +463,7 @@ class ButtonGrid:
         origin = self.origin + area[:2]
         button_shape = np.subtract(area[2:], area[:2])
         return ButtonGrid(
-            origin=origin, delta=self.delta, button_shape=button_shape, grid_shape=self.grid_shape, name=name
-        )
+            origin=origin, delta=self.delta, button_shape=button_shape, grid_shape=self.grid_shape, name=name)
 
     def move(self, vector, name=None):
         """移动 ButtonGrid 位置。
@@ -480,8 +479,7 @@ class ButtonGrid:
             name = self._name
         origin = self.origin + vector
         return ButtonGrid(
-            origin=origin, delta=self.delta, button_shape=self.button_shape, grid_shape=self.grid_shape, name=name
-        )
+            origin=origin, delta=self.delta, button_shape=self.button_shape, grid_shape=self.grid_shape, name=name)
 
     def gen_mask(self):
         """生成遮罩图像，用于调试显示此 ButtonGrid 对象。
