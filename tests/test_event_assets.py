@@ -7,6 +7,8 @@ from module.event_datamine.assets import (
     build_asset_catalog,
 )
 from module.webui.event_assets import (
+    ASSET_CATALOG_PATH,
+    ASSET_ROOT,
     PLACEHOLDER_URL,
     event_asset_resolved,
     event_reward_asset_url,
@@ -137,3 +139,9 @@ def test_asset_catalog_uses_scanner_fallback_when_shared_source_has_multiple_dis
     assert catalog["entries"]["item:Props/30004"] == (
         "/static/assets/shop/event/BoxT4.png"
     )
+
+
+def test_committed_asset_catalog_matches_repository_assets():
+    committed = json.loads(ASSET_CATALOG_PATH.read_text(encoding="utf-8"))
+
+    assert committed == build_asset_catalog(asset_root=ASSET_ROOT)
