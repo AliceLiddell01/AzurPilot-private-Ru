@@ -93,6 +93,11 @@ def mask_personal_path(value: str) -> str:
     return result
 
 
+def display_report_path(path: Path) -> str:
+    """Подготовить путь отчёта для безопасного вывода в консоль."""
+    return mask_personal_path(str(path))
+
+
 def command_line_of(proc: psutil.Process) -> str:
     try:
         return " ".join(proc.cmdline())
@@ -317,8 +322,8 @@ def main() -> int:
     text_path.write_text(render_text(report), encoding="utf-8")
 
     print(render_text(report), end="")
-    print(f"JSON: {json_path}")
-    print(f"TXT: {text_path}")
+    print(f"JSON: {display_report_path(json_path)}")
+    print(f"TXT: {display_report_path(text_path)}")
     return 0
 
 
