@@ -130,6 +130,21 @@ class EventShopClerk(EventShopUI):
             for old, new in zip(old_row, new_row)
         )
 
+    @staticmethod
+    def _prefer_amount_max(current, target, maximum_hint):
+        """Use MAX only when it is provably a shorter click path to target."""
+        try:
+            current = int(current)
+            target = int(target)
+            maximum_hint = int(maximum_hint)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if current <= 0 or target <= 0 or maximum_hint < target:
+            return False
+        direct_clicks = abs(target - current)
+        max_clicks = 1 + abs(maximum_hint - target)
+        return max_clicks < direct_clicks
+
     def _get_event_shop_grid(self):
         mask = color_similarity_2d(self.device.image, PRICE_BACKGROUND_COLOR)
         cv2.inRange(mask, PRICE_THRESHOLD, 255, dst=mask)
@@ -270,11 +285,22 @@ class EventShopClerk(EventShopUI):
                 continue
             if self.appear(AMOUNT_MAX, offset=(20, 20)):
                 if not amount_handled:
-                    self.device.click(AMOUNT_MAX)
-                    if amount is not None:
-                        self.ui_ensure_index(amount, letter=OCR_SHOP_AMOUNT, prev_button=AMOUNT_MINUS,
-                                             next_button=AMOUNT_PLUS,
-                                             skip_first_screenshot=False)
+                    if amount is None:
+                        self.device.click(AMOUNT_MAX)
+                    else:
+                        current = OCR_SHOP_AMOUNT.ocr(self.device.image)
+                        if self._prefer_amount_max(current, amount, item.count):
+                            self.device.click(AMOUNT_MAX)
+                            skip_first_screenshot = False
+                        else:
+                            skip_first_screenshot = True
+                        self.ui_ensure_index(
+                            amount,
+                            letter=OCR_SHOP_AMOUNT,
+                            prev_button=AMOUNT_MINUS,
+                            next_button=AMOUNT_PLUS,
+                            skip_first_screenshot=skip_first_screenshot,
+                        )
                     amount_handled = True
                     timer.reset()
                     continue
