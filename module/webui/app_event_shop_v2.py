@@ -192,6 +192,13 @@ class EventShopV2Mixin(WebUIMixinBase):
                 task=task,
                 arg_defs=arg_defs,
                 config=config,
+                arg_name="PushNotification",
+                title="Push-уведомление об ошибке",
+            )
+            self._render_event_shop_task_field(
+                task=task,
+                arg_defs=arg_defs,
+                config=config,
                 arg_name="NextRun",
                 title="Время следующего запуска",
             )
