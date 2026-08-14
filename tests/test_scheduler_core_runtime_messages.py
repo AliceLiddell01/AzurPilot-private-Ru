@@ -179,8 +179,8 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
     def test_run_paths_and_notifications(self):
         cases = (
             (GameNotRunningError, ["screenshot", "error_context", "_check_sensitive_exit", "handle_notify", "notify_webui", "task_call"]),
-            (GameStuckError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "warning", "warning", "handle_notify", "_try_restart_game", "info", "notify_webui"]),
-            (GameTooManyClickError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "warning", "warning", "handle_notify", "_try_restart_game", "info", "notify_webui"]),
+            (GameStuckError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "warning", "warning", "warning", "handle_notify", "_try_restart_game", "info", "notify_webui"]),
+            (GameTooManyClickError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "warning", "warning", "warning", "handle_notify", "_try_restart_game", "info", "notify_webui"]),
             (EmulatorNotRunningError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "_try_restart_emulator", "task_call", "handle_notify", "notify_webui"]),
         )
         for error, expected in cases:
