@@ -19,6 +19,7 @@ _EVENT_SHOP_LIVE_PRIORITY_FIELDS = (
     "purchased",
     "completed",
     "remaining",
+    "target_baselines",
     "blocked",
     "pending",
 )
