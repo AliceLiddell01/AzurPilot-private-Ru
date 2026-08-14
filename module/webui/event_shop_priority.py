@@ -198,23 +198,68 @@ def set_event_shop_priority(
 ) -> dict[str, Any]:
     state = load_event_shop_priority(instance, event_id, root=root)
     key = str(row_id)
+    had_priority = key in state["priorities"]
     if priority is None:
         state["priorities"].pop(key, None)
-        state["target_baselines"].pop(key, None)
     else:
         value = int(priority)
         if value < 0:
             raise ValueError("Приоритет покупки не может быть отрицательным")
         state["priorities"][key] = value
-        state["purchased"] = [item for item in state["purchased"] if item != key]
-        state["completed"] = [item for item in state["completed"] if item != key]
-        if key not in state["target_baselines"] and key in state["remaining"]:
+        if (
+            not had_priority
+            and key not in state["purchased"]
+            and key not in state["target_baselines"]
+            and key in state["remaining"]
+        ):
             state["target_baselines"][key] = max(
                 int(state["remaining"][key]),
                 0,
             )
     if str(state.get("pending", {}).get("row_id") or "") != key:
         state["blocked"].pop(key, None)
+    save_event_shop_priority(instance, state, root=root)
+    return state
+
+
+def update_event_shop_target_state(
+    instance: str,
+    event_id: str,
+    row_id: str | int,
+    previous_selected: int,
+    selected: int,
+    *,
+    root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
+) -> dict[str, Any]:
+    """Keep the purchase baseline attached to the target episode, not priority."""
+    state = load_event_shop_priority(instance, event_id, root=root)
+    key = str(row_id)
+    before = max(int(previous_selected), 0)
+    after = max(int(selected), 0)
+    pending_same_row = str(state.get("pending", {}).get("row_id") or "") == key
+
+    if before != after:
+        state["completed"] = [item for item in state["completed"] if item != key]
+        if not pending_same_row:
+            state["blocked"].pop(key, None)
+
+    if pending_same_row:
+        save_event_shop_priority(instance, state, root=root)
+        return state
+
+    if after <= 0:
+        state["target_baselines"].pop(key, None)
+    elif before <= 0:
+        if key in state["purchased"]:
+            state["target_baselines"].pop(key, None)
+        elif key in state["remaining"]:
+            state["target_baselines"][key] = max(
+                int(state["remaining"][key]),
+                0,
+            )
+        else:
+            state["target_baselines"].pop(key, None)
+
     save_event_shop_priority(instance, state, root=root)
     return state
 
