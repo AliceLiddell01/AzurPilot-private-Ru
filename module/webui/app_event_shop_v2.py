@@ -87,7 +87,7 @@ class EventShopV2Mixin(WebUIMixinBase):
             baseline = min(max(int(target_baselines[row_id]), 0), stock)
             baseline = max(baseline, available)
         else:
-            baseline = available
+            baseline = stock
         selected = min(max(int(item.get("selected", 0) or 0), 0), baseline)
         bought_for_goal = max(baseline - available, 0)
         return max(selected - bought_for_goal, 0)
