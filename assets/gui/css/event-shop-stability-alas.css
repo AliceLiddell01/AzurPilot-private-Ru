@@ -1,11 +1,10 @@
 /*
- * Critical EventShop layout contract.
+ * Критический контракт раскладки EventShop.
  *
- * PyWebIO creates deterministic scope IDs synchronously, while the historical
- * event layout adds convenience classes from a later run_js() command.  Keep
- * the first paint stable by styling the scope IDs directly.  The regular
- * event-profiles stylesheet remains the visual source of truth for inner
- * elements and themes.
+ * PyWebIO создаёт детерминированные идентификаторы scope до выполнения
+ * дополнительного run_js(), который назначает удобные классы. Поэтому базовая
+ * раскладка привязана непосредственно к scope ID и корректна уже на первом кадре.
+ * Основной event-profiles stylesheet остаётся источником остальных визуальных правил.
  */
 
 #pywebio-scope-event_shop_grid {
@@ -48,14 +47,14 @@
 }
 
 /*
- * A square icon must not have a percentage width paired with a fixed height:
- * when the card becomes narrower, object-fit would letterbox the image and
- * expose a zoom-dependent strip below it.  Let the height follow the width.
+ * Квадратная иконка не должна сочетать процентную ширину с фиксированной
+ * высотой: на узкой карточке object-fit создаёт внутреннее пустое поле, которое
+ * выглядит как зависящая от масштаба полоса. Высота следует за шириной.
  */
-.event-shop-card-visual > img {
+#pywebio-scope-content.event-modern-page .event-shop-card-visual > img {
     display: block;
     width: min(112px, 52%);
-    height: auto;
+    height: auto !important;
     aspect-ratio: 1 / 1;
     margin: 16px auto 8px;
     object-fit: contain;
