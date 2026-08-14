@@ -477,7 +477,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
                 f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
                 f'<small>{escape(subtitle)}</small></div>'
                 f'<span class="event-subsection-count">{len(rows)}</span></div>'
-                f'<div class="event-farm-grid event-farm-grid-v2'>{"".join(cards)}</div>'
+                f'<div class="event-farm-grid event-farm-grid-v2">{"".join(cards)}</div>'
                 "</section>"
             )
 
@@ -584,7 +584,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
             f'<small>{escape(description)}</small></div>'
             f'<span class="event-subsection-count">{len(items)}</span></div>'
-            f'<div class="event-quest-grid'>{"".join(cards)}</div>'
+            f'<div class="event-quest-grid">{"".join(cards)}</div>'
             "</section>"
         )
 
