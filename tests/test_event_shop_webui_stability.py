@@ -40,8 +40,8 @@ class _LivePlanner(EventPlannerMixin):
         self.plan = {
             "shop_items": [
                 {
-                    "id": "2:30387",
-                    "name": "Game item 2:30387",
+                    "id": "item-a",
+                    "name": "Тестовый товар",
                     "filter": "",
                     "price": 2000,
                     "stock": 10,
@@ -132,13 +132,13 @@ def test_event_shop_layout_exposes_live_value_nodes():
 
 def test_shop_item_dom_key_is_stable_and_identity_derived():
     left = EventPlannerMixin._shop_item_dom_key(
-        ("2:30387", "Game item 2:30387", "", 2000, 10)
+        ("item-a", "Тестовый товар", "", 2000, 10)
     )
     same = EventPlannerMixin._shop_item_dom_key(
-        ("2:30387", "Game item 2:30387", "", 2000, 10)
+        ("item-a", "Тестовый товар", "", 2000, 10)
     )
     other = EventPlannerMixin._shop_item_dom_key(
-        ("2:30387", "Game item 2:30387", "", 2000, 11)
+        ("item-a", "Тестовый товар", "", 2000, 11)
     )
 
     assert left == same
