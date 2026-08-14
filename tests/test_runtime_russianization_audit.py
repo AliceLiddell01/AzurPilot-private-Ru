@@ -59,6 +59,17 @@ logger.info("SUBMARINE")
     assert classify_english_only("OCR") == "PRESERVE_TECHNICAL"
 
 
+def test_game_restart_failed_marker_is_exact_machine_contract() -> None:
+    result = audit_source(
+        'logger.info("AzurPilot <>: game restart failed")\n',
+        "module/sample.py",
+    )
+
+    assert result.blockers == []
+    assert classify_english_only("AzurPilot <>: game restart failed") == "PRESERVE_MACHINE"
+    assert classify_english_only("game restart failed") is None
+
+
 def test_exception_text_is_deferred_and_not_reclassified_as_prose() -> None:
     result = audit_source(
         'raise RuntimeError("External backend failed")\n',
