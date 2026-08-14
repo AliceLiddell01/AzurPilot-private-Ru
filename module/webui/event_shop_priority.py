@@ -198,7 +198,6 @@ def set_event_shop_priority(
 ) -> dict[str, Any]:
     state = load_event_shop_priority(instance, event_id, root=root)
     key = str(row_id)
-    was_terminal = key in state["purchased"] or key in state["completed"]
     if priority is None:
         state["priorities"].pop(key, None)
         state["target_baselines"].pop(key, None)
@@ -209,8 +208,11 @@ def set_event_shop_priority(
         state["priorities"][key] = value
         state["purchased"] = [item for item in state["purchased"] if item != key]
         state["completed"] = [item for item in state["completed"] if item != key]
-        if was_terminal:
-            state["target_baselines"].pop(key, None)
+        if key not in state["target_baselines"] and key in state["remaining"]:
+            state["target_baselines"][key] = max(
+                int(state["remaining"][key]),
+                0,
+            )
     if str(state.get("pending", {}).get("row_id") or "") != key:
         state["blocked"].pop(key, None)
     save_event_shop_priority(instance, state, root=root)
