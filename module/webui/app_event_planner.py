@@ -140,10 +140,9 @@ class EventPlannerMixin(WebUIMixinBase):
         row_id = str(snapshot.get("row_id") or "")
         if not event_id or not row_id:
             logger.warning(
-                "[WebUI — магазин события] Цель сохранена без полной event/shop identity; состояние автоматизации не синхронизировано"
+                "[WebUI — магазин события] Цель сохранена без полной event/shop identity; baseline-синхронизация пропущена"
             )
-            self._refresh_event_plan_page()
-            return False
+            return True
         try:
             update_event_shop_target_state(
                 self.alas_name,
