@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
+from PIL import Image, PngImagePlugin
 
 import module.base.utils as base_utils
 from module.logger import logger
@@ -61,7 +61,10 @@ def _save_normalized_frame(image: np.ndarray, filename: str) -> str | None:
     _, directory = _ensure_session()
     path = directory / filename
     try:
-        Image.fromarray(image, mode='RGB').save(path, format='PNG')
+        # PngImagePlugin импортирован намеренно: это явно регистрирует PNG writer
+        # и позволяет сохранить исходный RGB-массив без преобразования в BGR.
+        _ = PngImagePlugin
+        Image.fromarray(image).save(path, format='PNG')
     except (OSError, TypeError, ValueError) as exc:
         logger.warning(
             f'[Этап 1 — диагностика 4K] Не удалось сохранить {path}: {exc}'
