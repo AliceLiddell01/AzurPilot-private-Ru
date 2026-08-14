@@ -82,6 +82,8 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
             Error_OnePushConfig={},
             Error_GameStuckRestart=False,
             Error_GameStuckThreshold=3,
+            Error_AdbOfflineRestart=True,
+            Error_AdbOfflineThreshold=3,
             task_call=lambda task: events.append(("task_call", (task,), {})),
         )
         dev = types.SimpleNamespace(
@@ -93,6 +95,7 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
         class Subject:
             config_name = "SYNTHETIC"
             consecutive_game_stuck = 0
+            consecutive_adb_offline = 0
 
             def __init__(self):
                 self.config = cfg
@@ -112,8 +115,8 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
                 events.append(("_try_restart_game", (), {}))
                 return True
 
-            def _try_restart_emulator(self):
-                events.append(("_try_restart_emulator", (), {}))
+            def _try_restart_emulator(self, *args, **kwargs):
+                events.append(("_try_restart_emulator", args, kwargs))
                 return True
 
         return Subject()
@@ -167,14 +170,38 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
             ],
         )
         for method, values in {
-            "_try_restart_emulator": ("self.consecutive_adb_offline > limit", "time.sleep(5)"),
-            "run": ("self.config.task_call('Restart')", "self._try_restart_game()", "return 'recoverable'", "return False"),
-            "loop": ("MAX_GLOBAL_FAILURES = 3", "RESTART_DELAY = 20", "LONG_WAIT = 300", "failed >= 3"),
+            "_try_restart_emulator": (
+                "Error_AdbOfflineRestart",
+                "Error_GameStuckRestart",
+                "recover_emulator_transport",
+                "allow_hard_kill",
+                "verify_game",
+            ),
+            "run": (
+                "self.config.task_call('Restart')",
+                "self._try_restart_game()",
+                "reason='game_stuck', verify_game=True",
+                "reason='adb_offline'",
+                "return 'recoverable'",
+                "return False",
+            ),
+            "loop": (
+                "MAX_GLOBAL_FAILURES = 3",
+                "RESTART_DELAY = 20",
+                "LONG_WAIT = 300",
+                "failed >= 3",
+                "reason='scheduled'",
+            ),
             "wait_until": ("time.sleep(5)", "exit(0)"),
         }.items():
             body = ast.get_source_segment(src(), node(method))
             for value in values:
                 self.assertIn(value, body)
+
+        restart_body = ast.get_source_segment(src(), node("_try_restart_emulator"))
+        self.assertNotIn("time.sleep(5)", restart_body)
+        self.assertNotIn("device.emulator_stop()", restart_body)
+        self.assertNotIn("device.emulator_start()", restart_body)
 
     def test_run_paths_and_notifications(self):
         cases = (
@@ -195,6 +222,9 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
                     self.assertNotIn("task_call", [x[0] for x in events])
                     self.assertNotIn("_try_restart_emulator", [x[0] for x in events])
                     self.assertNotIn("device_sleep", [x[0] for x in events])
+                if error is EmulatorNotRunningError:
+                    restart_event = next(x for x in events if x[0] == "_try_restart_emulator")
+                    self.assertEqual(restart_event[2], {"reason": "adb_offline"})
                 notice = "".join(
                     x[2].get("title", "") + x[2].get("content", "")
                     for x in events if x[0] in {"handle_notify", "notify_webui"}
@@ -231,30 +261,6 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
         self.assertEqual([x[0] for x in events], ["error_context", "handle_notify", "notify_webui"])
         for item in events[1:]:
             self.assertTrue(item[2]["content"].endswith("\nRAW_ERROR"))
-
-        events.clear()
-        restart = load(
-            "_try_restart_emulator",
-            {
-                "logger": Log(events),
-                "time": types.SimpleNamespace(sleep=lambda n: events.append(("sleep", (n,), {}))),
-                "del_cached_property": lambda obj, name: events.append(("del_cached_property", (name,), {})),
-            },
-        )
-        dev = types.SimpleNamespace(
-            emulator_stop=lambda: events.append(("emulator_stop", (), {})),
-            emulator_start=lambda: events.append(("emulator_start", (), {})),
-        )
-        obj = types.SimpleNamespace(
-            config=types.SimpleNamespace(Error_AdbOfflineRestart=True, Error_AdbOfflineThreshold=2),
-            consecutive_adb_offline=0,
-            device=dev,
-        )
-        self.assertTrue(restart(obj))
-        names = [x[0] for x in events]
-        self.assertLess(names.index("emulator_stop"), names.index("sleep"))
-        self.assertLess(names.index("sleep"), names.index("emulator_start"))
-        self.assertEqual(next(x for x in events if x[0] == "sleep")[1], (5,))
 
         events.clear()
         long_wait = load(
