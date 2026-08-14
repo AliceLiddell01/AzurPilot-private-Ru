@@ -422,27 +422,29 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def queue_receive(self, skip_first_screenshot=True):
         """
-        领取科研队列中所有已完成项目的奖励。
+        Получает все завершённые награды из очереди исследований.
 
-        遍历队列页面，依次领取已完成项目的奖励物品，
-        支持掉落记录功能用于统计追踪。
+        Окно `GET_ITEMS_*` имеет приоритет над определением конца очереди:
+        после первого положительного распознавания оно считается активным до
+        явного нажатия `GET_ITEMS_RESEARCH_SAVE`. Это не позволяет более
+        короткому таймеру окончания очереди оборвать обработку награды.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            skip_first_screenshot (bool): Пропустить ли первый снимок экрана.
 
         Pages:
             in: is_in_queue
             out: is_in_queue
 
         Returns:
-            int: 领取奖励的科研项目数量。
+            int: Количество полученных наград исследовательских проектов.
         """
         logger.hr('Получение наград очереди', level=1)
         total = 0
         with self.stat.new(
                 genre='research', method=self.config.DropRecord_ResearchRecord
         ) as drop:
-            # 截取项目列表
+            # Сохраняем исходный экран очереди для статистики наград.
             drop.add(self.device.image)
 
             end_confirm = Timer(1, count=3)
@@ -455,47 +457,47 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 else:
                     self.device.screenshot()
 
-                # 结束条件
-                # 不使用偏移量，仅使用颜色检测
+                # Сначала обслуживаем уже обнаруженное окно награды. Пока оно
+                # ожидает подтверждения, конец очереди проверять нельзя.
+                if drop:
+                    if record_button is None:
+                        appear_button = self.get_items()
+                        if appear_button is not None:
+                            logger.info(f'[Исследование — получение] Появился {appear_button}')
+                            record_button = appear_button
+                            item_confirm.reset()
+
+                    if record_button is not None:
+                        end_confirm.reset()
+                        if item_confirm.reached():
+                            self.drop_record(drop=drop)
+                            self.device.click(GET_ITEMS_RESEARCH_SAVE)
+                            item_confirm.reset()
+                            record_button = None
+                            total += 1
+                        continue
+                else:
+                    # Без записи дропа окно награды закрывается сразу после обнаружения.
+                    if item_interval.reached():
+                        appear_button = self.get_items()
+                        if appear_button is not None:
+                            self.device.click(GET_ITEMS_RESEARCH_SAVE)
+                            item_interval.reset()
+                            end_confirm.reset()
+                            total += 1
+                            continue
+
+                # Только когда окна награды нет, можно подтверждать конец очереди.
                 if self.is_in_queue() and not self.appear(QUEUE_CLAIM_REWARD, offset=None):
                     if end_confirm.reached():
                         break
                 else:
                     end_confirm.reset()
 
-                # 获取物品
-                if drop:
-                    # 记录物品掉落
-                    appear_button = self.get_items()
-                    if appear_button is not None:
-                        if appear_button == record_button:
-                            if item_confirm.reached():
-                                # 记录掉落并关闭获取物品界面
-                                self.drop_record(drop=drop)
-                                self.device.click(GET_ITEMS_RESEARCH_SAVE)
-                                item_confirm.reset()
-                                record_button = None
-                                total += 1
-                                continue
-                        else:
-                            logger.info(f'[Исследование — получение] Появился {appear_button}')
-                            record_button = appear_button
-                            item_confirm.reset()
-                    else:
-                        item_confirm.reset()
-                        record_button = None
-                else:
-                    # 不保存掉落，直接点击
-                    if item_interval.reached():
-                        appear_button = self.get_items()
-                        if appear_button is not None:
-                            self.device.click(GET_ITEMS_RESEARCH_SAVE)
-                            item_interval.reset()
-                            total += 1
-                            continue
-
-                # 领取奖励
+                # Получаем следующую готовую награду и обязательно запускаем
+                # подтверждение конца очереди заново после клика.
                 if self.appear_then_click(QUEUE_CLAIM_REWARD, offset=None, interval=5):
+                    end_confirm.reset()
                     continue
 
             if total <= 0:
