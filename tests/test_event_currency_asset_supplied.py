@@ -15,5 +15,5 @@ def test_current_en_currency_uses_supplied_local_asset():
     resolved = event_asset_url(currency["asset"])
 
     assert resolved != PLACEHOLDER_URL
-    assert resolved == "/static/assets/webui/event_shop/activity_currency-741.webp"
-    assert (ROOT / "assets" / "webui" / "event_shop" / "activity_currency-741.webp").is_file()
+    assert resolved == "/static/assets/webui/event_shop/activity_currency-741.png"
+    assert (ROOT / "assets" / "webui" / "event_shop" / "activity_currency-741.png").is_file()
