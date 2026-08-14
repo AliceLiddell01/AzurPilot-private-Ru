@@ -60,7 +60,7 @@ class AzurLaneAutoScript:
         self.is_first_task = True
         # 任务失败计数器，key 为任务名，value 为连续失败次数
         self.failure_record = {}
-        # 连续卡死/ADB 离线计数，用于判断是否需要重启模拟器
+        # 连续卡死/ADB 离线计数，用于限制恢复循环和判断 ADB 恢复
         self.consecutive_game_stuck = 0
         self.consecutive_adb_offline = 0
         # 上次计划重启模拟器的时间戳
@@ -267,6 +267,27 @@ class AzurLaneAutoScript:
         )
         exit(1)
 
+    def _try_restart_game(self):
+        """Перезапустить только Azur Lane и подтвердить восстановление через login/UI flow."""
+        from module.handler.login import LoginHandler
+
+        logger.hr('[Alas] Проверяемый перезапуск Azur Lane', level=1)
+        try:
+            LoginHandler(self.config, device=self.device).app_restart()
+        except Exception as e:
+            logger.exception_context(
+                title='Не удалось восстановить Azur Lane после перезапуска',
+                reason='game restart failed: существующий login/UI health check не завершился успешно.',
+                impact='Текущая задача считается ошибочной; перезапуск или hard kill эмулятора на этом этапе не выполняется.',
+                action='Проверьте сохранённые снимки и журнал. Эскалация к recovery эмулятора относится к следующему этапу.',
+                exc=e,
+                level=40,
+            )
+            return False
+
+        logger.info('[Alas] Azur Lane восстановлена: post-restart login/UI health check успешно завершён')
+        return True
+
     def run(self, command, skip_first_screenshot=False):
         """
         执行指定任务命令，捕获异常并决定后续行为。
@@ -319,43 +340,75 @@ class AzurLaneAutoScript:
             self.config.task_call('Restart')
             return 'recoverable'
         except (GameStuckError, GameTooManyClickError) as e:
-            # 游戏卡住或点击过多，尝试重启游戏；连续卡死则重启模拟器
             logger.error_context(
                 title='Игра не отвечает на действия',
                 reason='Изображение не меняется в течение допустимого времени либо одна кнопка нажата слишком много раз.',
-                impact='Текущая задача прервана; будет предпринят перезапуск игры, а при повторении — перезапуск эмулятора.',
+                impact='Текущая задача прервана; AzurPilot сначала перезапустит только Azur Lane и проверит фактическое восстановление.',
                 action='Убедитесь, что эмулятор не управляется вручную; проверьте способ получения снимков, разрешение игры и версию ресурсов.',
                 exc=e,
             )
             self.save_error_log()
             self._check_sensitive_exit(command, e)
 
-            if self.config.Error_GameStuckRestart:
-                self.consecutive_game_stuck += 1
-                limit = int(self.config.Error_GameStuckThreshold)
-                logger.warning(f'[Alas] GameStuckError: {self.consecutive_game_stuck}/{limit}')
-                if self.consecutive_game_stuck >= limit:
-                    logger.warning('[Alas] Игра зависает слишком часто; выполняется перезапуск эмулятора...')
-                    if self._try_restart_emulator():
-                        self.consecutive_game_stuck = 0
-                        self.config.task_call('Restart')
-                        return 'recoverable'
+            self.consecutive_game_stuck += 1
+            limit = max(1, int(self.config.Error_GameStuckThreshold))
+            logger.warning(f'[Alas] Последовательные recovery после зависания: {self.consecutive_game_stuck}/{limit}')
 
-            logger.warning(f'[Alas] Игра зависла; пакет {self.device.package} будет перезапущен через 10 секунд')
+            if self.consecutive_game_stuck > limit:
+                logger.error_context(
+                    title='Достигнут предел повторных восстановлений Azur Lane',
+                    reason=f'После {limit} последовательных game-only recovery игра снова зависла; дальнейший автоматический restart loop остановлен.',
+                    impact='Текущая задача считается ошибочной; эмулятор на этапе 1 не перезапускается.',
+                    action='Проверьте журнал и состояние игры. Следующая ступень emulator recovery будет реализована отдельно.',
+                    level=40,
+                )
+                handle_notify(
+                    self.config.Error_OnePushConfig,
+                    title=f"AzurPilot <{self.config_name}>: восстановление остановлено",
+                    content=f"<{self.config_name}> game restart failed: достигнут предел повторных восстановлений Azur Lane",
+                )
+                notify_webui(
+                    self.config_name,
+                    title=f"<{self.config_name}>: game restart failed",
+                    content='Достигнут предел повторных восстановлений Azur Lane; MuMu не перезапускался.',
+                )
+                return False
+
+            logger.warning(f'[Alas] Игра зависла; выполняется проверяемый перезапуск пакета {self.device.package}')
             logger.warning('[Alas] Если вы управляете игрой вручную, остановите AzurPilot')
             handle_notify(
                 self.config.Error_OnePushConfig,
                 title=f"AzurPilot <{self.config_name}>: предупреждение",
-                content=f"<{self.config_name}> Игра зависла; будет выполнен автоматический перезапуск",
+                content=f"<{self.config_name}> Игра зависла; выполняется проверяемый перезапуск Azur Lane",
+            )
+
+            if self._try_restart_game():
+                logger.info('[Alas] Game recovery successful; MuMu не затрагивался')
+                notify_webui(
+                    self.config_name,
+                    title=f"<{self.config_name}>: Azur Lane восстановлена",
+                    content='Перезапуск игры и post-restart health validation завершились успешно; MuMu не перезапускался.',
+                )
+                return 'recoverable'
+
+            logger.error_context(
+                title='Перезапуск Azur Lane не восстановил игру',
+                reason='game restart failed: post-restart health validation завершилась ошибкой.',
+                impact='Текущая задача считается ошибочной; MuMu не перезапускается и hard kill не выполняется.',
+                action='Проверьте сохранённые данные ошибки. Emulator recovery является следующей ступенью и будет добавлен отдельно.',
+                level=40,
+            )
+            handle_notify(
+                self.config.Error_OnePushConfig,
+                title=f"AzurPilot <{self.config_name}>: game restart failed",
+                content=f"<{self.config_name}> Azur Lane не восстановилась после обычного перезапуска; MuMu не перезапускался",
             )
             notify_webui(
                 self.config_name,
-                title=f"<{self.config_name}>: предупреждение",
-                content=f"<{self.config_name}> Игра зависла; будет выполнен автоматический перезапуск",
+                title=f"<{self.config_name}>: game restart failed",
+                content='Azur Lane не прошла post-restart health validation; эмулятор оставлен без изменений.',
             )
-            self.config.task_call('Restart')
-            self.device.sleep(10)
-            return 'recoverable'
+            return False
         except GameBugError as e:
             # 游戏客户端 bug，重启游戏修复
             logger.error_context(
@@ -1116,7 +1169,7 @@ class AzurLaneAutoScript:
             process = subprocess.Popen(
                 cmd, 
                 stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
                 text=True, 
                 bufsize=1,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
