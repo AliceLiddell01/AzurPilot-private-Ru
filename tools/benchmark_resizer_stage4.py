@@ -146,25 +146,29 @@ OCR_CASES = (
 )
 
 
+def _decode_rgb(path: Path | str) -> np.ndarray:
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if image is None:
+        raise FileNotFoundError(f"failed to decode benchmark PNG: {path}")
+    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
 def _asset_image(ref: str) -> np.ndarray:
-    """Load all benchmark assets into the production RGB semantic contract."""
+    """Decode PNGs with OpenCV, then reproduce production Button area cropping."""
     if ref in DIRECT_ASSETS:
-        path = DIRECT_ASSETS[ref]
-        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
-        if image is None:
-            raise FileNotFoundError(f"failed to load legacy fixture: {path}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = _decode_rgb(DIRECT_ASSETS[ref])
     else:
         button = BUTTON_ASSETS[ref]
-        button.ensure_template()
-        image = button.image
-    if isinstance(image, list):
-        raise TypeError(f"animated assets are not supported in this benchmark: {ref}")
+        image = _decode_rgb(button.file)
+        x1, y1, x2, y2 = button.area
+        image = image[y1:y2, x1:x2]
     array = np.asarray(image)
     if array.ndim == 2:
         array = cv2.cvtColor(array, cv2.COLOR_GRAY2RGB)
     if array.ndim != 3 or array.shape[2] != 3:
         raise ValueError(f"unsupported image shape for {ref}: {array.shape}")
+    if array.size == 0:
+        raise ValueError(f"empty asset crop for {ref}")
     return np.ascontiguousarray(array.copy())
 
 
@@ -402,9 +406,9 @@ def run_benchmark(timing_iterations: int = DEFAULT_TIMING_ITERATIONS) -> dict:
             "canonical_resolution": list(CANONICAL_SIZE),
             "source_resolutions": [list(value) for value in SOURCE_RESOLUTIONS],
             "channel_contract": (
-                "Generated Button assets use production Button.ensure_template RGB semantics; "
-                "legacy Data Logger fixtures are decoded with OpenCV then converted BGR->RGB; "
-                "baseline and all candidates receive identical RGB arrays."
+                "Repository PNGs are decoded by OpenCV, converted BGR->RGB once, and generated "
+                "Button assets are cropped with the exact production button.area; baseline and all "
+                "candidates receive identical RGB arrays."
             ),
             "synthetic_renderer": "cv2.INTER_CUBIC upscale from canonical fixture frame",
             "performance_note": "informational only; CI hardware timing is not a gate",
