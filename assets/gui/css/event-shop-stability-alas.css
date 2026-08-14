@@ -86,3 +86,288 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Stage 5.1: compact priority-driven EventShop surface. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-groups > .row {
+    align-items: flex-start;
+    gap: 14px;
+    margin: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-group_EventShopPlan,
+#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-group_EventShopTaskSettings {
+    min-width: 0;
+    margin-bottom: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-group_EventShopTaskSettings {
+    position: sticky;
+    top: 70px;
+    padding: 16px !important;
+}
+
+.event-shop-v2-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    border: 1px solid var(--event-border);
+    border-left: 3px solid var(--event-accent);
+    border-radius: var(--event-radius);
+    background: var(--event-surface-strong);
+    padding: 18px;
+    margin-bottom: 10px;
+}
+
+.event-shop-v2-hero h3 {
+    margin: 0;
+    color: var(--event-text);
+    font-size: 1.28rem;
+    font-weight: 720;
+}
+
+.event-shop-v2-hero > div > small {
+    display: block;
+    margin-top: 6px;
+    color: var(--event-muted);
+}
+
+.event-shop-v2-metrics {
+    display: grid;
+    min-width: 310px;
+    grid-template-columns: repeat(3, minmax(86px, 1fr));
+    gap: 8px;
+}
+
+.event-shop-v2-metrics > span {
+    min-width: 0;
+    border: 1px solid var(--event-border);
+    border-radius: 10px;
+    background: var(--event-surface-soft);
+    padding: 10px 11px;
+}
+
+.event-shop-v2-metrics b,
+.event-shop-v2-metrics small {
+    display: block;
+}
+
+.event-shop-v2-metrics b {
+    overflow: hidden;
+    color: var(--event-text);
+    font-size: 1rem;
+    text-overflow: ellipsis;
+}
+
+.event-shop-v2-metrics small {
+    margin-top: 3px;
+    color: var(--event-muted);
+    font-size: .72rem;
+}
+
+.event-shop-priority-help {
+    margin: 0 0 12px;
+    border: 1px solid var(--event-divider);
+    border-radius: 10px;
+    background: var(--event-surface-soft);
+    color: var(--event-muted);
+    padding: 9px 11px;
+    font-size: .78rem;
+}
+
+#pywebio-scope-event_shop_v2_grid {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+}
+
+#pywebio-scope-event_shop_v2_grid > [id^="pywebio-scope-event_shop_card_"] {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    border: 1px solid var(--event-border);
+    border-radius: 13px;
+    background: var(--event-surface-soft);
+    padding: 10px !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+}
+
+.event-shop-v2-card {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+}
+
+.event-shop-v2-card-top {
+    display: flex;
+    min-height: 24px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--event-muted);
+    font-size: .72rem;
+}
+
+.event-shop-v2-stock,
+.event-shop-v2-bought,
+.event-shop-v2-rarity {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    border: 1px solid var(--event-border);
+    border-radius: 999px;
+    background: var(--event-surface-strong);
+    padding: 2px 7px;
+}
+
+.event-shop-v2-bought {
+    border-color: color-mix(in srgb, var(--event-success) 38%, var(--event-border));
+    color: var(--event-success);
+    font-weight: 700;
+}
+
+.event-shop-v2-card-bought {
+    opacity: .72;
+}
+
+.event-shop-v2-image {
+    display: block;
+    width: 92px;
+    height: 92px;
+    margin: 11px auto 8px;
+    object-fit: contain;
+}
+
+.event-shop-v2-name {
+    display: -webkit-box;
+    min-height: 2.55em;
+    overflow: hidden;
+    color: var(--event-text);
+    font-size: .86rem;
+    line-height: 1.28;
+    text-align: center;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.event-shop-v2-price {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 8px;
+    color: var(--event-text);
+}
+
+.event-shop-v2-price img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+}
+
+.event-shop-v2-warning {
+    display: block;
+    margin-top: 7px;
+    color: var(--event-warning);
+    font-size: .7rem;
+    line-height: 1.25;
+    text-align: center;
+}
+
+#pywebio-scope-event_shop_v2_grid *[style*="--event-shop-v2-priority--"] {
+    margin-top: 9px !important;
+}
+
+#pywebio-scope-event_shop_v2_grid .form-group {
+    margin-bottom: 0 !important;
+}
+
+#pywebio-scope-event_shop_v2_grid .form-group > label {
+    margin-bottom: 4px;
+    color: var(--event-muted);
+    font-size: .72rem;
+}
+
+#pywebio-scope-event_shop_v2_grid input[type="number"] {
+    min-height: 34px;
+    border-radius: 9px;
+    text-align: center;
+}
+
+.event-shop-task-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 12px;
+}
+
+.event-shop-task-heading strong {
+    color: var(--event-text);
+    font-size: .96rem;
+}
+
+.event-shop-task-heading small {
+    color: var(--event-muted);
+    font-size: .72rem;
+}
+
+#pywebio-scope-event_shop_task_fields > [id^="pywebio-scope-arg_container_"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+#pywebio-scope-event_shop_task_fields > [id*="NextRun"] {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+}
+
+#pywebio-scope-event_shop_task_fields *[style*="--arg-title--"] {
+    margin: 0 !important;
+    color: var(--event-text);
+    font-size: .78rem;
+}
+
+#pywebio-scope-event_shop_task_fields .form-group {
+    margin: 0 !important;
+}
+
+#pywebio-scope-event_shop_task_fields input {
+    min-height: 34px;
+    border-radius: 9px;
+}
+
+@media (max-width: 1050px) {
+    #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-groups > .row {
+        display: grid !important;
+        grid-template-columns: 1fr;
+    }
+
+    #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-group_EventShopTaskSettings {
+        position: static;
+    }
+
+    .event-shop-v2-hero {
+        flex-direction: column;
+    }
+
+    .event-shop-v2-metrics {
+        width: 100%;
+        min-width: 0;
+    }
+}
+
+@media (max-width: 620px) {
+    #pywebio-scope-event_shop_v2_grid {
+        grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    }
+
+    .event-shop-v2-metrics {
+        grid-template-columns: 1fr;
+    }
+}

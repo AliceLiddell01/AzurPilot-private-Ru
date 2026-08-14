@@ -15,6 +15,7 @@ from module.base.decorator import cached_property
 from module.base.timer import Timer
 from module.base.utils import color_similarity_2d, crop
 from module.combat.assets import GET_ITEMS_1, GET_ITEMS_3, GET_SHIP
+from module.exception import RequestHumanTakeover
 from module.logger import logger
 from module.map_detection.utils import Points
 from module.shop.assets import (
@@ -37,6 +38,10 @@ from module.shop_event.item import (
 )
 from module.shop_event.ui import EVENT_SHOP_SCROLL, EventShopUI
 from module.ui_white.assets import BACK_ARROW_WHITE
+from module.webui.event_shop_priority import (
+    confirm_event_shop_purchase,
+    prepare_event_shop_runtime_items,
+)
 
 DETECT_AREA = (221, 194, 1049, 632)
 SCANNER_OVERLAP_IMAGE_MEAN_DELTA = 6.0
@@ -49,6 +54,28 @@ class ItemNotFoundError(Exception):
 class EventShopClerk(EventShopUI):
     pt_image = None
     urpt_image = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        try:
+            if not bool(
+                self.config.cross_get(
+                    keys="EventShop.Scheduler.Sensitive", default=False
+                )
+            ):
+                self.config.cross_set(
+                    keys="EventShop.Scheduler.Sensitive",
+                    value=True,
+                )
+            self.config.override(Scheduler_Sensitive=True)
+            logger.info(
+                "[Магазин события] Критический режим задачи закреплён: автоматический перезапуск после исключения запрещён"
+            )
+        except Exception as exc:
+            logger.error(
+                f"[Магазин события] Не удалось закрепить критический режим задачи: {exc}"
+            )
+            raise RequestHumanTakeover from exc
 
     @staticmethod
     def _same_scanner_row(left, right):
@@ -182,7 +209,13 @@ class EventShopClerk(EventShopUI):
             else:
                 EVENT_SHOP_SCROLL.next_page(main=self, page=0.66)
                 continue
-        return items
+        try:
+            return prepare_event_shop_runtime_items(self.config, items)
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                f"[Магазин события — приоритеты] Не удалось подготовить план покупок: {exc}"
+            )
+            return []
 
     def event_shop_buy_item(self, item_to_buy, amount=None):
         scroll_pos = item_to_buy.scroll_pos
@@ -197,6 +230,13 @@ class EventShopClerk(EventShopUI):
         elif len(items) > 1:
             logger.warning(f'[Магазин события — покупка] В позиции прокрутки {scroll_pos} найдено несколько товаров {item_to_buy}; покупается первый')
         item = items[0]
+        try:
+            item_count = max(int(item.count), 0)
+            requested = item_count if amount is None else max(int(amount), 0)
+        except (TypeError, ValueError, OverflowError):
+            item_count = 0
+            requested = 0
+        full_purchase = item_count > 0 and requested >= item_count
         # For ship items, while it may have multiple stock, can only buy one at a time.
         if getattr(item, 'is_ship', False):
             buy_times = item.count if amount is None else min(amount, item.count)
@@ -204,6 +244,18 @@ class EventShopClerk(EventShopUI):
                 self.event_shop_buy_item_execute(item, amount=1)
         else:
             self.event_shop_buy_item_execute(item, amount=amount)
+        remaining_after = max(item_count - min(requested, item_count), 0)
+        try:
+            confirm_event_shop_purchase(
+                self.config,
+                item,
+                full_purchase=full_purchase,
+                remaining_after=remaining_after,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                f"[Магазин события — приоритеты] Покупка выполнена, но состояние приоритета не обновлено: {exc}"
+            )
 
     def event_shop_buy_item_execute(self, item, amount):
         self.event_shop_handle_obstruct()
