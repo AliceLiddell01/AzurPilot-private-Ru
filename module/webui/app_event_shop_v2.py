@@ -345,7 +345,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         put_html(
             '<div class="event-shop-task-heading">'
             "<strong>Настройки задачи</strong>"
-            "<small>Запуск и уведомления магазина.</small>"
+            "<small>Запуск магазина и уведомление о штатном завершении.</small>"
             "</div>"
         )
         put_scope("event_shop_task_fields")
@@ -362,7 +362,7 @@ class EventShopV2Mixin(WebUIMixinBase):
                 arg_defs=arg_defs,
                 config=config,
                 arg_name="PushNotification",
-                title="Push-уведомление об ошибке",
+                title="Уведомлять о завершении",
             )
             self._render_event_shop_task_field(
                 task=task,
@@ -371,6 +371,12 @@ class EventShopV2Mixin(WebUIMixinBase):
                 arg_name="NextRun",
                 title="Следующий запуск",
             )
+        put_html(
+            '<small class="event-shop-task-note">'
+            'Ошибки используют общий канал OnePush из настроек ошибок. '
+            'Если провайдер там не задан, внешний push об ошибке отправить невозможно.'
+            '</small>'
+        )
 
     def _render_event_shop_priority_plan(self, config: Mapping[str, Any]) -> None:
         """Render quantity goals and independent purchase ordering."""
