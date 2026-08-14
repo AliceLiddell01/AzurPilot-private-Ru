@@ -32,12 +32,7 @@ from module.webui.event_shop_priority import (
 
 
 _PRESENTATION_NAMES = (
-    Path(__file__).resolve().parents[2]
-    / "module"
-    / "event_datamine"
-    / "data"
-    / "presentation"
-    / "shop_names.en.json"
+    Path(__file__).resolve().parent / "data" / "event_shop_names.en.json"
 )
 
 
@@ -201,7 +196,8 @@ class EventShopV2Mixin(WebUIMixinBase):
                 title="Время следующего запуска",
             )
 
-    def _render_event_shop_plan(self, config: Mapping[str, Any]) -> None:
+    def _render_event_shop_priority_plan(self, config: Mapping[str, Any]) -> None:
+        """Render the clean priority UI without legacy automation diagnostics."""
         plan = self._event_plan()
         event = plan.get("event", {})
         if not isinstance(event, Mapping):
@@ -356,4 +352,4 @@ class EventShopV2Mixin(WebUIMixinBase):
                 config=config,
             )
         with use_scope("group_EventShopPlan", clear=True):
-            self._render_event_shop_plan(config)
+            self._render_event_shop_priority_plan(config)
