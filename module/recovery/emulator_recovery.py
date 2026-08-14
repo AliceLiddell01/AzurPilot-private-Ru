@@ -1,9 +1,10 @@
-"""Оркестрация безопасного emulator recovery для scheduler.
+"""Оркестрация безопасного восстановления эмулятора для планировщика.
 
-Scheduler решает, когда разрешена эскалация. Этот модуль выполняет одну
-bounded recovery-chain: graceful stop → при разрешении instance-scoped hard
-kill → cold start/boot health → создание fresh Device. Финальная проверка
-Azur Lane остаётся в Stage 1 helper scheduler и не запускается рекурсивно.
+Планировщик решает, когда разрешена эскалация. Этот модуль выполняет одну
+ограниченную цепочку: штатная остановка → при разрешении instance-scoped hard
+kill → холодный запуск и проверка загрузки → создание нового Device. Финальная
+проверка Azur Lane остаётся в Stage 1 helper планировщика и не запускается
+рекурсивно.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ def recover_emulator_transport(
         platform=None,
         device_factory: Callable | None = None,
 ) -> EmulatorRecoveryOutcome:
-    """Выполнить ровно одну transport-level recovery-chain эмулятора."""
+    """Выполнить ровно одну транспортную цепочку восстановления эмулятора."""
     if platform is None:
         if current_device is not None and hasattr(current_device, 'platform'):
             platform = current_device.platform
@@ -41,30 +42,30 @@ def recover_emulator_transport(
 
     instance = getattr(platform, 'emulator_instance', None)
     if instance is None:
-        logger.error('[Recovery] recovery failed at: target emulator resolution')
+        logger.error('[Восстановление] Сбой на этапе: определение целевого эмулятора')
         return EmulatorRecoveryOutcome(False, 'target-resolution')
 
     instance_name = getattr(instance, 'name', '') or str(instance)
-    logger.info(f'[Recovery] target emulator resolved: {instance_name}')
-    logger.info('[Recovery] graceful shutdown requested')
+    logger.info(f'[Восстановление] Целевой экземпляр эмулятора определён: {instance_name}')
+    logger.info('[Восстановление] Запрошена штатная остановка эмулятора')
 
     try:
         graceful_stopped = bool(platform.emulator_stop())
     except Exception as exc:
         logger.exception_context(
-            title='Ошибка graceful shutdown эмулятора',
+            title='Ошибка штатной остановки эмулятора',
             exc=exc,
-            impact='Фактическая остановка не подтверждена; recovery не может продолжиться без проверки состояния.',
-            action='Проверьте manager API и process ownership выбранного instance.',
+            impact='Фактическая остановка не подтверждена; восстановление не может продолжиться без проверки состояния.',
+            action='Проверьте manager API и принадлежность процессов выбранному экземпляру.',
         )
         graceful_stopped = False
 
     mode = 'graceful'
     if graceful_stopped:
-        logger.info('[Recovery] graceful shutdown verified')
+        logger.info('[Восстановление] Штатная остановка подтверждена')
     else:
         if not allow_hard_kill:
-            logger.error('[Recovery] recovery failed at: graceful shutdown verification')
+            logger.error('[Восстановление] Сбой на этапе: проверка штатной остановки')
             return EmulatorRecoveryOutcome(
                 False,
                 'graceful-stop',
@@ -74,7 +75,7 @@ def recover_emulator_transport(
 
         force_stop = getattr(platform, 'emulator_force_stop_instance', None)
         if not callable(force_stop):
-            logger.error('[Recovery] recovery failed at: instance-scoped hard kill unavailable')
+            logger.error('[Восстановление] Сбой на этапе: instance-scoped hard kill недоступен')
             return EmulatorRecoveryOutcome(
                 False,
                 'hard-kill-unavailable',
@@ -82,20 +83,20 @@ def recover_emulator_transport(
                 instance_name=instance_name,
             )
 
-        logger.warning('[Recovery] target still alive; instance-scoped hard kill started')
+        logger.warning('[Восстановление] Целевой экземпляр всё ещё запущен; начинается instance-scoped hard kill')
         try:
             hard_stopped = bool(force_stop())
         except Exception as exc:
             logger.exception_context(
                 title='Ошибка instance-scoped hard kill эмулятора',
                 exc=exc,
-                impact='Старый instance может оставаться жив; cold start запрещён.',
-                action='Проверьте права процесса и identity target instance.',
+                impact='Старый экземпляр может оставаться запущенным; холодный запуск запрещён.',
+                action='Проверьте права процесса и identity целевого экземпляра.',
             )
             hard_stopped = False
 
         if not hard_stopped:
-            logger.error('[Recovery] recovery failed at: hard kill verification')
+            logger.error('[Восстановление] Сбой на этапе: проверка hard kill')
             return EmulatorRecoveryOutcome(
                 False,
                 'hard-kill',
@@ -103,22 +104,22 @@ def recover_emulator_transport(
                 instance_name=instance_name,
             )
         mode = 'hard-kill'
-        logger.info('[Recovery] target shutdown verified after hard kill')
+        logger.info('[Восстановление] Остановка целевого экземпляра после hard kill подтверждена')
 
-    logger.info('[Recovery] cold start')
+    logger.info('[Восстановление] Холодный запуск эмулятора')
     try:
         started = bool(platform.emulator_start())
     except Exception as exc:
         logger.exception_context(
-            title='Ошибка cold start эмулятора',
+            title='Ошибка холодного запуска эмулятора',
             exc=exc,
-            impact='Recovery не завершён; fresh Device создавать нельзя.',
-            action='Проверьте launch_player и boot health выбранного instance.',
+            impact='Восстановление не завершено; новый Device создавать нельзя.',
+            action='Проверьте launch_player и проверку загрузки выбранного экземпляра.',
         )
         started = False
 
     if not started:
-        logger.error('[Recovery] recovery failed at: cold start / boot health')
+        logger.error('[Восстановление] Сбой на этапе: холодный запуск или проверка загрузки')
         return EmulatorRecoveryOutcome(
             False,
             'cold-start',
@@ -126,7 +127,7 @@ def recover_emulator_transport(
             instance_name=instance_name,
         )
 
-    logger.info('[Recovery] boot health passed')
+    logger.info('[Восстановление] Проверка загрузки эмулятора пройдена')
 
     if device_factory is None:
         from module.device.device import Device
@@ -136,12 +137,12 @@ def recover_emulator_transport(
         fresh_device = device_factory(config=config)
     except Exception as exc:
         logger.exception_context(
-            title='Не удалось создать fresh Device после перезапуска эмулятора',
+            title='Не удалось создать новый Device после перезапуска эмулятора',
             exc=exc,
-            impact='Старые ADB/screenshot/control handles не переиспользуются; recovery считается неуспешным.',
-            action='Проверьте ADB, выбранный serial и методы screenshot/control после загрузки эмулятора.',
+            impact='Старые ADB/screenshot/control handles не переиспользуются; восстановление считается неуспешным.',
+            action='Проверьте ADB, выбранный serial и методы получения снимков и управления после загрузки эмулятора.',
         )
-        logger.error('[Recovery] recovery failed at: fresh Device')
+        logger.error('[Восстановление] Сбой на этапе: создание нового Device')
         return EmulatorRecoveryOutcome(
             False,
             'fresh-device',
@@ -149,7 +150,7 @@ def recover_emulator_transport(
             instance_name=instance_name,
         )
 
-    logger.info('[Recovery] fresh Device created')
+    logger.info('[Восстановление] Создан новый Device')
     return EmulatorRecoveryOutcome(
         True,
         'transport-ready',
