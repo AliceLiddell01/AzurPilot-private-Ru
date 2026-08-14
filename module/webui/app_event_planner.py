@@ -16,6 +16,7 @@ from module.webui.app_dependencies import (
     put_input,
     put_row,
     toast,
+    use_scope,
 )
 from module.webui.app_helpers import is_demo_mode
 from module.webui.app_types import WebUIMixinBase
@@ -83,6 +84,11 @@ class EventPlannerMixin(WebUIMixinBase):
 
     def _refresh_event_plan_page(self) -> None:
         task = getattr(self, "_event_plan_active_task", "")
+        if task == "EventShop":
+            config = self.alas_config.read_file(self.alas_name)
+            with use_scope("group_EventShopPlan", clear=True):
+                self._render_event_shop_plan(config)
+            return
         if task:
             self.alas_set_group(task)
 

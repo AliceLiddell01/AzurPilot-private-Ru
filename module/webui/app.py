@@ -70,7 +70,7 @@ from module.webui.app_stat_action_point import ActionPointStatisticsMixin
 from module.webui.app_stat_action_point_toolbar import ActionPointToolbarMixin
 from module.webui.app_stat_commission import CommissionIncomeStatisticsMixin
 from module.webui.app_stat_opsi import OpsiStatisticsMixin
-from module.webui.app_stat_opsi_export import OpsiExportMixin
+from module.webui.app_stat_opsi_export import OpsiStatisticsExportMixin
 from module.webui.app_stat_resource import ResourceStatisticsMixin
 from module.webui.app_stat_ship import ShipExperienceStatisticsMixin
 from module.webui.app_statistics_page import StatisticsPageMixin
@@ -97,7 +97,7 @@ class AlasGUI(
     ActionPointToolbarMixin,
     ResourceStatisticsMixin,
     OpsiStatisticsMixin,
-    OpsiExportMixin,
+    OpsiStatisticsExportMixin,
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
     EventProfilesMixin,
@@ -211,6 +211,10 @@ def app():
             is_mobile=info.user_agent.is_mobile,
             preloaded_styles=("alas",),
         )
+        # Event CSS загружается до построения меню/контента, чтобы первый кадр
+        # магазина не зависел от асинхронной загрузки stylesheet через DOM.
+        add_css(filepath_css("event-profiles-alas"))
+        add_css(filepath_css("event-shop-stability-alas"))
         add_css(filepath_css("traceback-alas"))
         if _block_public_webui_password_error():
             return
