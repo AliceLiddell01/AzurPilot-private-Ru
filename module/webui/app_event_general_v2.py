@@ -9,6 +9,7 @@ from typing import Any
 
 from module.webui.app_dependencies import (
     deep_get,
+    logger,
     put_button,
     put_buttons,
     put_html,
@@ -16,6 +17,7 @@ from module.webui.app_dependencies import (
     put_row,
     put_scope,
     run_js,
+    toast,
     use_scope,
 )
 from module.webui.app_helpers import is_demo_mode
@@ -71,6 +73,20 @@ class EventGeneralV2Mixin(WebUIMixinBase):
         if task == EVENT_REWARDS_TASK:
             return self._alas_set_event_rewards_v2()
         return super().alas_set_group(task)
+
+    def _refresh_event_profile_ui(self) -> None:
+        """Keep profile CRUD on the compact EventGeneral surface."""
+        try:
+            config = self._read_event_profile_config()
+        except Exception as exc:
+            logger.exception(exc)
+            toast(f"Не удалось обновить интерфейс профилей: {exc}", color="error")
+            return
+
+        self._render_event_aware_menu()
+        self.active_button("menu", "EventGeneral")
+        with use_scope("group_EventProfiles", clear=True):
+            self._render_event_profiles_compact(config)
 
     @staticmethod
     def _event_progress(plan: Mapping[str, Any]) -> tuple[int | None, Mapping[str, Any]]:
