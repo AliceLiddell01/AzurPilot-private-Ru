@@ -1,10 +1,11 @@
 """Безопасное управление современными экземплярами MuMu на Windows.
 
-Модуль расширяет существующий PlatformWindows только для MuMuPlayer12-family,
-куда текущий детектор также относит MuMuPlayer 6.0 / Android 15. Graceful stop
-проверяется по фактическому instance-owned процессу. Hard kill допускается
-только для однозначно найденного MuMuNxDevice.exe выбранного instance и его
-дочерних процессов; общие MuMuNxMain/MuMuNxSVC никогда не входят в target set.
+Модуль расширяет существующий PlatformWindows только для семейства
+MuMuPlayer12, куда текущий детектор также относит MuMuPlayer 6.0 / Android 15.
+Штатная остановка проверяется по фактическому процессу выбранного экземпляра.
+Принудительное завершение допускается только для однозначно найденного
+MuMuNxDevice.exe выбранного экземпляра и его дочерних процессов; общие
+MuMuNxMain/MuMuNxSVC никогда не входят в целевой набор.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from module.logger import logger
 
 
 class RecoveryPlatformWindows(PlatformWindows):
-    """PlatformWindows с verified instance-safe lifecycle для современного MuMu."""
+    """PlatformWindows с проверяемым instance-safe lifecycle современного MuMu."""
 
     MUMU_STOP_VERIFY_TIMEOUT = 15.0
     MUMU_STOP_VERIFY_INTERVAL = 0.5
@@ -72,7 +73,7 @@ class RecoveryPlatformWindows(PlatformWindows):
         instance = instance or self.emulator_instance
         if not self._is_modern_mumu(instance):
             raise EmulatorUnknown(
-                'Instance-running probe Stage 2 реализован только для MuMuPlayer12-family'
+                'Проверка состояния Stage 2 реализована только для семейства MuMuPlayer12'
             )
         return is_mumu_instance_running(instance)
 
@@ -83,16 +84,16 @@ class RecoveryPlatformWindows(PlatformWindows):
 
         logger.hr('Остановка эмулятора', level=1)
         logger.info(
-            f'[Устройство — Windows] Graceful shutdown запрошен для '
+            f'[Устройство — Windows] Запрошена штатная остановка '
             f'{instance.name} (id={instance.MuMuPlayer12_id})'
         )
         result = self._mumu_manager_command(instance, 'shutdown_player')
         if result is None:
-            logger.warning('[Устройство — Windows] Graceful shutdown command завершилась тайм-аутом')
+            logger.warning('[Устройство — Windows] Команда штатной остановки завершилась тайм-аутом')
         elif result.returncode != 0:
             logger.warning(
-                f'[Устройство — Windows] Graceful shutdown command вернула код {result.returncode}; '
-                'проверяется фактическое состояние instance'
+                f'[Устройство — Windows] Команда штатной остановки вернула код {result.returncode}; '
+                'проверяется фактическое состояние экземпляра'
             )
 
         try:
@@ -106,19 +107,19 @@ class RecoveryPlatformWindows(PlatformWindows):
             return False
 
         if stopped:
-            logger.info(f'[Устройство — Windows] Graceful shutdown подтверждён: {instance.name}')
+            logger.info(f'[Устройство — Windows] Штатная остановка подтверждена: {instance.name}')
             return True
 
         logger.warning(
-            f'[Устройство — Windows] Graceful shutdown не остановил {instance.name}; '
-            'instance остаётся жив'
+            f'[Устройство — Windows] Штатная остановка не остановила {instance.name}; '
+            'экземпляр остаётся запущен'
         )
         return False
 
     def emulator_force_stop_instance(self):
         instance = self.emulator_instance
         if not self._is_modern_mumu(instance):
-            logger.error('[Устройство — Windows] Hard kill доступен только для MuMuPlayer12-family')
+            logger.error('[Устройство — Windows] Hard kill доступен только для семейства MuMuPlayer12')
             return False
         logger.warning(
             f'[Устройство — Windows] Запущен instance-scoped hard kill '
@@ -135,34 +136,48 @@ class RecoveryPlatformWindows(PlatformWindows):
         try:
             running = is_mumu_instance_running(instance)
         except MuMuInstanceIdentityError as exc:
-            logger.error(f'[Устройство — Windows] Cold start MuMu отклонён: {exc}')
+            logger.error(f'[Устройство — Windows] Холодный запуск MuMu отклонён: {exc}')
             return False
 
         if running:
             logger.warning(
-                f'[Устройство — Windows] Cold start отклонён: {instance.name} ещё запущен; '
-                'сначала выполняется только graceful shutdown'
+                f'[Устройство — Windows] Холодный запуск отклонён: {instance.name} ещё запущен; '
+                'сначала выполняется только штатная остановка'
             )
             if not self.emulator_stop():
                 return False
 
         for attempt in range(1, self.MUMU_START_ATTEMPTS + 1):
             logger.info(
-                f'[Устройство — Windows] Cold start {instance.name}: '
+                f'[Устройство — Windows] Холодный запуск {instance.name}: '
                 f'попытка {attempt}/{self.MUMU_START_ATTEMPTS}'
             )
             result = self._mumu_manager_command(instance, 'launch_player')
             if result is None or result.returncode != 0:
                 logger.warning('[Устройство — Windows] MuMuManager не подтвердил launch_player')
+                try:
+                    partially_running = is_mumu_instance_running(instance)
+                except MuMuInstanceIdentityError as exc:
+                    logger.error(
+                        f'[Устройство — Windows] Не удалось проверить состояние после launch_player: {exc}'
+                    )
+                    return False
+                if partially_running:
+                    logger.warning(
+                        f'[Устройство — Windows] После ошибки launch_player экземпляр '
+                        f'{instance.name} всё же появился; перед повтором требуется штатная остановка'
+                    )
+                    if not self.emulator_stop():
+                        return False
                 continue
 
             if self.emulator_start_watch():
-                logger.info(f'[Устройство — Windows] Boot health passed: {instance.name}')
+                logger.info(f'[Устройство — Windows] Проверка загрузки пройдена: {instance.name}')
                 return True
 
             logger.warning(
-                f'[Устройство — Windows] Boot health не пройден для {instance.name}; '
-                'перед повтором выполняется verified graceful shutdown'
+                f'[Устройство — Windows] Проверка загрузки не пройдена для {instance.name}; '
+                'перед повтором выполняется проверяемая штатная остановка'
             )
             if not self.emulator_stop():
                 return False
