@@ -1,12 +1,12 @@
 /*
- * Критический контракт раскладки EventShop.
+ * EventShop critical layout.
  *
- * PyWebIO создаёт детерминированные идентификаторы scope до выполнения
- * дополнительного run_js(), который назначает удобные классы. Поэтому базовая
- * раскладка привязана непосредственно к scope ID и корректна уже на первом кадре.
- * Основной event-profiles stylesheet остаётся источником остальных визуальных правил.
+ * The shop intentionally uses one visual surface only: the application shell.
+ * EventShop groups and hero blocks are transparent; cards use borders and
+ * spacing instead of stacking several matte/glass backgrounds.
  */
 
+/* Legacy scope contract retained for deterministic first-frame layout. */
 #pywebio-scope-event_shop_grid {
     display: grid;
     width: 100%;
@@ -23,9 +23,9 @@
     justify-content: space-between;
     overflow: hidden;
     border: 1px solid var(--event-border);
-    border-radius: 15px;
-    background: var(--event-surface-soft);
-    padding: 12px;
+    border-radius: 13px;
+    background: transparent;
+    padding: 10px;
 }
 
 [id^="pywebio-scope-event_shop_card_"] .row {
@@ -46,11 +46,6 @@
     min-width: 44px;
 }
 
-/*
- * Квадратная иконка не должна сочетать процентную ширину с фиксированной
- * высотой: на узкой карточке object-fit создаёт внутреннее пустое поле, которое
- * выглядит как зависящая от масштаба полоса. Высота следует за шириной.
- */
 #pywebio-scope-content.event-modern-page .event-shop-card-visual > img {
     display: block;
     width: min(112px, 52%);
@@ -75,48 +70,47 @@
     100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@media (max-width: 760px) {
-    #pywebio-scope-event_shop_grid {
-        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    }
-}
-
-@media (max-width: 520px) {
-    #pywebio-scope-event_shop_grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* Stage 5.1: compact priority-driven EventShop surface. */
+/* Flatten the generic Event group cards specifically for EventShop. */
 #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-groups > .row {
     align-items: flex-start;
-    gap: 14px;
+    gap: 20px;
     margin: 0 !important;
 }
 
 #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-group_EventShopPlan,
 #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-group_EventShopTaskSettings {
     min-width: 0;
-    margin-bottom: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
 }
 
 #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-group_EventShopTaskSettings {
     position: sticky;
     top: 70px;
-    padding: 16px !important;
+    border-left: 1px solid var(--event-divider) !important;
+    padding-left: 18px !important;
 }
 
+/* Header: hierarchy without another glass panel. */
 .event-shop-v2-hero {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 18px;
-    border: 1px solid var(--event-border);
-    border-left: 3px solid var(--event-accent);
-    border-radius: var(--event-radius);
-    background: var(--event-surface-strong);
-    padding: 18px;
-    margin-bottom: 10px;
+    margin: 0 0 10px;
+    border: 0;
+    border-bottom: 1px solid var(--event-divider);
+    border-radius: 0;
+    background: transparent;
+    padding: 4px 0 14px;
+}
+
+.event-shop-v2-title {
+    min-width: 0;
 }
 
 .event-shop-v2-hero h3 {
@@ -124,9 +118,10 @@
     color: var(--event-text);
     font-size: 1.28rem;
     font-weight: 720;
+    overflow-wrap: anywhere;
 }
 
-.event-shop-v2-hero > div > small {
+.event-shop-v2-title > small {
     display: block;
     margin-top: 6px;
     color: var(--event-muted);
@@ -134,25 +129,31 @@
 
 .event-shop-v2-metrics {
     display: grid;
-    min-width: 310px;
-    grid-template-columns: repeat(3, minmax(86px, 1fr));
-    gap: 8px;
+    min-width: 330px;
+    grid-template-columns: repeat(3, minmax(92px, 1fr));
+    gap: 0;
 }
 
 .event-shop-v2-metrics > span {
+    display: grid;
     min-width: 0;
-    border: 1px solid var(--event-border);
-    border-radius: 10px;
-    background: var(--event-surface-soft);
-    padding: 10px 11px;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 6px;
+    border: 0;
+    border-left: 1px solid var(--event-divider);
+    border-radius: 0;
+    background: transparent;
+    padding: 5px 11px;
 }
 
-.event-shop-v2-metrics b,
-.event-shop-v2-metrics small {
-    display: block;
+.event-shop-v2-metrics > span:first-child {
+    border-left: 0;
 }
 
 .event-shop-v2-metrics b {
+    grid-column: 1 / -1;
     overflow: hidden;
     color: var(--event-text);
     font-size: 1rem;
@@ -160,25 +161,57 @@
 }
 
 .event-shop-v2-metrics small {
+    grid-column: 1 / -1;
     margin-top: 3px;
     color: var(--event-muted);
-    font-size: .72rem;
+    font-size: .7rem;
 }
 
+.event-shop-v2-metrics .event-shop-v2-balance {
+    grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.event-shop-v2-balance img {
+    grid-row: 1;
+    grid-column: 1;
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+}
+
+.event-shop-v2-balance b {
+    grid-row: 1;
+    grid-column: 2;
+}
+
+.event-shop-v2-balance small {
+    grid-row: 2;
+    grid-column: 1 / -1;
+}
+
+/* One textual hint, no nested surface. */
 .event-shop-priority-help {
-    margin: 0 0 12px;
-    border: 1px solid var(--event-divider);
-    border-radius: 10px;
-    background: var(--event-surface-soft);
+    margin: 0 0 14px;
+    border: 0;
+    border-left: 2px solid var(--event-accent);
+    border-radius: 0;
+    background: transparent;
     color: var(--event-muted);
-    padding: 9px 11px;
-    font-size: .78rem;
+    padding: 4px 0 4px 10px;
+    font-size: .76rem;
+    line-height: 1.42;
 }
 
+.event-shop-priority-help strong {
+    color: var(--event-text);
+}
+
+/* Catalog: cards are outlined, not another matte layer. */
 #pywebio-scope-event_shop_v2_grid {
     display: grid;
     width: 100%;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    max-width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
     gap: 10px;
 }
 
@@ -186,12 +219,13 @@
     display: flex;
     min-width: 0;
     flex-direction: column;
-    border: 1px solid var(--event-border);
-    border-radius: 13px;
-    background: var(--event-surface-soft);
-    padding: 10px !important;
     margin: 0 !important;
+    overflow: hidden;
+    border: 1px solid var(--event-border);
+    border-radius: 12px;
+    background: transparent !important;
     box-shadow: none !important;
+    padding: 10px !important;
 }
 
 .event-shop-v2-card {
@@ -203,41 +237,47 @@
 
 .event-shop-v2-card-top {
     display: flex;
-    min-height: 24px;
+    min-height: 23px;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
     color: var(--event-muted);
-    font-size: .72rem;
+    font-size: .69rem;
 }
 
 .event-shop-v2-stock,
 .event-shop-v2-bought,
+.event-shop-v2-done,
 .event-shop-v2-rarity {
     display: inline-flex;
     align-items: center;
-    min-height: 22px;
+    min-height: 21px;
     border: 1px solid var(--event-border);
     border-radius: 999px;
-    background: var(--event-surface-strong);
+    background: transparent;
     padding: 2px 7px;
 }
 
-.event-shop-v2-bought {
-    border-color: color-mix(in srgb, var(--event-success) 38%, var(--event-border));
+.event-shop-v2-bought,
+.event-shop-v2-done {
+    border-color: color-mix(in srgb, var(--event-success) 42%, var(--event-border));
     color: var(--event-success);
     font-weight: 700;
 }
 
 .event-shop-v2-card-bought {
-    opacity: .72;
+    opacity: .66;
+}
+
+.event-shop-v2-card-done {
+    opacity: .82;
 }
 
 .event-shop-v2-image {
     display: block;
-    width: 92px;
-    height: 92px;
-    margin: 11px auto 8px;
+    width: 88px;
+    height: 88px;
+    margin: 10px auto 7px;
     object-fit: contain;
 }
 
@@ -246,7 +286,7 @@
     min-height: 2.55em;
     overflow: hidden;
     color: var(--event-text);
-    font-size: .86rem;
+    font-size: .84rem;
     line-height: 1.28;
     text-align: center;
     -webkit-box-orient: vertical;
@@ -258,7 +298,7 @@
     align-items: center;
     justify-content: center;
     gap: 5px;
-    margin-top: 8px;
+    margin-top: 7px;
     color: var(--event-text);
 }
 
@@ -268,17 +308,66 @@
     object-fit: contain;
 }
 
+.event-shop-v2-target {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 3px 8px;
+    margin-top: 9px;
+    border-top: 1px solid var(--event-divider);
+    padding-top: 8px;
+}
+
+.event-shop-v2-target > span,
+.event-shop-v2-target > small {
+    color: var(--event-muted);
+    font-size: .68rem;
+}
+
+.event-shop-v2-target > strong {
+    color: var(--event-text);
+    font-size: .8rem;
+}
+
+.event-shop-v2-target > small {
+    grid-column: 1 / -1;
+}
+
 .event-shop-v2-warning {
     display: block;
+    min-height: 1.25em;
     margin-top: 7px;
     color: var(--event-warning);
-    font-size: .7rem;
+    font-size: .68rem;
     line-height: 1.25;
     text-align: center;
 }
 
+/* Quantity target controls. */
+#pywebio-scope-event_shop_v2_grid *[style*="--event-shop-v2-target-controls--"] {
+    display: grid !important;
+    grid-template-columns: 42px 42px 58px minmax(64px, 1fr) !important;
+    gap: 5px !important;
+    margin-top: 8px !important;
+}
+
+#pywebio-scope-event_shop_v2_grid *[style*="--event-shop-v2-target-controls--"] > div {
+    min-width: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    padding: 0 !important;
+}
+
+#pywebio-scope-event_shop_v2_grid *[style*="--event-shop-v2-target-controls--"] .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 6px 7px !important;
+    border-radius: 8px !important;
+    font-size: .72rem;
+}
+
 #pywebio-scope-event_shop_v2_grid *[style*="--event-shop-v2-priority--"] {
-    margin-top: 9px !important;
+    margin-top: 8px !important;
 }
 
 #pywebio-scope-event_shop_v2_grid .form-group {
@@ -288,20 +377,21 @@
 #pywebio-scope-event_shop_v2_grid .form-group > label {
     margin-bottom: 4px;
     color: var(--event-muted);
-    font-size: .72rem;
+    font-size: .7rem;
 }
 
 #pywebio-scope-event_shop_v2_grid input[type="number"] {
     min-height: 34px;
-    border-radius: 9px;
+    border-radius: 8px;
     text-align: center;
 }
 
+/* Task settings: a simple vertical form with separators, never narrow label/control columns. */
 .event-shop-task-heading {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    margin-bottom: 12px;
+    margin: 2px 0 8px;
 }
 
 .event-shop-task-heading strong {
@@ -316,33 +406,45 @@
 
 #pywebio-scope-event_shop_task_fields > [id^="pywebio-scope-arg_container_"] {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
-}
-
-#pywebio-scope-event_shop_task_fields > [id*="NextRun"] {
     grid-template-columns: 1fr;
     align-items: stretch;
+    gap: 6px;
+    margin: 0 !important;
+    border-bottom: 1px solid var(--event-divider);
+    padding: 10px 0 !important;
+}
+
+#pywebio-scope-event_shop_task_fields > [id^="pywebio-scope-arg_container_"]:last-child {
+    border-bottom: 0;
 }
 
 #pywebio-scope-event_shop_task_fields *[style*="--arg-title--"] {
+    width: auto !important;
+    max-width: none !important;
     margin: 0 !important;
     color: var(--event-text);
-    font-size: .78rem;
+    font-size: .76rem;
+    line-height: 1.3;
+    white-space: normal;
 }
 
 #pywebio-scope-event_shop_task_fields .form-group {
+    width: 100%;
     margin: 0 !important;
 }
 
 #pywebio-scope-event_shop_task_fields input {
+    width: 100%;
     min-height: 34px;
-    border-radius: 9px;
+    border-radius: 8px;
 }
 
-@media (max-width: 1050px) {
+#pywebio-scope-event_shop_task_fields .custom-control,
+#pywebio-scope-event_shop_task_fields .custom-switch {
+    margin: 0 !important;
+}
+
+@media (max-width: 1120px) {
     #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-groups > .row {
         display: grid !important;
         grid-template-columns: 1fr;
@@ -350,6 +452,10 @@
 
     #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-group_EventShopTaskSettings {
         position: static;
+        border-top: 1px solid var(--event-divider) !important;
+        border-left: 0 !important;
+        padding-top: 16px !important;
+        padding-left: 0 !important;
     }
 
     .event-shop-v2-hero {
@@ -362,12 +468,35 @@
     }
 }
 
-@media (max-width: 620px) {
-    #pywebio-scope-event_shop_v2_grid {
-        grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+@media (max-width: 760px) {
+    #pywebio-scope-event_shop_grid {
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     }
 
+    #pywebio-scope-event_shop_v2_grid {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+}
+
+@media (max-width: 620px) {
     .event-shop-v2-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .event-shop-v2-metrics > span,
+    .event-shop-v2-metrics > span:first-child {
+        border-top: 1px solid var(--event-divider);
+        border-left: 0;
+    }
+
+    .event-shop-v2-metrics > span:first-child {
+        border-top: 0;
+    }
+}
+
+@media (max-width: 520px) {
+    #pywebio-scope-event_shop_grid,
+    #pywebio-scope-event_shop_v2_grid {
         grid-template-columns: 1fr;
     }
 }

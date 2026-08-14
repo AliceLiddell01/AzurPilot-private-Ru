@@ -23,6 +23,7 @@ from deploy.atomic import (
 from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
 from module.webui.event_shop_observation import reconcile_event_shop
+from module.webui.event_source import load_event_user_state
 
 EVENT_SHOP_PRIORITY_SCHEMA_VERSION = 2
 EVENT_SHOP_PRIORITY_ROOT = Path("./config/state/event_shop_priority")
@@ -229,9 +230,43 @@ def _catalog_rows(spec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     ]
 
 
+def _selected_targets(config: Any, event_id: str) -> dict[str, int]:
+    """Read the user's quantity goals for this exact event."""
+    state = load_event_user_state(config.config_name)
+    saved_event_id = str(state.get("source_event_id") or "")
+    if saved_event_id and saved_event_id != str(event_id or ""):
+        return {}
+    selections = state.get("shop_selections")
+    if not isinstance(selections, Mapping):
+        return {}
+    result: dict[str, int] = {}
+    for row_id, value in selections.items():
+        try:
+            selected = max(int(value or 0), 0)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        result[str(row_id)] = selected
+    return result
+
+
+def _target_remaining(
+    source: Mapping[str, Any],
+    runtime: Any,
+    selected: int,
+) -> int:
+    """Return how many more units may be bought without exceeding the user goal."""
+    stock = max(int(source.get("stock", 0) or 0), 0)
+    target = min(max(int(selected), 0), stock)
+    current = max(int(getattr(runtime, "count", 0) or 0), 0)
+    current = min(current, stock)
+    already_bought = max(stock - current, 0)
+    return max(target - already_bought, 0)
+
+
 def _runtime_filter(item: Any) -> str:
     return "".join(
-        str(getattr(item, field, "") or "") for field in ("group", "sub_genre", "tier")
+        str(getattr(item, field, "") or "")
+        for field in ("group", "sub_genre", "tier")
     )
 
 
@@ -257,7 +292,10 @@ def _verify_pending_purchase(
     if expected == 0 and runtime is None and token not in ambiguous_filters:
         after = 0
     elif runtime is None:
-        return False, "После покупки товар не удалось однозначно проверить повторным сканированием"
+        return (
+            False,
+            "После покупки товар не удалось однозначно проверить повторным сканированием",
+        )
     else:
         after = max(int(getattr(runtime, "count", 0) or 0), 0)
 
@@ -292,7 +330,7 @@ def prepare_event_shop_runtime_items(
     *,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> PriorityRuntimeItems:
-    """Build one safe purchase step from a complete scan."""
+    """Build one safe quantity-capped purchase step from a complete scan."""
     full_scan = list(runtime_items)
     spec = _current_spec(config)
     if spec is None:
@@ -303,6 +341,7 @@ def prepare_event_shop_runtime_items(
 
     event_id = str(spec.get("id") or "")
     state = load_event_shop_priority(config.config_name, event_id, root=root)
+    selected_targets = _selected_targets(config, event_id)
     rows, _ = reconcile_event_shop(spec, full_scan)
     runtime_by_row: dict[str, Any] = {}
     ambiguous_filters: set[str] = set()
@@ -355,15 +394,24 @@ def prepare_event_shop_runtime_items(
     if changed:
         state["purchased"] = sorted(purchased)
 
-    candidates: list[tuple[int, int, str, Mapping[str, Any], Any]] = []
+    candidates: list[
+        tuple[int, int, str, Mapping[str, Any], Any, int]
+    ] = []
     blocked: dict[str, str] = {}
-    catalog_order = {str(item.get("row_id")): index for index, item in enumerate(catalog)}
+    catalog_order = {
+        str(item.get("row_id")): index for index, item in enumerate(catalog)
+    }
     for row_id, priority in state["priorities"].items():
         if row_id in purchased:
             continue
         source = catalog_by_id.get(row_id)
         if source is None:
             continue
+
+        selected = selected_targets.get(row_id, 0)
+        if selected <= 0:
+            continue
+
         runtime = runtime_by_row.get(row_id)
         source_filter = str(source.get("event_shop_filter") or "")
         if runtime is None:
@@ -373,8 +421,15 @@ def prepare_event_shop_runtime_items(
                 blocked[row_id] = "Товар сейчас не найден в магазине"
             continue
         if str(getattr(runtime, "cost", "") or "").lower() == "urpt":
-            blocked[row_id] = "Покупка за UR-очки пока недоступна в режиме приоритетов"
+            blocked[row_id] = (
+                "Покупка за UR-очки пока недоступна в режиме приоритетов"
+            )
             continue
+
+        remaining_goal = _target_remaining(source, runtime, selected)
+        if remaining_goal <= 0:
+            continue
+
         candidates.append(
             (
                 int(priority),
@@ -382,36 +437,43 @@ def prepare_event_shop_runtime_items(
                 row_id,
                 source,
                 runtime,
+                remaining_goal,
             )
         )
 
     candidates.sort(key=lambda item: (item[0], item[1]))
     token_counts = Counter(
         str(source.get("event_shop_filter") or "").lower()
-        for _, _, _, source, _ in candidates
+        for _, _, _, source, _, _ in candidates
     )
     safe_candidates = []
     for candidate in candidates:
-        _, _, row_id, source, _ = candidate
+        _, _, row_id, source, _, _ = candidate
         token = str(source.get("event_shop_filter") or "")
         if not token:
             blocked[row_id] = "Для этого товара пока нет безопасного правила покупки"
             continue
         if token_counts[token.lower()] > 1:
-            blocked[row_id] = "Одинаковые товары нельзя безопасно развести по разным приоритетам"
+            blocked[row_id] = (
+                "Одинаковые товары нельзя безопасно развести по разным приоритетам"
+            )
             continue
         safe_candidates.append(candidate)
 
     state["blocked"] = blocked
     save_event_shop_priority(config.config_name, state, root=root)
 
-    # One scanner snapshot authorizes at most one logical purchase.  The next
-    # click is allowed only after a fresh complete scan verifies this one.
+    # One scanner snapshot authorizes at most one logical purchase. Quantity
+    # comes from the user's target and is capped against already bought stock.
     next_candidate = safe_candidates[:1]
-    filter_tokens = [
-        str(source.get("event_shop_filter") or "")
-        for _, _, _, source, _ in next_candidate
-    ]
+    filter_tokens = []
+    for _, _, _, source, runtime, remaining_goal in next_candidate:
+        token = str(source.get("event_shop_filter") or "")
+        runtime_remaining = max(int(getattr(runtime, "count", 0) or 0), 0)
+        if remaining_goal < runtime_remaining:
+            token = f"{token}:{remaining_goal}"
+        filter_tokens.append(token)
+
     config.override(
         EventShop_PriorityMode=True,
         EventShop_PresetFilter="custom",
@@ -419,7 +481,7 @@ def prepare_event_shop_runtime_items(
         EventShop_BuyURShip=0,
         EventShop_UnlockSSRShip=False,
     )
-    selected = [runtime for _, _, _, _, runtime in next_candidate]
+    selected = [runtime for _, _, _, _, runtime, _ in next_candidate]
     return PriorityRuntimeItems(selected, observation_items=full_scan)
 
 
@@ -464,8 +526,8 @@ def confirm_event_shop_purchase(
         f"[Магазин события — приоритеты] Покупка строки {row_id} ожидает повторного полного сканирования: {before} -> {expected}"
     )
 
-    # Stop this pass immediately.  Scheduler will enter EventShop again and
-    # scan the whole shop before prepare_event_shop_runtime_items can authorize
+    # Stop this pass immediately. Scheduler will enter EventShop again and
+    # scan the whole shop before prepare_event_shop_runtime_items authorizes
     # another purchase.
     config.task_call("EventShop", force_call=True)
     config.task_stop("Повторное сканирование магазина после покупки")
@@ -480,15 +542,17 @@ def wake_event_shop_after_currency_increase(
     source: str,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> bool:
-    """Wake EventShop when another producer proves that event currency increased."""
+    """Wake EventShop only when a still-unfulfilled quantity target exists."""
     if str(source or "") == "event_shop_ocr":
         return False
     if previous_value is None or current_value is None or current_value <= previous_value:
         return False
 
     state = load_event_shop_priority(instance, event_id, root=root)
-    active = set(state["priorities"]) - set(state["purchased"]) - set(state["blocked"])
-    if not active:
+    possible = (
+        set(state["priorities"]) - set(state["purchased"]) - set(state["blocked"])
+    )
+    if not possible:
         return False
 
     try:
@@ -497,6 +561,33 @@ def wake_event_shop_after_currency_increase(
         config = AzurLaneConfig(config_name=instance)
         if not config.is_task_enabled("EventShop"):
             return False
+
+        spec = _current_spec(config)
+        if not isinstance(spec, Mapping) or str(spec.get("id") or "") != str(event_id):
+            return False
+        targets = _selected_targets(config, event_id)
+        catalog_by_id = {
+            str(item.get("row_id")): item for item in _catalog_rows(spec)
+        }
+
+        active = False
+        for row_id in possible:
+            source_row = catalog_by_id.get(row_id)
+            if source_row is None:
+                continue
+            stock = max(int(source_row.get("stock", 0) or 0), 0)
+            selected = min(max(int(targets.get(row_id, 0)), 0), stock)
+            observed_remaining = min(
+                max(int(state["remaining"].get(row_id, stock) or 0), 0),
+                stock,
+            )
+            already_bought = max(stock - observed_remaining, 0)
+            if selected > already_bought:
+                active = True
+                break
+        if not active:
+            return False
+
         called = bool(config.task_call("EventShop", force_call=False))
     except Exception as exc:
         logger.warning(

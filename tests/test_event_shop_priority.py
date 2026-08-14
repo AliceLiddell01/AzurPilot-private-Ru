@@ -84,10 +84,25 @@ def base_spec():
     }
 
 
-def test_priority_runtime_authorizes_only_one_item_per_complete_scan(monkeypatch, tmp_path):
+def patch_runtime_context(monkeypatch, spec, targets):
+    monkeypatch.setattr(priority, "_current_spec", lambda _config: spec)
+    monkeypatch.setattr(
+        priority,
+        "_selected_targets",
+        lambda _config, event_id: {
+            str(row_id): int(value)
+            for row_id, value in targets.items()
+            if str(event_id) == str(spec["id"])
+        },
+    )
+
+
+def test_priority_runtime_authorizes_only_one_item_per_complete_scan(
+    monkeypatch, tmp_path
+):
     spec = base_spec()
     config = FakeConfig()
-    monkeypatch.setattr(priority, "_current_spec", lambda _config: spec)
+    patch_runtime_context(monkeypatch, spec, {11: 10, 12: 5})
 
     set_event_shop_priority(config.config_name, spec["id"], 11, 2, root=tmp_path)
     set_event_shop_priority(config.config_name, spec["id"], 12, 0, root=tmp_path)
@@ -107,6 +122,57 @@ def test_priority_runtime_authorizes_only_one_item_per_complete_scan(monkeypatch
     assert config.overrides["EventShop_CustomFilter"] == "Oil"
     assert config.overrides["EventShop_BuyURShip"] == 0
     assert config.overrides["EventShop_UnlockSSRShip"] is False
+
+
+def test_partial_quantity_target_compiles_to_amount_limited_runtime_filter(
+    monkeypatch, tmp_path
+):
+    spec = base_spec()
+    config = FakeConfig()
+    patch_runtime_context(monkeypatch, spec, {11: 3})
+    set_event_shop_priority(config.config_name, spec["id"], 11, 0, root=tmp_path)
+
+    chip = runtime_item(group="Chip", price=300, stock=10)
+    prepared = prepare_event_shop_runtime_items(config, [chip], root=tmp_path)
+
+    assert list(prepared) == [chip]
+    assert config.overrides["EventShop_CustomFilter"] == "Chip:3"
+
+
+def test_quantity_target_stops_after_verified_goal_without_buying_rest(
+    monkeypatch, tmp_path
+):
+    spec = base_spec()
+    config = FakeConfig()
+    patch_runtime_context(monkeypatch, spec, {11: 3})
+    set_event_shop_priority(config.config_name, spec["id"], 11, 0, root=tmp_path)
+
+    chip = runtime_item(group="Chip", price=300, stock=10)
+    prepare_event_shop_runtime_items(config, [chip], root=tmp_path)
+    assert config.overrides["EventShop_CustomFilter"] == "Chip:3"
+
+    with pytest.raises(FakeTaskStop):
+        confirm_event_shop_purchase(
+            config,
+            chip,
+            full_purchase=False,
+            remaining_after=7,
+            root=tmp_path,
+        )
+
+    rescanned = runtime_item(group="Chip", price=300, stock=10, remaining=7)
+    prepared = prepare_event_shop_runtime_items(
+        config,
+        [rescanned],
+        root=tmp_path,
+    )
+    state = load_event_shop_priority(config.config_name, spec["id"], root=tmp_path)
+
+    assert list(prepared) == []
+    assert state["priorities"]["11"] == 0
+    assert state["remaining"]["11"] == 7
+    assert state["pending"] == {}
+    assert config.overrides["EventShop_CustomFilter"] == ""
 
 
 def test_duplicate_runtime_token_is_blocked_fail_closed(monkeypatch, tmp_path):
@@ -130,7 +196,7 @@ def test_duplicate_runtime_token_is_blocked_fail_closed(monkeypatch, tmp_path):
         },
     ]
     config = FakeConfig()
-    monkeypatch.setattr(priority, "_current_spec", lambda _config: spec)
+    patch_runtime_context(monkeypatch, spec, {21: 2, 22: 2})
 
     set_event_shop_priority(config.config_name, spec["id"], 21, 0, root=tmp_path)
     set_event_shop_priority(config.config_name, spec["id"], 22, 1, root=tmp_path)
@@ -150,10 +216,25 @@ def test_duplicate_runtime_token_is_blocked_fail_closed(monkeypatch, tmp_path):
     assert config.overrides["EventShop_CustomFilter"] == ""
 
 
+def test_priority_without_quantity_target_never_authorizes_purchase(
+    monkeypatch, tmp_path
+):
+    spec = base_spec()
+    config = FakeConfig()
+    patch_runtime_context(monkeypatch, spec, {11: 0})
+    set_event_shop_priority(config.config_name, spec["id"], 11, 0, root=tmp_path)
+
+    chip = runtime_item(group="Chip", price=300, stock=10)
+    prepared = prepare_event_shop_runtime_items(config, [chip], root=tmp_path)
+
+    assert list(prepared) == []
+    assert config.overrides["EventShop_CustomFilter"] == ""
+
+
 def test_full_purchase_is_marked_only_after_fresh_scan(monkeypatch, tmp_path):
     spec = base_spec()
     config = FakeConfig()
-    monkeypatch.setattr(priority, "_current_spec", lambda _config: spec)
+    patch_runtime_context(monkeypatch, spec, {11: 10})
     set_event_shop_priority(config.config_name, spec["id"], 11, 0, root=tmp_path)
 
     chip = runtime_item(group="Chip", price=300, stock=10)
@@ -187,14 +268,18 @@ def test_full_purchase_is_marked_only_after_fresh_scan(monkeypatch, tmp_path):
     assert verified["pending"] == {}
 
 
-def test_partial_purchase_keeps_priority_after_verified_rescan(monkeypatch, tmp_path):
+def test_partial_affordable_purchase_keeps_only_unfulfilled_target(
+    monkeypatch, tmp_path
+):
     spec = base_spec()
     config = FakeConfig()
-    monkeypatch.setattr(priority, "_current_spec", lambda _config: spec)
+    patch_runtime_context(monkeypatch, spec, {11: 8})
     set_event_shop_priority(config.config_name, spec["id"], 11, 0, root=tmp_path)
 
     chip = runtime_item(group="Chip", price=300, stock=10)
     prepare_event_shop_runtime_items(config, [chip], root=tmp_path)
+    assert config.overrides["EventShop_CustomFilter"] == "Chip:8"
+
     with pytest.raises(FakeTaskStop):
         confirm_event_shop_purchase(
             config,
@@ -209,16 +294,19 @@ def test_partial_purchase_keeps_priority_after_verified_rescan(monkeypatch, tmp_
     state = load_event_shop_priority(config.config_name, spec["id"], root=tmp_path)
 
     assert list(prepared) == [rescanned]
+    assert config.overrides["EventShop_CustomFilter"] == "Chip:4"
     assert state["priorities"]["11"] == 0
     assert state["purchased"] == []
     assert state["remaining"]["11"] == 6
     assert state["pending"] == {}
 
 
-def test_failed_post_purchase_verification_blocks_all_new_clicks(monkeypatch, tmp_path):
+def test_failed_post_purchase_verification_blocks_all_new_clicks(
+    monkeypatch, tmp_path
+):
     spec = base_spec()
     config = FakeConfig()
-    monkeypatch.setattr(priority, "_current_spec", lambda _config: spec)
+    patch_runtime_context(monkeypatch, spec, {11: 8, 12: 5})
     set_event_shop_priority(config.config_name, spec["id"], 11, 0, root=tmp_path)
     set_event_shop_priority(config.config_name, spec["id"], 12, 1, root=tmp_path)
 
@@ -254,7 +342,9 @@ def test_event_rotation_does_not_reuse_old_priorities(tmp_path):
     assert state["pending"] == {}
 
 
-def test_urpt_priority_is_blocked_until_safe_priority_runtime_support(monkeypatch, tmp_path):
+def test_urpt_priority_is_blocked_until_safe_priority_runtime_support(
+    monkeypatch, tmp_path
+):
     spec = {
         "id": "event-ur",
         "currencies": [{"id": 2, "runtime_token": "URpt"}],
@@ -270,7 +360,7 @@ def test_urpt_priority_is_blocked_until_safe_priority_runtime_support(monkeypatc
         ],
     }
     config = FakeConfig()
-    monkeypatch.setattr(priority, "_current_spec", lambda _config: spec)
+    patch_runtime_context(monkeypatch, spec, {31: 1})
     set_event_shop_priority(config.config_name, spec["id"], 31, 0, root=tmp_path)
 
     prepared = prepare_event_shop_runtime_items(
