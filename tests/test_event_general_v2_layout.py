@@ -170,6 +170,15 @@ def test_profile_partial_refresh_keeps_compact_renderer():
     assert 'active_button("menu", "EventGeneral")' in source
 
 
+def test_profile_card_is_concise_like_eventshop_task_settings():
+    source = inspect.getsource(EventGeneralV2Mixin._render_event_profiles_compact)
+
+    assert "Дополнительные профили" in source
+    assert "Добавить профиль" in source
+    assert "До двух независимых профилей" not in source
+    assert "Дополнительные профили не созданы" not in source
+
+
 def test_user_facing_event_general_renderer_hides_runtime_and_source_internals():
     source = SOURCE.read_text(encoding="utf-8")
     for technical_text in (
@@ -211,15 +220,54 @@ def test_reward_and_content_cards_use_stronger_surfaces_without_fading_reached_c
     assert "opacity: 1 !important" in polish
 
 
-def test_quest_cards_use_currency_icon_and_do_not_render_completion_state():
+def test_quest_cards_use_currency_icon_without_original_or_completion_noise():
     source = inspect.getsource(EventGeneralV2Mixin._render_event_quest_group)
 
     assert "event-quest-reward" in source
     assert "currency_icon" in source
     assert "<img" in source
+    assert "Оригинал:" not in source
+    assert "event-quest-original" not in source
     assert "Выполнено" not in source
     assert "completed" not in source
     assert ">PT<" not in source
+
+
+def test_rewards_use_event_currency_icon_for_balance_and_milestone_thresholds():
+    source = inspect.getsource(EventGeneralV2Mixin._render_event_rewards_v2)
+
+    assert "currency_icon" in source
+    assert "event-rewards-v2-balance" in source
+    assert "event-reward-threshold-value" in source
+    assert "Награды за накопление</strong>" in source
+    assert "Награды за накопление PT" not in source
+    assert "Без попыток определять состояние выполнения" not in source
+    assert "event-quest-heading" not in source
+    assert "{self._fmt(threshold)} PT" not in source
+
+
+def test_third_visual_pass_has_one_glass_parent_and_matte_child_cards():
+    polish = POLISH_CSS.read_text(encoding="utf-8")
+
+    assert "Third visual pass: one glass window, then nearly matte cards." in polish
+    assert "#pywebio-scope-group_EventMainColumn" in polish
+    assert "#pywebio-scope-group_EventRewards" in polish
+    assert "backdrop-filter: blur(14px) saturate(125%) !important" in polish
+    assert ".event-reward-track-shell" in polish
+    assert "background: transparent !important" in polish
+    assert ".event-reward-track-card" in polish
+    assert ".event-quest-card" in polish
+    assert "background: var(--event-surface-strong) !important" in polish
+
+
+def test_task_balancer_right_rail_hides_verbose_help_but_keeps_native_controls():
+    polish = POLISH_CSS.read_text(encoding="utf-8")
+
+    assert "#pywebio-scope-group_TaskBalancer::before" in polish
+    assert 'content: "Настройки баланса задач"' in polish
+    assert '#pywebio-scope-group_TaskBalancer [style*="--arg-help--"]' in polish
+    assert "display: none !important" in polish
+    assert '[id^="pywebio-scope-arg_container-"]' in polish
 
 
 def test_profiles_and_task_balance_share_compact_surface_contract():
