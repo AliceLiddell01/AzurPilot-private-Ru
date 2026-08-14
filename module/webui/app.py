@@ -42,6 +42,7 @@ from module.webui.app_developer_tools import DeveloperToolsMixin
 from module.webui.app_event_datamine import EventDatamineMixin
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_profiles import EventProfilesMixin
+from module.webui.app_event_shop_live import EventShopLiveMixin
 from module.webui.app_event_shop_safety import EventShopSafetyMixin
 from module.webui.app_event_tools import EventToolsMixin
 from module.webui.app_helpers import (
@@ -51,7 +52,6 @@ from module.webui.app_helpers import (
     build_muted_notice,
     build_recommendation_box,
     build_simple_table,
-    build_title_block,
     ensure_public_webui_password,
     generate_webui_password,
     is_demo_mode,
@@ -100,6 +100,7 @@ class AlasGUI(
     OpsiExportMixin,
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
+    EventShopLiveMixin,
     EventProfilesMixin,
     EventDatamineMixin,
     EventShopSafetyMixin,
