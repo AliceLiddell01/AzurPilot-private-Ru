@@ -1,9 +1,15 @@
 import logging
+import types
 import unittest
 from unittest.mock import Mock, patch
 
 from alas import AzurLaneAutoScript
-from module.exception import GameNotRunningError, GameStuckError, GameTooManyClickError
+from module.exception import (
+    EmulatorNotRunningError,
+    GameNotRunningError,
+    GameStuckError,
+    GameTooManyClickError,
+)
 from module.logger import error_context
 
 
@@ -56,19 +62,30 @@ class TestGameNotRunningErrorHandling(unittest.TestCase):
 
 
 class TestGameStuckRecovery(unittest.TestCase):
-    def _make_script(self, error, *, stuck_count=0, threshold=3, sensitive=False):
+    def _make_script(
+        self,
+        error,
+        *,
+        stuck_count=0,
+        threshold=3,
+        sensitive=False,
+        emulator_escalation=False,
+    ):
         script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
         script.config_name = 'test'
         script.__dict__['config'] = Mock()
         script.config.cross_get.return_value = sensitive
+        script.config.Error_GameStuckRestart = emulator_escalation
         script.config.Error_GameStuckThreshold = threshold
+        script.config.Error_AdbOfflineRestart = True
+        script.config.Error_AdbOfflineThreshold = 3
         script.config.Error_OnePushConfig = Mock()
         script.__dict__['device'] = Mock()
         script.device.package = 'com.YoStarEN.AzurLane'
         script.__dict__['commission'] = Mock(side_effect=error)
         script.consecutive_game_stuck = stuck_count
+        script.consecutive_adb_offline = 0
         script.save_error_log = Mock()
-        script._try_restart_emulator = Mock(return_value=True)
         return script
 
     def _run_with_quiet_notifications(self, script):
@@ -83,55 +100,100 @@ class TestGameStuckRecovery(unittest.TestCase):
     def test_stuck_restarts_only_game_and_reports_recoverable_after_health_success(self):
         script = self._make_script(GameStuckError('synthetic stuck'))
 
-        with patch.object(script, '_try_restart_game', return_value=True) as restart_game:
+        with (
+            patch.object(script, '_try_restart_game', return_value=True) as restart_game,
+            patch.object(script, '_try_restart_emulator', return_value=True) as restart_emulator,
+        ):
             result = self._run_with_quiet_notifications(script)
 
         self.assertEqual('recoverable', result)
         restart_game.assert_called_once_with()
-        script._try_restart_emulator.assert_not_called()
+        restart_emulator.assert_not_called()
         script.device.emulator_stop.assert_not_called()
         script.device.emulator_start.assert_not_called()
         script.config.task_call.assert_not_called()
         self.assertEqual(1, script.consecutive_game_stuck)
 
-    def test_too_many_clicks_uses_same_verified_game_recovery(self):
+    def test_too_many_clicks_uses_same_verified_game_recovery_first(self):
         script = self._make_script(GameTooManyClickError('synthetic click loop'))
 
-        with patch.object(script, '_try_restart_game', return_value=True) as restart_game:
+        with (
+            patch.object(script, '_try_restart_game', return_value=True) as restart_game,
+            patch.object(script, '_try_restart_emulator', return_value=True) as restart_emulator,
+        ):
             result = self._run_with_quiet_notifications(script)
 
         self.assertEqual('recoverable', result)
         restart_game.assert_called_once_with()
-        script._try_restart_emulator.assert_not_called()
+        restart_emulator.assert_not_called()
         script.device.emulator_stop.assert_not_called()
         script.device.emulator_start.assert_not_called()
 
-    def test_failed_game_restart_is_not_masked_as_recoverable(self):
-        script = self._make_script(GameStuckError('synthetic stuck'))
+    def test_failed_game_restart_without_stage2_policy_remains_failure(self):
+        script = self._make_script(
+            GameStuckError('synthetic stuck'),
+            emulator_escalation=False,
+        )
 
         with patch.object(script, '_try_restart_game', return_value=False) as restart_game:
             result = self._run_with_quiet_notifications(script)
 
         self.assertFalse(result)
         restart_game.assert_called_once_with()
-        script._try_restart_emulator.assert_not_called()
         script.device.emulator_stop.assert_not_called()
         script.device.emulator_start.assert_not_called()
         script.config.task_call.assert_not_called()
 
-    def test_threshold_stops_recovery_loop_without_touching_emulator(self):
+    def test_failed_game_restart_escalates_once_when_policy_enabled(self):
+        script = self._make_script(
+            GameStuckError('synthetic stuck'),
+            emulator_escalation=True,
+        )
+
+        with (
+            patch.object(script, '_try_restart_game', return_value=False) as restart_game,
+            patch.object(script, '_try_restart_emulator', return_value=True) as restart_emulator,
+        ):
+            result = self._run_with_quiet_notifications(script)
+
+        self.assertEqual('recoverable', result)
+        restart_game.assert_called_once_with()
+        restart_emulator.assert_called_once_with(reason='game_stuck', verify_game=True)
+        script.config.task_call.assert_not_called()
+
+    def test_failed_game_restart_and_failed_stage2_is_not_recoverable(self):
+        script = self._make_script(
+            GameStuckError('synthetic stuck'),
+            emulator_escalation=True,
+        )
+
+        with (
+            patch.object(script, '_try_restart_game', return_value=False),
+            patch.object(script, '_try_restart_emulator', return_value=False) as restart_emulator,
+        ):
+            result = self._run_with_quiet_notifications(script)
+
+        self.assertFalse(result)
+        restart_emulator.assert_called_once_with(reason='game_stuck', verify_game=True)
+        script.config.task_call.assert_not_called()
+
+    def test_threshold_stops_recovery_loop_without_new_emulator_escalation(self):
         script = self._make_script(
             GameStuckError('synthetic repeated stuck'),
             stuck_count=3,
             threshold=3,
+            emulator_escalation=True,
         )
 
-        with patch.object(script, '_try_restart_game', return_value=True) as restart_game:
+        with (
+            patch.object(script, '_try_restart_game', return_value=True) as restart_game,
+            patch.object(script, '_try_restart_emulator', return_value=True) as restart_emulator,
+        ):
             result = self._run_with_quiet_notifications(script)
 
         self.assertFalse(result)
         restart_game.assert_not_called()
-        script._try_restart_emulator.assert_not_called()
+        restart_emulator.assert_not_called()
         script.device.emulator_stop.assert_not_called()
         script.device.emulator_start.assert_not_called()
         script.config.task_call.assert_not_called()
@@ -141,10 +203,12 @@ class TestGameStuckRecovery(unittest.TestCase):
         script = self._make_script(
             GameStuckError('synthetic sensitive-task stuck'),
             sensitive=True,
+            emulator_escalation=True,
         )
 
         with (
             patch.object(script, '_try_restart_game', return_value=True) as restart_game,
+            patch.object(script, '_try_restart_emulator', return_value=True) as restart_emulator,
             patch('alas.handle_notify'),
             patch('alas.notify_webui'),
             patch('alas.logger.error_context'),
@@ -153,7 +217,7 @@ class TestGameStuckRecovery(unittest.TestCase):
             script.run('commission', skip_first_screenshot=True)
 
         restart_game.assert_not_called()
-        script._try_restart_emulator.assert_not_called()
+        restart_emulator.assert_not_called()
         script.device.emulator_stop.assert_not_called()
         script.device.emulator_start.assert_not_called()
 
@@ -184,6 +248,126 @@ class TestGameStuckRecovery(unittest.TestCase):
         self.assertIn('game restart failed', exception_context.call_args.kwargs['reason'])
         script.device.emulator_stop.assert_not_called()
         script.device.emulator_start.assert_not_called()
+
+    def test_game_stuck_policy_gate_is_independent_from_adb_budget(self):
+        script = self._make_script(
+            GameStuckError('unused'),
+            emulator_escalation=False,
+        )
+        script.config.Error_AdbOfflineRestart = True
+        script.consecutive_adb_offline = 2
+
+        with patch('module.recovery.emulator_recovery.recover_emulator_transport') as recovery:
+            self.assertFalse(script._try_restart_emulator(reason='game_stuck', verify_game=True))
+
+        recovery.assert_not_called()
+        self.assertEqual(2, script.consecutive_adb_offline)
+
+    def test_transport_failure_cannot_be_reported_as_emulator_restart_success(self):
+        script = self._make_script(GameStuckError('unused'))
+        old_device = script.device
+        outcome = types.SimpleNamespace(
+            success=False,
+            stage='cold-start',
+            mode='graceful',
+            instance_name='MuMuPlayerGlobal-15.0-1',
+            device=None,
+        )
+
+        with patch(
+            'module.recovery.emulator_recovery.recover_emulator_transport',
+            return_value=outcome,
+        ) as recovery:
+            result = script._try_restart_emulator(reason='adb_offline')
+
+        self.assertFalse(result)
+        self.assertIs(old_device, script.device)
+        recovery.assert_called_once()
+        self.assertTrue(recovery.call_args.kwargs['allow_hard_kill'])
+        self.assertEqual(1, script.consecutive_adb_offline)
+
+    def test_successful_transport_replaces_cached_device(self):
+        script = self._make_script(GameStuckError('unused'))
+        fresh_device = Mock()
+        outcome = types.SimpleNamespace(
+            success=True,
+            stage='transport-ready',
+            mode='graceful',
+            instance_name='MuMuPlayerGlobal-15.0-1',
+            device=fresh_device,
+        )
+
+        def remove_cached(obj, name):
+            obj.__dict__.pop(name, None)
+
+        with (
+            patch(
+                'module.recovery.emulator_recovery.recover_emulator_transport',
+                return_value=outcome,
+            ),
+            patch('alas.del_cached_property', side_effect=remove_cached),
+        ):
+            result = script._try_restart_emulator(reason='adb_offline')
+
+        self.assertTrue(result)
+        self.assertIs(fresh_device, script.device)
+        self.assertEqual('graceful', script._last_emulator_recovery_mode)
+
+    def test_post_emulator_game_health_failure_does_not_recurse(self):
+        script = self._make_script(
+            GameStuckError('unused'),
+            emulator_escalation=True,
+        )
+        fresh_device = Mock()
+        outcome = types.SimpleNamespace(
+            success=True,
+            stage='transport-ready',
+            mode='hard-kill',
+            instance_name='MuMuPlayerGlobal-15.0-1',
+            device=fresh_device,
+        )
+
+        def remove_cached(obj, name):
+            obj.__dict__.pop(name, None)
+
+        with (
+            patch(
+                'module.recovery.emulator_recovery.recover_emulator_transport',
+                return_value=outcome,
+            ) as recovery,
+            patch.object(script, '_try_restart_game', return_value=False) as game_health,
+            patch('alas.del_cached_property', side_effect=remove_cached),
+        ):
+            result = script._try_restart_emulator(reason='game_stuck', verify_game=True)
+
+        self.assertFalse(result)
+        recovery.assert_called_once()
+        game_health.assert_called_once_with()
+        self.assertIs(fresh_device, script.device)
+
+
+class TestAdbOfflineRecovery(unittest.TestCase):
+    def test_successful_direct_adb_recovery_uses_separate_policy_and_schedules_restart(self):
+        script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+        script.config_name = 'test'
+        script.__dict__['config'] = Mock()
+        script.config.cross_get.return_value = False
+        script.config.Error_OnePushConfig = Mock()
+        script.__dict__['device'] = Mock()
+        script.__dict__['commission'] = Mock(side_effect=EmulatorNotRunningError('offline'))
+        script.save_error_log = Mock()
+
+        with (
+            patch.object(script, '_try_restart_emulator', return_value=True) as recovery,
+            patch('alas.handle_notify'),
+            patch('alas.notify_webui'),
+            patch('alas.logger.error_context'),
+        ):
+            result = script.run('commission', skip_first_screenshot=True)
+
+        self.assertEqual('recoverable', result)
+        recovery.assert_called_once_with(reason='adb_offline')
+        script.config.task_call.assert_called_once_with('Restart')
 
 
 if __name__ == '__main__':
