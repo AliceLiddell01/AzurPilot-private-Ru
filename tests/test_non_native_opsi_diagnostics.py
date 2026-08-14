@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+from PIL import Image
 
 import module.base.non_native_diagnostics as diagnostics
 import module.base.utils as base_utils
@@ -67,6 +68,21 @@ class Stage1NonNativeDiagnosticsTests(unittest.TestCase):
             )
 
             self.assertFalse(root.exists())
+
+    def test_saved_frame_preserves_rgb_channel_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'diagnostics'
+            diagnostics._DIAGNOSTIC_ROOT = root
+            image = np.array(
+                [[[255, 0, 0], [0, 255, 0], [0, 0, 255]]],
+                dtype=np.uint8,
+            )
+
+            saved = diagnostics._save_normalized_frame(image, 'rgb.png')
+
+            self.assertIsNotNone(saved)
+            restored = np.asarray(Image.open(saved).convert('RGB'))
+            np.testing.assert_array_equal(restored, image)
 
     def test_transition_session_records_thresholds_scores_and_limited_frames(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
