@@ -1,0 +1,405 @@
+/* EventGeneral V2: user-facing overview, compact controls and horizontal rewards. */
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-groups,
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] #pywebio-scope-groups {
+    overflow: visible !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventOverview,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSources,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventStages,
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] #pywebio-scope-group_EventRewards {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+}
+
+.event-general-v2-hero,
+.event-rewards-v2-hero {
+    overflow: hidden;
+    margin: 0 0 12px;
+    border: 1px solid var(--event-border);
+    border-left: 3px solid var(--event-accent);
+    border-radius: 12px;
+    background: var(--event-surface);
+    box-shadow: var(--event-shadow);
+    padding: clamp(16px, 2vw, 24px);
+}
+
+.event-general-v2-hero h3,
+.event-rewards-v2-hero h3 {
+    margin: 0;
+    color: var(--event-text);
+    font-size: clamp(1.22rem, 1.7vw, 1.65rem);
+    font-weight: 720;
+    letter-spacing: -.02em;
+}
+
+.event-general-v2-dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 16px;
+    margin-top: 8px;
+    color: var(--event-muted);
+    font-size: .82rem;
+}
+
+.event-general-v2-dates strong,
+.event-rewards-v2-hero strong {
+    color: var(--event-text);
+}
+
+.event-general-v2-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 9px;
+    margin-top: 17px;
+}
+
+.event-general-v2-metric {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+    border: 1px solid var(--event-border);
+    border-radius: 10px;
+    background: var(--event-surface-soft);
+    padding: 12px 13px;
+}
+
+.event-general-v2-metric-accent {
+    border-color: color-mix(in srgb, var(--event-accent) 30%, var(--event-border));
+    background: var(--event-accent-soft);
+}
+
+.event-general-v2-metric small,
+.event-general-v2-metric span,
+.event-rewards-v2-hero > span {
+    color: var(--event-muted);
+    font-size: .7rem;
+}
+
+.event-general-v2-metric strong {
+    overflow: hidden;
+    margin: 2px 0;
+    color: var(--event-text);
+    font-size: clamp(1rem, 1.35vw, 1.3rem);
+    text-overflow: ellipsis;
+}
+
+.event-general-v2-progress {
+    overflow: hidden;
+    height: 6px;
+    margin-top: 13px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--event-muted) 14%, transparent);
+}
+
+.event-general-v2-progress > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--event-accent);
+    transition: width 320ms cubic-bezier(.2, .8, .2, 1);
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-v2-primary-action--"] {
+    margin: 0 0 10px !important;
+}
+
+/* Profiles and TaskBalancer deliberately share one compact visual contract. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventProfiles,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer {
+    margin: 8px 0 !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: 12px !important;
+    background: var(--event-surface) !important;
+    box-shadow: var(--event-shadow) !important;
+    -webkit-backdrop-filter: blur(12px) saturate(150%) !important;
+    backdrop-filter: blur(12px) saturate(150%) !important;
+    padding: 14px !important;
+}
+
+.event-general-compact-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--event-divider);
+}
+
+.event-general-compact-heading strong,
+.event-general-profile-name {
+    color: var(--event-text);
+    font-size: .86rem;
+    font-weight: 680;
+}
+
+.event-general-compact-heading small,
+.event-general-compact-empty,
+.event-general-profile-limit {
+    color: var(--event-muted);
+    font-size: .72rem;
+    line-height: 1.4;
+}
+
+.event-general-compact-empty {
+    padding: 4px 0 7px;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-row--"] {
+    align-items: center;
+    gap: 9px;
+    margin: 6px 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-row--"] > div {
+    min-width: 0;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-row--"] .btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-row--"] .btn,
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-add--"] {
+    padding: 6px 10px !important;
+    font-size: .74rem !important;
+}
+
+/* Keep the native TaskBalancer widgets, but remove the oversized spacing. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer [id^="pywebio-scope-arg_container-"] {
+    min-height: 0 !important;
+    padding-top: 5px !important;
+    padding-bottom: 5px !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer .hr-group {
+    margin: 7px 0 !important;
+}
+
+.event-general-v2-section-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 20px 0 9px;
+}
+
+.event-general-v2-section-heading > strong,
+.event-general-v2-section-heading > div > strong {
+    display: block;
+    color: var(--event-text);
+    font-size: .98rem;
+    font-weight: 720;
+}
+
+.event-general-v2-section-heading > small,
+.event-general-v2-section-heading > div > small {
+    display: block;
+    margin-top: 2px;
+    color: var(--event-muted);
+    font-size: .74rem;
+}
+
+.event-source-card-v2,
+.event-farm-card-v2 {
+    background: var(--event-surface) !important;
+    box-shadow: var(--event-shadow);
+}
+
+.event-source-card-v2 {
+    gap: 4px;
+}
+
+.event-farm-card-v2 .event-farm-card-head {
+    min-height: 1.4em;
+}
+
+/* Separate rewards page. */
+.event-rewards-v2-hero {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.event-rewards-heading {
+    align-items: center;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-reward-track-controls--"] {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin: -3px 0 7px !important;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-reward-track-controls--"] > div {
+    flex: 0 0 auto !important;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-reward-track-controls--"] .btn {
+    min-width: 38px;
+    padding: 6px 10px !important;
+}
+
+.event-reward-track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(190px, 220px);
+    gap: 10px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-behavior: smooth;
+    scroll-snap-type: inline mandatory;
+    scrollbar-width: thin;
+    padding: 3px 2px 10px;
+}
+
+.event-reward-track-card {
+    display: flex;
+    min-height: 174px;
+    flex-direction: column;
+    gap: 9px;
+    scroll-snap-align: start;
+    border: 1px solid var(--event-border);
+    border-radius: 12px;
+    background: var(--event-surface);
+    box-shadow: var(--event-shadow);
+    padding: 11px;
+}
+
+.event-reward-track-card.event-reward-card-reached {
+    opacity: .7;
+}
+
+.event-reward-track-card.event-reward-card-next {
+    opacity: 1;
+    border-color: color-mix(in srgb, var(--event-accent) 55%, var(--event-border));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--event-accent) 16%, transparent), var(--event-shadow);
+}
+
+.event-reward-track-threshold {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--event-divider);
+}
+
+.event-reward-track-threshold small,
+.event-reward-track-status {
+    color: var(--event-muted);
+    font-size: .68rem;
+}
+
+.event-reward-track-threshold strong {
+    color: var(--event-text);
+    font-size: .9rem;
+}
+
+.event-reward-track-items {
+    display: flex;
+    min-height: 73px;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.event-reward-track-item {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    color: var(--event-text);
+    font-size: .72rem;
+}
+
+.event-reward-track-item img {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+}
+
+.event-reward-track-item span {
+    overflow-wrap: anywhere;
+}
+
+.event-reward-track-item b {
+    color: var(--event-accent);
+    white-space: nowrap;
+}
+
+.event-quest-heading {
+    margin-top: 24px;
+}
+
+.event-quest-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 9px;
+}
+
+.event-quest-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 5px;
+    border: 1px solid var(--event-border);
+    border-radius: 12px;
+    background: var(--event-surface);
+    box-shadow: var(--event-shadow);
+    padding: 11px 12px;
+}
+
+.event-quest-card strong {
+    color: var(--event-text);
+    font-size: .8rem;
+    overflow-wrap: anywhere;
+}
+
+.event-quest-card b {
+    color: var(--event-accent);
+    font-size: .78rem;
+}
+
+@media (max-width: 1100px) {
+    .event-general-v2-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .event-general-v2-metrics {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .event-general-v2-section-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .event-reward-track {
+        grid-auto-columns: minmax(178px, 82vw);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .event-general-v2-progress > span,
+    .event-reward-track {
+        scroll-behavior: auto;
+        transition: none;
+    }
+}
