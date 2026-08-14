@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
+from PIL import Image
 
 import module.base.utils as base_utils
 from module.logger import logger
@@ -61,15 +61,10 @@ def _save_normalized_frame(image: np.ndarray, filename: str) -> str | None:
     _, directory = _ensure_session()
     path = directory / filename
     try:
-        success = bool(cv2.imwrite(str(path), image))
-    except (cv2.error, OSError) as exc:
+        Image.fromarray(image, mode='RGB').save(path, format='PNG')
+    except (OSError, TypeError, ValueError) as exc:
         logger.warning(
             f'[Этап 1 — диагностика 4K] Не удалось сохранить {path}: {exc}'
-        )
-        return None
-    if not success:
-        logger.warning(
-            f'[Этап 1 — диагностика 4K] OpenCV не сохранил кадр: {path}'
         )
         return None
     return str(path)
