@@ -506,7 +506,7 @@ class EventLayoutMixin(EventPlannerMixin):
 <div class="event-shop-currency"><img src="{escape(currency_icon)}" alt=""><span>{escape(str(primary_currency.get("name") or "Валюта события"))}</span></div></div>
 <div class="event-shop-totals">
   <div><span>Полный выкуп</span><strong>{self._fmt(catalog_total)}</strong><small>{len(items)} товаров</small></div>
-  <div><span>Ваш план</span><strong>{self._fmt(total)}</strong><small>{len(selected)} позиций</small></div>
+  <div><span>Ваш план</span><strong id="event-shop-plan-total" class="event-shop-live-value">{self._fmt(total)}</strong><small id="event-shop-plan-count" class="event-shop-live-value">{len(selected)} позиций</small></div>
   <div><span>Осталось по scan</span><strong>{self._fmt(observed_total) if observed_total is not None else "Нет данных"}</strong><small>{"Полный snapshot" if observed_known else "Наблюдение недоступно"}</small></div>
 </div></section>""")
         put_scope("event_shop_safety_status")
@@ -516,6 +516,7 @@ class EventLayoutMixin(EventPlannerMixin):
             with use_scope("event_shop_grid"):
                 for index, item in enumerate(items):
                     identity = self._shop_item_identity(item)
+                    live_key = self._shop_item_dom_key(identity)
                     observation_label = {
                         "matched": "Наблюдение сопоставлено",
                         "ambiguous": "Наблюдение неоднозначно",
@@ -545,8 +546,8 @@ class EventLayoutMixin(EventPlannerMixin):
                             f'<span>{escape(observation_label)}</span>'
                             f'<small>Куплено: {escape(self._fmt(item.get("purchased")) if item.get("purchased") is not None else "Нет данных")} · Осталось: {escape(self._fmt(item.get("remaining")) if item.get("remaining") is not None else "Нет данных")}</small></div>'
                             '<div class="event-shop-desired">'
-                            f'<span>Цель</span><strong>{escape(self._fmt(item.get("selected")))} / {escape(self._fmt(item.get("stock")))}</strong>'
-                            f'<small>Стоимость: {escape(self._fmt(int(item.get("price", 0) or 0) * int(item.get("selected", 0) or 0)))}</small></div>'
+                            f'<span>Цель</span><strong><span id="event-shop-selected-{live_key}" class="event-shop-live-value">{escape(self._fmt(item.get("selected")))}</span> / {escape(self._fmt(item.get("stock")))}</strong>'
+                            f'<small>Стоимость: <span id="event-shop-cost-{live_key}" class="event-shop-live-value">{escape(self._fmt(int(item.get("price", 0) or 0) * int(item.get("selected", 0) or 0)))}</span></small></div>'
                             f'<div class="event-shop-automation">{"Совместимо с автоматизацией" if item.get("filter") else "Автоматизация не поддерживается"}</div>'
                         )
                         put_row(
@@ -641,8 +642,8 @@ class EventLayoutMixin(EventPlannerMixin):
     def _render_event_shop_layout(self, *, task, group_map, config) -> None:
         with use_scope("groups"):
             put_scope("group_EventShopPlan")
-        with use_scope("group_EventShopPlan", clear=True):
-            self._render_event_shop_plan(config)
+            if "Scheduler" in group_map:
+                put_scope("group_Scheduler")
         self._render_named_group(task, "Scheduler", group_map, config)
         self._render_advanced(
             task=task,
@@ -652,6 +653,8 @@ class EventLayoutMixin(EventPlannerMixin):
             group_map=group_map,
             config=config,
         )
+        with use_scope("group_EventShopPlan", clear=True):
+            self._render_event_shop_plan(config)
 
     @use_scope("content", clear=True)
     def _alas_set_event_group(self, task: str) -> None:
