@@ -173,8 +173,11 @@ class EventShopItem(Item):
             elif self.price == URPT_PRICE_IN_PT and self.total_count == 500:
                 self.name = 'URpt'
             elif self.name.isdigit():
-                logger.warning(f'[Магазин события — товар] Неопознанный товар, цена {self.price}, всего {self.total_count}; '
-                               f'identity оставлена недоказанной без записи screenshot crop.')
+                logger.warning(
+                    f'[Магазин события — товар] Неопознанный товар, цена {self.price}, всего {self.total_count}; '
+                    f'принадлежность не подтверждена; область={self.button}, '
+                    f'позиция прокрутки={self.scroll_pos}.'
+                )
 
     def predict_genre(self):
         self.group, self.sub_genre, self.tier = None, None, None

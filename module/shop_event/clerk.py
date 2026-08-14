@@ -8,6 +8,7 @@
 Pages: in: EVENT_SHOP
 """
 import cv2
+import numpy as np
 
 from module.base.button import ButtonGrid
 from module.base.decorator import cached_property
@@ -38,6 +39,7 @@ from module.shop_event.ui import EVENT_SHOP_SCROLL, EventShopUI
 from module.ui_white.assets import BACK_ARROW_WHITE
 
 DETECT_AREA = (221, 194, 1049, 632)
+SCANNER_OVERLAP_IMAGE_MEAN_DELTA = 6.0
 
 
 class ItemNotFoundError(Exception):
@@ -50,10 +52,53 @@ class EventShopClerk(EventShopUI):
 
     @staticmethod
     def _same_scanner_row(left, right):
-        """Compare overlap by observed facts, not fallible template names."""
+        """Сравнить наблюдаемые числовые факты строки, не доверяя имени шаблона."""
         return all(
             getattr(left, field, None) == getattr(right, field, None)
             for field in ("price", "count", "total_count", "cost")
+        )
+
+    @staticmethod
+    def _same_scanner_image(left, right):
+        """Подтвердить совпадение строки независимым визуальным наблюдением."""
+        left_image = getattr(left, "image", None)
+        right_image = getattr(right, "image", None)
+        if not isinstance(left_image, np.ndarray) or not isinstance(right_image, np.ndarray):
+            return False
+        if not left_image.size or not right_image.size:
+            return False
+        if left_image.shape != right_image.shape or left_image.dtype != right_image.dtype:
+            return False
+        delta = float(np.mean(cv2.absdiff(left_image, right_image)))
+        return delta <= SCANNER_OVERLAP_IMAGE_MEAN_DELTA
+
+    @staticmethod
+    def _scanner_row_has_visual_diversity(items):
+        """Проверить, что ряд не состоит только из визуально одинаковых товаров."""
+        images = [getattr(item, "image", None) for item in items]
+        if len(images) < 2 or any(not isinstance(image, np.ndarray) or not image.size for image in images):
+            return False
+        first = images[0]
+        for image in images[1:]:
+            if first.shape != image.shape or first.dtype != image.dtype:
+                return True
+            delta = float(np.mean(cv2.absdiff(first, image)))
+            if delta > SCANNER_OVERLAP_IMAGE_MEAN_DELTA:
+                return True
+        return False
+
+    @classmethod
+    def _scanner_overlap_proven(cls, old_row, new_row):
+        """Дедуплицировать overlap только при числовом и визуальном доказательстве."""
+        if not old_row or len(old_row) != len(new_row):
+            return False
+        if not cls._scanner_row_has_visual_diversity(old_row):
+            return False
+        if not cls._scanner_row_has_visual_diversity(new_row):
+            return False
+        return all(
+            cls._same_scanner_row(old, new) and cls._same_scanner_image(old, new)
+            for old, new in zip(old_row, new_row)
         )
 
     def _get_event_shop_grid(self):
@@ -124,9 +169,7 @@ class EventShopClerk(EventShopUI):
                 old_last_row = [item for item in items if item.button[1] == items[-1].button[1]]
                 new_first_row = [item for item in new_items if item.button[1] == new_items[0].button[1]]
                 new_second_row = [item for item in new_items if item.button[1] != new_items[0].button[1]]
-                if len(old_last_row) == len(new_first_row) and all(
-                        self._same_scanner_row(old, new)
-                        for old, new in zip(old_last_row, new_first_row)):
+                if self._scanner_overlap_proven(old_last_row, new_first_row):
                     logger.info('[Магазин события — покупка] Повторяющиеся товары пропущены')
                     items += new_second_row
                 else:
