@@ -12,9 +12,10 @@ from typing import Any, Mapping, MutableMapping
 
 EVENT_MENU_LABEL = "Ивент"
 EVENT_TASK_LABELS = {
-    "EventGeneral": "Общие настройки ивента",
+    "EventGeneral": "Общая информация о текущем ивенте",
     "Event": "Ивентовая карта",
     "EventShop": "Магазин ивента",
+    "EventRewards": "Награды ивента",
 }
 OPTIONAL_EVENT_PROFILE_SLOTS = ("Event2", "Event3")
 OPTIONAL_EVENT_PROFILE_DEFAULT_LABELS = {
