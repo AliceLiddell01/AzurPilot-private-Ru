@@ -119,8 +119,8 @@ def classify_relationship(
     instance_name: str,
     instance_id: int | None,
 ) -> str:
-    searchable = f"{name} {executable} {command_line}"
-    if instance_name and instance_name.casefold() in searchable.casefold():
+    identity_searchable = f"{name} {executable} {command_line}"
+    if instance_name and instance_name.casefold() in identity_searchable.casefold():
         return "selected-instance-token"
 
     if instance_id is not None:
@@ -131,7 +131,11 @@ def classify_relationship(
         if any(re.search(pattern, command_line) for pattern in id_patterns):
             return "selected-instance-id-token"
 
-    if MUMU_PROCESS_HINT.search(searchable):
+    # Generic MuMu relevance is based only on the executable identity. Otherwise
+    # a tool such as python.exe becomes a false positive merely because its script
+    # argument contains the word "mumu".
+    process_identity = f"{name} {executable}"
+    if MUMU_PROCESS_HINT.search(process_identity):
         return "mumu-related-unclassified"
 
     return "unrelated"
