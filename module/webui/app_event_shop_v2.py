@@ -160,9 +160,25 @@ class EventShopV2Mixin(WebUIMixinBase):
         priorities = dict(state.get("priorities") or {})
         blocked = dict(state.get("blocked") or {})
         warning = str(blocked.get(row_id) or "") if row_id in priorities else ""
+        shop_item = next(
+            (
+                item
+                for item in plan.get("shop_items", [])
+                if isinstance(item, Mapping) and str(item.get("id") or "") == row_id
+            ),
+            None,
+        )
+        if not isinstance(shop_item, Mapping):
+            self._refresh_event_plan_page()
+            return
+        remaining_target = self._event_shop_target_remaining(shop_item, state)
         self._run_event_shop_dom_patch(
             {
                 "values": [
+                    {
+                        "id": f"event-shop-target-left-{live_key}",
+                        "value": self._fmt(remaining_target),
+                    },
                     {
                         "id": "event-shop-v2-plan-count",
                         "value": str(metrics["count"]),
@@ -472,7 +488,11 @@ class EventShopV2Mixin(WebUIMixinBase):
                     not is_purchased
                     and (
                         (row_id in completed and selected == 0)
-                        or (selected > 0 and target_remaining == 0)
+                        or (
+                            row_id in priorities
+                            and selected > 0
+                            and target_remaining == 0
+                        )
                     )
                 )
 
