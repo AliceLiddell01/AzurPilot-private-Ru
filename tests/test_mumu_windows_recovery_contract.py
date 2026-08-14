@@ -42,14 +42,15 @@ class MuMuWindowsRecoveryContractTests(unittest.TestCase):
     def test_graceful_stop_requires_actual_state_probe(self):
         text = RECOVERY.read_text(encoding='utf-8')
         self.assertIn('wait_mumu_instance_stopped(', text)
-        self.assertIn('Graceful shutdown подтверждён', text)
-        self.assertIn('instance остаётся жив', text)
+        self.assertIn('Штатная остановка подтверждена', text)
+        self.assertIn('экземпляр остаётся запущен', text)
 
     def test_cold_start_requires_manager_success_and_boot_health(self):
         text = RECOVERY.read_text(encoding='utf-8')
         self.assertIn('result is None or result.returncode != 0', text)
         self.assertIn('self.emulator_start_watch()', text)
-        self.assertIn('Boot health passed', text)
+        self.assertIn('Проверка загрузки пройдена', text)
+        self.assertIn('partially_running = is_mumu_instance_running(instance)', text)
 
     def test_hidden_global_cleanup_is_not_reused(self):
         text = RECOVERY.read_text(encoding='utf-8')
