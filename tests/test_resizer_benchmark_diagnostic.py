@@ -1,7 +1,7 @@
 """Temporary CI diagnostic for the non-native resizer benchmark.
 
-This intentionally fails so GitHub Actions preserves the compact benchmark
-payload in pytest output. It is removed/replaced before the PR can be mergeable.
+This intentionally fails so GitHub Actions preserves a compact decision payload
+in pytest output. It is removed/replaced before the PR can be mergeable.
 """
 
 import json
@@ -11,17 +11,34 @@ import pytest
 from tools.benchmark_resizer_stage4 import run_benchmark
 
 
+def _worst_detector_rows(payload):
+    result = {}
+    rows = payload["detector_measurements"]
+    for candidate in payload["summary"]:
+        candidate_rows = [row for row in rows if row["candidate"] == candidate]
+        margin_rows = [row for row in candidate_rows if row["margin"] is not None]
+        result[candidate] = {
+            "min_correct": min(candidate_rows, key=lambda row: row["correct_similarity"]),
+            "min_threshold_margin": min(
+                candidate_rows,
+                key=lambda row: row["threshold_margin"],
+            ),
+            "min_correct_vs_wrong_margin": min(
+                margin_rows,
+                key=lambda row: row["margin"],
+            ),
+        }
+    return result
+
+
 def test_emit_resizer_benchmark():
-    payload = run_benchmark(timing_iterations=8)
+    payload = run_benchmark(timing_iterations=12)
     compact = {
-        "metadata": payload["metadata"],
-        "native_detector_reference": payload["native_detector_reference"],
-        "ocr_native_reference": payload["ocr_native_reference"],
         "summary": payload["summary"],
-        "four_k_detector_rows": payload["four_k_detector_rows"],
-        "four_k_ocr_rows": payload["four_k_ocr_rows"],
+        "timings": payload["timings"],
+        "worst_detector_rows": _worst_detector_rows(payload),
     }
     pytest.fail(
-        "RESIZER_BENCHMARK_JSON="
+        "RESIZER_BENCHMARK_DECISION_JSON="
         + json.dumps(compact, ensure_ascii=False, separators=(",", ":"), default=str)
     )
