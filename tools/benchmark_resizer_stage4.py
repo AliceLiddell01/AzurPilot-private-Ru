@@ -16,7 +16,6 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from module.base.utils import load_image
 from module.combat.assets import GET_ITEMS_1, GET_ITEMS_2
 from module.device.screenshot import Screenshot
 from module.ocr.ocr import Digit, Ocr
@@ -148,9 +147,13 @@ OCR_CASES = (
 
 
 def _asset_image(ref: str) -> np.ndarray:
-    """Load an asset through the same RGB loader/crop contract production uses."""
+    """Load all benchmark assets into the production RGB semantic contract."""
     if ref in DIRECT_ASSETS:
-        image = load_image(str(DIRECT_ASSETS[ref]))
+        path = DIRECT_ASSETS[ref]
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise FileNotFoundError(f"failed to load legacy fixture: {path}")
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     else:
         button = BUTTON_ASSETS[ref]
         button.ensure_template()
@@ -399,8 +402,9 @@ def run_benchmark(timing_iterations: int = DEFAULT_TIMING_ITERATIONS) -> dict:
             "canonical_resolution": list(CANONICAL_SIZE),
             "source_resolutions": [list(value) for value in SOURCE_RESOLUTIONS],
             "channel_contract": (
-                "Assets use production load_image/Button.ensure_template RGB semantics; "
-                "baseline and all candidates receive identical arrays."
+                "Generated Button assets use production Button.ensure_template RGB semantics; "
+                "legacy Data Logger fixtures are decoded with OpenCV then converted BGR->RGB; "
+                "baseline and all candidates receive identical RGB arrays."
             ),
             "synthetic_renderer": "cv2.INTER_CUBIC upscale from canonical fixture frame",
             "performance_note": "informational only; CI hardware timing is not a gate",
