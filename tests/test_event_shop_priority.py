@@ -210,7 +210,7 @@ def test_urpt_priority_is_blocked_until_safe_priority_runtime_support(monkeypatc
         config,
         [
             runtime_item(
-                group="Ship",
+                group="ShipUR",
                 price=200,
                 stock=1,
                 cost="URpt",
