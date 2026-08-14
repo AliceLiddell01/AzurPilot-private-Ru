@@ -70,7 +70,7 @@ from module.webui.app_stat_action_point import ActionPointStatisticsMixin
 from module.webui.app_stat_action_point_toolbar import ActionPointToolbarMixin
 from module.webui.app_stat_commission import CommissionIncomeStatisticsMixin
 from module.webui.app_stat_opsi import OpsiStatisticsMixin
-from module.webui.app_stat_opsi_export import OpsiStatisticsExportMixin
+from module.webui.app_stat_opsi_export import OpsiExportMixin
 from module.webui.app_stat_resource import ResourceStatisticsMixin
 from module.webui.app_stat_ship import ShipExperienceStatisticsMixin
 from module.webui.app_statistics_page import StatisticsPageMixin
@@ -97,7 +97,7 @@ class AlasGUI(
     ActionPointToolbarMixin,
     ResourceStatisticsMixin,
     OpsiStatisticsMixin,
-    OpsiStatisticsExportMixin,
+    OpsiExportMixin,
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
     EventProfilesMixin,
