@@ -3,8 +3,10 @@ from types import SimpleNamespace
 
 import numpy as np
 
+import module.research.research as research_module
 import module.research.rqueue as rqueue_module
 from module.ocr.ocr import Ocr
+from module.research.research import RewardResearch
 from module.research.rqueue import (
     ResearchQueue,
     _parse_queue_remain_duration,
@@ -44,6 +46,72 @@ def test_reward_popup_masks_queue_page_detection():
 
     queue.get_items = lambda: None
     assert queue.is_in_queue() is True
+
+
+def test_queue_receive_finishes_detected_popup_before_queue_end(monkeypatch):
+    class FakeDrop:
+        def __init__(self):
+            self.cleared = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        def __bool__(self):
+            return True
+
+        def add(self, image):
+            return None
+
+        def clear(self):
+            self.cleared = True
+
+    class FakeTimer:
+        def __init__(self, limit, count=0):
+            self.limit = limit
+            self.calls = 0
+
+        def reset(self):
+            self.calls = 0
+            return self
+
+        def reached(self):
+            self.calls += 1
+            if self.limit == 1.5:
+                return self.calls >= 2
+            return True
+
+    drop = FakeDrop()
+    queue = object.__new__(RewardResearch)
+    clicks = []
+    get_items_calls = []
+    popup = object()
+
+    queue.device = SimpleNamespace(
+        image=np.zeros((720, 1280, 3), dtype=np.uint8),
+        screenshot=lambda: None,
+        click=clicks.append,
+    )
+    queue.config = SimpleNamespace(DropRecord_ResearchRecord=True)
+    queue.stat = SimpleNamespace(new=lambda **kwargs: drop)
+    queue.drop_record = lambda drop: None
+    queue.is_in_queue = lambda: True
+    queue.appear = lambda *args, **kwargs: False
+    queue.appear_then_click = lambda *args, **kwargs: False
+
+    def get_items():
+        get_items_calls.append(True)
+        return popup if len(get_items_calls) == 1 else None
+
+    queue.get_items = get_items
+    monkeypatch.setattr(research_module, 'Timer', FakeTimer)
+
+    assert queue.queue_receive() == 1
+    assert clicks == [research_module.GET_ITEMS_RESEARCH_SAVE]
+    assert len(get_items_calls) == 2
+    assert drop.cleared is False
 
 
 def test_queue_duration_retries_fresh_frames_until_valid(monkeypatch):
