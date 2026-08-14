@@ -14,17 +14,41 @@
     科研队列(Research Queue): 最多容纳 5 个排队项目的队列
     槽位(Slot): 队列中的位置，从下到上编号 0-4
 """
+import re
+from datetime import timedelta
+
 from module.base.button import ButtonGrid
 from module.base.decorator import cached_property, Config
 from module.base.utils import get_color
 from module.config.time_source import now as current_time
 from module.exception import GameBugError
 from module.logger import logger
-from module.ocr.ocr import Duration
+from module.ocr.ocr import Duration, Ocr
 from module.research.assets import *
 from module.research.ui import ResearchUI
 
 OCR_QUEUE_REMAIN = Duration(QUEUE_REMAIN, letter=(255, 255, 255), threshold=128, name='OCR_QUEUE_REMAIN')
+
+_QUEUE_REMAIN_DURATION_RE = re.compile(r'^\s*(\d{1,2}):?(\d{2}):?(\d{2})\s*$')
+_QUEUE_REMAIN_OCR_ATTEMPTS = 3
+# Запас должен быть больше существующего 10-минутного раннего запуска при одном проекте,
+# иначе временная ошибка OCR снова может превратиться в немедленный повтор задачи.
+_QUEUE_REMAIN_OCR_RECHECK_DELAY = timedelta(minutes=15)
+
+
+def _parse_queue_remain_duration(text):
+    """Строго разбирает длительность очереди, не угадывая пропущенные OCR-цифры."""
+    if not isinstance(text, str):
+        return None
+
+    result = _QUEUE_REMAIN_DURATION_RE.search(text)
+    if result is None:
+        return None
+
+    hours, minutes, seconds = (int(value) for value in result.groups())
+    if minutes >= 60 or seconds >= 60:
+        return None
+    return timedelta(hours=hours, minutes=minutes, seconds=seconds)
 
 
 class ResearchQueue(ResearchUI):
@@ -93,6 +117,12 @@ class ResearchQueue(ResearchUI):
             return True
         else:
             return False
+
+    def is_in_queue(self, interval=0):
+        """Не считает затемнённый фон очереди активной страницей при открытом окне награды."""
+        if self.get_items() is not None:
+            return False
+        return super().is_in_queue(interval=interval)
 
     @cached_property
     @Config.when(SERVER='en')
@@ -175,6 +205,26 @@ class ResearchQueue(ResearchUI):
         logger.attr('Слот очереди исследований', index)
         return index
 
+    def _read_queue_remain_duration(self):
+        """Читает оставшееся время несколькими свежими кадрами и возвращает только валидное значение."""
+        for attempt in range(1, _QUEUE_REMAIN_OCR_ATTEMPTS + 1):
+            raw = Ocr.ocr(OCR_QUEUE_REMAIN, self.device.image)
+            if isinstance(raw, list):
+                raw = raw[0] if raw else ''
+
+            duration = _parse_queue_remain_duration(raw)
+            if duration is not None:
+                return duration
+
+            logger.warning(
+                f'[OCR] OCR_QUEUE_REMAIN: недопустимая длительность {raw!r}; '
+                f'попытка {attempt}/{_QUEUE_REMAIN_OCR_ATTEMPTS}'
+            )
+            if attempt < _QUEUE_REMAIN_OCR_ATTEMPTS:
+                self.device.screenshot()
+
+        return None
+
     def get_research_ended(self):
         """
         Returns:
@@ -186,6 +236,17 @@ class ResearchQueue(ResearchUI):
         Raises:
             GameBugError:
         """
+        now = current_time()
+
+        # Защитный барьер: затемнение от окна награды не должно участвовать
+        # в цветовой диагностике состояния первого проекта.
+        if self.get_items() is not None:
+            end_time = now + _QUEUE_REMAIN_OCR_RECHECK_DELAY
+            logger.warning('[Исследование — очередь] Окно награды ещё открыто; '
+                           'чтение времени очереди отложено')
+            logger.info(f'[Исследование — очередь] Время повторной проверки: {end_time}')
+            return end_time
+
         if self.image_color_count(QUEUE_REMAIN, color=(123, 125, 123), threshold=235, count=100):
             logger.error('[Исследование — очередь] Первый проект в очереди не запущен; '
                          'возможно, это ошибка игры. '
@@ -193,8 +254,17 @@ class ResearchQueue(ResearchUI):
             raise GameBugError
         if not self.image_color_count(QUEUE_REMAIN, color=(255, 255, 255), threshold=221, count=100):
             logger.info('[Исследование — очередь] Очередь исследований пуста')
-            return current_time()
+            return now
 
-        end_time = current_time() + OCR_QUEUE_REMAIN.ocr(self.device.image)
+        remain = self._read_queue_remain_duration()
+        if remain is None:
+            end_time = now + _QUEUE_REMAIN_OCR_RECHECK_DELAY
+            logger.warning(
+                '[Исследование — очередь] OCR оставшегося времени не стабилизировался; '
+                f'повторная проверка отложена на {_QUEUE_REMAIN_OCR_RECHECK_DELAY}'
+            )
+        else:
+            end_time = now + remain
+
         logger.info(f'[Исследование — очередь] Время завершения первого проекта: {end_time}')
         return end_time
