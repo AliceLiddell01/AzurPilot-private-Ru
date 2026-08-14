@@ -61,8 +61,8 @@ def _save_normalized_frame(image: np.ndarray, filename: str) -> str | None:
     _, directory = _ensure_session()
     path = directory / filename
     try:
-        # PngImagePlugin импортирован намеренно: это явно регистрирует PNG writer
-        # и позволяет сохранить исходный RGB-массив без преобразования в BGR.
+        # Явный импорт модуля формата регистрирует обработчик сохранения изображений.
+        # Исходный массив передаётся без перестановки цветовых каналов.
         _ = PngImagePlugin
         Image.fromarray(image).save(path, format='PNG')
     except (OSError, TypeError, ValueError) as exc:
