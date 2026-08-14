@@ -435,6 +435,7 @@ def prepare_event_shop_runtime_items(
 
     event_id = str(spec.get("id") or "")
     state = load_event_shop_priority(config.config_name, event_id, root=root)
+    remembered_remaining_rows = set(state["remaining"])
     selected_targets = _selected_targets(config, event_id)
     rows, _ = reconcile_event_shop(spec, full_scan)
     runtime_by_row: dict[str, Any] = {}
@@ -528,7 +529,7 @@ def prepare_event_shop_runtime_items(
         current = min(max(int(getattr(runtime, "count", 0) or 0), 0), stock)
         baseline = state["target_baselines"].get(row_id)
         if baseline is None:
-            baseline = stock if row_id in state["remaining"] else current
+            baseline = stock if row_id in remembered_remaining_rows else current
             state["target_baselines"][row_id] = baseline
             changed = True
         elif int(baseline) < current or int(baseline) > stock:
