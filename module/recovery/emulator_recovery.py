@@ -24,6 +24,21 @@ class EmulatorRecoveryOutcome:
     device: Any = None
 
 
+def _fresh_recovery_device(config):
+    """Создать Device без скрытого повторного запуска эмулятора из конструктора."""
+    from module.device.device import Device
+
+    class FreshRecoveryDevice(Device):
+        def emulator_start(self):
+            logger.warning(
+                '[Восстановление] Внутренний autostart Device подавлен: '
+                'destructive retry уже исчерпан внешней Stage 2 цепочкой'
+            )
+            return False
+
+    return FreshRecoveryDevice(config=config)
+
+
 def recover_emulator_transport(
         config,
         *,
@@ -130,8 +145,7 @@ def recover_emulator_transport(
     logger.info('[Восстановление] Проверка загрузки эмулятора пройдена')
 
     if device_factory is None:
-        from module.device.device import Device
-        device_factory = Device
+        device_factory = _fresh_recovery_device
 
     try:
         fresh_device = device_factory(config=config)
