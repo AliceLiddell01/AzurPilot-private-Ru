@@ -527,7 +527,11 @@ def prepare_event_shop_runtime_items(
         stock = max(int(source.get("stock", 0) or 0), 0)
         current = min(max(int(getattr(runtime, "count", 0) or 0), 0), stock)
         baseline = state["target_baselines"].get(row_id)
-        if baseline is None or int(baseline) < current or int(baseline) > stock:
+        if baseline is None:
+            baseline = stock if row_id in state["remaining"] else current
+            state["target_baselines"][row_id] = baseline
+            changed = True
+        elif int(baseline) < current or int(baseline) > stock:
             baseline = current
             state["target_baselines"][row_id] = baseline
             changed = True
@@ -692,20 +696,12 @@ def wake_event_shop_after_currency_increase(
                 max(int(state["remaining"].get(row_id, stock) or 0), 0),
                 stock,
             )
-            baseline = min(
-                max(
-                    int(
-                        state["target_baselines"].get(
-                            row_id,
-                            observed_remaining,
-                        )
-                        or 0
-                    ),
-                    0,
-                ),
-                stock,
-            )
-            baseline = max(baseline, observed_remaining)
+            saved_baseline = state["target_baselines"].get(row_id)
+            if saved_baseline is None:
+                baseline = stock
+            else:
+                baseline = min(max(int(saved_baseline), 0), stock)
+                baseline = max(baseline, observed_remaining)
             selected = min(max(int(targets.get(row_id, 0)), 0), baseline)
             bought_for_goal = max(baseline - observed_remaining, 0)
             if selected > bought_for_goal:
