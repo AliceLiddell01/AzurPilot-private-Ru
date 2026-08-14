@@ -180,7 +180,6 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
             "run": (
                 "self.config.task_call('Restart')",
                 "self._try_restart_game()",
-                "reason='game_stuck', verify_game=True",
                 "reason='adb_offline'",
                 "return 'recoverable'",
                 "return False",

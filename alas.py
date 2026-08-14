@@ -63,6 +63,7 @@ class AzurLaneAutoScript:
         # Счётчики последовательных зависаний игры и сбоев ADB для ограничения циклов восстановления.
         self.consecutive_game_stuck = 0
         self.consecutive_adb_offline = 0
+        self._last_emulator_recovery_mode = ''
         # 上次计划重启模拟器的时间戳
         self.last_emulator_restart_time = time.monotonic()
 
@@ -232,7 +233,7 @@ class AzurLaneAutoScript:
         except RequestHumanTakeover:
             logger.error_context(
                 title='Для инициализации устройства требуется вмешательство пользователя',
-                reason='Подключение к устройству или проверка его параметров завершилось ошибкой; автоматическое исправление невозможно.',
+                reason='Подключение к устройству или проверка его параметров завершилась ошибкой; автоматическое исправление невозможно.',
                 impact='Планировщик не может управлять эмулятором.',
                 action='Убедитесь, что эмулятор запущен, ADB доступен и разрешение равно 1280x720, затем перезапустите приложение.',
                 level=50,
@@ -1450,6 +1451,8 @@ class AzurLaneAutoScript:
                             del_cached_property(self, 'config')
                             continue
                         else:
+                            # Сдвигаем окно, чтобы неудачная плановая попытка не повторялась перед каждой задачей.
+                            self.last_emulator_restart_time = time.monotonic()
                             logger.warning('[Alas] Плановый перезапуск эмулятора не выполнен; обычная работа продолжается')
 
                 # 获取任务
