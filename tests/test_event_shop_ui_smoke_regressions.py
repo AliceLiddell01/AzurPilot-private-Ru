@@ -3,21 +3,67 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CSS = ROOT / "assets" / "gui" / "css" / "event-shop-stability-alas.css"
+MATERIAL_CSS = ROOT / "assets" / "gui" / "css" / "advanced-material-alas.css"
 V2 = ROOT / "module" / "webui" / "app_event_shop_v2.py"
 
 
-def test_event_shop_outer_row_is_not_an_extra_surface():
+def _block(css: str, selector: str) -> str:
+    assert selector in css
+    return css.split(selector, 1)[1].split("}", 1)[0]
+
+
+def test_event_shop_clears_real_pywebio_output_wrapper_surface():
     css = CSS.read_text(encoding="utf-8")
+    material = MATERIAL_CSS.read_text(encoding="utf-8")
+
+    # The material theme skins every direct child of #groups, including the
+    # output wrapper that PyWebIO creates around put_row().
+    assert "#pywebio-scope-groups>*:not(#pywebio-scope-navigator)" in material
+
     selector = (
         '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
-        '#pywebio-scope-groups > .row {'
+        '#pywebio-scope-groups > * {'
     )
-    block = css.split(selector, 1)[1].split("}", 1)[0]
+    block = _block(css, selector)
 
-    assert "border: 0 !important" in block
-    assert "background: transparent !important" in block
-    assert "box-shadow: none !important" in block
-    assert "padding: 0 !important" in block
+    for token in (
+        "border: 0 !important",
+        "border-radius: 0 !important",
+        "background: transparent !important",
+        "box-shadow: none !important",
+        "-webkit-backdrop-filter: none !important",
+        "backdrop-filter: none !important",
+        "padding: 0 !important",
+        "animation: none !important",
+    ):
+        assert token in block
+
+
+def test_event_shop_keeps_only_component_surfaces():
+    css = CSS.read_text(encoding="utf-8")
+
+    plan_selector = (
+        '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
+        '#pywebio-scope-group_EventShopPlan {'
+    )
+    plan = _block(css, plan_selector)
+    assert "background: transparent !important" in plan
+    assert "backdrop-filter: none !important" in plan
+
+    settings_selector = (
+        '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
+        '#pywebio-scope-group_EventShopTaskSettings {'
+    )
+    settings = _block(css, settings_selector)
+    assert "background: var(--event-surface) !important" in settings
+    assert "border: 1px solid var(--event-border) !important" in settings
+
+    cards = _block(
+        css,
+        '#pywebio-scope-event_shop_v2_grid > [id^="pywebio-scope-event_shop_card_"] {',
+    )
+    assert "background: var(--event-surface) !important" in cards
+    assert "backdrop-filter: blur(12px) saturate(150%) !important" in cards
 
 
 def test_task_text_inputs_do_not_stretch_checkbox_switches():
