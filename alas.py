@@ -60,7 +60,7 @@ class AzurLaneAutoScript:
         self.is_first_task = True
         # 任务失败计数器，key 为任务名，value 为连续失败次数
         self.failure_record = {}
-        # 连续卡死/ADB 离线计数，用于限制恢复循环和判断 ADB 恢复
+        # Счётчики последовательных зависаний игры и сбоев ADB для ограничения циклов восстановления.
         self.consecutive_game_stuck = 0
         self.consecutive_adb_offline = 0
         # 上次计划重启模拟器的时间戳
@@ -909,8 +909,8 @@ class AzurLaneAutoScript:
         AshBeaconAssist(config=self.config, device=self.device).run()
 
     def opsi_ash_beacon(self):
-        from module.os_ash.meta import OpsiAshBeacon
-        OpsiAshBeacon(config=self.config, device=self.device).run()
+        from module.os_ash.meta import AshBeacon
+        AshBeacon(config=self.config, device=self.device).run()
 
     def opsi_explore(self):
         from module.campaign.os_run import OSCampaignRun
