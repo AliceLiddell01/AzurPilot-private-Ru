@@ -37,13 +37,28 @@ def test_event_shop_v2_renders_currency_icon_in_balance_and_prices():
     assert 'currency_asset = event_asset_url(currency.get("asset"))' in source
 
 
-def test_event_shop_v2_flattens_nested_group_surfaces():
+def test_event_shop_v2_flattens_layout_but_keeps_component_surfaces():
     css = CSS.read_text(encoding="utf-8")
 
-    assert "#pywebio-scope-group_EventShopPlan," in css
-    assert "#pywebio-scope-group_EventShopTaskSettings {" in css
-    assert "background: transparent !important;" in css
-    assert "box-shadow: none !important;" in css
+    plan_selector = (
+        '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
+        '#pywebio-scope-group_EventShopPlan {'
+    )
+    assert plan_selector in css
+    plan = css.split(plan_selector, 1)[1].split("}", 1)[0]
+    assert "background: transparent !important;" in plan
+    assert "box-shadow: none !important;" in plan
+    assert "backdrop-filter: none !important;" in plan
+
+    settings_selector = (
+        '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
+        '#pywebio-scope-group_EventShopTaskSettings {'
+    )
+    assert settings_selector in css
+    settings = css.split(settings_selector, 1)[1].split("}", 1)[0]
+    assert "background: var(--event-surface) !important;" in settings
+    assert "border: 1px solid var(--event-border) !important;" in settings
+
     assert ".event-shop-v2-hero" in css
     assert "background: transparent;" in css
 
