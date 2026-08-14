@@ -82,6 +82,7 @@ MACHINE_TEMPLATES = frozenset(
         "[%s] %s",
         "%s: %s",
         "AdbClient(, )",
+        "AzurPilot <>: game restart failed",
         "Device(atx_agent_url=)",
         "E:/path\\\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt",
         "bored_visited_G3: , bored_visited_H2:",
@@ -103,6 +104,7 @@ MACHINE_TEMPLATES = frozenset(
         "_fleet_sidebar_offset",
         "_storage_in_material -> EQUIPMENT_ENTER",
         "center_loca",
+        "<>: game restart failed",
     }
 )
 
