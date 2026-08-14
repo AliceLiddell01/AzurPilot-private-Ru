@@ -181,7 +181,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             return (
                 "daily",
                 f"Построить {amount} {noun}",
-                f"Выполните постройку {amount} {noun} в верфи.",
+                f"Постройте {amount} {noun} на верфи.",
                 original,
             )
 
@@ -584,7 +584,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
             f'<small>{escape(description)}</small></div>'
             f'<span class="event-subsection-count">{len(items)}</span></div>'
-            f'<div class="event-quest-grid">{"".join(cards)}</div>'
+            f'<div class="event-quest-grid'>{"".join(cards)}</div>'
             "</section>"
         )
 
