@@ -60,6 +60,21 @@
     object-fit: contain;
 }
 
+.event-shop-live-value {
+    display: inline-block;
+    transform-origin: center;
+}
+
+.event-shop-live-value.event-shop-value-updated {
+    animation: event-shop-value-update 220ms cubic-bezier(.2, .8, .2, 1);
+}
+
+@keyframes event-shop-value-update {
+    0% { opacity: .62; transform: translateY(1px) scale(.98); }
+    55% { opacity: 1; transform: translateY(0) scale(1.035); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @media (max-width: 760px) {
     #pywebio-scope-event_shop_grid {
         grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
