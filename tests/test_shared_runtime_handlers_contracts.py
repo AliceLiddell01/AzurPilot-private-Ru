@@ -50,7 +50,7 @@ def test_logger_security_redaction_and_rendering_contract_is_intact():
         '"<USER_HOME>"',
         'Node(value_repr="\'<скрыто>\'")',
         "sanitize_rich_traceback(traceback)",
-        "tracebacks_show_locals=True",
+        "tracebacks_show_locals=False",
         "tracebacks_extra_lines=3",
         "tracebacks_extra_lines=2",
         "RichRenderableHandler",
@@ -61,6 +61,7 @@ def test_logger_security_redaction_and_rendering_contract_is_intact():
         "datefmt='%H:%M:%S'",
     ):
         assert token in source
+    assert "tracebacks_show_locals=True" not in source
 
     raw = (
         "\x1b[31mhttps://alice:secret@example.test/path?token=abc "
