@@ -36,6 +36,7 @@ from module.shop_event.item import (
     PRICE_THRESHOLD,
     EventShopItemGrid,
 )
+from module.shop_event.notification_policy import apply_event_shop_notification_policy
 from module.shop_event.ui import EVENT_SHOP_SCROLL, EventShopUI
 from module.ui_white.assets import BACK_ARROW_WHITE
 from module.webui.event_shop_priority import (
@@ -68,6 +69,7 @@ class EventShopClerk(EventShopUI):
                     value=True,
                 )
             self.config.override(Scheduler_Sensitive=True)
+            apply_event_shop_notification_policy(self.config)
             logger.info(
                 "[Магазин события] Критический режим задачи закреплён: автоматический перезапуск после исключения запрещён"
             )
