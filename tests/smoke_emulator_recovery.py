@@ -1,4 +1,4 @@
-"""Standalone synthetic smoke проверяемого Stage 2 emulator recovery."""
+"""Автономный синтетический smoke-тест проверяемого восстановления Stage 2."""
 
 from __future__ import annotations
 
@@ -33,6 +33,10 @@ def build_suite() -> unittest.TestSuite:
         '_stage2_process_tests',
         'tests/test_mumu_process_control.py',
     )
+    platform = load_test_module(
+        '_stage2_platform_tests',
+        'tests/test_platform_windows_recovery_behavior.py',
+    )
     scheduler = load_test_module(
         '_stage2_scheduler_tests',
         'tests/test_alas_error_handling.py',
@@ -46,6 +50,8 @@ def build_suite() -> unittest.TestSuite:
         (transport.EmulatorRecoveryTransportTests, 'test_start_false_is_failure_and_fresh_device_is_not_created'),
         (process.MuMuProcessControlTests, 'test_wrong_instance_and_shared_processes_are_never_killed'),
         (process.MuMuProcessControlTests, 'test_access_denied_is_failure_not_success'),
+        (platform.PlatformWindowsRecoveryBehaviorTests, 'test_shutdown_return_zero_but_instance_alive_is_failure'),
+        (platform.PlatformWindowsRecoveryBehaviorTests, 'test_start_watch_failure_is_overall_failure'),
         (scheduler.TestGameStuckRecovery, 'test_stuck_restarts_only_game_and_reports_recoverable_after_health_success'),
         (scheduler.TestGameStuckRecovery, 'test_failed_game_restart_escalates_once_when_policy_enabled'),
         (scheduler.TestGameStuckRecovery, 'test_post_emulator_game_health_failure_does_not_recurse'),
