@@ -3,7 +3,7 @@
 from module.device.env import IS_WINDOWS, IS_MACINTOSH
 
 if IS_WINDOWS:
-    from module.device.platform.platform_windows import PlatformWindows as Platform
+    from module.device.platform.platform_windows_recovery import RecoveryPlatformWindows as Platform
 elif IS_MACINTOSH:
     from module.device.platform.platform_mac import PlatformMac as Platform
 else:
