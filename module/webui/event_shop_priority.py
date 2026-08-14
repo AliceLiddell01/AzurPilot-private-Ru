@@ -23,9 +23,9 @@ from deploy.atomic import (
 from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
 from module.webui.event_shop_observation import reconcile_event_shop
-from module.webui.event_source import load_event_user_state
+from module.webui.event_source import load_event_user_state, save_event_user_state
 
-EVENT_SHOP_PRIORITY_SCHEMA_VERSION = 2
+EVENT_SHOP_PRIORITY_SCHEMA_VERSION = 3
 EVENT_SHOP_PRIORITY_ROOT = Path("./config/state/event_shop_priority")
 
 
@@ -56,6 +56,7 @@ def empty_event_shop_priority(event_id: str = "") -> dict[str, Any]:
         "event_id": str(event_id or ""),
         "priorities": {},
         "purchased": [],
+        "completed": [],
         "remaining": {},
         "blocked": {},
         "pending": {},
@@ -83,11 +84,12 @@ def normalize_event_shop_priority(
                 continue
             if priority >= 0:
                 result["priorities"][str(row_id)] = priority
-    purchased = raw.get("purchased")
-    if isinstance(purchased, Sequence) and not isinstance(purchased, (str, bytes)):
-        result["purchased"] = sorted(
-            {str(row_id) for row_id in purchased if str(row_id).strip()}
-        )
+    for field in ("purchased", "completed"):
+        values = raw.get(field)
+        if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
+            result[field] = sorted(
+                {str(row_id) for row_id in values if str(row_id).strip()}
+            )
     remaining = raw.get("remaining")
     if isinstance(remaining, Mapping):
         for row_id, value in remaining.items():
@@ -201,6 +203,7 @@ def set_event_shop_priority(
             raise ValueError("Приоритет покупки не может быть отрицательным")
         state["priorities"][key] = value
         state["purchased"] = [item for item in state["purchased"] if item != key]
+        state["completed"] = [item for item in state["completed"] if item != key]
     if str(state.get("pending", {}).get("row_id") or "") != key:
         state["blocked"].pop(key, None)
     save_event_shop_priority(instance, state, root=root)
@@ -249,6 +252,37 @@ def _selected_targets(config: Any, event_id: str) -> dict[str, int]:
     return result
 
 
+def _clear_selected_target(
+    config: Any,
+    event_id: str,
+    row_id: str,
+    expected_selected: int,
+) -> bool:
+    """Clear exactly the goal that was verified, never a newer user edit."""
+    state = load_event_user_state(config.config_name)
+    saved_event_id = str(state.get("source_event_id") or "")
+    if saved_event_id and saved_event_id != str(event_id or ""):
+        return False
+    selections = state.get("shop_selections")
+    if not isinstance(selections, Mapping):
+        return False
+    key = str(row_id)
+    try:
+        current = max(int(selections.get(key, 0) or 0), 0)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if current != max(int(expected_selected), 0):
+        return False
+    updated = dict(state)
+    updated_selections = dict(selections)
+    updated_selections[key] = 0
+    updated["shop_selections"] = updated_selections
+    if not str(updated.get("source_event_id") or ""):
+        updated["source_event_id"] = str(event_id or "")
+    save_event_user_state(config.config_name, updated)
+    return True
+
+
 def _target_remaining(
     source: Mapping[str, Any],
     runtime: Any,
@@ -273,6 +307,8 @@ def _runtime_filter(item: Any) -> str:
 def _verify_pending_purchase(
     state: dict[str, Any],
     *,
+    config: Any,
+    selected_targets: Mapping[str, int],
     runtime_by_row: Mapping[str, Any],
     ambiguous_filters: set[str],
     catalog_by_id: Mapping[str, Mapping[str, Any]],
@@ -309,17 +345,51 @@ def _verify_pending_purchase(
 
     state["remaining"][row_id] = after
     state["blocked"].pop(row_id, None)
+    stock = max(int(source.get("stock", 0) or 0), 0) if source else before
+    selected = min(max(int(selected_targets.get(row_id, 0) or 0), 0), stock)
+    already_bought = max(stock - min(after, stock), 0)
+    target_done = selected > 0 and already_bought >= selected
+
     if after == 0:
+        if selected > 0:
+            _clear_selected_target(config, state["event_id"], row_id, selected)
         state["priorities"].pop(row_id, None)
         state["purchased"] = sorted(set(state["purchased"]) | {row_id})
+        state["completed"] = [item for item in state["completed"] if item != row_id]
         logger.info(
-            f"[Магазин события — приоритеты] Повторный скан подтвердил полную покупку строки {row_id}; приоритет сброшен"
+            f"[Магазин события — приоритеты] Повторный скан подтвердил полный выкуп строки {row_id}; цель и приоритет завершены"
         )
+    elif target_done:
+        target_cleared = _clear_selected_target(
+            config,
+            state["event_id"],
+            row_id,
+            selected,
+        )
+        state["purchased"] = [item for item in state["purchased"] if item != row_id]
+        if target_cleared:
+            state["priorities"].pop(row_id, None)
+            state["completed"] = sorted(set(state["completed"]) | {row_id})
+            logger.info(
+                f"[Магазин события — приоритеты] Повторный скан подтвердил выполнение цели строки {row_id}; цель и приоритет сброшены, остаток {after}"
+            )
+        else:
+            state["completed"] = [item for item in state["completed"] if item != row_id]
+            logger.info(
+                f"[Магазин события — приоритеты] Остаток {after} подтверждён, но цель строки {row_id} была изменена параллельно; новая цель сохранена"
+            )
     else:
         state["purchased"] = [item for item in state["purchased"] if item != row_id]
-        logger.info(
-            f"[Магазин события — приоритеты] Повторный скан подтвердил остаток {after} для строки {row_id}"
-        )
+        state["completed"] = [item for item in state["completed"] if item != row_id]
+        if selected <= 0:
+            state["priorities"].pop(row_id, None)
+            logger.info(
+                f"[Магазин события — приоритеты] Повторный скан подтвердил остаток {after}; активная цель отсутствует, приоритет сброшен"
+            )
+        else:
+            logger.info(
+                f"[Магазин события — приоритеты] Повторный скан подтвердил остаток {after} для строки {row_id}"
+            )
     state["pending"] = {}
     return True, ""
 
@@ -358,6 +428,8 @@ def prepare_event_shop_runtime_items(
     catalog_by_id = {str(item.get("row_id")): item for item in catalog}
     pending_ok, pending_problem = _verify_pending_purchase(
         state,
+        config=config,
+        selected_targets=selected_targets,
         runtime_by_row=runtime_by_row,
         ambiguous_filters=ambiguous_filters,
         catalog_by_id=catalog_by_id,
