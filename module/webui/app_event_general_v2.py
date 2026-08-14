@@ -321,14 +321,9 @@ class EventGeneralV2Mixin(WebUIMixinBase):
         profiles = get_event_profile_metadata(config)
         put_html(
             '<div class="event-general-compact-heading">'
-            "<strong>Дополнительные ивентовые профили</strong>"
-            "<small>До двух независимых профилей карт со своими настройками.</small>"
+            "<strong>Дополнительные профили</strong>"
             "</div>"
         )
-        if not profiles:
-            put_html(
-                '<div class="event-general-compact-empty">Дополнительные профили не созданы.</div>'
-            )
         for slot in OPTIONAL_EVENT_PROFILE_SLOTS:
             profile = profiles.get(slot)
             if profile is None:
@@ -361,14 +356,14 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             ).style("--event-general-profile-row--")
         if next_available_event_profile_slot(config) is not None:
             put_button(
-                "Добавить доп. ивентовый профиль",
+                "Добавить профиль",
                 onclick=self._add_event_profile,
                 color="primary",
                 disabled=is_demo_mode(),
             ).style("--event-general-profile-add--")
         else:
             put_html(
-                '<small class="event-general-profile-limit">Доступно не более двух дополнительных профилей.</small>'
+                '<small class="event-general-profile-limit">Лимит профилей достигнут.</small>'
             )
 
     def _render_event_sources_v2(self, plan: Mapping[str, Any]) -> None:
@@ -560,19 +555,13 @@ class EventGeneralV2Mixin(WebUIMixinBase):
         currency_name = escape(str(currency.get("name") or "Валюта события"))
         cards: list[str] = []
         for item in items:
-            _, translated, explanation, original = self._quest_presentation(item)
+            _, translated, explanation, _ = self._quest_presentation(item)
             points = item.get("points")
             points_text = self._fmt(points) if points is not None else "—"
-            original_html = (
-                f'<small class="event-quest-original">Оригинал: {escape(original)}</small>'
-                if original
-                else ""
-            )
             cards.append(
                 '<article class="event-quest-card">'
                 f'<strong>{escape(translated)}</strong>'
                 f'<p>{escape(explanation)}</p>'
-                f"{original_html}"
                 '<div class="event-quest-reward">'
                 f'<img src="{escape(currency_icon)}" alt="{currency_name}">'
                 f'<b>{escape(points_text)}</b>'
@@ -599,19 +588,21 @@ class EventGeneralV2Mixin(WebUIMixinBase):
         ]
         _, quests = self._split_event_sources(plan)
         currency = self._event_currency(plan)
+        currency_icon = event_asset_url(currency.get("asset"))
+        currency_name = escape(str(currency.get("name") or "Валюта события"))
 
         put_html(
             f"""
 <section class="event-rewards-v2-hero">
   <div class="event-eyebrow">Награды текущего ивента</div>
   <h3>{escape(str(event.get("name") or "Текущий ивент"))}</h3>
-  <span>Текущий PT: <strong>{self._fmt(current_pt) if current_pt is not None else "Нет данных"}</strong></span>
+  <span class="event-rewards-v2-balance">Текущий баланс: <img src="{escape(currency_icon)}" alt="{currency_name}"><strong>{self._fmt(current_pt) if current_pt is not None else "Нет данных"}</strong></span>
 </section>
 """
         )
         put_html(
             '<div class="event-general-v2-section-heading event-rewards-heading">'
-            '<div><strong>Награды за накопление PT</strong><small>Крупная лента наград прокручивается по горизонтали.</small></div>'
+            '<div><strong>Награды за накопление</strong><small>Лента наград прокручивается по горизонтали.</small></div>'
             f'<span class="event-subsection-count">{len(milestones)}</span></div>'
         )
         put_row(
@@ -647,7 +638,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             if reached:
                 status = "Порог достигнут"
             elif current_pt is not None:
-                status = f"Осталось {self._fmt(threshold - current_pt)} PT"
+                status = f"Осталось {self._fmt(threshold - current_pt)}"
             else:
                 status = "Прогресс пока недоступен"
             rewards = "".join(
@@ -664,7 +655,11 @@ class EventGeneralV2Mixin(WebUIMixinBase):
                 state_class += " event-reward-card-next"
             cards.append(
                 f'<article class="event-reward-track-card{state_class}">'
-                f'<div class="event-reward-track-threshold"><small>Порог</small><strong>{self._fmt(threshold)} PT</strong></div>'
+                '<div class="event-reward-track-threshold"><small>Порог</small>'
+                '<strong class="event-reward-threshold-value">'
+                f'<img src="{escape(currency_icon)}" alt="{currency_name}">'
+                f'<span>{self._fmt(threshold)}</span>'
+                "</strong></div>"
                 f'<div class="event-reward-track-items">{rewards or "<span>Нет данных о награде</span>"}</div>'
                 f'<small class="event-reward-track-status">{escape(status)}</small>'
                 "</article>"
@@ -689,11 +684,6 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             else:
                 event_quests.append(item)
 
-        put_html(
-            '<div class="event-general-v2-section-heading event-quest-heading">'
-            '<div><strong>Задания</strong><small>Без попыток определять состояние выполнения.</small></div>'
-            f'<span class="event-subsection-count">{len(quests)}</span></div>'
-        )
         if quests:
             self._render_event_quest_group(
                 title="Ежедневные задания",
