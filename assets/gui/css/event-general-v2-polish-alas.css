@@ -208,7 +208,7 @@
     font-size: .84rem;
 }
 
-/* Mission cards: translated title + explanation + original source + currency icon. */
+/* Mission cards: translated title + explanation + currency icon. */
 .event-quest-heading {
     margin-top: 20px !important;
 }
@@ -318,5 +318,185 @@
     .event-farm-grid-v2,
     .event-quest-grid {
         grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
+
+/* Third visual pass: one glass window, then nearly matte cards. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventMainColumn {
+    margin: 0 !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: 14px !important;
+    background: color-mix(in srgb, var(--event-surface-strong) 64%, transparent) !important;
+    box-shadow: var(--event-shadow-lg) !important;
+    -webkit-backdrop-filter: blur(14px) saturate(125%) !important;
+    backdrop-filter: blur(14px) saturate(125%) !important;
+    padding: 16px !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventOverview,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSources,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventStages {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-general-v2-hero {
+    margin: 0 0 12px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--event-divider) !important;
+    border-left: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 0 14px !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-general-v2-metric,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-source-card-v2,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-card-v2 {
+    background: var(--event-surface-strong) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSideColumn {
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventProfiles,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer {
+    border: 1px solid var(--event-border) !important;
+    border-radius: 12px !important;
+    background: var(--event-surface-strong) !important;
+    box-shadow: var(--event-shadow) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 14px !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer > div > p {
+    display: none !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer::before {
+    content: "Настройки баланса задач";
+    display: block;
+    margin-bottom: 8px;
+    color: var(--event-text);
+    font-size: .86rem;
+    font-weight: 680;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer [style*="--arg-help--"] {
+    display: none !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer .hr-group {
+    display: none !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer [id^="pywebio-scope-arg_container-"] {
+    min-height: 0 !important;
+    margin: 7px 0 !important;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] #pywebio-scope-group_EventRewards {
+    margin: 0 !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: 14px !important;
+    background: color-mix(in srgb, var(--event-surface-strong) 64%, transparent) !important;
+    box-shadow: var(--event-shadow-lg) !important;
+    -webkit-backdrop-filter: blur(14px) saturate(125%) !important;
+    backdrop-filter: blur(14px) saturate(125%) !important;
+    padding: 16px !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] .event-rewards-v2-hero {
+    margin: 0 0 12px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--event-divider) !important;
+    border-left: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 0 14px !important;
+}
+
+.event-rewards-v2-balance {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 6px;
+}
+
+.event-rewards-v2-balance img,
+.event-reward-threshold-value img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+}
+
+.event-reward-threshold-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] .event-reward-track-shell {
+    overflow: hidden;
+    margin-top: 2px;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] .event-reward-track-card,
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] .event-quest-card {
+    background: var(--event-surface-strong) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] .event-quest-group {
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+}
+
+@media (max-width: 1180px) {
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventMainColumn {
+        margin-bottom: 12px !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .event-reward-track {
+        scroll-behavior: auto !important;
     }
 }
