@@ -37,6 +37,15 @@ def test_event_shop_v2_renders_currency_icon_in_balance_and_prices():
     assert 'currency_asset = event_asset_url(currency.get("asset"))' in source
 
 
+def test_event_shop_v2_keeps_availability_next_to_terminal_status():
+    source = V2.read_text(encoding="utf-8")
+
+    assert 'priority_state.get("completed")' in source
+    assert "Полностью куплено" in source
+    assert 'event-shop-v2-stock">Доступно: {available}' in source
+    assert "state_html = status_html + availability_html" in source
+
+
 def test_event_shop_v2_flattens_layout_but_keeps_component_surfaces():
     css = CSS.read_text(encoding="utf-8")
 
