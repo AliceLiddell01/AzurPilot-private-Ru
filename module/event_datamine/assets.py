@@ -20,6 +20,7 @@ EVENT_ASSET_CATALOG_SCHEMA_VERSION = 1
 EVENT_ASSET_CATALOG_NAME = "assets.json"
 _SAFE_SOURCE_PATH = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
 _SAFE_TOKEN = re.compile(r"[A-Za-z0-9_-]+")
+_DISPLAY_EXTENSIONS = (".png", ".svg", ".webp")
 
 
 def asset_key(asset: Mapping[str, Any]) -> str:
@@ -44,6 +45,26 @@ def asset_catalog_digest(data: Mapping[str, Any]) -> str:
     return sha256(canonical_json(clean).encode("utf-8")).hexdigest()
 
 
+def _display_asset_url(asset: Mapping[str, Any], local_root: Path) -> str:
+    kind = str(asset.get("kind") or "").strip().lower()
+    game_id = str(asset.get("game_id") or "").strip()
+    if (
+        not kind
+        or not _SAFE_TOKEN.fullmatch(kind)
+        or not game_id.isdecimal()
+        or int(game_id) <= 0
+    ):
+        return ""
+
+    display_root = (local_root / "webui" / "event_shop").resolve()
+    for extension in _DISPLAY_EXTENSIONS:
+        filename = f"{kind}-{int(game_id)}{extension}"
+        candidate = (display_root / filename).resolve()
+        if display_root in candidate.parents and candidate.is_file():
+            return f"/static/assets/webui/event_shop/{filename}"
+    return ""
+
+
 def build_asset_catalog(
     artifact_root: Path | str = BUILTIN_ARTIFACT_ROOT,
     *,
@@ -59,7 +80,8 @@ def build_asset_catalog(
 
     data_root = Path(artifact_root).resolve()
     local_root = Path(asset_root).resolve()
-    mappings: dict[str, str] = {}
+    display_candidates: dict[str, set[str]] = {}
+    fallback_candidates: dict[str, set[str]] = {}
     for path in sorted(data_root.rglob("*.json")):
         if path.name in {EVENT_ASSET_CATALOG_NAME, "index.json"}:
             continue
@@ -78,6 +100,11 @@ def build_asset_catalog(
             token = str(item.get("event_shop_filter") or "")
             if not key or not _SAFE_TOKEN.fullmatch(token):
                 continue
+
+            display_url = _display_asset_url(asset, local_root)
+            if display_url:
+                display_candidates.setdefault(key, set()).add(display_url)
+
             candidates = (
                 (
                     local_root / "webui" / "event_shop" / f"{token}.png",
@@ -90,18 +117,28 @@ def build_asset_catalog(
                     local_root / "shop" / "event",
                 ),
             )
-            resolved_url = ""
             for candidate, url, expected_root in candidates:
                 candidate = candidate.resolve()
                 expected = expected_root.resolve()
                 if expected in candidate.parents and candidate.is_file():
-                    resolved_url = url
+                    fallback_candidates.setdefault(key, set()).add(url)
                     break
-            if not resolved_url:
-                continue
-            previous = mappings.setdefault(key, resolved_url)
-            if previous != resolved_url:
-                raise ValueError(f"Конфликт local asset для canonical key {key}")
+
+    mappings: dict[str, str] = {}
+    all_keys = sorted(set(display_candidates) | set(fallback_candidates))
+    for key in all_keys:
+        displays = display_candidates.get(key, set())
+        fallbacks = fallback_candidates.get(key, set())
+        if len(fallbacks) > 1:
+            raise ValueError(f"Конфликт local asset для canonical key {key}")
+        if len(displays) == 1:
+            mappings[key] = next(iter(displays))
+        elif len(displays) > 1:
+            if len(fallbacks) == 1:
+                mappings[key] = next(iter(fallbacks))
+        elif len(fallbacks) == 1:
+            mappings[key] = next(iter(fallbacks))
+
     result = {
         "asset_catalog_schema_version": EVENT_ASSET_CATALOG_SCHEMA_VERSION,
         "entries": dict(sorted(mappings.items())),

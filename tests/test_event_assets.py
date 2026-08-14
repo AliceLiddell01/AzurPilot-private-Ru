@@ -106,3 +106,34 @@ def test_asset_catalog_prefers_webui_display_asset_and_keeps_scanner_fallback(tm
     (display / "Chip.png").unlink()
     catalog = build_asset_catalog(asset_root=tmp_path)
     assert catalog["entries"]["item:Props/15008"] == "/static/assets/shop/event/Chip.png"
+
+
+def test_asset_catalog_reuses_single_display_asset_for_shared_source_identity(tmp_path: Path):
+    scanner = tmp_path / "shop" / "event"
+    display = tmp_path / "webui" / "event_shop"
+    scanner.mkdir(parents=True)
+    display.mkdir(parents=True)
+    (scanner / "BoxT4.png").write_bytes(b"scanner")
+    (display / "item-30014.png").write_bytes(b"display")
+
+    catalog = build_asset_catalog(asset_root=tmp_path)
+
+    assert catalog["entries"]["item:Props/30004"] == (
+        "/static/assets/webui/event_shop/item-30014.png"
+    )
+
+
+def test_asset_catalog_uses_scanner_fallback_when_shared_source_has_multiple_displays(tmp_path: Path):
+    scanner = tmp_path / "shop" / "event"
+    display = tmp_path / "webui" / "event_shop"
+    scanner.mkdir(parents=True)
+    display.mkdir(parents=True)
+    (scanner / "BoxT4.png").write_bytes(b"scanner")
+    (display / "item-30014.png").write_bytes(b"eagle")
+    (display / "item-30024.png").write_bytes(b"royal")
+
+    catalog = build_asset_catalog(asset_root=tmp_path)
+
+    assert catalog["entries"]["item:Props/30004"] == (
+        "/static/assets/shop/event/BoxT4.png"
+    )
