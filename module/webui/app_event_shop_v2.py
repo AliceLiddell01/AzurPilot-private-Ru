@@ -389,6 +389,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         priority_state = load_event_shop_priority(self.alas_name, event_id)
         priorities = dict(priority_state.get("priorities") or {})
         purchased = set(priority_state.get("purchased") or [])
+        completed = set(priority_state.get("completed") or [])
         remembered_remaining = dict(priority_state.get("remaining") or {})
         blocked = dict(priority_state.get("blocked") or {})
         shop_items = [
@@ -461,7 +462,13 @@ class EventShopV2Mixin(WebUIMixinBase):
                 target_remaining = self._event_shop_target_remaining(
                     item, priority_state
                 )
-                target_done = selected > 0 and target_remaining == 0
+                target_done = (
+                    not is_purchased
+                    and (
+                        (row_id in completed and selected == 0)
+                        or (selected > 0 and target_remaining == 0)
+                    )
+                )
 
                 rarity = item.get("rarity")
                 rarity_html = (
@@ -470,13 +477,15 @@ class EventShopV2Mixin(WebUIMixinBase):
                     else ""
                 )
                 if is_purchased:
-                    state_html = '<span class="event-shop-v2-bought">Выкуплено</span>'
+                    status_html = '<span class="event-shop-v2-bought">Полностью куплено</span>'
                 elif target_done:
-                    state_html = '<span class="event-shop-v2-done">Цель выполнена</span>'
+                    status_html = '<span class="event-shop-v2-done">Цель выполнена</span>'
                 else:
-                    state_html = (
-                        f'<span class="event-shop-v2-stock">Доступно: {available}</span>'
-                    )
+                    status_html = ""
+                availability_html = (
+                    f'<span class="event-shop-v2-stock">Доступно: {available}</span>'
+                )
+                state_html = status_html + availability_html
 
                 asset_url = event_asset_url(item.get("asset"))
                 price = max(int(item.get("price", 0) or 0), 0)
