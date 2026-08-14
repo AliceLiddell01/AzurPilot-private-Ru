@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TASKS = ROOT / "module" / "config" / "argument" / "task.yaml"
 CSS = ROOT / "assets" / "gui" / "css" / "event-general-v2-alas.css"
 SOURCE = ROOT / "module" / "webui" / "app_event_general_v2.py"
+APP = ROOT / "module" / "webui" / "app.py"
 
 
 def test_event_general_v2_wraps_profile_and_legacy_event_layers():
@@ -96,6 +97,13 @@ def test_overview_orders_profiles_and_balance_before_sources_and_stages():
     assert profiles < balance < sources < stages
 
 
+def test_profile_partial_refresh_keeps_compact_renderer():
+    source = inspect.getsource(EventGeneralV2Mixin._refresh_event_profile_ui)
+    assert "_render_event_profiles_compact" in source
+    assert "_render_event_profile_manager" not in source
+    assert 'active_button("menu", "EventGeneral")' in source
+
+
 def test_user_facing_event_general_renderer_hides_runtime_and_source_internals():
     source = SOURCE.read_text(encoding="utf-8")
     for technical_text in (
@@ -131,3 +139,9 @@ def test_profiles_and_task_balance_share_compact_surface_contract():
     assert selector in css
     assert "padding: 14px !important" in css
     assert "border-radius: 12px !important" in css
+
+
+def test_event_general_v2_styles_are_loaded_before_content_render():
+    app = APP.read_text(encoding="utf-8")
+    assert "from module.webui.app_event_general_v2 import EventGeneralV2Mixin" in app
+    assert 'add_css(filepath_css("event-general-v2-alas"))' in app
