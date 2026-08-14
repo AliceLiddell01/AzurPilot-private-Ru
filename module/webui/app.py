@@ -40,6 +40,7 @@ from module.webui.app_developer_menu import DeveloperMenuMixin
 from module.webui.app_developer_settings import DeveloperSettingsMixin
 from module.webui.app_developer_tools import DeveloperToolsMixin
 from module.webui.app_event_datamine import EventDatamineMixin
+from module.webui.app_event_general_v2 import EventGeneralV2Mixin
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.app_event_shop_live import EventShopLiveMixin
@@ -101,6 +102,7 @@ class AlasGUI(
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
     EventShopLiveMixin,
+    EventGeneralV2Mixin,
     EventProfilesMixin,
     EventDatamineMixin,
     EventShopSafetyMixin,
@@ -215,6 +217,7 @@ def app():
         # Event CSS загружается до построения меню/контента, чтобы первый кадр
         # магазина не зависел от асинхронной загрузки stylesheet через DOM.
         add_css(filepath_css("event-profiles-alas"))
+        add_css(filepath_css("event-general-v2-alas"))
         add_css(filepath_css("event-shop-stability-alas"))
         add_css(filepath_css("traceback-alas"))
         if _block_public_webui_password_error():
