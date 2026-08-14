@@ -58,8 +58,8 @@ class EmulatorRecoveryTransportTests(unittest.TestCase):
         self.assertEqual(['graceful', 'hard-kill', 'start', 'fresh-device'], order)
 
     def test_graceful_command_failure_but_verified_dead_does_not_force_kill(self):
-        # Platform contract absorbs command timeout/non-zero and returns True
-        # when its actual-state probe proves the instance is dead.
+        # Платформенный контракт учитывает timeout/non-zero команды, но возвращает True,
+        # если actual-state probe доказывает, что выбранный экземпляр уже остановлен.
         platform = self.make_platform(stop=True, force=True, start=True)
 
         outcome = recover_emulator_transport(
