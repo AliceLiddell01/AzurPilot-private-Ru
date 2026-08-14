@@ -108,6 +108,10 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
                 events.append(("_check_sensitive_exit", (command, exc), {}))
                 return False
 
+            def _try_restart_game(self):
+                events.append(("_try_restart_game", (), {}))
+                return True
+
             def _try_restart_emulator(self):
                 events.append(("_try_restart_emulator", (), {}))
                 return True
@@ -164,7 +168,7 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
         )
         for method, values in {
             "_try_restart_emulator": ("self.consecutive_adb_offline > limit", "time.sleep(5)"),
-            "run": ("self.config.task_call('Restart')", "self.device.sleep(10)", "return 'recoverable'"),
+            "run": ("self.config.task_call('Restart')", "self._try_restart_game()", "return 'recoverable'", "return False"),
             "loop": ("MAX_GLOBAL_FAILURES = 3", "RESTART_DELAY = 20", "LONG_WAIT = 300", "failed >= 3"),
             "wait_until": ("time.sleep(5)", "exit(0)"),
         }.items():
@@ -175,8 +179,8 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
     def test_run_paths_and_notifications(self):
         cases = (
             (GameNotRunningError, ["screenshot", "error_context", "_check_sensitive_exit", "handle_notify", "notify_webui", "task_call"]),
-            (GameStuckError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "warning", "warning", "handle_notify", "notify_webui", "task_call", "device_sleep"]),
-            (GameTooManyClickError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "warning", "warning", "handle_notify", "notify_webui", "task_call", "device_sleep"]),
+            (GameStuckError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "warning", "warning", "handle_notify", "_try_restart_game", "info", "notify_webui"]),
+            (GameTooManyClickError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "warning", "warning", "handle_notify", "_try_restart_game", "info", "notify_webui"]),
             (EmulatorNotRunningError, ["screenshot", "error_context", "save_error_log", "_check_sensitive_exit", "_try_restart_emulator", "task_call", "handle_notify", "notify_webui"]),
         )
         for error, expected in cases:
@@ -185,7 +189,12 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
                 result = load("run", self.env(events))(self.subject(events, error), "synthetic")
                 self.assertEqual(result, "recoverable")
                 self.assertEqual([x[0] for x in events], expected)
-                self.assertEqual(next(x for x in events if x[0] == "task_call")[1], ("Restart",))
+                if error in {GameNotRunningError, EmulatorNotRunningError}:
+                    self.assertEqual(next(x for x in events if x[0] == "task_call")[1], ("Restart",))
+                else:
+                    self.assertNotIn("task_call", [x[0] for x in events])
+                    self.assertNotIn("_try_restart_emulator", [x[0] for x in events])
+                    self.assertNotIn("device_sleep", [x[0] for x in events])
                 notice = "".join(
                     x[2].get("title", "") + x[2].get("content", "")
                     for x in events if x[0] in {"handle_notify", "notify_webui"}
