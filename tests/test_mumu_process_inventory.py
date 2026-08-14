@@ -60,6 +60,18 @@ def test_unrelated_process_is_ignored():
     assert relationship == "unrelated"
 
 
+def test_python_running_mumu_named_inventory_script_is_not_false_positive():
+    relationship = classify_relationship(
+        name="python.exe",
+        executable=r"C:\AzurPilot\.venv\Scripts\python.exe",
+        command_line=r'python mumu_process_inventory_stage2_v1.py --repository C:\AzurPilot',
+        instance_name="MuMuPlayerGlobal-15.0-1",
+        instance_id=1,
+    )
+
+    assert relationship == "unrelated"
+
+
 def test_inventory_tool_contains_no_destructive_process_operation():
     source = INVENTORY_TOOL.read_text(encoding="utf-8")
 
