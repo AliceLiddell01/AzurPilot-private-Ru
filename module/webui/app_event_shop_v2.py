@@ -19,6 +19,7 @@ from module.webui.app_dependencies import (
     put_output,
     put_row,
     put_scope,
+    run_js,
     toast,
     use_scope,
 )
@@ -60,8 +61,98 @@ class EventShopV2Mixin(WebUIMixinBase):
         source = str(name or "")
         return _shop_presentation_names().get(source, source)
 
+    @staticmethod
+    def _event_shop_priority_metrics(
+        plan: Mapping[str, Any],
+        priority_state: Mapping[str, Any],
+    ) -> dict[str, int]:
+        priorities = dict(priority_state.get("priorities") or {})
+        purchased = set(priority_state.get("purchased") or [])
+        remembered_remaining = dict(priority_state.get("remaining") or {})
+        shop_items = [
+            item
+            for item in plan.get("shop_items", [])
+            if isinstance(item, Mapping)
+        ]
+        active_rows = [
+            item
+            for item in shop_items
+            if str(item.get("id") or "") in priorities
+            and str(item.get("id") or "") not in purchased
+        ]
+        planned_cost = 0
+        for item in active_rows:
+            remaining = item.get("remaining")
+            row_id = str(item.get("id") or "")
+            quantity = (
+                max(int(remaining), 0)
+                if isinstance(remaining, int)
+                else max(int(remembered_remaining[row_id]), 0)
+                if row_id in remembered_remaining
+                else max(int(item.get("stock", 0) or 0), 0)
+            )
+            planned_cost += max(int(item.get("price", 0) or 0), 0) * quantity
+        return {
+            "count": len(active_rows),
+            "cost": planned_cost,
+        }
+
+    def _patch_event_shop_priority_values(
+        self,
+        *,
+        event_id: str,
+        row_id: str,
+        live_key: str,
+    ) -> None:
+        """Patch live priority-derived values without rebuilding the shop grid."""
+        plan = self._event_plan()
+        event = plan.get("event", {})
+        if not isinstance(event, Mapping) or str(event.get("id") or "") != event_id:
+            self._refresh_event_plan_page()
+            return
+        state = load_event_shop_priority(self.alas_name, event_id)
+        metrics = self._event_shop_priority_metrics(plan, state)
+        priorities = dict(state.get("priorities") or {})
+        blocked = dict(state.get("blocked") or {})
+        warning = str(blocked.get(row_id) or "") if row_id in priorities else ""
+        payload = {
+            "count_id": "event-shop-v2-plan-count",
+            "cost_id": "event-shop-v2-plan-cost",
+            "warning_id": f"event-shop-v2-warning-{live_key}",
+            "count": str(metrics["count"]),
+            "cost": self._fmt(metrics["cost"]),
+            "warning": warning,
+        }
+        run_js(
+            """
+((update) => {
+  const apply = (id, value) => {
+    const node = document.getElementById(id);
+    if (!node || node.textContent === value) return;
+    node.textContent = value;
+    node.classList.remove("event-shop-value-updated");
+    requestAnimationFrame(() => {
+      node.classList.add("event-shop-value-updated");
+      window.setTimeout(
+        () => node.classList.remove("event-shop-value-updated"),
+        220,
+      );
+    });
+  };
+  apply(update.count_id, update.count);
+  apply(update.cost_id, update.cost);
+  apply(update.warning_id, update.warning);
+})(%s);
+"""
+            % json.dumps(payload, ensure_ascii=False)
+        )
+
     def _event_shop_priority_changed(
-        self, event_id: str, row_id: str, raw_value: Any
+        self,
+        event_id: str,
+        row_id: str,
+        live_key: str,
+        raw_value: Any,
     ) -> None:
         if not self._event_write_allowed():
             return
@@ -90,10 +181,14 @@ class EventShopV2Mixin(WebUIMixinBase):
             toast("Не удалось сохранить приоритет покупки", color="error")
             self._refresh_event_plan_page()
             return
-        self._refresh_event_plan_page()
+        self._patch_event_shop_priority_values(
+            event_id=event_id,
+            row_id=row_id,
+            live_key=live_key,
+        )
 
     def _bind_event_shop_priority(
-        self, pin_name: str, event_id: str, row_id: str
+        self, pin_name: str, event_id: str, row_id: str, live_key: str
     ) -> None:
         bound = getattr(self, "_event_shop_priority_pins", None)
         if bound is None:
@@ -103,7 +198,7 @@ class EventShopV2Mixin(WebUIMixinBase):
             return
 
         def on_change(value: Any) -> None:
-            self._event_shop_priority_changed(event_id, row_id, value)
+            self._event_shop_priority_changed(event_id, row_id, live_key, value)
 
         pin_on_change(name=pin_name, onchange=on_change)
         bound.add(pin_name)
@@ -220,25 +315,8 @@ class EventShopV2Mixin(WebUIMixinBase):
             for item in plan.get("shop_items", [])
             if isinstance(item, Mapping)
         ]
-
-        active_rows = [
-            item
-            for item in shop_items
-            if str(item.get("id") or "") in priorities
-            and str(item.get("id") or "") not in purchased
-        ]
-        planned_cost = 0
-        for item in active_rows:
-            remaining = item.get("remaining")
-            row_id = str(item.get("id") or "")
-            quantity = (
-                max(int(remaining), 0)
-                if isinstance(remaining, int)
-                else max(int(remembered_remaining[row_id]), 0)
-                if row_id in remembered_remaining
-                else max(int(item.get("stock", 0) or 0), 0)
-            )
-            planned_cost += max(int(item.get("price", 0) or 0), 0) * quantity
+        metrics = self._event_shop_priority_metrics(plan, priority_state)
+        planned_cost = metrics["cost"]
 
         progress = plan.get("progress", {})
         current_pt = (
@@ -266,8 +344,8 @@ class EventShopV2Mixin(WebUIMixinBase):
   </div>
   <div class="event-shop-v2-metrics">
     <span><b>{self._fmt(current_pt) if current_pt is not None else "—"}</b><small>Баланс</small></span>
-    <span><b>{len(active_rows)}</b><small>В плане</small></span>
-    <span><b>{self._fmt(planned_cost)}</b><small>Стоимость плана</small></span>
+    <span><b id="event-shop-v2-plan-count">{metrics["count"]}</b><small>В плане</small></span>
+    <span><b id="event-shop-v2-plan-cost">{self._fmt(planned_cost)}</b><small>Стоимость плана</small></span>
   </div>
 </section>
 <div class="event-shop-priority-help">
@@ -306,12 +384,7 @@ class EventShopV2Mixin(WebUIMixinBase):
                 )
                 asset_url = event_asset_url(item.get("asset"))
                 price = max(int(item.get("price", 0) or 0), 0)
-                warning = blocked.get(row_id, "")
-                warning_html = (
-                    f'<small class="event-shop-v2-warning">{escape(warning)}</small>'
-                    if warning and row_id in priorities
-                    else ""
-                )
+                warning = blocked.get(row_id, "") if row_id in priorities else ""
                 card_class = " event-shop-v2-card-bought" if is_purchased else ""
                 put_scope(
                     f"event_shop_card_{live_key}",
@@ -323,7 +396,7 @@ class EventShopV2Mixin(WebUIMixinBase):
   <img class="event-shop-v2-image" src="{escape(asset_url)}" alt="">
   <strong class="event-shop-v2-name">{escape(self._event_shop_display_name(item.get("name")))}</strong>
   <div class="event-shop-v2-price"><img src="{escape(currency_asset)}" alt=""><b>{self._fmt(price)}</b></div>
-  {warning_html}
+  <small id="event-shop-v2-warning-{live_key}" class="event-shop-v2-warning">{escape(str(warning or ""))}</small>
 </article>
 """
                         ),
@@ -341,7 +414,12 @@ class EventShopV2Mixin(WebUIMixinBase):
                         ).style("--event-shop-v2-priority--"),
                     ],
                 )
-                self._bind_event_shop_priority(pin_name, event_id, row_id)
+                self._bind_event_shop_priority(
+                    pin_name,
+                    event_id,
+                    row_id,
+                    live_key,
+                )
 
     def _render_event_shop_layout(self, *, task, group_map, config) -> None:
         with use_scope("groups"):
