@@ -70,6 +70,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         """Return the still-unfulfilled part of the current user quantity goal."""
         row_id = str(item.get("id") or "")
         stock = max(int(item.get("stock", 0) or 0), 0)
+        priorities = set(priority_state.get("priorities") or {})
         purchased = set(priority_state.get("purchased") or [])
         remembered_remaining = dict(priority_state.get("remaining") or {})
         target_baselines = dict(priority_state.get("target_baselines") or {})
@@ -83,12 +84,16 @@ class EventShopV2Mixin(WebUIMixinBase):
         else:
             available = stock
 
+        selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
+        if row_id not in priorities and row_id not in purchased:
+            return selected
+
         if row_id in target_baselines:
             baseline = min(max(int(target_baselines[row_id]), 0), stock)
             baseline = max(baseline, available)
         else:
             baseline = stock
-        selected = min(max(int(item.get("selected", 0) or 0), 0), baseline)
+        selected = min(selected, baseline)
         bought_for_goal = max(baseline - available, 0)
         return max(selected - bought_for_goal, 0)
 
