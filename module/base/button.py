@@ -5,7 +5,7 @@
 """
 
 # 此文件定义了 Alas 视觉交互系统的核心基类：Button（按钮）及相关网格。
-# 它是所有 UI 交互的基本单位，包含了坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
+# 它是所有 UI 交互的基本单位，包含坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
 import typing as t
 import os
 import traceback
@@ -13,6 +13,7 @@ import traceback
 from PIL import ImageDraw
 
 from module.base.decorator import cached_property
+from module.base.non_native_diagnostics import record_stage1_non_native_match
 from module.base.resource import Resource
 from module.base.utils import *
 from module.config.server import VALID_SERVER
@@ -168,7 +169,7 @@ class Button(Resource):
             self._match_init = True
 
     def ensure_binary_template(self):
-        """加载二值化资源图像。若需调用 self.match_binary，应先调用此方法。"""
+        """加载二值化资源图像。若需调用 self.match，应先调用此方法。"""
         if not self._match_binary_init:
             if self.is_gif:
                 self.image_binary = []
@@ -212,6 +213,7 @@ class Button(Resource):
         Returns:
             bool: 匹配成功返回 True。
         """
+        requested_similarity = float(similarity)
         similarity = lower_template_match_similarity(similarity)
         self.ensure_template()
 
@@ -222,7 +224,9 @@ class Button(Resource):
                 offset = np.array(offset)
         else:
             offset = np.array((-3, -offset, 3, offset))
-        image = crop(image, offset + self.area, copy=False)
+        source_image = image
+        search_area = offset + self.area
+        image = crop(image, search_area, copy=False)
 
         if self.is_gif:
             for template in self.image:
@@ -235,8 +239,23 @@ class Button(Resource):
         else:
             res = cv2.matchTemplate(self.image, image, cv2.TM_CCOEFF_NORMED)
             _, sim, _, point = cv2.minMaxLoc(res)
-            self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
-            return sim > similarity
+            match_offset = offset[:2] + np.array(point)
+            self._button_offset = area_offset(self._button, match_offset)
+            matched = sim > similarity
+            record_stage1_non_native_match(
+                button_name=self.name,
+                image=source_image,
+                requested_threshold=requested_similarity,
+                effective_threshold=similarity,
+                similarity=sim,
+                matched=matched,
+                search_area=search_area,
+                match_point=point,
+                match_offset=match_offset,
+                base_button=self._button,
+                resolved_button=self.button,
+            )
+            return matched
 
     def match_binary(self, image, offset=30, similarity=0.85):
         """通过二值化模板匹配检测按钮。部分按钮的位置可能不固定。
@@ -444,7 +463,8 @@ class ButtonGrid:
         origin = self.origin + area[:2]
         button_shape = np.subtract(area[2:], area[:2])
         return ButtonGrid(
-            origin=origin, delta=self.delta, button_shape=button_shape, grid_shape=self.grid_shape, name=name)
+            origin=origin, delta=self.delta, button_shape=button_shape, grid_shape=self.grid_shape, name=name
+        )
 
     def move(self, vector, name=None):
         """移动 ButtonGrid 位置。
@@ -460,7 +480,8 @@ class ButtonGrid:
             name = self._name
         origin = self.origin + vector
         return ButtonGrid(
-            origin=origin, delta=self.delta, button_shape=self.button_shape, grid_shape=self.grid_shape, name=name)
+            origin=origin, delta=self.delta, button_shape=self.button_shape, grid_shape=self.grid_shape, name=name
+        )
 
     def gen_mask(self):
         """生成遮罩图像，用于调试显示此 ButtonGrid 对象。
