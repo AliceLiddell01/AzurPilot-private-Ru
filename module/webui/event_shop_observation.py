@@ -156,7 +156,8 @@ def persist_event_shop_observation(
     observed_at: datetime | None = None,
     root=None,
 ) -> dict[str, Any]:
-    rows, findings = reconcile_event_shop(spec, runtime_items)
+    complete_runtime_items = getattr(runtime_items, "observation_items", runtime_items)
+    rows, findings = reconcile_event_shop(spec, complete_runtime_items)
     kwargs = {} if root is None else {"root": root}
     provenance = spec.get("provenance")
     revision = str(
