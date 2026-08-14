@@ -67,12 +67,12 @@ class EventShopV2Mixin(WebUIMixinBase):
         item: Mapping[str, Any],
         priority_state: Mapping[str, Any],
     ) -> int:
-        """Return the still-unfulfilled part of the user's quantity goal."""
+        """Return the still-unfulfilled part of the current user quantity goal."""
         row_id = str(item.get("id") or "")
         stock = max(int(item.get("stock", 0) or 0), 0)
-        selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
         purchased = set(priority_state.get("purchased") or [])
         remembered_remaining = dict(priority_state.get("remaining") or {})
+        target_baselines = dict(priority_state.get("target_baselines") or {})
 
         if row_id in purchased:
             available = 0
@@ -83,8 +83,14 @@ class EventShopV2Mixin(WebUIMixinBase):
         else:
             available = stock
 
-        already_bought = max(stock - available, 0)
-        return max(selected - already_bought, 0)
+        if row_id in target_baselines:
+            baseline = min(max(int(target_baselines[row_id]), 0), stock)
+            baseline = max(baseline, available)
+        else:
+            baseline = available
+        selected = min(max(int(item.get("selected", 0) or 0), 0), baseline)
+        bought_for_goal = max(baseline - available, 0)
+        return max(selected - bought_for_goal, 0)
 
     @classmethod
     def _event_shop_priority_metrics(
