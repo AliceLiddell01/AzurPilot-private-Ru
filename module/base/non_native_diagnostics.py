@@ -1,8 +1,8 @@
-"""Наблюдательная телеметрия Stage 1 для non-native 720p OpSi.
+"""Наблюдательная телеметрия Stage 1 для non-native 720p в OpSi.
 
-Модуль намеренно не меняет thresholds, match result, click target или control flow.
+Модуль намеренно не меняет пороги, результат сопоставления, цель клика или поток управления.
 Он активен только для двух исследуемых OpSi-кнопок при включённом
-TEMPLATE_MATCH_NON_NATIVE_720P и пишет артефакты в уже ignored-каталог log/.
+TEMPLATE_MATCH_NON_NATIVE_720P и пишет артефакты в уже игнорируемый каталог log/.
 """
 
 from __future__ import annotations
@@ -64,12 +64,12 @@ def _save_normalized_frame(image: np.ndarray, filename: str) -> str | None:
         success = bool(cv2.imwrite(str(path), image))
     except (cv2.error, OSError) as exc:
         logger.warning(
-            f'[Stage1 4K diagnostics] Не удалось сохранить {path}: {exc}'
+            f'[Этап 1 — диагностика 4K] Не удалось сохранить {path}: {exc}'
         )
         return None
     if not success:
         logger.warning(
-            f'[Stage1 4K diagnostics] OpenCV не сохранил кадр: {path}'
+            f'[Этап 1 — диагностика 4K] OpenCV не сохранил кадр: {path}'
         )
         return None
     return str(path)
@@ -89,7 +89,7 @@ def _append_event(payload: dict[str, Any]) -> None:
             stream.write('\n')
     except OSError as exc:
         logger.warning(
-            f'[Stage1 4K diagnostics] Не удалось записать {path}: {exc}'
+            f'[Этап 1 — диагностика 4K] Не удалось записать {path}: {exc}'
         )
 
 
@@ -109,7 +109,7 @@ def _record_stage1_non_native_match(
 ) -> None:
     """Записать фактический результат уже выполненного Button.match().
 
-    Функция не выполняет повторный template match и не изменяет Button.
+    Функция не выполняет повторное сопоставление шаблона и не изменяет Button.
     """
     global _transition_active
     global _first_globe_observation_saved
@@ -177,16 +177,16 @@ def _record_stage1_non_native_match(
     }
 
     logger.info(
-        '[Stage1 4K diagnostics] '
-        f'button={button_name} phase={phase} '
-        f'source={source_resolution[0]}x{source_resolution[1]} '
-        f'working={working_resolution[0]}x{working_resolution[1]} '
-        'non_native_720p=true '
-        f'requested={float(requested_threshold):.4f} '
-        f'effective={float(effective_threshold):.4f} '
-        f'actual={float(similarity):.6f} matched={bool(matched)} '
-        f'best={absolute_point} search={search_area} '
-        f'match_offset={match_offset} resolved_button={resolved_button}'
+        '[Этап 1 — диагностика 4K] '
+        f'кнопка={button_name} фаза={phase} '
+        f'исходное={source_resolution[0]}x{source_resolution[1]} '
+        f'рабочее={working_resolution[0]}x{working_resolution[1]} '
+        'не_нативное_720p=true '
+        f'запрошенный_порог={float(requested_threshold):.4f} '
+        f'эффективный_порог={float(effective_threshold):.4f} '
+        f'сходство={float(similarity):.6f} совпадение={bool(matched)} '
+        f'лучшая_точка={absolute_point} область_поиска={search_area} '
+        f'смещение={match_offset} итоговая_кнопка={resolved_button}'
     )
     _append_event(payload)
 
@@ -202,11 +202,11 @@ def _record_stage1_non_native_match(
 
 
 def record_stage1_non_native_match(**kwargs) -> None:
-    """Безопасный observational hook: ошибки телеметрии не меняют match result."""
+    """Безопасный наблюдательный hook: ошибки телеметрии не меняют результат сопоставления."""
     try:
         _record_stage1_non_native_match(**kwargs)
     except Exception as exc:
         logger.warning(
-            f'[Stage1 4K diagnostics] Ошибка наблюдателя: '
+            f'[Этап 1 — диагностика 4K] Ошибка наблюдателя: '
             f'{type(exc).__name__}: {exc}'
         )
