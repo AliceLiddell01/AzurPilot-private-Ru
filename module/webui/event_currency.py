@@ -1,4 +1,4 @@
-"""Bridge proven event-currency updates into EventShop scheduling."""
+"""Мост доказанных изменений валюты события в планировщик EventShop."""
 
 from __future__ import annotations
 
@@ -8,11 +8,8 @@ from typing import Any, Literal
 
 from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
-from module.webui.event_observation import (
-    EVENT_OBSERVATION_ROOT,
-    load_event_observation,
-    persist_current_pt_observation,
-)
+from module.webui.event_observation import EVENT_OBSERVATION_ROOT
+from module.webui.event_observation_update import persist_current_pt_transition
 from module.webui.event_shop_priority import (
     EVENT_SHOP_PRIORITY_ROOT,
     load_event_shop_priority,
@@ -40,11 +37,11 @@ def persist_event_currency_update(
     observation_root: Path | str = EVENT_OBSERVATION_ROOT,
     priority_root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> dict[str, Any] | None:
-    """Persist exact-event PT evidence and wake EventShop after a proven increase.
+    """Сохранить PT и разбудить EventShop только после доказанного роста.
 
-    The caller-owned config object is reused for scheduling so an unsaved resource
-    update and EventShop.NextRun are committed through one config state instead of
-    racing two independent AzurLaneConfig instances.
+    Точное предыдущее PT читается под той же блокировкой, под которой
+    принимается новое evidence. Поэтому конкурентный writer не может превратить
+    фактическое снижение в ложный сигнал роста.
     """
 
     instance = str(getattr(config, "config_name", "") or "")
@@ -65,17 +62,7 @@ def persist_event_currency_update(
         return None
 
     evidence_at = observed_at or datetime.now(timezone.utc)
-    candidate_timestamp = evidence_at.astimezone(timezone.utc).isoformat()
-    previous = load_event_observation(
-        instance,
-        event_id,
-        server,
-        source_revision,
-        root=observation_root,
-    )
-    previous_value = _optional_non_negative_int(previous.get("current_pt"))
-
-    observation = persist_current_pt_observation(
+    observation, previous_value, accepted = persist_current_pt_transition(
         instance=instance,
         event_id=event_id,
         server=server,
@@ -86,9 +73,7 @@ def persist_event_currency_update(
         root=observation_root,
     )
 
-    # A concurrent newer writer may have won the persistence race.  Only the
-    # exact candidate accepted by persistence is allowed to trigger scheduling.
-    if str(observation.get("current_pt_observed_at") or "") != candidate_timestamp:
+    if not accepted:
         return observation
     if str(observation.get("current_pt_source") or "") != source:
         return observation

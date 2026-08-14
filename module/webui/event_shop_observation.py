@@ -1,4 +1,4 @@
-"""Exact, deterministic reconciliation of EventShop scanner rows with EventSpec."""
+"""Точное детерминированное сопоставление scanner rows EventShop с EventSpec."""
 
 from __future__ import annotations
 
@@ -7,11 +7,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from module.webui.event_observation import (
-    empty_event_observation,
-    load_event_observation,
-    save_event_observation,
-)
+from module.webui.event_observation_update import update_event_observation
 
 
 def _runtime_filter(item: Any) -> str:
@@ -24,14 +20,15 @@ def _int_attr(item: Any, name: str) -> int | None:
     value = getattr(item, name, None)
     try:
         return int(value)
-    except TypeError, ValueError, OverflowError:
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
 def reconcile_event_shop(
     spec: Mapping[str, Any], runtime_items: Iterable[Any]
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """Match only a unique exact catalog key; ambiguity remains explicit."""
+    """Сопоставлять только уникальный exact catalog key; неоднозначность сохранять явно."""
+
     currency_by_token = {
         str(item.get("runtime_token") or "").lower(): int(item.get("id", 0) or 0)
         for item in spec.get("currencies", [])
@@ -128,6 +125,7 @@ def reconcile_event_shop(
                 }
             )
         rows.append(row)
+
     claimed: dict[int, list[int]] = defaultdict(list)
     for index, row in enumerate(rows):
         if row["status"] == "matched" and row["row_id"] is not None:
@@ -164,41 +162,39 @@ def persist_event_shop_observation(
         (provenance.get("revision") if isinstance(provenance, Mapping) else "")
         or ""
     )
-    observation = load_event_observation(
-        instance,
-        str(spec.get("id") or ""),
-        str(spec.get("server") or "EN"),
-        revision,
-        **kwargs,
-    )
-    if not observation.get("event_id"):
-        observation = empty_event_observation(
-            str(spec.get("id") or ""),
-            str(spec.get("server") or "EN"),
-            instance,
-            revision,
-        )
+    event_id = str(spec.get("id") or "")
+    server = str(spec.get("server") or "EN")
     timestamp = (
         (observed_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
     )
-    observation.update(
-        {
-            "observed_at": timestamp,
-            "source": "event_shop_scanner",
-            "shop_source": "event_shop_scanner",
-            "shop_observed_at": timestamp,
-            "shop_items": rows,
-            "findings": [
-                item
-                for item in observation.get("findings", [])
-                if item.get("path") != "shop_items"
-                and not str(item.get("path") or "").startswith("shop_items.")
-            ]
-            + findings,
-        }
+
+    def apply(observation: dict[str, Any]) -> bool:
+        observation.update(
+            {
+                "observed_at": timestamp,
+                "source": "event_shop_scanner",
+                "shop_source": "event_shop_scanner",
+                "shop_observed_at": timestamp,
+                "shop_items": rows,
+                "findings": [
+                    item
+                    for item in observation.get("findings", [])
+                    if item.get("path") != "shop_items"
+                    and not str(item.get("path") or "").startswith("shop_items.")
+                ]
+                + findings,
+            }
+        )
+        return True
+
+    return update_event_observation(
+        instance=instance,
+        event_id=event_id,
+        server=server,
+        source_revision=revision,
+        updater=apply,
+        **kwargs,
     )
-    save_event_observation(instance, observation, **kwargs)
-    return observation
 
 
 def invalidate_event_shop_observation(
@@ -210,16 +206,24 @@ def invalidate_event_shop_observation(
     root=None,
 ) -> None:
     kwargs = {} if root is None else {"root": root}
-    observation = load_event_observation(
-        instance, event_id, server, source_revision, **kwargs
+
+    def apply(observation: dict[str, Any]) -> bool:
+        observation["observed_at"] = ""
+        observation["shop_observed_at"] = ""
+        observation["findings"].append(
+            {
+                "code": "shop_observation_invalidated_after_purchase",
+                "message": "Покупка изменила магазин; требуется новое полное сканирование",
+                "path": "shop_items",
+            }
+        )
+        return True
+
+    update_event_observation(
+        instance=instance,
+        event_id=event_id,
+        server=server,
+        source_revision=source_revision,
+        updater=apply,
+        **kwargs,
     )
-    observation["observed_at"] = ""
-    observation["shop_observed_at"] = ""
-    observation["findings"].append(
-        {
-            "code": "shop_observation_invalidated_after_purchase",
-            "message": "Покупка изменила магазин; требуется новое полное сканирование",
-            "path": "shop_items",
-        }
-    )
-    save_event_observation(instance, observation, **kwargs)
