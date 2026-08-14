@@ -30,6 +30,7 @@ from module.webui.event_plan import (
     selected_shop_items_missing_filter,
     shop_plan_total,
 )
+from module.webui.event_shop_priority import update_event_shop_target_state
 from module.webui.event_source import (
     load_event_user_state,
     save_event_user_state,
@@ -134,6 +135,35 @@ class EventPlannerMixin(WebUIMixinBase):
             ),
         }
 
+    def _sync_event_shop_target_state(self, snapshot: Mapping[str, Any]) -> bool:
+        event_id = str(snapshot.get("event_id") or "")
+        row_id = str(snapshot.get("row_id") or "")
+        if not event_id or not row_id:
+            logger.warning(
+                "[WebUI — магазин события] Цель сохранена без полной event/shop identity; состояние автоматизации не синхронизировано"
+            )
+            self._refresh_event_plan_page()
+            return False
+        try:
+            update_event_shop_target_state(
+                self.alas_name,
+                event_id,
+                row_id,
+                int(snapshot.get("previous_selected", 0) or 0),
+                int(snapshot.get("selected", 0) or 0),
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                f"[WebUI — магазин события] Цель сохранена, но не удалось синхронизировать состояние автоматизации: {exc}"
+            )
+            toast(
+                "Цель сохранена, но состояние автоматизации магазина не синхронизировано",
+                color="warning",
+            )
+            self._refresh_event_plan_page()
+            return False
+        return True
+
     def _patch_event_shop_plan_values(
         self,
         identity: tuple[str, str, str, int, int],
@@ -228,17 +258,31 @@ class EventPlannerMixin(WebUIMixinBase):
             return
 
         live_snapshot: dict[str, int] = {}
+        target_snapshot: dict[str, Any] = {}
 
         def mutation(plan):
             index = self._find_shop_item(plan["shop_items"], identity)
             if index is None:
                 return _STALE_EVENT_PLAN
             item = plan["shop_items"][index]
+            current = int(item.get("selected", 0) or 0)
+            event = plan.get("event", {})
+            event_id = str(event.get("id") or "") if isinstance(event, Mapping) else ""
+            target_snapshot.update(
+                {
+                    "event_id": event_id,
+                    "row_id": str(item.get("id") or identity[0]),
+                    "previous_selected": current,
+                    "selected": selected,
+                }
+            )
             item["selected"] = selected
             live_snapshot.update(self._shop_live_snapshot(plan, item))
 
         if self._event_plan_mutate(mutation, "Количество в плане обновлено"):
             close_popup()
+            if not self._sync_event_shop_target_state(target_snapshot):
+                return
             self._patch_event_shop_plan_values(identity, live_snapshot)
 
     def _change_shop_quantity(
@@ -247,6 +291,7 @@ class EventPlannerMixin(WebUIMixinBase):
         operation: str,
     ) -> None:
         live_snapshot: dict[str, int] = {}
+        target_snapshot: dict[str, Any] = {}
 
         def mutation(plan):
             index = self._find_shop_item(plan["shop_items"], identity)
@@ -268,10 +313,22 @@ class EventPlannerMixin(WebUIMixinBase):
             selected = min(max(value, 0), stock)
             if selected == current:
                 return _UNCHANGED_EVENT_PLAN
+            event = plan.get("event", {})
+            event_id = str(event.get("id") or "") if isinstance(event, Mapping) else ""
+            target_snapshot.update(
+                {
+                    "event_id": event_id,
+                    "row_id": str(item.get("id") or identity[0]),
+                    "previous_selected": current,
+                    "selected": selected,
+                }
+            )
             item["selected"] = selected
             live_snapshot.update(self._shop_live_snapshot(plan, item))
 
         if self._event_plan_mutate(mutation, ""):
+            if not self._sync_event_shop_target_state(target_snapshot):
+                return
             self._patch_event_shop_plan_values(identity, live_snapshot)
 
     def _use_shop_total_as_target(self) -> None:
