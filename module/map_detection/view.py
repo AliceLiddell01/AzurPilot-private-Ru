@@ -44,7 +44,10 @@ class View(MapDetector):
     def show(self):
         for y in range(self.shape[1] + 1):
             text = ' '.join([self[(x, y)].str if (x, y) in self else '..' for x in range(self.shape[0] + 1)])
-            logger.info(text)
+            if self.mode == 'os':
+                logger.debug(text)
+            else:
+                logger.info(text)
 
     def _image_clear_ui(self, image):
         if self.mode == 'os':
