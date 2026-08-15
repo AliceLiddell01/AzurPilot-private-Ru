@@ -53,6 +53,17 @@ def test_regular_scroll_waits_for_content_only_after_real_drag(monkeypatch):
     assert waits == [main]
 
 
+def test_regular_scroll_fails_closed_when_content_does_not_settle(monkeypatch):
+    scroll = make_scroll()
+    main = SimpleNamespace()
+
+    monkeypatch.setattr(Scroll, "set", lambda self, position, main, **kwargs: 1)
+    monkeypatch.setattr(scroll, "wait_content_stable", lambda target: False)
+
+    with pytest.raises(GameStuckError, match="OCR заблокирован"):
+        scroll.set(0.5, main=main)
+
+
 def test_precise_scroll_requires_visual_settle_even_without_new_drag(monkeypatch):
     scroll = make_scroll()
     main = SimpleNamespace()
