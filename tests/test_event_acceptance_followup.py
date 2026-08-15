@@ -81,8 +81,30 @@ def test_legacy_current_selector_routes_to_generated_package_without_config_rewr
     module = importlib.import_module(f"campaign.{selector}.d3")
 
     assert Path(module.__file__).resolve().parent == expected
+    assert Path(module.__file__).name == "d3.py"
     assert hasattr(module, "MAP")
     assert hasattr(module, "Campaign")
+
+
+def test_legacy_t_ht_stage_names_cannot_escape_to_old_event_modules():
+    args_data = json.loads(ARGS_PATH.read_text(encoding="utf-8"))
+    targets = current_event_alias_targets(
+        now=datetime(2026, 8, 15, 12, 0, 0),
+        args_data=args_data,
+    )
+    expected = (ROOT / "campaign" / "generated_event" / "en_51101").resolve()
+    selectors = [selector for selector, target in targets.items() if target == expected]
+
+    assert selectors
+    selector = selectors[0]
+    install_current_event_aliases({selector: expected})
+    t1 = importlib.import_module(f"campaign.{selector}.t1")
+    ht6 = importlib.import_module(f"campaign.{selector}.ht6")
+
+    assert Path(t1.__file__).resolve() == expected / "a1.py"
+    assert Path(ht6.__file__).resolve() == expected / "d3.py"
+    assert str(t1.MAP.name).upper() == "A1"
+    assert str(ht6.MAP.name).upper() == "D3"
 
 
 def test_campaign_package_validation_rejects_mixed_generated_packages():

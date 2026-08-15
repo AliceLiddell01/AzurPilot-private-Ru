@@ -9,6 +9,7 @@ ambiguity; historical non-current event packages remain untouched.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 from datetime import datetime
@@ -82,6 +83,51 @@ def current_event_alias_targets(
     }
 
 
+def _stage_compatibility_aliases(target: Path) -> dict[str, str]:
+    """Bridge the two standard AL event chapter naming schemes.
+
+    Legacy current-event selectors can make ``CampaignRun.handle_stage_name``
+    translate A/B/C/D into T/HT before the dynamic import.  Generated maps keep
+    their source chapter names.  Expose both conventional spellings inside the
+    runtime alias so stale selector-specific naming policy cannot select an old
+    physical map module.
+    """
+
+    available = {path.stem for path in target.glob("*.py") if path.is_file()}
+    normal = ("a1", "a2", "a3", "b1", "b2", "b3")
+    hard = ("c1", "c2", "c3", "d1", "d2", "d3")
+    aliases: dict[str, str] = {}
+    for index, canonical in enumerate(normal, start=1):
+        transformed = f"t{index}"
+        if canonical in available and transformed not in available:
+            aliases[transformed] = canonical
+        elif transformed in available and canonical not in available:
+            aliases[canonical] = transformed
+    for index, canonical in enumerate(hard, start=1):
+        transformed = f"ht{index}"
+        if canonical in available and transformed not in available:
+            aliases[transformed] = canonical
+        elif transformed in available and canonical not in available:
+            aliases[canonical] = transformed
+    return aliases
+
+
+def _install_stage_alias(package_name: str, alias: str, source: Path) -> None:
+    fullname = f"{package_name}.{alias}"
+    if fullname in sys.modules:
+        return
+    spec = importlib.util.spec_from_file_location(fullname, source)
+    if spec is None or spec.loader is None:
+        return
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[fullname] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(fullname, None)
+        raise
+
+
 def install_current_event_aliases(targets: dict[str, Path] | None = None) -> None:
     """Install synthetic package aliases without replacing historical files on disk."""
 
@@ -91,16 +137,24 @@ def install_current_event_aliases(targets: dict[str, Path] | None = None) -> Non
         return
     for selector, target in resolved.items():
         fullname = f"{__name__}.{selector}"
-        if fullname in sys.modules:
-            continue
-        package = ModuleType(fullname)
-        package.__package__ = fullname
-        package.__file__ = str(target / "__init__.py")
-        package.__path__ = [str(target)]
-        spec = ModuleSpec(fullname, loader=None, is_package=True)
-        spec.submodule_search_locations = [str(target)]
-        package.__spec__ = spec
-        sys.modules[fullname] = package
+        if fullname not in sys.modules:
+            package = ModuleType(fullname)
+            package.__package__ = fullname
+            package.__file__ = str(target / "__init__.py")
+            package.__path__ = [str(target)]
+            spec = ModuleSpec(fullname, loader=None, is_package=True)
+            spec.submodule_search_locations = [str(target)]
+            package.__spec__ = spec
+            sys.modules[fullname] = package
+
+        for alias, canonical in _stage_compatibility_aliases(target).items():
+            source = target / f"{canonical}.py"
+            try:
+                _install_stage_alias(fullname, alias, source)
+            except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+                # The canonical module remains importable through package.__path__.
+                # A compatibility alias is optional and must fail closed.
+                sys.modules.pop(f"{fullname}.{alias}", None)
 
 
 install_current_event_aliases()
