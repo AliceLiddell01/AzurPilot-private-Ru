@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,23 +29,27 @@ from module.event_datamine.supplemental import (
     validate_supplemental,
 )
 from module.webui.app import AlasGUI
-from module.webui.app_event_acceptance import EventAcceptanceMixin
+from module.webui.app_event_general_presentation import EventGeneralPresentationMixin
 from module.webui.app_event_general_v2 import EventGeneralV2Mixin
+from module.webui.app_event_layout import EventLayoutMixin
+import module.webui.app_event_layout as event_layout
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ARTIFACT = BUILTIN_ARTIFACT_ROOT / "production" / "en-51101.json"
 ARGS_PATH = ROOT / "module" / "config" / "argument" / "args.json"
-ACCEPTANCE_CSS = (
-    ROOT / "assets" / "gui" / "css" / "event-general-v2-acceptance-alas.css"
-)
+EVENT_GENERAL_CSS = ROOT / "assets" / "gui" / "css" / "event-general-v2-alas.css"
 PINNED_NOW = datetime(2026, 8, 15, 12, 0, 0)
 
 
-class _Presenter(EventAcceptanceMixin):
+class _Presenter(EventGeneralPresentationMixin):
     @staticmethod
     def _fmt(value):
         return f"{int(value):,}".replace(",", " ")
+
+
+class _MapPresenter(EventLayoutMixin):
+    pass
 
 
 @pytest.mark.parametrize("value", (True, False, 1.0, 1.5, -2.25))
@@ -169,16 +174,26 @@ def test_generated_campaign_ui_adapter_uses_map_name_without_replacing_class():
     assert calls == [("d3", "hard", False)]
 
 
-def test_acceptance_mixin_precedes_legacy_event_general_renderer():
+def test_canonical_general_presentation_precedes_v2_dispatch():
     mro = AlasGUI.__mro__
-    assert mro.index(EventAcceptanceMixin) < mro.index(EventGeneralV2Mixin)
-    assert AlasGUI._render_event_sources_v2 is EventAcceptanceMixin._render_event_sources_v2
-    assert AlasGUI._render_event_stages_v2 is EventAcceptanceMixin._render_event_stages_v2
-    assert AlasGUI._render_event_general_v2 is EventAcceptanceMixin._render_event_general_v2
+    assert mro.index(EventGeneralPresentationMixin) < mro.index(EventGeneralV2Mixin)
+    assert mro.index(EventGeneralV2Mixin) < mro.index(EventLayoutMixin)
+    assert (
+        AlasGUI._render_event_sources_v2
+        is EventGeneralPresentationMixin._render_event_sources_v2
+    )
+    assert (
+        AlasGUI._render_event_stages_v2
+        is EventGeneralPresentationMixin._render_event_stages_v2
+    )
+    assert (
+        AlasGUI._render_event_general_v2
+        is EventGeneralPresentationMixin._render_event_general_v2
+    )
 
 
 def test_event_map_name_is_session_local_and_legacy_selector_is_hidden():
-    presenter = _Presenter()
+    presenter = _MapPresenter()
     presenter.ALAS_ARGS = {
         "Event": {
             "Campaign": {
@@ -206,6 +221,55 @@ def test_event_map_name_is_session_local_and_legacy_selector_is_hidden():
     assert task_args["Campaign"]["Event"]["display"] == "hide"
     assert task_args["Campaign"]["Event"]["value"] == "event_legacy"
     assert config["Event"]["Campaign"]["Event"] == "event_legacy"
+
+
+def test_advanced_groups_render_directly_inside_collapse_without_dom_reparent(monkeypatch):
+    presenter = _MapPresenter()
+    scopes: list[str] = []
+    rendered: list[tuple[str, str]] = []
+
+    class _Output:
+        def style(self, value):
+            return self
+
+    @contextmanager
+    def fake_scope(name, clear=False):
+        scopes.append(name)
+        try:
+            yield
+        finally:
+            scopes.pop()
+
+    monkeypatch.setattr(event_layout, "use_scope", fake_scope)
+    monkeypatch.setattr(event_layout, "put_html", lambda value: value)
+    monkeypatch.setattr(event_layout, "put_scope", lambda name: name)
+    monkeypatch.setattr(event_layout, "put_collapse", lambda *args, **kwargs: _Output())
+    monkeypatch.setattr(
+        event_layout,
+        "run_js",
+        lambda *_args, **_kwargs: pytest.fail("DOM reparent больше не допускается"),
+    )
+    presenter._render_named_group = (
+        lambda task, name, group_map, config, navigator=True: rendered.append(
+            (name, scopes[-1])
+        )
+        or 1
+    )
+
+    presenter._render_advanced(
+        task="Event",
+        title="Расширенные настройки карты",
+        description="Редкие параметры",
+        names=("Submarine", "HpControl"),
+        group_map={"Submarine": object(), "HpControl": object()},
+        config={},
+    )
+
+    assert len(rendered) == 2
+    assert rendered[0][0] == "Submarine"
+    assert rendered[1][0] == "HpControl"
+    assert rendered[0][1].startswith("event_advanced_event_")
+    assert rendered[1][1] == rendered[0][1]
 
 
 def test_pt_sources_for_same_map_are_presented_as_one_card():
@@ -329,14 +393,14 @@ def test_identical_technical_extra_variants_collapse_only_in_user_facing_project
 
 
 def test_event_general_scope_layout_contract():
-    top, full_width = EventAcceptanceMixin._event_general_scope_layout()
+    top, main = EventGeneralPresentationMixin._event_general_scope_layout()
 
     assert top == ("group_EventMainColumn", "group_EventSideColumn")
-    assert full_width == ("group_EventSources", "group_EventStages")
+    assert main == ("group_EventSources", "group_EventStages")
 
 
-def test_special_stage_css_caps_sparse_card_width_and_flattens_main_column():
-    css = ACCEPTANCE_CSS.read_text(encoding="utf-8")
+def test_canonical_css_caps_sparse_cards_and_has_no_main_column_surface():
+    css = EVENT_GENERAL_CSS.read_text(encoding="utf-8")
 
     assert ".event-map-group-special .event-source-grid-v2" in css
     assert "minmax(230px, 320px)" in css
@@ -344,3 +408,5 @@ def test_special_stage_css_caps_sparse_card_width_and_flattens_main_column():
     assert "#pywebio-scope-group_EventMainColumn" in css
     assert "background: transparent !important" in css
     assert ".event-map-current-event" in css
+    assert "event-general-v2-polish" not in css
+    assert "event-general-v2-acceptance" not in css
