@@ -86,10 +86,8 @@ class EventShopScroll(Scroll):
             return None
         return dx, dy, response
 
-    @classmethod
-    def _content_frames_stable(cls, previous, current):
-        """Проверить отсутствие глобального движения сетки карточек."""
-        result = cls._content_shift(previous, current)
+    @staticmethod
+    def _content_shift_stable(result):
         if result is None:
             return False
         dx, dy, response = result
@@ -98,6 +96,11 @@ class EventShopScroll(Scroll):
             and abs(dx) <= EVENT_SHOP_SETTLE_MAX_SHIFT
             and abs(dy) <= EVENT_SHOP_SETTLE_MAX_SHIFT
         )
+
+    @classmethod
+    def _content_frames_stable(cls, previous, current):
+        """Проверить отсутствие глобального движения сетки карточек."""
+        return cls._content_shift_stable(cls._content_shift(previous, current))
 
     def wait_content_stable(self, main):
         """Дождаться геометрической стабилизации карточек после scrollbar move.
@@ -118,7 +121,7 @@ class EventShopScroll(Scroll):
             current = main.image_crop(EVENT_SHOP_SETTLE_AREA, copy=True)
             current_scroll = self.cal_position(main)
             shift = self._content_shift(previous, current)
-            content_stable = self._content_frames_stable(previous, current)
+            content_stable = self._content_shift_stable(shift)
             scroll_stable = (
                 abs(current_scroll - previous_scroll)
                 <= EVENT_SHOP_SETTLE_MAX_SCROLL_DELTA
