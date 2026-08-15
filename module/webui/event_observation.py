@@ -1,4 +1,4 @@
-"""Typed fail-closed runtime evidence for the Event product UI."""
+"""Типизированные fail-closed runtime-наблюдения для пользовательского интерфейса ивента."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def _optional_non_negative_int(value: Any) -> int | None:
         return None
     try:
         result = int(value)
-    except TypeError, ValueError, OverflowError:
+    except (TypeError, ValueError, OverflowError):
         return None
     return result if result >= 0 else None
 
@@ -424,7 +424,7 @@ def persist_current_pt_observation(
     source: Literal["dashboard_ocr", "event_shop_ocr"] = "event_shop_ocr",
     root: Path | str = EVENT_OBSERVATION_ROOT,
 ) -> dict[str, Any]:
-    """Persist fresh OCR evidence under the exact current-event identity."""
+    """Сохранить свежее OCR-наблюдение для точной идентичности текущего события."""
 
     timestamp = (
         (observed_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
