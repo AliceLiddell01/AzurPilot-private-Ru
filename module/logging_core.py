@@ -7,10 +7,10 @@ import logging
 import threading
 import time
 from collections import OrderedDict, deque
+from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Callable, Hashable
 
 
 @dataclass(frozen=True)
@@ -64,6 +64,16 @@ class RepeatedEventSuppressor:
             summary_message=state.message,
         )
 
+    @staticmethod
+    def _payload_equal(left: object, right: object) -> bool:
+        """Безопасно сравнить payload, не полагаясь на скалярный результат ``==``."""
+        if left is right:
+            return True
+        try:
+            return bool(left == right)
+        except Exception:
+            return False
+
     def observe(
         self,
         key: Hashable,
@@ -98,7 +108,7 @@ class RepeatedEventSuppressor:
                 return SuppressionDecision(emit=True)
 
             severity_escalated = level > state.level
-            payload_changed = payload != state.payload
+            payload_changed = not self._payload_equal(payload, state.payload)
             window_elapsed = now - state.last_emit_at >= window
             never_suppress = level >= logging.ERROR
 
@@ -174,15 +184,17 @@ class DiagnosticContextHandler(logging.Handler):
     def _clone_record(self, record: logging.LogRecord) -> logging.LogRecord:
         # Не копируем __dict__ исходного LogRecord: произвольный ``extra`` может
         # удерживать секреты, изображения, NumPy-массивы и другие тяжёлые объекты.
+        # Полный pathname также не нужен текущему formatter: оставляем только имя
+        # файла, а дорогостоящую sanitization выполняем один раз — для сообщения.
         cloned = logging.LogRecord(
             name=record.name,
             level=record.levelno,
-            pathname=self._sanitizer(record.pathname),
+            pathname=Path(record.pathname).name,
             lineno=record.lineno,
             msg=self._sanitizer(record.getMessage()),
             args=(),
             exc_info=None,
-            func=self._sanitizer(record.funcName),
+            func=record.funcName,
             sinfo=None,
         )
         cloned.created = record.created
@@ -219,18 +231,28 @@ class DiagnosticContextHandler(logging.Handler):
             self._failure_target = target
 
     def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._emit(record)
+        except Exception:
+            # Ошибка самого диагностического контура не должна прерывать игровой код.
+            self.handleError(record)
+            if record.levelno >= logging.ERROR:
+                self._buffer.clear()
+
+    def _emit(self, record: logging.LogRecord) -> None:
         if record.levelno < logging.INFO:
             self._buffer.append(self._clone_record(record))
             return
         if record.levelno < logging.ERROR:
             return
 
-        self._last_failure = tuple(self._buffer)
-        if self._last_failure:
+        buffered = tuple(self._buffer)
+        if buffered:
+            self._last_failure = buffered
             header = logging.LogRecord(
                 name=record.name,
                 level=logging.INFO,
-                pathname=self._sanitizer(record.pathname),
+                pathname=Path(record.pathname).name,
                 lineno=record.lineno,
                 msg=(
                     "[Диагностика] Контекст перед %s: %s"
@@ -238,7 +260,7 @@ class DiagnosticContextHandler(logging.Handler):
                 ),
                 args=(),
                 exc_info=None,
-                func=self._sanitizer(record.funcName),
+                func=record.funcName,
             )
             header.created = record.created
             header.msecs = record.msecs
@@ -259,7 +281,7 @@ class DiagnosticContextHandler(logging.Handler):
             for target in targets:
                 try:
                     target.handle(copy.copy(header))
-                    for buffered_record in self._last_failure:
+                    for buffered_record in buffered:
                         target.handle(copy.copy(buffered_record))
                     target.flush()
                 except Exception:
