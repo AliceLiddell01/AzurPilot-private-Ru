@@ -75,6 +75,7 @@ def test_event_shop_v2_flattens_layout_but_keeps_component_surfaces():
 def test_event_shop_task_fields_use_vertical_layout_instead_of_narrow_columns():
     css = CSS.read_text(encoding="utf-8")
     marker = '#pywebio-scope-event_shop_task_fields > [id^="pywebio-scope-arg_container_"] {'
+    assert marker in css
     block = css.split(marker, 1)[1].split("}", 1)[0]
 
     assert "grid-template-columns: 1fr" in block
