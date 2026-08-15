@@ -275,7 +275,7 @@ class Radar:
             **kwargs: Attributes of Grid.
 
         Returns:
-            SelectedGrids: 
+            SelectedGrids:
         """
         result = []
         for grid in self:
@@ -299,7 +299,7 @@ class Radar:
                 Or None if port not found.
         """
         radius = (15, 82)
-        image = crop(self.image, area_offset((-radius[1], -radius[1], radius[1], radius[1]), self.center), copy=False)
+        image = crop(image, area_offset((-radius[1], -radius[1], radius[1], radius[1]), self.center), copy=False)
         # image.show()
         points = np.where(color_similarity_2d(image, color=(255, 255, 255)) > 250)
         points = np.array(points).T[:, ::-1] - (radius[1], radius[1])
@@ -340,9 +340,7 @@ class Radar:
             point (np.ndarray): Coordinate of the center of port icon, relative to radar center.
 
         Returns:
-            np.ndarray: Grid location of port on radar,
-                or a grid location that can approach port,
-                or None if port not found.
+            np.ndarray: Grid location of port on radar.
         """
         sight = (-4, -2, 3, 2)
         grids = [(x, y) for x in range(sight[0], sight[2] + 1) for y in [sight[1], sight[3]]] \
