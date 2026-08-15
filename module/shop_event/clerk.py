@@ -302,7 +302,7 @@ class EventShopClerk(EventShopUI):
 
     def event_shop_buy_item(self, item_to_buy, amount=None):
         scroll_pos = item_to_buy.scroll_pos
-        EVENT_SHOP_SCROLL.set(scroll_pos, main=self)
+        EVENT_SHOP_SCROLL.set_precise(scroll_pos, main=self)
         items = self.event_shop_get_items()
         items = [
             item
