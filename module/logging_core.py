@@ -189,7 +189,7 @@ class DiagnosticContextHandler(logging.Handler):
         cloned = logging.LogRecord(
             name=record.name,
             level=record.levelno,
-            pathname=Path(record.pathname).name,
+            pathname=record.filename,
             lineno=record.lineno,
             msg=self._sanitizer(record.getMessage()),
             args=(),
@@ -252,7 +252,7 @@ class DiagnosticContextHandler(logging.Handler):
             header = logging.LogRecord(
                 name=record.name,
                 level=logging.INFO,
-                pathname=Path(record.pathname).name,
+                pathname=record.filename,
                 lineno=record.lineno,
                 msg=(
                     "[Диагностика] Контекст перед %s: %s"
