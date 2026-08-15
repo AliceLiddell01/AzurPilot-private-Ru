@@ -94,6 +94,8 @@ def test_generated_campaign_ui_policy_enables_modern_part_tabs_without_replacing
     assert module.Campaign is original
     assert module.Config.MAP_CHAPTER_SWITCH_20241219 is True
     assert module.Config.MAP_CHAPTER_SWITCH_20260326 is False
+    assert module.Config.STAGE_ENTRANCE == ["half", "20240725"]
+    assert module.Config.MAP_HAS_MODE_SWITCH is True
     assert module.Campaign().ensure_campaign_ui("t1")[0] == "a1"
 
 
