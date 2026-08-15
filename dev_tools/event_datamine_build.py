@@ -1,4 +1,4 @@
-"""Build current EventSpec/registry from an exact EN datamine snapshot."""
+"""Сборка current EventSpec/registry из точного snapshot datamine выбранного сервера."""
 
 from __future__ import annotations
 
@@ -180,7 +180,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--revision", required=True)
     parser.add_argument("--repository", default="AzurLaneTools/AzurLaneLuaScripts")
     parser.add_argument("--current", action="store_true", required=True)
-    parser.add_argument("--now", help="Server-local ISO datetime для воспроизводимой selection")
+    parser.add_argument(
+        "--now",
+        required=True,
+        help="Server-local ISO datetime для воспроизводимой selection",
+    )
     parser.add_argument("--output-root", type=Path, default=BUILTIN_ARTIFACT_ROOT)
     parser.add_argument(
         "--asset-root",
@@ -194,7 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    now = datetime.fromisoformat(args.now) if args.now else datetime.now()
+    now = datetime.fromisoformat(args.now)
     result = build_current_event(
         source_root=args.source_root,
         server=args.server,
