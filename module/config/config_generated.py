@@ -397,7 +397,7 @@ class GeneratedConfig:
 
     # 配置组 `GuildOperation`
     GuildOperation_Enable = True
-    GuildOperation_SelectNewMission = False
+    GuildOperation_SelectNewOperation = False
     GuildOperation_NewOperationMaxDate = 15
     GuildOperation_JoinThreshold = 1
     GuildOperation_AttackBoss = True
@@ -451,9 +451,9 @@ class GeneratedConfig:
     MedalShop2_PLATE_T3 = 'general'  # general, gun, torpedo, antiair, plane
 
     # 配置组 `MeritShop`
-    MeritShop_Enable = True
-    MeritShop_Refresh = False
-    MeritShop_Filter = 'Cube'
+    MeritShop2_Enable = True
+    MeritShop2_Refresh = False
+    MeritShop2_Filter = 'Cube'
 
     # 配置组 `CoreShop`
     CoreShop_Enable = True
