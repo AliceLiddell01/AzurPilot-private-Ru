@@ -255,11 +255,9 @@ class EventShopClerk(EventShopUI):
                 matches = [
                     item for item in items if self._purchase_item_matches(item, item_to_buy)
                 ]
-                actual_position = EVENT_SHOP_SCROLL.cal_position(main=self)
                 attempts.append(
                     {
                         "requested": round(float(position), 6),
-                        "actual": round(float(actual_position), 6),
                         "observed": len(items),
                         "matched": len(matches),
                     }
