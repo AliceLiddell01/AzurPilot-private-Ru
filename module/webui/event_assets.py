@@ -1,4 +1,4 @@
-"""Local-only resolver keyed by generated canonical AssetReference paths."""
+"""Локальный resolver по сгенерированным canonical-путям AssetReference."""
 
 from __future__ import annotations
 
