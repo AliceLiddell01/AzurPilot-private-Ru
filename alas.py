@@ -896,7 +896,7 @@ class AzurLaneAutoScript:
 
     def island_juu_eatery(self):
         from module.island.island_juu_eatery import IslandJuuEatery
-        IslandJuuEatery(config=self.config, device=self.device, task="IslandJuuEatery").run()
+        IslandJuuEatery(config=self.config, device=self.device).run()
 
     def island_daily_gather(self):
         from module.island.island_daily_gather import IslandDailyGather
