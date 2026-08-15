@@ -34,6 +34,7 @@ from module.ui.ui import UI
 
 class EventShopScroll(Scroll):
     terminal_drag_threshold = 0.02
+    reidentify_drag_threshold = 0.02
     _set_lock = RLock()
 
     def _drag_threshold_for_target(self, position):
@@ -50,6 +51,31 @@ class EventShopScroll(Scroll):
                     position,
                     main=main,
                     random_range=random_range,
+                    distance_check=distance_check,
+                    skip_first_screenshot=skip_first_screenshot,
+                )
+            finally:
+                self.drag_threshold = default_drag_threshold
+
+    def set_precise(self, position, main, distance_check=True, skip_first_screenshot=True):
+        """Вернуться к сохранённой позиции товара без случайного смещения.
+
+        Полный scan может использовать грубый порог прокрутки, но повторная
+        идентификация конкретного товара перед покупкой зависит от той же
+        геометрии карточек, на которой был получен исходный OCR-снимок. Поэтому
+        здесь запрещено обычное random_range и используется строгий порог.
+        """
+        with self._set_lock:
+            default_drag_threshold = self.drag_threshold
+            self.drag_threshold = min(
+                self.reidentify_drag_threshold,
+                self._drag_threshold_for_target(position),
+            )
+            try:
+                return super().set(
+                    position,
+                    main=main,
+                    random_range=(0.0, 0.0),
                     distance_check=distance_check,
                     skip_first_screenshot=skip_first_screenshot,
                 )
