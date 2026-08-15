@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import cv2
 import numpy as np
 import pytest
 
@@ -16,18 +17,42 @@ def make_scroll():
     )
 
 
-def test_content_stability_rejects_motion_but_tolerates_tiny_local_animation():
-    previous = np.zeros((100, 100, 3), dtype=np.uint8)
+def make_structured_frame(seed=42):
+    rng = np.random.default_rng(seed)
+    image = rng.integers(0, 256, (160, 240, 3), dtype=np.uint8)
+    return cv2.GaussianBlur(image, (5, 5), 0)
 
-    moving = previous.copy()
-    moving[:, :30, :] = 64
+
+def test_content_stability_rejects_global_motion_but_tolerates_local_animation():
+    previous = make_structured_frame()
+
+    moving = np.roll(previous, 6, axis=0)
     assert EventShopScroll._content_frames_stable(previous, moving) is False
 
-    tiny_animation = previous.copy()
-    tiny_animation[:4, :4, :] = 32
-    assert EventShopScroll._content_frames_stable(previous, tiny_animation) is True
+    local_animation = previous.copy()
+    rng = np.random.default_rng(7)
+    local_animation[20:60, 20:70] = rng.integers(
+        0,
+        256,
+        (40, 50, 3),
+        dtype=np.uint8,
+    )
+    assert EventShopScroll._content_frames_stable(previous, local_animation) is True
 
     assert EventShopScroll._content_frames_stable(previous, previous.copy()) is True
+
+
+def test_content_shift_reports_vertical_geometry_motion():
+    previous = make_structured_frame()
+    moving = np.roll(previous, 5, axis=0)
+
+    shift = EventShopScroll._content_shift(previous, moving)
+
+    assert shift is not None
+    dx, dy, response = shift
+    assert abs(dx) < 1.0
+    assert dy == pytest.approx(5.0, abs=0.5)
+    assert response > 0.1
 
 
 def test_regular_scroll_waits_for_content_only_after_real_drag(monkeypatch):
