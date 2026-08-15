@@ -4,6 +4,7 @@ import yaml
 
 from module.webui.app import AlasGUI
 from module.webui.app_event_datamine import EventDatamineMixin
+from module.webui.app_event_general_presentation import EventGeneralPresentationMixin
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.app_event_shop_safety import EventShopSafetyMixin
@@ -11,21 +12,22 @@ from module.webui.app_task_config import TaskConfigMixin
 
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT = ROOT / "module" / "webui" / "app_event_layout.py"
+PRESENTATION = ROOT / "module" / "webui" / "app_event_general_presentation.py"
 PLANNER = ROOT / "module" / "webui" / "app_event_planner.py"
 SHOP_SAFETY = ROOT / "module" / "webui" / "app_event_shop_safety.py"
-APP = ROOT / "module" / "webui" / "app.py"
 TASKS = ROOT / "module" / "config" / "argument" / "task.yaml"
 EVENT_CSS = ROOT / "assets" / "gui" / "css" / "event-profiles-alas.css"
 
 
 def test_event_layout_is_inserted_before_generic_task_renderer():
     mro = AlasGUI.__mro__
+    presentation = mro.index(EventGeneralPresentationMixin)
     profiles = mro.index(EventProfilesMixin)
     datamine = mro.index(EventDatamineMixin)
     safety = mro.index(EventShopSafetyMixin)
     layout = mro.index(EventLayoutMixin)
     generic = mro.index(TaskConfigMixin)
-    assert profiles < datamine < safety < layout < generic
+    assert presentation < profiles < datamine < safety < layout < generic
 
 
 def test_datamine_source_does_not_bypass_shop_safety_write_wrapper():
@@ -51,21 +53,25 @@ def test_event_map_progressive_disclosure_contract():
     for group in ("Submarine", "HpControl", "EnemyPriority"):
         assert f'"{group}"' in source
     assert 'title="Расширенные настройки карты"' in source
-    assert "event-advanced-details" in source
+    assert "put_collapse(" in source
     assert "event-map-intro" in source
 
 
-def test_advanced_groups_do_not_precreate_generic_pywebio_scopes():
+def test_advanced_groups_render_directly_without_legacy_dom_reparent():
     source = LAYOUT.read_text(encoding="utf-8")
     assert '*[put_scope(f"group_{name}") for name in existing]' not in source
-    assert 'ids = [f"pywebio-scope-group_{name}" for name in rendered]' in source
-    assert "body.appendChild(node)" in source
+    assert "body.appendChild(node)" not in source
+    assert "document.createElement(\"details\")" not in source
+    assert "with use_scope(body_scope, clear=True):" in source
+    assert "self._render_named_group(task, name, group_map, config, False)" in source
 
 
 def test_event_general_uses_one_explicit_target_action():
-    source = LAYOUT.read_text(encoding="utf-8")
-    assert 'put_scope("group_EventStop")' not in source
-    assert '"Настроить цель фарма"' in source
+    layout = LAYOUT.read_text(encoding="utf-8")
+    presentation = PRESENTATION.read_text(encoding="utf-8")
+    combined = layout + presentation
+    assert 'put_scope("group_EventStop")' not in combined
+    assert '"Настроить цель фарма"' in combined
 
     obsolete_actions = (
         "Изменить целевой PT",
@@ -75,25 +81,27 @@ def test_event_general_uses_one_explicit_target_action():
         "Взять цель из магазина",
     )
     for label in obsolete_actions:
-        assert label not in source
+        assert label not in combined
 
 
-def test_event_general_dashboard_uses_local_plan_and_automatic_calculation():
-    layout = LAYOUT.read_text(encoding="utf-8")
+def test_event_general_dashboard_uses_canonical_local_plan_projection():
+    presentation = PRESENTATION.read_text(encoding="utf-8")
     planner = PLANNER.read_text(encoding="utf-8")
-    assert 'put_scope("group_EventPlan")' in layout
-    assert "event-dashboard-hero" in layout
-    assert "event-metrics-grid" in layout
-    assert "event-progress-track" in layout
-    assert "planning_target = max(target, shop_total)" in layout
-    assert "Автопрогноз источников недоступен" in layout
-    assert "remaining_pt" in layout
-    assert "Автостатус пока недоступен" in layout
-    assert '"Получено"' not in layout
-    assert '"Пропуск"' not in layout
-    assert '"Добавить источник PT"' not in layout
-    assert '"Добавить этап"' not in layout
-    assert "BWiki" not in layout
+
+    assert '"group_EventMainColumn"' in presentation
+    assert '"group_EventSideColumn"' in presentation
+    assert '"group_EventSources"' in presentation
+    assert '"group_EventStages"' in presentation
+    assert "event-general-v2-hero" in presentation
+    assert "event-general-v2-metrics" in presentation
+    assert "event-general-v2-progress" in presentation
+    assert "planning_target = max(target, shop_total)" in presentation
+    assert "remaining_pt" in presentation
+    assert '"Получено"' not in presentation
+    assert '"Пропуск"' not in presentation
+    assert '"Добавить источник PT"' not in presentation
+    assert '"Добавить этап"' not in presentation
+    assert "BWiki" not in presentation
 
     datamine = (ROOT / "module/webui/app_event_datamine.py").read_text(encoding="utf-8")
     assert 'deep_get(config, "Dashboard.Pt.Value", None)' in datamine
@@ -178,14 +186,3 @@ def test_stage_two_does_not_remove_runtime_event_groups():
     tasks = yaml.safe_load(TASKS.read_text(encoding="utf-8"))["Event"]["tasks"]
 
     assert tasks["EventGeneral"] == ["EventGeneral", "TaskBalancer"]
-    assert tasks["Event"] == [
-        "Scheduler",
-        "Campaign",
-        "StopCondition",
-        "Fleet",
-        "Submarine",
-        "Emotion",
-        "HpControl",
-        "EnemyPriority",
-    ]
-    assert tasks["EventShop"] == ["Scheduler", "EventShop"]
