@@ -135,12 +135,23 @@ def test_valid_priority_change_patches_dom_without_rebuilding_catalog(monkeypatc
     assert '"value": ""' in scripts[-1]
 
 
-def test_priority_dom_payload_is_json_serialized():
-    payload = {"warning": "</script><script>alert(1)</script>"}
-    serialized = json.dumps(payload, ensure_ascii=False)
+def test_priority_dom_payload_is_serialized_by_product_helper(monkeypatch):
+    payload = {
+        "values": [
+            {
+                "id": "dangerous",
+                "value": "</script><script>alert(1)</script>",
+            }
+        ]
+    }
+    scripts = []
+    monkeypatch.setattr(shop_v2, "run_js", lambda script: scripts.append(script))
 
-    assert serialized.startswith("{")
-    assert serialized.endswith("}")
+    EventShopV2Mixin._run_event_shop_dom_patch(payload)
+
+    assert len(scripts) == 1
+    assert json.dumps(payload, ensure_ascii=False) in scripts[0]
+    assert "node.textContent = value" in scripts[0]
 
 
 def test_event_shop_live_refresh_patches_pt_and_rebuilds_only_runtime_plan(monkeypatch):
