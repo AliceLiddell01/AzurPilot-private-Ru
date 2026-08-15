@@ -451,9 +451,9 @@ class GeneratedConfig:
     MedalShop2_PLATE_T3 = 'general'  # general, gun, torpedo, antiair, plane
 
     # 配置组 `MeritShop`
-    MeritShop2_Enable = True
-    MeritShop2_Refresh = False
-    MeritShop2_Filter = 'Cube'
+    MeritShop_Enable = True
+    MeritShop_Refresh = False
+    MeritShop_Filter = 'Cube'
 
     # 配置组 `CoreShop`
     CoreShop_Enable = True
