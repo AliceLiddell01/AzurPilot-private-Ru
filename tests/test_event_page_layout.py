@@ -5,7 +5,11 @@ import yaml
 from module.webui.app import AlasGUI
 from module.webui.app_event_datamine import EventDatamineMixin
 from module.webui.app_event_general_presentation import EventGeneralPresentationMixin
-from module.webui.app_event_layout import EventLayoutMixin
+from module.webui.app_event_layout import (
+    EVENT_LAYOUT_TASKS,
+    EVENT_MODERN_TASKS,
+    EventLayoutMixin,
+)
 from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.app_event_shop_safety import EventShopSafetyMixin
 from module.webui.app_task_config import TaskConfigMixin
@@ -35,6 +39,18 @@ def test_datamine_source_does_not_bypass_shop_safety_write_wrapper():
     assert AlasGUI._event_plan_write is EventShopSafetyMixin._event_plan_write
 
 
+def test_event_layout_does_not_keep_legacy_general_dispatch():
+    source = LAYOUT.read_text(encoding="utf-8")
+    dispatch = source.split("def _alas_set_event_group", 1)[1].split(
+        "def alas_set_group", 1
+    )[0]
+
+    assert "EventGeneral" not in EVENT_LAYOUT_TASKS
+    assert {"EventGeneral", "EventRewards"}.issubset(EVENT_MODERN_TASKS)
+    assert 'task == "EventGeneral"' not in dispatch
+    assert "_render_event_general_v2" not in dispatch
+
+
 def test_event_pages_mark_only_event_content_for_modern_styles():
     source = LAYOUT.read_text(encoding="utf-8")
     assert '@use_scope("content", clear=True)\n    def _alas_set_event_group' in source
@@ -42,6 +58,7 @@ def test_event_pages_mark_only_event_content_for_modern_styles():
     assert 'document.body.classList.add("event-modern-active")' in source
     assert 'content.classList.remove("event-modern-page")' in source
     assert "if task not in EVENT_LAYOUT_TASKS:" in source
+    assert "if name not in EVENT_MODERN_TASKS:" in source
     assert "self._unmark_event_page()" in source
     assert "return super().alas_set_group(task)" in source
 
