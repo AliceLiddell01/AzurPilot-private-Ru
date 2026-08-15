@@ -223,3 +223,47 @@ def test_matching_runtime_identity_with_older_evidence_has_distinct_finding(monk
 
     assert "runtime_observation_not_newer" in codes
     assert "runtime_observation_identity_rejected" not in codes
+
+
+def test_newer_runtime_pt_without_status_does_not_inherit_stored_status(monkeypatch):
+    artifact = load_builtin_artifact("rose_tower.json")
+    spec = artifact["event_spec"]
+    event_id = str(spec["id"])
+    server = str(spec.get("server") or "EN")
+    revision = str(spec.get("provenance", {}).get("revision") or "")
+    now = datetime.now(timezone.utc)
+    stored = empty_event_observation(event_id, server, "ap", revision)
+    stored.update(
+        {
+            "current_pt": 100,
+            "current_pt_source": "event_shop_ocr",
+            "current_pt_observed_at": (now - timedelta(hours=1)).isoformat(),
+            "current_pt_status": "stale",
+        }
+    )
+    runtime_observed_at = now.isoformat()
+    runtime = {
+        "event_id": event_id,
+        "server": server,
+        "source_revision": revision,
+        "current_pt": 120,
+        "current_pt_source": "dashboard_ocr",
+        "current_pt_observed_at": runtime_observed_at,
+    }
+    monkeypatch.setattr(
+        event_source,
+        "load_event_observation",
+        lambda *args, **kwargs: dict(stored),
+    )
+    monkeypatch.setattr(
+        event_source,
+        "load_event_user_state",
+        lambda *args, **kwargs: empty_event_user_state(),
+    )
+
+    plan = event_source.load_event_plan_from_artifact("ap", artifact, runtime)
+
+    assert plan["progress"]["current_pt"] == 120
+    assert plan["progress"]["status"] == "observed"
+    assert plan["progress"]["source"] == "dashboard_ocr"
+    assert plan["progress"]["observed_at"] == runtime_observed_at
