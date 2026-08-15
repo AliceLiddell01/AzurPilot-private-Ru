@@ -263,10 +263,11 @@ def write_fixture(
     hashes: dict[str, str] = {}
     for table in TABLES:
         values = tables.get(table, {})
+        path = table_root / f"{table}.json"
         if not values and table not in ShareCfgLoader.EMPTY_JSON_TABLES:
+            path.unlink(missing_ok=True)
             continue
         payload = _bytes(values)
-        path = table_root / f"{table}.json"
         path.write_bytes(payload)
         hashes[path.relative_to(output).as_posix()] = hashlib.sha256(payload).hexdigest()
     manifest = dict(manifest)
