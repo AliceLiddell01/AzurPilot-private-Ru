@@ -36,10 +36,10 @@ from module.ui.ui import UI
 EVENT_SHOP_SETTLE_AREA = (221, 194, 1049, 632)
 EVENT_SHOP_SETTLE_SAMPLE_INTERVAL = 0.08
 EVENT_SHOP_SETTLE_TIMEOUT = 1.5
-EVENT_SHOP_SETTLE_REQUIRED_PAIRS = 3
-EVENT_SHOP_SETTLE_PIXEL_DELTA = 12
-EVENT_SHOP_SETTLE_CHANGED_RATIO = 0.015
-EVENT_SHOP_SETTLE_MEAN_DELTA = 1.5
+EVENT_SHOP_SETTLE_REQUIRED_PAIRS = 2
+EVENT_SHOP_SETTLE_MAX_SHIFT = 1.5
+EVENT_SHOP_SETTLE_MIN_PHASE_RESPONSE = 0.10
+EVENT_SHOP_SETTLE_MAX_SCROLL_DELTA = 0.01
 
 
 class EventShopScroll(Scroll):
@@ -53,31 +53,62 @@ class EventShopScroll(Scroll):
         return self.drag_threshold
 
     @staticmethod
-    def _content_frames_stable(previous, current):
-        """Проверить, что область карточек магазина перестала заметно двигаться."""
-        if not isinstance(previous, np.ndarray) or not isinstance(current, np.ndarray):
-            return False
-        if not previous.size or not current.size or previous.shape != current.shape:
-            return False
+    def _content_shift(previous, current):
+        """Оценить глобальный межкадровый сдвиг сетки карточек.
 
-        delta = cv2.absdiff(previous, current)
-        if delta.ndim == 3:
-            delta = np.max(delta, axis=2)
-        mean_delta = float(np.mean(delta))
-        changed_ratio = float(np.mean(delta >= EVENT_SHOP_SETTLE_PIXEL_DELTA))
+        В EventShop постоянно меняются локальные эффекты и фон. Пиксельная
+        идентичность поэтому не доказывает и не опровергает остановку прокрутки.
+        Phase correlation оценивает именно общий геометрический сдвиг структуры,
+        который нужен перед OCR и destructive re-identification.
+        """
+        if not isinstance(previous, np.ndarray) or not isinstance(current, np.ndarray):
+            return None
+        if not previous.size or not current.size or previous.shape != current.shape:
+            return None
+
+        if previous.ndim == 3:
+            previous_gray = cv2.cvtColor(previous, cv2.COLOR_BGR2GRAY)
+            current_gray = cv2.cvtColor(current, cv2.COLOR_BGR2GRAY)
+        elif previous.ndim == 2:
+            previous_gray = previous
+            current_gray = current
+        else:
+            return None
+
+        previous_float = np.ascontiguousarray(previous_gray, dtype=np.float32)
+        current_float = np.ascontiguousarray(current_gray, dtype=np.float32)
+        height, width = previous_float.shape
+        window = cv2.createHanningWindow((width, height), cv2.CV_32F)
+        shift, response = cv2.phaseCorrelate(previous_float, current_float, window)
+        dx, dy = float(shift[0]), float(shift[1])
+        response = float(response)
+        if not np.isfinite((dx, dy, response)).all():
+            return None
+        return dx, dy, response
+
+    @classmethod
+    def _content_frames_stable(cls, previous, current):
+        """Проверить отсутствие глобального движения сетки карточек."""
+        result = cls._content_shift(previous, current)
+        if result is None:
+            return False
+        dx, dy, response = result
         return (
-            mean_delta <= EVENT_SHOP_SETTLE_MEAN_DELTA
-            and changed_ratio <= EVENT_SHOP_SETTLE_CHANGED_RATIO
+            response >= EVENT_SHOP_SETTLE_MIN_PHASE_RESPONSE
+            and abs(dx) <= EVENT_SHOP_SETTLE_MAX_SHIFT
+            and abs(dy) <= EVENT_SHOP_SETTLE_MAX_SHIFT
         )
 
     def wait_content_stable(self, main):
-        """Адаптивно дождаться стабилизации карточек после движения scrollbar.
+        """Дождаться геометрической стабилизации карточек после scrollbar move.
 
-        OCR не должен стартовать по переходному кадру сразу после swipe. Вместо
-        фиксированной задержки требуются несколько последовательных визуально
-        стабильных пар кадров. Ожидание ограничено жёстким timeout.
+        OCR допускается после двух последовательных кадров, на которых одновременно
+        стабильны и сама сетка карточек, и измеренная позиция scrollbar. Локальная
+        анимация, блики и фон не должны превращать нормальный неподвижный магазин в
+        ложный timeout. Ожидание остаётся bounded.
         """
         previous = main.image_crop(EVENT_SHOP_SETTLE_AREA, copy=True)
+        previous_scroll = self.cal_position(main)
         stable_pairs = 0
         deadline = monotonic() + EVENT_SHOP_SETTLE_TIMEOUT
 
@@ -85,21 +116,33 @@ class EventShopScroll(Scroll):
             sleep(EVENT_SHOP_SETTLE_SAMPLE_INTERVAL)
             main.device.screenshot()
             current = main.image_crop(EVENT_SHOP_SETTLE_AREA, copy=True)
+            current_scroll = self.cal_position(main)
+            shift = self._content_shift(previous, current)
+            content_stable = self._content_frames_stable(previous, current)
+            scroll_stable = (
+                abs(current_scroll - previous_scroll)
+                <= EVENT_SHOP_SETTLE_MAX_SCROLL_DELTA
+            )
 
-            if self._content_frames_stable(previous, current):
+            if content_stable and scroll_stable:
                 stable_pairs += 1
                 if stable_pairs >= EVENT_SHOP_SETTLE_REQUIRED_PAIRS:
-                    logger.debug(
-                        '[Магазин события — сканер] Область карточек стабилизировалась после прокрутки'
-                    )
+                    if shift is not None:
+                        dx, dy, response = shift
+                        logger.debug(
+                            '[Магазин события — сканер] Сетка карточек стабилизировалась: '
+                            f'shift=({dx:.2f}, {dy:.2f}), response={response:.3f}, '
+                            f'scroll={current_scroll:.3f}'
+                        )
                     return True
             else:
                 stable_pairs = 0
 
             previous = current
+            previous_scroll = current_scroll
 
         logger.warning(
-            '[Магазин события — сканер] Область карточек не стабилизировалась до тайм-аута'
+            '[Магазин события — сканер] Геометрия карточек или scrollbar не стабилизировались до тайм-аута'
         )
         return False
 
