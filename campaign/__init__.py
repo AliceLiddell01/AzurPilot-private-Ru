@@ -22,7 +22,7 @@ from module.event_datamine.campaign_selector import (
 
 
 def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) -> None:
-    """Применить только проверенный UI-layout к Config generated-карты."""
+    """Применить проверенный UI-layout и его общий scanner-contract к generated-карте."""
 
     config_class = getattr(module, "Config", None)
     if config_class is None or not layout or layout == "legacy":
@@ -32,6 +32,11 @@ def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) 
         config_class.MAP_CHAPTER_SWITCH_20241219_SP = False
         config_class.MAP_CHAPTER_SWITCH_20241219_SPEX = False
         config_class.MAP_CHAPTER_SWITCH_20260326 = False
+        # Современный layout 20241219 использует те же визуальные входы этапов,
+        # что и upstream event-карты: half-state и шаблон входа 20240725.
+        # Это контракт layout, а не identity конкретного события.
+        config_class.STAGE_ENTRANCE = ["half", "20240725"]
+        config_class.MAP_HAS_MODE_SWITCH = True
         return
     if layout == "20260326":
         config_class.MAP_CHAPTER_SWITCH_20241219 = False
