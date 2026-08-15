@@ -3,6 +3,10 @@
 # --------------------
 
 # ==================== Alas ====================
+Alas:
+  Error:
+    GameStuckRestart: true
+    AdbOfflineRestart: true
 
 # ==================== Farm ====================
 
