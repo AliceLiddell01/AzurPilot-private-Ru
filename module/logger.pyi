@@ -1,10 +1,12 @@
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Hashable
 
 from rich.console import Console, ConsoleRenderable
 from rich.highlighter import RegexHighlighter
 from rich.logging import RichHandler
 from rich.theme import Theme
+
+from module.logging_core import DiagnosticContextHandler
 
 class HTMLConsole(Console): ...
 class Highlighter(RegexHighlighter): ...
@@ -20,6 +22,7 @@ web_formatter: logging.Formatter
 
 stdout_console: Console
 console_hdlr: RichHandler
+diagnostic_hdlr: DiagnosticContextHandler
 
 def set_file_logger(
     name: str = pyw_name,
@@ -27,8 +30,23 @@ def set_file_logger(
 def set_func_logger(
     func: Callable[[ConsoleRenderable], None],
 ) -> None: ...
+def log_suppressed(
+    level: int,
+    message: object,
+    *,
+    key: Hashable | None = None,
+    payload: Any = ...,
+    window: float | None = None,
+) -> bool: ...
+def finish_suppressed(key: Hashable) -> int: ...
+def reset_suppression(key: Hashable | None = None) -> None: ...
+def get_diagnostic_context(*, last_failure: bool = False) -> tuple[str, ...]: ...
+def reset_diagnostic_context() -> None: ...
 
 class __logger(logging.Logger):
+    log_file: str
+    diagnostic_log_file: str
+
     def rule(
         self,
         title: str = "",
@@ -68,5 +86,18 @@ class __logger(logging.Logger):
         *objects: ConsoleRenderable,
         **kwargs,
     ) -> None: ...
+    def log_suppressed(
+        self,
+        level: int,
+        message: object,
+        *,
+        key: Hashable | None = None,
+        payload: Any = ...,
+        window: float | None = None,
+    ) -> bool: ...
+    def finish_suppressed(self, key: Hashable) -> int: ...
+    def reset_suppression(self, key: Hashable | None = None) -> None: ...
+    def get_diagnostic_context(self, *, last_failure: bool = False) -> tuple[str, ...]: ...
+    def reset_diagnostic_context(self) -> None: ...
 
 logger: __logger
