@@ -161,7 +161,7 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
         """在指定范围内执行向量滑动。
 
         Args:
-            box (tuple): 滑动区域，格式为 (左上角 x, y, 右下角 x, y)。
+            box (tuple): 滑动区域，格式为 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
             vector (tuple): 滑动向量，格式为 (x, y)。
             random_range (tuple): 随机偏移范围，格式为 (x_min, y_min, x_max, y_max)。
             padding (int): 边距。
