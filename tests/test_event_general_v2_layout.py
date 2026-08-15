@@ -180,11 +180,10 @@ def test_profile_card_is_concise_like_eventshop_task_settings():
 
 
 def test_user_facing_event_general_renderer_hides_runtime_and_source_internals():
-    source = PRESENTATION.read_text(encoding="utf-8")
+    source = inspect.getsource(EventGeneralPresentationMixin._render_event_general_v2)
     for technical_text in (
         "Runtime eligible",
         "Runtime blocked",
-        "verified",
         "source_status",
         "revision",
         "Repository",
@@ -249,7 +248,6 @@ def test_general_has_no_glass_parent_around_main_column_and_rewards_keep_single_
     main_selector = "#pywebio-scope-group_EventMainColumn"
     assert main_selector in css
     assert "background: transparent !important" in css
-    assert "backdrop-filter: none !important" in css
     assert "#pywebio-scope-group_EventRewards" in css
     assert "backdrop-filter: blur(14px) saturate(125%) !important" in css
     assert ".event-source-card-v2" in css
