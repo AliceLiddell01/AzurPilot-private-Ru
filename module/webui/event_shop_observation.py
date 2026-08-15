@@ -24,6 +24,29 @@ def _int_attr(item: Any, name: str) -> int | None:
         return None
 
 
+def _same_runtime_claim(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    """Проверить, что два scanner-наблюдения сообщают один и тот же факт.
+
+    Повторный viewport может захватить ту же физическую строку магазина ещё раз.
+    После уникального exact-match с EventSpec это не является неоднозначностью,
+    если оба наблюдения полностью согласны по данным, влияющим на покупку и
+    проверку остатка. Расхождение хотя бы одного поля остаётся fail-closed.
+    """
+
+    return all(
+        left.get(field) == right.get(field)
+        for field in (
+            "filter",
+            "price",
+            "total",
+            "remaining",
+            "purchased",
+            "currency_token",
+            "amount",
+        )
+    )
+
+
 def reconcile_event_shop(
     spec: Mapping[str, Any], runtime_items: Iterable[Any]
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
@@ -133,13 +156,24 @@ def reconcile_event_shop(
     for row_id, indices in claimed.items():
         if len(indices) <= 1:
             continue
+
+        canonical_index = indices[0]
+        canonical = rows[canonical_index]
+        if all(_same_runtime_claim(canonical, rows[index]) for index in indices[1:]):
+            for index in indices[1:]:
+                rows[index]["duplicate_of_runtime_index"] = canonical_index
+                rows[index]["duplicate_of_row_id"] = row_id
+                rows[index]["row_id"] = None
+                rows[index]["status"] = "duplicate"
+            continue
+
         for index in indices:
             rows[index]["row_id"] = None
             rows[index]["status"] = "ambiguous"
         findings.append(
             {
-                "code": "shop_runtime_duplicate",
-                "message": "Несколько scanner rows претендуют на один catalog row",
+                "code": "shop_runtime_duplicate_conflict",
+                "message": "Повторные scanner-наблюдения одного catalog row расходятся",
                 "path": f"shop_items.row:{row_id}",
             }
         )
