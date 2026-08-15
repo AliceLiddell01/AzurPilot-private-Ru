@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Callable, Hashable
+from collections.abc import Callable, Hashable
+from typing import Any
 
 from rich.console import Console, ConsoleRenderable
 from rich.highlighter import RegexHighlighter
