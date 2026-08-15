@@ -5,6 +5,7 @@ import pytest
 from module.event_datamine.discovery import (
     EventDiscoveryError,
     discover_major_events,
+    lifecycle,
     resolve_current_candidate,
 )
 from module.event_datamine.source import ShareCfgError
@@ -85,6 +86,16 @@ def test_same_discovery_pipeline_selects_historical_and_current_by_lifecycle():
     assert old and old.name == "Historical"
     assert new and new.name == "Current"
     assert 99 not in new.related_activity_ids
+
+
+def test_current_event_remains_selected_during_redemption():
+    candidates = discover_major_events(_two_event_source())
+    now = datetime(2026, 8, 28)
+
+    current = resolve_current_candidate(candidates, server="EN", now=now)
+
+    assert current and current.name == "Current"
+    assert lifecycle(current, now) == "redemption"
 
 
 def test_discovery_returns_none_when_no_active_or_redemption_event():
