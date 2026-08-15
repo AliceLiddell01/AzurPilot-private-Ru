@@ -169,14 +169,31 @@ class DiagnosticContextHandler(logging.Handler):
         self._max_bytes = max_bytes
         self._backup_count = backup_count
         self._target: RotatingFileHandler | None = None
+        self._failure_target: logging.Handler | None = None
 
     def _clone_record(self, record: logging.LogRecord) -> logging.LogRecord:
-        cloned = copy.copy(record)
-        cloned.msg = self._sanitizer(record.getMessage())
-        cloned.args = ()
-        cloned.exc_info = None
-        cloned.exc_text = None
-        cloned.stack_info = None
+        # Не копируем __dict__ исходного LogRecord: произвольный ``extra`` может
+        # удерживать секреты, изображения, NumPy-массивы и другие тяжёлые объекты.
+        cloned = logging.LogRecord(
+            name=record.name,
+            level=record.levelno,
+            pathname=self._sanitizer(record.pathname),
+            lineno=record.lineno,
+            msg=self._sanitizer(record.getMessage()),
+            args=(),
+            exc_info=None,
+            func=self._sanitizer(record.funcName),
+            sinfo=None,
+        )
+        cloned.created = record.created
+        cloned.msecs = record.msecs
+        cloned.relativeCreated = record.relativeCreated
+        cloned.thread = record.thread
+        cloned.threadName = record.threadName
+        cloned.process = record.process
+        cloned.processName = record.processName
+        if hasattr(record, "taskName"):
+            cloned.taskName = record.taskName
         return cloned
 
     def configure_output(self, path: str | Path, formatter: logging.Formatter) -> None:
@@ -196,6 +213,11 @@ class DiagnosticContextHandler(logging.Handler):
             target.setFormatter(formatter)
             self._target = target
 
+    def configure_failure_target(self, target: logging.Handler | None) -> None:
+        """Задать normal file handler для условного DEBUG-dump при реальном сбое."""
+        with self.lock:
+            self._failure_target = target
+
     def emit(self, record: logging.LogRecord) -> None:
         if record.levelno < logging.INFO:
             self._buffer.append(self._clone_record(record))
@@ -204,29 +226,44 @@ class DiagnosticContextHandler(logging.Handler):
             return
 
         self._last_failure = tuple(self._buffer)
-        target = self._target
-        if target is not None and self._last_failure:
-            try:
-                header = logging.LogRecord(
-                    name=record.name,
-                    level=logging.INFO,
-                    pathname=record.pathname,
-                    lineno=record.lineno,
-                    msg=(
-                        "[Диагностика] Контекст перед %s: %s"
-                        % (record.levelname, self._sanitizer(record.getMessage()))
-                    ),
-                    args=(),
-                    exc_info=None,
-                )
-                header.created = record.created
-                header.msecs = record.msecs
-                target.handle(header)
-                for buffered_record in self._last_failure:
-                    target.handle(buffered_record)
-                target.flush()
-            except Exception:
-                self.handleError(record)
+        if self._last_failure:
+            header = logging.LogRecord(
+                name=record.name,
+                level=logging.INFO,
+                pathname=self._sanitizer(record.pathname),
+                lineno=record.lineno,
+                msg=(
+                    "[Диагностика] Контекст перед %s: %s"
+                    % (record.levelname, self._sanitizer(record.getMessage()))
+                ),
+                args=(),
+                exc_info=None,
+                func=self._sanitizer(record.funcName),
+            )
+            header.created = record.created
+            header.msecs = record.msecs
+            failure_target = self._failure_target
+            if failure_target is None:
+                owner_logger = logging.getLogger(record.name)
+                for candidate in owner_logger.handlers:
+                    if candidate is self:
+                        continue
+                    if isinstance(candidate, logging.FileHandler):
+                        failure_target = candidate
+                        break
+
+            targets = []
+            for target in (self._target, failure_target):
+                if target is not None and all(target is not item for item in targets):
+                    targets.append(target)
+            for target in targets:
+                try:
+                    target.handle(copy.copy(header))
+                    for buffered_record in self._last_failure:
+                        target.handle(copy.copy(buffered_record))
+                    target.flush()
+                except Exception:
+                    self.handleError(record)
         self._buffer.clear()
 
     def snapshot(self, *, last_failure: bool = False) -> tuple[logging.LogRecord, ...]:
@@ -246,4 +283,5 @@ class DiagnosticContextHandler(logging.Handler):
             if self._target is not None:
                 self._target.close()
                 self._target = None
+            self._failure_target = None
         super().close()

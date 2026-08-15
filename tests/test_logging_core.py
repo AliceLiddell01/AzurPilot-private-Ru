@@ -236,6 +236,7 @@ class TestDiagnosticContextHandler(unittest.TestCase):
         normal.setFormatter(logging.Formatter("%(levelname)s|%(message)s"))
         logger.addHandler(normal)
         logger.addHandler(handler)
+        handler.configure_failure_target(normal)
         return logger
 
     def test_debug_is_bounded_and_error_flushes_only_diagnostic_context(self):
@@ -265,13 +266,58 @@ class TestDiagnosticContextHandler(unittest.TestCase):
                 ["*** two", "three"],
                 [record.getMessage() for record in handler.snapshot(last_failure=True)],
             )
-            self.assertEqual(1, normal_stream.getvalue().count("ERROR|boom"))
+            normal_output = normal_stream.getvalue()
+            self.assertEqual(1, normal_output.count("ERROR|boom"))
+            self.assertIn("INFO|[Диагностика] Контекст перед ERROR: boom", normal_output)
+            self.assertIn("DEBUG|*** two", normal_output)
+            self.assertIn("DEBUG|three", normal_output)
             diagnostic = output.read_text(encoding="utf-8")
             self.assertNotIn("old", diagnostic)
             self.assertIn("*** two", diagnostic)
             self.assertIn("three", diagnostic)
             self.assertIn("Контекст перед ERROR: boom", diagnostic)
             handler.close()
+
+
+    def test_error_discovers_normal_file_handler_without_explicit_binding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            diagnostic_output = Path(temp) / "diagnostic.log"
+            normal_output = Path(temp) / "normal.log"
+            handler = DiagnosticContextHandler(capacity=2)
+            formatter = logging.Formatter("%(levelname)s|%(message)s")
+            handler.configure_output(diagnostic_output, formatter)
+
+            logger = logging.getLogger(f"diag-file-target-{id(handler)}")
+            logger.handlers.clear()
+            logger.propagate = False
+            logger.setLevel(logging.DEBUG)
+            normal = logging.FileHandler(normal_output, encoding="utf-8")
+            normal.setLevel(logging.INFO)
+            normal.setFormatter(formatter)
+            logger.addHandler(normal)
+            logger.addHandler(handler)
+
+            logger.debug("pre-failure detail")
+            logger.error("boom")
+            normal.flush()
+            normal_text = normal_output.read_text(encoding="utf-8")
+            self.assertIn("DEBUG|pre-failure detail", normal_text)
+            self.assertEqual(1, normal_text.count("ERROR|boom"))
+
+            logger.removeHandler(normal)
+            normal.close()
+            handler.close()
+
+    def test_buffer_clone_does_not_retain_arbitrary_extra_objects(self):
+        handler = DiagnosticContextHandler(capacity=2)
+        logger = self.make_logger(handler, StringIO())
+        payload = object()
+        logger.debug("detail", extra={"large_payload": payload})
+        record = handler.snapshot()[0]
+        self.assertFalse(hasattr(record, "large_payload"))
+        self.assertIsNone(record.exc_info)
+        self.assertIsNone(record.stack_info)
+        handler.close()
 
     def test_info_does_not_enter_diagnostic_buffer(self):
         handler = DiagnosticContextHandler(capacity=4)
