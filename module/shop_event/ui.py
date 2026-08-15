@@ -1,15 +1,17 @@
 """
-活动商店界面导航与状态检测。
+Навигация и определение состояния интерфейса магазина события.
 
-提供活动商店的页面检测、余额 OCR、滚动条控制和标签栏导航。
-包含自定义滚动条 EventShopScroll 以适配活动商店特有样式，
-支持商店页面可用性检测（时间窗口校验）和货币余额读取。
+Содержит проверку страницы магазина, OCR баланса, управление полосой прокрутки
+и навигацию по вкладкам. EventShopScroll учитывает особенности полосы прокрутки
+магазина события, а также поддерживаются проверка доступности магазина по срокам
+и чтение валютного баланса.
 
 Pages: in: EVENT_SHOP
 """
 import numpy as np
 import re
 from datetime import datetime, timedelta
+from threading import RLock
 
 import module.config.server as server
 from module.base.button import ButtonGrid
@@ -32,6 +34,7 @@ from module.ui.ui import UI
 
 class EventShopScroll(Scroll):
     terminal_drag_threshold = 0.02
+    _set_lock = RLock()
 
     def _drag_threshold_for_target(self, position):
         if position <= self.edge_threshold or position >= 1 - self.edge_threshold:
@@ -39,18 +42,19 @@ class EventShopScroll(Scroll):
         return self.drag_threshold
 
     def set(self, position, main, random_range=(-0.05, 0.05), distance_check=True, skip_first_screenshot=True):
-        default_drag_threshold = self.drag_threshold
-        self.drag_threshold = self._drag_threshold_for_target(position)
-        try:
-            return super().set(
-                position,
-                main=main,
-                random_range=random_range,
-                distance_check=distance_check,
-                skip_first_screenshot=skip_first_screenshot,
-            )
-        finally:
-            self.drag_threshold = default_drag_threshold
+        with self._set_lock:
+            default_drag_threshold = self.drag_threshold
+            self.drag_threshold = self._drag_threshold_for_target(position)
+            try:
+                return super().set(
+                    position,
+                    main=main,
+                    random_range=random_range,
+                    distance_check=distance_check,
+                    skip_first_screenshot=skip_first_screenshot,
+                )
+            finally:
+                self.drag_threshold = default_drag_threshold
 
     def match_color(self, main):
         background_transparency = 0.2
@@ -71,7 +75,6 @@ class EventShopScroll(Scroll):
         err_button = np.sum((masked_color - button_mask) ** 2, axis=1)
         mask = err_button < err_background
         self.length = np.sum(mask)
-        # print(mask)
         return mask
 
 
@@ -137,7 +140,7 @@ class EventShopUI(UI):
             logger.warning(f"[Магазин события — UI] Не удалось прочитать дату окончания события: {period}")
             return False
         y, m, d = matches[-1]
-        deadline = datetime(int(y), int(m), int(d)) + timedelta(days=1)  # server deadline
+        deadline = datetime(int(y), int(m), int(d)) + timedelta(days=1)  # Серверный срок окончания.
         server_now = current_time() - server_time_offset()
         return (deadline - server_now).days < 7
 
@@ -161,8 +164,8 @@ class EventShopUI(UI):
 
     def get_oil(self, skip_first_screenshot=True):
         """
-        Returns:
-            int: Oil amount
+        Вернуть:
+            int: количество нефти.
         """
         amount = 0
         timeout = Timer(1, count=2).start()
@@ -188,9 +191,9 @@ class EventShopUI(UI):
 
     def handle_get_meowfficer(self):
         if self.appear(MEOWFFICER_GET_CHECK, offset=(40, 40), interval=3):
-            logger.info(f'Получение награды Мяуфицера.')
+            logger.info('Получение награды Мяуфицера.')
             SWITCH_LOCK.set('lock', main=self)
-            # Wait until info bar disappears
+            # Ждём исчезновения информационной панели.
             self.ensure_no_info_bar(timeout=1)
             self.device.click(MEOWFFICER_TRAIN_CLICK_SAFE_AREA)
             return True
