@@ -324,7 +324,13 @@ class EventShop(EventShopClerk):
             # silently change the established EventShop purchase policy.
             logger.warning(f"[Магазин события — наблюдение] Не удалось сохранить snapshot: {exc}")
         if not len(items):
-            logger.warning("[Магазин события] Товары в магазине события не найдены")
+            observation_items = getattr(items, "observation_items", items)
+            if observation_items:
+                logger.info(
+                    "[Магазин события] Нет товаров, требующих покупки по текущим целям и приоритетам"
+                )
+            else:
+                logger.warning("[Магазин события] Товары в магазине события не найдены")
             return True
         logger.hr("Покупки в магазине события", level=2)
         items, urpt_related_items = self.handle_items_related_with_urpt(items, self.config.EventShop_BuyURShip)

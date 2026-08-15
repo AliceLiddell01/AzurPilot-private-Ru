@@ -6,6 +6,7 @@ import module.webui.event_shop_priority as priority
 from module.shop_event.clerk import EventShopClerk
 from module.shop_event.shop_event import EventShop
 from module.webui.event_shop_priority import (
+    PriorityRuntimeItems,
     confirm_event_shop_purchase,
     load_event_shop_priority,
     prepare_event_shop_runtime_items,
@@ -121,6 +122,7 @@ def test_scan_all_preserves_observation_snapshot_when_priority_prepare_fails(
 
 def test_verification_only_pass_reads_pt_before_empty_purchase_set(monkeypatch):
     calls = []
+    warnings = []
 
     class ProbeEventShop(EventShop):
         def __init__(self):
@@ -140,9 +142,57 @@ def test_verification_only_pass_reads_pt_before_empty_purchase_set(monkeypatch):
         "module.event_datamine.registry.EventArtifactRegistry.resolve_current",
         lambda self, server, now: None,
     )
+    monkeypatch.setattr(
+        "module.shop_event.shop_event.logger.warning",
+        warnings.append,
+    )
 
     assert ProbeEventShop()._run() is True
     assert calls == ["load", "pt", "scan"]
+    assert warnings == ["[Магазин события] Товары в магазине события не найдены"]
+
+
+def test_verification_only_pass_distinguishes_observed_shop_from_purchase_targets(
+    monkeypatch,
+):
+    infos = []
+    warnings = []
+    observed = [runtime_item(remaining=90)]
+
+    class ProbeEventShop(EventShop):
+        def __init__(self):
+            self.config = SimpleNamespace(config_name="probe")
+
+        @staticmethod
+        def event_shop_load_ensure():
+            return None
+
+        @staticmethod
+        def get_current_pts():
+            return None
+
+        @staticmethod
+        def scan_all():
+            return PriorityRuntimeItems([], observation_items=observed)
+
+    monkeypatch.setattr(
+        "module.event_datamine.registry.EventArtifactRegistry.resolve_current",
+        lambda self, server, now: None,
+    )
+    monkeypatch.setattr(
+        "module.shop_event.shop_event.logger.info",
+        infos.append,
+    )
+    monkeypatch.setattr(
+        "module.shop_event.shop_event.logger.warning",
+        warnings.append,
+    )
+
+    assert ProbeEventShop()._run() is True
+    assert infos == [
+        "[Магазин события] Нет товаров, требующих покупки по текущим целям и приоритетам"
+    ]
+    assert warnings == []
 
 
 def test_event_shop_pt_updates_dashboard_log(monkeypatch):
