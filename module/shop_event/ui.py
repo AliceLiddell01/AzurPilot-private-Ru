@@ -115,8 +115,10 @@ class EventShopScroll(Scroll):
                     distance_check=distance_check,
                     skip_first_screenshot=skip_first_screenshot,
                 )
-                if dragged:
-                    self.wait_content_stable(main)
+                if dragged and not self.wait_content_stable(main):
+                    raise GameStuckError(
+                        '[Магазин события — сканер] Карточки не стабилизировались после прокрутки; OCR заблокирован'
+                    )
                 return dragged
             finally:
                 self.drag_threshold = default_drag_threshold
