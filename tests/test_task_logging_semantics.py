@@ -139,6 +139,27 @@ class TestTaskLoggingContext(unittest.TestCase):
         self.assertFalse(hasattr(record, "large_payload"))
         self.assertIsNone(record.exc_info)
 
+    def test_diagnostic_boundary_bounds_unfiltered_task_extra(self):
+        handler = DiagnosticContextHandler(capacity=2)
+        local_logger = logging.getLogger(f"task-untrusted-{id(handler)}")
+        local_logger.handlers.clear()
+        local_logger.filters.clear()
+        local_logger.propagate = False
+        local_logger.setLevel(logging.DEBUG)
+        local_logger.addHandler(handler)
+        try:
+            local_logger.debug(
+                "raw state",
+                extra={"alas_task": "x" * 512, "large_payload": object()},
+            )
+            record = handler.snapshot()[0]
+        finally:
+            handler.close()
+            local_logger.handlers.clear()
+
+        self.assertEqual("x" * 128, record.alas_task)
+        self.assertFalse(hasattr(record, "large_payload"))
+
 
 class TestResearchLoggingSemantics(unittest.TestCase):
     def test_status_polling_moves_to_debug_without_changing_result(self):
