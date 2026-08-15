@@ -21,8 +21,8 @@ from module.event_datamine.discovery import (
     resolve_current_candidate,
 )
 from module.event_datamine.generator import (
+    allocate_map_module_names,
     generate_map_module,
-    map_module_name,
     write_map_module,
 )
 from module.event_datamine.registry import write_registry
@@ -89,18 +89,11 @@ def build_current_event(
     updated_maps = tuple(
         replace(item, source_status=_map_status(item)) for item in spec.maps
     )
+    module_names = allocate_map_module_names(updated_maps)
     map_records = []
     map_writes: list[tuple[Path, str]] = []
-    used_names: set[str] = set()
-    for map_spec in updated_maps:
+    for map_spec, module_name in zip(updated_maps, module_names, strict=True):
         status = map_spec.source_status
-        base_name = map_module_name(map_spec.chapter_name)
-        module_name = base_name
-        if module_name in used_names:
-            module_name = f"{base_name}_{map_spec.id}"
-        if module_name in used_names:
-            raise ValueError(f"Неуникальное имя generated map module: {module_name}")
-        used_names.add(module_name)
         record = {
             "map_id": map_spec.id,
             "chapter_name": map_spec.chapter_name,
