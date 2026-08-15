@@ -74,7 +74,7 @@ class Scroll:
         position = (middle - self.length / 2) / (self.total - self.length)
         position = position if position > 0 else 0.0
         position = position if position < 1 else 1.0
-        logger.attr(self.name, f'{position:.2f} ({middle}-{self.length / 2})/({self.total}-{self.length})')
+        logger.debug(f'[{self.name}] {position:.2f} ({middle}-{self.length / 2})/({self.total}-{self.length})')
         return position
 
     def position_to_screen(self, position, random_range=(-0.05, 0.05)):
