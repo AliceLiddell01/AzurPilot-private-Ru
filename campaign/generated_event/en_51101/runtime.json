@@ -1,0 +1,15 @@
+{
+  "campaign_ui": {
+    "layout": "20241219"
+  },
+  "digest": "af484b95764a051bf7231ada37cf0e9f18b02344fd2c5092b6a972903fab9b01",
+  "event_id": "en:51101",
+  "evidence": {
+    "archive_sha256": "556723dc24418191b38ae9568070e4b515fc03e6962c190a69cd5cc91e1e29ce",
+    "kind": "user_runtime_error_archive",
+    "note": "Runtime reached current event UI with Part 1 / Part 2 / SP / EX and Operation / Story tabs; legacy Mode_switch_1 remained unknown.",
+    "observed_at": "2026-08-16T01:12:49+07:00"
+  },
+  "generated_package": "en_51101",
+  "runtime_policy_schema_version": 1
+}

@@ -1,6 +1,6 @@
 /* Acceptance Stage 5: плоский EventGeneral, смысловые факты фарма и компактные спецэтапы. */
 
-/* Верхняя двухколоночная область содержит только обзор и компактные настройки. */
+/* Main-column содержит весь пользовательский контент; боковой rail остаётся справа на всю высоту. */
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventMainColumn {
     margin: 0 !important;
     border: 0 !important;
@@ -34,7 +34,34 @@
     padding: 0 !important;
 }
 
-/* В ветках A/B/C/D по три карточки: используем ширину без дополнительной панели. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-currency-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-currency-inline-icon,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-general-v2-currency-icon {
+    display: inline-block;
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+    object-fit: contain;
+    vertical-align: middle;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-general-v2-metric > strong .event-general-v2-currency-icon {
+    width: 20px;
+    height: 20px;
+    flex-basis: 20px;
+}
+
+.event-currency-inline-fallback {
+    font-size: .68rem;
+    font-weight: 700;
+}
+
+/* В ветках A/B/C/D по три карточки в доступной ширине main-column. */
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-source-grid-v2,
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-grid-v2 {
     display: grid;
@@ -42,7 +69,7 @@
     gap: 10px !important;
 }
 
-/* SP/EXTRA редкие: одна-две карточки не растягиваются на весь экран. */
+/* SP/EXTRA редкие: одна-две карточки не растягиваются на всю колонку. */
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-source-grid-v2,
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-farm-grid-v2 {
     grid-template-columns: repeat(auto-fill, minmax(230px, 320px)) !important;

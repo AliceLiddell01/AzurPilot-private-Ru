@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from module.event_datamine.artifact import BUILTIN_ARTIFACT_ROOT
+from module.event_datamine.runtime_policy import load_generated_runtime_policy
 
 
 _SAFE_PACKAGE_PART = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -111,16 +112,37 @@ def generated_stage_module(artifact: Mapping[str, Any], stage: str) -> str:
     )
 
 
+def generated_campaign_ui_layout(module_name: str) -> str | None:
+    """Прочитать проверенную UI-policy рядом с уже разрешённым generated package."""
+
+    parts = str(module_name or "").split(".")
+    if len(parts) < 4 or parts[:2] != ["campaign", "generated_event"]:
+        raise EventCampaignSelectorError(
+            f"Некорректный generated campaign module: {module_name!r}"
+        )
+    package_parts = tuple(parts[2:-1])
+    if not package_parts or any(
+        not _SAFE_PACKAGE_PART.fullmatch(part) for part in package_parts
+    ):
+        raise EventCampaignSelectorError(
+            f"Некорректный generated campaign package: {module_name!r}"
+        )
+    policy = load_generated_runtime_policy(package_parts)
+    if policy is None:
+        return None
+    campaign_ui = policy.get("campaign_ui")
+    if not isinstance(campaign_ui, Mapping):
+        raise EventCampaignSelectorError("Runtime-policy не содержит campaign_ui")
+    layout = str(campaign_ui.get("layout") or "").strip()
+    return layout or None
+
+
 def _configured_servers(
     selector: str,
     *,
     args_data: Mapping[str, Any],
 ) -> set[str]:
-    event_arg = (
-        args_data.get("Event", {})
-        .get("Campaign", {})
-        .get("Event", {})
-    )
+    event_arg = args_data.get("Event", {}).get("Campaign", {}).get("Event", {})
     if not isinstance(event_arg, Mapping):
         return set()
 

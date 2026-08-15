@@ -12,6 +12,7 @@ from module.logger import logger
 from module.webui.app_dependencies import (
     current_time,
     deep_get,
+    put_button,
     put_html,
     put_none,
     put_row,
@@ -26,6 +27,8 @@ from module.webui.app_event_layout import (
     EVENT_MAP_TASKS,
 )
 from module.webui.app_helpers import is_demo_mode
+from module.webui.event_assets import event_asset_url
+from module.webui.event_plan import shop_plan_total
 from module.webui.event_source import resolve_current_event_artifact
 
 
@@ -69,6 +72,21 @@ class EventAcceptanceMixin:
             return None
         left, right = verified_range
         return f"{self._fmt(left)}–{self._fmt(right)}"
+
+    def _event_currency_markup(
+        self,
+        plan: Mapping[str, Any],
+        *,
+        css_class: str = "event-currency-inline-icon",
+    ) -> str:
+        currency = self._event_currency(plan)
+        asset = currency.get("asset") if isinstance(currency, Mapping) else None
+        url = event_asset_url(asset if isinstance(asset, Mapping) else None)
+        name = str(currency.get("name") or "Валюта события") if isinstance(currency, Mapping) else "Валюта события"
+        return (
+            f'<img class="{escape(css_class)}" src="{escape(url)}" '
+            f'alt="{escape(name)}" title="{escape(name)}">'
+        )
 
     @staticmethod
     def _reward_items(value: Any) -> list[tuple[str, Any]]:
@@ -131,7 +149,7 @@ class EventAcceptanceMixin:
             return "Первое прохождение", ""
         if kind == "challenge":
             return "Испытание", ""
-        return "Источник PT", ""
+        return "Источник валюты", ""
 
     def _combined_map_pt_sources(
         self,
@@ -166,7 +184,11 @@ class EventAcceptanceMixin:
             card["sources"].sort(key=self._pt_source_sort_key)
         return list(combined.values())
 
-    def _render_source_card(self, card: Mapping[str, Any]) -> str:
+    def _render_source_card(
+        self,
+        card: Mapping[str, Any],
+        currency_markup: str = "",
+    ) -> str:
         code = str(card.get("name") or "Этап")
         title = str(card.get("title") or "").strip()
         heading = (
@@ -174,6 +196,7 @@ class EventAcceptanceMixin:
             if title and title.casefold() != code.casefold()
             else f'<strong>{escape(code)}</strong>'
         )
+        currency = currency_markup or '<span class="event-currency-inline-fallback">PT</span>'
         rows: list[str] = []
         for source in card.get("sources", []):
             if not isinstance(source, Mapping):
@@ -185,7 +208,7 @@ class EventAcceptanceMixin:
             rows.append(
                 '<span class="event-source-value-row">'
                 f'<small>{escape(caption)}</small>'
-                f'<b>{escape(value)} PT {suffix_html}</b></span>'
+                f'<b class="event-currency-value">{currency}{escape(value)}{suffix_html}</b></span>'
             )
         return (
             '<article class="event-source-card event-source-card-v2 event-source-card-combined">'
@@ -203,10 +226,11 @@ class EventAcceptanceMixin:
         ]
         other_sources = [item for item in overview if item not in map_sources]
         combined = self._combined_map_pt_sources(plan, map_sources)
+        currency_markup = self._event_currency_markup(plan)
 
         put_html(
             '<div class="event-general-v2-section-heading"><div>'
-            "<strong>Источники PT</strong>"
+            "<strong>Источники валюты события</strong>"
             "<small>Одна карточка на этап: обычная и ежедневная награда показаны вместе.</small>"
             "</div></div>"
         )
@@ -216,7 +240,9 @@ class EventAcceptanceMixin:
             rendered = True
             special = self._map_group_key(rows[0].get("name")) == "SPECIAL"
             section_class = " event-map-group-special" if special else ""
-            cards = "".join(self._render_source_card(item) for item in rows)
+            cards = "".join(
+                self._render_source_card(item, currency_markup) for item in rows
+            )
             put_html(
                 f'<section class="event-map-group{section_class}">'
                 f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
@@ -230,15 +256,15 @@ class EventAcceptanceMixin:
             rendered = True
             cards = "".join(
                 '<article class="event-source-card event-source-card-v2">'
-                '<span class="event-source-kind">Источник PT</span>'
+                '<span class="event-source-kind">Источник валюты</span>'
                 f'<strong>{escape(str(item.get("name") or "Источник"))}</strong>'
-                f'<b>{escape(self._fmt(item["points"]) if item.get("points") is not None else "Нет данных")} PT</b>'
+                f'<b class="event-currency-value">{currency_markup}{escape(self._fmt(item["points"]) if item.get("points") is not None else "Нет данных")}</b>'
                 "</article>"
                 for item in other_sources
             )
             put_html(
                 '<section class="event-map-group">'
-                '<div class="event-map-group-heading"><div><strong>Другие источники PT</strong>'
+                '<div class="event-map-group-heading"><div><strong>Другие источники валюты</strong>'
                 '<small>Источники, не относящиеся к отдельной карте.</small></div>'
                 f'<span class="event-subsection-count">{len(other_sources)}</span></div>'
                 f'<div class="event-source-grid event-source-grid-v2">{cards}</div>'
@@ -247,7 +273,7 @@ class EventAcceptanceMixin:
 
         if not rendered:
             put_html(
-                '<div class="event-inline-empty">Источники PT пока не отображаются.</div>'
+                '<div class="event-inline-empty">Источники валюты пока не отображаются.</div>'
             )
 
     @staticmethod
@@ -289,7 +315,10 @@ class EventAcceptanceMixin:
         return list(unique.values())
 
     def _render_farm_card(
-        self, stage: Mapping[str, Any], remaining_pt: int | None
+        self,
+        stage: Mapping[str, Any],
+        remaining_pt: int | None,
+        currency_markup: str = "",
     ) -> str:
         points = stage.get("points")
         runs = (
@@ -310,8 +339,10 @@ class EventAcceptanceMixin:
 
         income: list[str] = []
         if points is not None:
+            currency = currency_markup or '<span class="event-currency-inline-fallback">PT</span>'
             income.append(
-                f'<span><small>PT</small><b>{escape(self._fmt(points))}</b></span>'
+                '<span><small>Валюта события</small>'
+                f'<b class="event-currency-value">{currency}{escape(self._fmt(points))}</b></span>'
             )
         coin_text = self._format_coin_income(stage)
         if coin_text is not None:
@@ -375,13 +406,15 @@ class EventAcceptanceMixin:
             "</div></div>"
         )
         stages = self._user_facing_stages(plan)
+        currency_markup = self._event_currency_markup(plan)
         rendered = False
         for title, subtitle, rows in self._group_map_items(stages):
             rendered = True
             special = self._map_group_key(rows[0].get("name")) == "SPECIAL"
             section_class = " event-map-group-special" if special else ""
             cards = "".join(
-                self._render_farm_card(stage, remaining_pt) for stage in rows
+                self._render_farm_card(stage, remaining_pt, currency_markup)
+                for stage in rows
             )
             put_html(
                 f'<section class="event-map-group{section_class}">'
@@ -396,9 +429,88 @@ class EventAcceptanceMixin:
                 '<div class="event-inline-empty">Этапы фарма пока не отображаются.</div>'
             )
 
+    def _render_event_overview_summary(
+        self,
+        *,
+        plan: Mapping[str, Any],
+        config: Mapping[str, Any],
+    ) -> tuple[int | None, int | None]:
+        event = plan.get("event", {})
+        if not isinstance(event, Mapping):
+            event = {}
+        current_pt, _ = self._event_progress(plan)
+        target = int(deep_get(config, "EventGeneral.EventGeneral.PtLimit", 0) or 0)
+        shop_total = shop_plan_total(plan)
+        planning_target = max(target, shop_total)
+        remaining = (
+            max(planning_target - current_pt, 0)
+            if planning_target > 0 and isinstance(current_pt, int)
+            else None
+        )
+        progress = (
+            max(0, min(100, round(current_pt * 100 / planning_target)))
+            if planning_target > 0 and isinstance(current_pt, int)
+            else 0
+        )
+        farm_start = escape(str(event.get("farm_start") or "Не задано"))
+        farm_end = escape(str(event.get("farm_end") or "Не задано"))
+        shop_end = escape(str(event.get("shop_end") or "Не задано"))
+        currency_markup = self._event_currency_markup(
+            plan, css_class="event-general-v2-currency-icon"
+        )
+        current_value = self._fmt(current_pt) if current_pt is not None else "Нет данных"
+        target_value = self._fmt(planning_target) if planning_target else "Не задана"
+        remaining_value = self._fmt(remaining) if remaining is not None else "—"
+        current_html = (
+            f'{currency_markup}<span>{escape(current_value)}</span>'
+            if current_pt is not None
+            else escape(current_value)
+        )
+        target_html = (
+            f'{currency_markup}<span>{escape(target_value)}</span>'
+            if planning_target
+            else escape(target_value)
+        )
+        remaining_html = (
+            f'{currency_markup}<span>{escape(remaining_value)}</span>'
+            if remaining is not None
+            else escape(remaining_value)
+        )
+
+        put_html(
+            f"""
+<section class="event-general-v2-hero">
+  <div class="event-eyebrow">Текущий ивент · {escape(str(event.get("server") or "EN"))}</div>
+  <h3>{escape(str(event.get("name") or "Текущий ивент"))}</h3>
+  <div class="event-general-v2-dates">
+    <span>Фарм <strong>{farm_start}</strong> — <strong>{farm_end}</strong></span>
+    <span>Магазин до <strong>{shop_end}</strong></span>
+  </div>
+  <div class="event-general-v2-metrics">
+    <div class="event-general-v2-metric event-general-v2-metric-accent"><small>Текущий баланс</small><strong class="event-currency-value">{current_html}</strong><span>Обновляется автоматически</span></div>
+    <div class="event-general-v2-metric"><small>Цель фарма</small><strong class="event-currency-value">{target_html}</strong><span>Настраивается вручную</span></div>
+    <div class="event-general-v2-metric"><small>Осталось набрать</small><strong class="event-currency-value">{remaining_html}</strong><span>До текущей цели</span></div>
+    <div class="event-general-v2-metric"><small>Прогресс</small><strong>{str(progress) + "%" if current_pt is not None and planning_target else "—"}</strong><span>По текущему балансу</span></div>
+  </div>
+  <div class="event-general-v2-progress" aria-label="Прогресс к цели"><span style="width:{progress}%"></span></div>
+</section>
+"""
+        )
+        put_row(
+            [
+                put_button(
+                    "Настроить цель фарма",
+                    onclick=self._settings_popup,
+                    color="primary",
+                )
+            ],
+            size="auto",
+        ).style("--event-general-v2-primary-action--")
+        return current_pt, remaining
+
     @staticmethod
     def _event_general_scope_layout() -> tuple[tuple[str, str], tuple[str, str]]:
-        """Единый контракт: верх двухколоночный, длинные секции полноширинные."""
+        """Единый контракт: двухколоночный shell и длинные секции в main-column."""
 
         return (
             ("group_EventMainColumn", "group_EventSideColumn"),
@@ -412,17 +524,17 @@ class EventAcceptanceMixin:
         group_map: Mapping[str, Any],
     ) -> None:
         plan = self._event_plan()
-        top_scopes, full_width_scopes = self._event_general_scope_layout()
+        top_scopes, main_scopes = self._event_general_scope_layout()
         with use_scope("groups"):
             put_row(
                 [put_scope(name) for name in top_scopes],
                 size="minmax(0, 1fr) minmax(330px, 360px)",
             ).style("--event-general-v2-layout--")
-            for name in full_width_scopes:
-                put_scope(name)
 
         with use_scope("group_EventMainColumn"):
             put_scope("group_EventOverview")
+            for name in main_scopes:
+                put_scope(name)
         with use_scope("group_EventSideColumn"):
             put_scope("group_EventProfiles")
             put_scope("group_TaskBalancer")
@@ -490,7 +602,10 @@ class EventAcceptanceMixin:
             return task_args, config, None
         options = {
             str(item)
-            for field in ("option", f"option_{to_server(str(deep_get(config, ['Alas', 'Emulator', 'PackageName'], '')))}")
+            for field in (
+                "option",
+                f"option_{to_server(str(deep_get(config, ['Alas', 'Emulator', 'PackageName'], '')))}",
+            )
             for item in (event_arg.get(field) or [])
         }
         if selector not in options:

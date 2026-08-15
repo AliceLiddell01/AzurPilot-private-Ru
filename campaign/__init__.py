@@ -15,16 +15,41 @@ from functools import wraps
 from types import ModuleType
 
 from module.config.time_source import now as current_time
-from module.event_datamine.campaign_selector import resolve_generated_campaign_module
+from module.event_datamine.campaign_selector import (
+    generated_campaign_ui_layout,
+    resolve_generated_campaign_module,
+)
 
 
-def _adapt_generated_campaign_ui(module: ModuleType) -> None:
-    """Навигировать по каноническому имени MAP при legacy T/HT alias.
+def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) -> None:
+    """Применить только проверенный UI-layout к Config generated-карты."""
+
+    config_class = getattr(module, "Config", None)
+    if config_class is None or not layout or layout == "legacy":
+        return
+    if layout == "20241219":
+        config_class.MAP_CHAPTER_SWITCH_20241219 = True
+        config_class.MAP_CHAPTER_SWITCH_20241219_SP = False
+        config_class.MAP_CHAPTER_SWITCH_20241219_SPEX = False
+        config_class.MAP_CHAPTER_SWITCH_20260326 = False
+        return
+    if layout == "20260326":
+        config_class.MAP_CHAPTER_SWITCH_20241219 = False
+        config_class.MAP_CHAPTER_SWITCH_20241219_SP = False
+        config_class.MAP_CHAPTER_SWITCH_20241219_SPEX = False
+        config_class.MAP_CHAPTER_SWITCH_20260326 = True
+        return
+    raise ValueError(f"Неподдерживаемый generated Event UI layout: {layout!r}")
+
+
+def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = None) -> None:
+    """Навигировать по каноническому MAP и проверенной UI-policy события.
 
     Сам Campaign-класс не копируется: адаптируется тот же объект класса из
     канонического generated-модуля, причём не более одного раза.
     """
 
+    _apply_generated_campaign_ui_policy(module, ui_layout)
     campaign_class = getattr(module, "Campaign", None)
     map_object = getattr(module, "MAP", None)
     if campaign_class is None or map_object is None:
@@ -52,12 +77,17 @@ def _adapt_generated_campaign_ui(module: ModuleType) -> None:
 class _GeneratedEventAliasLoader(importlib.abc.Loader):
     """Вернуть существующий канонический generated-модуль без повторного исполнения."""
 
-    def __init__(self, target: str):
+    def __init__(self, target: str, ui_layout: str | None = None):
         self.target = target
+        self.ui_layout = ui_layout
 
     def create_module(self, spec):
         module = importlib.import_module(self.target)
-        _adapt_generated_campaign_ui(module)
+        if self.ui_layout is None:
+            # Сохраняем совместимость с тестовыми/legacy адаптерами с одним аргументом.
+            _adapt_generated_campaign_ui(module)
+        else:
+            _adapt_generated_campaign_ui(module, self.ui_layout)
         return module
 
     def exec_module(self, module: ModuleType) -> None:
@@ -85,9 +115,10 @@ class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
         )
         if resolved is None:
             return None
+        ui_layout = generated_campaign_ui_layout(resolved)
         return importlib.util.spec_from_loader(
             fullname,
-            _GeneratedEventAliasLoader(resolved),
+            _GeneratedEventAliasLoader(resolved, ui_layout=ui_layout),
         )
 
 
