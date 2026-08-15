@@ -165,9 +165,13 @@ def test_event_css_defines_modern_responsive_visual_system():
         ".event-shop-grid",
         ".event-shop-card",
         ".event-automation-status",
-        ".event-advanced-details",
+        'details[style*="--event-advanced-details--"]',
     ):
         assert selector in css
+    assert ".event-advanced-details" not in css
+    assert ".event-advanced-body" not in css
+    assert ".event-details-chevron" not in css
+    assert '[id^="pywebio-scope-event_advanced_"]' in css
     assert "var(--alas-entry-surface" in css
     assert "var(--alas-entry-accent" in css
     assert "var(--alas-apple-card-bg" in css
