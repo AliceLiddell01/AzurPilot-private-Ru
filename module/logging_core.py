@@ -206,6 +206,9 @@ class DiagnosticContextHandler(logging.Handler):
         cloned.processName = record.processName
         if hasattr(record, "taskName"):
             cloned.taskName = record.taskName
+        alas_task = getattr(record, "alas_task", None)
+        if isinstance(alas_task, str):
+            cloned.alas_task = alas_task
         return cloned
 
     def configure_output(self, path: str | Path, formatter: logging.Formatter) -> None:
