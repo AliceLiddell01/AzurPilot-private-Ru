@@ -74,6 +74,56 @@ def test_explicit_small_amount_does_not_take_max_then_decrement_path():
     assert EventShopClerk._prefer_amount_max(1, 95, 100) is True
 
 
+def test_event_shop_buy_item_reidentifies_at_precise_scroll_position(monkeypatch):
+    calls = []
+    target = SimpleNamespace(
+        scroll_pos=0.3007513823848454,
+        name="AugmentEnhanceT2",
+        count=49,
+        price=90,
+        is_ship=False,
+    )
+    live = SimpleNamespace(
+        name="AugmentEnhanceT2",
+        count=49,
+        price=90,
+        is_ship=False,
+    )
+
+    class FakeScroll:
+        @staticmethod
+        def set_precise(position, main):
+            calls.append(("set_precise", position, main))
+            return 1
+
+    class ProbeClerk(EventShopClerk):
+        def __init__(self):
+            self.config = SimpleNamespace(config_name="probe")
+
+        @staticmethod
+        def event_shop_get_items():
+            return [live]
+
+        @staticmethod
+        def event_shop_buy_item_execute(item, amount):
+            calls.append(("buy", item, amount))
+
+    monkeypatch.setattr("module.shop_event.clerk.EVENT_SHOP_SCROLL", FakeScroll())
+    monkeypatch.setattr(
+        "module.shop_event.clerk.confirm_event_shop_purchase",
+        lambda config, item, full_purchase, remaining_after: calls.append(
+            ("confirm", full_purchase, remaining_after)
+        ),
+    )
+
+    shop = ProbeClerk()
+    shop.event_shop_buy_item(target, amount=1)
+
+    assert calls[0] == ("set_precise", target.scroll_pos, shop)
+    assert calls[1] == ("buy", live, 1)
+    assert calls[2] == ("confirm", False, 48)
+
+
 def test_scan_all_preserves_observation_snapshot_when_priority_prepare_fails(
     monkeypatch,
 ):
