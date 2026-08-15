@@ -13,6 +13,8 @@ from typing import List, Tuple
 
 from module.base.decorator import del_cached_property
 from module.base.timer import Timer
+from module.config.time_source import now as current_time
+from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
 from module.shop.assets import NAV_EVENT, NAV_GENERAL
 from module.shop_event.assets import NO_NAV_EVENT_CHECK
@@ -55,19 +57,38 @@ class EventShop(EventShopClerk):
     pt = 0
     urpt = 0
     pt_preserved = 0
+    _event_shop_current_artifact = None
+    _event_shop_current_artifact_resolved = False
+
+    def _begin_event_shop_pass_context(self):
+        """Разрешить current Event artifact один раз для текущего полного прохода."""
+        self._event_shop_current_artifact_resolved = True
+        try:
+            self._event_shop_current_artifact = EventArtifactRegistry().resolve_current(
+                "EN", current_time()
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self._event_shop_current_artifact = None
+            logger.warning(
+                f"[Магазин события — контекст] Не удалось разрешить current Event artifact: {exc}"
+            )
+        return self._event_shop_current_artifact
+
+    def _current_event_artifact(self):
+        """Вернуть artifact текущего прохода, лениво создав контекст вне _run()."""
+        if not getattr(self, "_event_shop_current_artifact_resolved", False):
+            return self._begin_event_shop_pass_context()
+        return self._event_shop_current_artifact
 
     def event_shop_buy_item(self, item_to_buy, amount=None):
         # Fail closed before the click: even a partially successful purchase
         # must never leave the pre-purchase snapshot looking fresh.
         try:
-            from datetime import datetime
-
-            from module.event_datamine.registry import EventArtifactRegistry
             from module.webui.event_shop_observation import (
                 invalidate_event_shop_observation,
             )
 
-            artifact = EventArtifactRegistry().resolve_current("EN", datetime.now())
+            artifact = self._current_event_artifact()
             if artifact is not None:
                 spec = artifact["event_spec"]
                 invalidate_event_shop_observation(
@@ -97,12 +118,9 @@ class EventShop(EventShopClerk):
             )
 
         try:
-            from datetime import datetime
-
-            from module.event_datamine.registry import EventArtifactRegistry
             from module.webui.event_observation import persist_current_pt_observation
 
-            artifact = EventArtifactRegistry().resolve_current("EN", datetime.now())
+            artifact = self._current_event_artifact()
             if artifact is not None:
                 spec = artifact["event_spec"]
                 persist_current_pt_observation(
@@ -299,20 +317,20 @@ class EventShop(EventShopClerk):
         Pages:
             in: shop_event
         """
+        # Все чтения EventSpec в одном проходе используют один и тот же artifact.
+        # Это исключает повторное чтение registry и расхождение identity внутри прохода.
+        self._begin_event_shop_pass_context()
         self.event_shop_load_ensure()
         # PT is a first-class observation of every EventShop pass, including
         # the verification-only pass where no new purchase candidate remains.
         self.get_current_pts()
         items = self.scan_all()
         try:
-            from datetime import datetime
-
-            from module.event_datamine.registry import EventArtifactRegistry
             from module.webui.event_shop_observation import (
                 persist_event_shop_observation,
             )
 
-            artifact = EventArtifactRegistry().resolve_current("EN", datetime.now())
+            artifact = self._current_event_artifact()
             if artifact is not None:
                 persist_event_shop_observation(
                     instance=self.config.config_name,
