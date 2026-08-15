@@ -106,9 +106,7 @@ def extract_current_fixture(
         for row_id in candidate.related_activity_ids
         if row_id in activities
     }
-    selected: dict[str, dict[int, Any]] = {
-        table: {} for table in TABLES
-    }
+    selected: dict[str, dict[int, Any]] = {table: {} for table in TABLES}
     selected["activity_template"] = related
     selected["memory_group"] = {
         row_id: row
@@ -162,20 +160,15 @@ def extract_current_fixture(
         None,
     )
     milestone_id = int(
-        _mapping(milestone).get(
-            "config_id", _mapping(milestone).get("id", 0)
-        )
-        or 0
+        _mapping(milestone).get("config_id", _mapping(milestone).get("id", 0)) or 0
     )
     if milestone_id in loaded["activity_event_pt"]:
-        selected["activity_event_pt"][milestone_id] = loaded[
-            "activity_event_pt"
-        ][milestone_id]
+        selected["activity_event_pt"][milestone_id] = loaded["activity_event_pt"][
+            milestone_id
+        ]
 
     shop_id = int(
-        _mapping(_mapping(milestone).get("config_client")).get(
-            "shopLinkActID", 0
-        )
+        _mapping(_mapping(milestone).get("config_client")).get("shopLinkActID", 0)
         or 0
     )
     shop_activity = activities.get(shop_id)
@@ -188,9 +181,7 @@ def extract_current_fixture(
             ),
             {},
         )
-    shop_rows = {
-        int(value) for value in _values(_mapping(shop_activity).get("config_data"))
-    }
+    shop_rows = _ints(_mapping(shop_activity).get("config_data"))
     selected["activity_shop_template"] = {
         row_id: row
         for row_id, row in loaded["activity_shop_template"].items()
@@ -201,9 +192,7 @@ def extract_current_fixture(
     all_task_ids = set(loaded["task_data_template"])
     for row in related.values():
         if int(_mapping(row).get("type", 0) or 0) == 13:
-            task_ids.update(
-                int(value) for value in _values(_mapping(row).get("config_data"))
-            )
+            task_ids.update(_ints(_mapping(row).get("config_data")))
         task_ids.update(
             _ints(_mapping(_mapping(row).get("config_client")).get("taskConfig"))
             & all_task_ids
@@ -273,7 +262,10 @@ def write_fixture(
     table_root.mkdir(parents=True, exist_ok=True)
     hashes: dict[str, str] = {}
     for table in TABLES:
-        payload = _bytes(tables.get(table, {}))
+        values = tables.get(table, {})
+        if not values and table not in ShareCfgLoader.EMPTY_JSON_TABLES:
+            continue
+        payload = _bytes(values)
         path = table_root / f"{table}.json"
         path.write_bytes(payload)
         hashes[path.relative_to(output).as_posix()] = hashlib.sha256(payload).hexdigest()
