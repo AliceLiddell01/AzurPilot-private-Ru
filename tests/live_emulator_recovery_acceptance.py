@@ -105,13 +105,15 @@ def _run_full_chain(script: AzurLaneAutoScript, platform) -> None:
     def injected_game_health():
         nonlocal health_calls
         health_calls += 1
+        actual_result = real_game_restart()
         if health_calls == 1:
             logger.warning(
-                '[Stage 3 live smoke] Synthetic boundary: первый Stage 1 '
-                'post-restart health result принудительно FAIL'
+                '[Stage 3 live smoke] Synthetic boundary: первый реальный Stage 1 '
+                f'restart завершился с result={actual_result!r}, но его health result '
+                'принудительно считается FAIL для проверки эскалации'
             )
             return False
-        return real_game_restart()
+        return actual_result
 
     def injected_fault():
         raise GameStuckError('Stage 3 controlled live fault injection')
