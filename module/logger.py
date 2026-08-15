@@ -507,7 +507,6 @@ def _set_file_logger(name=pyw_name):
 def set_file_logger(name=pyw_name):
     if "_" in name:
         name = name.split("_", 1)[0]
-    _configure_diagnostic_logger(name)
     # Windows 下有 "SyncManager-N:N"、"MainProcess"、"Process-N"、"gui" 四种进程
     # Linux 下没有 "SyncManager" 进程，只有 "MainProcess"
     if os.name == "nt":
@@ -535,6 +534,7 @@ def set_file_logger(name=pyw_name):
     if any(p in log_file.name for p in processes):
         return
 
+    _configure_diagnostic_logger(name)
     hdlr = RichTimedRotatingHandler(
         pname=name,
         filename=str(log_file),
