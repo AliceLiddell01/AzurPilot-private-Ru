@@ -73,6 +73,52 @@ def test_explicit_small_amount_does_not_take_max_then_decrement_path():
     assert EventShopClerk._prefer_amount_max(1, 95, 100) is True
 
 
+def test_scan_all_preserves_observation_snapshot_when_priority_prepare_fails(
+    monkeypatch,
+):
+    observed = [SimpleNamespace(button=(0, 100, 10, 110), name="Chip")]
+
+    class FakeScroll:
+        @staticmethod
+        def set_top(main):
+            return None
+
+        @staticmethod
+        def cal_position(main):
+            return 0.0
+
+        @staticmethod
+        def at_bottom(main):
+            return True
+
+        @staticmethod
+        def next_page(main, page):
+            raise AssertionError("Одноэкранный тест не должен прокручивать магазин")
+
+    class ProbeClerk(EventShopClerk):
+        def __init__(self):
+            self.config = SimpleNamespace()
+            self.device = SimpleNamespace(click_record_clear=lambda: None)
+
+        def event_shop_get_items(self, scroll_pos=None):
+            assert scroll_pos == 0.0
+            return list(observed)
+
+    def fail_prepare(*args, **kwargs):
+        raise ValueError("искусственный сбой подготовки приоритетов")
+
+    monkeypatch.setattr("module.shop_event.clerk.EVENT_SHOP_SCROLL", FakeScroll())
+    monkeypatch.setattr(
+        "module.shop_event.clerk.prepare_event_shop_runtime_items",
+        fail_prepare,
+    )
+
+    result = ProbeClerk().scan_all()
+
+    assert list(result) == []
+    assert result.observation_items == observed
+
+
 def test_verification_only_pass_reads_pt_before_empty_purchase_set(monkeypatch):
     calls = []
 
