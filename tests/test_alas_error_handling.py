@@ -85,6 +85,7 @@ class TestGameStuckRecovery(unittest.TestCase):
         script.__dict__['commission'] = Mock(side_effect=error)
         script.consecutive_game_stuck = stuck_count
         script.consecutive_adb_offline = 0
+        script._emulator_recovery_transport_lost = False
         script.save_error_log = Mock()
         return script
 
@@ -265,7 +266,6 @@ class TestGameStuckRecovery(unittest.TestCase):
 
     def test_transport_failure_cannot_be_reported_as_emulator_restart_success(self):
         script = self._make_script(GameStuckError('unused'))
-        old_device = script.device
         outcome = types.SimpleNamespace(
             success=False,
             stage='cold-start',
@@ -281,7 +281,8 @@ class TestGameStuckRecovery(unittest.TestCase):
             result = script._try_restart_emulator(reason='adb_offline')
 
         self.assertFalse(result)
-        self.assertIs(old_device, script.device)
+        self.assertNotIn('device', script.__dict__)
+        self.assertTrue(script._emulator_recovery_transport_lost)
         recovery.assert_called_once()
         self.assertTrue(recovery.call_args.kwargs['allow_hard_kill'])
         self.assertEqual(1, script.consecutive_adb_offline)

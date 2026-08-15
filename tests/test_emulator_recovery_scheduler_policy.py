@@ -16,14 +16,15 @@ class EmulatorRecoverySchedulerPolicyTests(unittest.TestCase):
         script.config.Error_AdbOfflineRestart = True
         script.config.Error_AdbOfflineThreshold = 3
         script.consecutive_adb_offline = 0
+        script._emulator_recovery_transport_lost = False
         script.__dict__['device'] = Mock()
         return script
 
     @staticmethod
-    def outcome(*, mode='graceful', device=None):
+    def outcome(*, success=True, stage='transport-ready', mode='graceful', device=None):
         return types.SimpleNamespace(
-            success=True,
-            stage='transport-ready',
+            success=success,
+            stage=stage,
             mode=mode,
             instance_name='MuMuPlayerGlobal-15.0-1',
             device=device or Mock(),
@@ -97,6 +98,40 @@ class EmulatorRecoverySchedulerPolicyTests(unittest.TestCase):
         self.assertFalse(result)
         self.assertEqual(3, script.consecutive_adb_offline)
         recovery.assert_not_called()
+
+
+    def test_cold_start_failure_invalidates_cached_device_and_marks_transport_lost(self):
+        script = self.make_script()
+
+        with (
+            patch(
+                'module.recovery.emulator_recovery.recover_emulator_transport',
+                return_value=self.outcome(success=False, stage='cold-start'),
+            ),
+            patch('alas.del_cached_property', side_effect=self.remove_cached),
+        ):
+            result = script._try_restart_emulator(reason='scheduled')
+
+        self.assertFalse(result)
+        self.assertTrue(script._emulator_recovery_transport_lost)
+        self.assertNotIn('device', script.__dict__)
+
+    def test_graceful_stop_failure_keeps_reusable_cached_device(self):
+        script = self.make_script()
+        cached_device = script.__dict__['device']
+
+        with (
+            patch(
+                'module.recovery.emulator_recovery.recover_emulator_transport',
+                return_value=self.outcome(success=False, stage='graceful-stop'),
+            ),
+            patch('alas.del_cached_property', side_effect=self.remove_cached),
+        ):
+            result = script._try_restart_emulator(reason='scheduled')
+
+        self.assertFalse(result)
+        self.assertFalse(script._emulator_recovery_transport_lost)
+        self.assertIs(cached_device, script.__dict__['device'])
 
 
 if __name__ == '__main__':

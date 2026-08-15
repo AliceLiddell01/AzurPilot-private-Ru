@@ -64,6 +64,7 @@ class AzurLaneAutoScript:
         self.consecutive_game_stuck = 0
         self.consecutive_adb_offline = 0
         self._last_emulator_recovery_mode = ''
+        self._emulator_recovery_transport_lost = False
         # 上次计划重启模拟器的时间戳
         self.last_emulator_restart_time = time.monotonic()
 
@@ -78,6 +79,8 @@ class AzurLaneAutoScript:
         При verify_game=True успех признаётся только после fresh Device и
         повторной Stage 1 login/UI health validation Azur Lane.
         """
+        self._emulator_recovery_transport_lost = False
+
         if reason == 'adb_offline':
             if not self.config.Error_AdbOfflineRestart:
                 logger.error_context(
@@ -120,16 +123,22 @@ class AzurLaneAutoScript:
         allow_hard_kill = reason in {'adb_offline', 'game_stuck'}
         logger.hr('[Alas] Проверяемое восстановление эмулятора', level=1)
 
+        recovery_started = False
         try:
             from module.recovery.emulator_recovery import recover_emulator_transport
 
             current_device = self.__dict__.get('device', None)
+            recovery_started = True
             outcome = recover_emulator_transport(
                 self.config,
                 current_device=current_device,
                 allow_hard_kill=allow_hard_kill,
             )
             if not outcome.success:
+                if outcome.stage in {'hard-kill', 'cold-start', 'fresh-device'}:
+                    if 'device' in self.__dict__:
+                        del_cached_property(self, 'device')
+                    self._emulator_recovery_transport_lost = True
                 logger.error_context(
                     title='Не удалось восстановить эмулятор',
                     reason=f'Цепочка восстановления завершилась на этапе: {outcome.stage}.',
@@ -163,6 +172,10 @@ class AzurLaneAutoScript:
             )
             return True
         except Exception as e:
+            if recovery_started:
+                if 'device' in self.__dict__:
+                    del_cached_property(self, 'device')
+                self._emulator_recovery_transport_lost = True
             logger.exception_context(
                 title='Не удалось перезапустить эмулятор',
                 exc=e,
@@ -1453,6 +1466,15 @@ class AzurLaneAutoScript:
                         else:
                             # Сдвигаем окно, чтобы неудачная плановая попытка не повторялась перед каждой задачей.
                             self.last_emulator_restart_time = time.monotonic()
+                            if self._emulator_recovery_transport_lost:
+                                logger.error_context(
+                                    title='Плановое восстановление потеряло рабочий transport',
+                                    reason='Эмулятор был остановлен или его состояние стало неопределённым, а новый Device не создан.',
+                                    impact='Продолжение задач могло бы запустить скрытый autostart или использовать недействительный transport.',
+                                    action='AzurPilot останавливает scheduler. Проверьте MuMu и ADB перед следующим запуском.',
+                                    level=50,
+                                )
+                                break
                             logger.warning('[Alas] Плановый перезапуск эмулятора не выполнен; обычная работа продолжается')
 
                 # 获取任务
@@ -1508,6 +1530,16 @@ class AzurLaneAutoScript:
                 else:
                     failed = failed + 1  # 不可恢复错误，增加计数
                 deep_set(self.failure_record, keys=task, value=failed)
+
+                if self._emulator_recovery_transport_lost:
+                    logger.error_context(
+                        title='Восстановление эмулятора не вернуло рабочий transport',
+                        reason='Stage 2 завершилась после destructive transport-stage без нового Device.',
+                        impact='Повторное использование старого Device или скрытый autostart запрещены; scheduler остановлен.',
+                        action='Проверьте состояние MuMu и ADB и запустите AzurPilot повторно после восстановления среды.',
+                        level=50,
+                    )
+                    break
 
                 strict_restart = self.config.Error_StrictRestart and failed >= 1 and self.config.cross_get(
                     keys=f'{task}.Scheduler.Sensitive', default=False
