@@ -468,7 +468,7 @@ console_hdlr = RichHandler(
     tracebacks_show_locals=True,
     tracebacks_extra_lines=3,
 )
-console_hdlr.setLevel(logging.INFO)
+console_hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
 console_hdlr.setFormatter(console_formatter)
 logger.addHandler(console_hdlr)
 
@@ -495,7 +495,7 @@ def _set_file_logger(name=pyw_name):
     except FileNotFoundError:
         os.mkdir('./log')
         file = logging.FileHandler(log_file, encoding='utf-8')
-    file.setLevel(logging.INFO)
+    file.setLevel(logging.DEBUG if logger_debug else logging.INFO)
     file.setFormatter(file_formatter)
 
     logger.handlers = [h for h in logger.handlers if not isinstance(
@@ -542,7 +542,7 @@ def set_file_logger(name=pyw_name):
         interval=1,
         encoding="utf-8",
     )
-    hdlr.setLevel(logging.INFO)
+    hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
 
     logger.addHandler(hdlr)
     logger.log_file = hdlr.log_file
@@ -576,7 +576,7 @@ def set_func_logger(func):
         tracebacks_extra_lines=2,
         highlighter=Highlighter(),
     )
-    hdlr.setLevel(logging.INFO)
+    hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
     hdlr.setFormatter(web_formatter)
     logger.handlers = [h for h in logger.handlers if not isinstance(
         h, RichRenderableHandler)]
