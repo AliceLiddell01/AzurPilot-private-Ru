@@ -79,6 +79,14 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_TRACEBACK_PATH_ALIASES = tuple(
+    (re.compile(re.escape(local_path), re.IGNORECASE), alias)
+    for local_path, alias in (
+        (str(Path(__file__).resolve().parent.parent), "<PROJECT_ROOT>"),
+        (str(Path.home().resolve()), "<USER_HOME>"),
+    )
+    if local_path
+)
 
 
 def sanitize_traceback_text(value) -> str:
@@ -90,13 +98,8 @@ def sanitize_traceback_text(value) -> str:
     text = _URL_USERINFO_RE.sub(r"\g<scheme>***@", text)
     text = _SENSITIVE_QUERY_RE.sub(r"\1***", text)
     text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1\2***", text)
-    path_aliases = (
-        (str(Path.cwd().resolve()), "<PROJECT_ROOT>"),
-        (str(Path.home().resolve()), "<USER_HOME>"),
-    )
-    for local_path, alias in path_aliases:
-        if local_path:
-            text = re.sub(re.escape(local_path), alias, text, flags=re.IGNORECASE)
+    for path_pattern, alias in _TRACEBACK_PATH_ALIASES:
+        text = path_pattern.sub(alias, text)
     return text
 
 
@@ -501,6 +504,7 @@ def _set_file_logger(name=pyw_name):
     logger.handlers = [h for h in logger.handlers if not isinstance(
         h, (logging.FileHandler, RichFileHandler))]
     logger.addHandler(file)
+    diagnostic_hdlr.configure_failure_target(file)
     logger.log_file = log_file
 
 
@@ -534,7 +538,7 @@ def set_file_logger(name=pyw_name):
     if any(p in log_file.name for p in processes):
         return
 
-    _configure_diagnostic_logger(name)
+    _configure_diagnostic_logger(pname if name == "gui" else name)
     hdlr = RichTimedRotatingHandler(
         pname=name,
         filename=str(log_file),
@@ -545,6 +549,7 @@ def set_file_logger(name=pyw_name):
     hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
 
     logger.addHandler(hdlr)
+    diagnostic_hdlr.configure_failure_target(hdlr)
     logger.log_file = hdlr.log_file
     try:
         if log_file.exists():
