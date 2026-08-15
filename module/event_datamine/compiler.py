@@ -206,7 +206,7 @@ class EventCompiler:
                 ValidationFinding(
                     "source_name_unlocalized",
                     "warning",
-                    "EN ShareCfg содержит нелокализованное имя; используется технический идентификатор",
+                    "EN ShareCfg содержит нелокализованное имя; используется техническая identity",
                     path,
                 )
             )
