@@ -413,32 +413,39 @@ def load_event_plan_from_artifact(
         == str(spec.get("server") or "EN").upper()
         and str(runtime_observation.get("source_revision") or "") == revision
     )
-    if runtime_matches and _current_pt_evidence_is_newer(
-        runtime_observation, observation
-    ):
-        for field in (
-            "current_pt",
-            "current_pt_source",
-            "current_pt_observed_at",
-            "current_pt_status",
-        ):
-            if field in runtime_observation:
-                observation[field] = runtime_observation[field]
-    elif isinstance(runtime_observation, Mapping):
-        observation.setdefault("findings", []).append(
-            {
-                "code": "runtime_observation_identity_rejected",
-                "message": "Runtime observation не совпадает с current event identity",
-                "path": "runtime_observation",
-            }
-        )
+    if isinstance(runtime_observation, Mapping):
+        if not runtime_matches:
+            observation.setdefault("findings", []).append(
+                {
+                    "code": "runtime_observation_identity_rejected",
+                    "message": "Runtime observation не совпадает с current event identity",
+                    "path": "runtime_observation",
+                }
+            )
+        elif _current_pt_evidence_is_newer(runtime_observation, observation):
+            for field in (
+                "current_pt",
+                "current_pt_source",
+                "current_pt_observed_at",
+                "current_pt_status",
+            ):
+                if field in runtime_observation:
+                    observation[field] = runtime_observation[field]
+        else:
+            observation.setdefault("findings", []).append(
+                {
+                    "code": "runtime_observation_not_newer",
+                    "message": "Runtime observation не новее сохранённого PT evidence",
+                    "path": "runtime_observation",
+                }
+            )
     return event_plan_from_source(spec, load_event_user_state(instance), observation)
 
 
 def _current_pt_evidence_is_newer(
     candidate: Mapping[str, Any], existing: Mapping[str, Any]
 ) -> bool:
-    """Не позволить более старому OCR evidence затереть свежую запись."""
+    """Не позволить более старому или равному OCR evidence затереть свежую запись."""
 
     def timestamp(value: Any) -> float | None:
         try:
@@ -456,7 +463,7 @@ def _current_pt_evidence_is_newer(
         existing.get("current_pt_observed_at") or existing.get("observed_at")
     )
     return candidate_at is not None and (
-        existing_at is None or candidate_at >= existing_at
+        existing_at is None or candidate_at > existing_at
     )
 
 
@@ -465,7 +472,7 @@ def load_builtin_event_plan(
     name: str,
     runtime_observation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Load an explicitly named demo/golden artifact; never production default."""
+    """Загрузить явно указанный demo/golden artifact, никогда не production default."""
 
     return load_event_plan_from_artifact(
         instance, load_builtin_artifact(name), runtime_observation
