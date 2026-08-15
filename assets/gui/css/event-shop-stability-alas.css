@@ -1,12 +1,12 @@
 /*
- * EventShop critical layout.
+ * Критическая раскладка EventShop.
  *
- * The page background and PyWebIO layout wrappers stay transparent. Product
- * cards and the compact task-settings panel are the only visual surfaces, so
- * the shop never stacks a giant glass card behind smaller glass cards.
+ * Фон страницы и обёртки PyWebIO остаются прозрачными. Визуальными поверхностями
+ * служат только карточки товаров и компактная панель настроек задачи, чтобы
+ * магазин не складывал большое стеклянное окно за более мелкими карточками.
  */
 
-/* Legacy scope contract retained for deterministic first-frame layout. */
+/* Legacy-контракт scope сохранён для детерминированной раскладки первого кадра. */
 #pywebio-scope-event_shop_grid {
     display: grid;
     width: 100%;
@@ -70,10 +70,16 @@
     100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .event-shop-live-value.event-shop-value-updated {
+        animation: none;
+    }
+}
+
 /*
- * Flatten every PyWebIO layout layer. put_row() is wrapped in an output node,
- * and the material theme skins every direct #groups child as a glass card.
- * Clearing only the inner .row leaves one giant background behind the shop.
+ * Выравниваем все слои раскладки PyWebIO. put_row() оборачивается в output-узел,
+ * а material-тема оформляет каждый прямой дочерний элемент #groups как glass-card.
+ * Очистка только внутреннего .row оставляет одно большое фоновое окно за магазином.
  */
 #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-groups,
 #pywebio-scope-content.event-modern-page[data-event-task="EventShop"] #pywebio-scope-groups > * {
@@ -129,7 +135,7 @@
     animation: none !important;
 }
 
-/* Header: hierarchy without another glass panel. */
+/* Заголовок задаёт иерархию без ещё одной стеклянной панели. */
 .event-shop-v2-hero {
     display: flex;
     align-items: flex-start;
@@ -223,7 +229,7 @@
     grid-column: 1 / -1;
 }
 
-/* One textual hint, no nested surface. */
+/* Одна текстовая подсказка без вложенной поверхности. */
 .event-shop-priority-help {
     margin: 0 0 14px;
     border: 0;
@@ -240,7 +246,7 @@
     color: var(--event-text);
 }
 
-/* Catalog: cards are outlined, not another matte layer. */
+/* Каталог: карточки очерчены и не создают ещё один матовый слой. */
 #pywebio-scope-event_shop_v2_grid {
     display: grid;
     width: 100%;
@@ -378,7 +384,7 @@
     text-align: center;
 }
 
-/* Quantity target controls. */
+/* Элементы управления целью количества. */
 #pywebio-scope-event_shop_v2_grid *[style*="--event-shop-v2-target-controls--"] {
     display: grid !important;
     grid-template-columns: 42px 42px 58px minmax(64px, 1fr) !important;
@@ -422,7 +428,7 @@
     text-align: center;
 }
 
-/* Task settings: compact controls, without stretching hidden checkbox inputs. */
+/* Настройки задачи: компактные элементы без растягивания скрытых checkbox inputs. */
 .event-shop-task-heading {
     display: flex;
     flex-direction: column;
@@ -536,7 +542,7 @@
     background: color-mix(in srgb, var(--event-accent) 72%, transparent) !important;
 }
 
-#pywebio-scope-event_shop_task_fields .custom-switch .custom-control-input:checked ~ .custom-control-label::after {
+#pywebio-scope-event_shop_task_fields .custom-switch .custom-control-label::after {
     transform: translateX(20px) !important;
 }
 
