@@ -39,6 +39,7 @@ from module.webui.app_dependencies import (
 from module.webui.app_developer_menu import DeveloperMenuMixin
 from module.webui.app_developer_settings import DeveloperSettingsMixin
 from module.webui.app_developer_tools import DeveloperToolsMixin
+from module.webui.app_event_acceptance import EventAcceptanceMixin
 from module.webui.app_event_datamine import EventDatamineMixin
 from module.webui.app_event_general_v2 import EventGeneralV2Mixin
 from module.webui.app_event_layout import EventLayoutMixin
@@ -102,6 +103,7 @@ class AlasGUI(
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
     EventShopLiveMixin,
+    EventAcceptanceMixin,
     EventGeneralV2Mixin,
     EventProfilesMixin,
     EventDatamineMixin,
@@ -219,6 +221,7 @@ def app():
         add_css(filepath_css("event-profiles-alas"))
         add_css(filepath_css("event-general-v2-alas"))
         add_css(filepath_css("event-general-v2-polish-alas"))
+        add_css(filepath_css("event-general-v2-acceptance-alas"))
         add_css(filepath_css("event-shop-stability-alas"))
         add_css(filepath_css("traceback-alas"))
         if _block_public_webui_password_error():

@@ -60,12 +60,17 @@ def require_list(value: Any, path: str) -> list[Any]:
 
 
 def require_int(value: Any, path: str) -> int:
-    """Преобразовать числовое поле supplemental в int с ошибкой домена."""
+    """Прочитать строгое целое поле без bool и неявного float truncation."""
 
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise EventSupplementalError(f"{path} должен быть целым числом") from exc
+    if isinstance(value, bool) or isinstance(value, float):
+        raise EventSupplementalError(f"{path} должен быть целым числом")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if re.fullmatch(r"[+-]?[0-9]+", text):
+            return int(text)
+    raise EventSupplementalError(f"{path} должен быть целым числом")
 
 
 def _unique_ints(items: list[Any], field: str, path: str) -> None:
@@ -73,8 +78,14 @@ def _unique_ints(items: list[Any], field: str, path: str) -> None:
     for item in items:
         row = require_mapping(item, path)
         try:
-            values.append(int(row[field]))
-        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raw = row[field]
+        except KeyError as exc:
+            raise EventSupplementalError(
+                f"{path}.{field} содержит некорректную identity"
+            ) from exc
+        try:
+            values.append(require_int(raw, f"{path}.{field}"))
+        except EventSupplementalError as exc:
             raise EventSupplementalError(
                 f"{path}.{field} содержит некорректную identity"
             ) from exc

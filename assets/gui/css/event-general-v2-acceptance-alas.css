@@ -1,0 +1,189 @@
+/* Stage 5 acceptance: flatter EventGeneral, semantic farm facts and compact specials. */
+
+/* The top split only contains the overview and the compact controls. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventMainColumn {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-general-v2-hero {
+    margin: 0 !important;
+    border: 1px solid var(--event-border) !important;
+    border-left: 3px solid var(--event-accent) !important;
+    border-radius: 13px !important;
+    background: color-mix(in srgb, var(--event-surface-strong) 92%, transparent) !important;
+    box-shadow: var(--event-shadow) !important;
+    padding: 16px !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSources,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventStages {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+}
+
+/* A/B/C/D naturally contain three cards, so use the available width without nested panels. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-source-grid-v2,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-grid-v2 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+}
+
+/* SP/EXTRA are sparse: never stretch one or two cards across the full viewport. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-source-grid-v2,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-farm-grid-v2 {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 320px)) !important;
+    justify-content: start;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-source-card-v2,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-card-v2 {
+    min-height: 0 !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: 11px !important;
+    background: var(--event-surface-strong) !important;
+    box-shadow: none !important;
+    padding: 13px 14px !important;
+}
+
+.event-source-card-heading,
+.event-farm-card-head {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.event-source-card-heading > strong,
+.event-farm-card-head > strong {
+    color: var(--event-text);
+    font-size: .98rem;
+    line-height: 1.25;
+}
+
+.event-stage-title {
+    color: var(--event-muted);
+    font-size: .72rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.event-source-values {
+    display: grid;
+    gap: 7px;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid var(--event-divider);
+}
+
+.event-source-value-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.event-source-value-row small {
+    color: var(--event-muted);
+    font-size: .7rem;
+}
+
+.event-source-value-row b {
+    color: var(--event-accent);
+    font-size: .82rem;
+    white-space: nowrap;
+}
+
+.event-source-value-row em {
+    margin-left: 3px;
+    color: var(--event-muted);
+    font-size: .68rem;
+    font-style: normal;
+    font-weight: 600;
+}
+
+.event-farm-sections {
+    display: grid;
+    gap: 10px;
+    margin-top: 11px;
+}
+
+.event-farm-block {
+    padding-top: 8px;
+    border-top: 1px solid var(--event-divider);
+}
+
+.event-farm-block-title {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--event-muted);
+    font-size: .68rem;
+    font-weight: 650;
+    letter-spacing: .01em;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-block .event-farm-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px !important;
+    margin: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-block .event-farm-facts > span {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.event-farm-reward-line {
+    display: grid;
+    gap: 2px;
+    margin-top: 9px;
+    padding-top: 8px;
+    border-top: 1px solid var(--event-divider);
+}
+
+.event-farm-reward-line small {
+    color: var(--event-muted);
+    font-size: .68rem;
+}
+
+.event-farm-reward-line span {
+    color: var(--event-text);
+    font-size: .74rem;
+    line-height: 1.4;
+}
+
+@media (max-width: 1180px) {
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-source-grid-v2,
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-grid-v2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-source-grid-v2,
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-farm-grid-v2 {
+        grid-template-columns: repeat(auto-fill, minmax(230px, 320px)) !important;
+    }
+}
+
+@media (max-width: 760px) {
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-source-grid-v2,
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-grid-v2,
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-source-grid-v2,
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-farm-grid-v2 {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
