@@ -146,7 +146,7 @@ class Ocr:
             result_list = result_list[0]
         if self.SHOW_LOG:
             logger.debug(
-                "[%s %ss] %s"
+                "[OCR — диагностика] %s: время %s с, результат=%s"
                 % (self.name, float2str(time.time() - start_time), str(result_list))
             )
 
