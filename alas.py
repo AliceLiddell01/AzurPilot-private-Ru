@@ -247,7 +247,7 @@ class AzurLaneAutoScript:
         except RequestHumanTakeover:
             logger.error_context(
                 title='Для инициализации устройства требуется вмешательство пользователя',
-                reason='Подключение к устройству или проверка его параметров завершилось ошибкой; автоматическое исправление невозможно.',
+                reason='Подключение к устройству или проверка его параметров завершилась ошибкой; автоматическое исправление невозможно.',
                 impact='Планировщик не может управлять эмулятором.',
                 action='Убедитесь, что эмулятор запущен, ADB доступен и разрешение равно 1280x720, затем перезапустите приложение.',
                 level=50,
@@ -782,6 +782,7 @@ class AzurLaneAutoScript:
     def start(self):
         from module.handler.login import LoginHandler
         LoginHandler(self.config, device=self.device).app_start()
+        self.delay_next_restart()
 
     def goto_main(self):
         from module.handler.login import LoginHandler
@@ -1285,7 +1286,7 @@ class AzurLaneAutoScript:
                 for line in stderr_content:
                     logger.error(f'[Alas-SSH] Ошибка удалённой команды: {line}')
         except Exception as e:
-            logger.error(f'[Alas-SSH] Не удалось выполнить удалённую команду SSH: {e}')
+            logger.error(f'[Alas-SSH] Не удалось выполнить команду удалённого SSH: {e}')
         finally:
             if key_file and os.path.exists(key_file):
                 try:
