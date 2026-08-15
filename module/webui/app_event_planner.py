@@ -44,7 +44,7 @@ _UNCHANGED_EVENT_PLAN = object()
 
 
 class EventPlannerMixin(WebUIMixinBase):
-    """Сохраняет progress/selection, не изменяя datamine facts."""
+    """Сохраняет прогресс и выбранные значения, не изменяя факты datamine."""
 
     def _event_plan(self) -> dict[str, Any]:
         return load_event_plan(self.alas_name)
@@ -108,7 +108,7 @@ class EventPlannerMixin(WebUIMixinBase):
 
     @staticmethod
     def _shop_item_dom_key(identity: tuple[str, str, str, int, int]) -> str:
-        """Построить стабильный DOM-ключ из source-derived identity товара."""
+        """Построить стабильный DOM-ключ из исходной идентичности товара."""
         payload = "\x1f".join(
             (identity[0], identity[1], identity[2], str(identity[3]), str(identity[4]))
         )
@@ -140,7 +140,7 @@ class EventPlannerMixin(WebUIMixinBase):
         row_id = str(snapshot.get("row_id") or "")
         if not event_id or not row_id:
             logger.warning(
-                "[WebUI — магазин события] Цель сохранена без полной event/shop identity; baseline-синхронизация пропущена"
+                "[WebUI — магазин события] Цель сохранена без полной идентичности события или товара; синхронизация точки отсчёта пропущена"
             )
             return True
         try:
@@ -250,7 +250,7 @@ class EventPlannerMixin(WebUIMixinBase):
     ) -> None:
         try:
             selected = int(pin[_SHOP_SELECTED_PIN] or 0)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             selected = -1
         if selected < 0 or selected > identity[4]:
             toast(f"Количество должно быть от 0 до {identity[4]}", color="warning")
