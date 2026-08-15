@@ -207,7 +207,7 @@ class GuildLogistics(GuildBase):
             # Guild mission choose in JP server disabled until we get the screenshot.
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
-            #     # Guild mission choose available if user is guild master
+            #     # Guild mission choose found
             #     logger.info('Guild mission choose found')
             #     return True
             # else:
@@ -248,7 +248,7 @@ class GuildLogistics(GuildBase):
             logger.info('[Гильдия — логистика] Задание гильдии не найдено; возможно, задание этой недели ещё не началось')
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
-            #     # Guild mission choose available if user is guild master
+            #     # Guild mission choose found
             #     logger.info('Guild mission choose found')
             #     return True
             # else:
@@ -277,10 +277,10 @@ class GuildLogistics(GuildBase):
         if np.max(color) > np.mean(color) + 25:
             # For members, click to receive supply
             # For leaders, click to buy supply and receive supply
-            logger.info('[Гильдия — логистика] Кнопка снабжения гильдии активна')
+            logger.debug('[Гильдия — логистика] Кнопка снабжения гильдии активна')
             return True
         else:
-            logger.info('[Гильдия — логистика] Кнопка снабжения гильдии неактивна')
+            logger.debug('[Гильдия — логистика] Кнопка снабжения гильдии неактивна')
             return False
 
     def _handle_guild_fleet_mission_start(self):
