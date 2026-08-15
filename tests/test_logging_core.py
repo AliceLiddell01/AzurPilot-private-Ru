@@ -54,14 +54,16 @@ class TestLoggingRouting(unittest.TestCase):
             for handler in logger_module.logger.handlers
             if isinstance(handler, logger_module.RichTimedRotatingHandler)
         ]
+        self.assertTrue(before)
+        handler_before = before[0]
         log_file_before = logger_module.logger.log_file
-        logger_module.set_file_logger(name=logger_module.pyw_name)
+        logger_module.set_file_logger(name=handler_before.pname)
         after = [
             handler
             for handler in logger_module.logger.handlers
             if isinstance(handler, logger_module.RichTimedRotatingHandler)
         ]
-        self.assertEqual(len(before), len(after))
+        self.assertEqual(before, after)
         self.assertEqual(log_file_before, logger_module.logger.log_file)
 
     def test_hr_level_one_and_two_do_not_emit_duplicate_info_record(self):
@@ -277,7 +279,6 @@ class TestDiagnosticContextHandler(unittest.TestCase):
             self.assertIn("three", diagnostic)
             self.assertIn("Контекст перед ERROR: boom", diagnostic)
             handler.close()
-
 
     def test_error_discovers_normal_file_handler_without_explicit_binding(self):
         with tempfile.TemporaryDirectory() as temp:
