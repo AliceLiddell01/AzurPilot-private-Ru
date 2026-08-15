@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+_TASK_METADATA_LIMIT = 128
+
 
 @dataclass(frozen=True)
 class SuppressionDecision:
@@ -208,7 +210,7 @@ class DiagnosticContextHandler(logging.Handler):
             cloned.taskName = record.taskName
         alas_task = getattr(record, "alas_task", None)
         if isinstance(alas_task, str):
-            cloned.alas_task = alas_task
+            cloned.alas_task = alas_task[:_TASK_METADATA_LIMIT]
         return cloned
 
     def configure_output(self, path: str | Path, formatter: logging.Formatter) -> None:
