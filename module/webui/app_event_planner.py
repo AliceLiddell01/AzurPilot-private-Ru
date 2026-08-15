@@ -43,6 +43,21 @@ _STALE_EVENT_PLAN = object()
 _UNCHANGED_EVENT_PLAN = object()
 
 
+def _plural_positions(count: int) -> str:
+    """Вернуть корректную русскую форму счётчика позиций."""
+    value = abs(int(count))
+    tail = value % 100
+    if 11 <= tail <= 14:
+        form = "позиций"
+    elif value % 10 == 1:
+        form = "позиция"
+    elif value % 10 in (2, 3, 4):
+        form = "позиции"
+    else:
+        form = "позиций"
+    return f"{count} {form}"
+
+
 class EventPlannerMixin(WebUIMixinBase):
     """Сохраняет прогресс и выбранные значения, не изменяя факты datamine."""
 
@@ -142,7 +157,12 @@ class EventPlannerMixin(WebUIMixinBase):
             logger.warning(
                 "[WebUI — магазин события] Цель сохранена без полной идентичности события или товара; синхронизация точки отсчёта пропущена"
             )
-            return True
+            toast(
+                "Цель сохранена, но автоматизация магазина не синхронизирована: неполная идентичность события или товара",
+                color="warning",
+            )
+            self._refresh_event_plan_page()
+            return False
         try:
             update_event_shop_target_state(
                 self.alas_name,
@@ -180,7 +200,7 @@ class EventPlannerMixin(WebUIMixinBase):
             "selected": f"{int(snapshot['selected']):,}".replace(",", " "),
             "cost": f"{int(snapshot['cost']):,}".replace(",", " "),
             "total": f"{int(snapshot['total']):,}".replace(",", " "),
-            "count": f"{int(snapshot['selected_count'])} позиций",
+            "count": _plural_positions(int(snapshot["selected_count"])),
         }
         run_js(
             """
