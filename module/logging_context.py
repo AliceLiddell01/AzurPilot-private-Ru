@@ -60,6 +60,9 @@ def task_logging_context(func):
     """Оборачивать ``Alas.run(command, ...)`` task context без изменения return/exception semantics."""
     @wraps(func)
     def wrapped(self, command, *args, **kwargs):
+        from module.logger import logger
+
+        install_task_context_filter(logger)
         task_name = inflection.camelize(str(command))
         with task_context(task_name):
             return func(self, command, *args, **kwargs)
