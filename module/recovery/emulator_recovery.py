@@ -67,11 +67,11 @@ def recover_emulator_transport(
 ) -> EmulatorRecoveryOutcome:
     """Выполнить ровно одну транспортную цепочку восстановления эмулятора."""
     if platform is None:
-        if current_device is not None and hasattr(current_device, 'platform'):
-            platform = current_device.platform
-        else:
-            from module.device.platform import Platform
-            platform = Platform(config, connect=False)
+        # Stage 2 намеренно не переиспользует обычный current_device.platform:
+        # на Windows recovery lifecycle должен быть изолирован от глобального
+        # PlatformWindows и его исторических startup/cleanup путей.
+        from module.device.platform import get_recovery_platform
+        platform = get_recovery_platform(config)
 
     instance = getattr(platform, 'emulator_instance', None)
     if instance is None:
@@ -134,7 +134,7 @@ def recover_emulator_transport(
             return EmulatorRecoveryOutcome(
                 False,
                 'hard-kill',
-                mode='hard-kill',
+                mode=mode,
                 instance_name=instance_name,
             )
         mode = 'hard-kill'

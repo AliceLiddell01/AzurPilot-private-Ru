@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import types
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from module.recovery.emulator_recovery import recover_emulator_transport
 
@@ -37,6 +37,32 @@ class EmulatorRecoveryTransportTests(unittest.TestCase):
         platform.emulator_force_stop_instance.assert_not_called()
         platform.emulator_start.assert_called_once_with()
         factory.assert_called_once()
+
+    def test_default_platform_uses_isolated_recovery_factory_not_current_device_platform(self):
+        platform = self.make_platform(stop=True, start=True)
+        config = object()
+
+        class CurrentDevice:
+            release_during_wait = Mock()
+
+            @property
+            def platform(self):
+                raise AssertionError('обычный current_device.platform не должен использоваться Stage 2')
+
+        current_device = CurrentDevice()
+        fresh = object()
+
+        with patch('module.device.platform.get_recovery_platform', return_value=platform) as get_platform:
+            outcome = recover_emulator_transport(
+                config,
+                current_device=current_device,
+                allow_hard_kill=True,
+                device_factory=Mock(return_value=fresh),
+            )
+
+        self.assertTrue(outcome.success)
+        get_platform.assert_called_once_with(config)
+        current_device.release_during_wait.assert_called_once_with()
 
     def test_current_device_resources_are_released_before_emulator_stop(self):
         order = []
@@ -92,6 +118,7 @@ class EmulatorRecoveryTransportTests(unittest.TestCase):
 
         self.assertFalse(outcome.success)
         self.assertEqual('hard-kill', outcome.stage)
+        self.assertEqual('graceful', outcome.mode)
         platform.emulator_start.assert_not_called()
         factory.assert_not_called()
 

@@ -98,6 +98,11 @@ def display_report_path(path: Path) -> str:
     return mask_personal_path(str(path))
 
 
+def format_error(exc: Exception) -> str:
+    """Сформировать безопасное сообщение об ошибке без утечки профиля Windows."""
+    return f"ERROR: {type(exc).__name__}: {mask_personal_path(str(exc))}"
+
+
 def command_line_of(proc: psutil.Process) -> str:
     try:
         return " ".join(proc.cmdline())
@@ -140,6 +145,13 @@ def classify_relationship(
     instance_name: str,
     instance_id: int | None,
 ) -> str:
+    # Сначала доказываем, что сам процесс относится к MuMu по имени/пути.
+    # Аргументы командной строки не могут превратить python.exe или другой
+    # посторонний процесс в selected-instance только из-за текста instance name.
+    process_identity = f"{name} {executable}"
+    if not MUMU_PROCESS_HINT.search(process_identity):
+        return "unrelated"
+
     identity_searchable = f"{name} {executable} {command_line}"
     if instance_name and instance_name.casefold() in identity_searchable.casefold():
         return "selected-instance-token"
@@ -147,13 +159,7 @@ def classify_relationship(
     if instance_id is not None and _has_instance_id_token(command_line, instance_id):
         return "selected-instance-id-token"
 
-    # Общая принадлежность к MuMu определяется только по имени/пути процесса.
-    # Иначе python.exe становится ложным совпадением из-за слова "mumu" в аргументе скрипта.
-    process_identity = f"{name} {executable}"
-    if MUMU_PROCESS_HINT.search(process_identity):
-        return "mumu-related-unclassified"
-
-    return "unrelated"
+    return "mumu-related-unclassified"
 
 
 def resolve_instance(repository: Path, serial: str):
@@ -236,19 +242,19 @@ def collect_processes(instance) -> list[ProcessRow]:
 
 def render_text(report: dict) -> str:
     lines = [
-        "AzurPilot MuMu process inventory",
-        f"Timestamp UTC: {report['timestamp_utc']}",
-        f"Configured serial: {report['configured_serial']}",
-        f"Detected emulator type: {report['instance']['type']}",
-        f"Instance name: {report['instance']['name']}",
-        f"Instance id: {report['instance']['id']}",
-        f"Instance path: {report['instance']['path']}",
+        "Инвентаризация процессов MuMu — AzurPilot",
+        f"Время UTC: {report['timestamp_utc']}",
+        f"Настроенный serial: {report['configured_serial']}",
+        f"Тип эмулятора: {report['instance']['type']}",
+        f"Имя экземпляра: {report['instance']['name']}",
+        f"ID экземпляра: {report['instance']['id']}",
+        f"Путь экземпляра: {report['instance']['path']}",
         "",
-        "Processes:",
+        "Процессы:",
     ]
 
     if not report["processes"]:
-        lines.append("  <MuMu-related processes not found>")
+        lines.append("  <процессы MuMu не найдены>")
         return "\n".join(lines) + "\n"
 
     for row in report["processes"]:
@@ -256,10 +262,10 @@ def render_text(report: dict) -> str:
             [
                 f"  [{row['relationship']}]",
                 f"    PID: {row['pid']}",
-                f"    Parent PID: {row['ppid']}",
-                f"    Name: {row['name']}",
-                f"    Executable: {row['executable']}",
-                f"    Command line: {row['command_line']}",
+                f"    Родительский PID: {row['ppid']}",
+                f"    Имя: {row['name']}",
+                f"    Исполняемый файл: {row['executable']}",
+                f"    Командная строка: {row['command_line']}",
             ]
         )
     return "\n".join(lines) + "\n"
@@ -331,5 +337,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(format_error(exc), file=sys.stderr)
         raise SystemExit(1)

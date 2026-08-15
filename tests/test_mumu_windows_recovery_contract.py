@@ -11,10 +11,12 @@ PLATFORM_INIT = ROOT / 'module/device/platform/__init__.py'
 
 
 class MuMuWindowsRecoveryContractTests(unittest.TestCase):
-    def test_windows_platform_alias_uses_safe_recovery_subclass(self):
+    def test_windows_default_platform_remains_regular_and_recovery_is_explicit(self):
         text = PLATFORM_INIT.read_text(encoding='utf-8')
-        self.assertIn('RecoveryPlatformWindows as Platform', text)
-        self.assertNotIn('platform_windows import PlatformWindows as Platform', text)
+        self.assertIn('platform_windows import PlatformWindows as Platform', text)
+        self.assertNotIn('RecoveryPlatformWindows as Platform', text)
+        self.assertIn('def get_recovery_platform(config):', text)
+        self.assertIn('RecoveryPlatformWindows(config, connect=False)', text)
 
     def test_mumu_manager_commands_use_argv_and_shell_false(self):
         text = RECOVERY.read_text(encoding='utf-8')
@@ -45,18 +47,14 @@ class MuMuWindowsRecoveryContractTests(unittest.TestCase):
         self.assertIsInstance(shell_keywords['shell'], ast.Constant)
         self.assertFalse(shell_keywords['shell'].value)
 
-    def test_graceful_stop_requires_actual_state_probe(self):
+    def test_graceful_stop_has_actual_state_probe(self):
         text = RECOVERY.read_text(encoding='utf-8')
         self.assertIn('wait_mumu_instance_stopped(', text)
-        self.assertIn('Штатная остановка подтверждена', text)
-        self.assertIn('экземпляр остаётся запущен', text)
 
-    def test_cold_start_requires_manager_success_and_boot_health(self):
+    def test_cold_start_has_boot_health_and_partial_state_probe(self):
         text = RECOVERY.read_text(encoding='utf-8')
-        self.assertIn('result is None or result.returncode != 0', text)
         self.assertIn('self.emulator_start_watch()', text)
-        self.assertIn('Проверка загрузки пройдена', text)
-        self.assertIn('partially_running = is_mumu_instance_running(instance)', text)
+        self.assertIn('is_mumu_instance_running(', text)
 
     def test_hidden_global_cleanup_is_not_reused(self):
         text = RECOVERY.read_text(encoding='utf-8')

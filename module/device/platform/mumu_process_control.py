@@ -38,7 +38,11 @@ def _process_name(proc: psutil.Process) -> str:
 def _process_cmdline(proc: psutil.Process) -> list[str]:
     try:
         return list(proc.cmdline())
-    except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+    except psutil.AccessDenied as exc:
+        raise MuMuInstanceIdentityError(
+            f'Нет доступа к command line MuMuNxDevice PID {proc.pid}; identity нельзя доказать'
+        ) from exc
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
         return []
 
 
@@ -150,6 +154,7 @@ def force_stop_mumu_instance(
 
     root = targets[0]
     ordered = [proc for proc in targets[1:] if proc.pid != root.pid] + [root]
+    signaled_pids: list[int] = []
     for proc in ordered:
         try:
             logger.warning(
@@ -157,18 +162,23 @@ def force_stop_mumu_instance(
                 f'PID={proc.pid}, process={_process_name(proc) or "<unknown>"}'
             )
             proc.kill()
+            signaled_pids.append(proc.pid)
         except psutil.NoSuchProcess:
             continue
         except psutil.AccessDenied as exc:
+            remaining = [item.pid for item in ordered if item.pid not in signaled_pids]
             logger.error(
                 f'[Устройство — Windows] Нет прав для hard kill PID={proc.pid} '
-                f'instance {instance.name}: {exc}'
+                f'instance {instance.name}: {exc}; уже отправлены сигналы PID={signaled_pids or "нет"}; '
+                f'необработанные PID={remaining or "нет"}'
             )
             return False
         except psutil.Error as exc:
+            remaining = [item.pid for item in ordered if item.pid not in signaled_pids]
             logger.error(
                 f'[Устройство — Windows] Ошибка hard kill PID={proc.pid} '
-                f'instance {instance.name}: {exc}'
+                f'instance {instance.name}: {exc}; уже отправлены сигналы PID={signaled_pids or "нет"}; '
+                f'необработанные PID={remaining or "нет"}'
             )
             return False
 

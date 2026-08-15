@@ -16,18 +16,21 @@ from module.device.platform.mumu_process_control import (
 
 
 class FakeProcess:
-    def __init__(self, pid, name, cmdline, *, children=None, kill_error=None):
+    def __init__(self, pid, name, cmdline, *, children=None, kill_error=None, cmdline_error=None):
         self.pid = pid
         self._name = name
         self._cmdline = list(cmdline)
         self._children = list(children or [])
         self._kill_error = kill_error
+        self._cmdline_error = cmdline_error
         self.killed = False
 
     def name(self):
         return self._name
 
     def cmdline(self):
+        if self._cmdline_error is not None:
+            raise self._cmdline_error
         return list(self._cmdline)
 
     def children(self, recursive=False):
@@ -84,6 +87,17 @@ class MuMuProcessControlTests(unittest.TestCase):
         self.assertFalse(is_mumu_instance_root(wrong_id, self.instance1))
         self.assertFalse(is_mumu_instance_root(wrong_name, self.instance1))
         self.assertFalse(is_mumu_instance_root(shared, self.instance1))
+
+    def test_candidate_root_cmdline_access_denied_fails_closed(self):
+        denied = FakeProcess(
+            104,
+            'MuMuNxDevice.exe',
+            [],
+            cmdline_error=psutil.AccessDenied(pid=104),
+        )
+
+        with self.assertRaises(MuMuInstanceIdentityError):
+            find_mumu_instance_roots(self.instance1, [denied])
 
     def test_ambiguous_root_fails_closed(self):
         roots = [self.root(self.instance1, 100), self.root(self.instance1, 101)]

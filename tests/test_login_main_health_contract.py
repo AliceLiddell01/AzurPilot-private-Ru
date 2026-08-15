@@ -47,4 +47,5 @@ def test_login_popup_does_not_finish_flow_before_main_is_confirmed():
 
     assert result is True
     assert handler.is_in_main.call_count == 2
+    assert handler.device.screenshot.call_count >= 2
     handler.ui_page_main_popups.assert_called_once_with(get_ship=True)

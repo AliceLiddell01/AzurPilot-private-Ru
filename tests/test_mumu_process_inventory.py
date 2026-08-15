@@ -6,6 +6,7 @@ from pathlib import Path
 from dev_tools.mumu_process_inventory import (
     classify_relationship,
     display_report_path,
+    format_error,
     mask_personal_path,
 )
 
@@ -77,6 +78,18 @@ def test_python_running_mumu_named_inventory_script_is_not_false_positive():
     assert relationship == "unrelated"
 
 
+def test_unrelated_process_with_selected_instance_token_is_not_false_positive():
+    relationship = classify_relationship(
+        name="python.exe",
+        executable=r"C:\Python\python.exe",
+        command_line=r'python worker.py --label MuMuPlayerGlobal-15.0-1 -v 1',
+        instance_name="MuMuPlayerGlobal-15.0-1",
+        instance_id=1,
+    )
+
+    assert relationship == "unrelated"
+
+
 def test_mask_personal_path_hides_other_windows_profiles_case_insensitively():
     assert (
         mask_personal_path(r"C:\Users\OtherUser\AppData\Local\MuMu\file.log")
@@ -97,6 +110,15 @@ def test_display_report_path_hides_windows_profile_in_temp_path():
 
     assert rendered.startswith(r"%USERPROFILE%\AppData\Local\Temp")
     assert "SensitiveUser" not in rendered
+
+
+def test_format_error_masks_windows_profile():
+    rendered = format_error(
+        RuntimeError(r"Не удалось открыть C:\Users\SensitiveUser\Desktop\inventory.json")
+    )
+
+    assert "SensitiveUser" not in rendered
+    assert r"%USERPROFILE%\Desktop\inventory.json" in rendered
 
 
 def test_inventory_tool_contains_no_destructive_process_operation():
