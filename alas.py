@@ -782,7 +782,6 @@ class AzurLaneAutoScript:
     def start(self):
         from module.handler.login import LoginHandler
         LoginHandler(self.config, device=self.device).app_start()
-        self.delay_next_restart()
 
     def goto_main(self):
         from module.handler.login import LoginHandler
@@ -897,7 +896,7 @@ class AzurLaneAutoScript:
 
     def island_juu_eatery(self):
         from module.island.island_juu_eatery import IslandJuuEatery
-        IslandJuuEatery(config=self.config, device=self.device).run()
+        IslandJuuEatery(config=self.config, device=self.device, task="IslandJuuEatery").run()
 
     def island_daily_gather(self):
         from module.island.island_daily_gather import IslandDailyGather
