@@ -117,9 +117,9 @@ class GeneratedConfig:
     Error_SaveErrorCount = 30
     Error_OnePushConfig = 'provider: null'
     Error_ScreenshotLength = 1
-    Error_GameStuckRestart = False
+    Error_GameStuckRestart = True
     Error_GameStuckThreshold = 3
-    Error_AdbOfflineRestart = False
+    Error_AdbOfflineRestart = True
     Error_AdbOfflineThreshold = 3
     Error_LlmAnalysis = False
     Error_LlmApiKey = None
@@ -397,7 +397,7 @@ class GeneratedConfig:
 
     # 配置组 `GuildOperation`
     GuildOperation_Enable = True
-    GuildOperation_SelectNewOperation = False
+    GuildOperation_SelectNewMission = False
     GuildOperation_NewOperationMaxDate = 15
     GuildOperation_JoinThreshold = 1
     GuildOperation_AttackBoss = True
