@@ -303,7 +303,8 @@ class LoginHandler(UI):
                 XPS('//*[@text="同意"]', xp, hierarchy),
                 XPS('//*[@content-desc="同意"]', xp, hierarchy)])
             start_padding_results = self.get_for_any_ele([
-                XPS('//*[@text="隐私政策"]', xp, hierarchy), XPS('//*[@content-desc="隐私政策"]', xp, hierarchy), XPS('//*[@text="用户协议"]', xp, hierarchy), XPS('//*[@content-desc="用户协议"]', xp, hierarchy)])
+                XPS('//*[@text="隐私政策"]', xp, hierarchy), XPS('//*[@content-desc="隐私政策"]', xp, hierarchy),
+                XPS('//*[@text="用户协议"]', xp, hierarchy), XPS('//*[@content-desc="用户协议"]', xp, hierarchy)])
             start_margin_results = self.get_for_any_ele([
                 XPS('//*[@text="请滑动阅读协议内容"]', xp, hierarchy),
                 XPS('//*[@content-desc="请滑动阅读协议内容"]', xp, hierarchy)])
