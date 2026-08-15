@@ -681,7 +681,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         - 任务可能被用户禁用
 
         Args:
-            task (str): 要调用另一个任务名称，如 `Restart`。
+            task (str): 要调用的任务名称，如 `Restart`。
             force_call (bool): 是否强制调用。
 
         Returns:
