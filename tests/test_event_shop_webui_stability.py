@@ -38,6 +38,7 @@ class _LivePlanner(EventPlannerMixin):
     def __init__(self):
         self._event_plan_active_task = "EventShop"
         self.plan = {
+            "event": {"id": "event-test"},
             "shop_items": [
                 {
                     "id": "item-a",
@@ -47,16 +48,21 @@ class _LivePlanner(EventPlannerMixin):
                     "stock": 10,
                     "selected": 0,
                 }
-            ]
+            ],
         }
         self.messages = []
         self.patches = []
         self.refreshes = 0
+        self.synced_targets = []
 
     def _event_plan_mutate(self, mutation, message):
         self.messages.append(message)
         result = mutation(self.plan)
         assert result is None
+        return True
+
+    def _sync_event_shop_target_state(self, snapshot):
+        self.synced_targets.append(dict(snapshot))
         return True
 
     def _patch_event_shop_plan_values(self, identity, snapshot):
@@ -156,6 +162,14 @@ def test_quantity_change_patches_live_values_without_plan_rerender():
     assert planner.plan["shop_items"][0]["selected"] == 1
     assert planner.messages == [""]
     assert planner.refreshes == 0
+    assert planner.synced_targets == [
+        {
+            "event_id": "event-test",
+            "row_id": "item-a",
+            "previous_selected": 0,
+            "selected": 1,
+        }
+    ]
     assert planner.patches == [
         (
             identity,
