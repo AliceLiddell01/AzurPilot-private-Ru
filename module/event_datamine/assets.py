@@ -1,4 +1,4 @@
-"""Generated canonical-source-path to local-static-asset catalog."""
+"""Сгенерированный каталог соответствий canonical source path локальным статическим ассетам."""
 
 from __future__ import annotations
 
@@ -70,12 +70,12 @@ def build_asset_catalog(
     *,
     asset_root: Path | str,
 ) -> dict[str, Any]:
-    """Build mappings from canonical AssetReference paths, never game IDs.
+    """Построить соответствия по canonical-путям AssetReference, а не по game ID.
 
-    Existing EventShop templates are admitted only at developer/build time and
-    only when the compiled row already declares a safe legacy runtime token.
-    Runtime consumes the generated canonical-path mapping and never treats the
-    token as an asset identity.
+    Существующие шаблоны EventShop допускаются только на этапе разработки/сборки
+    и только если скомпилированная строка уже содержит безопасный legacy runtime-токен.
+    Runtime использует сгенерированное соответствие canonical path и никогда не
+    считает такой токен идентичностью ассета.
     """
 
     data_root = Path(artifact_root).resolve()
