@@ -30,6 +30,21 @@ def test_selected_instance_name_has_priority_over_generic_mumu_classification():
     assert relationship == "selected-instance-token"
 
 
+def test_neighbor_instance_name_is_not_selected_by_prefix_substring():
+    relationship = classify_relationship(
+        name="NemuHeadless.exe",
+        executable=r"C:\Program Files\Netease\MuMu\NemuHeadless.exe",
+        command_line=(
+            r'"C:\Program Files\Netease\MuMu\NemuHeadless.exe" '
+            r'--comment MuMuPlayer-15.0-10 --startvm'
+        ),
+        instance_name="MuMuPlayer-15.0-1",
+        instance_id=1,
+    )
+
+    assert relationship == "mumu-related-unclassified"
+
+
 def test_instance_id_token_is_reported_without_claiming_process_ownership():
     relationship = classify_relationship(
         name="MuMuPlayer.exe",

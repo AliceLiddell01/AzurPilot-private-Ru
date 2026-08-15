@@ -137,6 +137,32 @@ def _has_instance_id_token(command_line: str, instance_id: int) -> bool:
     return False
 
 
+def _is_instance_name_char(char: str) -> bool:
+    return char.isalnum() or char in "_.-"
+
+
+def _has_instance_name_token(value: str, instance_name: str) -> bool:
+    """Найти точное имя instance без ложного совпадения `...-1` с `...-10`."""
+    if not value or not instance_name:
+        return False
+
+    haystack = value.casefold()
+    needle = instance_name.casefold()
+    start = 0
+    while True:
+        index = haystack.find(needle, start)
+        if index < 0:
+            return False
+
+        end = index + len(needle)
+        left_ok = index == 0 or not _is_instance_name_char(haystack[index - 1])
+        right_ok = end == len(haystack) or not _is_instance_name_char(haystack[end])
+        if left_ok and right_ok:
+            return True
+
+        start = index + 1
+
+
 def classify_relationship(
     *,
     name: str,
@@ -153,7 +179,7 @@ def classify_relationship(
         return "unrelated"
 
     identity_searchable = f"{name} {executable} {command_line}"
-    if instance_name and instance_name.casefold() in identity_searchable.casefold():
+    if _has_instance_name_token(identity_searchable, instance_name):
         return "selected-instance-token"
 
     if instance_id is not None and _has_instance_id_token(command_line, instance_id):
