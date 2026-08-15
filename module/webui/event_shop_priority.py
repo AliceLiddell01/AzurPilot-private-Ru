@@ -1,14 +1,18 @@
-"""Persistent purchase priorities for the EventShop runtime and WebUI."""
+"""Постоянное состояние приоритетов покупок для EventShop runtime и WebUI."""
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
 from datetime import datetime
+from functools import wraps
 from hashlib import sha256
 from pathlib import Path
+from threading import Lock
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -27,10 +31,12 @@ from module.webui.event_source import load_event_user_state, save_event_user_sta
 
 EVENT_SHOP_PRIORITY_SCHEMA_VERSION = 4
 EVENT_SHOP_PRIORITY_ROOT = Path("./config/state/event_shop_priority")
+_PRIORITY_PROCESS_LOCKS_GUARD = Lock()
+_PRIORITY_PROCESS_LOCKS: dict[str, Lock] = {}
 
 
 class PriorityRuntimeItems(list):
-    """Runtime subset that preserves the complete scan for observation persistence."""
+    """Подмножество runtime-товаров с сохранением полного снимка для наблюдения."""
 
     def __init__(self, values: Iterable[Any], *, observation_items: Sequence[Any]):
         super().__init__(values)
@@ -48,6 +54,73 @@ def event_shop_priority_path(
     instance: str, root: Path | str = EVENT_SHOP_PRIORITY_ROOT
 ) -> Path:
     return Path(root) / f"{_safe_instance_key(instance)}.json"
+
+
+def _process_priority_lock(path: Path) -> Lock:
+    key = str(path.resolve())
+    with _PRIORITY_PROCESS_LOCKS_GUARD:
+        lock = _PRIORITY_PROCESS_LOCKS.get(key)
+        if lock is None:
+            lock = Lock()
+            _PRIORITY_PROCESS_LOCKS[key] = lock
+        return lock
+
+
+@contextmanager
+def _event_shop_priority_write_lock(
+    instance: str,
+    root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
+):
+    """Сериализовать read-modify-write состояния приоритетов между потоками и процессами."""
+
+    state_path = event_shop_priority_path(instance, root)
+    lock_path = state_path.with_suffix(f"{state_path.suffix}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    process_lock = _process_priority_lock(lock_path)
+    with process_lock, lock_path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0, 2)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _priority_writer_locked(func):
+    """Удерживать общий lock файла приоритетов на всём пути read-modify-write."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if args:
+            first = args[0]
+        elif "instance" in kwargs:
+            first = kwargs["instance"]
+        elif "config" in kwargs:
+            first = kwargs["config"]
+        else:
+            raise TypeError("Не удалось определить профиль для блокировки приоритетов")
+        instance = first if isinstance(first, str) else first.config_name
+        root = kwargs.get("root", EVENT_SHOP_PRIORITY_ROOT)
+        with _event_shop_priority_write_lock(str(instance), root):
+            return func(*args, **kwargs)
+
+    return wrapper
 
 
 def empty_event_shop_priority(event_id: str = "") -> dict[str, Any]:
@@ -188,6 +261,7 @@ def load_event_shop_priority(
     return empty_event_shop_priority(event_id)
 
 
+@_priority_writer_locked
 def set_event_shop_priority(
     instance: str,
     event_id: str,
@@ -222,6 +296,7 @@ def set_event_shop_priority(
     return state
 
 
+@_priority_writer_locked
 def update_event_shop_target_state(
     instance: str,
     event_id: str,
@@ -231,7 +306,7 @@ def update_event_shop_target_state(
     *,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> dict[str, Any]:
-    """Keep the purchase baseline attached to the target episode, not priority."""
+    """Хранить точку отсчёта вместе с эпизодом цели, а не с приоритетом."""
     state = load_event_shop_priority(instance, event_id, root=root)
     key = str(row_id)
     before = max(int(previous_selected), 0)
@@ -288,7 +363,7 @@ def _catalog_rows(spec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def _selected_targets(config: Any, event_id: str) -> dict[str, int]:
-    """Read the user's quantity goals for this exact event."""
+    """Прочитать пользовательские цели количества для указанного события."""
     state = load_event_user_state(config.config_name)
     saved_event_id = str(state.get("source_event_id") or "")
     if saved_event_id and saved_event_id != str(event_id or ""):
@@ -312,7 +387,7 @@ def _clear_selected_target(
     row_id: str,
     expected_selected: int,
 ) -> bool:
-    """Clear exactly the goal that was verified, never a newer user edit."""
+    """Очистить только проверенную цель, не затирая более новое изменение пользователя."""
     state = load_event_user_state(config.config_name)
     saved_event_id = str(state.get("source_event_id") or "")
     if saved_event_id and saved_event_id != str(event_id or ""):
@@ -343,7 +418,7 @@ def _target_remaining(
     selected: int,
     baseline_remaining: int | None = None,
 ) -> int:
-    """Return how many units remain in the current user goal."""
+    """Вернуть количество единиц, оставшихся в текущей пользовательской цели."""
     stock = max(int(source.get("stock", 0) or 0), 0)
     current = max(int(getattr(runtime, "count", 0) or 0), 0)
     current = min(current, stock)
@@ -373,7 +448,7 @@ def _verify_pending_purchase(
     ambiguous_filters: set[str],
     catalog_by_id: Mapping[str, Mapping[str, Any]],
 ) -> tuple[bool, str]:
-    """Verify the previous click only from the next complete scanner snapshot."""
+    """Проверить предыдущий клик только по следующему полному снимку сканера."""
     pending = state.get("pending")
     if not isinstance(pending, Mapping) or not pending:
         return True, ""
@@ -463,13 +538,14 @@ def _verify_pending_purchase(
     return True, ""
 
 
+@_priority_writer_locked
 def prepare_event_shop_runtime_items(
     config: Any,
     runtime_items: Sequence[Any],
     *,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> PriorityRuntimeItems:
-    """Build one safe quantity-capped purchase step from a complete scan."""
+    """Сформировать один безопасный шаг покупки из полного снимка сканера."""
     full_scan = list(runtime_items)
     spec = _current_spec(config)
     if spec is None:
@@ -624,9 +700,8 @@ def prepare_event_shop_runtime_items(
     state["blocked"] = blocked
     save_event_shop_priority(config.config_name, state, root=root)
 
-    # One scanner snapshot authorizes at most one logical purchase. Quantity
-    # comes from the user's target and is capped against purchases made since
-    # this target was established.
+    # Один снимок сканера разрешает не более одной логической покупки. Количество
+    # берётся из пользовательской цели и ограничивается покупками с момента её создания.
     next_candidate = safe_candidates[:1]
     filter_tokens = []
     for _, _, _, source, runtime, remaining_goal in next_candidate:
@@ -647,6 +722,7 @@ def prepare_event_shop_runtime_items(
     return PriorityRuntimeItems(selected, observation_items=full_scan)
 
 
+@_priority_writer_locked
 def confirm_event_shop_purchase(
     config: Any,
     runtime_item: Any,
@@ -655,7 +731,7 @@ def confirm_event_shop_purchase(
     remaining_after: int | None = None,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> None:
-    """Record an expected result and force a fresh scan before another click."""
+    """Записать ожидаемый результат и потребовать полный скан перед следующим кликом."""
     del full_purchase
     spec = _current_spec(config)
     if spec is None:
@@ -688,9 +764,8 @@ def confirm_event_shop_purchase(
         f"[Магазин события — приоритеты] Покупка строки {row_id} ожидает повторного полного сканирования: {before} -> {expected}"
     )
 
-    # Stop this pass immediately. Scheduler will enter EventShop again and
-    # scan the whole shop before prepare_event_shop_runtime_items authorizes
-    # another purchase.
+    # Немедленно останавливаем текущий проход. Планировщик снова войдёт в EventShop
+    # и просканирует весь магазин до разрешения следующей покупки.
     config.task_call("EventShop", force_call=True)
     config.task_stop("Повторное сканирование магазина после покупки")
 
@@ -704,7 +779,7 @@ def wake_event_shop_after_currency_increase(
     source: str,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> bool:
-    """Wake EventShop only when a still-unfulfilled quantity target exists."""
+    """Разбудить EventShop только при наличии ещё не выполненной цели количества."""
     if str(source or "") == "event_shop_ocr":
         return False
     if previous_value is None or current_value is None or current_value <= previous_value:
