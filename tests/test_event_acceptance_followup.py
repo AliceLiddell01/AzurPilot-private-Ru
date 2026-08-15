@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import json
+import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from campaign import current_event_alias_targets, install_current_event_aliases
 from module.event_datamine.artifact import BUILTIN_ARTIFACT_ROOT, load_artifact
-from module.event_datamine.campaign_selector import generated_campaign_selector
+from module.event_datamine.campaign_selector import generated_campaign_package_parts
 from module.event_datamine.supplemental import (
     EventSupplementalError,
     load_supplemental,
@@ -15,6 +19,7 @@ from module.event_datamine.supplemental import (
     supplemental_digest,
     validate_supplemental,
 )
+from module.webui import lang as webui_lang
 from module.webui.app import AlasGUI
 from module.webui.app_event_acceptance import EventAcceptanceMixin
 from module.webui.app_event_general_v2 import EventGeneralV2Mixin
@@ -22,6 +27,7 @@ from module.webui.app_event_general_v2 import EventGeneralV2Mixin
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ARTIFACT = BUILTIN_ARTIFACT_ROOT / "production" / "en-51101.json"
+ARGS_PATH = ROOT / "module" / "config" / "argument" / "args.json"
 ACCEPTANCE_CSS = ROOT / "assets" / "gui" / "css" / "event-general-v2-acceptance-alas.css"
 
 
@@ -53,17 +59,33 @@ def test_supplemental_validation_rejects_non_integer_map_fields(field, value):
         validate_supplemental(data)
 
 
-def test_generated_campaign_selector_comes_from_artifact_metadata_and_imports():
+def test_generated_campaign_package_is_derived_from_artifact_metadata():
     artifact = load_artifact(PRODUCTION_ARTIFACT)
-    selector = generated_campaign_selector(artifact)
 
-    assert selector == "event_generated.en_51101"
+    assert generated_campaign_package_parts(artifact) == ("en_51101",)
+
+
+def test_legacy_current_selector_routes_to_generated_package_without_config_rewrite():
+    args_data = json.loads(ARGS_PATH.read_text(encoding="utf-8"))
+    targets = current_event_alias_targets(
+        now=datetime(2026, 8, 15, 12, 0, 0),
+        args_data=args_data,
+    )
+    expected = (ROOT / "campaign" / "generated_event" / "en_51101").resolve()
+    selectors = [selector for selector, target in targets.items() if target == expected]
+
+    assert selectors
+    selector = selectors[0]
+    install_current_event_aliases({selector: expected})
+    sys.modules.pop(f"campaign.{selector}.d3", None)
     module = importlib.import_module(f"campaign.{selector}.d3")
+
+    assert Path(module.__file__).resolve().parent == expected
     assert hasattr(module, "MAP")
     assert hasattr(module, "Campaign")
 
 
-def test_campaign_selector_rejects_mixed_generated_packages():
+def test_campaign_package_validation_rejects_mixed_generated_packages():
     artifact = {
         "metadata": {
             "generated_maps": [
@@ -73,7 +95,7 @@ def test_campaign_selector_rejects_mixed_generated_packages():
         }
     }
     with pytest.raises(ValueError):
-        generated_campaign_selector(artifact)
+        generated_campaign_package_parts(artifact)
 
 
 def test_acceptance_mixin_precedes_legacy_event_general_renderer():
@@ -82,6 +104,32 @@ def test_acceptance_mixin_precedes_legacy_event_general_renderer():
     assert AlasGUI._render_event_sources_v2 is EventAcceptanceMixin._render_event_sources_v2
     assert AlasGUI._render_event_stages_v2 is EventAcceptanceMixin._render_event_stages_v2
     assert AlasGUI._render_event_general_v2 is EventAcceptanceMixin._render_event_general_v2
+
+
+def test_event_map_label_uses_current_event_name_without_mutating_legacy_selector():
+    presenter = _Presenter()
+    presenter.ALAS_ARGS = {
+        "Event": {
+            "Campaign": {
+                "Event": {
+                    "type": "state",
+                    "value": "event_legacy",
+                    "option": ["event_legacy"],
+                    "option_en": ["event_legacy"],
+                    "option_bold": ["event_legacy"],
+                }
+            }
+        }
+    }
+    presenter._current_event_name = lambda: "Current Event"
+    config = {"Event": {"Campaign": {"Event": "event_legacy"}}}
+
+    task_args, returned_config = presenter._prepare_event_map_args("Event", config)
+
+    assert returned_config is config
+    assert task_args["Campaign"]["Event"]["value"] == "event_legacy"
+    assert config["Event"]["Campaign"]["Event"] == "event_legacy"
+    assert webui_lang.dic_lang["Campaign.Event.event_legacy"] == "Current Event"
 
 
 def test_pt_sources_for_same_map_are_presented_as_one_card():

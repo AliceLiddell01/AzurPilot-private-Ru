@@ -1,4 +1,4 @@
-"""Generic bridge from generated Event artifacts to Campaign.Event selectors."""
+"""Validation helpers for generated Event campaign package metadata."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from pathlib import PurePosixPath
 from typing import Any
 
 
-_GENERATED_SELECTOR_ROOT = "event_generated"
 _SAFE_PACKAGE_PART = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -16,13 +15,12 @@ class EventCampaignSelectorError(ValueError):
     """Generated Event artifact cannot be represented as a safe campaign package."""
 
 
-def generated_campaign_selector(artifact: Mapping[str, Any]) -> str:
-    """Build the runtime Campaign.Event package from generated-map metadata.
+def generated_campaign_package_parts(artifact: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return one validated generated campaign package from artifact metadata.
 
-    ``metadata.generated_maps[*].module`` is authoritative for the generated
-    package location.  The returned selector uses the stable ``event_generated``
-    namespace alias, so runtime event handling still follows the normal
-    ``event*`` path without embedding an activity id in production logic.
+    The activity id is never encoded in behavior here.  The package location is
+    derived exclusively from ``metadata.generated_maps[*].module`` and must be
+    identical for all verified generated maps.
     """
 
     metadata = artifact.get("metadata")
@@ -57,5 +55,4 @@ def generated_campaign_selector(artifact: Mapping[str, Any]) -> str:
         raise EventCampaignSelectorError(
             "Generated maps должны принадлежать одному campaign package"
         )
-    parent = next(iter(parents))
-    return ".".join((_GENERATED_SELECTOR_ROOT, *parent))
+    return next(iter(parents))

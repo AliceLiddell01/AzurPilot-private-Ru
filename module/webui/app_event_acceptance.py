@@ -9,10 +9,6 @@ from html import escape
 from typing import Any
 
 import module.webui.lang as webui_lang
-from module.event_datamine.campaign_selector import (
-    EventCampaignSelectorError,
-    generated_campaign_selector,
-)
 from module.logger import logger
 from module.webui.app_dependencies import (
     current_time,
@@ -408,7 +404,7 @@ class EventAcceptanceMixin:
         with use_scope("group_EventStages", clear=True):
             self._render_event_stages_v2(plan=plan, remaining_pt=remaining_pt)
 
-    def _current_event_campaign(self) -> tuple[str, str] | None:
+    def _current_event_name(self) -> str | None:
         if is_demo_mode():
             return None
         artifact, unavailable = resolve_current_event_artifact(
@@ -416,18 +412,13 @@ class EventAcceptanceMixin:
         )
         if artifact is None:
             if unavailable:
-                logger.warning("[WebUI — ивент] Current campaign selector недоступен")
-            return None
-        try:
-            selector = generated_campaign_selector(artifact)
-        except EventCampaignSelectorError as exc:
-            logger.warning(f"[WebUI — ивент] Generated campaign selector отклонён: {exc}")
+                logger.warning("[WebUI — ивент] Текущий Event artifact недоступен")
             return None
         spec = artifact.get("event_spec")
         if not isinstance(spec, Mapping):
             return None
-        name = str(spec.get("name") or selector)
-        return selector, name
+        name = str(spec.get("name") or "").strip()
+        return name or None
 
     def _prepare_event_map_args(
         self,
@@ -435,27 +426,31 @@ class EventAcceptanceMixin:
         config: Mapping[str, Any],
     ) -> tuple[dict[str, Any], Mapping[str, Any]]:
         task_args = copy.deepcopy(dict(self.ALAS_ARGS[task]))
-        current = self._current_event_campaign()
-        if current is None:
+        event_name = self._current_event_name()
+        if event_name is None:
             return task_args, config
-        selector, event_name = current
+
+        selector = str(deep_get(config, [task, "Campaign", "Event"], "") or "").strip()
+        if not selector.startswith("event_"):
+            return task_args, config
         campaign = task_args.get("Campaign")
         if not isinstance(campaign, dict):
             return task_args, config
         event_arg = campaign.get("Event")
         if not isinstance(event_arg, dict):
             return task_args, config
+        options = {
+            str(item)
+            for field in ("option", "option_en", "option_bold")
+            for item in (event_arg.get(field) or [])
+        }
+        if selector not in options:
+            return task_args, config
 
-        event_arg["value"] = selector
-        event_arg["option"] = [selector]
-        event_arg["option_en"] = [selector]
-        event_arg["option_bold"] = [selector]
+        # Keep the legacy config value valid for ConfigUpdater, but present the
+        # source-backed current Event name.  campaign/__init__.py installs the
+        # matching runtime package alias from the same registry metadata.
         webui_lang.dic_lang[f"Campaign.Event.{selector}"] = event_name
-
-        saved = deep_get(config, [task, "Campaign", "Event"], None)
-        if saved != selector:
-            self._event_config_update({f"{task}.Campaign.Event": selector})
-            config = self.alas_config.read_file(self.alas_name)
         return task_args, config
 
     @use_scope("content", clear=True)
