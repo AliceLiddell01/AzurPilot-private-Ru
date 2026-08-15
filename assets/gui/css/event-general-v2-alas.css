@@ -635,13 +635,6 @@
     line-height: 1.42;
 }
 
-.event-quest-original {
-    color: color-mix(in srgb, var(--event-muted) 82%, transparent);
-    font-size: .66rem;
-    line-height: 1.35;
-    overflow-wrap: anywhere;
-}
-
 .event-quest-reward {
     position: absolute;
     right: 16px;
