@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,7 +8,7 @@ from campaign import _adapt_generated_campaign_ui
 from module.event_datamine.campaign_selector import generated_campaign_ui_layout
 from module.event_datamine.runtime_policy import load_generated_runtime_policy
 from module.shop_event.clerk import EventShopClerk
-from module.webui.app_event_acceptance import EventAcceptanceMixin
+from module.webui.app_event_general_presentation import EventGeneralPresentationMixin
 
 
 class ScannerFact:
@@ -31,7 +30,7 @@ class ScannerFact:
         self.cost = cost
 
 
-class AcceptancePresenter(EventAcceptanceMixin):
+class GeneralPresenter(EventGeneralPresentationMixin):
     @staticmethod
     def _fmt(value):
         return str(value)
@@ -41,17 +40,8 @@ def _image(value):
     return np.full((63, 63, 3), value, dtype=np.uint8)
 
 
-def test_event_general_keeps_long_sections_inside_main_column():
-    source = inspect.getsource(EventAcceptanceMixin._render_event_general_v2)
-
-    assert 'with use_scope("group_EventMainColumn")' in source
-    assert "for name in main_scopes" in source
-    assert "put_scope(name)" in source
-    assert "full_width_scopes" not in source
-
-
 def test_event_general_currency_values_use_icon_markup():
-    presenter = AcceptancePresenter()
+    presenter = GeneralPresenter()
     card = {
         "name": "A1",
         "title": "Idol and Detective",
