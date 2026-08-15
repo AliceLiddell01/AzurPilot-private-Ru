@@ -39,8 +39,8 @@ from module.webui.app_dependencies import (
 from module.webui.app_developer_menu import DeveloperMenuMixin
 from module.webui.app_developer_settings import DeveloperSettingsMixin
 from module.webui.app_developer_tools import DeveloperToolsMixin
-from module.webui.app_event_acceptance import EventAcceptanceMixin
 from module.webui.app_event_datamine import EventDatamineMixin
+from module.webui.app_event_general_presentation import EventGeneralPresentationMixin
 from module.webui.app_event_general_v2 import EventGeneralV2Mixin
 from module.webui.app_event_layout import EventLayoutMixin
 from module.webui.app_event_profiles import EventProfilesMixin
@@ -103,7 +103,7 @@ class AlasGUI(
     ShipExperienceStatisticsMixin,
     CommissionIncomeStatisticsMixin,
     EventShopLiveMixin,
-    EventAcceptanceMixin,
+    EventGeneralPresentationMixin,
     EventGeneralV2Mixin,
     EventProfilesMixin,
     EventDatamineMixin,
@@ -217,20 +217,16 @@ def app():
             preloaded_styles=("alas",),
         )
         # Event CSS загружается до построения меню/контента, чтобы первый кадр
-        # магазина не зависел от асинхронной загрузки stylesheet через DOM.
+        # не зависел от асинхронной загрузки stylesheet через DOM.
         add_css(filepath_css("event-profiles-alas"))
         add_css(filepath_css("event-general-v2-alas"))
-        add_css(filepath_css("event-general-v2-polish-alas"))
-        add_css(filepath_css("event-general-v2-acceptance-alas"))
         add_css(filepath_css("event-shop-stability-alas"))
         add_css(filepath_css("traceback-alas"))
         if _block_public_webui_password_error():
             return
         localstorage = None
         if is_webui_password_set(key):
-            localstorage = get_localstorage_values(
-                ("password", "aside")
-            )
+            localstorage = get_localstorage_values(("password", "aside"))
         if is_webui_password_set(key) and not login(
             key, stored_password=localstorage.get("password")
         ):
