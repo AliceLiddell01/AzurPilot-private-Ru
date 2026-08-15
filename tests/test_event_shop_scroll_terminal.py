@@ -45,6 +45,22 @@ def test_event_shop_scroll_restores_default_threshold_after_set(monkeypatch):
     assert EVENT_SHOP_SCROLL.drag_threshold == 0.1
 
 
+def test_event_shop_scroll_precise_reidentification_has_no_random_offset(monkeypatch):
+    observed = []
+
+    def fake_set(self, position, main, random_range=(-0.05, 0.05), distance_check=True, skip_first_screenshot=True):
+        observed.append((position, self.drag_threshold, random_range))
+        return 1
+
+    monkeypatch.setattr(Scroll, "set", fake_set)
+
+    assert EVENT_SHOP_SCROLL.set_precise(0.3007513823848454, object()) == 1
+    assert observed == [
+        (0.3007513823848454, 0.02, (0.0, 0.0)),
+    ]
+    assert EVENT_SHOP_SCROLL.drag_threshold == 0.1
+
+
 def test_event_shop_scroll_serializes_temporary_threshold_override(monkeypatch):
     first_entered = Event()
     release_first = Event()
