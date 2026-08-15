@@ -34,6 +34,7 @@ def test_event_shop_scroll_restores_default_threshold_after_set(monkeypatch):
         return 1
 
     monkeypatch.setattr(Scroll, "set", fake_set)
+    monkeypatch.setattr(EVENT_SHOP_SCROLL, "wait_content_stable", lambda main: True)
 
     assert EVENT_SHOP_SCROLL.set(0.69, object()) == 1
     assert observed == [0.1]
@@ -53,6 +54,7 @@ def test_event_shop_scroll_precise_reidentification_has_no_random_offset(monkeyp
         return 1
 
     monkeypatch.setattr(Scroll, "set", fake_set)
+    monkeypatch.setattr(EVENT_SHOP_SCROLL, "wait_content_stable", lambda main: True)
 
     assert EVENT_SHOP_SCROLL.set_precise(0.3007513823848454, object()) == 1
     assert observed == [
@@ -77,6 +79,7 @@ def test_event_shop_scroll_serializes_temporary_threshold_override(monkeypatch):
         return position
 
     monkeypatch.setattr(Scroll, "set", fake_set)
+    monkeypatch.setattr(EVENT_SHOP_SCROLL, "wait_content_stable", lambda main: True)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         first = executor.submit(EVENT_SHOP_SCROLL.set, 1.0, object())
