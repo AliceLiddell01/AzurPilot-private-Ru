@@ -35,6 +35,7 @@ ObservationSource = Literal[
     "fixture",
     "replay",
 ]
+CurrencyEvidenceSource = Literal["dashboard_ocr", "event_shop_ocr"]
 _OBSERVATION_PROCESS_LOCKS_GUARD = Lock()
 _OBSERVATION_PROCESS_LOCKS: dict[str, Lock] = {}
 
@@ -93,7 +94,9 @@ def empty_event_observation(
     }
 
 
-def _optional_non_negative_int(value: Any) -> int | None:
+def normalize_current_pt_value(value: Any) -> int | None:
+    """Нормализовать наблюдаемое значение PT как неотрицательное целое."""
+
     if value is None or value == "":
         return None
     try:
@@ -101,6 +104,12 @@ def _optional_non_negative_int(value: Any) -> int | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return result if result >= 0 else None
+
+
+def _optional_non_negative_int(value: Any) -> int | None:
+    """Обратная совместимость для внутренних вызовов старого имени helper."""
+
+    return normalize_current_pt_value(value)
 
 
 def _finding(code: str, message: str, path: str = "") -> ObservationFinding:
@@ -165,7 +174,7 @@ def normalize_event_observation(
         return result
     result["observed_at"] = str(raw.get("observed_at") or "")
     result["source"] = str(raw.get("source") or "")
-    result["current_pt"] = _optional_non_negative_int(raw.get("current_pt"))
+    result["current_pt"] = normalize_current_pt_value(raw.get("current_pt"))
     for field in (
         "current_pt_source",
         "current_pt_observed_at",
@@ -231,6 +240,49 @@ def _current_pt_candidate_is_newer(
     )
 
 
+def apply_current_pt_evidence(
+    observation: dict[str, Any],
+    *,
+    value: Any,
+    timestamp: str,
+    source: CurrencyEvidenceSource,
+) -> bool:
+    """Применить единый контракт выбора и записи свежего PT evidence."""
+
+    if not _current_pt_candidate_is_newer(timestamp, observation):
+        return False
+    if not observation.get("source"):
+        observation["source"] = source
+    if not observation.get("observed_at"):
+        observation["observed_at"] = timestamp
+    observation["current_pt_source"] = source
+    observation["current_pt_observed_at"] = timestamp
+    observation["current_pt"] = normalize_current_pt_value(value)
+    current_pt_evidence = {"observed_at": timestamp}
+    observation["current_pt_status"] = (
+        "observed"
+        if observation["current_pt"] is not None
+        and observation_is_fresh(current_pt_evidence)
+        else "stale"
+        if observation["current_pt"] is not None
+        else "unavailable"
+    )
+    observation["findings"] = [
+        item
+        for item in observation.get("findings", [])
+        if item.get("path") != "current_pt"
+    ]
+    if observation["current_pt"] is None:
+        observation["findings"].append(
+            _finding(
+                "current_pt_unavailable",
+                "OCR не предоставил валидный баланс PT",
+                "current_pt",
+            )
+        )
+    return True
+
+
 def _process_observation_lock(path: Path) -> Lock:
     key = str(path.resolve())
     with _OBSERVATION_PROCESS_LOCKS_GUARD:
@@ -242,7 +294,7 @@ def _process_observation_lock(path: Path) -> Lock:
 
 
 @contextmanager
-def _event_observation_write_lock(path: Path):
+def event_observation_write_lock(path: Path):
     """Сериализовать read-modify-write observation внутри процесса и между процессами."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,6 +322,9 @@ def _event_observation_write_lock(path: Path):
                 yield
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+_event_observation_write_lock = event_observation_write_lock
 
 
 def save_event_observation(
@@ -385,7 +440,7 @@ def dashboard_pt_observation(
     result["observed_at"] = str(recorded_at or "")
     result["current_pt_source"] = "dashboard_ocr"
     result["current_pt_observed_at"] = str(recorded_at or "")
-    result["current_pt"] = _optional_non_negative_int(value)
+    result["current_pt"] = normalize_current_pt_value(value)
     if result["current_pt"] is None:
         result["findings"].append(
             _finding(
@@ -421,7 +476,7 @@ def persist_current_pt_observation(
     source_revision: str,
     value: Any,
     observed_at: datetime | None = None,
-    source: Literal["dashboard_ocr", "event_shop_ocr"] = "event_shop_ocr",
+    source: CurrencyEvidenceSource = "event_shop_ocr",
     root: Path | str = EVENT_OBSERVATION_ROOT,
 ) -> dict[str, Any]:
     """Сохранить свежее OCR-наблюдение для точной идентичности текущего события."""
@@ -437,7 +492,7 @@ def persist_current_pt_observation(
         source_revision=source_revision,
     )
     lock_path = observation_path.with_suffix(f"{observation_path.suffix}.lock")
-    with _event_observation_write_lock(lock_path):
+    with event_observation_write_lock(lock_path):
         observation = load_event_observation(
             instance,
             event_id,
@@ -445,36 +500,12 @@ def persist_current_pt_observation(
             source_revision,
             root=root,
         )
-        if not _current_pt_candidate_is_newer(timestamp, observation):
+        if not apply_current_pt_evidence(
+            observation,
+            value=value,
+            timestamp=timestamp,
+            source=source,
+        ):
             return observation
-        if not observation.get("source"):
-            observation["source"] = source
-        if not observation.get("observed_at"):
-            observation["observed_at"] = timestamp
-        observation["current_pt_source"] = source
-        observation["current_pt_observed_at"] = timestamp
-        observation["current_pt"] = _optional_non_negative_int(value)
-        current_pt_evidence = {"observed_at": timestamp}
-        observation["current_pt_status"] = (
-            "observed"
-            if observation["current_pt"] is not None
-            and observation_is_fresh(current_pt_evidence)
-            else "stale"
-            if observation["current_pt"] is not None
-            else "unavailable"
-        )
-        observation["findings"] = [
-            item
-            for item in observation.get("findings", [])
-            if item.get("path") != "current_pt"
-        ]
-        if observation["current_pt"] is None:
-            observation["findings"].append(
-                _finding(
-                    "current_pt_unavailable",
-                    "OCR не предоставил валидный баланс PT",
-                    "current_pt",
-                )
-            )
         save_event_observation(instance, observation, root=root)
         return observation
