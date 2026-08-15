@@ -79,14 +79,25 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
-_TRACEBACK_PATH_ALIASES = tuple(
-    (re.compile(re.escape(local_path), re.IGNORECASE), alias)
-    for local_path, alias in (
-        (str(Path(__file__).resolve().parent.parent), "<PROJECT_ROOT>"),
-        (str(Path.home().resolve()), "<USER_HOME>"),
-    )
-    if local_path
-)
+
+
+def _build_traceback_path_aliases():
+    """Безопасно вычислить локальные path-aliases, не рискуя импортом logger."""
+    aliases = []
+    for resolver, alias in (
+        (lambda: Path(__file__).resolve().parent.parent, "<PROJECT_ROOT>"),
+        (lambda: Path.home().resolve(), "<USER_HOME>"),
+    ):
+        try:
+            local_path = str(resolver())
+        except (OSError, RuntimeError):
+            continue
+        if local_path:
+            aliases.append((re.compile(re.escape(local_path), re.IGNORECASE), alias))
+    return tuple(aliases)
+
+
+_TRACEBACK_PATH_ALIASES = _build_traceback_path_aliases()
 
 
 def sanitize_traceback_text(value) -> str:
