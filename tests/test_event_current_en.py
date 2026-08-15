@@ -84,6 +84,21 @@ def test_current_fixture_compiles_complete_relations_with_independent_oracles():
     assert spec.to_dict() == EventCompiler(_loader()).compile(candidate.activity_id).to_dict()
 
 
+def test_current_compiler_rejects_unlocalized_event_title(monkeypatch):
+    loader = _loader()
+    candidate = _current(loader)
+    compiler = EventCompiler(loader)
+    monkeypatch.setattr(compiler, "_linked_name", lambda *_: "未本地化活动")
+
+    spec = compiler.compile(candidate.activity_id)
+
+    assert spec.name == f"Activity {candidate.activity_id}"
+    assert any(
+        item.code == "source_name_unlocalized" and item.path == "event.name"
+        for item in spec.findings
+    )
+
+
 def test_committed_current_artifact_and_production_resolver_use_fixture_result():
     compiled = EventCompiler(_loader()).compile(_current(_loader()).activity_id).to_dict()
     artifact = load_artifact(
