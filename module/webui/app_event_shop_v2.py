@@ -1,4 +1,4 @@
-"""Focused EventShop WebUI: quantity targets, purchase priorities and compact task controls."""
+"""Компактный EventShop WebUI: цели количества, приоритеты покупок и настройки задачи."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-from module.config.deep import deep_get, deep_set
+from module.config.deep import deep_get
 from module.webui.app_dependencies import (
     logger,
     pin_on_change,
@@ -24,7 +24,6 @@ from module.webui.app_dependencies import (
     toast,
     use_scope,
 )
-from module.webui.app_helpers import is_demo_mode
 from module.webui.app_types import WebUIMixinBase
 from module.webui.event_assets import event_asset_url
 from module.webui.event_shop_priority import (
@@ -55,7 +54,7 @@ def _shop_presentation_names() -> dict[str, str]:
 
 
 class EventShopV2Mixin(WebUIMixinBase):
-    """Override only the EventShop surface; other Event pages keep their layout."""
+    """Переопределить только поверхность EventShop, не меняя остальные Event-страницы."""
 
     @staticmethod
     def _event_shop_display_name(name: Any) -> str:
@@ -67,7 +66,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         item: Mapping[str, Any],
         priority_state: Mapping[str, Any],
     ) -> int:
-        """Return the still-unfulfilled part of the current user quantity goal."""
+        """Вернуть ещё не выполненную часть текущей пользовательской цели количества."""
         row_id = str(item.get("id") or "")
         stock = max(int(item.get("stock", 0) or 0), 0)
         priorities = set(priority_state.get("priorities") or {})
@@ -154,7 +153,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         row_id: str,
         live_key: str,
     ) -> None:
-        """Patch priority-derived values without rebuilding the catalog."""
+        """Обновить зависимые от приоритета значения без перестройки каталога."""
         plan = self._event_plan()
         event = plan.get("event", {})
         if not isinstance(event, Mapping) or str(event.get("id") or "") != event_id:
@@ -205,7 +204,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         identity: tuple[str, str, str, int, int],
         snapshot: Mapping[str, int],
     ) -> None:
-        """Patch quantity target and priority metrics after +/-/MAX/reset."""
+        """Обновить цель количества и метрики приоритета после +/-/MAX/сброса."""
         plan = self._event_plan()
         event = plan.get("event", {})
         if not isinstance(event, Mapping):
@@ -357,18 +356,6 @@ class EventShopV2Mixin(WebUIMixinBase):
         if not isinstance(arg_defs, Mapping):
             return
 
-        if not bool(deep_get(config, [task, "Scheduler", "Sensitive"], False)):
-            if not is_demo_mode():
-                try:
-                    self._event_config_update(
-                        {f"{task}.Scheduler.Sensitive": True}
-                    )
-                    deep_set(config, [task, "Scheduler", "Sensitive"], True)
-                except Exception as exc:
-                    logger.warning(
-                        f"[WebUI — магазин события] Не удалось закрепить чувствительный режим задачи: {exc}"
-                    )
-
         put_html(
             '<div class="event-shop-task-heading">'
             "<strong>Настройки задачи</strong>"
@@ -406,7 +393,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         )
 
     def _render_event_shop_priority_plan(self, config: Mapping[str, Any]) -> None:
-        """Render quantity goals and independent purchase ordering."""
+        """Отрисовать цели количества и независимый порядок покупок."""
         del config
         plan = self._event_plan()
         event = plan.get("event", {})
@@ -613,7 +600,7 @@ class EventShopV2Mixin(WebUIMixinBase):
                 )
 
     def _render_event_shop_plan(self, config: Mapping[str, Any]) -> None:
-        """Keep partial refreshes on the V2 surface instead of the legacy grid."""
+        """Сохранять частичные обновления на V2-поверхности вместо legacy-сетки."""
         self._render_event_shop_priority_plan(config)
 
     def _render_event_shop_layout(self, *, task, group_map, config) -> None:
