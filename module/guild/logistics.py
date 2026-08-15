@@ -207,7 +207,7 @@ class GuildLogistics(GuildBase):
             # Guild mission choose in JP server disabled until we get the screenshot.
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
-            #     # Guild mission choose found
+            #     # Guild mission choose available if user is guild master
             #     logger.info('Guild mission choose found')
             #     return True
             # else:
@@ -248,7 +248,7 @@ class GuildLogistics(GuildBase):
             logger.info('[Гильдия — логистика] Задание гильдии не найдено; возможно, задание этой недели ещё не началось')
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
-            #     # Guild mission choose found
+            #     # Guild mission choose available if user is guild master
             #     logger.info('Guild mission choose found')
             #     return True
             # else:
