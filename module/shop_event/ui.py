@@ -1,5 +1,4 @@
-"""
-Навигация и определение состояния интерфейса магазина события.
+"""Навигация и определение состояния интерфейса магазина события.
 
 Содержит проверку страницы магазина, OCR баланса, управление полосой прокрутки
 и навигацию по вкладкам. EventShopScroll учитывает особенности полосы прокрутки
@@ -8,10 +7,13 @@
 
 Pages: in: EVENT_SHOP
 """
-import numpy as np
 import re
 from datetime import datetime, timedelta
 from threading import RLock
+from time import monotonic, sleep
+
+import cv2
+import numpy as np
 
 import module.config.server as server
 from module.base.button import ButtonGrid
@@ -31,6 +33,14 @@ from module.ui.navbar import Navbar
 from module.ui.scroll import Scroll
 from module.ui.ui import UI
 
+EVENT_SHOP_SETTLE_AREA = (221, 194, 1049, 632)
+EVENT_SHOP_SETTLE_SAMPLE_INTERVAL = 0.08
+EVENT_SHOP_SETTLE_TIMEOUT = 1.5
+EVENT_SHOP_SETTLE_REQUIRED_PAIRS = 3
+EVENT_SHOP_SETTLE_PIXEL_DELTA = 12
+EVENT_SHOP_SETTLE_CHANGED_RATIO = 0.015
+EVENT_SHOP_SETTLE_MEAN_DELTA = 1.5
+
 
 class EventShopScroll(Scroll):
     terminal_drag_threshold = 0.02
@@ -42,28 +52,83 @@ class EventShopScroll(Scroll):
             return min(self.terminal_drag_threshold, self.edge_threshold)
         return self.drag_threshold
 
+    @staticmethod
+    def _content_frames_stable(previous, current):
+        """Проверить, что область карточек магазина перестала заметно двигаться."""
+        if not isinstance(previous, np.ndarray) or not isinstance(current, np.ndarray):
+            return False
+        if not previous.size or not current.size or previous.shape != current.shape:
+            return False
+
+        delta = cv2.absdiff(previous, current)
+        if delta.ndim == 3:
+            delta = np.max(delta, axis=2)
+        mean_delta = float(np.mean(delta))
+        changed_ratio = float(np.mean(delta >= EVENT_SHOP_SETTLE_PIXEL_DELTA))
+        return (
+            mean_delta <= EVENT_SHOP_SETTLE_MEAN_DELTA
+            and changed_ratio <= EVENT_SHOP_SETTLE_CHANGED_RATIO
+        )
+
+    def wait_content_stable(self, main):
+        """Адаптивно дождаться стабилизации карточек после движения scrollbar.
+
+        OCR не должен стартовать по переходному кадру сразу после swipe. Вместо
+        фиксированной задержки требуются несколько последовательных визуально
+        стабильных пар кадров. Ожидание ограничено жёстким timeout.
+        """
+        previous = main.image_crop(EVENT_SHOP_SETTLE_AREA, copy=True)
+        stable_pairs = 0
+        deadline = monotonic() + EVENT_SHOP_SETTLE_TIMEOUT
+
+        while monotonic() < deadline:
+            sleep(EVENT_SHOP_SETTLE_SAMPLE_INTERVAL)
+            main.device.screenshot()
+            current = main.image_crop(EVENT_SHOP_SETTLE_AREA, copy=True)
+
+            if self._content_frames_stable(previous, current):
+                stable_pairs += 1
+                if stable_pairs >= EVENT_SHOP_SETTLE_REQUIRED_PAIRS:
+                    logger.debug(
+                        '[Магазин события — сканер] Область карточек стабилизировалась после прокрутки'
+                    )
+                    return True
+            else:
+                stable_pairs = 0
+
+            previous = current
+
+        logger.warning(
+            '[Магазин события — сканер] Область карточек не стабилизировалась до тайм-аута'
+        )
+        return False
+
     def set(self, position, main, random_range=(-0.05, 0.05), distance_check=True, skip_first_screenshot=True):
         with self._set_lock:
             default_drag_threshold = self.drag_threshold
             self.drag_threshold = self._drag_threshold_for_target(position)
             try:
-                return super().set(
+                dragged = super().set(
                     position,
                     main=main,
                     random_range=random_range,
                     distance_check=distance_check,
                     skip_first_screenshot=skip_first_screenshot,
                 )
+                if dragged:
+                    self.wait_content_stable(main)
+                return dragged
             finally:
                 self.drag_threshold = default_drag_threshold
 
     def set_precise(self, position, main, distance_check=True, skip_first_screenshot=True):
-        """Вернуться к сохранённой позиции товара без случайного смещения.
+        """Вернуться к сохранённой позиции товара и доказать стабильность кадра.
 
         Полный scan может использовать грубый порог прокрутки, но повторная
         идентификация конкретного товара перед покупкой зависит от той же
         геометрии карточек, на которой был получен исходный OCR-снимок. Поэтому
-        здесь запрещено обычное random_range и используется строгий порог.
+        здесь запрещено обычное random_range, используется строгий порог, а
+        destructive click разрешается только после visual-settle gate.
         """
         with self._set_lock:
             default_drag_threshold = self.drag_threshold
@@ -72,13 +137,18 @@ class EventShopScroll(Scroll):
                 self._drag_threshold_for_target(position),
             )
             try:
-                return super().set(
+                dragged = super().set(
                     position,
                     main=main,
                     random_range=(0.0, 0.0),
                     distance_check=distance_check,
                     skip_first_screenshot=skip_first_screenshot,
                 )
+                if not self.wait_content_stable(main):
+                    raise GameStuckError(
+                        '[Магазин события — покупка] Карточки не стабилизировались перед повторной идентификацией товара'
+                    )
+                return dragged
             finally:
                 self.drag_threshold = default_drag_threshold
 
