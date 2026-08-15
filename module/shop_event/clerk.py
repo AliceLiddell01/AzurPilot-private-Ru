@@ -1,9 +1,10 @@
 """
-活动商店店员逻辑。
+Логика управления магазином события.
 
-负责活动商店的购买流程，包括商品网格检测、商品定位与筛选、
-数量选择和确认购买。支持 PT/UR 点数货币类型。
-继承 EventShopUI 以复用商店界面导航能力。
+Отвечает за процесс покупки в магазине события: обнаружение сетки товаров,
+поиск и фильтрацию товаров, выбор количества и подтверждение покупки.
+Поддерживает валюты PT и UR-очков и наследует EventShopUI для навигации
+по интерфейсу магазина.
 
 Pages: in: EVENT_SHOP
 """
@@ -40,6 +41,7 @@ from module.shop_event.notification_policy import apply_event_shop_notification_
 from module.shop_event.ui import EVENT_SHOP_SCROLL, EventShopUI
 from module.ui_white.assets import BACK_ARROW_WHITE
 from module.webui.event_shop_priority import (
+    PriorityRuntimeItems,
     confirm_event_shop_purchase,
     prepare_event_shop_runtime_items,
 )
@@ -132,7 +134,7 @@ class EventShopClerk(EventShopUI):
 
     @staticmethod
     def _prefer_amount_max(current, target, maximum_hint):
-        """Use MAX only when it is provably a shorter click path to target."""
+        """Использовать MAX только когда это доказанно сокращает путь до цели."""
         try:
             current = int(current)
             target = int(target)
@@ -165,7 +167,7 @@ class EventShopClerk(EventShopUI):
             delta_y = 215
         else:
             logger.warning(f"[Магазин события — покупка] Некорректное число рядов: {row}; предполагается, что полоса прокрутки сверху")
-            y = 1 + DETECT_AREA[1]  # Start position is 1 pixel lower than detect area
+            y = 1 + DETECT_AREA[1]  # Начальная позиция на 1 пиксель ниже области обнаружения.
             delta_y = 215
 
         shop_grid = ButtonGrid(
@@ -232,7 +234,7 @@ class EventShopClerk(EventShopUI):
             logger.warning(
                 f"[Магазин события — приоритеты] Не удалось подготовить план покупок: {exc}"
             )
-            return []
+            return PriorityRuntimeItems([], observation_items=items)
 
     def event_shop_buy_item(self, item_to_buy, amount=None):
         scroll_pos = item_to_buy.scroll_pos
@@ -243,7 +245,7 @@ class EventShopClerk(EventShopUI):
         if len(items) == 0:
             logger.error(f'[Магазин события — покупка] Товар {item_to_buy} не найден в позиции прокрутки {scroll_pos}')
             logger.warning(f'[Магазин события — покупка] Будет предпринята попытка повторного запуска задачи')
-            raise ItemNotFoundError(f'Item {item_to_buy} not found at scroll position {scroll_pos}')
+            raise ItemNotFoundError(f'Товар {item_to_buy} не найден в позиции прокрутки {scroll_pos}')
         elif len(items) > 1:
             logger.warning(f'[Магазин события — покупка] В позиции прокрутки {scroll_pos} найдено несколько товаров {item_to_buy}; покупается первый')
         item = items[0]
@@ -254,7 +256,7 @@ class EventShopClerk(EventShopUI):
             item_count = 0
             requested = 0
         full_purchase = item_count > 0 and requested >= item_count
-        # For ship items, while it may have multiple stock, can only buy one at a time.
+        # Корабельный товар может иметь несколько единиц запаса, но покупается по одной.
         if getattr(item, 'is_ship', False):
             buy_times = item.count if amount is None else min(amount, item.count)
             for _ in range(buy_times):
