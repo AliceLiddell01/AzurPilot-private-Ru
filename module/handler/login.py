@@ -127,7 +127,7 @@ class LoginHandler(UI):
                 continue
             # 主界面弹窗
             if self.ui_page_main_popups(get_ship=login_success):
-                return True
+                continue
             # 始终尝试返回主界面
             if self.appear_then_click(GOTO_MAIN, offset=(30, 30), interval=5):
                 continue
