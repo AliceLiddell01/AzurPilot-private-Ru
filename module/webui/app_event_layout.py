@@ -37,7 +37,8 @@ from module.webui.event_plan import shop_plan_total
 from module.webui.event_source import resolve_current_event_artifact
 
 EVENT_MAP_TASKS = frozenset({"Event", "Event2", "Event3"})
-EVENT_LAYOUT_TASKS = EVENT_MAP_TASKS | {"EventGeneral", "EventShop"}
+EVENT_LAYOUT_TASKS = EVENT_MAP_TASKS | {"EventShop"}
+EVENT_MODERN_TASKS = EVENT_LAYOUT_TASKS | {"EventGeneral", "EventRewards"}
 EVENT_MAP_PRIMARY_GROUPS = (
     "Scheduler",
     "Campaign",
@@ -51,7 +52,7 @@ _TARGET_PT = "event_modern_target_pt"
 
 
 class EventLayoutMixin(EventPlannerMixin):
-    """Рендерить Event-страницы через один канонический layout-контракт."""
+    """Рендерить Event-карты и магазин через один канонический layout-контракт."""
 
     @staticmethod
     def _event_group_map(task_args: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
@@ -110,7 +111,7 @@ class EventLayoutMixin(EventPlannerMixin):
 
     def init_menu(self, collapse_menu: bool = True, name: str | None = None) -> None:
         """Снять Event-only DOM state при переходе на другую поверхность WebUI."""
-        if name not in EVENT_LAYOUT_TASKS:
+        if name not in EVENT_MODERN_TASKS:
             self._unmark_event_page()
         super().init_menu(collapse_menu=collapse_menu, name=name)
 
@@ -479,10 +480,7 @@ class EventLayoutMixin(EventPlannerMixin):
             )
         group_map = self._event_group_map(dict(task_args))
 
-        if task == "EventGeneral":
-            self._event_plan_active_task = task
-            self._render_event_general_v2(config=config, group_map=group_map)
-        elif task in EVENT_MAP_TASKS:
+        if task in EVENT_MAP_TASKS:
             self._event_plan_active_task = task
             self._render_event_map_layout(
                 task=task,
@@ -498,6 +496,5 @@ class EventLayoutMixin(EventPlannerMixin):
 
     def alas_set_group(self, task: str) -> None:
         if task not in EVENT_LAYOUT_TASKS:
-            self._unmark_event_page()
             return super().alas_set_group(task)
         return self._alas_set_event_group(task)
