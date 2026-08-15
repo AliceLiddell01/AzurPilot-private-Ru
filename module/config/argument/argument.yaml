@@ -181,11 +181,11 @@ Error:
     mode: yaml
     value: "provider: null"
   ScreenshotLength: 1
-  GameStuckRestart: false
+  GameStuckRestart: true
   GameStuckThreshold:
     value: 3
     validate: [1, 10]
-  AdbOfflineRestart: false
+  AdbOfflineRestart: true
   AdbOfflineThreshold:
     value: 3
     validate: [1, 10]

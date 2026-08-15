@@ -379,7 +379,7 @@
       },
       "GameStuckRestart": {
         "type": "checkbox",
-        "value": false
+        "value": true
       },
       "GameStuckThreshold": {
         "type": "input",
@@ -391,7 +391,7 @@
       },
       "AdbOfflineRestart": {
         "type": "checkbox",
-        "value": false
+        "value": true
       },
       "AdbOfflineThreshold": {
         "type": "input",
