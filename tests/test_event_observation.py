@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from module.event_datamine.artifact import load_builtin_artifact
+from module.webui import event_source
 from module.webui.event_observation import (
     dashboard_pt_observation,
     empty_event_observation,
@@ -135,7 +136,7 @@ def test_corrupt_observation_is_backed_up_before_fail_closed_fallback(tmp_path: 
 
 
 def test_event_shop_pt_ocr_is_persisted_under_exact_revision(tmp_path: Path):
-    observed = datetime(2026, 8, 13, 16, tzinfo=timezone.utc)
+    observed = datetime.now(timezone.utc)
     revision = "c" * 40
 
     result = persist_current_pt_observation(
@@ -188,3 +189,37 @@ def test_older_dashboard_evidence_cannot_replace_fresh_event_shop_ocr():
 
     assert not _current_pt_evidence_is_newer(dashboard, stored)
     assert _current_pt_evidence_is_newer(stored, dashboard)
+
+
+def test_matching_runtime_identity_with_older_evidence_has_distinct_finding(monkeypatch):
+    artifact = load_builtin_artifact("rose_tower.json")
+    spec = artifact["event_spec"]
+    event_id = str(spec["id"])
+    server = str(spec.get("server") or "EN")
+    revision = str(spec.get("provenance", {}).get("revision") or "")
+    stored = empty_event_observation(event_id, server, "ap", revision)
+    stored.update(
+        {
+            "current_pt": 100,
+            "current_pt_source": "event_shop_ocr",
+            "current_pt_observed_at": "2026-08-13T17:00:00+00:00",
+            "current_pt_status": "observed",
+        }
+    )
+    runtime = {
+        "event_id": event_id,
+        "server": server,
+        "source_revision": revision,
+        "current_pt": 90,
+        "current_pt_source": "dashboard_ocr",
+        "current_pt_observed_at": "2026-08-13T16:00:00+00:00",
+        "current_pt_status": "observed",
+    }
+    monkeypatch.setattr(event_source, "load_event_observation", lambda *args, **kwargs: dict(stored))
+    monkeypatch.setattr(event_source, "load_event_user_state", lambda *args, **kwargs: empty_event_user_state())
+
+    plan = event_source.load_event_plan_from_artifact("ap", artifact, runtime)
+    codes = {item.get("code") for item in plan["observation"]["findings"]}
+
+    assert "runtime_observation_not_newer" in codes
+    assert "runtime_observation_identity_rejected" not in codes
