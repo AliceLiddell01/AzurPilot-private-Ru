@@ -546,8 +546,8 @@ body.event-modern-active .modal-content .modal-body,
     padding: 13px 15px;
 }
 
-/* Progressive disclosure for rare runtime controls. */
-.event-advanced-details {
+/* Редкие runtime-настройки рендерятся сразу в native collapse. */
+#pywebio-scope-content.event-modern-page details[style*="--event-advanced-details--"] {
     overflow: hidden;
     margin: 10px 0 14px;
     border: 1px solid var(--event-border);
@@ -555,7 +555,7 @@ body.event-modern-active .modal-content .modal-body,
     background: color-mix(in srgb, var(--event-surface) 86%, transparent);
 }
 
-.event-advanced-details > summary {
+#pywebio-scope-content.event-modern-page details[style*="--event-advanced-details--"] > summary {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -565,35 +565,32 @@ body.event-modern-active .modal-content .modal-body,
     color: var(--event-text);
     font-size: .84rem;
     font-weight: 650;
-    list-style: none;
     user-select: none;
 }
 
-.event-advanced-details > summary::-webkit-details-marker { display: none; }
-.event-advanced-details[open] > summary { border-bottom: 1px solid var(--event-divider); }
-.event-advanced-description { padding: 10px 15px 6px; color: var(--event-muted); font-size: .78rem; }
-.event-advanced-body { padding: 0 8px 8px; }
-
-.event-details-chevron {
-    width: 8px;
-    height: 8px;
-    border-right: 1.5px solid var(--event-muted);
-    border-bottom: 1.5px solid var(--event-muted);
-    transform: rotate(45deg) translateY(-2px);
-    transition: transform var(--event-ease);
+#pywebio-scope-content.event-modern-page details[style*="--event-advanced-details--"][open] > summary {
+    border-bottom: 1px solid var(--event-divider);
 }
 
-.event-advanced-details[open] .event-details-chevron { transform: rotate(225deg) translate(-2px, -2px); }
+.event-advanced-description {
+    padding: 10px 15px 6px;
+    color: var(--event-muted);
+    font-size: .78rem;
+}
 
-#pywebio-scope-content.event-modern-page .event-advanced-body > [id^="pywebio-scope-group_"] {
+#pywebio-scope-content.event-modern-page [id^="pywebio-scope-event_advanced_"] {
+    padding: 0 8px 8px;
+}
+
+#pywebio-scope-content.event-modern-page [id^="pywebio-scope-event_advanced_"] > [id^="pywebio-scope-group_"] {
     margin: 6px 0 0 !important;
     border-radius: 13px !important;
     background: color-mix(in srgb, var(--event-surface-soft) 76%, transparent) !important;
     box-shadow: none !important;
 }
 
-/* Native maintenance collapses are deliberately subordinate. */
-#pywebio-scope-content.event-modern-page details:not(.event-advanced-details) {
+/* Остальные native collapse остаются вторичными. */
+#pywebio-scope-content.event-modern-page details:not([style*="--event-advanced-details--"]) {
     overflow: hidden;
     margin-top: 10px;
     border: 1px solid var(--event-border);
@@ -601,7 +598,7 @@ body.event-modern-active .modal-content .modal-body,
     background: color-mix(in srgb, var(--event-surface-soft) 78%, transparent);
 }
 
-#pywebio-scope-content.event-modern-page details:not(.event-advanced-details) > summary {
+#pywebio-scope-content.event-modern-page details:not([style*="--event-advanced-details--"]) > summary {
     padding: 11px 13px;
     color: var(--event-muted);
     font-size: .8rem;
