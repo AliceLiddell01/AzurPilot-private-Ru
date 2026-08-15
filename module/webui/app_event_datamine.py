@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from module.event_datamine.artifact import load_builtin_artifact
+from module.event_datamine.supplemental import enrich_event_plan_with_supplemental
 from module.logger import logger
 from module.webui.app_dependencies import current_time, deep_get, toast
 from module.webui.app_helpers import is_demo_mode
@@ -39,9 +40,10 @@ class EventDatamineMixin:
             recorded_at=deep_get(config, "Dashboard.Pt.Record", ""),
             now=now,
         )
-        return load_event_plan_from_artifact(
+        plan = load_event_plan_from_artifact(
             self.alas_name, artifact, dashboard_observation
         )
+        return enrich_event_plan_with_supplemental(plan, spec)
 
     def _activate_generated_event_source(self) -> None:
         if is_demo_mode():

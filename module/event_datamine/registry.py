@@ -191,7 +191,13 @@ class EventArtifactRegistry:
             and artifact_lifecycle(item, now) in {"active", "redemption"}
         )
 
-    def resolve_current(self, server: str, now: datetime) -> dict[str, Any] | None:
+    def resolve_current(
+        self,
+        server: str,
+        now: datetime,
+        *,
+        supplemental: bool = True,
+    ) -> dict[str, Any] | None:
         entries = self.list(server)
         for phase in ("active", "redemption"):
             matches = [
@@ -201,7 +207,15 @@ class EventArtifactRegistry:
                 and artifact_lifecycle(item, now) == phase
             ]
             if len(matches) == 1:
-                return matches[0]["artifact"]
+                artifact = matches[0]["artifact"]
+                if not supplemental:
+                    return artifact
+                from module.event_datamine.supplemental import (
+                    resolve_supplemental_artifact,
+                )
+
+                resolved, _ = resolve_supplemental_artifact(artifact)
+                return resolved
             if len(matches) > 1:
                 raise EventDiscoveryError(
                     "ambiguous_active_event",
