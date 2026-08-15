@@ -1,4 +1,4 @@
-"""Controlled Windows/MuMu live acceptance runner for Stage 3.
+"""Контролируемый приёмочный запуск Windows/MuMu для Stage 3.
 
 Этот файл намеренно не начинается с ``test_`` и не выполняется pytest/CI.
 Он разрушительно завершает выбранный MuMu instance только при явном
@@ -57,7 +57,7 @@ class ForcedGracefulFailurePlatform:
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description='Controlled destructive Stage 3 emulator recovery acceptance smoke.',
+        description='Контролируемая разрушительная приёмочная проверка восстановления эмулятора Stage 3.',
     )
     parser.add_argument('--config', default=DEFAULT_CONFIG_NAME)
     parser.add_argument(
@@ -99,6 +99,7 @@ def _require_runtime_safety(script: AzurLaneAutoScript):
 
 
 def _run_full_chain(script: AzurLaneAutoScript, platform) -> None:
+    old_device = script.device
     real_game_restart = script._try_restart_game
     health_calls = 0
 
@@ -142,6 +143,8 @@ def _run_full_chain(script: AzurLaneAutoScript, platform) -> None:
         )
     if getattr(script, '_emulator_recovery_transport_lost', False):
         raise RuntimeError('После успешной full-chain recovery transport остался помечен как lost.')
+    if script.device is old_device:
+        raise RuntimeError('Recovery не создала fresh Device.')
 
     logger.info('[Stage 3 live smoke] Full-chain hard-kill recovery PASS')
 
