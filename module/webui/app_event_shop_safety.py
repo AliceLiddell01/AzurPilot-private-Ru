@@ -1,4 +1,4 @@
-"""Fail-closed automation bridge between the visual Event shop plan and EventShop."""
+"""Fail-closed мост между визуальным планом магазина события и EventShop."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from module.webui.event_shop_bridge import (
 
 
 class EventShopSafetyMixin(EventShopV2Mixin):
-    """Keep visual shop edits synchronized without weakening EventShop safety."""
+    """Синхронизировать правки магазина без ослабления защитных ограничений EventShop."""
 
     def _set_event_shop_scheduler(self, enabled: bool) -> bool:
-        """Change only EventShop Scheduler.Enable and report whether it was written."""
+        """Изменить только EventShop Scheduler.Enable и сообщить об успешной записи."""
         try:
             self._event_config_update({"EventShop.Scheduler.Enable": bool(enabled)})
         except Exception as exc:
@@ -57,7 +57,7 @@ class EventShopSafetyMixin(EventShopV2Mixin):
         *,
         announce: bool,
     ) -> bool:
-        """Synchronize a safe plan and pause Scheduler whenever it is not expressible."""
+        """Синхронизировать безопасный план и ставить Scheduler на паузу при неоднозначности."""
         total = shop_plan_total(plan)
         compiled = build_event_shop_automation_plan(plan)
 
@@ -120,7 +120,7 @@ class EventShopSafetyMixin(EventShopV2Mixin):
         return True
 
     def _event_plan_write(self, plan: Mapping[str, Any], message: str) -> bool:
-        """Persist EventPlan, then keep EventShop automation consistent with it."""
+        """Сохранить EventPlan и затем привести автоматизацию EventShop в согласованное состояние."""
         saved = super()._event_plan_write(plan, message)
         if not saved:
             return False
@@ -128,10 +128,8 @@ class EventShopSafetyMixin(EventShopV2Mixin):
         self._sync_shop_plan_fail_closed(plan, announce=False)
         return True
 
-    def _render_event_shop_plan(self, config: Mapping[str, Any]) -> None:
-        """Legacy plan renderer kept for cross-page compatibility; V2 bypasses it."""
-        super()._render_event_shop_plan(config)
-
+    def _render_event_shop_safety_status(self, config: Mapping[str, Any]) -> None:
+        """Отрисовать состояние fail-closed автоматизации для текущего плана магазина."""
         plan = self._event_plan()
         total = shop_plan_total(plan)
         compiled = build_event_shop_automation_plan(plan)
@@ -183,8 +181,23 @@ class EventShopSafetyMixin(EventShopV2Mixin):
                     "не меняет цель фарма.</span></div>"
                 )
 
+    def _render_event_shop_plan(self, config: Mapping[str, Any]) -> None:
+        """Сохранить safety-статус при частичной перерисовке V2-плана."""
+        super()._render_event_shop_plan(config)
+        self._render_event_shop_safety_status(config)
+
+    def _render_event_shop_layout(self, *, task, group_map, config) -> None:
+        """Добавить safety-статус уже на первом V2-рендере страницы."""
+        super()._render_event_shop_layout(
+            task=task,
+            group_map=group_map,
+            config=config,
+        )
+        with use_scope("group_EventShopPlan"):
+            self._render_event_shop_safety_status(config)
+
     def _apply_shop_plan_to_automation(self) -> None:
-        """Compatibility/manual entry point; the normal UI syncs changes automatically."""
+        """Ручная точка совместимости; обычный UI синхронизирует изменения автоматически."""
         if not self._event_write_allowed():
             return
         self._sync_shop_plan_fail_closed(
