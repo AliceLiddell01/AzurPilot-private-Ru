@@ -127,7 +127,7 @@ class LoginHandler(UI):
                 continue
             # 主界面弹窗
             if self.ui_page_main_popups(get_ship=login_success):
-                return True
+                continue
             # 始终尝试返回主界面
             if self.appear_then_click(GOTO_MAIN, offset=(30, 30), interval=5):
                 continue
@@ -303,8 +303,7 @@ class LoginHandler(UI):
                 XPS('//*[@text="同意"]', xp, hierarchy),
                 XPS('//*[@content-desc="同意"]', xp, hierarchy)])
             start_padding_results = self.get_for_any_ele([
-                XPS('//*[@text="隐私政策"]', xp, hierarchy), XPS('//*[@content-desc="隐私政策"]', xp, hierarchy),
-                XPS('//*[@text="用户协议"]', xp, hierarchy), XPS('//*[@content-desc="用户协议"]', xp, hierarchy)])
+                XPS('//*[@text="隐私政策"]', xp, hierarchy), XPS('//*[@content-desc="隐私政策"]', xp, hierarchy), XPS('//*[@text="用户协议"]', xp, hierarchy), XPS('//*[@content-desc="用户协议"]', xp, hierarchy)])
             start_margin_results = self.get_for_any_ele([
                 XPS('//*[@text="请滑动阅读协议内容"]', xp, hierarchy),
                 XPS('//*[@content-desc="请滑动阅读协议内容"]', xp, hierarchy)])
