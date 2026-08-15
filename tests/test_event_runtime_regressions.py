@@ -31,6 +31,12 @@ class ScannerFact:
         self.cost = cost
 
 
+class AcceptancePresenter(EventAcceptanceMixin):
+    @staticmethod
+    def _fmt(value):
+        return str(value)
+
+
 def _image(value):
     return np.full((63, 63, 3), value, dtype=np.uint8)
 
@@ -45,7 +51,7 @@ def test_event_general_keeps_long_sections_inside_main_column():
 
 
 def test_event_general_currency_values_use_icon_markup():
-    presenter = EventAcceptanceMixin()
+    presenter = AcceptancePresenter()
     card = {
         "name": "A1",
         "title": "Idol and Detective",

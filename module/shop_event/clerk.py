@@ -208,9 +208,10 @@ class EventShopClerk(EventShopUI):
         event_shop_items.load_template_folder('./assets/shop/event')
         return event_shop_items
 
-    def event_shop_get_items(self, scroll_pos=None, *, extract_templates=True):
+    def event_shop_get_items(self, scroll_pos=None):
         self.event_shop_items.grids = self._get_event_shop_grid()
-        if self.config.SHOP_EXTRACT_TEMPLATE and extract_templates:
+        extract_templates = bool(getattr(self, "_scan_extract_templates", True))
+        if bool(getattr(self.config, "SHOP_EXTRACT_TEMPLATE", False)) and extract_templates:
             self.event_shop_items.extract_template(self.device.image, './assets/shop/event')
         self.event_shop_items.predict(
             self.device.image,
@@ -235,36 +236,44 @@ class EventShopClerk(EventShopUI):
 
     def _scan_event_shop_observations(self, *, extract_templates=True):
         items = []
-        EVENT_SHOP_SCROLL.set_top(main=self)
-        while 1:
-            new_items = self.event_shop_get_items(
-                scroll_pos=EVENT_SHOP_SCROLL.cal_position(main=self),
-                extract_templates=extract_templates,
-            )
-            if items and new_items:
-                old_last_row = [
-                    item for item in items if item.button[1] == items[-1].button[1]
-                ]
-                new_first_row = [
-                    item for item in new_items if item.button[1] == new_items[0].button[1]
-                ]
-                new_second_row = [
-                    item for item in new_items if item.button[1] != new_items[0].button[1]
-                ]
-                remainder = self._scanner_overlap_remainder(old_last_row, new_first_row)
-                if len(remainder) != len(new_first_row):
-                    logger.info(
-                        '[Магазин события — покупка] Доказанные повторяющиеся товары overlap пропущены'
-                    )
-                    items += remainder + new_second_row
+        sentinel = object()
+        previous = getattr(self, "_scan_extract_templates", sentinel)
+        self._scan_extract_templates = bool(extract_templates)
+        try:
+            EVENT_SHOP_SCROLL.set_top(main=self)
+            while 1:
+                new_items = self.event_shop_get_items(
+                    scroll_pos=EVENT_SHOP_SCROLL.cal_position(main=self),
+                )
+                if items and new_items:
+                    old_last_row = [
+                        item for item in items if item.button[1] == items[-1].button[1]
+                    ]
+                    new_first_row = [
+                        item for item in new_items if item.button[1] == new_items[0].button[1]
+                    ]
+                    new_second_row = [
+                        item for item in new_items if item.button[1] != new_items[0].button[1]
+                    ]
+                    remainder = self._scanner_overlap_remainder(old_last_row, new_first_row)
+                    if len(remainder) != len(new_first_row):
+                        logger.info(
+                            '[Магазин события — покупка] Доказанные повторяющиеся товары overlap пропущены'
+                        )
+                        items += remainder + new_second_row
+                    else:
+                        items += new_items
                 else:
                     items += new_items
+                if EVENT_SHOP_SCROLL.at_bottom(main=self):
+                    logger.info('Достигнут конец магазина события')
+                    break
+                EVENT_SHOP_SCROLL.next_page(main=self, page=0.66)
+        finally:
+            if previous is sentinel:
+                self.__dict__.pop("_scan_extract_templates", None)
             else:
-                items += new_items
-            if EVENT_SHOP_SCROLL.at_bottom(main=self):
-                logger.info('Достигнут конец магазина события')
-                break
-            EVENT_SHOP_SCROLL.next_page(main=self, page=0.66)
+                self._scan_extract_templates = previous
         return items
 
     def scan_all(self):
@@ -272,7 +281,10 @@ class EventShopClerk(EventShopUI):
         logger.hr('Сканирование магазина события', level=2)
         items = self._scan_event_shop_observations(extract_templates=True)
 
-        if self.config.SHOP_EXTRACT_TEMPLATE and self._has_unresolved_template_items(items):
+        if (
+            bool(getattr(self.config, "SHOP_EXTRACT_TEMPLATE", False))
+            and self._has_unresolved_template_items(items)
+        ):
             logger.info(
                 '[Магазин события — товар] После извлечения шаблонов остались временные numeric identity; '
                 'выполняется один полный стабилизирующий перескан без нового извлечения'
