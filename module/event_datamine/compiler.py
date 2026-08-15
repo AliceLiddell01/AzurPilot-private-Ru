@@ -73,7 +73,7 @@ def _date_part(value: Any) -> str:
             int(_at(clock, 1, 0)),
             int(_at(clock, 2, 0)),
         ).isoformat(sep=" ")
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return ""
 
 
