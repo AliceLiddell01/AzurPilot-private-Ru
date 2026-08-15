@@ -85,7 +85,7 @@ def _activity_times(row: Mapping[str, Any]) -> tuple[str, str]:
 def classify_pt_task_config(
     configs: Any, *, task_ids: set[int], map_ids: set[int]
 ) -> tuple[dict[int, str], set[int]]:
-    """Classify only by the numeric source relation encoded in taskConfig."""
+    """Классифицировать только по числовой связи источника из taskConfig."""
     group_kinds = {
         1: "first_clear",
         2: "daily_first_clear",
@@ -206,7 +206,7 @@ class EventCompiler:
                 ValidationFinding(
                     "source_name_unlocalized",
                     "warning",
-                    "EN ShareCfg содержит нелокализованное имя; используется техническая identity",
+                    "EN ShareCfg содержит нелокализованное имя; используется технический идентификатор",
                     path,
                 )
             )
@@ -415,8 +415,10 @@ class EventCompiler:
 
         memories = self._table("memory_group", required=False)
         medals = self._table("activity_medal_group", required=False)
-        name = self._linked_name(activity_id, memories, medals)
-        if not name:
+        linked_name = self._linked_name(activity_id, memories, medals)
+        if linked_name:
+            name = self._name(linked_name, f"Activity {activity_id}", "event.name")
+        else:
             name = f"Activity {activity_id}"
             self.findings.append(
                 ValidationFinding(
