@@ -326,6 +326,7 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
                 consecutive_game_stuck = 0
                 consecutive_adb_offline = 0
                 last_emulator_restart_time = 0
+                _emulator_recovery_transport_lost = False
 
                 def __init__(self):
                     self.config, self.checker, self.device = cfg, checker, dev
