@@ -41,11 +41,7 @@ def current_event_alias_targets(
 
     if args_data is None:
         args_data = json.loads(_ARGS_PATH.read_text(encoding="utf-8"))
-    event_arg = (
-        args_data.get("Event", {})
-        .get("Campaign", {})
-        .get("Event", {})
-    )
+    event_arg = args_data.get("Event", {}).get("Campaign", {}).get("Event", {})
     if not isinstance(event_arg, dict):
         return {}
 
@@ -59,7 +55,9 @@ def current_event_alias_targets(
         if not server or not isinstance(raw_options, list):
             continue
         try:
-            artifact = registry.resolve_current(server, current_time)
+            artifact = registry.resolve_current(
+                server, current_time, supplemental=False
+            )
         except (EventDiscoveryError, OSError, TypeError, ValueError, json.JSONDecodeError):
             continue
         if artifact is None:
