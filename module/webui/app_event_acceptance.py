@@ -1,4 +1,4 @@
-"""Final Stage 5 acceptance pass for current-event presentation and selector sync."""
+"""Финальный acceptance-слой Stage 5 для EventGeneral и ивентовой карты."""
 
 from __future__ import annotations
 
@@ -8,24 +8,29 @@ from collections.abc import Mapping
 from html import escape
 from typing import Any
 
-import module.webui.lang as webui_lang
 from module.logger import logger
 from module.webui.app_dependencies import (
     current_time,
     deep_get,
+    put_html,
     put_none,
     put_row,
     put_scope,
     t,
+    to_server,
     use_scope,
 )
-from module.webui.app_event_layout import EVENT_MAP_TASKS
+from module.webui.app_event_layout import (
+    EVENT_MAP_ADVANCED_GROUPS,
+    EVENT_MAP_PRIMARY_GROUPS,
+    EVENT_MAP_TASKS,
+)
 from module.webui.app_helpers import is_demo_mode
 from module.webui.event_source import resolve_current_event_artifact
 
 
 class EventAcceptanceMixin:
-    """Acceptance fixes shared by EventGeneral and current Event map settings."""
+    """Acceptance-исправления представления текущего события."""
 
     @staticmethod
     def _stage_title(stage: Mapping[str, Any]) -> str:
@@ -109,9 +114,17 @@ class EventAcceptanceMixin:
         if kind == "repeatable_map_clear":
             return "Обычное прохождение", ""
         if kind == "daily_first_clear":
-            if isinstance(multiplier, int) and not isinstance(multiplier, bool) and multiplier > 1:
+            if (
+                isinstance(multiplier, int)
+                and not isinstance(multiplier, bool)
+                and multiplier > 1
+            ):
                 return "Первое прохождение дня", f"×{multiplier}"
-            if isinstance(daily_limit, int) and not isinstance(daily_limit, bool) and daily_limit == 1:
+            if (
+                isinstance(daily_limit, int)
+                and not isinstance(daily_limit, bool)
+                and daily_limit == 1
+            ):
                 return "Одно прохождение в день", ""
             return "Ежедневное прохождение", ""
         if kind == "first_clear":
@@ -171,7 +184,8 @@ class EventAcceptanceMixin:
             suffix_html = f'<em>{escape(suffix)}</em>' if suffix else ""
             rows.append(
                 '<span class="event-source-value-row">'
-                f'<small>{escape(caption)}</small><b>{escape(value)} PT {suffix_html}</b></span>'
+                f'<small>{escape(caption)}</small>'
+                f'<b>{escape(value)} PT {suffix_html}</b></span>'
             )
         return (
             '<article class="event-source-card event-source-card-v2 event-source-card-combined">'
@@ -189,8 +203,6 @@ class EventAcceptanceMixin:
         ]
         other_sources = [item for item in overview if item not in map_sources]
         combined = self._combined_map_pt_sources(plan, map_sources)
-
-        from module.webui.app_dependencies import put_html
 
         put_html(
             '<div class="event-general-v2-section-heading"><div>'
@@ -234,7 +246,9 @@ class EventAcceptanceMixin:
             )
 
         if not rendered:
-            put_html('<div class="event-inline-empty">Источники PT пока не отображаются.</div>')
+            put_html(
+                '<div class="event-inline-empty">Источники PT пока не отображаются.</div>'
+            )
 
     @staticmethod
     def _stage_presentation_signature(stage: Mapping[str, Any]) -> str:
@@ -246,6 +260,7 @@ class EventAcceptanceMixin:
                 "mode",
                 "points",
                 "oil",
+                "coin",
                 "coins",
                 "clear_rewards",
                 "three_star_rewards",
@@ -273,7 +288,9 @@ class EventAcceptanceMixin:
                 existing["variant_ids"].append(identity)
         return list(unique.values())
 
-    def _render_farm_card(self, stage: Mapping[str, Any], remaining_pt: int | None) -> str:
+    def _render_farm_card(
+        self, stage: Mapping[str, Any], remaining_pt: int | None
+    ) -> str:
         points = stage.get("points")
         runs = (
             None
@@ -304,7 +321,9 @@ class EventAcceptanceMixin:
         cost: list[str] = []
         oil = stage.get("oil")
         if oil is not None:
-            cost.append(f'<span><small>Нефть</small><b>{escape(self._fmt(oil))}</b></span>')
+            cost.append(
+                f'<span><small>Нефть</small><b>{escape(self._fmt(oil))}</b></span>'
+            )
         planning: list[str] = []
         if runs is not None:
             planning.append(
@@ -333,7 +352,9 @@ class EventAcceptanceMixin:
                 f'<div class="event-farm-facts">{"".join(planning)}</div></div>'
             )
 
-        rewards = self._reward_line("Награда за первое прохождение", stage.get("clear_rewards"))
+        rewards = self._reward_line(
+            "Награда за первое прохождение", stage.get("clear_rewards")
+        )
         rewards += self._reward_line("Награда за 3★", stage.get("three_star_rewards"))
         return (
             '<article class="event-farm-card event-farm-card-v2">'
@@ -347,8 +368,6 @@ class EventAcceptanceMixin:
         plan: Mapping[str, Any],
         remaining_pt: int | None,
     ) -> None:
-        from module.webui.app_dependencies import put_html
-
         put_html(
             '<div class="event-general-v2-section-heading"><div>'
             "<strong>Этапы фарма</strong>"
@@ -361,7 +380,9 @@ class EventAcceptanceMixin:
             rendered = True
             special = self._map_group_key(rows[0].get("name")) == "SPECIAL"
             section_class = " event-map-group-special" if special else ""
-            cards = "".join(self._render_farm_card(stage, remaining_pt) for stage in rows)
+            cards = "".join(
+                self._render_farm_card(stage, remaining_pt) for stage in rows
+            )
             put_html(
                 f'<section class="event-map-group{section_class}">'
                 f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
@@ -371,7 +392,18 @@ class EventAcceptanceMixin:
                 "</section>"
             )
         if not rendered:
-            put_html('<div class="event-inline-empty">Этапы фарма пока не отображаются.</div>')
+            put_html(
+                '<div class="event-inline-empty">Этапы фарма пока не отображаются.</div>'
+            )
+
+    @staticmethod
+    def _event_general_scope_layout() -> tuple[tuple[str, str], tuple[str, str]]:
+        """Единый контракт: верх двухколоночный, длинные секции полноширинные."""
+
+        return (
+            ("group_EventMainColumn", "group_EventSideColumn"),
+            ("group_EventSources", "group_EventStages"),
+        )
 
     def _render_event_general_v2(
         self,
@@ -380,13 +412,14 @@ class EventAcceptanceMixin:
         group_map: Mapping[str, Any],
     ) -> None:
         plan = self._event_plan()
+        top_scopes, full_width_scopes = self._event_general_scope_layout()
         with use_scope("groups"):
             put_row(
-                [put_scope("group_EventMainColumn"), put_scope("group_EventSideColumn")],
+                [put_scope(name) for name in top_scopes],
                 size="minmax(0, 1fr) minmax(330px, 360px)",
             ).style("--event-general-v2-layout--")
-            put_scope("group_EventSources")
-            put_scope("group_EventStages")
+            for name in full_width_scopes:
+                put_scope(name)
 
         with use_scope("group_EventMainColumn"):
             put_scope("group_EventOverview")
@@ -395,20 +428,32 @@ class EventAcceptanceMixin:
             put_scope("group_TaskBalancer")
 
         with use_scope("group_EventOverview", clear=True):
-            _, remaining_pt = self._render_event_overview_summary(plan=plan, config=config)
+            _, remaining_pt = self._render_event_overview_summary(
+                plan=plan, config=config
+            )
         with use_scope("group_EventProfiles", clear=True):
             self._render_event_profiles_compact(config)
-        self._render_named_group("EventGeneral", "TaskBalancer", group_map, config, False)
+        self._render_named_group(
+            "EventGeneral", "TaskBalancer", group_map, config, False
+        )
         with use_scope("group_EventSources", clear=True):
             self._render_event_sources_v2(plan)
         with use_scope("group_EventStages", clear=True):
             self._render_event_stages_v2(plan=plan, remaining_pt=remaining_pt)
 
-    def _current_event_name(self) -> str | None:
+    def _current_event_name(self, config: Mapping[str, Any]) -> str | None:
         if is_demo_mode():
             return None
+        package_name = str(
+            deep_get(config, ["Alas", "Emulator", "PackageName"], "") or ""
+        ).strip()
+        if not package_name:
+            return None
+        server = str(to_server(package_name) or "").strip().upper()
+        if not server:
+            return None
         artifact, unavailable = resolve_current_event_artifact(
-            server="EN", now=current_time()
+            server=server, now=current_time()
         )
         if artifact is None:
             if unavailable:
@@ -424,53 +469,101 @@ class EventAcceptanceMixin:
         self,
         task: str,
         config: Mapping[str, Any],
-    ) -> tuple[dict[str, Any], Mapping[str, Any]]:
-        task_args = copy.deepcopy(dict(self.ALAS_ARGS[task]))
-        event_name = self._current_event_name()
-        if event_name is None:
-            return task_args, config
+    ) -> tuple[dict[str, Any], Mapping[str, Any], str | None]:
+        """Скрыть stale selector локально, не меняя config и глобальный i18n."""
 
-        selector = str(deep_get(config, [task, "Campaign", "Event"], "") or "").strip()
+        task_args = copy.deepcopy(dict(self.ALAS_ARGS[task]))
+        event_name = self._current_event_name(config)
+        if event_name is None:
+            return task_args, config, None
+
+        selector = str(
+            deep_get(config, [task, "Campaign", "Event"], "") or ""
+        ).strip()
         if not selector.startswith("event_"):
-            return task_args, config
+            return task_args, config, None
         campaign = task_args.get("Campaign")
         if not isinstance(campaign, dict):
-            return task_args, config
+            return task_args, config, None
         event_arg = campaign.get("Event")
         if not isinstance(event_arg, dict):
-            return task_args, config
+            return task_args, config, None
         options = {
             str(item)
-            for field in ("option", "option_en", "option_bold")
+            for field in ("option", f"option_{to_server(str(deep_get(config, ['Alas', 'Emulator', 'PackageName'], '')))}")
             for item in (event_arg.get(field) or [])
         }
         if selector not in options:
-            return task_args, config
+            return task_args, config, None
 
-        # Keep the legacy config value valid for ConfigUpdater, but present the
-        # source-backed current Event name.  campaign/__init__.py installs the
-        # matching runtime package alias from the same registry metadata.
-        webui_lang.dic_lang[f"Campaign.Event.{selector}"] = event_name
-        return task_args, config
+        event_arg["display"] = "hide"
+        return task_args, config, event_name
+
+    def _render_event_map_layout_acceptance(
+        self,
+        *,
+        task: str,
+        group_map: Mapping[str, Any],
+        config: Mapping[str, Any],
+        current_event_name: str | None,
+    ) -> None:
+        with use_scope("groups"):
+            put_html(
+                '<div class="event-map-intro"><span>Ивентовая карта</span>'
+                '<small>Основное — на виду, редкие параметры — ниже.</small></div>'
+            )
+            if current_event_name:
+                put_html(
+                    '<div class="event-map-current-event">'
+                    '<span>Название события</span>'
+                    f'<strong>{escape(current_event_name)}</strong>'
+                    '<small>Определено автоматически по текущему Event artifact.</small>'
+                    '</div>'
+                )
+        for name in EVENT_MAP_PRIMARY_GROUPS:
+            self._render_named_group(task, name, group_map, config)
+        self._render_advanced(
+            task=task,
+            title="Расширенные настройки карты",
+            description="Подводный флот, контроль HP и приоритет вражеских флотов.",
+            names=EVENT_MAP_ADVANCED_GROUPS,
+            group_map=group_map,
+            config=config,
+        )
 
     @use_scope("content", clear=True)
     def _alas_set_event_group(self, task: str) -> None:
         config = self.alas_config.read_file(self.alas_name)
         task_args: Mapping[str, Any] = self.ALAS_ARGS[task]
+        current_event_name: str | None = None
         if task in EVENT_MAP_TASKS:
-            task_args, config = self._prepare_event_map_args(task, config)
+            task_args, config, current_event_name = self._prepare_event_map_args(
+                task, config
+            )
 
         self.init_menu(name=task)
         self.set_title(t(f"Task.{task}.name"))
-        put_scope("_groups", [put_none(), put_scope("groups"), put_scope("navigator")])
+        put_scope(
+            "_groups",
+            [put_none(), put_scope("groups"), put_scope("navigator")],
+        )
         self._mark_event_page(task)
         group_map = self._event_group_map(dict(task_args))
         if task == "EventGeneral":
             self._event_plan_active_task = task
-            self._render_event_general_layout(task=task, group_map=group_map, config=config)
+            self._render_event_general_layout(
+                task=task, group_map=group_map, config=config
+            )
         elif task in EVENT_MAP_TASKS:
             self._event_plan_active_task = task
-            self._render_event_map_layout(task=task, group_map=group_map, config=config)
+            self._render_event_map_layout_acceptance(
+                task=task,
+                group_map=group_map,
+                config=config,
+                current_event_name=current_event_name,
+            )
         elif task == "EventShop":
             self._event_plan_active_task = task
-            self._render_event_shop_layout(task=task, group_map=group_map, config=config)
+            self._render_event_shop_layout(
+                task=task, group_map=group_map, config=config
+            )

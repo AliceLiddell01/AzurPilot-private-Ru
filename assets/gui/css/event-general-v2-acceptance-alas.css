@@ -1,6 +1,6 @@
-/* Stage 5 acceptance: flatter EventGeneral, semantic farm facts and compact specials. */
+/* Acceptance Stage 5: плоский EventGeneral, смысловые факты фарма и компактные спецэтапы. */
 
-/* The top split only contains the overview and the compact controls. */
+/* Верхняя двухколоночная область содержит только обзор и компактные настройки. */
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventMainColumn {
     margin: 0 !important;
     border: 0 !important;
@@ -34,7 +34,7 @@
     padding: 0 !important;
 }
 
-/* A/B/C/D naturally contain three cards, so use the available width without nested panels. */
+/* В ветках A/B/C/D по три карточки: используем ширину без дополнительной панели. */
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-source-grid-v2,
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-grid-v2 {
     display: grid;
@@ -42,7 +42,7 @@
     gap: 10px !important;
 }
 
-/* SP/EXTRA are sparse: never stretch one or two cards across the full viewport. */
+/* SP/EXTRA редкие: одна-две карточки не растягиваются на весь экран. */
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-source-grid-v2,
 #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-farm-grid-v2 {
     grid-template-columns: repeat(auto-fill, minmax(230px, 320px)) !important;
@@ -167,6 +167,37 @@
     line-height: 1.4;
 }
 
+/* Пользовательское имя текущего события показывается локально, без изменения global i18n. */
+.event-map-current-event {
+    display: grid;
+    grid-template-columns: minmax(130px, 190px) minmax(0, 1fr);
+    align-items: center;
+    gap: 3px 18px;
+    margin: 8px 0 12px;
+    border: 1px solid var(--event-border);
+    border-radius: 11px;
+    background: var(--event-surface-strong);
+    padding: 12px 14px;
+}
+
+.event-map-current-event > span {
+    color: var(--event-muted);
+    font-size: .76rem;
+}
+
+.event-map-current-event > strong {
+    min-width: 0;
+    color: var(--event-text);
+    font-size: .9rem;
+    overflow-wrap: anywhere;
+}
+
+.event-map-current-event > small {
+    grid-column: 2;
+    color: var(--event-muted);
+    font-size: .68rem;
+}
+
 @media (max-width: 1180px) {
     #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-source-grid-v2,
     #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-farm-grid-v2 {
@@ -185,5 +216,13 @@
     #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-source-grid-v2,
     #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] .event-map-group-special .event-farm-grid-v2 {
         grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .event-map-current-event {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .event-map-current-event > small {
+        grid-column: 1;
     }
 }
