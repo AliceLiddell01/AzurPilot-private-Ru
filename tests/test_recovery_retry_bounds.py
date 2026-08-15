@@ -8,7 +8,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 TRANSPORT = ROOT / 'module/recovery/emulator_recovery.py'
-DEFAULTS = ROOT / 'module/config/argument/default.yaml'
+ARGUMENTS = ROOT / 'module/config/argument/argument.yaml'
 PLATFORM_WINDOWS_RECOVERY = ROOT / 'module/device/platform/platform_windows_recovery.py'
 
 
@@ -28,10 +28,10 @@ def test_hard_kill_has_no_retry_loop_inside_transport_incident():
     assert len(force_calls) == 1
 
 
-def test_stage3_enables_both_recovery_policies_for_new_profiles():
-    data = yaml.safe_load(DEFAULTS.read_text(encoding='utf-8'))
-    assert data['Alas']['Error']['GameStuckRestart'] is True
-    assert data['Alas']['Error']['AdbOfflineRestart'] is True
+def test_stage3_enables_both_recovery_policies_in_source_schema():
+    data = yaml.safe_load(ARGUMENTS.read_text(encoding='utf-8'))
+    assert data['Error']['GameStuckRestart'] is True
+    assert data['Error']['AdbOfflineRestart'] is True
 
 
 def test_mumu_cold_start_attempts_remain_bounded_to_three():
