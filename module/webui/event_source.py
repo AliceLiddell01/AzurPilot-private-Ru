@@ -423,14 +423,35 @@ def load_event_plan_from_artifact(
                 }
             )
         elif _current_pt_evidence_is_newer(runtime_observation, observation):
-            for field in (
-                "current_pt",
-                "current_pt_source",
-                "current_pt_observed_at",
-                "current_pt_status",
-            ):
-                if field in runtime_observation:
-                    observation[field] = runtime_observation[field]
+            current_pt = runtime_observation.get("current_pt")
+            current_pt_observed_at = str(
+                runtime_observation.get("current_pt_observed_at")
+                or runtime_observation.get("observed_at")
+                or ""
+            )
+            current_pt_status = str(
+                runtime_observation.get("current_pt_status") or ""
+            ).lower()
+            if current_pt is None:
+                current_pt_status = "unavailable"
+            elif current_pt_status not in {"observed", "stale"}:
+                current_pt_status = (
+                    "observed"
+                    if observation_is_fresh({"observed_at": current_pt_observed_at})
+                    else "stale"
+                )
+            observation.update(
+                {
+                    "current_pt": current_pt,
+                    "current_pt_source": str(
+                        runtime_observation.get("current_pt_source")
+                        or runtime_observation.get("source")
+                        or ""
+                    ),
+                    "current_pt_observed_at": current_pt_observed_at,
+                    "current_pt_status": current_pt_status,
+                }
+            )
         else:
             observation.setdefault("findings", []).append(
                 {
