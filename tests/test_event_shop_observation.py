@@ -80,7 +80,7 @@ def test_invalid_counter_and_ambiguous_catalog_fail_closed():
     }
 
 
-def test_duplicate_runtime_claims_are_not_accepted_as_two_observations():
+def test_consistent_duplicate_runtime_claim_keeps_one_canonical_observation():
     spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     catalog = next(item for item in spec["shop_items"] if item["row_id"] == 3009)
     item = RuntimeItem(
@@ -96,9 +96,43 @@ def test_duplicate_runtime_claims_are_not_accepted_as_two_observations():
 
     rows, findings = reconcile_event_shop(spec, [item, item])
 
+    assert findings == []
+    assert [row["status"] for row in rows] == ["matched", "duplicate"]
+    assert rows[0]["row_id"] == 3009
+    assert rows[1]["row_id"] is None
+    assert rows[1]["duplicate_of_runtime_index"] == 0
+    assert rows[1]["duplicate_of_row_id"] == 3009
+
+
+def test_conflicting_duplicate_runtime_claims_fail_closed():
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
+    catalog = next(item for item in spec["shop_items"] if item["row_id"] == 3009)
+    first = RuntimeItem(
+        "chip",
+        None,
+        None,
+        catalog["price"],
+        catalog["stock"],
+        8,
+        "pt",
+        catalog["amount"],
+    )
+    second = RuntimeItem(
+        "chip",
+        None,
+        None,
+        catalog["price"],
+        catalog["stock"],
+        7,
+        "pt",
+        catalog["amount"],
+    )
+
+    rows, findings = reconcile_event_shop(spec, [first, second])
+
     assert [row["status"] for row in rows] == ["ambiguous", "ambiguous"]
     assert all(row["row_id"] is None for row in rows)
-    assert findings[-1]["code"] == "shop_runtime_duplicate"
+    assert findings[-1]["code"] == "shop_runtime_duplicate_conflict"
 
 
 def test_purchase_invalidation_removes_freshness(tmp_path):
