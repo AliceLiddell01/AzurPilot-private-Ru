@@ -59,6 +59,15 @@ def require_list(value: Any, path: str) -> list[Any]:
     return value
 
 
+def require_int(value: Any, path: str) -> int:
+    """Преобразовать числовое поле supplemental в int с ошибкой домена."""
+
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EventSupplementalError(f"{path} должен быть целым числом") from exc
+
+
 def _unique_ints(items: list[Any], field: str, path: str) -> None:
     values: list[int] = []
     for item in items:
@@ -77,7 +86,10 @@ def validate_supplemental(data: Any) -> dict[str, Any]:
     raw = require_mapping(data, "supplemental")
     result = copy.deepcopy(dict(raw))
     if (
-        int(result.get("supplemental_schema_version", 0) or 0)
+        require_int(
+            result.get("supplemental_schema_version", 0),
+            "supplemental_schema_version",
+        )
         != EVENT_SUPPLEMENTAL_SCHEMA_VERSION
     ):
         raise EventSupplementalError("Неподдерживаемая версия Event supplemental")
@@ -110,7 +122,9 @@ def validate_supplemental(data: Any) -> dict[str, Any]:
             raise EventSupplementalError(
                 f"task_classification содержит неподдерживаемый kind: {kind!r}"
             )
-        if int(row.get("expected_points", 0) or 0) <= 0:
+        if require_int(
+            row.get("expected_points", 0), "task_classification.expected_points"
+        ) <= 0:
             raise EventSupplementalError(
                 "task_classification требует expected_points > 0"
             )
@@ -134,7 +148,7 @@ def validate_supplemental(data: Any) -> dict[str, Any]:
         grants_pt = row.get("grants_event_pt")
         if not isinstance(grants_pt, bool):
             raise EventSupplementalError("farm.maps.grants_event_pt должен быть bool")
-        if grants_pt and int(row.get("base_points", 0) or 0) <= 0:
+        if grants_pt and require_int(row.get("base_points", 0), "farm.maps.base_points") <= 0:
             raise EventSupplementalError(
                 f"farm map {row.get('map_id')} требует положительный base_points"
             )
@@ -227,7 +241,7 @@ def resolve_supplemental_artifact(
             supplemental_root=supplemental_root,
             asset_root=asset_root,
         )
-    except EventSupplementalError as exc:
+    except (TypeError, ValueError, KeyError, OverflowError) as exc:
         spec = copy.deepcopy(dict(base_spec))
         findings = [
             copy.deepcopy(dict(item))

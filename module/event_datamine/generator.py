@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from pathlib import Path
 
 from deploy.atomic import file_remove, file_write, replace_tmp, to_tmp_file
@@ -15,6 +16,23 @@ def map_module_name(chapter_name: str) -> str:
     if not name:
         raise ValueError("chapter_name не может быть пустым")
     return f"campaign_{name}" if name[0].isdigit() else name
+
+
+def allocate_map_module_names(maps: Iterable[MapSpec]) -> tuple[str, ...]:
+    """Детерминированно выделить уникальные имена модулей для набора карт."""
+
+    used_names: set[str] = set()
+    names: list[str] = []
+    for spec in maps:
+        base_name = map_module_name(spec.chapter_name)
+        module_name = base_name
+        if module_name in used_names:
+            module_name = f"{base_name}_{spec.id}"
+        if module_name in used_names:
+            raise ValueError(f"Неуникальное имя generated map module: {module_name}")
+        used_names.add(module_name)
+        names.append(module_name)
+    return tuple(names)
 
 
 def _matrix(value: tuple[tuple[str, ...], ...]) -> list[str]:
