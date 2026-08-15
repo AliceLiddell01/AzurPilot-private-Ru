@@ -81,8 +81,8 @@ class EventShop(EventShopClerk):
         return self._event_shop_current_artifact
 
     def event_shop_buy_item(self, item_to_buy, amount=None):
-        # Fail closed before the click: even a partially successful purchase
-        # must never leave the pre-purchase snapshot looking fresh.
+        # До клика работаем fail-closed: даже частично успешная покупка
+        # не должна оставлять снимок до покупки помеченным как свежий.
         try:
             from module.webui.event_shop_observation import (
                 invalidate_event_shop_observation,
@@ -321,8 +321,8 @@ class EventShop(EventShopClerk):
         # Это исключает повторное чтение registry и расхождение identity внутри прохода.
         self._begin_event_shop_pass_context()
         self.event_shop_load_ensure()
-        # PT is a first-class observation of every EventShop pass, including
-        # the verification-only pass where no new purchase candidate remains.
+        # PT — полноценное наблюдение каждого прохода EventShop, включая
+        # проверочный проход, в котором новых кандидатов на покупку уже нет.
         self.get_current_pts()
         items = self.scan_all()
         try:
