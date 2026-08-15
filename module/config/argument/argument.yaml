@@ -181,11 +181,11 @@ Error:
     mode: yaml
     value: "provider: null"
   ScreenshotLength: 1
-  GameStuckRestart: false
+  GameStuckRestart: true
   GameStuckThreshold:
     value: 3
     validate: [1, 10]
-  AdbOfflineRestart: false
+  AdbOfflineRestart: true
   AdbOfflineThreshold:
     value: 3
     validate: [1, 10]
@@ -860,7 +860,7 @@ ShipyardDr:
 Shipyard:
   ResearchSeries:
     value: 1
-    option: [ 1, 2, 3, 4, 5, 6 ]
+    option: [ 1, 2, 3, 4, 5, 6]
   ShipIndex:
     value: 0
     option: [0, 1, 2, 3, 4, 5, 6]
