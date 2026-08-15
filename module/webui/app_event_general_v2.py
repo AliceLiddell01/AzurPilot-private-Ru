@@ -1,4 +1,4 @@
-"""Focused EventGeneral WebUI: compact overview plus a separate rewards surface."""
+"""Компактный EventGeneral WebUI с обзором события и отдельной страницей наград."""
 
 from __future__ import annotations
 
@@ -47,10 +47,10 @@ _QUEST_DAILY_KINDS = frozenset({"daily"})
 
 
 class EventGeneralV2Mixin(WebUIMixinBase):
-    """Present EventGeneral as user-facing information without changing runtime tasks."""
+    """Показывать EventGeneral как пользовательскую информацию без изменения runtime-задач."""
 
     def _ensure_event_rewards_menu_entry(self) -> None:
-        """Add the WebUI-only rewards page to this session's Event menu."""
+        """Добавить WebUI-only страницу наград в меню Event текущей сессии."""
         menus = getattr(self, "ALAS_MENU", None)
         if not isinstance(menus, Mapping):
             return
@@ -86,7 +86,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
         return super().alas_set_group(task)
 
     def _refresh_event_profile_ui(self) -> None:
-        """Keep profile CRUD on the compact EventGeneral surface."""
+        """Сохранить CRUD профилей на компактной поверхности EventGeneral."""
         try:
             config = self._read_event_profile_config()
         except Exception as exc:
@@ -169,7 +169,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
     def _quest_presentation(
         cls, item: Mapping[str, Any]
     ) -> tuple[str, str, str, str]:
-        """Return group, Russian title, Russian description and original source text."""
+        """Вернуть группу, русский заголовок, описание и исходный текст задания."""
         original = " ".join(str(item.get("name") or "").split()).strip()
         normalized = original.rstrip(".")
         kind = str(item.get("kind") or "")
