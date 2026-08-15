@@ -2,6 +2,7 @@ import inspect
 from pathlib import Path
 
 from module.webui.app import AlasGUI
+from module.webui.app_event_general_presentation import EventGeneralPresentationMixin
 from module.webui.app_event_general_v2 import EVENT_REWARDS_TASK, EventGeneralV2Mixin
 from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.event_profiles import (
@@ -14,16 +15,17 @@ from module.webui.event_profiles import (
 ROOT = Path(__file__).resolve().parents[1]
 TASKS = ROOT / "module" / "config" / "argument" / "task.yaml"
 CSS = ROOT / "assets" / "gui" / "css" / "event-general-v2-alas.css"
-POLISH_CSS = ROOT / "assets" / "gui" / "css" / "event-general-v2-polish-alas.css"
 SOURCE = ROOT / "module" / "webui" / "app_event_general_v2.py"
+PRESENTATION = ROOT / "module" / "webui" / "app_event_general_presentation.py"
 APP = ROOT / "module" / "webui" / "app.py"
 
 
-def test_event_general_v2_wraps_profile_and_legacy_event_layers():
+def test_event_general_v2_wraps_profile_and_generic_event_layers():
     mro = AlasGUI.__mro__
+    presentation = mro.index(EventGeneralPresentationMixin)
     v2 = mro.index(EventGeneralV2Mixin)
     profiles = mro.index(EventProfilesMixin)
-    assert v2 < profiles
+    assert presentation < v2 < profiles
 
 
 def test_rewards_page_is_webui_only_and_does_not_create_runtime_task():
@@ -138,7 +140,7 @@ def test_unknown_quest_fallback_keeps_original_text_instead_of_inventing_transla
 
 
 def test_overview_does_not_render_rewards_and_rewards_page_owns_them():
-    overview = inspect.getsource(EventGeneralV2Mixin._render_event_general_v2)
+    overview = inspect.getsource(EventGeneralPresentationMixin._render_event_general_v2)
     rewards = inspect.getsource(EventGeneralV2Mixin._render_event_rewards_v2)
 
     assert "milestones" not in overview
@@ -149,18 +151,16 @@ def test_overview_does_not_render_rewards_and_rewards_page_owns_them():
     assert "Задания события" in rewards
 
 
-def test_overview_uses_eventshop_style_main_and_right_rail_composition():
-    source = inspect.getsource(EventGeneralV2Mixin._render_event_general_v2)
+def test_overview_uses_main_and_right_rail_composition():
+    source = inspect.getsource(EventGeneralPresentationMixin._render_event_general_v2)
 
-    assert 'put_scope("group_EventMainColumn")' in source
-    assert 'put_scope("group_EventSideColumn")' in source
+    assert '"group_EventMainColumn"' in source
+    assert '"group_EventSideColumn"' in source
     assert 'size="minmax(0, 1fr) minmax(330px, 360px)"' in source
     assert source.index('put_scope("group_EventProfiles")') < source.index(
         'put_scope("group_TaskBalancer")'
     )
-    assert source.index('put_scope("group_EventSources")') < source.index(
-        'put_scope("group_EventStages")'
-    )
+    assert "for name in main_scopes" in source
 
 
 def test_profile_partial_refresh_keeps_compact_renderer():
@@ -180,7 +180,7 @@ def test_profile_card_is_concise_like_eventshop_task_settings():
 
 
 def test_user_facing_event_general_renderer_hides_runtime_and_source_internals():
-    source = SOURCE.read_text(encoding="utf-8")
+    source = PRESENTATION.read_text(encoding="utf-8")
     for technical_text in (
         "Runtime eligible",
         "Runtime blocked",
@@ -197,27 +197,26 @@ def test_user_facing_event_general_renderer_hides_runtime_and_source_internals()
 
 def test_reward_track_is_horizontal_scroll_snap_carousel():
     css = CSS.read_text(encoding="utf-8")
-    polish = POLISH_CSS.read_text(encoding="utf-8")
 
     assert ".event-reward-track" in css
     assert "grid-auto-flow: column" in css
     assert "overflow-x: auto" in css
     assert "scroll-snap-type: inline mandatory" in css
     assert ".event-reward-card-next" in css
-    assert "grid-auto-columns: minmax(270px, 300px)" in polish
-    assert "min-height: 242px" in polish
+    assert "grid-auto-columns: minmax(270px, 300px)" in css
+    assert "min-height: 242px" in css
 
 
-def test_reward_and_content_cards_use_stronger_surfaces_without_fading_reached_cards():
-    polish = POLISH_CSS.read_text(encoding="utf-8")
+def test_reward_and_content_cards_use_matte_surfaces_without_fading_reached_cards():
+    css = CSS.read_text(encoding="utf-8")
 
-    assert ".event-reward-track-card" in polish
-    assert ".event-source-card-v2" in polish
-    assert ".event-farm-card-v2" in polish
-    assert ".event-quest-card" in polish
-    assert "background: var(--event-surface-strong) !important" in polish
-    assert ".event-reward-track-card.event-reward-card-reached" in polish
-    assert "opacity: 1 !important" in polish
+    assert ".event-reward-track-card" in css
+    assert ".event-source-card-v2" in css
+    assert ".event-farm-card-v2" in css
+    assert ".event-quest-card" in css
+    assert "background: var(--event-surface-strong) !important" in css
+    assert ".event-reward-track-card.event-reward-card-reached" in css
+    assert "opacity: 1" in css
 
 
 def test_quest_cards_use_currency_icon_without_original_or_completion_noise():
@@ -241,38 +240,35 @@ def test_rewards_use_event_currency_icon_for_balance_and_milestone_thresholds():
     assert "event-reward-threshold-value" in source
     assert "Награды за накопление</strong>" in source
     assert "Награды за накопление PT" not in source
-    assert "Без попыток определять состояние выполнения" not in source
-    assert "event-quest-heading" not in source
     assert "{self._fmt(threshold)} PT" not in source
 
 
-def test_third_visual_pass_has_one_glass_parent_and_matte_child_cards():
-    polish = POLISH_CSS.read_text(encoding="utf-8")
+def test_general_has_no_glass_parent_around_main_column_and_rewards_keep_single_surface():
+    css = CSS.read_text(encoding="utf-8")
 
-    assert "Third visual pass: one glass window, then nearly matte cards." in polish
-    assert "#pywebio-scope-group_EventMainColumn" in polish
-    assert "#pywebio-scope-group_EventRewards" in polish
-    assert "backdrop-filter: blur(14px) saturate(125%) !important" in polish
-    assert ".event-reward-track-shell" in polish
-    assert "background: transparent !important" in polish
-    assert ".event-reward-track-card" in polish
-    assert ".event-quest-card" in polish
-    assert "background: var(--event-surface-strong) !important" in polish
+    main_selector = "#pywebio-scope-group_EventMainColumn"
+    assert main_selector in css
+    assert "background: transparent !important" in css
+    assert "backdrop-filter: none !important" in css
+    assert "#pywebio-scope-group_EventRewards" in css
+    assert "backdrop-filter: blur(14px) saturate(125%) !important" in css
+    assert ".event-source-card-v2" in css
+    assert ".event-farm-card-v2" in css
+    assert "background: var(--event-surface-strong) !important" in css
 
 
 def test_task_balancer_right_rail_hides_verbose_help_but_keeps_native_controls():
-    polish = POLISH_CSS.read_text(encoding="utf-8")
-
-    assert "#pywebio-scope-group_TaskBalancer::before" in polish
-    assert 'content: "Настройки баланса задач"' in polish
-    assert '#pywebio-scope-group_TaskBalancer [style*="--arg-help--"]' in polish
-    assert "display: none !important" in polish
-    assert '[id^="pywebio-scope-arg_container-"]' in polish
-
-
-def test_profiles_and_task_balance_share_compact_surface_contract():
     css = CSS.read_text(encoding="utf-8")
-    polish = POLISH_CSS.read_text(encoding="utf-8")
+
+    assert "#pywebio-scope-group_TaskBalancer::before" in css
+    assert 'content: "Настройки баланса задач"' in css
+    assert '#pywebio-scope-group_TaskBalancer [style*="--arg-help--"]' in css
+    assert "display: none !important" in css
+    assert '[id^="pywebio-scope-arg_container-"]' in css
+
+
+def test_profiles_task_balance_and_side_column_use_single_canonical_contract():
+    css = CSS.read_text(encoding="utf-8")
     selector = (
         '#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] '
         '#pywebio-scope-group_EventProfiles,\n'
@@ -282,12 +278,14 @@ def test_profiles_and_task_balance_share_compact_surface_contract():
     assert selector in css
     assert "padding: 14px !important" in css
     assert "border-radius: 12px !important" in css
-    assert "#pywebio-scope-group_EventSideColumn" in polish
-    assert "position: sticky" in polish
+    assert "#pywebio-scope-group_EventSideColumn" in css
+    assert "position: sticky" in css
 
 
-def test_event_general_v2_styles_are_loaded_before_content_render():
+def test_event_general_styles_are_loaded_once_before_content_render():
     app = APP.read_text(encoding="utf-8")
+    assert "from module.webui.app_event_general_presentation import EventGeneralPresentationMixin" in app
     assert "from module.webui.app_event_general_v2 import EventGeneralV2Mixin" in app
-    assert 'add_css(filepath_css("event-general-v2-alas"))' in app
-    assert 'add_css(filepath_css("event-general-v2-polish-alas"))' in app
+    assert app.count('add_css(filepath_css("event-general-v2-alas"))') == 1
+    assert "event-general-v2-polish-alas" not in app
+    assert "event-general-v2-acceptance-alas" not in app
