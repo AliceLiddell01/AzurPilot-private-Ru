@@ -25,6 +25,7 @@ from module.config.utils import (
 from module.config.locale import UI_LOCALE
 from module.exception import *
 from module.logger import logger
+from module.logging_context import task_logging_context
 from module.notify import handle_notify, notify_webui
 
 # 缓存 i18n 任务名查找
@@ -246,7 +247,7 @@ class AzurLaneAutoScript:
         except RequestHumanTakeover:
             logger.error_context(
                 title='Для инициализации устройства требуется вмешательство пользователя',
-                reason='Подключение к устройству или проверка его параметров завершилась ошибкой; автоматическое исправление невозможно.',
+                reason='Подключение к устройству или проверка его параметров завершилось ошибкой; автоматическое исправление невозможно.',
                 impact='Планировщик не может управлять эмулятором.',
                 action='Убедитесь, что эмулятор запущен, ADB доступен и разрешение равно 1280x720, затем перезапустите приложение.',
                 level=50,
@@ -337,6 +338,7 @@ class AzurLaneAutoScript:
         logger.info('[Alas] Azur Lane восстановлена: post-restart login/UI health check успешно завершён')
         return True
 
+    @task_logging_context
     def run(self, command, skip_first_screenshot=False):
         """
         执行指定任务命令，捕获异常并决定后续行为。
@@ -1283,7 +1285,7 @@ class AzurLaneAutoScript:
                 for line in stderr_content:
                     logger.error(f'[Alas-SSH] Ошибка удалённой команды: {line}')
         except Exception as e:
-            logger.error(f'[Alas-SSH] Не удалось выполнить команду удалённого SSH: {e}')
+            logger.error(f'[Alas-SSH] Не удалось выполнить удалённую команду SSH: {e}')
         finally:
             if key_file and os.path.exists(key_file):
                 try:
