@@ -1,4 +1,4 @@
-"""Автономный синтетический smoke-тест проверяемого восстановления Stage 2."""
+"""Автономный synthetic smoke финальной Stage 3 recovery-цепочки."""
 
 from __future__ import annotations
 
@@ -26,20 +26,28 @@ def load_test_module(name: str, relative_path: str):
 
 def build_suite() -> unittest.TestSuite:
     transport = load_test_module(
-        '_stage2_transport_tests',
+        '_stage3_transport_tests',
         'tests/test_emulator_recovery_transport.py',
     )
     process = load_test_module(
-        '_stage2_process_tests',
+        '_stage3_process_tests',
         'tests/test_mumu_process_control.py',
     )
     platform = load_test_module(
-        '_stage2_platform_tests',
+        '_stage3_platform_tests',
         'tests/test_platform_windows_recovery_behavior.py',
     )
     scheduler = load_test_module(
-        '_stage2_scheduler_tests',
+        '_stage3_scheduler_tests',
         'tests/test_alas_error_handling.py',
+    )
+    full_chain = load_test_module(
+        '_stage3_full_chain_tests',
+        'tests/test_emulator_recovery_full_chain.py',
+    )
+    continuation = load_test_module(
+        '_stage3_scheduler_continuation_tests',
+        'tests/test_emulator_recovery_scheduler_continuation.py',
     )
 
     suite = unittest.TestSuite()
@@ -56,6 +64,14 @@ def build_suite() -> unittest.TestSuite:
         (scheduler.TestGameStuckRecovery, 'test_failed_game_restart_escalates_once_when_policy_enabled'),
         (scheduler.TestGameStuckRecovery, 'test_post_emulator_game_health_failure_does_not_recurse'),
         (scheduler.TestGameStuckRecovery, 'test_sensitive_task_never_attempts_game_or_emulator_recovery'),
+        (full_chain.FullChainRecoveryTests, 'test_full_chain_hard_kill_success_preserves_required_order'),
+        (full_chain.FullChainRecoveryTests, 'test_full_chain_graceful_success_never_calls_hard_kill'),
+        (full_chain.FullChainRecoveryTests, 'test_hard_kill_failure_is_bounded_and_invalidates_stale_device'),
+        (
+            continuation.SchedulerContinuationTests,
+            'test_recoverable_incident_continues_to_next_task_and_normal_success_resets_budgets',
+        ),
+        (continuation.SchedulerContinuationTests, 'test_transport_loss_stops_scheduler_before_next_task'),
     )
     for case, method in selected:
         suite.addTest(case(method))
