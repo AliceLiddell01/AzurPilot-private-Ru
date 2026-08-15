@@ -9,7 +9,6 @@ from html import escape
 from typing import Any
 
 from module.webui.app_dependencies import (
-    deep_get,
     logger,
     put_button,
     put_buttons,
@@ -24,7 +23,6 @@ from module.webui.app_dependencies import (
 from module.webui.app_helpers import is_demo_mode
 from module.webui.app_types import WebUIMixinBase
 from module.webui.event_assets import event_asset_url
-from module.webui.event_plan import shop_plan_total
 from module.webui.event_profiles import (
     EVENT_TASK_LABELS,
     OPTIONAL_EVENT_PROFILE_SLOTS,
@@ -47,7 +45,7 @@ _QUEST_DAILY_KINDS = frozenset({"daily"})
 
 
 class EventGeneralV2Mixin(WebUIMixinBase):
-    """Показывать EventGeneral как пользовательскую информацию без изменения runtime-задач."""
+    """Общие helpers, профильный UI и отдельная страница наград события."""
 
     def _ensure_event_rewards_menu_entry(self) -> None:
         """Добавить WebUI-only страницу наград в меню Event текущей сессии."""
@@ -259,64 +257,6 @@ class EventGeneralV2Mixin(WebUIMixinBase):
                 return item
         return {}
 
-    def _render_event_overview_summary(
-        self,
-        *,
-        plan: Mapping[str, Any],
-        config: Mapping[str, Any],
-    ) -> tuple[int | None, int | None]:
-        event = plan.get("event", {})
-        if not isinstance(event, Mapping):
-            event = {}
-        current_pt, _ = self._event_progress(plan)
-        target = int(deep_get(config, "EventGeneral.EventGeneral.PtLimit", 0) or 0)
-        shop_total = shop_plan_total(plan)
-        planning_target = max(target, shop_total)
-        remaining = (
-            max(planning_target - current_pt, 0)
-            if planning_target > 0 and isinstance(current_pt, int)
-            else None
-        )
-        progress = (
-            max(0, min(100, round(current_pt * 100 / planning_target)))
-            if planning_target > 0 and isinstance(current_pt, int)
-            else 0
-        )
-        farm_start = escape(str(event.get("farm_start") or "Не задано"))
-        farm_end = escape(str(event.get("farm_end") or "Не задано"))
-        shop_end = escape(str(event.get("shop_end") or "Не задано"))
-
-        put_html(
-            f"""
-<section class="event-general-v2-hero">
-  <div class="event-eyebrow">Текущий ивент · {escape(str(event.get("server") or "EN"))}</div>
-  <h3>{escape(str(event.get("name") or "Текущий ивент"))}</h3>
-  <div class="event-general-v2-dates">
-    <span>Фарм <strong>{farm_start}</strong> — <strong>{farm_end}</strong></span>
-    <span>Магазин до <strong>{shop_end}</strong></span>
-  </div>
-  <div class="event-general-v2-metrics">
-    <div class="event-general-v2-metric event-general-v2-metric-accent"><small>Текущий PT</small><strong>{self._fmt(current_pt) if current_pt is not None else "Нет данных"}</strong><span>Обновляется автоматически</span></div>
-    <div class="event-general-v2-metric"><small>Цель фарма</small><strong>{self._fmt(planning_target) + " PT" if planning_target else "Не задана"}</strong><span>Настраивается вручную</span></div>
-    <div class="event-general-v2-metric"><small>Осталось набрать</small><strong>{self._fmt(remaining) + " PT" if remaining is not None else "—"}</strong><span>До текущей цели</span></div>
-    <div class="event-general-v2-metric"><small>Прогресс</small><strong>{str(progress) + "%" if current_pt is not None and planning_target else "—"}</strong><span>По текущему балансу PT</span></div>
-  </div>
-  <div class="event-general-v2-progress" aria-label="Прогресс к цели"><span style="width:{progress}%"></span></div>
-</section>
-"""
-        )
-        put_row(
-            [
-                put_button(
-                    "Настроить цель фарма",
-                    onclick=self._settings_popup,
-                    color="primary",
-                )
-            ],
-            size="auto",
-        ).style("--event-general-v2-primary-action--")
-        return current_pt, remaining
-
     def _render_event_profiles_compact(self, config: Mapping[str, Any]) -> None:
         profiles = get_event_profile_metadata(config)
         put_html(
@@ -365,168 +305,6 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             put_html(
                 '<small class="event-general-profile-limit">Лимит профилей достигнут.</small>'
             )
-
-    def _render_event_sources_v2(self, plan: Mapping[str, Any]) -> None:
-        overview, _ = self._split_event_sources(plan)
-        stage_sources = [
-            item
-            for item in overview
-            if item.get("kind") == "repeatable_map_clear"
-            or self._map_group_key(item.get("name")) != "OTHER"
-        ]
-        other_sources = [item for item in overview if item not in stage_sources]
-
-        put_html(
-            '<div class="event-general-v2-section-heading"><div>'
-            "<strong>Источники PT</strong>"
-            "<small>Карты сгруппированы по веткам события и сложности.</small>"
-            "</div></div>"
-        )
-
-        rendered = False
-        for title, subtitle, rows in self._group_map_items(stage_sources):
-            rendered = True
-            cards = "".join(
-                '<article class="event-source-card event-source-card-v2">'
-                '<span class="event-source-kind">Награда за прохождение</span>'
-                f'<strong>{escape(str(item.get("name") or "Этап"))}</strong>'
-                f'<b>{escape(self._fmt(item["points"]) if item.get("points") is not None else "Нет данных")} PT</b>'
-                "</article>"
-                for item in rows
-            )
-            put_html(
-                '<section class="event-map-group">'
-                f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
-                f'<small>{escape(subtitle)}</small></div>'
-                f'<span class="event-subsection-count">{len(rows)}</span></div>'
-                f'<div class="event-source-grid event-source-grid-v2">{cards}</div>'
-                "</section>"
-            )
-
-        if other_sources:
-            rendered = True
-            cards = "".join(
-                '<article class="event-source-card event-source-card-v2">'
-                '<span class="event-source-kind">Источник PT</span>'
-                f'<strong>{escape(str(item.get("name") or "Источник"))}</strong>'
-                f'<b>{escape(self._fmt(item["points"]) if item.get("points") is not None else "Нет данных")} PT</b>'
-                "</article>"
-                for item in other_sources
-            )
-            put_html(
-                '<section class="event-map-group">'
-                '<div class="event-map-group-heading"><div><strong>Другие источники PT</strong>'
-                '<small>Источники, не относящиеся к отдельной карте.</small></div>'
-                f'<span class="event-subsection-count">{len(other_sources)}</span></div>'
-                f'<div class="event-source-grid event-source-grid-v2">{cards}</div>'
-                "</section>"
-            )
-
-        if not rendered:
-            put_html(
-                '<div class="event-inline-empty">Источники PT пока не отображаются.</div>'
-            )
-
-    def _render_event_stages_v2(
-        self,
-        *,
-        plan: Mapping[str, Any],
-        remaining_pt: int | None,
-    ) -> None:
-        put_html(
-            '<div class="event-general-v2-section-heading"><div>'
-            "<strong>Этапы фарма</strong>"
-            "<small>Этапы сгруппированы так же, как карты события.</small>"
-            "</div></div>"
-        )
-
-        stages = [
-            stage for stage in plan.get("stages", []) if isinstance(stage, Mapping)
-        ]
-        rendered = False
-        for title, subtitle, rows in self._group_map_items(stages):
-            rendered = True
-            cards: list[str] = []
-            for stage in rows:
-                points = stage.get("points")
-                runs = (
-                    "—"
-                    if not isinstance(points, int)
-                    or points <= 0
-                    or remaining_pt is None
-                    else self._fmt((remaining_pt + points - 1) // points)
-                )
-                cards.append(
-                    '<article class="event-farm-card event-farm-card-v2">'
-                    f'<div class="event-farm-card-head"><strong>{escape(str(stage.get("name") or "Этап"))}</strong></div>'
-                    '<div class="event-farm-facts">'
-                    f'<span><small>PT</small><b>{escape(self._fmt(points) if points is not None else "Нет данных")}</b></span>'
-                    f'<span><small>Нефть</small><b>{escape(self._fmt(stage.get("oil")) if stage.get("oil") is not None else "Нет данных")}</b></span>'
-                    f'<span><small>Монеты</small><b>{escape(self._fmt(stage.get("coin")) if stage.get("coin") is not None else "Нет данных")}</b></span>'
-                    f'<span><small>Звёзды</small><b>{escape(str(stage.get("stars")) if stage.get("stars") is not None else "Нет данных")}</b></span>'
-                    f'<span><small>Проходы</small><b>{escape(runs)}</b></span>'
-                    "</div></article>"
-                )
-            put_html(
-                '<section class="event-map-group">'
-                f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
-                f'<small>{escape(subtitle)}</small></div>'
-                f'<span class="event-subsection-count">{len(rows)}</span></div>'
-                f'<div class="event-farm-grid event-farm-grid-v2">{"".join(cards)}</div>'
-                "</section>"
-            )
-
-        if not rendered:
-            put_html(
-                '<div class="event-inline-empty">Этапы фарма пока не отображаются.</div>'
-            )
-
-    def _render_event_general_v2(
-        self,
-        *,
-        config: Mapping[str, Any],
-        group_map: Mapping[str, Any],
-    ) -> None:
-        plan = self._event_plan()
-        with use_scope("groups"):
-            put_row(
-                [
-                    put_scope("group_EventMainColumn"),
-                    put_scope("group_EventSideColumn"),
-                ],
-                size="minmax(0, 1fr) minmax(330px, 360px)",
-            ).style("--event-general-v2-layout--")
-
-        with use_scope("group_EventMainColumn"):
-            put_scope("group_EventOverview")
-            put_scope("group_EventSources")
-            put_scope("group_EventStages")
-
-        with use_scope("group_EventSideColumn"):
-            put_scope("group_EventProfiles")
-            put_scope("group_TaskBalancer")
-
-        with use_scope("group_EventOverview", clear=True):
-            _, remaining_pt = self._render_event_overview_summary(
-                plan=plan, config=config
-            )
-
-        with use_scope("group_EventProfiles", clear=True):
-            self._render_event_profiles_compact(config)
-
-        self._render_named_group(
-            "EventGeneral",
-            "TaskBalancer",
-            group_map,
-            config,
-            False,
-        )
-
-        with use_scope("group_EventSources", clear=True):
-            self._render_event_sources_v2(plan)
-
-        with use_scope("group_EventStages", clear=True):
-            self._render_event_stages_v2(plan=plan, remaining_pt=remaining_pt)
 
     def _scroll_event_rewards(self, direction: int) -> None:
         step = -1 if direction < 0 else 1
