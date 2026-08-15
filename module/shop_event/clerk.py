@@ -16,7 +16,7 @@ from module.base.decorator import cached_property
 from module.base.timer import Timer
 from module.base.utils import color_similarity_2d, crop
 from module.combat.assets import GET_ITEMS_1, GET_ITEMS_3, GET_SHIP
-from module.exception import RequestHumanTakeover
+from module.exception import GameStuckError, RequestHumanTakeover
 from module.logger import logger
 from module.map_detection.utils import Points
 from module.shop.assets import (
@@ -170,6 +170,125 @@ class EventShopClerk(EventShopUI):
         max_clicks = 1 + abs(maximum_hint - target)
         return max_clicks < direct_clicks
 
+    @staticmethod
+    def _purchase_item_matches(item, target):
+        """Сопоставить destructive target только по уже доказанным shop-фактам."""
+        return (
+            getattr(item, "name", None) == getattr(target, "name", None)
+            and getattr(item, "count", None) == getattr(target, "count", None)
+            and getattr(item, "price", None) == getattr(target, "price", None)
+        )
+
+    @staticmethod
+    def _clamp_scroll_position(value):
+        value = float(value)
+        return min(max(value, 0.0), 1.0)
+
+    @classmethod
+    def _purchase_reidentify_positions(cls, item_to_buy):
+        """Построить небольшой bounded-набор scroll-якорей для повторной идентификации.
+
+        Сохранённая позиция scrollbar не является пиксельно точным якорем: после
+        дискретного swipe фактическая позиция может отличаться на несколько
+        процентов, из-за чего крайний ряд остаётся видимым человеку, но его
+        price-background уже выходит из detector ROI. Поэтому после исходной
+        точки разрешены только два соседних non-destructive probe.
+
+        Первое направление выводится из исходной вертикальной позиции карточки:
+        нижний ряд сначала сдвигается вверх (scroll вперёд), верхний — вниз.
+        """
+        try:
+            base = float(getattr(item_to_buy, "scroll_pos", None))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise GameStuckError(
+                "[Магазин события — покупка] У товара отсутствует корректный scroll-якорь для повторной идентификации"
+            ) from exc
+        if not np.isfinite(base):
+            raise GameStuckError(
+                "[Магазин события — покупка] Scroll-якорь товара не является конечным числом"
+            )
+        base = cls._clamp_scroll_position(base)
+
+        reidentify_threshold = float(
+            getattr(EVENT_SHOP_SCROLL, "reidentify_drag_threshold", 0.0) or 0.0
+        )
+        edge_threshold = float(
+            getattr(EVENT_SHOP_SCROLL, "edge_threshold", 0.0) or 0.0
+        )
+        probe_step = max(reidentify_threshold * 2.0, edge_threshold)
+        if probe_step <= 0:
+            return [base]
+
+        detector_center_y = (DETECT_AREA[1] + DETECT_AREA[3]) / 2.0
+        direction = 1.0
+        button = getattr(item_to_buy, "button", None)
+        try:
+            button_center_y = (float(button[1]) + float(button[3])) / 2.0
+        except (TypeError, ValueError, IndexError, KeyError):
+            button_center_y = detector_center_y
+        if button_center_y < detector_center_y:
+            direction = -1.0
+
+        raw_positions = (
+            base,
+            base + direction * probe_step,
+            base - direction * probe_step,
+        )
+        positions = []
+        for value in raw_positions:
+            value = cls._clamp_scroll_position(value)
+            if not any(abs(value - existing) < 1e-9 for existing in positions):
+                positions.append(value)
+        return positions
+
+    def _reidentify_event_shop_item(self, item_to_buy):
+        """Найти target рядом с исходным scroll-якорем без destructive действий."""
+        positions = self._purchase_reidentify_positions(item_to_buy)
+        attempts = []
+        sentinel = object()
+        previous = getattr(self, "_scan_extract_templates", sentinel)
+        self._scan_extract_templates = False
+        try:
+            for index, position in enumerate(positions, start=1):
+                EVENT_SHOP_SCROLL.set_precise(position, main=self)
+                items = self.event_shop_get_items()
+                matches = [
+                    item for item in items if self._purchase_item_matches(item, item_to_buy)
+                ]
+                actual_position = EVENT_SHOP_SCROLL.cal_position(main=self)
+                attempts.append(
+                    {
+                        "requested": round(float(position), 6),
+                        "actual": round(float(actual_position), 6),
+                        "observed": len(items),
+                        "matched": len(matches),
+                    }
+                )
+                if not matches:
+                    continue
+                if index > 1:
+                    logger.info(
+                        "[Магазин события — покупка] Товар повторно идентифицирован на соседнем scroll-якоре "
+                        f"после {index} попыток: {attempts}"
+                    )
+                if len(matches) > 1:
+                    logger.warning(
+                        f"[Магазин события — покупка] Найдено несколько подтверждённых совпадений {item_to_buy}; покупается первое"
+                    )
+                return matches[0]
+        finally:
+            if previous is sentinel:
+                self.__dict__.pop("_scan_extract_templates", None)
+            else:
+                self._scan_extract_templates = previous
+
+        logger.error(
+            f"[Магазин события — покупка] Товар {item_to_buy} не подтверждён ни на одном bounded scroll-якоре: {attempts}"
+        )
+        raise GameStuckError(
+            "[Магазин события — покупка] Повторная идентификация товара не удалась; destructive click заблокирован"
+        )
+
     def _get_event_shop_grid(self):
         mask = color_similarity_2d(self.device.image, PRICE_BACKGROUND_COLOR)
         cv2.inRange(mask, PRICE_THRESHOLD, 255, dst=mask)
@@ -301,31 +420,7 @@ class EventShopClerk(EventShopUI):
             return PriorityRuntimeItems([], observation_items=items)
 
     def event_shop_buy_item(self, item_to_buy, amount=None):
-        scroll_pos = item_to_buy.scroll_pos
-        EVENT_SHOP_SCROLL.set_precise(scroll_pos, main=self)
-        items = self.event_shop_get_items()
-        items = [
-            item
-            for item in items
-            if item.name == item_to_buy.name
-            and item.count == item_to_buy.count
-            and item.price == item_to_buy.price
-        ]
-        if len(items) == 0:
-            logger.error(
-                f'[Магазин события — покупка] Товар {item_to_buy} не найден в позиции прокрутки {scroll_pos}'
-            )
-            logger.warning(
-                '[Магазин события — покупка] Будет предпринята попытка повторного запуска задачи'
-            )
-            raise ItemNotFoundError(
-                f'Товар {item_to_buy} не найден в позиции прокрутки {scroll_pos}'
-            )
-        if len(items) > 1:
-            logger.warning(
-                f'[Магазин события — покупка] В позиции прокрутки {scroll_pos} найдено несколько товаров {item_to_buy}; покупается первый'
-            )
-        item = items[0]
+        item = self._reidentify_event_shop_item(item_to_buy)
         try:
             item_count = max(int(item.count), 0)
             requested = item_count if amount is None else max(int(amount), 0)
