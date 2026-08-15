@@ -79,7 +79,6 @@ def enrich_event_plan(
                 "fleet_restrictions",
                 "stat_restrictions",
                 "map_drop_families",
-                "oil",
                 "coins",
                 "score_counts_toward_ranking",
             ):
@@ -89,11 +88,13 @@ def enrich_event_plan(
                 stage["points"] = int(meta.get("base_points", 0) or 0) or None
                 stage["points_source"] = "supplemental"
             oil = meta.get("oil")
-            if stage.get("oil") is None and isinstance(oil, Mapping):
-                per_run = int(oil.get("per_run", 0) or 0)
-                if per_run > 0:
-                    stage["oil"] = per_run
-                    stage["oil_source"] = "supplemental"
+            if isinstance(oil, Mapping):
+                stage["oil_caps"] = copy.deepcopy(dict(oil))
+                if stage.get("oil") is None:
+                    per_run = int(oil.get("per_run", 0) or 0)
+                    if per_run > 0:
+                        stage["oil"] = per_run
+                        stage["oil_source"] = "supplemental"
 
     missions = spec.get("missions")
     if isinstance(missions, list):

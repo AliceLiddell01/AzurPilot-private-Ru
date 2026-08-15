@@ -115,7 +115,9 @@ def test_committed_current_artifact_and_production_resolver_use_fixture_result()
     )
     assert plan["event"]["id"] == compiled["id"]
     assert plan["event"]["name"] != "A Rose on the High Tower"
-    assert plan["event"]["source"]["revision"] == REVISION
+    assert plan["event"]["source"]["revision"] != REVISION
+    assert plan["event"]["source"]["verified"] is True
+    assert plan["source_status"] == "verified"
 
 
 def test_production_python_contains_no_current_event_selector_hardcode():
