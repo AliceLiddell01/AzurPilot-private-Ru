@@ -61,21 +61,16 @@ class EventShopClerk(EventShopUI):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         try:
-            if not bool(
-                self.config.cross_get(
-                    keys="EventShop.Scheduler.Sensitive", default=False
-                )
-            ):
-                self.config.cross_set(
-                    keys="EventShop.Scheduler.Sensitive",
-                    value=True,
-                )
+            # Sensitive нужен для безопасного текущего запуска EventShop, но это
+            # runtime-инвариант самой задачи, а не пользовательская настройка.
+            # Поэтому не сохраняем его через cross_set/save и не меняем конфиг
+            # только из-за создания clerk или открытия WebUI.
             self.config.override(Scheduler_Sensitive=True)
             apply_event_shop_notification_policy(self.config)
             logger.info(
-                "[Магазин события] Критический режим задачи закреплён: автоматический перезапуск после исключения запрещён"
+                "[Магазин события] Критический режим текущего запуска закреплён: автоматический перезапуск после исключения запрещён"
             )
-        except Exception as exc:
+        except (OSError, TypeError, ValueError) as exc:
             logger.error(
                 f"[Магазин события] Не удалось закрепить критический режим задачи: {exc}"
             )
