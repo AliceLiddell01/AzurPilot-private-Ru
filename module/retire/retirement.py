@@ -89,8 +89,10 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
     """
     _unable_to_enhance = False
     _have_kept_cv = True
+    # GAME_TIPS разрешён только после подтверждённого перехода из окна заполненного дока.
+    _retirement_game_tips_pending = False
 
-    # 来自 MapOperation，用于战斗中退役弹窗的计时
+    # Таймер из MapOperation для popup списания во время боя.
     map_cat_attack_timer = Timer(2)
 
     @property
@@ -488,28 +490,35 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         return total
 
     def handle_retirement(self):
-        """
-        处理船坞满载时的退役/强化流程。
+        """Обрабатывает списание или усиление при заполненном доке.
 
-        根据配置的退役模式（enhance/one_click_retire/old_retire）选择对应策略：
-        - enhance: 先尝试强化，强化失败或剩余船坞不足时切换到退役
-        - one_click_retire / old_retire: 直接退役
+        Режим выбирается из конфигурации:
+        - ``enhance``: сначала усиление, затем списание при необходимости;
+        - ``one_click_retire`` / ``old_retire``: непосредственное списание.
+
+        ``GAME_TIPS`` обрабатывается только после того, как этот обработчик сам
+        увидел и нажал окно заполненного дока. Шаблон ``GAME_TIPS`` общий для
+        разных экранов игры, поэтому без такого контекста его нельзя считать
+        частью процесса списания.
 
         Returns:
-            bool: True 表示已完成退役或强化操作。
+            bool: ``True``, если обработчик выполнил действие внутри процесса
+                списания/усиления.
         """
-        # 2025.05.29 进入船坞时游戏会弹出皮肤信息提示
-        if self.handle_game_tips():
+        if self._retirement_game_tips_pending and self.handle_game_tips():
             return True
+
         if self._unable_to_enhance:
             if self.appear_then_click(RETIRE_APPEAR_1, offset=(20, 20), interval=3):
+                self._retirement_game_tips_pending = True
                 self.interval_clear(IN_RETIREMENT_CHECK)
                 self.interval_reset([AUTO_SEARCH_MAP_OPTION_OFF, AUTO_SEARCH_MAP_OPTION_ON])
                 self.map_cat_attack_timer.reset()
                 return False
             if self.appear(IN_RETIREMENT_CHECK, offset=(20, 20), interval=10):
+                self._retirement_game_tips_pending = False
                 try:
-                    # 移除硬编码的退役模式参数，使用配置的默认模式
+                    # Используется режим списания из конфигурации, без локального переопределения.
                     self._retire_handler()
                     self._unable_to_enhance = False
                     self.interval_reset(IN_RETIREMENT_CHECK)
@@ -517,15 +526,17 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     return True
                 except Exception as e:
                     logger.warning(f'[Списание — док] Списание не удалось: {e}')
-                    self._unable_to_enhance = False  # 防止无限循环
+                    self._unable_to_enhance = False  # Предотвращает бесконечный повтор.
                     return False
         elif self.config.Retirement_RetireMode == 'enhance':
             if self.appear_then_click(RETIRE_APPEAR_3, offset=(20, 20), interval=3):
+                self._retirement_game_tips_pending = True
                 self.interval_clear(DOCK_CHECK)
                 self.interval_reset([AUTO_SEARCH_MAP_OPTION_OFF, AUTO_SEARCH_MAP_OPTION_ON])
                 self.map_cat_attack_timer.reset()
                 return False
             if self.appear(DOCK_CHECK, offset=(20, 20), interval=10):
+                self._retirement_game_tips_pending = False
                 self.handle_dock_cards_loading()
                 try:
                     total, remain = self._enhance_handler()
@@ -538,17 +549,19 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                         self._unable_to_enhance = True
                 except Exception as e:
                     logger.warning(f'[Списание — док] Усиление не удалось: {e}')
-                    self._unable_to_enhance = True  # 尝试退役
+                    self._unable_to_enhance = True  # Следующий проход переключится на списание.
                 self.interval_reset(DOCK_CHECK)
                 self.map_cat_attack_timer.reset()
                 return True
         else:
             if self.appear_then_click(RETIRE_APPEAR_1, offset=(20, 20), interval=3):
+                self._retirement_game_tips_pending = True
                 self.interval_clear(IN_RETIREMENT_CHECK)
                 self.interval_reset([AUTO_SEARCH_MAP_OPTION_OFF, AUTO_SEARCH_MAP_OPTION_ON])
                 self.map_cat_attack_timer.reset()
                 return False
             if self.appear(IN_RETIREMENT_CHECK, offset=(20, 20), interval=10):
+                self._retirement_game_tips_pending = False
                 try:
                     self._retire_handler()
                     self._unable_to_enhance = False
@@ -557,7 +570,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     return True
                 except Exception as e:
                     logger.warning(f'[Списание — док] Списание не удалось: {e}')
-                    self._unable_to_enhance = False  # 防止无限循环
+                    self._unable_to_enhance = False  # Предотвращает бесконечный повтор.
                     return False
 
         return False
@@ -651,7 +664,6 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         RETIRE_COIN.load_color(self.device.image)
         RETIRE_COIN._match_init = True
         self.interval_clear(SHIP_CONFIRM_2)
-
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False

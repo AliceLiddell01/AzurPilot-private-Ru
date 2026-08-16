@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from pathlib import Path
 
 from deploy.atomic import file_remove, file_write, replace_tmp, to_tmp_file
@@ -17,8 +18,37 @@ def map_module_name(chapter_name: str) -> str:
     return f"campaign_{name}" if name[0].isdigit() else name
 
 
+def allocate_map_module_names(maps: Iterable[MapSpec]) -> tuple[str, ...]:
+    """Детерминированно выделить уникальные имена модулей для набора карт."""
+
+    used_names: set[str] = set()
+    names: list[str] = []
+    for spec in maps:
+        base_name = map_module_name(spec.chapter_name)
+        module_name = base_name
+        if module_name in used_names:
+            module_name = f"{base_name}_{spec.id}"
+        if module_name in used_names:
+            raise ValueError(f"Неуникальное имя generated map module: {module_name}")
+        used_names.add(module_name)
+        names.append(module_name)
+    return tuple(names)
+
+
 def _matrix(value: tuple[tuple[str, ...], ...]) -> list[str]:
     return ["    " + " ".join(row) for row in value]
+
+
+def _has_grid_token(spec: MapSpec, token: str) -> bool:
+    matrices = (spec.map_data, spec.map_data_loop or ())
+    return any(item == token for matrix in matrices for row in matrix for item in row)
+
+
+def _has_spawn_kind(spec: MapSpec, kind: str) -> bool:
+    """Определить наличие сущности по структурным данным появления, а не по шаблонам распознавания."""
+
+    groups = (spec.spawn_data, spec.spawn_data_loop or ())
+    return any(int(row.get(kind, 0) or 0) > 0 for rows in groups for row in rows)
 
 
 def generate_map_module(
@@ -63,9 +93,10 @@ def generate_map_module(
         [
             "",
             "class Config:",
-            "    # Только факты карты; runtime policy задаётся отдельно.",
+            "    # Только факты карты; политика выполнения задаётся отдельно.",
         ]
     )
+    has_siren = _has_spawn_kind(spec, "siren")
     factual = {
         "MAP_HAS_MAP_STORY": spec.has_story,
         "MAP_HAS_FLEET_STEP": spec.has_fleet_step,
@@ -73,7 +104,7 @@ def generate_map_module(
         "MAP_HAS_MYSTERY": spec.has_mystery,
         "MAP_HAS_PORTAL": bool(spec.portals),
         "MAP_HAS_LAND_BASED": bool(spec.land_based),
-        "MAP_HAS_SIREN": bool(spec.siren_templates),
+        "MAP_HAS_SIREN": has_siren,
         "MAP_HAS_MOVABLE_ENEMY": bool(spec.movable_enemy_turns),
         "STAR_REQUIRE_1": spec.star_requirements[0],
         "STAR_REQUIRE_2": spec.star_requirements[1],
@@ -81,11 +112,14 @@ def generate_map_module(
     }
     for key, value in factual.items():
         lines.append(f"    {key} = {value!r}")
-    if spec.siren_templates:
+    if _has_grid_token(spec, "Me"):
+        lines.append("    MAP_HAS_MOVABLE_NORMAL_ENEMY = True")
+    if has_siren:
         lines.append(f"    MAP_SIREN_TEMPLATE = {list(spec.siren_templates)!r}")
+    if spec.movable_enemy_turns:
         lines.append(f"    MOVABLE_ENEMY_TURN = {tuple(spec.movable_enemy_turns)!r}")
     for patch in patches:
-        lines.append(f"    # Compatibility patch {patch.id}: {patch.reason}")
+        lines.append(f"    # Патч совместимости {patch.id}: {patch.reason}")
         for key, value in patch.config:
             lines.append(f"    {key} = {value!r}")
     lines.extend(

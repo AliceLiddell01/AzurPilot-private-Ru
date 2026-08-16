@@ -13,21 +13,28 @@ from typing import List, Tuple
 
 from module.base.decorator import del_cached_property
 from module.base.timer import Timer
+from module.config.time_source import now as current_time
+from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
-from module.shop.assets import NAV_GENERAL, NAV_EVENT
+from module.shop.assets import NAV_EVENT, NAV_GENERAL
 from module.shop_event.assets import NO_NAV_EVENT_CHECK
 from module.shop_event.clerk import EventShopClerk, ItemNotFoundError
-from module.shop_event.item import EventShopItem, UR_SHIP_PRICES_IN_URPT, COIN_PRICE_IN_URPT, URPT_PRICE_IN_PT
+from module.shop_event.item import (
+    COIN_PRICE_IN_URPT,
+    UR_SHIP_PRICES_IN_URPT,
+    URPT_PRICE_IN_PT,
+    EventShopItem,
+)
 from module.shop_event.selector import (
     EVENT_SHOP_PRESET_FILTER,
     FILTER,
     parse_filter_amount,
-    strip_filter_amount,
     parse_filter_tokens,
     rebuild_filter_tokens,
+    strip_filter_amount,
 )
 from module.ui.assets import SHOP_GOTO_MUNITIONS
-from module.ui.page import page_shop, page_munitions
+from module.ui.page import page_munitions, page_shop
 
 
 class EventShop(EventShopClerk):
@@ -50,20 +57,48 @@ class EventShop(EventShopClerk):
     pt = 0
     urpt = 0
     pt_preserved = 0
+    _event_shop_current_artifact = None
+    _event_shop_current_artifact_resolved = False
+
+    def _begin_event_shop_pass_context(self):
+        """Разрешить current Event artifact один раз для текущего полного прохода."""
+        self._event_shop_current_artifact_resolved = True
+        try:
+            self._event_shop_current_artifact = EventArtifactRegistry().resolve_current(
+                "EN", current_time()
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self._event_shop_current_artifact = None
+            logger.warning(
+                f"[Магазин события — контекст] Не удалось разрешить current Event artifact: {exc}"
+            )
+        return self._event_shop_current_artifact
+
+    def _current_event_artifact(self):
+        """Вернуть artifact текущего прохода, лениво создав контекст вне _run()."""
+        if not getattr(self, "_event_shop_current_artifact_resolved", False):
+            return self._begin_event_shop_pass_context()
+        return self._event_shop_current_artifact
 
     def event_shop_buy_item(self, item_to_buy, amount=None):
-        # Fail closed before the click: even a partially successful purchase
-        # must never leave the pre-purchase snapshot looking fresh.
+        # До клика работаем fail-closed: даже частично успешная покупка
+        # не должна оставлять снимок до покупки помеченным как свежий.
         try:
-            from module.event_datamine.artifact import load_builtin_artifact
-            from module.webui.event_shop_observation import invalidate_event_shop_observation
-
-            spec = load_builtin_artifact()["event_spec"]
-            invalidate_event_shop_observation(
-                instance=self.config.config_name,
-                event_id=str(spec.get("id") or ""),
-                server=str(spec.get("server") or "EN"),
+            from module.webui.event_shop_observation import (
+                invalidate_event_shop_observation,
             )
+
+            artifact = self._current_event_artifact()
+            if artifact is not None:
+                spec = artifact["event_spec"]
+                invalidate_event_shop_observation(
+                    instance=self.config.config_name,
+                    event_id=str(spec.get("id") or ""),
+                    server=str(spec.get("server") or "EN"),
+                    source_revision=str(
+                        spec.get("provenance", {}).get("revision") or ""
+                    ),
+                )
         except (OSError, TypeError, ValueError) as exc:
             logger.warning(f"[Магазин события — наблюдение] Не удалось инвалидировать snapshot: {exc}")
         return super().event_shop_buy_item(item_to_buy, amount=amount)
@@ -72,6 +107,36 @@ class EventShop(EventShopClerk):
         self.pt = self.event_shop_get_pt()
         if self.event_shop_has_urpt:
             self.urpt = self.event_shop_get_urpt()
+
+        try:
+            from module.log_res.log_res import LogRes
+
+            LogRes(config=self.config).Pt = self.pt
+        except Exception as exc:
+            logger.warning(
+                f"[Магазин события — ресурсы] Не удалось обновить PT в журнале: {exc}"
+            )
+
+        try:
+            from module.webui.event_observation import persist_current_pt_observation
+
+            artifact = self._current_event_artifact()
+            if artifact is not None:
+                spec = artifact["event_spec"]
+                persist_current_pt_observation(
+                    instance=self.config.config_name,
+                    event_id=str(spec.get("id") or ""),
+                    server=str(spec.get("server") or "EN"),
+                    source_revision=str(
+                        spec.get("provenance", {}).get("revision") or ""
+                    ),
+                    value=self.pt,
+                    source="event_shop_ocr",
+                )
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                f"[Магазин события — наблюдение] Не удалось сохранить OCR PT: {exc}"
+            )
 
     def preserve_pt(self, amount: int):
         """
@@ -252,27 +317,40 @@ class EventShop(EventShopClerk):
         Pages:
             in: shop_event
         """
+        # Все чтения EventSpec в одном проходе используют один и тот же artifact.
+        # Это исключает повторное чтение registry и расхождение identity внутри прохода.
+        self._begin_event_shop_pass_context()
         self.event_shop_load_ensure()
+        # PT — полноценное наблюдение каждого прохода EventShop, включая
+        # проверочный проход, в котором новых кандидатов на покупку уже нет.
+        self.get_current_pts()
         items = self.scan_all()
         try:
-            from module.event_datamine.artifact import load_builtin_artifact
-            from module.webui.event_shop_observation import persist_event_shop_observation
-
-            observation_spec = load_builtin_artifact()["event_spec"]
-            persist_event_shop_observation(
-                instance=self.config.config_name,
-                spec=observation_spec,
-                runtime_items=items,
+            from module.webui.event_shop_observation import (
+                persist_event_shop_observation,
             )
+
+            artifact = self._current_event_artifact()
+            if artifact is not None:
+                persist_event_shop_observation(
+                    instance=self.config.config_name,
+                    spec=artifact["event_spec"],
+                    runtime_items=items,
+                )
         except (OSError, TypeError, ValueError) as exc:
             # Observation is additive evidence. Its storage failure must not
             # silently change the established EventShop purchase policy.
             logger.warning(f"[Магазин события — наблюдение] Не удалось сохранить snapshot: {exc}")
         if not len(items):
-            logger.warning("[Магазин события] Товары в магазине события не найдены")
+            observation_items = getattr(items, "observation_items", items)
+            if observation_items:
+                logger.info(
+                    "[Магазин события] Нет товаров, требующих покупки по текущим целям и приоритетам"
+                )
+            else:
+                logger.warning("[Магазин события] Товары в магазине события не найдены")
             return True
         logger.hr("Покупки в магазине события", level=2)
-        self.get_current_pts()
         items, urpt_related_items = self.handle_items_related_with_urpt(items, self.config.EventShop_BuyURShip)
         self.get_current_pts()
         items, unobtained_multiple_stock_items = self.handle_unobtained_items(items, self.config.EventShop_UnlockSSRShip)

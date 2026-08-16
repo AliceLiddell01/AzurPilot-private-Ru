@@ -16,7 +16,7 @@ from module.webui.event_source import (
 
 
 def test_generated_facts_and_user_policy_are_separate_round_trip(tmp_path: Path):
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     state = load_event_user_state(
         "ap", root=tmp_path / "state", legacy_root=tmp_path / "legacy"
     )
@@ -65,7 +65,9 @@ def test_stage2_migration_preserves_intent_without_activating_manual_facts(
     state = load_event_user_state(
         "ap", root=tmp_path / "state", legacy_root=legacy_root
     )
-    projected = event_plan_from_source(load_builtin_artifact()["event_spec"], state)
+    projected = event_plan_from_source(
+        load_builtin_artifact("rose_tower.json")["event_spec"], state
+    )
 
     assert state["legacy_unverified"]["event"]["name"] == "Manual old event"
     assert state["legacy_unverified"]["manual_current_pt"] == 900
@@ -96,7 +98,9 @@ def test_stage2_shop_selection_without_id_maps_only_by_unique_source_facts():
     ]
 
     state = migrate_stage2_plan(old)
-    projected = event_plan_from_source(load_builtin_artifact()["event_spec"], state)
+    projected = event_plan_from_source(
+        load_builtin_artifact("rose_tower.json")["event_spec"], state
+    )
 
     chips = next(item for item in projected["shop_items"] if item["id"] == "3009")
     assert chips["selected"] == 3
@@ -104,7 +108,7 @@ def test_stage2_shop_selection_without_id_maps_only_by_unique_source_facts():
 
 
 def test_source_shop_ids_feed_existing_bridge_without_weakening_special_cases():
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     state = empty_event_user_state()
     state["shop_selections"] = {"3009": 3}
     safe = build_event_shop_automation_plan(event_plan_from_source(spec, state))
@@ -121,11 +125,15 @@ def test_explicit_manual_empty_is_preserved():
     old = empty_event_plan("EN")
     old["event"]["source"]["kind"] = "manual_empty"
     state = migrate_stage2_plan(old)
-    projected = event_plan_from_source(load_builtin_artifact()["event_spec"], state)
+    projected = event_plan_from_source(
+        load_builtin_artifact("rose_tower.json")["event_spec"], state
+    )
     assert projected["event"]["source"]["kind"] == "manual_empty"
     assert projected["shop_items"] == []
     state["explicit_empty"] = False
-    restored = event_plan_from_source(load_builtin_artifact()["event_spec"], state)
+    restored = event_plan_from_source(
+        load_builtin_artifact("rose_tower.json")["event_spec"], state
+    )
     assert restored["event"]["id"] == "en:5941"
 
 
@@ -137,7 +145,7 @@ def test_corrupt_user_state_is_preserved_before_safe_fallback(tmp_path: Path):
 
     restored = load_event_user_state("ap", root=root, legacy_root=tmp_path / "legacy")
 
-    assert restored["source_event_id"] == "en:5941"
+    assert restored["source_event_id"] == ""
     assert not path.exists()
     backups = list(root.glob(f"{path.name}.corrupt-*"))
     assert len(backups) == 1
@@ -145,7 +153,7 @@ def test_corrupt_user_state_is_preserved_before_safe_fallback(tmp_path: Path):
 
 
 def test_policy_from_another_event_does_not_leak_into_new_source():
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     state = empty_event_user_state()
     state["source_event_id"] = "en:previous"
     state["shop_selections"] = {"3009": 3}

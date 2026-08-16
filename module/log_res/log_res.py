@@ -35,6 +35,30 @@ class LogRes:
     def __init__(self, config):
         self.__dict__['config'] = config
 
+    def _record_event_pt(self, value):
+        """Persist PT evidence produced by non-EventShop tasks and wake the shop safely."""
+        task_name = str(
+            getattr(getattr(self.config, 'task', None), 'command', '') or ''
+        )
+        if task_name == 'EventShop':
+            # EventShop persists its own direct OCR evidence with source
+            # ``event_shop_ocr`` and must not wake itself through Dashboard.
+            return
+        try:
+            from module.webui.event_currency import persist_event_currency_update
+
+            persist_event_currency_update(
+                self.config,
+                value,
+                source='dashboard_ocr',
+            )
+        except Exception:
+            # Resource logging is primary.  Event scheduling is additive and
+            # must never make an otherwise valid Dashboard update fail.
+            logger.exception(
+                '[Ресурсы журнала] Не удалось сохранить PT события или разбудить EventShop'
+            )
+
     def __setattr__(self, key, value):
         if key in self.groups:
             _key_group = f'Dashboard.{key}'
@@ -54,10 +78,13 @@ class LogRes:
                             cl1_db.async_add_yellow_coin_snapshot(instance_name, int(value), source='dashboard')
                         except Exception:
                             logger.exception('[Ресурсы журнала] Не удалось сохранить снимок монет')
+                    if key == 'Pt':
+                        self._record_event_pt(value)
                     # 记录全量资源快照
                     self._record_all_resource_snapshot({key: value})
             elif isinstance(value, dict):
                 _mod = False
+                value_changed = False
                 for value_name, _value in value.items():
                     if _value == original[value_name]:
                         continue
@@ -67,6 +94,8 @@ class LogRes:
                     _time = datetime.now().replace(microsecond=0)
                     self.config.modified[_key_time] = _time
                     _mod = True
+                    if value_name == 'Value':
+                        value_changed = True
                 if _mod:
                     if key == 'ActionPoint':
                         try:
@@ -83,6 +112,8 @@ class LogRes:
                             )
                         except Exception:
                             logger.exception('Не удалось сохранить снимок очков действия')
+                    if key == 'Pt' and value_changed:
+                        self._record_event_pt(value.get('Value'))
                     # 记录全量资源快照
                     value_to_record = value.get('Value') if isinstance(value, dict) else None
                     if value_to_record is not None:

@@ -127,6 +127,7 @@ class MapSpec:
     unknown_grid_types: tuple[int, ...] = ()
     unknown_effects: tuple[str, ...] = ()
     compatibility_patch_ids: tuple[str, ...] = ()
+    source_status: SourceStatus = "verified"
 
 
 @dataclass(frozen=True)

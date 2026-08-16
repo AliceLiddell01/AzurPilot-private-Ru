@@ -1,0 +1,345 @@
+{
+  "base_contract": {
+    "activity_id": 51101,
+    "event_name": "Depths of the Astrarium",
+    "map_count": 15,
+    "milestone_count": 43,
+    "server": "EN",
+    "shop_count": 26,
+    "source_revision": "a6b6f81f8fdd1220ef0ad1015a362a7361eb3d91"
+  },
+  "digest": "809b4a1845d37e47a153e2c0760b93393894bc4e97eb85fc2507edc421a558a7",
+  "event_id": "en:51101",
+  "farm": {
+    "mechanics": {
+      "event_pt_awarded_on_map_boss_clear": true,
+      "ex_score_counts_toward_ranking": false,
+      "ex_user_facing_map_count": 1,
+      "ex_uses_score_instead_of_event_pt": true,
+      "features": [
+        "Threat Level",
+        "Air Superiority",
+        "Submarines",
+        "Siren mechanics"
+      ],
+      "hard_map_count": 6,
+      "normal_map_count": 6,
+      "siren_drop_rule": "Siren fleets are one level below boss nodes and normally use boss-node-equivalent drops, except boss-only drops.",
+      "siren_fleets_can_move_after_player_fleets_move": true,
+      "siren_maps_disable_ambushes_and_air_raids": true,
+      "sp_event_pt_claim_frequency": "once_per_day",
+      "sp_map_count": 1
+    },
+    "rules": {
+      "coin_efficiency_excludes_sold_drops_and_gear": true,
+      "extra_grants_event_pt": false,
+      "high_efficiency_applies_to_base_points": true,
+      "high_efficiency_applies_to_daily_first_clear_bonus": false,
+      "high_efficiency_multiplier": 2,
+      "normal_first_clear_daily_multiplier": 3,
+      "oil_per_run_can_be_exceeded_when_submarines_are_used": true,
+      "oil_per_run_includes_sortie_start_cost": 10,
+      "source_note": "The pinned page explicitly states that all Normal maps have 3x Astrarium Invitation for the first clear each day. Another prose bullet says A/C maps; the explicit Normal-map statement and per-map table are used for this snapshot without promoting the multiplier to a global game rule.",
+      "sp_daily_limit": 1,
+      "submarine_oil_applies_only_when_called_into_battle": true
+    }
+  },
+  "map_parts": [
+    "maps-normal.json",
+    "maps-hard.json",
+    "maps-special.json"
+  ],
+  "missions": [
+    {
+      "grants_event_pt": false,
+      "id": "wiki:open-20-seaside-speedstars-boxes",
+      "kind": "one_time",
+      "name": "Open 20 (Seaside Speedstars) Gear Skin Boxes",
+      "reward": "Selection Gear Skin Box (Seaside Speedstars)",
+      "target": 20
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:collect-all-stickers",
+      "kind": "commemorative",
+      "name": "Collect all stickers.",
+      "rewards": [
+        "Master Recording",
+        "Astrarium Medal"
+      ]
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:collect-7-stickers",
+      "kind": "commemorative",
+      "name": "Collect 7 stickers.",
+      "rewards": [
+        "Sticker: Astrarium"
+      ],
+      "target": 7
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:read-whole-story",
+      "kind": "commemorative",
+      "name": "Read the whole story.",
+      "rewards": [
+        "Sticker: Detective"
+      ]
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:defeat-300-event-enemies",
+      "kind": "commemorative",
+      "name": "Defeat 300 enemies on the event stages.",
+      "rewards": [
+        "Sticker: Newbie Idol"
+      ],
+      "target": 300
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:clear-a3-c3",
+      "kind": "commemorative",
+      "name": "Clear the stage A3/C3.",
+      "rewards": [
+        "Sticker: Vlogger"
+      ]
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:clear-b3-d3",
+      "kind": "commemorative",
+      "name": "Clear the stage B3/D3.",
+      "rewards": [
+        "Sticker: B"
+      ]
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:clear-sp",
+      "kind": "commemorative",
+      "name": "Clear the SP stage.",
+      "rewards": [
+        "Sticker: H"
+      ]
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:clear-50-stages",
+      "kind": "commemorative",
+      "name": "Clear 50 stages.",
+      "rewards": [
+        "Sticker: Security Specialist"
+      ],
+      "target": 50
+    },
+    {
+      "grants_event_pt": false,
+      "id": "wiki:collect-10000-pt",
+      "kind": "commemorative",
+      "name": "Collect a total of 10,000 Astrarium Invitations.",
+      "rewards": [
+        "Sticker: R"
+      ],
+      "target": 10000
+    }
+  ],
+  "resource_display_assets": [
+    {
+      "name": "Coins",
+      "resource_id": 1
+    },
+    {
+      "name": "Oil",
+      "resource_id": 2
+    }
+  ],
+  "shop_overrides": [
+    {
+      "expected_item_id": 30387,
+      "expected_item_type": 2,
+      "expected_price": 2000,
+      "expected_stock": 10,
+      "name": "Gear Skin Box (Seaside Speedstars)",
+      "row_id": 4133
+    }
+  ],
+  "source": {
+    "capture_local_wall_time": "2026-08-15 20:14",
+    "kind": "pinned_wiki_snapshot",
+    "machine_readable_scope": [
+      "PT tasks and their recurrence/category",
+      "map PT amounts and first-daily-clear semantics",
+      "map unlock/clear/3-star/enemy/battle/airspace/fleet/stat metadata visible as text",
+      "D-map oil caps and farming ranges",
+      "SP/EX semantics",
+      "shop identity/completeness totals",
+      "milestone threshold completeness"
+    ],
+    "notes": "Wiki snapshot supplies curated user-facing/farm metadata; runtime screenshots independently confirm A1-D3 base PT values. ShareCfg remains authoritative for structural identities.",
+    "page_last_modified": "2026-08-14 22:18",
+    "page_title": "Depths of the Astrarium",
+    "runtime_screenshot_archive_sha256": "b441b74afe17f82e3eeef5573b03586a419a5dc8e4f0b9de43f7cbfb5bf4b733",
+    "site": "Azur Lane Wiki",
+    "visual_only_omissions": [
+      "blueprint-drop icon identities not named in the screenshot",
+      "ordinary ship-drop icon identities not named in the screenshot",
+      "Base XP icon-category labels not named in the screenshot",
+      "cosmetic skins/furniture/equipment-skin catalog unrelated to event automation",
+      "associated anniversary/minigame reward catalogs unrelated to this event's PT/farm/shop automation"
+    ],
+    "wiki_archive_sha256": "5c1ce940bcfa5b5ec1881279a117073896faa7b290bf789a48543bd1b6d38114"
+  },
+  "source_conflicts": [
+    {
+      "field": "full_buyout_cost",
+      "page_note_value": 138550,
+      "resolution": "ShareCfg arithmetic matches the page note; the conflicting banner value is retained as source evidence and is not used as a verified total.",
+      "shop_banner_value": 138750
+    }
+  ],
+  "supplemental_schema_version": 1,
+  "task_classification": [
+    {
+      "expected_name": "Build 3 ships.",
+      "expected_points": 300,
+      "kind": "daily",
+      "task_id": 27371
+    },
+    {
+      "expected_name": "Sortie and obtain 15 victories.",
+      "expected_points": 300,
+      "kind": "daily",
+      "task_id": 27372
+    },
+    {
+      "expected_name": "Clear any Hard Mode stage 1 time.",
+      "expected_points": 150,
+      "kind": "daily",
+      "scope": "non_event_hard_mode",
+      "task_id": 27373
+    },
+    {
+      "expected_name": "Clear A1 or C1",
+      "expected_points": 200,
+      "kind": "one_time",
+      "scope": "event_map_completion",
+      "task_id": 27374
+    },
+    {
+      "expected_name": "Clear A2 or C2",
+      "expected_points": 400,
+      "kind": "one_time",
+      "scope": "event_map_completion",
+      "task_id": 27375
+    },
+    {
+      "expected_name": "Clear A3 or C3",
+      "expected_points": 600,
+      "kind": "one_time",
+      "scope": "event_map_completion",
+      "task_id": 27376
+    },
+    {
+      "expected_name": "Clear B1 or D1",
+      "expected_points": 400,
+      "kind": "one_time",
+      "scope": "event_map_completion",
+      "task_id": 27377
+    },
+    {
+      "expected_name": "Clear B2 or D2",
+      "expected_points": 600,
+      "kind": "one_time",
+      "scope": "event_map_completion",
+      "task_id": 27378
+    },
+    {
+      "expected_name": "Clear B3 or D3",
+      "expected_points": 800,
+      "kind": "one_time",
+      "scope": "event_map_completion",
+      "task_id": 27379
+    },
+    {
+      "expected_name": "Clear any event stage 10 times.",
+      "expected_points": 500,
+      "kind": "one_time",
+      "scope": "event_clear_count",
+      "task_id": 27388
+    },
+    {
+      "expected_name": "Clear any event stage 30 times.",
+      "expected_points": 1500,
+      "kind": "one_time",
+      "scope": "event_clear_count",
+      "task_id": 27389
+    },
+    {
+      "expected_name": "Clear any event stage 60 times.",
+      "expected_points": 3000,
+      "kind": "one_time",
+      "scope": "event_clear_count",
+      "task_id": 27390
+    }
+  ],
+  "verification": {
+    "milestones": {
+      "count": 43,
+      "thresholds": [
+        100,
+        300,
+        500,
+        700,
+        1000,
+        1500,
+        2000,
+        2500,
+        3000,
+        3500,
+        4000,
+        4500,
+        5000,
+        5500,
+        6000,
+        6500,
+        7000,
+        7500,
+        8000,
+        8500,
+        9000,
+        9500,
+        10000,
+        11000,
+        12000,
+        13000,
+        14000,
+        15000,
+        17500,
+        20000,
+        22500,
+        25000,
+        27500,
+        30000,
+        35000,
+        40000,
+        45000,
+        50000,
+        55000,
+        60000,
+        70000,
+        80000,
+        100000
+      ]
+    },
+    "shop": {
+      "featured_item_full_stock": 5,
+      "featured_item_one_copy_stock": 1,
+      "featured_item_row_id": 4131,
+      "full_buyout_cost": 138550,
+      "one_featured_copy_buyout_cost": 106550,
+      "row_count": 26
+    }
+  }
+}

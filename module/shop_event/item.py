@@ -4,10 +4,9 @@ import cv2
 import numpy as np
 
 import module.config.server as server
-
-from module.base.utils import color_similarity_2d, color_similar, rgb2luma
+from module.base.utils import color_similar, color_similarity_2d, rgb2luma
 from module.logger import logger
-from module.ocr.ocr import Ocr, Digit
+from module.ocr.ocr import Digit, Ocr
 from module.shop_event.selector import FILTER_REGEX
 from module.statistics.item import Item, ItemGrid
 
@@ -53,6 +52,42 @@ class CounterOcr(Ocr):
         result = result.replace('B', '8')
         return result
 
+    @staticmethod
+    def parse_counter_result(value):
+        """Parse one ``current/total`` OCR token without guessing stock."""
+        text = str(value or '').strip()
+        parts = text.split('/')
+        if len(parts) != 2:
+            logger.warning(
+                f'[Магазин события — товар] Некорректный формат счётчика OCR: {text!r}'
+            )
+            return [0, 0]
+
+        current_text, total_text = (part.strip() for part in parts)
+        if not total_text.isdecimal():
+            logger.warning(
+                f'[Магазин события — товар] Не удалось прочитать максимальный остаток OCR: {text!r}; '
+                'товар заблокирован для текущего сканирования'
+            )
+            return [0, 0]
+
+        total = int(total_text)
+        if not current_text.isdecimal():
+            logger.warning(
+                f'[Магазин события — товар] Не удалось прочитать текущий остаток OCR: {text!r}; '
+                f'используется безопасный остаток 0/{total}'
+            )
+            return [0, total]
+
+        current = int(current_text)
+        if current > total:
+            logger.warning(
+                f'[Магазин события — товар] OCR вернул невозможный остаток {current}/{total}; '
+                'товар заблокирован для текущего сканирования'
+            )
+            return [0, total]
+        return [current, total]
+
     def ocr(self, image, direct_ocr=False):
         """
         Do OCR on a counter, such as `14/15`, and returns 14, 15
@@ -64,34 +99,10 @@ class CounterOcr(Ocr):
         Returns:
             list[list[int]: [[current, total]].
         """
-        result_list = super().ocr(image, direct_ocr=direct_ocr)
-        if isinstance(result_list, list):
-            parsed = []
-            for i in result_list:
-                if not i or '/' not in i:
-                    logger.warning(f'[Магазин события — товар] Некорректный формат результата OCR: {i}')
-                    parsed.append([0, 0])
-                    continue
-
-                parts = i.split('/')
-                if len(parts) != 2:
-                    logger.warning(f'[Магазин события — товар] Некорректный формат счётчика: {i}')
-                    parsed.append([0, 0])
-                    continue
-                parsed.append([int(j) for j in parts])
-
-            return parsed
-        else:
-            if not result_list or '/' not in result_list:
-                logger.warning(f'[Магазин события — товар] Некорректный результат OCR: {result_list}')
-                return [0, 0]
-
-            parts = result_list.split('/')
-            if len(parts) != 2:
-                logger.warning(f'[Магазин события — товар] Некорректный формат счётчика: {result_list}')
-                return [0, 0]
-
-            return [int(i) for i in parts]
+        result = super().ocr(image, direct_ocr=direct_ocr)
+        if isinstance(result, list):
+            return [self.parse_counter_result(value) for value in result]
+        return self.parse_counter_result(result)
 
 
 class PriceOcr(Digit):
@@ -174,14 +185,11 @@ class EventShopItem(Item):
             elif self.price == URPT_PRICE_IN_PT and self.total_count == 500:
                 self.name = 'URpt'
             elif self.name.isdigit():
-                logger.warning(f'[Магазин события — товар] Неопознанный товар, цена {self.price}, всего {self.total_count}; '
-                               # f'defaulting to EquipSSR')
-                               f'изображение сохранено для анализа.')
-                import os
-                from module.base.utils import save_image
-                os.mkdir('assets/shop/event/new_templates/') if not os.path.exists('assets/shop/event/new_templates/') else None
-                save_image(self.image, f'assets/shop/event/new_templates/{self.name}.png')
-                # self.name = 'EquipSSR'
+                logger.warning(
+                    f'[Магазин события — товар] Неопознанный товар, цена {self.price}, всего {self.total_count}; '
+                    f'принадлежность не подтверждена; область={self.button}, '
+                    f'позиция прокрутки={self.scroll_pos}.'
+                )
 
     def predict_genre(self):
         self.group, self.sub_genre, self.tier = None, None, None

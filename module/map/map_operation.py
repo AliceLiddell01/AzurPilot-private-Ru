@@ -282,13 +282,13 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
         return True
 
     def enter_map_cancel(self, skip_first_screenshot=True):
-        """取消进入地图，从地图准备界面退回关卡选择界面。
+        """Отменить вход на карту и вернуться из окна подготовки к выбору этапа.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过第一次截图。
+            skip_first_screenshot (bool): Пропустить ли первый снимок экрана.
 
         Returns:
-            bool: 始终返回 True。
+            bool: Всегда True.
         """
         logger.hr('Отмена входа на карту')
         while 1:
@@ -297,11 +297,11 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
             else:
                 self.device.screenshot()
 
-            # 结束判断
+            # Проверка завершения.
             if self.is_in_stage():
                 break
 
-            if self.appear(MAP_PREPARATION, offset=(20, 20), interval=2):
+            if self._map_preparation_appear(interval=2):
                 self.device.click(MAP_PREPARATION_CANCEL)
                 continue
             if self.appear(FLEET_PREPARATION, offset=(20, 50), interval=2):
@@ -401,14 +401,33 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
         total = r.shape[0] * r.shape[1]
         return sum_ / total > 0.5
 
-    def handle_map_preparation(self):
+    def _map_preparation_appear(self, interval=0):
+        """Проверить наличие кнопки подготовки карты.
+
+        Для одноразовых этапов допускается цветовая проверка штатной области
+        `MAP_PREPARATION`, если строгий шаблон не совпал. Это сохраняет строгую
+        проверку для обычных карт и покрывает вариант кнопки GO с тем же
+        устойчивым цветовым контрактом.
         """
-        处理地图准备阶段，等待地图信息动画完成。
+        if self.appear(MAP_PREPARATION, offset=(20, 20), interval=interval):
+            return True
+        if self.config.MAP_IS_ONE_TIME_STAGE and self.appear(
+            MAP_PREPARATION, interval=interval
+        ):
+            logger.info(
+                '[Карта — операция] Кнопка подготовки одноразового этапа '
+                'распознана по цвету'
+            )
+            return True
+        return False
+
+    def handle_map_preparation(self):
+        """Обработать этап подготовки карты и дождаться завершения анимации информации.
 
         Returns:
-            bool: MAP_PREPARATION 按钮是否出现且地图信息动画是否已完成。
+            bool: Кнопка MAP_PREPARATION обнаружена и информация карты готова.
         """
-        if not self.appear(MAP_PREPARATION, offset=(20, 20)):
+        if not self._map_preparation_appear():
             self.map_clear_percentage_prev = -1
             self.map_clear_percentage_timer.reset()
             return False
@@ -418,16 +437,16 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
         if self.config.MAP_IS_ONE_TIME_STAGE:
             logger.attr('Карта является одноразовым этапом', self.config.MAP_IS_ONE_TIME_STAGE)
             return True
-        # 信息栏会遮挡进度条和 MAP_GREEN
+        # Информационная панель перекрывает шкалу прогресса и MAP_GREEN.
         if self.info_bar_count():
             return False
 
         percent = self.get_map_clear_percentage()
         logger.attr('Процент прохождения карты', f'{int(percent * 100)}%')
-        # 注意：进度条从 100% 开始，然后从 0% 增加到实际值。
-        # 2022.08.21 当 `percent` 从 0 上升时仍然启用此逻辑。
+        # Шкала сначала отображает 100%, затем растёт от 0% до фактического значения.
+        # Логика остаётся активной и когда `percent` начинает расти от 0.
         if percent > 0.95 and 0 <= self.map_clear_percentage_prev < 0.95:
-            # 地图通关进度达到 100%，直接退出
+            # При достижении 100% можно сразу завершить ожидание.
             return True
         if abs(percent - self.map_clear_percentage_prev) < 0.02:
             self.map_clear_percentage_prev = percent

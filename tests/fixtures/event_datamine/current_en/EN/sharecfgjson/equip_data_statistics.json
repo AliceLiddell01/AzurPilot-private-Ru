@@ -1,0 +1,40 @@
+{
+  "151220": {
+    "ammo": 10,
+    "ammo_icon": {},
+    "ammo_info": {},
+    "attribute_1": "durability",
+    "descrip": "Collett's favorite digital pet. She's on her thirteenth one by now, so hopefully she'll feed it this time.",
+    "equip_info": {
+      "0": 6
+    },
+    "equip_parameters": {},
+    "hidden_skill_id": {},
+    "icon": "151220",
+    "id": 151220,
+    "label": {
+      "0": "USS",
+      "1": "DEV"
+    },
+    "name": "Error XIII",
+    "nationality": 1,
+    "part_main": {},
+    "part_sub": {},
+    "property_rate": {},
+    "rarity": 5,
+    "skill_id": {
+      "0": {
+        "0": 61130,
+        "1": 1
+      }
+    },
+    "speciality": "<[NA]>",
+    "tech": 0,
+    "torpedo_ammo": 0,
+    "type": 10,
+    "value_1": "250",
+    "value_2": 0,
+    "value_3": 0,
+    "weapon_id": {}
+  }
+}

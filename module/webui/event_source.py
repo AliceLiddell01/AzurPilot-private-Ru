@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,9 @@ from deploy.atomic import (
     replace_tmp,
     to_tmp_file,
 )
-from module.event_datamine.artifact import load_builtin_artifact
+from module.event_datamine.artifact import BUILTIN_ARTIFACT_ROOT, load_builtin_artifact
+from module.event_datamine.discovery import EventDiscoveryError
+from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
 from module.webui.event_observation import (
     load_event_observation,
@@ -46,7 +49,7 @@ def event_user_state_path(
 def empty_event_user_state() -> dict[str, Any]:
     return {
         "schema_version": EVENT_USER_STATE_SCHEMA_VERSION,
-        "source_event_id": "en:5941",
+        "source_event_id": "",
         "explicit_empty": False,
         "shop_selections": {},
         "legacy_unverified": None,
@@ -58,7 +61,7 @@ def normalize_event_user_state(raw: Any) -> dict[str, Any]:
     result = empty_event_user_state()
     if not isinstance(raw, Mapping):
         return result
-    result["source_event_id"] = str(raw.get("source_event_id") or "en:5941")
+    result["source_event_id"] = str(raw.get("source_event_id") or "")
     result["explicit_empty"] = bool(raw.get("explicit_empty"))
     selections = raw.get("shop_selections")
     if isinstance(selections, Mapping):
@@ -216,6 +219,7 @@ def event_plan_from_source(
         "id": str(spec.get("id") or ""),
         "name": str(spec.get("name") or ""),
         "server": str(spec.get("server") or "EN"),
+        "farm_start": str(spec.get("farm_start") or ""),
         "farm_end": str(spec.get("farm_end") or ""),
         "shop_end": str(spec.get("shop_end") or ""),
         "source": {
@@ -225,8 +229,12 @@ def event_plan_from_source(
             "updated_at": "",
             "revision": str(provenance.get("revision") or ""),
             "repository": str(provenance.get("repository") or ""),
+            "provider": str(provenance.get("provider") or ""),
         },
     }
+    plan["currencies"] = [
+        dict(item) for item in spec.get("currencies", []) if isinstance(item, Mapping)
+    ]
     observation = observation if isinstance(observation, Mapping) else {}
     current_fresh = str(observation.get("current_pt_status") or "") == "observed"
     if not observation.get("current_pt_status"):
@@ -308,6 +316,9 @@ def event_plan_from_source(
                     "observation_status": "observed"
                     if observation_is_fresh(observation) and runtime
                     else "unavailable",
+                    "source_status": str(item.get("source_status") or "verified"),
+                    "runtime_eligible": str(item.get("source_status") or "verified")
+                    == "verified",
                 }
             )
     selections = dict(state["shop_selections"]) if same_source else {}
@@ -354,6 +365,8 @@ def event_plan_from_source(
                 "currency_id": int(item.get("currency_id", 0) or 0),
                 "asset": dict(item.get("asset") or {}),
                 "amount": int(item.get("amount", 1) or 1),
+                "category": str(item.get("category") or "unknown"),
+                "rarity": item.get("rarity"),
                 "remaining": runtime.get("remaining") if shop_observed_fresh else None,
                 "purchased": runtime.get("purchased") if shop_observed_fresh else None,
                 "match_status": str(runtime.get("status") or "unmatched")
@@ -378,24 +391,189 @@ def event_plan_from_source(
     return plan
 
 
-def load_builtin_event_plan(
-    instance: str, runtime_observation: Mapping[str, Any] | None = None
+def load_event_plan_from_artifact(
+    instance: str,
+    artifact: Mapping[str, Any],
+    runtime_observation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    artifact = load_builtin_artifact()
     spec = artifact["event_spec"]
+    provenance = spec.get("provenance", {})
+    revision = str(provenance.get("revision") or "")
     observation = load_event_observation(
-        instance, str(spec.get("id") or ""), str(spec.get("server") or "EN")
+        instance,
+        str(spec.get("id") or ""),
+        str(spec.get("server") or "EN"),
+        revision,
+    )
+    runtime_matches = (
+        isinstance(runtime_observation, Mapping)
+        and str(runtime_observation.get("event_id") or "")
+        == str(spec.get("id") or "")
+        and str(runtime_observation.get("server") or "").upper()
+        == str(spec.get("server") or "EN").upper()
+        and str(runtime_observation.get("source_revision") or "") == revision
     )
     if isinstance(runtime_observation, Mapping):
-        for field in (
-            "current_pt",
-            "current_pt_source",
-            "current_pt_observed_at",
-            "current_pt_status",
-        ):
-            if field in runtime_observation:
-                observation[field] = runtime_observation[field]
+        if not runtime_matches:
+            observation.setdefault("findings", []).append(
+                {
+                    "code": "runtime_observation_identity_rejected",
+                    "message": "Runtime observation не совпадает с current event identity",
+                    "path": "runtime_observation",
+                }
+            )
+        elif _current_pt_evidence_is_newer(runtime_observation, observation):
+            current_pt = runtime_observation.get("current_pt")
+            current_pt_observed_at = str(
+                runtime_observation.get("current_pt_observed_at")
+                or runtime_observation.get("observed_at")
+                or ""
+            )
+            current_pt_status = str(
+                runtime_observation.get("current_pt_status") or ""
+            ).lower()
+            if current_pt is None:
+                current_pt_status = "unavailable"
+            elif current_pt_status not in {"observed", "stale"}:
+                current_pt_status = (
+                    "observed"
+                    if observation_is_fresh({"observed_at": current_pt_observed_at})
+                    else "stale"
+                )
+            observation.update(
+                {
+                    "current_pt": current_pt,
+                    "current_pt_source": str(
+                        runtime_observation.get("current_pt_source")
+                        or runtime_observation.get("source")
+                        or ""
+                    ),
+                    "current_pt_observed_at": current_pt_observed_at,
+                    "current_pt_status": current_pt_status,
+                }
+            )
+        else:
+            observation.setdefault("findings", []).append(
+                {
+                    "code": "runtime_observation_not_newer",
+                    "message": "Runtime observation не новее сохранённого PT evidence",
+                    "path": "runtime_observation",
+                }
+            )
     return event_plan_from_source(spec, load_event_user_state(instance), observation)
+
+
+def _current_pt_evidence_is_newer(
+    candidate: Mapping[str, Any], existing: Mapping[str, Any]
+) -> bool:
+    """Не позволить более старому или равному OCR evidence затереть свежую запись."""
+
+    def timestamp(value: Any) -> float | None:
+        try:
+            observed = datetime.fromisoformat(str(value or ""))
+        except ValueError:
+            return None
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        return observed.timestamp()
+
+    candidate_at = timestamp(
+        candidate.get("current_pt_observed_at") or candidate.get("observed_at")
+    )
+    existing_at = timestamp(
+        existing.get("current_pt_observed_at") or existing.get("observed_at")
+    )
+    return candidate_at is not None and (
+        existing_at is None or candidate_at > existing_at
+    )
+
+
+def load_builtin_event_plan(
+    instance: str,
+    name: str,
+    runtime_observation: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Загрузить явно указанный demo/golden artifact, никогда не production default."""
+
+    return load_event_plan_from_artifact(
+        instance, load_builtin_artifact(name), runtime_observation
+    )
+
+
+def _unavailable_current_plan(
+    server: str, *, code: str, message: str, candidates: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    plan = empty_event_plan(server)
+    plan["event"]["source"] = {
+        "kind": "azurlane_lua",
+        "verified": False,
+        "status": "unsupported",
+        "updated_at": "",
+        "revision": "",
+        "repository": "AzurLaneTools/AzurLaneLuaScripts",
+        "provider": "AzurLaneLuaScripts",
+    }
+    plan["source_status"] = "unsupported"
+    plan["source_findings"] = [
+        {
+            "code": code,
+            "severity": "error",
+            "message": message,
+            "path": "registry.current",
+            "candidates": list(candidates),
+        }
+    ]
+    return plan
+
+
+def resolve_current_event_artifact(
+    *,
+    server: str = "EN",
+    now: datetime | None = None,
+    registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Разрешить current artifact один раз либо вернуть typed unavailable plan."""
+
+    current_time = now or datetime.now()
+    try:
+        artifact = EventArtifactRegistry(registry_root).resolve_current(
+            server, current_time
+        )
+    except EventDiscoveryError as exc:
+        return None, _unavailable_current_plan(
+            server,
+            code=exc.code,
+            message=str(exc),
+            candidates=exc.candidates,
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        return None, _unavailable_current_plan(
+            server, code="event_registry_invalid", message=str(exc)
+        )
+    if artifact is None:
+        return None, _unavailable_current_plan(
+            server,
+            code="current_event_unavailable",
+            message="Для текущего server-local lifecycle нет production Event artifact",
+        )
+    return artifact, None
+
+
+def load_current_event_plan(
+    instance: str,
+    runtime_observation: Mapping[str, Any] | None = None,
+    *,
+    server: str = "EN",
+    now: datetime | None = None,
+    registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
+) -> dict[str, Any]:
+    artifact, unavailable = resolve_current_event_artifact(
+        server=server, now=now, registry_root=registry_root
+    )
+    if artifact is None:
+        assert unavailable is not None
+        return unavailable
+    return load_event_plan_from_artifact(instance, artifact, runtime_observation)
 
 
 def user_state_from_plan(

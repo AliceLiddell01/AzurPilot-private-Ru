@@ -2,7 +2,7 @@
 活动商店商品过滤选择器。
 
 通过正则表达式定义商品分类过滤规则，支持按大类（装备/舰船/PT 等）、
-子类（SSR/SR 等）和层级（S1-S8/T1-T6）三级筛选。
+子类（SSR/SR 等）和层级（Series/Tier）三级筛选。
 提供 Filter 实例用于匹配商品名称，并支持可选的数量后缀解析
 （如 "Cube:5" 表示购买 5 个心智魔方）。
 
@@ -25,7 +25,7 @@ FILTER_REGEX = re.compile(
     '|core|change|enhance'
     '|general|gun|torpedo|antiair|plane)?'
 
-    '(s[1-8]|t[1-6])?$'
+    '(s[1-9][0-9]*|t[1-6])?$'
 )
 FILTER_ATTR = ('group', 'sub_genre', 'tier')
 FILTER = Filter(FILTER_REGEX, FILTER_ATTR)
