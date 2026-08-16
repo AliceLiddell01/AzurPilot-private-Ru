@@ -45,6 +45,8 @@ from rich.style import Style
 from rich.theme import Theme
 from rich.traceback import Traceback
 
+from module.logging_core import DiagnosticContextHandler, RepeatedEventSuppressor
+
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
@@ -79,6 +81,25 @@ _UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 
+def _build_traceback_path_aliases():
+    """Безопасно вычислить локальные path-aliases, не рискуя импортом logger."""
+    aliases = []
+    for resolver, alias in (
+        (lambda: Path(__file__).resolve().parent.parent, "<PROJECT_ROOT>"),
+        (lambda: Path.home().resolve(), "<USER_HOME>"),
+    ):
+        try:
+            local_path = str(resolver())
+        except (OSError, RuntimeError):
+            continue
+        if local_path:
+            aliases.append((re.compile(re.escape(local_path), re.IGNORECASE), alias))
+    return tuple(aliases)
+
+
+_TRACEBACK_PATH_ALIASES = _build_traceback_path_aliases()
+
+
 def sanitize_traceback_text(value) -> str:
     """Скрыть типовые секреты и управляющие последовательности в traceback."""
     text = str(value or "")
@@ -88,13 +109,8 @@ def sanitize_traceback_text(value) -> str:
     text = _URL_USERINFO_RE.sub(r"\g<scheme>***@", text)
     text = _SENSITIVE_QUERY_RE.sub(r"\1***", text)
     text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1\2***", text)
-    path_aliases = (
-        (str(Path.cwd().resolve()), "<PROJECT_ROOT>"),
-        (str(Path.home().resolve()), "<USER_HOME>"),
-    )
-    for local_path, alias in path_aliases:
-        if local_path:
-            text = re.sub(re.escape(local_path), alias, text, flags=re.IGNORECASE)
+    for path_pattern, alias in _TRACEBACK_PATH_ALIASES:
+        text = path_pattern.sub(alias, text)
     return text
 
 
@@ -432,16 +448,24 @@ WEB_THEME = Theme({
     "rule.text": Style(bold=True),
 })
 
-# 日志初始化
+# Центральный logger принимает DEBUG, а пользовательские sinks фильтруют его сами.
 logger_debug = False
 logger = logging.getLogger('alas')
-logger.setLevel(logging.DEBUG if logger_debug else logging.INFO)
+logger.setLevel(logging.DEBUG)
+logger.propagate = False
 file_formatter = logging.Formatter(
     fmt='%(asctime)s.%(msecs)03d | %(levelname)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 console_formatter = logging.Formatter(
     fmt='%(asctime)s.%(msecs)03d │ %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 web_formatter = logging.Formatter(
     fmt='%(asctime)s.%(msecs)03d │ %(message)s', datefmt='%H:%M:%S')
+
+diagnostic_hdlr = DiagnosticContextHandler(
+    capacity=200,
+    sanitizer=sanitize_traceback_text,
+)
+diagnostic_hdlr.setFormatter(file_formatter)
+logger.addHandler(diagnostic_hdlr)
 
 # 添加控制台日志处理器
 # console = logging.StreamHandler(stream=sys.stdout)
@@ -458,6 +482,7 @@ console_hdlr = RichHandler(
     tracebacks_show_locals=False,
     tracebacks_extra_lines=3,
 )
+console_hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
 console_hdlr.setFormatter(console_formatter)
 logger.addHandler(console_hdlr)
 
@@ -468,20 +493,29 @@ os.chdir(os.path.join(os.path.dirname(__file__), '../'))
 pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 
 
+def _configure_diagnostic_logger(name):
+    diagnostic_file = Path('./log/diagnostic').joinpath(f'{name}.txt')
+    diagnostic_hdlr.configure_output(diagnostic_file, file_formatter)
+    logger.diagnostic_log_file = str(diagnostic_file.resolve())
+
+
 def _set_file_logger(name=pyw_name):
     if '_' in name:
         name = name.split('_', 1)[0]
+    _configure_diagnostic_logger(name)
     log_file = f'./log/{datetime.date.today()}_{name}.txt'
     try:
         file = logging.FileHandler(log_file, encoding='utf-8')
     except FileNotFoundError:
         os.mkdir('./log')
         file = logging.FileHandler(log_file, encoding='utf-8')
+    file.setLevel(logging.DEBUG if logger_debug else logging.INFO)
     file.setFormatter(file_formatter)
 
     logger.handlers = [h for h in logger.handlers if not isinstance(
         h, (logging.FileHandler, RichFileHandler))]
     logger.addHandler(file)
+    diagnostic_hdlr.configure_failure_target(file)
     logger.log_file = log_file
 
 
@@ -515,6 +549,7 @@ def set_file_logger(name=pyw_name):
     if any(p in log_file.name for p in processes):
         return
 
+    _configure_diagnostic_logger(pname if name == "gui" else name)
     hdlr = RichTimedRotatingHandler(
         pname=name,
         filename=str(log_file),
@@ -522,8 +557,10 @@ def set_file_logger(name=pyw_name):
         interval=1,
         encoding="utf-8",
     )
+    hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
 
     logger.addHandler(hdlr)
+    diagnostic_hdlr.configure_failure_target(hdlr)
     logger.log_file = hdlr.log_file
     try:
         if log_file.exists():
@@ -555,6 +592,7 @@ def set_func_logger(func):
         tracebacks_extra_lines=2,
         highlighter=Highlighter(),
     )
+    hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
     hdlr.setFormatter(web_formatter)
     logger.handlers = [h for h in logger.handlers if not isinstance(
         h, RichRenderableHandler)]
@@ -608,10 +646,8 @@ def hr(title, level=3):
     title = str(title).upper()
     if level == 1:
         logger.rule(title, characters='═')
-        logger.info(title)
     if level == 2:
         logger.rule(title, characters='─')
-        logger.info(title)
     if level == 3:
         logger.info(f"[bold]<<< {title} >>>[/bold]", extra={"markup": True})
     if level == 0:
@@ -629,6 +665,66 @@ def attr_align(name, text, front='', align=22):
     if front:
         name = front + name[len(front):]
     logger.info('%s: %s' % (name, str(text)))
+
+
+_SUPPRESSION_PAYLOAD_DEFAULT = object()
+_event_suppressor = RepeatedEventSuppressor(max_keys=256, default_window=5.0)
+
+
+def _emit_suppression_summary(decision):
+    if decision.summary_count <= 0:
+        return
+    logger.log(
+        decision.summary_level,
+        '[Повторы] %s — повторено %d раз за %.1f с' % (
+            decision.summary_message,
+            decision.summary_count,
+            decision.summary_duration,
+        ),
+    )
+
+
+def log_suppressed(level, message, *, key=None, payload=_SUPPRESSION_PAYLOAD_DEFAULT, window=None):
+    """Записать событие через bounded suppression-контракт."""
+    message = str(message)
+    if key is None:
+        key = message
+    if payload is _SUPPRESSION_PAYLOAD_DEFAULT:
+        payload = message
+    decision = _event_suppressor.observe(
+        key,
+        payload=payload,
+        level=level,
+        message=message,
+        window=window,
+    )
+    _emit_suppression_summary(decision)
+    if decision.emit:
+        logger.log(level, message)
+    return decision.emit
+
+
+def finish_suppressed(key):
+    """Завершить серию повторов и при необходимости вывести summary."""
+    decision = _event_suppressor.finish(key)
+    _emit_suppression_summary(decision)
+    return decision.summary_count
+
+
+def reset_suppression(key=None):
+    _event_suppressor.reset(key)
+
+
+def get_diagnostic_context(*, last_failure=False):
+    """Вернуть безопасные сообщения текущего или последнего failure-контекста."""
+    return tuple(
+        record.getMessage()
+        for record in diagnostic_hdlr.snapshot(last_failure=last_failure)
+    )
+
+
+def reset_diagnostic_context():
+    diagnostic_hdlr.reset()
 
 
 def show():
@@ -689,7 +785,13 @@ logger.set_file_logger = set_file_logger
 logger.set_func_logger = set_func_logger
 logger.rule = rule
 logger.print = print
+logger.log_suppressed = log_suppressed
+logger.finish_suppressed = finish_suppressed
+logger.reset_suppression = reset_suppression
+logger.get_diagnostic_context = get_diagnostic_context
+logger.reset_diagnostic_context = reset_diagnostic_context
 logger.log_file: str
+logger.diagnostic_log_file: str
 
 logger.set_file_logger()
 logger.hr('Запуск', level=0)
