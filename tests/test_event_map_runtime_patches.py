@@ -35,6 +35,8 @@ def test_current_builder_applies_verified_runtime_siren_patches(tmp_path: Path):
 
     assert "MAP_SIREN_TEMPLATE = ['BonhommeRichard_BB', 'BonhommeRichard_CV']" in b1
     assert "MAP_SIREN_TEMPLATE = ['BonhommeRichard_SS']" in sp
+    assert "MAP_IS_ONE_TIME_STAGE = True" in sp
+    assert "MAP_HAS_MODE_SWITCH = False" in sp
 
 
 def test_current_event_bonhomme_richard_templates_are_registered():
