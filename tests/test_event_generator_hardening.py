@@ -5,8 +5,13 @@ from types import SimpleNamespace
 import pytest
 
 import dev_tools.event_datamine_build as builder
-from module.event_datamine.generator import generate_map_module
+from module.event_datamine.generator import (
+    generate_map_module,
+    map_module_name,
+    map_module_path,
+)
 from module.event_datamine.runtime_policy import (
+    BossClearPolicy,
     MapRuntimePolicy,
     SirenRecognitionPolicy,
 )
@@ -37,15 +42,62 @@ def _patch_builder(monkeypatch, spec, current):
         def compile(self, _activity_id):
             return spec
 
-    monkeypatch.setattr(builder, "SourceSnapshot", lambda *args: object())
-    monkeypatch.setattr(builder, "ShareCfgLoader", lambda _snapshot: object())
-    monkeypatch.setattr(builder, "discover_major_events", lambda _loader: ())
-    monkeypatch.setattr(builder, "resolve_current_candidate", lambda *args, **kwargs: current)
+    monkeypatch.setattr(
+        builder,
+        "SourceSnapshot",
+        lambda *args: object(),
+    )
+    monkeypatch.setattr(
+        builder,
+        "ShareCfgLoader",
+        lambda _snapshot: object(),
+    )
+    monkeypatch.setattr(
+        builder,
+        "discover_major_events",
+        lambda _loader: (),
+    )
+    monkeypatch.setattr(
+        builder,
+        "resolve_current_candidate",
+        lambda *args, **kwargs: current,
+    )
     monkeypatch.setattr(builder, "EventCompiler", _Compiler)
-    monkeypatch.setattr(builder, "generate_map_module", lambda _map, **_kwargs: "pass\n")
+    policy = SimpleNamespace(
+        siren_recognition=None,
+        boss_clear=object(),
+    )
+    monkeypatch.setattr(
+        builder,
+        "load_generated_runtime_policy",
+        lambda *args, **kwargs: {"event_id": spec.id},
+    )
+    monkeypatch.setattr(
+        builder,
+        "runtime_map_policies",
+        lambda _policy: {},
+    )
+    monkeypatch.setattr(
+        builder,
+        "map_runtime_policy",
+        lambda *args, **kwargs: policy,
+    )
+    monkeypatch.setattr(
+        builder,
+        "validate_runtime_template_assets",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        builder,
+        "generate_map_module",
+        lambda _map, **_kwargs: "pass\n",
+    )
 
 
-def test_builder_preflights_late_map_collision_before_any_write(tmp_path: Path, monkeypatch):
+def test_builder_preflights_late_map_collision_before_any_write(
+    tmp_path: Path,
+    monkeypatch,
+):
     spec = _FakeSpec((_FakeMap(1, "A"), _FakeMap(2, "B")))
     current = SimpleNamespace(activity_id=7, map_ids=(1, 2))
     _patch_builder(monkeypatch, spec, current)
@@ -76,7 +128,8 @@ def test_builder_preflights_late_map_collision_before_any_write(tmp_path: Path, 
 
 
 def test_builder_rejects_derived_duplicate_module_name_before_any_write(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path,
+    monkeypatch,
 ):
     spec = _FakeSpec(
         (
@@ -85,12 +138,18 @@ def test_builder_rejects_derived_duplicate_module_name_before_any_write(
             _FakeMap(2, "A"),
         )
     )
-    current = SimpleNamespace(activity_id=7, map_ids=(1, 99, 2))
+    current = SimpleNamespace(
+        activity_id=7,
+        map_ids=(1, 99, 2),
+    )
     _patch_builder(monkeypatch, spec, current)
     maps_output = tmp_path / "maps"
     output_root = tmp_path / "data"
 
-    with pytest.raises(ValueError, match="Неуникальное имя generated map module: a_2"):
+    with pytest.raises(
+        ValueError,
+        match="Неуникальное имя generated map module: a_2",
+    ):
         builder.build_current_event(
             source_root=tmp_path,
             server="EN",
@@ -106,6 +165,47 @@ def test_builder_rejects_derived_duplicate_module_name_before_any_write(
 
     assert not maps_output.exists()
     assert not output_root.exists()
+
+
+@pytest.mark.parametrize(
+    "chapter_name",
+    (
+        "../../x",
+        "A/B",
+        r"A\B",
+        "A B",
+        "A:B",
+        "",
+    ),
+)
+def test_map_module_name_rejects_path_and_invalid_identifier_input(
+    chapter_name: str,
+):
+    with pytest.raises(ValueError, match="chapter_name"):
+        map_module_name(chapter_name)
+
+
+def test_map_module_name_keeps_deterministic_safe_normalization():
+    assert map_module_name("1-1") == "campaign_1_1"
+    assert map_module_name("A.1") == "a1"
+    assert map_module_name("EXTRA") == "extra"
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ("../x", "a/b", r"a\b", "a b", "1bad", ""),
+)
+def test_map_module_path_rejects_unsafe_module_name(
+    tmp_path: Path,
+    module_name: str,
+):
+    with pytest.raises(ValueError, match="generated map module"):
+        map_module_path(tmp_path, module_name)
+
+
+def test_map_module_path_stays_inside_output_root(tmp_path: Path):
+    root = tmp_path / "maps"
+    assert map_module_path(root, "a1") == (root / "a1.py").resolve()
 
 
 def _map_with(token: str):
@@ -134,9 +234,30 @@ def _map_with(token: str):
     )
 
 
+def _runtime_policy(
+    *,
+    strategy: str = "campaign",
+    siren: SirenRecognitionPolicy | None = None,
+) -> MapRuntimePolicy:
+    return MapRuntimePolicy(
+        map_id=1,
+        chapter_name="T",
+        source_path="campaign/event/example.py",
+        siren_recognition=siren,
+        boss_clear=BossClearPolicy(strategy),
+    )
+
+
 def test_generator_derives_normal_movable_enemy_from_me_grid():
-    movable = generate_map_module(_map_with("Me"))
-    static = generate_map_module(_map_with("--"))
+    policy = _runtime_policy()
+    movable = generate_map_module(
+        _map_with("Me"),
+        runtime_policy=policy,
+    )
+    static = generate_map_module(
+        _map_with("--"),
+        runtime_policy=policy,
+    )
 
     assert "MAP_HAS_MOVABLE_NORMAL_ENEMY = True" in movable
     assert "MAP_HAS_MOVABLE_NORMAL_ENEMY = True" not in static
@@ -144,29 +265,98 @@ def test_generator_derives_normal_movable_enemy_from_me_grid():
 
 def test_generator_rejects_siren_map_without_runtime_recognition_policy():
     spec = _map_with("--")
-    spec.spawn_data = ({"battle": 0, "siren": 1, "boss": 1},)
+    spec.spawn_data = (
+        {"battle": 0, "siren": 1, "boss": 1},
+    )
     spec.siren_source_icons = ("sharecfg_icon",)
 
-    with pytest.raises(ValueError, match="не имеет проверенной runtime-policy распознавания"):
+    with pytest.raises(
+        ValueError,
+        match="не имеет проверенной runtime-policy распознавания",
+    ):
+        generate_map_module(
+            spec,
+            runtime_policy=_runtime_policy(),
+        )
+
+
+def test_generator_rejects_map_without_boss_runtime_policy():
+    spec = _map_with("--")
+
+    with pytest.raises(
+        ValueError,
+        match="runtime-policy очистки босса",
+    ):
         generate_map_module(spec)
 
 
 def test_generator_keeps_source_icon_separate_from_runtime_template():
     spec = _map_with("--")
-    spec.spawn_data = ({"battle": 0, "siren": 1, "boss": 1},)
+    spec.spawn_data = (
+        {"battle": 0, "siren": 1, "boss": 1},
+    )
     spec.siren_source_icons = ("sharecfg_icon",)
     spec.movable_enemy_turns = (2,)
-    policy = MapRuntimePolicy(
-        map_id=1,
-        chapter_name="T",
-        source_path="campaign/event/example.py",
-        siren_recognition=SirenRecognitionPolicy(("RuntimeTemplate",), False),
+    policy = _runtime_policy(
+        siren=SirenRecognitionPolicy(
+            ("RuntimeTemplate",),
+            False,
+        )
     )
 
-    generated = generate_map_module(spec, runtime_policy=policy)
+    generated = generate_map_module(
+        spec,
+        runtime_policy=policy,
+    )
 
     assert "MAP_HAS_SIREN = True" in generated
-    assert "MAP_SIREN_TEMPLATE = ['RuntimeTemplate']" in generated
+    assert (
+        "MAP_SIREN_TEMPLATE = ['RuntimeTemplate']"
+        in generated
+    )
     assert "sharecfg_icon" not in generated
     assert "MAP_HAS_MOVABLE_ENEMY = True" in generated
     assert "MOVABLE_ENEMY_TURN = (2,)" in generated
+
+
+def test_generator_does_not_infer_boss_strategy_from_battle_number():
+    spec = _map_with("--")
+    spec.boss_refresh = 5
+
+    campaign = generate_map_module(
+        spec,
+        runtime_policy=_runtime_policy(strategy="campaign"),
+    )
+    boss_fleet = generate_map_module(
+        spec,
+        runtime_policy=_runtime_policy(strategy="boss_fleet"),
+    )
+
+    assert "def battle_5(self):" in campaign
+    assert "return self.clear_boss()" in campaign
+    assert "fleet_boss.clear_boss()" not in campaign
+
+    assert "def battle_5(self):" in boss_fleet
+    assert "return self.fleet_boss.clear_boss()" in boss_fleet
+
+
+def test_builder_overwrite_removes_only_stale_generated_modules(
+    tmp_path: Path,
+):
+    event_root = tmp_path / "maps" / "en_7"
+    event_root.mkdir(parents=True)
+    keep = event_root / "a.py"
+    stale = event_root / "extra.py"
+    marker = event_root / "__init__.py"
+    keep.write_text("keep\n", encoding="utf-8")
+    stale.write_text("stale\n", encoding="utf-8")
+    marker.write_text("marker\n", encoding="utf-8")
+
+    builder._remove_stale_generated_modules(
+        event_root.resolve(),
+        {keep.resolve()},
+    )
+
+    assert keep.is_file()
+    assert marker.is_file()
+    assert not stale.exists()

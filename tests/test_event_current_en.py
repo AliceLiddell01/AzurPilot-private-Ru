@@ -166,7 +166,7 @@ def test_current_builder_is_id_free_and_byte_deterministic(tmp_path: Path):
             }
         )
     assert outputs[0] == outputs[1]
-    assert len([path for path in outputs[0] if path.endswith(".py")]) == 17
+    assert len([path for path in outputs[0] if path.endswith(".py")]) == 15
 
 
 def test_current_builder_preflights_artifact_before_writing_maps(tmp_path: Path):

@@ -2,7 +2,7 @@
   "campaign_ui": {
     "layout": "20241219"
   },
-  "digest": "aa4f74b7566ba9e0c63fbfaaccabb2f43e14768860d4d0b6e564e0a1c877b558",
+  "digest": "e1b70c1fe8972686344c7b0004db049765d895868fd05233ac928dae0cf03f26",
   "event_id": "en:51101",
   "evidence": {
     "archive_sha256": "556723dc24418191b38ae9568070e4b515fc03e6962c190a69cd5cc91e1e29ce",
@@ -17,6 +17,9 @@
   },
   "runtime_maps": [
     {
+      "boss_clear": {
+        "strategy": "campaign"
+      },
       "chapter_name": "A1",
       "map_id": 2050001,
       "siren_recognition": {
@@ -26,6 +29,9 @@
       "source_path": "campaign/event_20260813_cn/a1.py"
     },
     {
+      "boss_clear": {
+        "strategy": "campaign"
+      },
       "chapter_name": "A2",
       "map_id": 2050002,
       "siren_recognition": {
@@ -35,6 +41,9 @@
       "source_path": "campaign/event_20260813_cn/a2.py"
     },
     {
+      "boss_clear": {
+        "strategy": "campaign"
+      },
       "chapter_name": "A3",
       "map_id": 2050003,
       "siren_recognition": {
@@ -44,6 +53,9 @@
       "source_path": "campaign/event_20260813_cn/a3.py"
     },
     {
+      "boss_clear": {
+        "strategy": "campaign"
+      },
       "chapter_name": "B1",
       "map_id": 2050004,
       "siren_recognition": {
@@ -56,6 +68,9 @@
       "source_path": "campaign/event_20260813_cn/b1.py"
     },
     {
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
       "chapter_name": "B2",
       "map_id": 2050005,
       "siren_recognition": {
@@ -68,6 +83,9 @@
       "source_path": "campaign/event_20260813_cn/b2.py"
     },
     {
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
       "chapter_name": "B3",
       "map_id": 2050006,
       "siren_recognition": {
@@ -80,6 +98,9 @@
       "source_path": "campaign/event_20260813_cn/b3.py"
     },
     {
+      "boss_clear": {
+        "strategy": "campaign"
+      },
       "chapter_name": "C1",
       "map_id": 2050021,
       "siren_recognition": {
@@ -89,6 +110,9 @@
       "source_path": "campaign/event_20260813_cn/c1.py"
     },
     {
+      "boss_clear": {
+        "strategy": "campaign"
+      },
       "chapter_name": "C2",
       "map_id": 2050022,
       "siren_recognition": {
@@ -98,6 +122,9 @@
       "source_path": "campaign/event_20260813_cn/c2.py"
     },
     {
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
       "chapter_name": "C3",
       "map_id": 2050023,
       "siren_recognition": {
@@ -107,6 +134,9 @@
       "source_path": "campaign/event_20260813_cn/c3.py"
     },
     {
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
       "chapter_name": "D1",
       "map_id": 2050024,
       "siren_recognition": {
@@ -119,6 +149,9 @@
       "source_path": "campaign/event_20260813_cn/d1.py"
     },
     {
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
       "chapter_name": "D2",
       "map_id": 2050025,
       "siren_recognition": {
@@ -131,6 +164,9 @@
       "source_path": "campaign/event_20260813_cn/d2.py"
     },
     {
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
       "chapter_name": "D3",
       "map_id": 2050026,
       "siren_recognition": {
@@ -143,6 +179,9 @@
       "source_path": "campaign/event_20260813_cn/d3.py"
     },
     {
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
       "chapter_name": "SP",
       "map_id": 2050041,
       "siren_recognition": {
@@ -158,5 +197,5 @@
       }
     }
   ],
-  "runtime_policy_schema_version": 2
+  "runtime_policy_schema_version": 3
 }

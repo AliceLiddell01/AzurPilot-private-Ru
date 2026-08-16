@@ -10,6 +10,7 @@ from module.event_datamine.compiler import EventCompiler
 from module.event_datamine.generator import (
     allocate_map_module_names,
     generate_map_module,
+    map_module_path,
     write_map_module,
 )
 from module.event_datamine.runtime_policy import (
@@ -74,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Runtime-policy generated package не соответствует EventSpec"
             )
         for item, module_name in zip(selected_maps, module_names, strict=True):
-            path = args.maps_output / f"{module_name}.py"
+            path = map_module_path(args.maps_output, module_name)
             content = generate_map_module(
                 item,
                 runtime_policy=map_runtime_policy(

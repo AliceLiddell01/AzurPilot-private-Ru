@@ -1,7 +1,7 @@
 {
   "artifact_schema_version": 2,
   "compiler_version": "2",
-  "digest": "0e41b5606cf36631d5684d47831516bf963b88a21656389fdc3eef40c5c47a55",
+  "digest": "a713892cf7fcc76984fd9fcec94915790f17752f758e0e7789dbb9fb6bace0b5",
   "event_spec": {
     "currencies": [
       {
@@ -4048,17 +4048,17 @@
       {
         "chapter_name": "EXTRA",
         "map_id": 2050051,
-        "module": "en_51101/extra.py",
-        "runtime_reason": "",
-        "runtime_status": "verified",
+        "module": "",
+        "runtime_reason": "boss_clear_missing",
+        "runtime_status": "unsupported",
         "source_status": "verified"
       },
       {
         "chapter_name": "EXTRA",
         "map_id": 2050052,
-        "module": "en_51101/extra_2050052.py",
-        "runtime_reason": "",
-        "runtime_status": "verified",
+        "module": "",
+        "runtime_reason": "boss_clear_missing",
+        "runtime_status": "unsupported",
         "source_status": "verified"
       }
     ]

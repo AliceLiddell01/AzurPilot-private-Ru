@@ -32,7 +32,7 @@ Compatibility snapshot содержит:
 
 Факты исполнения карты, которых ShareCfg сам по себе не доказывает, хранятся рядом с generated package в `campaign/generated_event/<package>/runtime.json`. Это отдельный доверительный слой, а не продолжение ShareCfg-модели.
 
-Runtime-policy schema v2 содержит:
+Runtime-policy schema v3 содержит:
 
 - `generated_package` и `event_id`;
 - доказанную UI-policy;
@@ -46,10 +46,11 @@ Runtime-policy schema v2 содержит:
 - `siren_recognition.boss_icon_small`;
 - `stage_entry.one_time`;
 - `stage_entry.has_mode_switch`.
+- `boss_clear.strategy` со значениями из закрытого semantic allowlist.
 
 Произвольные `MAP_*` ключи через JSON не принимаются. Generic resolver сам преобразует разрешённые семантические поля в ограниченный набор runtime-настроек.
 
-Перед генерацией проверяются identity карты, `chapter_name`, evidence path, digest policy и существование каждого локального `TEMPLATE_SIREN_*` в canonical asset root. Если ShareCfg доказывает наличие siren, но отдельная runtime-policy не доказывает способ распознавания, карта получает `runtime_status = unsupported`, её module path остаётся пустым и Python-модуль не генерируется. Это fail-closed поведение не заменяется исходным ShareCfg icon и не использует угаданный шаблон.
+Перед генерацией проверяются identity карты, `chapter_name`, evidence path, digest policy и существование каждого локального `TEMPLATE_SIREN_*` в canonical asset root. Если ShareCfg доказывает наличие siren, но отдельная runtime-policy не доказывает способ распознавания, карта получает `runtime_status = unsupported`, её module path остаётся пустым и Python-модуль не генерируется. Это fail-closed поведение не заменяется исходным ShareCfg icon и не использует угаданный шаблон. Для любой исполнимой карты отдельно обязателен `boss_clear.strategy`: `boss_refresh` из ShareCfg определяет только номер `battle_N` и не используется для выбора объекта флота. Отсутствие доказанной boss strategy даёт `boss_clear_missing` и также блокирует generation.
 
 `source_status` и `runtime_status` имеют разный смысл: первый относится к структурной поддержке ShareCfg, второй — к безопасной исполнимости generated-карты. Runtime selector принимает только карты, для которых оба статуса `verified`.
 

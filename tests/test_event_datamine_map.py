@@ -3,6 +3,10 @@ import pytest
 from dev_tools.map_extractor import select_maps
 from module.event_datamine.generator import generate_map_module, map_module_name
 from module.event_datamine.map_compiler import MapCompiler
+from module.event_datamine.runtime_policy import (
+    BossClearPolicy,
+    MapRuntimePolicy,
+)
 
 
 def chapter(grid_type=0):
@@ -35,6 +39,15 @@ def chapter(grid_type=0):
 
 def compiler(row, event_list=None, templates=None):
     return MapCompiler({1001: row}, {}, event_list or {}, templates or {}, {})
+
+
+def runtime_policy(spec):
+    return MapRuntimePolicy(
+        map_id=spec.id,
+        chapter_name=spec.chapter_name,
+        source_path="campaign/event/fixture.py",
+        boss_clear=BossClearPolicy("campaign"),
+    )
 
 
 def test_unknown_grid_is_explicit_and_blocks_generation():
@@ -78,8 +91,9 @@ def test_portal_effect_is_decoded_instead_of_silently_ignored():
     assert not findings
     assert spec is not None
     assert [(item.source, item.target) for item in spec.portals] == [("E5", "E1")]
-    assert "MAP.portal_data = [('E5', 'E1')]" in generate_map_module(spec)
-    assert "STAR_REQUIRE_1 = 1" in generate_map_module(spec)
+    generated = generate_map_module(spec, runtime_policy=runtime_policy(spec))
+    assert "MAP.portal_data = [('E5', 'E1')]" in generated
+    assert "STAR_REQUIRE_1 = 1" in generated
 
 
 def test_unknown_event_effect_is_blocking_diagnostic():
@@ -115,7 +129,7 @@ def test_supported_land_based_data_is_preserved_in_generated_map():
     assert not findings
     assert spec is not None
     assert spec.land_based == (("A2", "up"),)
-    generated = generate_map_module(spec)
+    generated = generate_map_module(spec, runtime_policy=runtime_policy(spec))
     assert "MAP.land_based_data = [('A2', 'up')]" in generated
     assert "MAP_HAS_LAND_BASED = True" in generated
 

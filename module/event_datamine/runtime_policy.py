@@ -17,9 +17,10 @@ from typing import Any
 
 from module.event_datamine.artifact import canonical_json
 
-RUNTIME_POLICY_SCHEMA_VERSION = 2
+RUNTIME_POLICY_SCHEMA_VERSION = 3
 GENERATED_EVENT_ROOT = Path(__file__).resolve().parents[2] / "campaign" / "generated_event"
 _ALLOWED_UI_LAYOUTS = frozenset({"legacy", "20241219", "20260326"})
+_ALLOWED_BOSS_CLEAR_STRATEGIES = frozenset({"campaign", "boss_fleet", "fleet_1"})
 _SAFE_PART = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SAFE_TEMPLATE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -43,9 +44,11 @@ _ALLOWED_MAP = {
     "source_path",
     "siren_recognition",
     "stage_entry",
+    "boss_clear",
 }
 _ALLOWED_SIREN = {"templates", "boss_icon_small"}
 _ALLOWED_STAGE_ENTRY = {"one_time", "has_mode_switch"}
+_ALLOWED_BOSS_CLEAR = {"strategy"}
 
 
 class EventRuntimePolicyError(ValueError):
@@ -65,12 +68,18 @@ class StageEntryPolicy:
 
 
 @dataclass(frozen=True)
+class BossClearPolicy:
+    strategy: str
+
+
+@dataclass(frozen=True)
 class MapRuntimePolicy:
     map_id: int
     chapter_name: str
     source_path: str
     siren_recognition: SirenRecognitionPolicy | None = None
     stage_entry: StageEntryPolicy | None = None
+    boss_clear: BossClearPolicy | None = None
 
     def config_items(self) -> tuple[tuple[str, Any], ...]:
         """Преобразовать семантическую policy в ограниченный набор runtime-настроек."""
@@ -107,7 +116,9 @@ def _package_path(parts: tuple[str, ...], root: Path | str) -> Path:
 def _reject_unknown(mapping: Mapping[str, Any], allowed: set[str], label: str) -> None:
     unknown = set(mapping) - allowed
     if unknown:
-        raise EventRuntimePolicyError(f"{label} содержит неизвестные поля: {sorted(unknown)}")
+        raise EventRuntimePolicyError(
+            f"{label} содержит неизвестные поля: {sorted(unknown)}"
+        )
 
 
 def _strict_bool(value: Any, label: str) -> bool:
@@ -167,10 +178,14 @@ def _parse_siren_policy(raw: Any, *, map_id: int) -> SirenRecognitionPolicy:
 
 def _parse_stage_entry(raw: Any, *, map_id: int) -> StageEntryPolicy:
     if not isinstance(raw, Mapping):
-        raise EventRuntimePolicyError(f"stage_entry карты {map_id} должна быть JSON object")
+        raise EventRuntimePolicyError(
+            f"stage_entry карты {map_id} должна быть JSON object"
+        )
     _reject_unknown(raw, _ALLOWED_STAGE_ENTRY, f"stage_entry карты {map_id}")
     if not raw:
-        raise EventRuntimePolicyError(f"stage_entry карты {map_id} не должна быть пустой")
+        raise EventRuntimePolicyError(
+            f"stage_entry карты {map_id} не должна быть пустой"
+        )
     one_time = (
         _strict_bool(raw["one_time"], f"stage_entry.one_time карты {map_id}")
         if "one_time" in raw
@@ -187,6 +202,20 @@ def _parse_stage_entry(raw: Any, *, map_id: int) -> StageEntryPolicy:
     return StageEntryPolicy(one_time=one_time, has_mode_switch=has_mode_switch)
 
 
+def _parse_boss_clear(raw: Any, *, map_id: int) -> BossClearPolicy:
+    if not isinstance(raw, Mapping):
+        raise EventRuntimePolicyError(
+            f"boss_clear карты {map_id} должна быть JSON object"
+        )
+    _reject_unknown(raw, _ALLOWED_BOSS_CLEAR, f"boss_clear карты {map_id}")
+    strategy = str(raw.get("strategy") or "").strip()
+    if strategy not in _ALLOWED_BOSS_CLEAR_STRATEGIES:
+        raise EventRuntimePolicyError(
+            f"Карта {map_id} содержит неподдерживаемую boss strategy: {strategy!r}"
+        )
+    return BossClearPolicy(strategy=strategy)
+
+
 def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]:
     raw_maps = data.get("runtime_maps", [])
     if not isinstance(raw_maps, list):
@@ -194,16 +223,24 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
     result: dict[int, MapRuntimePolicy] = {}
     for raw in raw_maps:
         if not isinstance(raw, Mapping):
-            raise EventRuntimePolicyError("runtime map policy должна быть JSON object")
+            raise EventRuntimePolicyError(
+                "runtime map policy должна быть JSON object"
+            )
         _reject_unknown(raw, _ALLOWED_MAP, "runtime map policy")
         map_id = raw.get("map_id")
         if isinstance(map_id, bool) or not isinstance(map_id, int) or map_id <= 0:
-            raise EventRuntimePolicyError(f"Некорректный runtime map_id: {map_id!r}")
+            raise EventRuntimePolicyError(
+                f"Некорректный runtime map_id: {map_id!r}"
+            )
         if map_id in result:
-            raise EventRuntimePolicyError(f"Runtime-policy дублирует карту {map_id}")
+            raise EventRuntimePolicyError(
+                f"Runtime-policy дублирует карту {map_id}"
+            )
         chapter_name = str(raw.get("chapter_name") or "").strip()
         if not chapter_name:
-            raise EventRuntimePolicyError(f"Runtime-policy карты {map_id} не содержит chapter_name")
+            raise EventRuntimePolicyError(
+                f"Runtime-policy карты {map_id} не содержит chapter_name"
+            )
         siren = (
             _parse_siren_policy(raw["siren_recognition"], map_id=map_id)
             if "siren_recognition" in raw
@@ -214,7 +251,12 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             if "stage_entry" in raw
             else None
         )
-        if siren is None and stage_entry is None:
+        boss_clear = (
+            _parse_boss_clear(raw["boss_clear"], map_id=map_id)
+            if "boss_clear" in raw
+            else None
+        )
+        if siren is None and stage_entry is None and boss_clear is None:
             raise EventRuntimePolicyError(
                 f"Runtime-policy карты {map_id} не содержит поддерживаемых runtime-фактов"
             )
@@ -224,6 +266,7 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             source_path=_safe_source_path(raw.get("source_path")),
             siren_recognition=siren,
             stage_entry=stage_entry,
+            boss_clear=boss_clear,
         )
     return result
 
@@ -235,49 +278,79 @@ def validate_runtime_policy(data: Any, *, package: str) -> dict[str, Any]:
     _reject_unknown(result, _ALLOWED_TOP_LEVEL, "Runtime-policy")
     version = result.get("runtime_policy_schema_version")
     if isinstance(version, bool) or not isinstance(version, int):
-        raise EventRuntimePolicyError("runtime_policy_schema_version должен быть int")
+        raise EventRuntimePolicyError(
+            "runtime_policy_schema_version должен быть int"
+        )
     if version != RUNTIME_POLICY_SCHEMA_VERSION:
-        raise EventRuntimePolicyError("Неподдерживаемая версия runtime-policy")
+        raise EventRuntimePolicyError(
+            "Неподдерживаемая версия runtime-policy"
+        )
     if str(result.get("generated_package") or "") != package:
-        raise EventRuntimePolicyError("Runtime-policy не соответствует generated package")
+        raise EventRuntimePolicyError(
+            "Runtime-policy не соответствует generated package"
+        )
     event_id = str(result.get("event_id") or "").strip()
     if not event_id or ":" not in event_id:
-        raise EventRuntimePolicyError("Runtime-policy не содержит Event identity")
+        raise EventRuntimePolicyError(
+            "Runtime-policy не содержит Event identity"
+        )
 
     campaign_ui = result.get("campaign_ui")
     if not isinstance(campaign_ui, Mapping):
-        raise EventRuntimePolicyError("campaign_ui должна быть JSON object")
+        raise EventRuntimePolicyError(
+            "campaign_ui должна быть JSON object"
+        )
     _reject_unknown(campaign_ui, _ALLOWED_CAMPAIGN_UI, "campaign_ui")
     layout = str(campaign_ui.get("layout") or "")
     if layout not in _ALLOWED_UI_LAYOUTS:
-        raise EventRuntimePolicyError(f"Неподдерживаемый campaign UI layout: {layout!r}")
+        raise EventRuntimePolicyError(
+            f"Неподдерживаемый campaign UI layout: {layout!r}"
+        )
 
     evidence = result.get("evidence")
     if not isinstance(evidence, Mapping):
-        raise EventRuntimePolicyError("Runtime-policy требует evidence")
+        raise EventRuntimePolicyError(
+            "Runtime-policy требует evidence"
+        )
     _reject_unknown(evidence, _ALLOWED_EVIDENCE, "Runtime-policy evidence")
     archive_sha256 = str(evidence.get("archive_sha256") or "").lower()
     if not _SHA256.fullmatch(archive_sha256):
-        raise EventRuntimePolicyError("Runtime-policy содержит некорректный evidence SHA-256")
+        raise EventRuntimePolicyError(
+            "Runtime-policy содержит некорректный evidence SHA-256"
+        )
 
     runtime_maps = runtime_map_policies(result)
     map_evidence = result.get("map_evidence")
     if runtime_maps:
         if not isinstance(map_evidence, Mapping):
-            raise EventRuntimePolicyError("Runtime-policy карт требует map_evidence")
-        _reject_unknown(map_evidence, _ALLOWED_MAP_EVIDENCE, "map_evidence")
+            raise EventRuntimePolicyError(
+                "Runtime-policy карт требует map_evidence"
+            )
+        _reject_unknown(
+            map_evidence,
+            _ALLOWED_MAP_EVIDENCE,
+            "map_evidence",
+        )
         repository = str(map_evidence.get("repository") or "").strip()
         revision = str(map_evidence.get("revision") or "").lower()
         if not repository or "/" not in repository:
-            raise EventRuntimePolicyError("map_evidence требует repository")
+            raise EventRuntimePolicyError(
+                "map_evidence требует repository"
+            )
         if not _SHA40.fullmatch(revision):
-            raise EventRuntimePolicyError("map_evidence содержит некорректный Git SHA")
+            raise EventRuntimePolicyError(
+                "map_evidence содержит некорректный Git SHA"
+            )
     elif map_evidence is not None:
-        raise EventRuntimePolicyError("map_evidence не должен существовать без runtime_maps")
+        raise EventRuntimePolicyError(
+            "map_evidence не должен существовать без runtime_maps"
+        )
 
     expected = str(result.get("digest") or "")
     if expected != runtime_policy_digest(result):
-        raise EventRuntimePolicyError("Digest runtime-policy не совпадает")
+        raise EventRuntimePolicyError(
+            "Digest runtime-policy не совпадает"
+        )
     return result
 
 
@@ -294,8 +367,8 @@ def map_runtime_policy(
         return None
     if item.chapter_name.casefold() != str(chapter_name or "").strip().casefold():
         raise EventRuntimePolicyError(
-            f"Runtime-policy карты {map_id} относится к chapter {item.chapter_name!r}, "
-            f"а ShareCfg содержит {chapter_name!r}"
+            f"Runtime-policy карты {map_id} относится к chapter "
+            f"{item.chapter_name!r}, а ShareCfg содержит {chapter_name!r}"
         )
     return item
 
@@ -313,10 +386,14 @@ def validate_runtime_template_assets(
         return
     root = Path(asset_root).resolve() / str(server).lower() / "template"
     for name in siren.templates:
-        matches = [root / f"TEMPLATE_SIREN_{name}{suffix}" for suffix in (".gif", ".png")]
+        matches = [
+            root / f"TEMPLATE_SIREN_{name}{suffix}"
+            for suffix in (".gif", ".png")
+        ]
         if not any(path.is_file() for path in matches):
             raise EventRuntimePolicyError(
-                f"Для карты {policy.map_id} отсутствует runtime siren template {name!r}"
+                f"Для карты {policy.map_id} отсутствует runtime "
+                f"siren template {name!r}"
             )
 
 
@@ -334,5 +411,7 @@ def load_generated_runtime_policy(
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise EventRuntimePolicyError(f"Не удалось прочитать runtime-policy {target}") from exc
+        raise EventRuntimePolicyError(
+            f"Не удалось прочитать runtime-policy {target}"
+        ) from exc
     return validate_runtime_policy(data, package=package)

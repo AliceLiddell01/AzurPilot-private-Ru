@@ -48,22 +48,34 @@ class EventCampaignSelectorError(ValueError):
 def _event_maps(artifact: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
     event_spec = artifact.get("event_spec")
     if not isinstance(event_spec, Mapping):
-        raise EventCampaignSelectorError("Event artifact не содержит event_spec")
+        raise EventCampaignSelectorError(
+            "Event artifact не содержит event_spec"
+        )
     raw_maps = event_spec.get("maps")
     if not isinstance(raw_maps, list):
-        raise EventCampaignSelectorError("Event artifact не содержит maps")
+        raise EventCampaignSelectorError(
+            "Event artifact не содержит maps"
+        )
 
     result: dict[int, Mapping[str, Any]] = {}
     for raw in raw_maps:
         if not isinstance(raw, Mapping):
-            raise EventCampaignSelectorError("Event artifact содержит некорректную карту")
+            raise EventCampaignSelectorError(
+                "Event artifact содержит некорректную карту"
+            )
         map_id = raw.get("id")
-        if isinstance(map_id, bool) or not isinstance(map_id, int) or map_id <= 0:
+        if (
+            isinstance(map_id, bool)
+            or not isinstance(map_id, int)
+            or map_id <= 0
+        ):
             raise EventCampaignSelectorError(
                 f"Event artifact содержит некорректный map ID: {map_id!r}"
             )
         if map_id in result:
-            raise EventCampaignSelectorError(f"Event artifact дублирует карту {map_id}")
+            raise EventCampaignSelectorError(
+                f"Event artifact дублирует карту {map_id}"
+            )
         result[map_id] = raw
     return result
 
@@ -74,25 +86,39 @@ def _map_has_siren(raw_map: Mapping[str, Any]) -> bool:
         if not isinstance(rows, list):
             continue
         for row in rows:
-            if isinstance(row, Mapping) and int(row.get("siren", 0) or 0) > 0:
+            if (
+                isinstance(row, Mapping)
+                and int(row.get("siren", 0) or 0) > 0
+            ):
                 return True
     return False
 
 
-def _verified_generated_modules(artifact: Mapping[str, Any]) -> dict[str, str]:
+def _verified_generated_modules(
+    artifact: Mapping[str, Any],
+) -> dict[str, str]:
     metadata = artifact.get("metadata")
     if not isinstance(metadata, Mapping):
-        raise EventCampaignSelectorError("Event artifact не содержит metadata")
+        raise EventCampaignSelectorError(
+            "Event artifact не содержит metadata"
+        )
     generated = metadata.get("generated_maps")
     if not isinstance(generated, list):
-        raise EventCampaignSelectorError("Event artifact не содержит generated_maps")
+        raise EventCampaignSelectorError(
+            "Event artifact не содержит generated_maps"
+        )
 
     event_spec = artifact.get("event_spec")
     if not isinstance(event_spec, Mapping):
-        raise EventCampaignSelectorError("Event artifact не содержит event_spec")
+        raise EventCampaignSelectorError(
+            "Event artifact не содержит event_spec"
+        )
     event_id = str(event_spec.get("id") or "").strip()
     maps = _event_maps(artifact)
-    policies: dict[tuple[str, ...], Mapping[str, Any] | None] = {}
+    policies: dict[
+        tuple[str, ...],
+        Mapping[str, Any] | None,
+    ] = {}
     modules: dict[str, str] = {}
 
     for raw in generated:
@@ -110,74 +136,104 @@ def _verified_generated_modules(artifact: Mapping[str, Any]) -> dict[str, str]:
             raise EventCampaignSelectorError(
                 f"Generated map {map_id} отсутствует в EventSpec"
             )
-        chapter_name = str(map_spec.get("chapter_name") or "").strip()
-        if chapter_name != str(raw.get("chapter_name") or "").strip():
+        chapter_name = str(
+            map_spec.get("chapter_name") or ""
+        ).strip()
+        if chapter_name != str(
+            raw.get("chapter_name") or ""
+        ).strip():
             raise EventCampaignSelectorError(
-                f"Generated map {map_id} не совпадает с chapter_name EventSpec"
+                f"Generated map {map_id} не совпадает "
+                "с chapter_name EventSpec"
             )
 
         module = str(raw.get("module") or "").strip()
         if not module:
             continue
         path = PurePosixPath(module)
-        if path.is_absolute() or ".." in path.parts or path.suffix != ".py":
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or path.suffix != ".py"
+        ):
             raise EventCampaignSelectorError(
                 f"Некорректный generated map module: {module!r}"
             )
         package_parts = path.parent.parts
         if not package_parts or any(
-            not _SAFE_PACKAGE_PART.fullmatch(part) for part in package_parts
+            not _SAFE_PACKAGE_PART.fullmatch(part)
+            for part in package_parts
         ):
             raise EventCampaignSelectorError(
                 f"Некорректный generated campaign package: {module!r}"
             )
+        if not _SAFE_PACKAGE_PART.fullmatch(path.stem):
+            raise EventCampaignSelectorError(
+                f"Некорректное имя generated map module: {module!r}"
+            )
 
-        if _map_has_siren(map_spec):
-            if package_parts not in policies:
-                try:
-                    policies[package_parts] = load_generated_runtime_policy(package_parts)
-                except EventRuntimePolicyError as exc:
-                    raise EventCampaignSelectorError(
-                        f"Runtime-policy generated package {'.'.join(package_parts)!r} повреждена"
-                    ) from exc
-            policy = policies[package_parts]
-            if policy is None:
-                continue
-            if str(policy.get("event_id") or "") != event_id:
-                raise EventCampaignSelectorError(
-                    "Runtime-policy generated package не соответствует Event identity"
-                )
+        if package_parts not in policies:
             try:
-                map_policy = map_runtime_policy(
-                    policy,
-                    map_id=map_id,
-                    chapter_name=chapter_name,
+                policies[package_parts] = (
+                    load_generated_runtime_policy(package_parts)
                 )
             except EventRuntimePolicyError as exc:
                 raise EventCampaignSelectorError(
-                    f"Runtime-policy карты {map_id} не соответствует EventSpec"
+                    f"Runtime-policy generated package "
+                    f"{'.'.join(package_parts)!r} повреждена"
                 ) from exc
-            if map_policy is None or map_policy.siren_recognition is None:
-                continue
+        policy = policies[package_parts]
+        if policy is None:
+            continue
+        if str(policy.get("event_id") or "") != event_id:
+            raise EventCampaignSelectorError(
+                "Runtime-policy generated package "
+                "не соответствует Event identity"
+            )
+        try:
+            map_policy = map_runtime_policy(
+                policy,
+                map_id=map_id,
+                chapter_name=chapter_name,
+            )
+        except EventRuntimePolicyError as exc:
+            raise EventCampaignSelectorError(
+                f"Runtime-policy карты {map_id} "
+                "не соответствует EventSpec"
+            ) from exc
+        if map_policy is None or map_policy.boss_clear is None:
+            continue
+        if (
+            _map_has_siren(map_spec)
+            and map_policy.siren_recognition is None
+        ):
+            continue
 
         stem = path.stem.lower()
         if stem in modules and modules[stem] != module:
             raise EventCampaignSelectorError(
-                f"Generated map module имеет неоднозначное имя: {stem!r}"
+                f"Generated map module имеет неоднозначное имя: "
+                f"{stem!r}"
             )
         modules[stem] = module
     if not modules:
         raise EventCampaignSelectorError(
-            "Event artifact не содержит проверенных generated maps для runtime"
+            "Event artifact не содержит проверенных "
+            "generated maps для runtime"
         )
     return modules
 
 
-def generated_campaign_package_parts(artifact: Mapping[str, Any]) -> tuple[str, ...]:
+def generated_campaign_package_parts(
+    artifact: Mapping[str, Any],
+) -> tuple[str, ...]:
     """Вернуть единый проверенный package generated-карт из metadata artifact."""
 
     modules = _verified_generated_modules(artifact)
-    parents = {PurePosixPath(module).parent.parts for module in modules.values()}
+    parents = {
+        PurePosixPath(module).parent.parts
+        for module in modules.values()
+    }
     if len(parents) != 1:
         raise EventCampaignSelectorError(
             "Generated maps должны принадлежать одному campaign package"
@@ -185,7 +241,10 @@ def generated_campaign_package_parts(artifact: Mapping[str, Any]) -> tuple[str, 
     return next(iter(parents))
 
 
-def generated_stage_module(artifact: Mapping[str, Any], stage: str) -> str:
+def generated_stage_module(
+    artifact: Mapping[str, Any],
+    stage: str,
+) -> str:
     """Сопоставить имя этапа с каноническим generated module без хардкода события."""
 
     modules = _verified_generated_modules(artifact)
@@ -196,7 +255,10 @@ def generated_stage_module(artifact: Mapping[str, Any], stage: str) -> str:
     canonical = _STAGE_COMPATIBILITY.get(requested)
     if canonical in modules:
         return modules[canonical]
-    reverse = {value: key for key, value in _STAGE_COMPATIBILITY.items()}
+    reverse = {
+        value: key
+        for key, value in _STAGE_COMPATIBILITY.items()
+    }
     alternate = reverse.get(requested)
     if alternate in modules:
         return modules[alternate]
@@ -205,27 +267,37 @@ def generated_stage_module(artifact: Mapping[str, Any], stage: str) -> str:
     )
 
 
-def generated_campaign_ui_layout(module_name: str) -> str | None:
+def generated_campaign_ui_layout(
+    module_name: str,
+) -> str | None:
     """Прочитать проверенную UI-policy рядом с уже разрешённым generated package."""
 
     parts = str(module_name or "").split(".")
-    if len(parts) < 4 or parts[:2] != ["campaign", "generated_event"]:
+    if (
+        len(parts) < 4
+        or parts[:2] != ["campaign", "generated_event"]
+    ):
         raise EventCampaignSelectorError(
-            f"Некорректный generated campaign module: {module_name!r}"
+            f"Некорректный generated campaign module: "
+            f"{module_name!r}"
         )
     package_parts = tuple(parts[2:-1])
     if not package_parts or any(
-        not _SAFE_PACKAGE_PART.fullmatch(part) for part in package_parts
+        not _SAFE_PACKAGE_PART.fullmatch(part)
+        for part in package_parts
     ):
         raise EventCampaignSelectorError(
-            f"Некорректный generated campaign package: {module_name!r}"
+            f"Некорректный generated campaign package: "
+            f"{module_name!r}"
         )
     policy = load_generated_runtime_policy(package_parts)
     if policy is None:
         return None
     campaign_ui = policy.get("campaign_ui")
     if not isinstance(campaign_ui, Mapping):
-        raise EventCampaignSelectorError("Runtime-policy не содержит campaign_ui")
+        raise EventCampaignSelectorError(
+            "Runtime-policy не содержит campaign_ui"
+        )
     layout = str(campaign_ui.get("layout") or "").strip()
     return layout or None
 
@@ -235,15 +307,25 @@ def _configured_servers(
     *,
     args_data: Mapping[str, Any],
 ) -> set[str]:
-    event_arg = args_data.get("Event", {}).get("Campaign", {}).get("Event", {})
+    event_arg = args_data.get("Event", {}).get(
+        "Campaign", {}
+    ).get("Event", {})
     if not isinstance(event_arg, Mapping):
         return set()
 
     servers: set[str] = set()
     for key, raw_options in event_arg.items():
-        if not str(key).startswith("option_") or key == "option_bold":
+        if (
+            not str(key).startswith("option_")
+            or key == "option_bold"
+        ):
             continue
-        server = str(key).removeprefix("option_").strip().upper()
+        server = (
+            str(key)
+            .removeprefix("option_")
+            .strip()
+            .upper()
+        )
         if not server or not isinstance(raw_options, list):
             continue
         if selector in {str(item) for item in raw_options}:
@@ -273,10 +355,20 @@ def resolve_generated_campaign_module(
 
     if args_data is None:
         try:
-            args_data = json.loads(_DEFAULT_ARGS_PATH.read_text(encoding="utf-8"))
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            args_data = json.loads(
+                _DEFAULT_ARGS_PATH.read_text(encoding="utf-8")
+            )
+        except (
+            OSError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
             return None
-    servers = _configured_servers(selector, args_data=args_data)
+    servers = _configured_servers(
+        selector,
+        args_data=args_data,
+    )
     if not servers:
         return None
 
@@ -289,17 +381,32 @@ def resolve_generated_campaign_module(
     targets: set[str] = set()
     for server in servers:
         try:
-            artifact = registry.resolve_current(server, now, supplemental=False)
-        except (EventDiscoveryError, OSError, TypeError, ValueError):
+            artifact = registry.resolve_current(
+                server,
+                now,
+                supplemental=False,
+            )
+        except (
+            EventDiscoveryError,
+            OSError,
+            TypeError,
+            ValueError,
+        ):
             continue
         if artifact is None:
             continue
         try:
-            module = generated_stage_module(artifact, stage)
+            module = generated_stage_module(
+                artifact,
+                stage,
+            )
         except EventCampaignSelectorError:
             continue
         path = PurePosixPath(module)
-        targets.add("campaign.generated_event." + ".".join(path.with_suffix("").parts))
+        targets.add(
+            "campaign.generated_event."
+            + ".".join(path.with_suffix("").parts)
+        )
 
     if len(targets) != 1:
         return None
