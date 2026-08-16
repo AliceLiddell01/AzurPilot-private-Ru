@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from dev_tools.event_datamine_build import build_current_event
+from module.map_detection import utils_assets
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "event_datamine" / "current_en"
@@ -34,3 +35,18 @@ def test_current_builder_applies_verified_runtime_siren_patches(tmp_path: Path):
 
     assert "MAP_SIREN_TEMPLATE = ['BonhommeRichard_BB', 'BonhommeRichard_CV']" in b1
     assert "MAP_SIREN_TEMPLATE = ['BonhommeRichard_SS']" in sp
+
+
+def test_current_event_bonhomme_richard_templates_are_registered():
+    expected = {
+        "BB": "TEMPLATE_SIREN_BonhommeRichard_BB.gif",
+        "CV": "TEMPLATE_SIREN_BonhommeRichard_CV.gif",
+        "SS": "TEMPLATE_SIREN_BonhommeRichard_SS.gif",
+    }
+
+    for suffix, filename in expected.items():
+        path = ROOT / "assets" / "en" / "template" / filename
+        assert path.is_file()
+
+        template = getattr(utils_assets, f"TEMPLATE_SIREN_BonhommeRichard_{suffix}")
+        assert Path(template.file).as_posix().endswith(f"assets/en/template/{filename}")
