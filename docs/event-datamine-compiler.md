@@ -1,6 +1,6 @@
 # Event Datamine, supplemental-данные и наблюдения UI
 
-Подсистема разделяет три разных класса истины: структурные факты клиента из закреплённого ShareCfg snapshot, проверяемые статические дополнения из закреплённых внешних evidence и динамические runtime-наблюдения конкретного профиля. Ни один слой не подменяет другой.
+Подсистема разделяет четыре разных класса истины: структурные факты клиента из закреплённого ShareCfg snapshot, проверяемые статические дополнения из закреплённых внешних evidence, ограниченную runtime-policy generated-карт и динамические runtime-наблюдения конкретного профиля. Ни один слой не подменяет другой.
 
 ## Граница доверия ShareCfg
 
@@ -8,9 +8,52 @@
 - `ShareCfgLoader` разбирает только поддерживаемые Lua-таблицы и не исполняет Lua.
 - Streamed ShareCfg читается через одноимённый `sharecfgdata` companion; отсутствие companion даёт структурированную ошибку.
 - Parser, normalized model, validator/generator и atomic writer разделены.
-- Неизвестный grid, effect или land-based mechanic блокирует production generation. Известное исключение допускается только через `CompatibilityPatch` с причиной, source evidence и ожидаемым эффектом.
+- Неизвестный grid, effect или land-based mechanic блокирует production generation. Известное структурное исключение допускается только через проверяемые данные `compatibility_data/<event-slug>.json` с причиной, source evidence и ожидаемым эффектом.
 
 ShareCfg остаётся первичным источником identity и связей: activity/task/map/shop/reward IDs, lifecycle, topology карты, spawn data и других фактов, которые клиент предоставляет структурно. Supplemental-слой не имеет права перепривязать такую identity по одному тексту или изображению.
+
+Для siren ShareCfg доказывает только исходный `expedition.icon`. В `MapSpec` это хранится как `siren_source_icons`. Такое значение **не является** именем CV-шаблона AzurPilot и никогда автоматически не превращается в `MAP_SIREN_TEMPLATE`.
+
+## Структурная совместимость без event-specific Python
+
+Редкие доказанные расхождения между формой ShareCfg и поддерживаемой моделью компилятора хранятся как данные в `module/event_datamine/compatibility_data/`. Generic Python знает только схему и не содержит ветвлений по activity ID, map ID или имени события.
+
+Compatibility snapshot содержит:
+
+- версию схемы и self-digest;
+- точную `event_id`;
+- закреплённый repository и полный Git SHA evidence;
+- список map-scoped исключений с причиной и source path;
+- только заранее поддерживаемые типы структурных исключений.
+
+Повреждённый digest, неизвестное поле, небезопасный путь либо неподдерживаемая форма данных отклоняются. Отсутствие файла для нового события означает отсутствие исключений, а не применение неявного fallback.
+
+## Runtime-policy generated-карт
+
+Факты исполнения карты, которых ShareCfg сам по себе не доказывает, хранятся рядом с generated package в `campaign/generated_event/<package>/runtime.json`. Это отдельный доверительный слой, а не продолжение ShareCfg-модели.
+
+Runtime-policy schema v2 содержит:
+
+- `generated_package` и `event_id`;
+- доказанную UI-policy;
+- evidence исходного runtime-наблюдения;
+- отдельный `map_evidence` с repository и полным Git SHA;
+- типизированные `runtime_maps`.
+
+Для map policy разрешены только семантические поля, которые generic backend умеет проверять и безопасно проецировать. В текущей схеме это:
+
+- `siren_recognition.templates`;
+- `siren_recognition.boss_icon_small`;
+- `stage_entry.one_time`;
+- `stage_entry.has_mode_switch`.
+
+Произвольные `MAP_*` ключи через JSON не принимаются. Generic resolver сам преобразует разрешённые семантические поля в ограниченный набор runtime-настроек.
+
+Перед генерацией проверяются identity карты, `chapter_name`, evidence path, digest policy и существование каждого локального `TEMPLATE_SIREN_*` в canonical asset root. Если ShareCfg доказывает наличие siren, но отдельная runtime-policy не доказывает способ распознавания, карта получает `runtime_status = unsupported`, её module path остаётся пустым и Python-модуль не генерируется. Это fail-closed поведение не заменяется исходным ShareCfg icon и не использует угаданный шаблон.
+
+`source_status` и `runtime_status` имеют разный смысл: первый относится к структурной поддержке ShareCfg, второй — к безопасной исполнимости generated-карты. Runtime selector принимает только карты, для которых оба статуса `verified`.
+
+Event-specific CV-шаблоны не регистрируются вручную в `module/map_detection/utils_assets.py`. Canonical registry создаётся генератором `module/template/assets.py` из фактически присутствующих файлов `assets/<server>/template/`.
 
 ## Raw artifact и runtime composite
 
@@ -101,13 +144,16 @@ uv run python -m dev_tools.event_datamine_fixture `
   --output .\tests\fixtures\event_datamine\current_en
 ```
 
-Исторический extractor с явным activity ID остаётся инструментом golden/regression. `--maps-output` включается отдельно. Map modules не генерируются, если artifact содержит blocking findings. Generated config включает только факты карты; произвольная runtime policy не добавляется.
+Исторический extractor с явным activity ID остаётся инструментом golden/regression. `--maps-output` включается отдельно. Map modules не генерируются, если structural artifact содержит blocking findings или если обязательная runtime-policy карты не подтверждена.
+
+Перед сборкой нового события runtime-факты, отсутствующие в ShareCfg, сначала заносятся в `campaign/generated_event/<package>/runtime.json` с evidence и новым digest. Если новый Event не требует runtime-фактов сверх ShareCfg, пустые event-specific ветви в Python не создаются.
 
 После обновления raw source revision старый supplemental обязан пройти `base_contract` заново. Если source revision изменился, его нельзя механически «переподписать»: сначала нужно сверить supplemental facts с новым snapshot/evidence, после чего обновить data и digest.
 
 ## Известные границы
 
 - Supplemental snapshot не является автоматическим web scraper output: факты, извлечённые из визуальной страницы, должны быть закреплены, проверены и явно занесены в типизированные data records.
+- Runtime-policy карты также не является доверенным произвольным конфигом: новые виды поведения требуют сначала добавить generic тип политики и проверки, а затем данные конкретного события.
 - В репозитории нет надёжного scanner-а отдельных mission rows с task identity. Поэтому mission completion не автоматизируется даже если статическая mission taxonomy известна.
 - Звёзды, фактическое число прохождений, Clearing Mode и прочее пользовательское progression-state не выводятся из wiki/static farm metadata.
 - Неименованные в evidence icon-only drop identities не угадываются. Они остаются вне machine-readable supplemental до появления надёжного источника.

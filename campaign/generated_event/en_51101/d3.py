@@ -30,7 +30,7 @@ MAP.weight_data = """
 MAP.spawn_data = [{'battle': 0, 'enemy': 2, 'siren': 2}, {'battle': 1, 'enemy': 1}, {'battle': 2, 'enemy': 2, 'siren': 1}, {'battle': 3, 'enemy': 1}, {'battle': 4, 'enemy': 2}, {'battle': 5, 'enemy': 1}, {'battle': 6, 'boss': 1}]
 
 class Config:
-    # Только факты карты; политика выполнения задаётся отдельно.
+    # Только структурные факты карты из ShareCfg.
     MAP_HAS_MAP_STORY = False
     MAP_HAS_FLEET_STEP = True
     MAP_HAS_AMBUSH = False
@@ -43,9 +43,8 @@ class Config:
     STAR_REQUIRE_2 = 2
     STAR_REQUIRE_3 = 3
     MAP_HAS_MOVABLE_NORMAL_ENEMY = True
-    MAP_SIREN_TEMPLATE = ['haorenlichade_m_zhanlie', 'haorenlichade_m_hangmu']
     MOVABLE_ENEMY_TURN = (2,)
-    # Патч совместимости depths-astrarium-d3-siren-recognition: ShareCfg expedition.icon описывает игровой ресурс и не гарантирует имя шаблона распознавания AzurPilot
+    # Проверенные runtime-факты из ограниченной policy generated package.
     MAP_SIREN_TEMPLATE = ['BonhommeRichard_BB', 'BonhommeRichard_CV']
 
 class Campaign(CampaignBase):

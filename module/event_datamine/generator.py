@@ -1,4 +1,4 @@
-"""Детерминированная генерация campaign Python из уже проверенного MapSpec."""
+"""Детерминированная генерация campaign Python из проверенного MapSpec."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 from deploy.atomic import file_remove, file_write, replace_tmp, to_tmp_file
 from module.event_datamine.model import MapSpec
-from module.event_datamine.patches import CompatibilityPatch
+from module.event_datamine.runtime_policy import MapRuntimePolicy
 
 
 def map_module_name(chapter_name: str) -> str:
@@ -45,7 +45,7 @@ def _has_grid_token(spec: MapSpec, token: str) -> bool:
 
 
 def _has_spawn_kind(spec: MapSpec, kind: str) -> bool:
-    """Определить наличие сущности по структурным данным появления, а не по шаблонам распознавания."""
+    """Определить сущность по структурным данным появления, а не по CV-шаблонам."""
 
     groups = (spec.spawn_data, spec.spawn_data_loop or ())
     return any(int(row.get(kind, 0) or 0) > 0 for rows in groups for row in rows)
@@ -54,13 +54,30 @@ def _has_spawn_kind(spec: MapSpec, kind: str) -> bool:
 def generate_map_module(
     spec: MapSpec,
     *,
-    patches: tuple[CompatibilityPatch, ...] = (),
+    runtime_policy: MapRuntimePolicy | None = None,
     base_import: str = "module.campaign.campaign_base",
 ) -> str:
     if spec.unknown_grid_types or spec.unknown_effects:
         raise ValueError(
-            f"Карта {spec.id} не eligible: присутствуют неизвестные mechanics"
+            f"MapSpec карты {spec.id} не eligible: присутствуют неизвестные механики"
         )
+    has_siren = _has_spawn_kind(spec, "siren")
+    if has_siren and (
+        runtime_policy is None or runtime_policy.siren_recognition is None
+    ):
+        raise ValueError(
+            f"Карта {spec.id} содержит siren, но не имеет проверенной runtime-policy распознавания"
+        )
+    if runtime_policy is not None:
+        if runtime_policy.map_id != spec.id:
+            raise ValueError(
+                f"Runtime-policy карты {runtime_policy.map_id} не соответствует MapSpec {spec.id}"
+            )
+        if runtime_policy.chapter_name.casefold() != spec.chapter_name.casefold():
+            raise ValueError(
+                f"Runtime-policy карты {spec.id} относится к другому chapter_name"
+            )
+
     lines = [
         f"from {base_import} import CampaignBase",
         "from module.map.map_base import CampaignMap",
@@ -93,10 +110,9 @@ def generate_map_module(
         [
             "",
             "class Config:",
-            "    # Только факты карты; политика выполнения задаётся отдельно.",
+            "    # Только структурные факты карты из ShareCfg.",
         ]
     )
-    has_siren = _has_spawn_kind(spec, "siren")
     factual = {
         "MAP_HAS_MAP_STORY": spec.has_story,
         "MAP_HAS_FLEET_STEP": spec.has_fleet_step,
@@ -114,13 +130,11 @@ def generate_map_module(
         lines.append(f"    {key} = {value!r}")
     if _has_grid_token(spec, "Me"):
         lines.append("    MAP_HAS_MOVABLE_NORMAL_ENEMY = True")
-    if has_siren:
-        lines.append(f"    MAP_SIREN_TEMPLATE = {list(spec.siren_templates)!r}")
     if spec.movable_enemy_turns:
         lines.append(f"    MOVABLE_ENEMY_TURN = {tuple(spec.movable_enemy_turns)!r}")
-    for patch in patches:
-        lines.append(f"    # Патч совместимости {patch.id}: {patch.reason}")
-        for key, value in patch.config:
+    if runtime_policy is not None:
+        lines.append("    # Проверенные runtime-факты из ограниченной policy generated package.")
+        for key, value in runtime_policy.config_items():
             lines.append(f"    {key} = {value!r}")
     lines.extend(
         [

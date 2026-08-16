@@ -25,8 +25,15 @@ from module.event_datamine.generator import (
     generate_map_module,
     write_map_module,
 )
-from module.event_datamine.patches import generation_patches_for
 from module.event_datamine.registry import write_registry
+from module.event_datamine.runtime_policy import (
+    GENERATED_EVENT_ROOT,
+    EventRuntimePolicyError,
+    load_generated_runtime_policy,
+    map_runtime_policy,
+    runtime_map_policies,
+    validate_runtime_template_assets,
+)
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 
 
@@ -50,6 +57,21 @@ def _map_status(spec) -> str:
     return "verified"
 
 
+def _has_spawn_kind(spec, kind: str) -> bool:
+    groups = (getattr(spec, "spawn_data", ()), getattr(spec, "spawn_data_loop", ()) or ())
+    return any(int(row.get(kind, 0) or 0) > 0 for rows in groups for row in rows)
+
+
+def _runtime_map_status(spec, source_status: str, policy) -> tuple[str, str]:
+    if source_status != "verified":
+        return "unsupported", "source_not_verified"
+    if _has_spawn_kind(spec, "siren") and (
+        policy is None or policy.siren_recognition is None
+    ):
+        return "unsupported", "siren_recognition_missing"
+    return "verified", ""
+
+
 def build_current_event(
     *,
     source_root: Path,
@@ -62,6 +84,7 @@ def build_current_event(
     maps_output: Path | None = None,
     overwrite: bool = False,
     verify_git: bool = True,
+    runtime_policy_root: Path | str = GENERATED_EVENT_ROOT,
 ) -> dict:
     if verify_git:
         verify_git_revision(source_root, revision)
@@ -82,11 +105,23 @@ def build_current_event(
     if {item.id for item in spec.maps} != set(current.map_ids):
         raise ValueError("Compiler map inventory не совпадает со structural discovery")
 
-    event_maps_output = (
-        maps_output / f"{server.lower()}_{current.activity_id}"
-        if maps_output is not None
-        else None
+    package = f"{server.lower()}_{current.activity_id}"
+    runtime_policy = load_generated_runtime_policy(
+        (package,),
+        root=runtime_policy_root,
     )
+    if runtime_policy is not None and runtime_policy["event_id"] != spec.id:
+        raise EventRuntimePolicyError(
+            "Runtime-policy generated package не соответствует скомпилированному EventSpec"
+        )
+    policy_maps = runtime_map_policies(runtime_policy) if runtime_policy is not None else {}
+    unknown_policy_maps = set(policy_maps) - {item.id for item in spec.maps}
+    if unknown_policy_maps:
+        raise EventRuntimePolicyError(
+            f"Runtime-policy содержит карты вне EventSpec: {sorted(unknown_policy_maps)}"
+        )
+
+    event_maps_output = maps_output / package if maps_output is not None else None
     updated_maps = tuple(
         replace(item, source_status=_map_status(item)) for item in spec.maps
     )
@@ -94,24 +129,39 @@ def build_current_event(
     map_records = []
     map_writes: list[tuple[Path, str]] = []
     for map_spec, module_name in zip(updated_maps, module_names, strict=True):
-        status = map_spec.source_status
+        source_status = map_spec.source_status
+        policy = map_runtime_policy(
+            runtime_policy,
+            map_id=map_spec.id,
+            chapter_name=map_spec.chapter_name,
+        )
+        if policy is not None:
+            validate_runtime_template_assets(
+                policy,
+                server=server,
+                asset_root=asset_root,
+            )
+        runtime_status, runtime_reason = _runtime_map_status(
+            map_spec,
+            source_status,
+            policy,
+        )
         record = {
             "map_id": map_spec.id,
             "chapter_name": map_spec.chapter_name,
-            "source_status": status,
+            "source_status": source_status,
+            "runtime_status": runtime_status,
+            "runtime_reason": runtime_reason,
             "module": (
-                f"{server.lower()}_{current.activity_id}/{module_name}.py"
-                if status == "verified"
+                f"{package}/{module_name}.py"
+                if runtime_status == "verified"
                 else ""
             ),
         }
         map_records.append(record)
-        if event_maps_output is not None and status == "verified":
+        if event_maps_output is not None and runtime_status == "verified":
             target = event_maps_output / f"{module_name}.py"
-            content = generate_map_module(
-                map_spec,
-                patches=generation_patches_for(spec.id, map_spec.id),
-            )
+            content = generate_map_module(map_spec, runtime_policy=policy)
             map_writes.append((target, content))
 
     if not overwrite:
@@ -162,6 +212,9 @@ def build_current_event(
         "revision": revision,
         "candidate_count": len(candidates),
         "map_count": len(spec.maps),
+        "runtime_map_count": sum(
+            1 for item in map_records if item["runtime_status"] == "verified"
+        ),
         "shop_count": len(spec.shop_items),
         "milestone_count": len(spec.milestones),
         "finding_codes": sorted({item.code for item in spec.findings}),

@@ -1,7 +1,7 @@
 {
   "artifacts": [
     {
-      "artifact_digest": "10c3fa294fe0f8c9d089916d226d4160053f62ff0d979343b294542cfcb054e1",
+      "artifact_digest": "0e41b5606cf36631d5684d47831516bf963b88a21656389fdc3eef40c5c47a55",
       "farm_end": "2026-08-26 23:59:59",
       "farm_start": "2026-08-13 00:00:00",
       "id": "en:51101",
@@ -13,7 +13,7 @@
       "source_status": "partial"
     },
     {
-      "artifact_digest": "41c8c0203b524770e2e071965a482dc79c03a5e4faf0d2695b08fb749a8af1c3",
+      "artifact_digest": "8378cc0c0536d4080c033c89fc5899197f6894ea50dfc71c7c2d0abc2747bd3f",
       "farm_end": "2025-06-11 23:59:59",
       "farm_start": "2025-05-20 00:00:00",
       "id": "en:5941",
@@ -25,6 +25,6 @@
       "source_status": "partial"
     }
   ],
-  "digest": "af62ed701838245778bdc973cb32f1bce7a81126de9d0fbc8209ac1a0dcd0a63",
+  "digest": "7afb9591cdf62b7697f4a880a712e51aeb69ac2d5afbd02e352de96c08b85fde",
   "registry_schema_version": 1
 }

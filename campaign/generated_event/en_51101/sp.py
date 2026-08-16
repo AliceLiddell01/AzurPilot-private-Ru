@@ -30,7 +30,7 @@ MAP.weight_data = """
 MAP.spawn_data = [{'battle': 0, 'enemy': 12, 'siren': 3}, {'battle': 1}, {'battle': 2}, {'battle': 3}, {'battle': 4}, {'battle': 5}, {'battle': 6}, {'battle': 7, 'boss': 1}]
 
 class Config:
-    # Только факты карты; политика выполнения задаётся отдельно.
+    # Только структурные факты карты из ShareCfg.
     MAP_HAS_MAP_STORY = False
     MAP_HAS_FLEET_STEP = True
     MAP_HAS_AMBUSH = False
@@ -42,11 +42,9 @@ class Config:
     STAR_REQUIRE_1 = 0
     STAR_REQUIRE_2 = 0
     STAR_REQUIRE_3 = 0
-    MAP_SIREN_TEMPLATE = ['haorenlichade_m_qianting']
     MOVABLE_ENEMY_TURN = (2,)
-    # Патч совместимости depths-astrarium-sp-siren-recognition: ShareCfg expedition.icon описывает игровой ресурс и не гарантирует имя шаблона распознавания AzurPilot
+    # Проверенные runtime-факты из ограниченной policy generated package.
     MAP_SIREN_TEMPLATE = ['BonhommeRichard_SS']
-    # Патч совместимости depths-astrarium-sp-entry-policy: SP является одноразовым этапом и не имеет переключателя обычного/сложного режима; эти runtime-факты не выводятся из ShareCfg карты
     MAP_IS_ONE_TIME_STAGE = True
     MAP_HAS_MODE_SWITCH = False
 

@@ -1,6 +1,6 @@
 """Модуль ресурсов распознавания карты.
 
-Предварительно загружает маски и шаблоны, необходимые для распознавания карты,
+Предварительно загружает маски, необходимые для распознавания карты,
 включая маски UI и шаблоны центра и углов клеток.
 """
 
@@ -9,7 +9,6 @@ import numpy as np
 
 from module.base.decorator import cached_property
 from module.base.mask import Mask
-from module.base.template import Template
 from module.base.utils import crop
 
 UI_MASK = Mask(file='./assets/mask/MASK_MAP_UI.png')
@@ -17,16 +16,6 @@ UI_MASK_OS = Mask(file='./assets/mask/MASK_OS_MAP_UI.png')
 TILE_CENTER = Mask(file='./assets/map_detection/TILE_CENTER.png')
 TILE_CORNER = Mask(file='./assets/map_detection/TILE_CORNER.png')
 DETECTING_AREA = (123, 55, 1280, 720)
-
-TEMPLATE_SIREN_BonhommeRichard_BB = Template(
-    file='./assets/en/template/TEMPLATE_SIREN_BonhommeRichard_BB.gif'
-)
-TEMPLATE_SIREN_BonhommeRichard_CV = Template(
-    file='./assets/en/template/TEMPLATE_SIREN_BonhommeRichard_CV.gif'
-)
-TEMPLATE_SIREN_BonhommeRichard_SS = Template(
-    file='./assets/en/template/TEMPLATE_SIREN_BonhommeRichard_SS.gif'
-)
 
 
 class Assets:

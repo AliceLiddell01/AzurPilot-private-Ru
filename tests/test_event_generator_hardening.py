@@ -6,6 +6,10 @@ import pytest
 
 import dev_tools.event_datamine_build as builder
 from module.event_datamine.generator import generate_map_module
+from module.event_datamine.runtime_policy import (
+    MapRuntimePolicy,
+    SirenRecognitionPolicy,
+)
 
 
 @dataclass(frozen=True)
@@ -121,7 +125,7 @@ def _map_with(token: str):
         has_fleet_step=False,
         has_ambush=False,
         has_mystery=False,
-        siren_templates=(),
+        siren_source_icons=(),
         movable_enemy_turns=(),
         star_requirements=(1, 2, 3),
         boss_refresh=0,
@@ -138,14 +142,31 @@ def test_generator_derives_normal_movable_enemy_from_me_grid():
     assert "MAP_HAS_MOVABLE_NORMAL_ENEMY = True" not in static
 
 
-def test_generator_keeps_siren_presence_independent_from_cv_templates():
+def test_generator_rejects_siren_map_without_runtime_recognition_policy():
     spec = _map_with("--")
     spec.spawn_data = ({"battle": 0, "siren": 1, "boss": 1},)
-    spec.movable_enemy_turns = (2,)
+    spec.siren_source_icons = ("sharecfg_icon",)
 
-    generated = generate_map_module(spec)
+    with pytest.raises(ValueError, match="не имеет проверенной runtime-policy распознавания"):
+        generate_map_module(spec)
+
+
+def test_generator_keeps_source_icon_separate_from_runtime_template():
+    spec = _map_with("--")
+    spec.spawn_data = ({"battle": 0, "siren": 1, "boss": 1},)
+    spec.siren_source_icons = ("sharecfg_icon",)
+    spec.movable_enemy_turns = (2,)
+    policy = MapRuntimePolicy(
+        map_id=1,
+        chapter_name="T",
+        source_path="campaign/event/example.py",
+        siren_recognition=SirenRecognitionPolicy(("RuntimeTemplate",), False),
+    )
+
+    generated = generate_map_module(spec, runtime_policy=policy)
 
     assert "MAP_HAS_SIREN = True" in generated
-    assert "MAP_SIREN_TEMPLATE = []" in generated
+    assert "MAP_SIREN_TEMPLATE = ['RuntimeTemplate']" in generated
+    assert "sharecfg_icon" not in generated
     assert "MAP_HAS_MOVABLE_ENEMY = True" in generated
     assert "MOVABLE_ENEMY_TURN = (2,)" in generated

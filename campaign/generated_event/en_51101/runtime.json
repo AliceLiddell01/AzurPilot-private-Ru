@@ -2,7 +2,7 @@
   "campaign_ui": {
     "layout": "20241219"
   },
-  "digest": "af484b95764a051bf7231ada37cf0e9f18b02344fd2c5092b6a972903fab9b01",
+  "digest": "aa4f74b7566ba9e0c63fbfaaccabb2f43e14768860d4d0b6e564e0a1c877b558",
   "event_id": "en:51101",
   "evidence": {
     "archive_sha256": "556723dc24418191b38ae9568070e4b515fc03e6962c190a69cd5cc91e1e29ce",
@@ -11,5 +11,152 @@
     "observed_at": "2026-08-16T01:12:49+07:00"
   },
   "generated_package": "en_51101",
-  "runtime_policy_schema_version": 1
+  "map_evidence": {
+    "repository": "wess09/AzurPilot",
+    "revision": "857deff50a845db1e4aa223c58ad5899155990d1"
+  },
+  "runtime_maps": [
+    {
+      "chapter_name": "A1",
+      "map_id": 2050001,
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
+      "source_path": "campaign/event_20260813_cn/a1.py"
+    },
+    {
+      "chapter_name": "A2",
+      "map_id": 2050002,
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
+      "source_path": "campaign/event_20260813_cn/a2.py"
+    },
+    {
+      "chapter_name": "A3",
+      "map_id": 2050003,
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
+      "source_path": "campaign/event_20260813_cn/a3.py"
+    },
+    {
+      "chapter_name": "B1",
+      "map_id": 2050004,
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
+      "source_path": "campaign/event_20260813_cn/b1.py"
+    },
+    {
+      "chapter_name": "B2",
+      "map_id": 2050005,
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
+      "source_path": "campaign/event_20260813_cn/b2.py"
+    },
+    {
+      "chapter_name": "B3",
+      "map_id": 2050006,
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
+      "source_path": "campaign/event_20260813_cn/b3.py"
+    },
+    {
+      "chapter_name": "C1",
+      "map_id": 2050021,
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
+      "source_path": "campaign/event_20260813_cn/c1.py"
+    },
+    {
+      "chapter_name": "C2",
+      "map_id": 2050022,
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
+      "source_path": "campaign/event_20260813_cn/c2.py"
+    },
+    {
+      "chapter_name": "C3",
+      "map_id": 2050023,
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
+      "source_path": "campaign/event_20260813_cn/c3.py"
+    },
+    {
+      "chapter_name": "D1",
+      "map_id": 2050024,
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
+      "source_path": "campaign/event_20260813_cn/d1.py"
+    },
+    {
+      "chapter_name": "D2",
+      "map_id": 2050025,
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
+      "source_path": "campaign/event_20260813_cn/d2.py"
+    },
+    {
+      "chapter_name": "D3",
+      "map_id": 2050026,
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
+      "source_path": "campaign/event_20260813_cn/d3.py"
+    },
+    {
+      "chapter_name": "SP",
+      "map_id": 2050041,
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_SS"
+        ]
+      },
+      "source_path": "campaign/event_20260813_cn/sp.py",
+      "stage_entry": {
+        "has_mode_switch": false,
+        "one_time": true
+      }
+    }
+  ],
+  "runtime_policy_schema_version": 2
 }

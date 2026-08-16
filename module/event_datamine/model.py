@@ -115,7 +115,7 @@ class MapSpec:
     camera_data: tuple[str, ...]
     camera_spawn_points: tuple[str, ...]
     boss_refresh: int
-    siren_templates: tuple[str, ...]
+    siren_source_icons: tuple[str, ...]
     movable_enemy_turns: tuple[int, ...]
     land_based: tuple[tuple[str, str], ...]
     portals: tuple[PortalSpec, ...]

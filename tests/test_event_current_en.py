@@ -82,6 +82,8 @@ def test_current_fixture_compiles_complete_relations_with_independent_oracles():
     assert spec.provenance.revision == REVISION
     assert not [item for item in spec.findings if item.severity == "error"]
     assert spec.to_dict() == EventCompiler(_loader()).compile(candidate.activity_id).to_dict()
+    assert all("siren_source_icons" in item for item in spec.to_dict()["maps"])
+    assert all("siren_templates" not in item for item in spec.to_dict()["maps"])
 
 
 def test_current_compiler_rejects_unlocalized_event_title(monkeypatch):
@@ -120,15 +122,23 @@ def test_committed_current_artifact_and_production_resolver_use_fixture_result()
     assert plan["source_status"] == "verified"
 
 
-def test_production_python_contains_no_current_event_selector_hardcode():
-    forbidden = ("51101", "51104", "2050001", "Depths of the Astrarium", "StarsCity")
+def test_production_python_contains_no_event_specific_datamine_hardcode():
+    forbidden = (
+        "51101",
+        "51104",
+        "2050001",
+        "5941",
+        "1920004",
+        "Depths of the Astrarium",
+        "StarsCity",
+        "event_20260813_cn",
+        "event_20250520_cn",
+    )
     paths = [
         *sorted((ROOT / "module").rglob("*.py")),
         *sorted((ROOT / "dev_tools").glob("event_datamine*.py")),
     ]
     for path in paths:
-        if path.name == "patches.py":
-            continue
         text = path.read_text(encoding="utf-8")
         assert not any(token in text for token in forbidden), path
 

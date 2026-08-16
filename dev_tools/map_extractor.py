@@ -12,7 +12,10 @@ from module.event_datamine.generator import (
     generate_map_module,
     write_map_module,
 )
-from module.event_datamine.patches import generation_patches_for
+from module.event_datamine.runtime_policy import (
+    load_generated_runtime_policy,
+    map_runtime_policy,
+)
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 
 
@@ -64,11 +67,21 @@ def main(argv: list[str] | None = None) -> int:
         selected_ids = set(args.map_id or ())
         selected_maps = select_maps(spec.maps, selected_ids)
         module_names = allocate_map_module_names(selected_maps)
+        package = f"{args.server.lower()}_{args.activity_id}"
+        policy = load_generated_runtime_policy((package,))
+        if policy is not None and policy["event_id"] != spec.id:
+            raise SystemExit(
+                "Runtime-policy generated package не соответствует EventSpec"
+            )
         for item, module_name in zip(selected_maps, module_names, strict=True):
             path = args.maps_output / f"{module_name}.py"
             content = generate_map_module(
                 item,
-                patches=generation_patches_for(spec.id, item.id),
+                runtime_policy=map_runtime_policy(
+                    policy,
+                    map_id=item.id,
+                    chapter_name=item.chapter_name,
+                ),
             )
             write_map_module(path, content, overwrite=args.overwrite)
     return 0

@@ -1,0 +1,65 @@
+{
+  "compatibility_schema_version": 1,
+  "digest": "b3810369e299e8c5426f4c75bca47944e2d17f0e35b699210d510c6e64034f57",
+  "event_id": "en:5941",
+  "evidence": {
+    "repository": "wess09/AzurPilot",
+    "revision": "857deff50a845db1e4aa223c58ad5899155990d1"
+  },
+  "patches": [
+    {
+      "id": "rose-tower-land-code-10-1920004",
+      "ignored_land_rotations": [
+        10
+      ],
+      "map_id": 1920004,
+      "reason": "ShareCfg land_based code 10 не является направленной береговой батареей; проверенная upstream-карта не содержит MAP.land_based_data.",
+      "source_path": "campaign/event_20250520_cn/b1.py"
+    },
+    {
+      "id": "rose-tower-land-code-10-1920005",
+      "ignored_land_rotations": [
+        10
+      ],
+      "map_id": 1920005,
+      "reason": "ShareCfg land_based code 10 не является направленной береговой батареей; проверенная upstream-карта не содержит MAP.land_based_data.",
+      "source_path": "campaign/event_20250520_cn/b2.py"
+    },
+    {
+      "id": "rose-tower-land-code-10-1920006",
+      "ignored_land_rotations": [
+        10
+      ],
+      "map_id": 1920006,
+      "reason": "ShareCfg land_based code 10 не является направленной береговой батареей; проверенная upstream-карта не содержит MAP.land_based_data.",
+      "source_path": "campaign/event_20250520_cn/b3.py"
+    },
+    {
+      "id": "rose-tower-land-code-10-1920024",
+      "ignored_land_rotations": [
+        10
+      ],
+      "map_id": 1920024,
+      "reason": "ShareCfg land_based code 10 не является направленной береговой батареей; проверенная upstream-карта не содержит MAP.land_based_data.",
+      "source_path": "campaign/event_20250520_cn/d1.py"
+    },
+    {
+      "id": "rose-tower-land-code-10-1920025",
+      "ignored_land_rotations": [
+        10
+      ],
+      "map_id": 1920025,
+      "reason": "ShareCfg land_based code 10 не является направленной береговой батареей; проверенная upstream-карта не содержит MAP.land_based_data.",
+      "source_path": "campaign/event_20250520_cn/d2.py"
+    },
+    {
+      "id": "rose-tower-land-code-10-1920026",
+      "ignored_land_rotations": [
+        10
+      ],
+      "map_id": 1920026,
+      "reason": "ShareCfg land_based code 10 не является направленной береговой батареей; проверенная upstream-карта не содержит MAP.land_based_data.",
+      "source_path": "campaign/event_20250520_cn/d3.py"
+    }
+  ]
+}

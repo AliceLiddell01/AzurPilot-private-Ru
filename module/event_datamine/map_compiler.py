@@ -1,4 +1,4 @@
-"""Чистый parser/validator карт ShareCfg, не выполняющий запись файлов."""
+"""Чистый разбор и проверка карт ShareCfg без записи файлов."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ GRID_TOKENS = {
     100: "++",
 }
 LAND_ROTATIONS = {1: "up", 2: "down", 3: "left", 4: "right"}
-KNOWN_SIRENS = {"shengli": "Victorious", "huangjiaxiangshu": "RoyalOak"}
 
 
 def _values(value: Any) -> list[Any]:
@@ -56,7 +55,7 @@ class _MapEffects:
 
 
 class EventEffectRegistry:
-    """Явный registry исключает молчаливое игнорирование новых mechanics."""
+    """Явный реестр исключает молчаливое игнорирование новых механик."""
 
     def __init__(self) -> None:
         self._handlers: dict[
@@ -144,7 +143,7 @@ class MapCompiler:
                 try:
                     wave_number = int(wave)
                     count_number = int(count or 0)
-                except TypeError, ValueError, OverflowError:
+                except (TypeError, ValueError, OverflowError):
                     findings.append(
                         ValidationFinding(
                             "spawn_data_invalid",
@@ -378,7 +377,7 @@ class MapCompiler:
                 )
             )
 
-        sirens: list[str] = []
+        siren_source_icons: list[str] = []
         turns: set[int] = set()
         expedition_ids = _values(row.get("ai_expedition_list"))
         if isinstance(loop, Mapping):
@@ -392,9 +391,8 @@ class MapCompiler:
                 if isinstance(expedition, Mapping)
                 else str(expedition_id)
             )
-            name = KNOWN_SIRENS.get(icon, icon)
-            if name not in sirens:
-                sirens.append(name)
+            if icon not in siren_source_icons:
+                siren_source_icons.append(icon)
             turns.add(
                 int(expedition.get("ai_mov", 2) or 2)
                 if isinstance(expedition, Mapping)
@@ -428,7 +426,7 @@ class MapCompiler:
             camera_data=camera_nodes,
             camera_spawn_points=spawn_nodes,
             boss_refresh=int(row.get("boss_refresh", 0) or 0),
-            siren_templates=tuple(sirens),
+            siren_source_icons=tuple(siren_source_icons),
             movable_enemy_turns=tuple(sorted(turns)),
             land_based=tuple(land_based),
             portals=tuple(normal_effects.portals),

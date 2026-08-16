@@ -1,7 +1,7 @@
 {
   "artifact_schema_version": 2,
   "compiler_version": "2",
-  "digest": "10c3fa294fe0f8c9d089916d226d4160053f62ff0d979343b294542cfcb054e1",
+  "digest": "0e41b5606cf36631d5684d47831516bf963b88a21656389fdc3eef40c5c47a55",
   "event_spec": {
     "currencies": [
       {
@@ -242,7 +242,7 @@
         "name": "Idol and Detective",
         "portals": [],
         "shape": "I7",
-        "siren_templates": [
+        "siren_source_icons": [
           "emotion_qz"
         ],
         "source_status": "verified",
@@ -384,7 +384,7 @@
         "name": "Fragmented Emotions",
         "portals": [],
         "shape": "I7",
-        "siren_templates": [
+        "siren_source_icons": [
           "emotion_qz"
         ],
         "source_status": "verified",
@@ -529,7 +529,7 @@
         "name": "Richard's Plan",
         "portals": [],
         "shape": "G9",
-        "siren_templates": [
+        "siren_source_icons": [
           "emotion_qz"
         ],
         "source_status": "verified",
@@ -672,7 +672,7 @@
         "name": "Face-Off",
         "portals": [],
         "shape": "I7",
-        "siren_templates": [
+        "siren_source_icons": [
           "haorenlichade_m_zhanlie",
           "haorenlichade_m_hangmu"
         ],
@@ -838,7 +838,7 @@
         "name": "Light Versus Dark",
         "portals": [],
         "shape": "J8",
-        "siren_templates": [
+        "siren_source_icons": [
           "haorenlichade_m_zhanlie",
           "haorenlichade_m_hangmu"
         ],
@@ -1008,7 +1008,7 @@
         "name": "Rain Upon Flowery Seas",
         "portals": [],
         "shape": "I9",
-        "siren_templates": [
+        "siren_source_icons": [
           "haorenlichade_m_zhanlie",
           "haorenlichade_m_hangmu"
         ],
@@ -1155,7 +1155,7 @@
         "name": "Idol and Detective",
         "portals": [],
         "shape": "I7",
-        "siren_templates": [
+        "siren_source_icons": [
           "emotion_qz"
         ],
         "source_status": "verified",
@@ -1297,7 +1297,7 @@
         "name": "Fragmented Emotions",
         "portals": [],
         "shape": "I7",
-        "siren_templates": [
+        "siren_source_icons": [
           "emotion_qz"
         ],
         "source_status": "verified",
@@ -1442,7 +1442,7 @@
         "name": "Richard's Plan",
         "portals": [],
         "shape": "G9",
-        "siren_templates": [
+        "siren_source_icons": [
           "emotion_qz"
         ],
         "source_status": "verified",
@@ -1588,7 +1588,7 @@
         "name": "Face-Off",
         "portals": [],
         "shape": "I7",
-        "siren_templates": [
+        "siren_source_icons": [
           "haorenlichade_m_zhanlie",
           "haorenlichade_m_hangmu"
         ],
@@ -1754,7 +1754,7 @@
         "name": "Light Versus Dark",
         "portals": [],
         "shape": "J8",
-        "siren_templates": [
+        "siren_source_icons": [
           "haorenlichade_m_zhanlie",
           "haorenlichade_m_hangmu"
         ],
@@ -1928,7 +1928,7 @@
         "name": "Rain Upon Flowery Seas",
         "portals": [],
         "shape": "I9",
-        "siren_templates": [
+        "siren_source_icons": [
           "haorenlichade_m_zhanlie",
           "haorenlichade_m_hangmu"
         ],
@@ -2102,7 +2102,7 @@
         "name": "Depths of the Astrarium",
         "portals": [],
         "shape": "I9",
-        "siren_templates": [
+        "siren_source_icons": [
           "haorenlichade_m_qianting"
         ],
         "source_status": "verified",
@@ -2216,7 +2216,7 @@
         "name": "Pandora's Wish",
         "portals": [],
         "shape": "E7",
-        "siren_templates": [],
+        "siren_source_icons": [],
         "source_status": "verified",
         "spawn_data": [
           {
@@ -2305,7 +2305,7 @@
         "name": "Pandora's Wish",
         "portals": [],
         "shape": "E7",
-        "siren_templates": [],
+        "siren_source_icons": [],
         "source_status": "verified",
         "spawn_data": [
           {
@@ -3945,90 +3945,120 @@
         "chapter_name": "A1",
         "map_id": 2050001,
         "module": "en_51101/a1.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "A2",
         "map_id": 2050002,
         "module": "en_51101/a2.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "A3",
         "map_id": 2050003,
         "module": "en_51101/a3.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "B1",
         "map_id": 2050004,
         "module": "en_51101/b1.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "B2",
         "map_id": 2050005,
         "module": "en_51101/b2.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "B3",
         "map_id": 2050006,
         "module": "en_51101/b3.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "C1",
         "map_id": 2050021,
         "module": "en_51101/c1.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "C2",
         "map_id": 2050022,
         "module": "en_51101/c2.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "C3",
         "map_id": 2050023,
         "module": "en_51101/c3.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "D1",
         "map_id": 2050024,
         "module": "en_51101/d1.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "D2",
         "map_id": 2050025,
         "module": "en_51101/d2.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "D3",
         "map_id": 2050026,
         "module": "en_51101/d3.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "SP",
         "map_id": 2050041,
         "module": "en_51101/sp.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "EXTRA",
         "map_id": 2050051,
         "module": "en_51101/extra.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       },
       {
         "chapter_name": "EXTRA",
         "map_id": 2050052,
         "module": "en_51101/extra_2050052.py",
+        "runtime_reason": "",
+        "runtime_status": "verified",
         "source_status": "verified"
       }
     ]
