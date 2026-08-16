@@ -6,7 +6,7 @@
 Поддерживает валюты PT и UR-очков и наследует EventShopUI для навигации
 по интерфейсу магазина.
 
-Pages: in: EVENT_SHOP
+Страница входа: EVENT_SHOP
 """
 import cv2
 import numpy as np
@@ -63,9 +63,9 @@ class EventShopClerk(EventShopUI):
         super().__init__(*args, **kwargs)
         try:
             # Sensitive нужен для безопасного текущего запуска EventShop, но это
-            # runtime-инвариант самой задачи, а не пользовательская настройка.
-            # Поэтому не сохраняем его через cross_set/save и не меняем конфиг
-            # только из-за создания clerk или открытия WebUI.
+            # инвариант выполнения самой задачи, а не пользовательская настройка.
+            # Поэтому не сохраняем его через технические методы cross_set/save и не меняем конфиг
+            # только из-за создания обработчика магазина или открытия WebUI.
             self.config.override(Scheduler_Sensitive=True)
             apply_event_shop_notification_policy(self.config)
             logger.info(
@@ -79,10 +79,10 @@ class EventShopClerk(EventShopUI):
 
     @staticmethod
     def _same_scanner_row(left, right):
-        """Сравнить наблюдаемые числовые факты товара, не доверяя имени шаблона."""
+        """Сравнить независимо считанные факты товара, не доверяя вычисленной валюте."""
         return all(
             getattr(left, field, None) == getattr(right, field, None)
-            for field in ("price", "count", "total_count", "cost")
+            for field in ("price", "count", "total_count", "amount")
         )
 
     @staticmethod
@@ -118,7 +118,7 @@ class EventShopClerk(EventShopUI):
 
     @classmethod
     def _scanner_overlap_proven(cls, old_row, new_row):
-        """Дедуплицировать целый overlap-ряд только при полном доказательстве."""
+        """Убрать дубликаты целого перекрывающегося ряда только при полном доказательстве."""
         if not old_row or len(old_row) != len(new_row):
             return False
         if not cls._scanner_row_has_visual_diversity(old_row):
@@ -131,12 +131,28 @@ class EventShopClerk(EventShopUI):
         )
 
     @classmethod
+    def _scanner_matched_subset_has_visual_diversity(cls, old_row, new_row, matches):
+        """Требовать визуальное разнообразие именно совпавшей части ряда."""
+        old_matched = [
+            item for item, matched in zip(old_row, matches) if matched
+        ]
+        new_matched = [
+            item for item, matched in zip(new_row, matches) if matched
+        ]
+        if len(old_matched) < SCANNER_PARTIAL_OVERLAP_MIN_MATCHES:
+            return False
+        return (
+            cls._scanner_row_has_visual_diversity(old_matched)
+            and cls._scanner_row_has_visual_diversity(new_matched)
+        )
+
+    @classmethod
     def _scanner_overlap_remainder(cls, old_row, new_row):
-        """Убрать доказанные товары overlap, даже если соседний шаблон распознан иначе.
+        """Убрать доказанные товары перекрытия, даже если соседний шаблон распознан иначе.
 
         Полностью одинаковый визуально однородный ряд по-прежнему сохраняется:
-        для него недостаточно независимых признаков, чтобы отличить overlap от
-        двух настоящих одинаковых рядов. Для частичного overlap требуется как
+        для него недостаточно независимых признаков, чтобы отличить перекрытие от
+        двух настоящих одинаковых рядов. Для частичного перекрытия требуется как
         минимум два совпавших по позиции товара.
         """
         if not old_row or len(old_row) != len(new_row):
@@ -148,6 +164,10 @@ class EventShopClerk(EventShopUI):
         if all(matches):
             return [] if cls._scanner_overlap_proven(old_row, new_row) else list(new_row)
         if sum(matches) < SCANNER_PARTIAL_OVERLAP_MIN_MATCHES:
+            return list(new_row)
+        if not cls._scanner_matched_subset_has_visual_diversity(
+            old_row, new_row, matches
+        ):
             return list(new_row)
         return [item for item, matched in zip(new_row, matches) if not matched]
 
@@ -172,11 +192,10 @@ class EventShopClerk(EventShopUI):
 
     @staticmethod
     def _purchase_item_matches(item, target):
-        """Сопоставить destructive target только по уже доказанным shop-фактам."""
-        return (
-            getattr(item, "name", None) == getattr(target, "name", None)
-            and getattr(item, "count", None) == getattr(target, "count", None)
-            and getattr(item, "price", None) == getattr(target, "price", None)
+        """Сопоставить цель покупки только по фактам текущего снимка сканера."""
+        return all(
+            getattr(item, field, None) == getattr(target, field, None)
+            for field in ("name", "price", "count", "total_count", "amount")
         )
 
     @staticmethod
@@ -186,26 +205,26 @@ class EventShopClerk(EventShopUI):
 
     @classmethod
     def _purchase_reidentify_positions(cls, item_to_buy):
-        """Построить небольшой bounded-набор scroll-якорей для повторной идентификации.
+        """Построить небольшой ограниченный набор позиций прокрутки для повторной идентификации.
 
-        Сохранённая позиция scrollbar не является пиксельно точным якорем: после
-        дискретного swipe фактическая позиция может отличаться на несколько
-        процентов, из-за чего крайний ряд остаётся видимым человеку, но его
-        price-background уже выходит из detector ROI. Поэтому после исходной
-        точки разрешены только два соседних non-destructive probe.
+        Сохранённая позиция полосы прокрутки не является пиксельно точным якорем: после
+        дискретного сдвига фактическая позиция может отличаться на несколько
+        процентов, из-за чего крайний ряд остаётся видимым человеку, но фон цены
+        уже выходит из области детектора. Поэтому после исходной точки разрешены
+        только две соседние проверки без действий покупки.
 
         Первое направление выводится из исходной вертикальной позиции карточки:
-        нижний ряд сначала сдвигается вверх (scroll вперёд), верхний — вниз.
+        нижний ряд сначала сдвигается вверх по списку, верхний — вниз.
         """
         try:
             base = float(getattr(item_to_buy, "scroll_pos", None))
         except (TypeError, ValueError, OverflowError) as exc:
             raise GameStuckError(
-                "[Магазин события — покупка] У товара отсутствует корректный scroll-якорь для повторной идентификации"
+                "[Магазин события — покупка] У товара отсутствует корректная позиция прокрутки для повторной идентификации"
             ) from exc
         if not np.isfinite(base):
             raise GameStuckError(
-                "[Магазин события — покупка] Scroll-якорь товара не является конечным числом"
+                "[Магазин события — покупка] Позиция прокрутки товара не является конечным числом"
             )
         base = cls._clamp_scroll_position(base)
 
@@ -242,7 +261,7 @@ class EventShopClerk(EventShopUI):
         return positions
 
     def _reidentify_event_shop_item(self, item_to_buy):
-        """Найти target рядом с исходным scroll-якорем без destructive действий."""
+        """Найти цель рядом с исходной позицией прокрутки без действий покупки."""
         positions = self._purchase_reidentify_positions(item_to_buy)
         attempts = []
         sentinel = object()
@@ -266,12 +285,15 @@ class EventShopClerk(EventShopUI):
                     continue
                 if index > 1:
                     logger.info(
-                        "[Магазин события — покупка] Товар повторно идентифицирован на соседнем scroll-якоре "
+                        "[Магазин события — покупка] Товар повторно идентифицирован на соседней позиции прокрутки "
                         f"после {index} попыток: {attempts}"
                     )
                 if len(matches) > 1:
-                    logger.warning(
-                        f"[Магазин события — покупка] Найдено несколько подтверждённых совпадений {item_to_buy}; покупается первое"
+                    logger.error(
+                        f"[Магазин события — покупка] Найдено несколько совпадений {item_to_buy}; нажатие покупки заблокировано"
+                    )
+                    raise GameStuckError(
+                        "[Магазин события — покупка] Повторная идентификация неоднозначна; нажатие покупки заблокировано"
                     )
                 return matches[0]
         finally:
@@ -281,10 +303,10 @@ class EventShopClerk(EventShopUI):
                 self._scan_extract_templates = previous
 
         logger.error(
-            f"[Магазин события — покупка] Товар {item_to_buy} не подтверждён ни на одном bounded scroll-якоре: {attempts}"
+            f"[Магазин события — покупка] Товар {item_to_buy} не подтверждён ни на одной проверенной позиции прокрутки: {attempts}"
         )
         raise GameStuckError(
-            "[Магазин события — покупка] Повторная идентификация товара не удалась; destructive click заблокирован"
+            "[Магазин события — покупка] Повторная идентификация товара не удалась; нажатие покупки заблокировано"
         )
 
     def _get_event_shop_grid(self):

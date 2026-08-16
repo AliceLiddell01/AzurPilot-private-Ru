@@ -12,6 +12,8 @@ def make_target(*, scroll_pos=0.23581560283687944, button=(400, 480, 460, 560)):
         button=button,
         name="AugmentEnhanceT2",
         count=49,
+        total_count=50,
+        amount=1,
         price=90,
         is_ship=False,
     )
@@ -21,6 +23,8 @@ def make_live_target():
     return SimpleNamespace(
         name="AugmentEnhanceT2",
         count=49,
+        total_count=50,
+        amount=1,
         price=90,
         is_ship=False,
     )
@@ -149,7 +153,7 @@ def test_purchase_fails_closed_after_bounded_probes_without_click(monkeypatch):
 
     monkeypatch.setattr("module.shop_event.clerk.EVENT_SHOP_SCROLL", scroll)
 
-    with pytest.raises(GameStuckError, match="destructive click заблокирован"):
+    with pytest.raises(GameStuckError, match="нажатие покупки заблокировано"):
         ProbeClerk().event_shop_buy_item(target, amount=1)
 
     assert scroll.positions == pytest.approx([
@@ -157,4 +161,48 @@ def test_purchase_fails_closed_after_bounded_probes_without_click(monkeypatch):
         target.scroll_pos + 0.04,
         target.scroll_pos - 0.04,
     ])
+    assert calls == []
+
+def test_purchase_match_requires_total_count_and_amount():
+    target = make_target()
+    live = make_live_target()
+
+    assert EventShopClerk._purchase_item_matches(live, target) is True
+
+    live.total_count = 51
+    assert EventShopClerk._purchase_item_matches(live, target) is False
+
+    live.total_count = 50
+    live.amount = 2
+    assert EventShopClerk._purchase_item_matches(live, target) is False
+
+
+def test_purchase_fails_closed_on_multiple_reidentified_matches(monkeypatch):
+    scroll = FakeScroll()
+    target = make_target()
+    calls = []
+
+    class ProbeClerk(EventShopClerk):
+        def __init__(self):
+            self.config = SimpleNamespace(
+                config_name="probe",
+                SHOP_EXTRACT_TEMPLATE=False,
+            )
+
+        @staticmethod
+        def event_shop_get_items():
+            return [make_live_target(), make_live_target()]
+
+        @staticmethod
+        def event_shop_buy_item_execute(item, amount):
+            calls.append((item, amount))
+
+    monkeypatch.setattr("module.shop_event.clerk.EVENT_SHOP_SCROLL", scroll)
+
+    with pytest.raises(
+        GameStuckError, match="неоднозначна.*нажатие покупки заблокировано"
+    ):
+        ProbeClerk().event_shop_buy_item(target, amount=1)
+
+    assert scroll.positions == pytest.approx([target.scroll_pos])
     assert calls == []
