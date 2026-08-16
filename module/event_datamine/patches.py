@@ -101,6 +101,24 @@ RUNTIME_PATCHES: tuple[CompatibilityPatch, ...] = (
         )
     ),
     _runtime_patch(2050041, "sp", templates=("BonhommeRichard_SS",)),
+    CompatibilityPatch(
+        id="depths-astrarium-sp-entry-policy",
+        event_id=_CURRENT_EVENT_ID,
+        map_id=2050041,
+        reason=(
+            "SP является одноразовым этапом и не имеет переключателя обычного/сложного режима; "
+            "эти runtime-факты не выводятся из ShareCfg карты"
+        ),
+        source_evidence=(
+            f"wess09/AzurPilot@{_CURRENT_EVENT_UPSTREAM_REVISION} campaign/event_20260813_cn/sp.py: "
+            "MAP_IS_ONE_TIME_STAGE=True; MAP_HAS_MODE_SWITCH наследует базовое False"
+        ),
+        expected_effect=(
+            "Не ожидать отсутствующий переключатель режима и обрабатывать окно входа SP "
+            "как одноразовый этап"
+        ),
+        config=(("MAP_IS_ONE_TIME_STAGE", True), ("MAP_HAS_MODE_SWITCH", False)),
+    ),
 )
 
 
