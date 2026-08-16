@@ -55,7 +55,7 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
             self.handle_control_check(button)
         x, y = random_rectangle_point(button.button)
         x, y = ensure_int(x, y)
-        logger.info(
+        logger.debug(
             '[Устройство — управление] Нажатие %s в %s' % (point2str(x, y), button)
         )
         method = self.click_methods.get(
@@ -93,7 +93,7 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
         x, y = random_rectangle_point(button.button)
         x, y = ensure_int(x, y)
         duration = ensure_time(duration)
-        logger.info(
+        logger.debug(
             '[Устройство — управление] Долгое нажатие %s в %s, длительность %s' % (point2str(x, y), button, duration)
         )
         method = self.config.Emulator_ControlMethod
@@ -128,19 +128,19 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
         duration = ensure_time(duration)
         method = self.config.Emulator_ControlMethod
         if method == 'uiautomator2':
-            logger.info('[Устройство — управление] Свайп %s → %s, длительность %s' % (point2str(*p1), point2str(*p2), duration))
+            logger.debug('[Устройство — управление] Свайп %s → %s, длительность %s' % (point2str(*p1), point2str(*p2), duration))
         elif method in ['minitouch', 'MaaTouch', 'scrcpy', 'nemu_ipc']:
-            logger.info('[Устройство — управление] Свайп %s → %s' % (point2str(*p1), point2str(*p2)))
+            logger.debug('[Устройство — управление] Свайп %s → %s' % (point2str(*p1), point2str(*p2)))
         else:
             # ADB 需要更慢的速度，否则滑动可能无效
             duration *= 2.5
-            logger.info('[Устройство — управление] Свайп %s → %s, длительность %s' % (point2str(*p1), point2str(*p2), duration))
+            logger.debug('[Устройство — управление] Свайп %s → %s, длительность %s' % (point2str(*p1), point2str(*p2), duration))
 
         if distance_check:
             if np.linalg.norm(np.subtract(p1, p2)) < 10:
                 # 需要滑动一定距离，否则碧蓝航线会将其视为点击
                 # uiautomator2 需要 >= 6px，minitouch 需要 >= 5px
-                logger.info('[Устройство — управление] Длина свайпа меньше 10 px; команда отброшена')
+                logger.debug('[Устройство — управление] Длина свайпа меньше 10 px; команда отброшена')
                 return
 
         if method == 'minitouch':
@@ -202,7 +202,7 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
         """
         self.handle_control_check(name)
         p1, p2 = ensure_int(p1, p2)
-        logger.info(
+        logger.debug(
             '[Устройство — управление] Перетаскивание %s → %s' % (point2str(*p1), point2str(*p2))
         )
         method = self.config.Emulator_ControlMethod

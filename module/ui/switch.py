@@ -1,6 +1,8 @@
 """游戏开关控件模块。定义 Switch 类，封装游戏中开关/选择器的状态切换逻辑，
 支持带重试机制的多状态切换。"""
 
+import logging
+
 from module.base.base import ModuleBase
 from module.base.timer import Timer
 from module.exception import ScriptError
@@ -154,6 +156,8 @@ class Switch:
         logger.info(f'{self.name}: установка состояния {state}')
         self.get_data(state)
 
+        log_key = ('switch-state', id(self), 'set')
+        logger.reset_suppression(log_key)
         changed = False
         has_unknown = False
         unknown_timer = self.set_unknown_timer.reset()
@@ -166,10 +170,16 @@ class Switch:
 
             # 检测当前状态
             current = self.get(main=main)
-            logger.attr(self.name, current)
+            logger.log_suppressed(
+                logging.DEBUG,
+                f'[UI — Переключатель] {self.name}: состояние {current}',
+                key=log_key,
+                payload=current,
+            )
 
             # 到达目标状态则退出
             if current == state:
+                logger.finish_suppressed(log_key)
                 return changed
 
             # 处理额外弹窗
@@ -224,6 +234,8 @@ class Switch:
         Returns:
             bool: 是否成功检测到状态。
         """
+        log_key = ('switch-state', id(self), 'wait')
+        logger.reset_suppression(log_key)
         timeout = self.wait_timeout.reset()
         while 1:
             if skip_first_screenshot:
@@ -233,12 +245,19 @@ class Switch:
 
             # 检测当前状态
             current = self.get(main=main)
-            logger.attr(self.name, current)
+            logger.log_suppressed(
+                logging.DEBUG,
+                f'[UI — Переключатель] {self.name}: состояние {current}',
+                key=log_key,
+                payload=current,
+            )
 
             # 检测到已知状态则退出
             if current != 'unknown':
+                logger.finish_suppressed(log_key)
                 return True
             if timeout.reached():
+                logger.finish_suppressed(log_key)
                 logger.warning(f'{self.name}: превышено время ожидания активации')
                 return False
 

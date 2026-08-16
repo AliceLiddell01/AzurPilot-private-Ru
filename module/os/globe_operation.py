@@ -68,12 +68,16 @@ ASSETS_PINNED_ZONE = ZONE_TYPES + [ZONE_ENTRANCE, ZONE_SWITCH, ZONE_PINNED]
 # ZONE_ABYSSAL    0.491
 # ZONE_STRONGHOLD 0.195
 # ZONE_ARCHIVE    0.581
-_ZONE_PINNED_SIMILARITY_THRESHOLDS = {
-    (1920, 1080): 0.70,
-    (2560, 1440): 0.72,
-    (3840, 2160): 0.65,
+_ZONE_PINNED_MATCH_PROFILES = {
+    (1920, 1080): (0.70, ()),
+    (2560, 1440): (0.72, ()),
+    (3840, 2160): (0.65, (1.04,)),
 }
-_ZONE_PINNED_SIMILARITY_DEFAULT = 0.75
+_ZONE_PINNED_MATCH_DEFAULT = (0.75, ())
+
+
+def _zone_pinned_match_profile(resolution):
+    return _ZONE_PINNED_MATCH_PROFILES.get(resolution, _ZONE_PINNED_MATCH_DEFAULT)
 
 
 class OSExploreError(Exception):
@@ -90,14 +94,38 @@ class GlobeOperation(ActionPointHandler):
     def is_in_globe(self):
         return self.appear(GLOBE_GOTO_MAP, offset=(20, 20), similarity=0.75)
 
+    @staticmethod
+    def _match_zone_pinned_scaled(zone, image, similarity, scale, offset=(20, 20)):
+        similarity = lower_template_match_similarity(similarity)
+        zone.ensure_template()
+        if zone.is_gif:
+            return False
+
+        if isinstance(offset, tuple):
+            if len(offset) == 2:
+                offset = np.array((-offset[0], -offset[1], offset[0], offset[1]))
+            else:
+                offset = np.array(offset)
+        else:
+            offset = np.array((-3, -offset, 3, offset))
+
+        search = crop(image, offset + zone.area, copy=False)
+        template = cv2.resize(zone.image, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        res = cv2.matchTemplate(template, search, cv2.TM_CCOEFF_NORMED)
+        _, sim, _, point = cv2.minMaxLoc(res)
+        if sim <= similarity:
+            return False
+
+        zone._button_offset = area_offset(zone._button, offset[:2] + np.array(point))
+        return True
+
     def get_zone_pinned(self):
         """
         Returns:
             Button: 当前固定的海域按钮，无则返回 None。
         """
-        similarity = _ZONE_PINNED_SIMILARITY_THRESHOLDS.get(
+        similarity, fallback_scales = _zone_pinned_match_profile(
             _base_utils.TEMPLATE_MATCH_NON_NATIVE_720P_RESOLUTION,
-            _ZONE_PINNED_SIMILARITY_DEFAULT,
         )
         for zone in ZONE_TYPES:
             if self.appear(zone, offset=(20, 20), similarity=similarity):
@@ -105,6 +133,15 @@ class GlobeOperation(ActionPointHandler):
                     button.load_offset(zone)
 
                 return zone
+
+        for scale in fallback_scales:
+            for zone in ZONE_TYPES:
+                if self._match_zone_pinned_scaled(
+                        zone, self.device.image, similarity=similarity, scale=scale, offset=(20, 20)):
+                    for button in ASSETS_PINNED_ZONE:
+                        button.load_offset(zone)
+
+                    return zone
 
         return None
 

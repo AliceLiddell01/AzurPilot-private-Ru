@@ -117,9 +117,9 @@ class GeneratedConfig:
     Error_SaveErrorCount = 30
     Error_OnePushConfig = 'provider: null'
     Error_ScreenshotLength = 1
-    Error_GameStuckRestart = False
+    Error_GameStuckRestart = True
     Error_GameStuckThreshold = 3
-    Error_AdbOfflineRestart = False
+    Error_AdbOfflineRestart = True
     Error_AdbOfflineThreshold = 3
     Error_LlmAnalysis = False
     Error_LlmApiKey = None

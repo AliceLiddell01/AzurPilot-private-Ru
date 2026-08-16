@@ -56,7 +56,7 @@ def test_logger_security_redaction_and_rendering_contract_is_intact():
         "RichRenderableHandler",
         "HTMLConsole",
         "TimedRotatingFileHandler",
-        "logger.setLevel(logging.DEBUG if logger_debug else logging.INFO)",
+        "logger.setLevel(logging.DEBUG)",
         "datefmt='%Y-%m-%d %H:%M:%S'",
         "datefmt='%H:%M:%S'",
     ):
