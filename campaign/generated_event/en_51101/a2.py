@@ -26,7 +26,7 @@ MAP.weight_data = """
 MAP.spawn_data = [{'battle': 0, 'enemy': 2, 'siren': 1}, {'battle': 1, 'enemy': 1}, {'battle': 2, 'enemy': 1}, {'battle': 3, 'enemy': 1}, {'battle': 4, 'enemy': 1, 'boss': 1}]
 
 class Config:
-    # Только факты карты; runtime policy задаётся отдельно.
+    # Только факты карты; политика выполнения задаётся отдельно.
     MAP_HAS_MAP_STORY = False
     MAP_HAS_FLEET_STEP = True
     MAP_HAS_AMBUSH = False
@@ -41,6 +41,9 @@ class Config:
     MAP_HAS_MOVABLE_NORMAL_ENEMY = True
     MAP_SIREN_TEMPLATE = ['emotion_qz']
     MOVABLE_ENEMY_TURN = (2,)
+    # Патч совместимости depths-astrarium-a2-siren-recognition: ShareCfg expedition.icon описывает игровой ресурс и не гарантирует имя шаблона распознавания AzurPilot
+    MAP_SIREN_TEMPLATE = []
+    MAP_SIREN_HAS_BOSS_ICON_SMALL = True
 
 class Campaign(CampaignBase):
     MAP = MAP

@@ -20,6 +20,7 @@ class _FakeMap:
 @dataclass(frozen=True)
 class _FakeSpec:
     maps: tuple
+    id: str = "en:7"
 
 
 def _patch_builder(monkeypatch, spec, current):
@@ -37,7 +38,7 @@ def _patch_builder(monkeypatch, spec, current):
     monkeypatch.setattr(builder, "discover_major_events", lambda _loader: ())
     monkeypatch.setattr(builder, "resolve_current_candidate", lambda *args, **kwargs: current)
     monkeypatch.setattr(builder, "EventCompiler", _Compiler)
-    monkeypatch.setattr(builder, "generate_map_module", lambda _map: "pass\n")
+    monkeypatch.setattr(builder, "generate_map_module", lambda _map, **_kwargs: "pass\n")
 
 
 def test_builder_preflights_late_map_collision_before_any_write(tmp_path: Path, monkeypatch):
@@ -135,3 +136,16 @@ def test_generator_derives_normal_movable_enemy_from_me_grid():
 
     assert "MAP_HAS_MOVABLE_NORMAL_ENEMY = True" in movable
     assert "MAP_HAS_MOVABLE_NORMAL_ENEMY = True" not in static
+
+
+def test_generator_keeps_siren_presence_independent_from_cv_templates():
+    spec = _map_with("--")
+    spec.spawn_data = ({"battle": 0, "siren": 1, "boss": 1},)
+    spec.movable_enemy_turns = (2,)
+
+    generated = generate_map_module(spec)
+
+    assert "MAP_HAS_SIREN = True" in generated
+    assert "MAP_SIREN_TEMPLATE = []" in generated
+    assert "MAP_HAS_MOVABLE_ENEMY = True" in generated
+    assert "MOVABLE_ENEMY_TURN = (2,)" in generated

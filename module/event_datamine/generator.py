@@ -44,6 +44,13 @@ def _has_grid_token(spec: MapSpec, token: str) -> bool:
     return any(item == token for matrix in matrices for row in matrix for item in row)
 
 
+def _has_spawn_kind(spec: MapSpec, kind: str) -> bool:
+    """Определить наличие сущности по структурным данным появления, а не по шаблонам распознавания."""
+
+    groups = (spec.spawn_data, spec.spawn_data_loop or ())
+    return any(int(row.get(kind, 0) or 0) > 0 for rows in groups for row in rows)
+
+
 def generate_map_module(
     spec: MapSpec,
     *,
@@ -86,9 +93,10 @@ def generate_map_module(
         [
             "",
             "class Config:",
-            "    # Только факты карты; runtime policy задаётся отдельно.",
+            "    # Только факты карты; политика выполнения задаётся отдельно.",
         ]
     )
+    has_siren = _has_spawn_kind(spec, "siren")
     factual = {
         "MAP_HAS_MAP_STORY": spec.has_story,
         "MAP_HAS_FLEET_STEP": spec.has_fleet_step,
@@ -96,7 +104,7 @@ def generate_map_module(
         "MAP_HAS_MYSTERY": spec.has_mystery,
         "MAP_HAS_PORTAL": bool(spec.portals),
         "MAP_HAS_LAND_BASED": bool(spec.land_based),
-        "MAP_HAS_SIREN": bool(spec.siren_templates),
+        "MAP_HAS_SIREN": has_siren,
         "MAP_HAS_MOVABLE_ENEMY": bool(spec.movable_enemy_turns),
         "STAR_REQUIRE_1": spec.star_requirements[0],
         "STAR_REQUIRE_2": spec.star_requirements[1],
@@ -106,11 +114,12 @@ def generate_map_module(
         lines.append(f"    {key} = {value!r}")
     if _has_grid_token(spec, "Me"):
         lines.append("    MAP_HAS_MOVABLE_NORMAL_ENEMY = True")
-    if spec.siren_templates:
+    if has_siren:
         lines.append(f"    MAP_SIREN_TEMPLATE = {list(spec.siren_templates)!r}")
+    if spec.movable_enemy_turns:
         lines.append(f"    MOVABLE_ENEMY_TURN = {tuple(spec.movable_enemy_turns)!r}")
     for patch in patches:
-        lines.append(f"    # Compatibility patch {patch.id}: {patch.reason}")
+        lines.append(f"    # Патч совместимости {patch.id}: {patch.reason}")
         for key, value in patch.config:
             lines.append(f"    {key} = {value!r}")
     lines.extend(

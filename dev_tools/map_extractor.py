@@ -12,7 +12,7 @@ from module.event_datamine.generator import (
     generate_map_module,
     write_map_module,
 )
-from module.event_datamine.patches import patches_for
+from module.event_datamine.patches import generation_patches_for
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 
 
@@ -66,7 +66,10 @@ def main(argv: list[str] | None = None) -> int:
         module_names = allocate_map_module_names(selected_maps)
         for item, module_name in zip(selected_maps, module_names, strict=True):
             path = args.maps_output / f"{module_name}.py"
-            content = generate_map_module(item, patches=patches_for(spec.id, item.id))
+            content = generate_map_module(
+                item,
+                patches=generation_patches_for(spec.id, item.id),
+            )
             write_map_module(path, content, overwrite=args.overwrite)
     return 0
 

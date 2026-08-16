@@ -25,6 +25,7 @@ from module.event_datamine.generator import (
     generate_map_module,
     write_map_module,
 )
+from module.event_datamine.patches import generation_patches_for
 from module.event_datamine.registry import write_registry
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 
@@ -107,7 +108,10 @@ def build_current_event(
         map_records.append(record)
         if event_maps_output is not None and status == "verified":
             target = event_maps_output / f"{module_name}.py"
-            content = generate_map_module(map_spec)
+            content = generate_map_module(
+                map_spec,
+                patches=generation_patches_for(spec.id, map_spec.id),
+            )
             map_writes.append((target, content))
 
     if not overwrite:
