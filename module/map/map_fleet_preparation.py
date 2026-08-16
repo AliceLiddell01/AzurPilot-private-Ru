@@ -155,31 +155,41 @@ class FleetOperator:
             raise HardNotSatisfied
 
     def clear(self, skip_first_screenshot=True):
-        """
-        Clear chosen fleet.
-        """
+        """Очистить выбранный флот идемпотентно."""
         main = self.main
         click_timer = Timer(3, count=6)
+        empty_confirm = Timer(0.5, count=3).clear()
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
             else:
                 main.device.screenshot()
 
-            # Popups when clearing hard fleets
+            # При очистке hard-флотов может появиться подтверждение. Сбрасываем
+            # доказательство пустого слота, чтобы не принять переходный кадр за результат.
             if self.main.handle_popup_confirm(str(self._clear)):
+                empty_confirm.clear()
                 continue
 
-            # check CLEAR button to avoid early stopped at popup showing animation
-            if self.allow():
-                # End
-                if not self.in_use():
+            in_use = self.in_use()
+            if not in_use:
+                if not empty_confirm.started():
+                    empty_confirm.start()
+                if empty_confirm.reached():
                     break
+                continue
 
-                # Click
-                if click_timer.reached():
-                    main.device.click(self._clear)
-                    click_timer.reset()
+            empty_confirm.clear()
+
+            # Если слот выглядит занятым, но CLEAR не виден, пустота не доказана.
+            # Продолжаем ждать: штатный stuck-detector завершит путь fail-closed,
+            # вместо клика по неподтверждённому элементу.
+            if not self.allow():
+                continue
+
+            if click_timer.reached():
+                main.device.click(self._clear)
+                click_timer.reset()
 
     def recommend(self, skip_first_screenshot=True):
         """
