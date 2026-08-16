@@ -3,10 +3,7 @@ import pytest
 from dev_tools.map_extractor import select_maps
 from module.event_datamine.generator import generate_map_module, map_module_name
 from module.event_datamine.map_compiler import MapCompiler
-from module.event_datamine.runtime_policy import (
-    BossClearPolicy,
-    MapRuntimePolicy,
-)
+from tests.event_runtime_policy_helpers import runtime_policy as _full_runtime_policy
 
 
 def chapter(grid_type=0):
@@ -42,11 +39,9 @@ def compiler(row, event_list=None, templates=None):
 
 
 def runtime_policy(spec):
-    return MapRuntimePolicy(
+    return _full_runtime_policy(
         map_id=spec.id,
         chapter_name=spec.chapter_name,
-        source_path="campaign/event/fixture.py",
-        boss_clear=BossClearPolicy("campaign"),
     )
 
 

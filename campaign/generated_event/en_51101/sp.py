@@ -4,7 +4,7 @@ from module.map.map_base import CampaignMap
 MAP = CampaignMap('SP')
 MAP.shape = 'I9'
 MAP.camera_data = ['D4', 'D6', 'F4', 'F6']
-MAP.camera_data_spawn_point = ['F4', 'D4']
+MAP.camera_data_spawn_point = ['D4', 'F4']
 MAP.map_data = """
     ++ ++ ++ -- ++ -- ++ ++ ++
     -- ++ -- ++ ++ ++ -- ++ --
@@ -47,9 +47,32 @@ class Config:
     MAP_SIREN_TEMPLATE = ['BonhommeRichard_SS']
     MAP_IS_ONE_TIME_STAGE = True
     MAP_HAS_MODE_SWITCH = False
+    INTERNAL_LINES_FIND_PEAKS_PARAMETERS = {'height': (80.0, 238.0), 'prominence': 10.0, 'distance': 35.0, 'width': (0.9, 10.0)}
+    EDGE_LINES_FIND_PEAKS_PARAMETERS = {'height': (238.0, 255.0), 'prominence': 10.0, 'distance': 50.0, 'wlen': 1000.0}
+    MAP_SWIPE_MULTIPLY = (1.149, 1.17)
+    MAP_SWIPE_MULTIPLY_MINITOUCH = (1.111, 1.132)
+    MAP_SWIPE_MULTIPLY_MAATOUCH = (1.079, 1.098)
+    MAP_ENSURE_EDGE_INSIGHT_CORNER = 'bottom'
 
 class Campaign(CampaignBase):
     MAP = MAP
+    ENEMY_FILTER = '1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C'
+
+    def battle_0(self):
+        if self.clear_siren():
+            return True
+        if self.clear_filter_enemy(self.ENEMY_FILTER, preserve=2):
+            return True
+
+        return self.battle_default()
+
+    def battle_5(self):
+        if self.clear_siren():
+            return True
+        if self.clear_filter_enemy(self.ENEMY_FILTER, preserve=0):
+            return True
+
+        return self.battle_default()
 
     def battle_7(self):
         return self.fleet_boss.clear_boss()

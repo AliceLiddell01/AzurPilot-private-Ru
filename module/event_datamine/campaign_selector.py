@@ -208,6 +208,12 @@ def _verified_generated_modules(
             and map_policy.siren_recognition is None
         ):
             continue
+        if (
+            map_policy.camera_calibration is None
+            or map_policy.detector_calibration is None
+            or map_policy.battle_plan is None
+        ):
+            continue
 
         stem = path.stem.lower()
         if stem in modules and modules[stem] != module:

@@ -32,7 +32,7 @@ Compatibility snapshot содержит:
 
 Факты исполнения карты, которых ShareCfg сам по себе не доказывает, хранятся рядом с generated package в `campaign/generated_event/<package>/runtime.json`. Это отдельный доверительный слой, а не продолжение ShareCfg-модели.
 
-Runtime-policy schema v3 содержит:
+Runtime-policy schema v4 содержит:
 
 - `generated_package` и `event_id`;
 - доказанную UI-policy;
@@ -47,6 +47,9 @@ Runtime-policy schema v3 содержит:
 - `stage_entry.one_time`;
 - `stage_entry.has_mode_switch`.
 - `boss_clear.strategy` со значениями из закрытого semantic allowlist.
+- `camera_calibration` с доказанными camera nodes и spawn camera nodes.
+- `detector_calibration` с типизированными line/swipe calibration и ограниченными map flags.
+- `battle_plan` с декларативным enemy filter и siren/filter steps; произвольный Python-код не принимается.
 
 Произвольные `MAP_*` ключи через JSON не принимаются. Generic resolver сам преобразует разрешённые семантические поля в ограниченный набор runtime-настроек.
 

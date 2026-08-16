@@ -79,6 +79,12 @@ def _runtime_map_status(spec, source_status: str, policy) -> tuple[str, str]:
         return "unsupported", "siren_recognition_missing"
     if policy is None or policy.boss_clear is None:
         return "unsupported", "boss_clear_missing"
+    if policy.camera_calibration is None:
+        return "unsupported", "camera_calibration_missing"
+    if policy.detector_calibration is None:
+        return "unsupported", "detector_calibration_missing"
+    if policy.battle_plan is None:
+        return "unsupported", "battle_plan_missing"
     return "verified", ""
 
 
@@ -355,14 +361,7 @@ def main(argv: list[str] | None = None) -> int:
         maps_output=args.maps_output,
         overwrite=args.overwrite,
     )
-    print(
-        json.dumps(
-            result,
-            ensure_ascii=False,
-            sort_keys=True,
-            indent=2,
-        )
-    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

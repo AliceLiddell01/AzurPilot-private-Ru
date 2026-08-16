@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from deploy.atomic import file_remove, file_write, replace_tmp, to_tmp_file
+from module.base.utils import node2location
 from module.event_datamine.model import MapSpec
 from module.event_datamine.runtime_policy import MapRuntimePolicy
 
@@ -115,6 +116,67 @@ def _boss_clear_line(policy: MapRuntimePolicy) -> str:
         ) from exc
 
 
+def _validate_runtime_contract(spec: MapSpec, policy: MapRuntimePolicy) -> None:
+    """Проверить полноту и геометрию runtime-контракта до генерации Python."""
+
+    missing: list[str] = []
+    if policy.boss_clear is None:
+        missing.append("boss_clear")
+    if policy.camera_calibration is None:
+        missing.append("camera_calibration")
+    if policy.detector_calibration is None:
+        missing.append("detector_calibration")
+    if policy.battle_plan is None:
+        missing.append("battle_plan")
+    if missing:
+        raise ValueError(
+            f"Карта {spec.id} не имеет полного runtime-контракта: {', '.join(missing)}"
+        )
+
+    camera = policy.camera_calibration
+    assert camera is not None
+    max_x, max_y = node2location(spec.shape)
+    for node in (*camera.camera_data, *camera.spawn_points):
+        x, y = node2location(node)
+        if not (0 <= x <= max_x and 0 <= y <= max_y):
+            raise ValueError(
+                f"Runtime camera node {node!r} карты {spec.id} находится вне shape {spec.shape}"
+            )
+
+    battle_plan = policy.battle_plan
+    assert battle_plan is not None
+    for step in battle_plan.siren_filter_steps:
+        if step.battle == spec.boss_refresh:
+            raise ValueError(
+                f"Runtime battle_plan карты {spec.id} конфликтует с boss battle_{spec.boss_refresh}"
+            )
+        if step.battle > spec.boss_refresh:
+            raise ValueError(
+                f"Runtime battle_{step.battle} карты {spec.id} находится после появления босса"
+            )
+
+
+def _battle_plan_lines(policy: MapRuntimePolicy) -> list[str]:
+    battle_plan = policy.battle_plan
+    if battle_plan is None:
+        raise ValueError(f"Карта {policy.map_id} не имеет проверенного battle_plan")
+    lines = [f"    ENEMY_FILTER = {battle_plan.enemy_filter!r}"]
+    for step in battle_plan.siren_filter_steps:
+        lines.extend(
+            [
+                "",
+                f"    def battle_{step.battle}(self):",
+                "        if self.clear_siren():",
+                "            return True",
+                f"        if self.clear_filter_enemy(self.ENEMY_FILTER, preserve={step.preserve}):",
+                "            return True",
+                "",
+                "        return self.battle_default()",
+            ]
+        )
+    return lines
+
+
 def generate_map_module(
     spec: MapSpec,
     *,
@@ -134,10 +196,8 @@ def generate_map_module(
             f"Карта {spec.id} содержит siren, но не имеет проверенной "
             "runtime-policy распознавания"
         )
-    if runtime_policy is None or runtime_policy.boss_clear is None:
-        raise ValueError(
-            f"Карта {spec.id} не имеет проверенной runtime-policy очистки босса"
-        )
+    if runtime_policy is None:
+        raise ValueError(f"Карта {spec.id} не имеет проверенной runtime-policy")
     if runtime_policy.map_id != spec.id:
         raise ValueError(
             f"Runtime-policy карты {runtime_policy.map_id} "
@@ -147,7 +207,10 @@ def generate_map_module(
         raise ValueError(
             f"Runtime-policy карты {spec.id} относится к другому chapter_name"
         )
+    _validate_runtime_contract(spec, runtime_policy)
     boss_clear_line = _boss_clear_line(runtime_policy)
+    camera = runtime_policy.camera_calibration
+    assert camera is not None
 
     lines = [
         f"from {base_import} import CampaignBase",
@@ -155,8 +218,8 @@ def generate_map_module(
         "",
         f"MAP = CampaignMap({spec.chapter_name!r})",
         f"MAP.shape = {spec.shape!r}",
-        f"MAP.camera_data = {list(spec.camera_data)!r}",
-        f"MAP.camera_data_spawn_point = {list(spec.camera_spawn_points)!r}",
+        f"MAP.camera_data = {list(camera.camera_data)!r}",
+        f"MAP.camera_data_spawn_point = {list(camera.spawn_points)!r}",
     ]
     if spec.portals:
         lines.append(
@@ -223,6 +286,11 @@ def generate_map_module(
             "",
             "class Campaign(CampaignBase):",
             "    MAP = MAP",
+        ]
+    )
+    lines.extend(_battle_plan_lines(runtime_policy))
+    lines.extend(
+        [
             "",
             f"    def battle_{spec.boss_refresh}(self):",
             boss_clear_line,

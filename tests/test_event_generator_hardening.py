@@ -10,11 +10,8 @@ from module.event_datamine.generator import (
     map_module_name,
     map_module_path,
 )
-from module.event_datamine.runtime_policy import (
-    BossClearPolicy,
-    MapRuntimePolicy,
-    SirenRecognitionPolicy,
-)
+from module.event_datamine.runtime_policy import SirenRecognitionPolicy
+from tests.event_runtime_policy_helpers import runtime_policy as _full_runtime_policy
 
 
 @dataclass(frozen=True)
@@ -66,6 +63,9 @@ def _patch_builder(monkeypatch, spec, current):
     policy = SimpleNamespace(
         siren_recognition=None,
         boss_clear=object(),
+        camera_calibration=object(),
+        detector_calibration=object(),
+        battle_plan=object(),
     )
     monkeypatch.setattr(
         builder,
@@ -238,14 +238,8 @@ def _runtime_policy(
     *,
     strategy: str = "campaign",
     siren: SirenRecognitionPolicy | None = None,
-) -> MapRuntimePolicy:
-    return MapRuntimePolicy(
-        map_id=1,
-        chapter_name="T",
-        source_path="campaign/event/example.py",
-        siren_recognition=siren,
-        boss_clear=BossClearPolicy(strategy),
-    )
+):
+    return _full_runtime_policy(strategy=strategy, siren=siren)
 
 
 def test_generator_derives_normal_movable_enemy_from_me_grid():
@@ -285,7 +279,7 @@ def test_generator_rejects_map_without_boss_runtime_policy():
 
     with pytest.raises(
         ValueError,
-        match="runtime-policy очистки босса",
+        match="проверенной runtime-policy",
     ):
         generate_map_module(spec)
 
@@ -310,10 +304,7 @@ def test_generator_keeps_source_icon_separate_from_runtime_template():
     )
 
     assert "MAP_HAS_SIREN = True" in generated
-    assert (
-        "MAP_SIREN_TEMPLATE = ['RuntimeTemplate']"
-        in generated
-    )
+    assert "MAP_SIREN_TEMPLATE = ['RuntimeTemplate']" in generated
     assert "sharecfg_icon" not in generated
     assert "MAP_HAS_MOVABLE_ENEMY = True" in generated
     assert "MOVABLE_ENEMY_TURN = (2,)" in generated

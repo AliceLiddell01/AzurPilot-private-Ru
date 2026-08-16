@@ -16,8 +16,16 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from module.event_datamine.artifact import canonical_json
+from module.event_datamine.runtime_semantics import (
+    BattlePlanPolicy,
+    CameraCalibrationPolicy,
+    DetectorCalibrationPolicy,
+    parse_battle_plan,
+    parse_camera_calibration,
+    parse_detector_calibration,
+)
 
-RUNTIME_POLICY_SCHEMA_VERSION = 3
+RUNTIME_POLICY_SCHEMA_VERSION = 4
 GENERATED_EVENT_ROOT = Path(__file__).resolve().parents[2] / "campaign" / "generated_event"
 _ALLOWED_UI_LAYOUTS = frozenset({"legacy", "20241219", "20260326"})
 _ALLOWED_BOSS_CLEAR_STRATEGIES = frozenset({"campaign", "boss_fleet", "fleet_1"})
@@ -45,6 +53,9 @@ _ALLOWED_MAP = {
     "siren_recognition",
     "stage_entry",
     "boss_clear",
+    "camera_calibration",
+    "detector_calibration",
+    "battle_plan",
 }
 _ALLOWED_SIREN = {"templates", "boss_icon_small"}
 _ALLOWED_STAGE_ENTRY = {"one_time", "has_mode_switch"}
@@ -80,6 +91,9 @@ class MapRuntimePolicy:
     siren_recognition: SirenRecognitionPolicy | None = None
     stage_entry: StageEntryPolicy | None = None
     boss_clear: BossClearPolicy | None = None
+    camera_calibration: CameraCalibrationPolicy | None = None
+    detector_calibration: DetectorCalibrationPolicy | None = None
+    battle_plan: BattlePlanPolicy | None = None
 
     def config_items(self) -> tuple[tuple[str, Any], ...]:
         """Преобразовать семантическую policy в ограниченный набор runtime-настроек."""
@@ -94,6 +108,8 @@ class MapRuntimePolicy:
                 result.append(("MAP_IS_ONE_TIME_STAGE", self.stage_entry.one_time))
             if self.stage_entry.has_mode_switch is not None:
                 result.append(("MAP_HAS_MODE_SWITCH", self.stage_entry.has_mode_switch))
+        if self.detector_calibration is not None:
+            result.extend(self.detector_calibration.config_items())
         return tuple(result)
 
 
@@ -256,7 +272,43 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             if "boss_clear" in raw
             else None
         )
-        if siren is None and stage_entry is None and boss_clear is None:
+        camera_calibration = (
+            parse_camera_calibration(
+                raw["camera_calibration"],
+                map_id=map_id,
+                error_type=EventRuntimePolicyError,
+            )
+            if "camera_calibration" in raw
+            else None
+        )
+        detector_calibration = (
+            parse_detector_calibration(
+                raw["detector_calibration"],
+                map_id=map_id,
+                error_type=EventRuntimePolicyError,
+            )
+            if "detector_calibration" in raw
+            else None
+        )
+        battle_plan = (
+            parse_battle_plan(
+                raw["battle_plan"],
+                map_id=map_id,
+                error_type=EventRuntimePolicyError,
+            )
+            if "battle_plan" in raw
+            else None
+        )
+        if not any(
+            (
+                siren,
+                stage_entry,
+                boss_clear,
+                camera_calibration,
+                detector_calibration,
+                battle_plan,
+            )
+        ):
             raise EventRuntimePolicyError(
                 f"Runtime-policy карты {map_id} не содержит поддерживаемых runtime-фактов"
             )
@@ -267,6 +319,9 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             siren_recognition=siren,
             stage_entry=stage_entry,
             boss_clear=boss_clear,
+            camera_calibration=camera_calibration,
+            detector_calibration=detector_calibration,
+            battle_plan=battle_plan,
         )
     return result
 
