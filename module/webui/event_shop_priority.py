@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -12,7 +11,6 @@ from datetime import datetime
 from functools import wraps
 from hashlib import sha256
 from pathlib import Path
-from threading import Lock
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -27,12 +25,11 @@ from deploy.atomic import (
 from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
 from module.webui.event_shop_observation import reconcile_event_shop
-from module.webui.event_source import load_event_user_state, save_event_user_state
+from module.webui.event_source import load_event_user_state, mutate_event_user_state
+from module.webui.state_lock import state_write_lock
 
 EVENT_SHOP_PRIORITY_SCHEMA_VERSION = 4
 EVENT_SHOP_PRIORITY_ROOT = Path("./config/state/event_shop_priority")
-_PRIORITY_PROCESS_LOCKS_GUARD = Lock()
-_PRIORITY_PROCESS_LOCKS: dict[str, Lock] = {}
 
 
 class PriorityRuntimeItems(list):
@@ -56,50 +53,17 @@ def event_shop_priority_path(
     return Path(root) / f"{_safe_instance_key(instance)}.json"
 
 
-def _process_priority_lock(path: Path) -> Lock:
-    key = str(path.resolve())
-    with _PRIORITY_PROCESS_LOCKS_GUARD:
-        lock = _PRIORITY_PROCESS_LOCKS.get(key)
-        if lock is None:
-            lock = Lock()
-            _PRIORITY_PROCESS_LOCKS[key] = lock
-        return lock
-
-
 @contextmanager
 def _event_shop_priority_write_lock(
     instance: str,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ):
-    """Сериализовать read-modify-write состояния приоритетов между потоками и процессами."""
+    """Сериализовать изменение состояния приоритетов между потоками и процессами."""
 
     state_path = event_shop_priority_path(instance, root)
     lock_path = state_path.with_suffix(f"{state_path.suffix}.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    process_lock = _process_priority_lock(lock_path)
-    with process_lock, lock_path.open("a+b") as handle:
-        if os.name == "nt":
-            import msvcrt
-
-            handle.seek(0, 2)
-            if handle.tell() == 0:
-                handle.write(b"\0")
-                handle.flush()
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            try:
-                yield
-            finally:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    with state_write_lock(lock_path):
+        yield
 
 
 def _priority_writer_locked(func):
@@ -387,29 +351,33 @@ def _clear_selected_target(
     row_id: str,
     expected_selected: int,
 ) -> bool:
-    """Очистить только проверенную цель, не затирая более новое изменение пользователя."""
-    state = load_event_user_state(config.config_name)
-    saved_event_id = str(state.get("source_event_id") or "")
-    if saved_event_id and saved_event_id != str(event_id or ""):
-        return False
-    selections = state.get("shop_selections")
-    if not isinstance(selections, Mapping):
-        return False
+    """Очистить проверенную цель транзакционно, сохранив соседние изменения пользователя."""
+
     key = str(row_id)
-    try:
-        current = max(int(selections.get(key, 0) or 0), 0)
-    except (TypeError, ValueError, OverflowError):
-        return False
-    if current != max(int(expected_selected), 0):
-        return False
-    updated = dict(state)
-    updated_selections = dict(selections)
-    updated_selections[key] = 0
-    updated["shop_selections"] = updated_selections
-    if not str(updated.get("source_event_id") or ""):
-        updated["source_event_id"] = str(event_id or "")
-    save_event_user_state(config.config_name, updated)
-    return True
+    expected = max(int(expected_selected), 0)
+
+    def mutation(state: Mapping[str, Any]) -> dict[str, Any] | None:
+        saved_event_id = str(state.get("source_event_id") or "")
+        if saved_event_id and saved_event_id != str(event_id or ""):
+            return None
+        selections = state.get("shop_selections")
+        if not isinstance(selections, Mapping):
+            return None
+        try:
+            current = max(int(selections.get(key, 0) or 0), 0)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if current != expected:
+            return None
+        updated = dict(state)
+        updated_selections = dict(selections)
+        updated_selections[key] = 0
+        updated["shop_selections"] = updated_selections
+        if not str(updated.get("source_event_id") or ""):
+            updated["source_event_id"] = str(event_id or "")
+        return updated
+
+    return mutate_event_user_state(config.config_name, mutation)
 
 
 def _target_remaining(

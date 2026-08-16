@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -28,6 +28,7 @@ from module.webui.event_observation import (
     observation_is_fresh,
 )
 from module.webui.event_plan import EVENT_PLAN_ROOT, empty_event_plan, load_event_plan
+from module.webui.state_lock import state_write_lock
 
 EVENT_USER_STATE_SCHEMA_VERSION = 2
 EVENT_USER_STATE_ROOT = Path("./config/state/event_user_state")
@@ -142,7 +143,22 @@ def migrate_stage2_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     return state
 
 
-def save_event_user_state(
+def _event_user_state_lock_path(
+    instance: str, root: Path | str = EVENT_USER_STATE_ROOT
+) -> Path:
+    state_path = event_user_state_path(instance, root)
+    return state_path.with_suffix(f"{state_path.suffix}.lock")
+
+
+def event_user_state_write_lock(
+    instance: str, root: Path | str = EVENT_USER_STATE_ROOT
+):
+    """Вернуть общую блокировку полного read-modify-write пользовательского состояния."""
+
+    return state_write_lock(_event_user_state_lock_path(instance, root))
+
+
+def _save_event_user_state_unlocked(
     instance: str, state: Mapping[str, Any], root: Path | str = EVENT_USER_STATE_ROOT
 ) -> Path:
     normalized = normalize_event_user_state(state)
@@ -164,7 +180,7 @@ def save_event_user_state(
     return path
 
 
-def load_event_user_state(
+def _load_event_user_state_unlocked(
     instance: str,
     *,
     root: Path | str = EVENT_USER_STATE_ROOT,
@@ -190,9 +206,52 @@ def load_event_user_state(
     legacy_path = Path(legacy_root) / f"{_safe_instance_key(instance)}.json"
     if legacy_path.exists():
         state = migrate_stage2_plan(load_event_plan(instance, root=legacy_root))
-        save_event_user_state(instance, state, root=root)
+        _save_event_user_state_unlocked(instance, state, root=root)
         return state
     return empty_event_user_state()
+
+
+def save_event_user_state(
+    instance: str, state: Mapping[str, Any], root: Path | str = EVENT_USER_STATE_ROOT
+) -> Path:
+    """Сохранить пользовательское состояние под общей блокировкой файла."""
+
+    with event_user_state_write_lock(instance, root):
+        return _save_event_user_state_unlocked(instance, state, root=root)
+
+
+def load_event_user_state(
+    instance: str,
+    *,
+    root: Path | str = EVENT_USER_STATE_ROOT,
+    legacy_root: Path | str = EVENT_PLAN_ROOT,
+) -> dict[str, Any]:
+    """Прочитать пользовательское состояние под общей блокировкой файла."""
+
+    with event_user_state_write_lock(instance, root):
+        return _load_event_user_state_unlocked(
+            instance, root=root, legacy_root=legacy_root
+        )
+
+
+def mutate_event_user_state(
+    instance: str,
+    mutation: Callable[[Mapping[str, Any]], Mapping[str, Any] | None],
+    *,
+    root: Path | str = EVENT_USER_STATE_ROOT,
+    legacy_root: Path | str = EVENT_PLAN_ROOT,
+) -> bool:
+    """Атомарно выполнить чтение, изменение и сохранение пользовательского состояния."""
+
+    with event_user_state_write_lock(instance, root):
+        current = _load_event_user_state_unlocked(
+            instance, root=root, legacy_root=legacy_root
+        )
+        updated = mutation(current)
+        if updated is None:
+            return False
+        _save_event_user_state_unlocked(instance, updated, root=root)
+        return True
 
 
 def event_plan_from_source(
@@ -407,8 +466,7 @@ def load_event_plan_from_artifact(
     )
     runtime_matches = (
         isinstance(runtime_observation, Mapping)
-        and str(runtime_observation.get("event_id") or "")
-        == str(spec.get("id") or "")
+        and str(runtime_observation.get("event_id") or "") == str(spec.get("id") or "")
         and str(runtime_observation.get("server") or "").upper()
         == str(spec.get("server") or "EN").upper()
         and str(runtime_observation.get("source_revision") or "") == revision

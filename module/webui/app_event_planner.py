@@ -32,8 +32,8 @@ from module.webui.event_plan import (
 )
 from module.webui.event_shop_priority import update_event_shop_target_state
 from module.webui.event_source import (
-    load_event_user_state,
-    save_event_user_state,
+    event_user_state_write_lock,
+    mutate_event_user_state,
     user_state_from_plan,
 )
 
@@ -73,10 +73,9 @@ class EventPlannerMixin(WebUIMixinBase):
             return False
         try:
             with _EVENT_PLAN_MUTATION_LOCK:
-                previous = load_event_user_state(self.alas_name)
-                save_event_user_state(
+                mutate_event_user_state(
                     self.alas_name,
-                    user_state_from_plan(plan, previous),
+                    lambda previous: user_state_from_plan(plan, previous),
                 )
         except Exception as exc:
             logger.exception(exc)
@@ -88,14 +87,17 @@ class EventPlannerMixin(WebUIMixinBase):
 
     def _event_plan_mutate(self, mutation, message: str) -> bool:
         with _EVENT_PLAN_MUTATION_LOCK:
-            plan = self._event_plan()
-            result = mutation(plan)
-            if result is _STALE_EVENT_PLAN:
-                self._stale_plan_message()
-                return False
-            if result is _UNCHANGED_EVENT_PLAN:
-                return False
-            return self._event_plan_write(plan, message)
+            # Блокировка охватывает чтение плана и запись user-state, чтобы runtime
+            # не мог вклиниться между ними и быть затёртым устаревшим снимком WebUI.
+            with event_user_state_write_lock(self.alas_name):
+                plan = self._event_plan()
+                result = mutation(plan)
+                if result is _STALE_EVENT_PLAN:
+                    self._stale_plan_message()
+                    return False
+                if result is _UNCHANGED_EVENT_PLAN:
+                    return False
+                return self._event_plan_write(plan, message)
 
     def _event_config_update(self, updates: Mapping[str, Any]) -> None:
         update_event_config(self.alas_config, self.alas_name, updates)
@@ -137,7 +139,9 @@ class EventPlannerMixin(WebUIMixinBase):
         return None
 
     @staticmethod
-    def _shop_live_snapshot(plan: Mapping[str, Any], item: Mapping[str, Any]) -> dict[str, int]:
+    def _shop_live_snapshot(
+        plan: Mapping[str, Any], item: Mapping[str, Any]
+    ) -> dict[str, int]:
         selected = int(item.get("selected", 0) or 0)
         return {
             "selected": selected,
@@ -270,7 +274,7 @@ class EventPlannerMixin(WebUIMixinBase):
     ) -> None:
         try:
             selected = int(pin[_SHOP_SELECTED_PIN] or 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             selected = -1
         if selected < 0 or selected > identity[4]:
             toast(f"Количество должно быть от 0 до {identity[4]}", color="warning")

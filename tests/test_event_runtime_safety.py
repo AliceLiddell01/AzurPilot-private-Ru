@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime
 from threading import Barrier, Thread
@@ -263,6 +264,8 @@ def test_timezone_aware_dashboard_record_is_accepted_without_mixed_datetime_erro
 
 
 class PlanMutationProbe(EventPlannerMixin):
+    alas_name = "test-plan-mutation"
+
     def __init__(self):
         self.store = empty_event_plan()
         self.writes = 0
@@ -294,12 +297,16 @@ def test_event_plan_mutations_are_serialized_across_sessions():
 
         assert probe._event_plan_mutate(mutation, "") is True
 
-    threads = [Thread(target=worker, args=(name,)) for name in ("A", "B")]
-    for thread in threads:
-        thread.start()
-    start.wait()
-    for thread in threads:
-        thread.join()
+    with patch(
+        "module.webui.app_event_planner.event_user_state_write_lock",
+        side_effect=lambda _instance: nullcontext(),
+    ):
+        threads = [Thread(target=worker, args=(name,)) for name in ("A", "B")]
+        for thread in threads:
+            thread.start()
+        start.wait()
+        for thread in threads:
+            thread.join()
 
     assert {item["name"] for item in probe.store["stages"]} == {"A", "B"}
 
@@ -316,7 +323,11 @@ def test_shop_quantity_noop_skips_write_and_refresh():
     }
     probe.store["shop_items"] = [item]
 
-    probe._change_shop_quantity(probe._shop_item_identity(item), "decrement")
+    with patch(
+        "module.webui.app_event_planner.event_user_state_write_lock",
+        side_effect=lambda _instance: nullcontext(),
+    ):
+        probe._change_shop_quantity(probe._shop_item_identity(item), "decrement")
 
     assert probe.writes == 0
     assert probe.refreshes == 0
