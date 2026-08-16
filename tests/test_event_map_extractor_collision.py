@@ -48,7 +48,7 @@ def test_map_extractor_uses_unique_allocated_paths(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(extractor, "EventCompiler", _Compiler)
     monkeypatch.setattr(extractor, "build_artifact", lambda _spec: {})
     monkeypatch.setattr(extractor, "write_artifact", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(extractor, "patches_for", lambda *_args: ())
+    monkeypatch.setattr(extractor, "generation_patches_for", lambda *_args: ())
     monkeypatch.setattr(
         extractor, "generate_map_module", lambda *_args, **_kwargs: "pass\n"
     )
