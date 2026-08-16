@@ -46,8 +46,9 @@ class Config:
     MOVABLE_ENEMY_TURN = (2,)
     # Патч совместимости depths-astrarium-sp-siren-recognition: ShareCfg expedition.icon описывает игровой ресурс и не гарантирует имя шаблона распознавания AzurPilot
     MAP_SIREN_TEMPLATE = ['BonhommeRichard_SS']
-    # Патч совместимости depths-astrarium-sp-entry-policy: SP является одноразовым этапом; этот runtime-факт не выводится из ShareCfg карты
+    # Патч совместимости depths-astrarium-sp-entry-policy: SP является одноразовым этапом и не имеет переключателя обычного/сложного режима; эти runtime-факты не выводятся из ShareCfg карты
     MAP_IS_ONE_TIME_STAGE = True
+    MAP_HAS_MODE_SWITCH = False
 
 class Campaign(CampaignBase):
     MAP = MAP
