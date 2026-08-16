@@ -36,7 +36,11 @@ def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) 
         # что и upstream event-карты: half-state и шаблон входа 20240725.
         # Это контракт layout, а не identity конкретного события.
         config_class.STAGE_ENTRANCE = ["half", "20240725"]
-        config_class.MAP_HAS_MODE_SWITCH = True
+        # Layout задаёт переключатель сложности по умолчанию, но явный факт
+        # конкретной карты имеет больший приоритет. Например, одноразовый SP
+        # текущего события использует тот же layout без Normal/Hard switch.
+        if "MAP_HAS_MODE_SWITCH" not in vars(config_class):
+            config_class.MAP_HAS_MODE_SWITCH = True
         return
     if layout == "20260326":
         config_class.MAP_CHAPTER_SWITCH_20241219 = False
