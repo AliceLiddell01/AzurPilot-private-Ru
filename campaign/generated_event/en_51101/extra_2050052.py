@@ -26,7 +26,7 @@ MAP.weight_data = """
 MAP.spawn_data = [{'battle': 0, 'boss': 1}]
 
 class Config:
-    # Только факты карты; runtime policy задаётся отдельно.
+    # Только факты карты; политика выполнения задаётся отдельно.
     MAP_HAS_MAP_STORY = False
     MAP_HAS_FLEET_STEP = False
     MAP_HAS_AMBUSH = False
