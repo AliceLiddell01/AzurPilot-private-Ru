@@ -2,7 +2,7 @@ import os
 
 import imageio
 import numpy as np
-from tqdm.contrib.concurrent import process_map
+from tqdm.contrib.concurrent import thread_map
 
 from module.base.utils import get_bbox, get_color, image_size, load_image
 from module.config.config_manual import ManualConfig as AzurLaneConfig
@@ -183,12 +183,12 @@ class AssetExtractor:
     def __init__(self):
         logger.info('Assets extract: canonical root assets/en')
         root = os.path.join(AzurLaneConfig.ASSETS_FOLDER, CANONICAL_SERVER)
-        modules = [
+        modules = sorted(
             module
             for module in os.listdir(root)
             if os.path.isdir(os.path.join(root, module))
-        ]
-        process_map(worker, modules)
+        )
+        thread_map(worker, modules)
 
 
 if __name__ == '__main__':
