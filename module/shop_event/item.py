@@ -31,6 +31,8 @@ COUNTER_COLOR = (106, 120, 131)
 COUNTER_THRESHOLD = 150
 PRICE_THRESHOLD = 230
 PRICE_BACKGROUND_COLOR = (61, 78, 91)
+EVENT_TEMPLATE_SEARCH_MARGIN = 4
+EVENT_TEMPLATE_MIN_GAP = 0.02
 if server.server == 'jp':
     COUNTER_LEFT_STRIP = 54
 elif server.server == 'en':
@@ -132,6 +134,7 @@ class EventShopItem(Item):
         self._scroll_pos = None
         self.total_count = -1
         self.count = 1
+        self.ocr_price = self.price
         self.ocr_amount = self.amount
         self.catalog_row_id = None
 
@@ -238,6 +241,20 @@ class EventShopItemGrid(ItemGrid):
                 return prefix
         return value
 
+    @staticmethod
+    def _template_similarity(image, template, *, tolerant):
+        """Оценить similarity с ограниченным поиском малой трансляции иконки."""
+        candidate = template
+        if tolerant:
+            margin = EVENT_TEMPLATE_SEARCH_MARGIN
+            height, width = template.shape[:2]
+            if height > margin * 2 and width > margin * 2:
+                candidate = template[margin:-margin, margin:-margin]
+        if image.shape[0] < candidate.shape[0] or image.shape[1] < candidate.shape[1]:
+            return -1.0
+        result = cv2.matchTemplate(image, candidate, cv2.TM_CCOEFF_NORMED)
+        return float(cv2.minMaxLoc(result)[1])
+
     def set_catalog_spec(self, spec):
         """Ограничить runtime identity source-каталогом одного прохода EventShop."""
         self._catalog_spec = spec if isinstance(spec, Mapping) else None
@@ -246,41 +263,74 @@ class EventShopItemGrid(ItemGrid):
         else:
             self._allowed_template_names = catalog_template_names(self._catalog_spec)
 
+    def _template_color_matches(self, image_color, name):
+        template_color = self.colors.get(name)
+        if template_color is None:
+            template_color = cv2.mean(self.templates[name])[:3]
+        return color_similar(color1=image_color, color2=template_color, threshold=30)
+
+    def _best_named_catalog_template(self, image, image_color, similarity):
+        """Найти уверенную именованную identity, группируя варианты одного товара."""
+        by_identity = {}
+        names = sorted(
+            (name for name in self.templates if not name.isdigit()),
+            key=lambda name: self.templates_hit.get(name, 0),
+            reverse=True,
+        )
+        for name in names:
+            identity = self._canonical_template_name(name)
+            if identity not in self._allowed_template_names:
+                continue
+            if not self._template_color_matches(image_color, name):
+                continue
+            score = self._template_similarity(image, self.templates[name], tolerant=True)
+            current = by_identity.get(identity)
+            if current is None or score > current[0]:
+                by_identity[identity] = (score, name)
+
+        ranked = sorted(by_identity.values(), key=lambda item: item[0], reverse=True)
+        if not ranked:
+            return None
+        best_score, best_name = ranked[0]
+        second_score = ranked[1][0] if len(ranked) > 1 else -1.0
+        if best_score > similarity and best_score - second_score >= EVENT_TEMPLATE_MIN_GAP:
+            return best_name
+        return None
+
+    def _best_numeric_template(self, image, image_color, similarity):
+        """Использовать временную identity только если именованная не доказана."""
+        ranked = []
+        for name in sorted(
+            (name for name in self.templates if name.isdigit()),
+            key=lambda name: self.templates_hit.get(name, 0),
+            reverse=True,
+        ):
+            if not self._template_color_matches(image_color, name):
+                continue
+            score = self._template_similarity(image, self.templates[name], tolerant=False)
+            if score > similarity:
+                ranked.append((score, name))
+        ranked.sort(reverse=True)
+        if not ranked:
+            return None
+        best_score, best_name = ranked[0]
+        second_score = ranked[1][0] if len(ranked) > 1 else -1.0
+        if best_score - second_score < EVENT_TEMPLATE_MIN_GAP:
+            return None
+        return best_name
+
     def match_template(self, image, similarity=None):
-        """Сопоставить иконку только с именованными identity текущего EventSpec."""
+        """Сначала доказать catalog identity, затем использовать временный fallback."""
         if self._allowed_template_names is None:
             return super().match_template(image, similarity=similarity)
         if similarity is None:
             similarity = self.similarity
         similarity = lower_template_match_similarity(similarity)
         color = cv2.mean(image)[:3]
-        names = sorted(
-            self.templates,
-            key=lambda name: self.templates_hit.get(name, 0),
-            reverse=True,
-        )
-        names = [name for name in names if not name.isdigit()] + [
-            name for name in names if name.isdigit()
-        ]
-        best_name = None
-        best_similarity = similarity
-        for name in names:
-            if (
-                not name.isdigit()
-                and self._canonical_template_name(name) not in self._allowed_template_names
-            ):
-                continue
-            template_color = self.colors.get(name)
-            if template_color is None:
-                template_color = cv2.mean(self.templates[name])[:3]
-            if not color_similar(color1=color, color2=template_color, threshold=30):
-                continue
-            res = cv2.matchTemplate(image, self.templates[name], cv2.TM_CCOEFF_NORMED)
-            _, current_similarity, _, _ = cv2.minMaxLoc(res)
-            if current_similarity > best_similarity:
-                best_name = name
-                best_similarity = current_similarity
 
+        best_name = self._best_named_catalog_template(image, color, similarity)
+        if best_name is None:
+            best_name = self._best_numeric_template(image, color, similarity)
         if best_name is not None:
             self.templates_hit[best_name] += 1
             return best_name
@@ -295,28 +345,40 @@ class EventShopItemGrid(ItemGrid):
         return name
 
     def _apply_catalog_evidence(self, item):
+        item.ocr_price = item.price
         item.ocr_amount = item.amount
         item.catalog_row_id = None
         if self._catalog_spec is None:
             return
         claim = resolve_catalog_claim(self._catalog_spec, item)
+
+        resolved_price = claim.get('price')
+        if isinstance(resolved_price, int) and resolved_price > 0 and item.price != resolved_price:
+            logger.debug(
+                '[Магазин события — товар] OCR price нормализована согласованным EventSpec: '
+                f'{item.price} -> {resolved_price}'
+            )
+            item.price = resolved_price
+
+        resolved_amount = claim.get('amount')
+        if isinstance(resolved_amount, int) and resolved_amount > 0 and item.amount != resolved_amount:
+            logger.debug(
+                '[Магазин события — товар] OCR amount нормализован согласованным EventSpec: '
+                f'{item.amount} -> {resolved_amount}'
+            )
+            item.amount = resolved_amount
+
         if claim.get('status') != 'matched':
             return
         source = claim.get('source')
         if not isinstance(source, Mapping):
             return
         try:
-            source_amount = int(source.get('amount', 1) or 1)
             row_id = int(source.get('row_id'))
         except (TypeError, ValueError, OverflowError):
             return
-        item.catalog_row_id = row_id
-        if item.amount != source_amount:
-            logger.debug(
-                '[Магазин события — товар] OCR amount заменён доказанным значением EventSpec: '
-                f'{item.amount} -> {source_amount}, строка={row_id}'
-            )
-            item.amount = source_amount
+        if row_id > 0:
+            item.catalog_row_id = row_id
 
     def predict_tag(self, image):
         color = cv2.mean(np.array(image))[:3]
