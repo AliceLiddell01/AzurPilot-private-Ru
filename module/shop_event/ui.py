@@ -178,6 +178,19 @@ class EventShopScroll(Scroll):
         здесь запрещено обычное random_range, используется строгий порог, а
         destructive click разрешается только после visual-settle gate.
         """
+        remove_click_history = getattr(
+            getattr(main, 'device', None),
+            'click_record_remove',
+            None,
+        )
+        if callable(remove_click_history):
+            removed = remove_click_history(self.name)
+            if removed:
+                logger.debug(
+                    '[Магазин события — покупка] Перед точной повторной идентификацией '
+                    f'удалено записей штатной прокрутки: {removed}'
+                )
+
         with self._set_lock:
             default_drag_threshold = self.drag_threshold
             self.drag_threshold = min(

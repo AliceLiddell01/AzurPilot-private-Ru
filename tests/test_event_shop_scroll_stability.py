@@ -121,3 +121,54 @@ def test_precise_scroll_returns_only_after_successful_visual_settle(monkeypatch)
 
     assert scroll.set_precise(0.7, main=main) == 1
     assert waits == [main]
+
+
+def test_precise_scroll_removes_only_previous_history_for_same_scroll(monkeypatch):
+    scroll = make_scroll()
+    records = ["OTHER_BUTTON", scroll.name, scroll.name, "OTHER_BUTTON"]
+
+    class FakeDevice:
+        @staticmethod
+        def click_record_remove(button):
+            removed = 0
+            for _ in range(len(records)):
+                try:
+                    records.remove(str(button))
+                    removed += 1
+                except ValueError:
+                    break
+            return removed
+
+    main = SimpleNamespace(device=FakeDevice())
+    monkeypatch.setattr(Scroll, "set", lambda self, position, main, **kwargs: 0)
+    monkeypatch.setattr(scroll, "wait_content_stable", lambda target: True)
+
+    assert scroll.set_precise(0.5, main=main) == 0
+    assert records == ["OTHER_BUTTON", "OTHER_BUTTON"]
+
+
+def test_precise_scroll_keeps_single_operation_protected_after_history_boundary(monkeypatch):
+    scroll = make_scroll()
+    calls = []
+
+    class FakeDevice:
+        @staticmethod
+        def click_record_remove(button):
+            calls.append(("remove", str(button)))
+            return 9
+
+    main = SimpleNamespace(device=FakeDevice())
+
+    def fail_inside_precise_operation(self, position, main, **kwargs):
+        calls.append(("set", position))
+        raise GameStuckError("искусственная защита внутри точной прокрутки")
+
+    monkeypatch.setattr(Scroll, "set", fail_inside_precise_operation)
+
+    with pytest.raises(GameStuckError, match="искусственная защита"):
+        scroll.set_precise(0.5, main=main)
+
+    assert calls == [
+        ("remove", scroll.name),
+        ("set", 0.5),
+    ]
