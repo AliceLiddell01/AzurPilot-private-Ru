@@ -97,7 +97,7 @@ def state_write_lock(
     timeout: float = STATE_LOCK_TIMEOUT_SECONDS,
     retry_interval: float = STATE_LOCK_RETRY_INTERVAL_SECONDS,
 ):
-    """Сериализовать изменение файла с повторным входом и общим bounded timeout."""
+    """Сериализовать изменение файла с повторным входом и общим ограниченным ожиданием."""
 
     timeout = float(timeout)
     retry_interval = float(retry_interval)

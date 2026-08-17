@@ -104,10 +104,11 @@ def test_pt_and_shop_writers_share_one_read_modify_write_lock(monkeypatch, tmp_p
         shop_future = executor.submit(write_shop)
         assert shop_started.wait(timeout=5)
         try:
-            assert not shop_finished.wait(timeout=0.1)
+            assert not shop_finished.wait(timeout=1.0)
         finally:
             release_pt_save.set()
 
+        assert shop_finished.wait(timeout=5)
         pt_future.result(timeout=5)
         shop_future.result(timeout=5)
 

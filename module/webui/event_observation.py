@@ -289,7 +289,7 @@ def event_observation_write_lock(
     timeout: float = STATE_LOCK_TIMEOUT_SECONDS,
     retry_interval: float = STATE_LOCK_RETRY_INTERVAL_SECONDS,
 ):
-    """Сериализовать observation через общий bounded state-lock."""
+    """Сериализовать observation через общую блокировку состояния с ограниченным ожиданием."""
 
     return state_write_lock(
         path,
