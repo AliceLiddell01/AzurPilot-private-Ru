@@ -29,31 +29,82 @@ def int_attr(item: Any, name: str) -> int | None:
         return None
 
 
+def _source_int(
+    source: Mapping[str, Any],
+    field: str,
+    *,
+    default: int | None = None,
+) -> int | None:
+    """Безопасно прочитать целочисленный факт одной строки EventSpec."""
+
+    value = source.get(field, default)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _valid_catalog_row(source: Mapping[str, Any]) -> bool:
+    """Пропускать в сопоставление только полностью типизированную source-row."""
+
+    row_id = _source_int(source, "row_id")
+    stock = _source_int(source, "stock")
+    currency_id = _source_int(source, "currency_id")
+    price = _source_int(source, "price")
+    amount = _source_int(source, "amount", default=1)
+    return bool(
+        row_id is not None
+        and row_id > 0
+        and stock is not None
+        and stock >= 0
+        and currency_id is not None
+        and currency_id > 0
+        and price is not None
+        and price > 0
+        and amount is not None
+        and amount > 0
+    )
+
+
+def _catalog_rows(spec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Вернуть только source-строки, безопасные для runtime-сопоставления."""
+
+    rows = spec.get("shop_items", [])
+    if not isinstance(rows, list):
+        return []
+    return [
+        item
+        for item in rows
+        if isinstance(item, Mapping) and _valid_catalog_row(item)
+    ]
+
+
 def catalog_template_names(spec: Mapping[str, Any] | None) -> set[str]:
     """Вернуть именованные шаблонные идентичности, допустимые текущим EventSpec."""
     if not isinstance(spec, Mapping):
         return set()
     return {
         str(item.get("event_shop_filter") or "")
-        for item in spec.get("shop_items", [])
-        if isinstance(item, Mapping) and str(item.get("event_shop_filter") or "")
+        for item in _catalog_rows(spec)
+        if str(item.get("event_shop_filter") or "")
     }
-
-
-def _catalog_rows(spec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    return [
-        item
-        for item in spec.get("shop_items", [])
-        if isinstance(item, Mapping)
-    ]
 
 
 def _currency_by_token(spec: Mapping[str, Any]) -> dict[str, int]:
-    return {
-        str(item.get("runtime_token") or "").lower(): int(item.get("id", 0) or 0)
-        for item in spec.get("currencies", [])
-        if isinstance(item, Mapping) and item.get("runtime_token")
-    }
+    result: dict[str, int] = {}
+    currencies = spec.get("currencies", [])
+    if not isinstance(currencies, list):
+        return result
+    for item in currencies:
+        if not isinstance(item, Mapping):
+            continue
+        token = str(item.get("runtime_token") or "").strip().lower()
+        currency_id = _source_int(item, "id")
+        if token and currency_id is not None and currency_id > 0:
+            result[token] = currency_id
+    return result
 
 
 def _consensus_int(candidates: list[Mapping[str, Any]], field: str) -> int | None:
@@ -61,10 +112,10 @@ def _consensus_int(candidates: list[Mapping[str, Any]], field: str) -> int | Non
     values: set[int] = set()
     for item in candidates:
         default = 1 if field == "amount" else 0
-        try:
-            values.add(int(item.get(field, default) or default))
-        except (TypeError, ValueError, OverflowError):
+        value = _source_int(item, field, default=default)
+        if value is None:
             return None
+        values.add(value)
     if len(values) != 1:
         return None
     return next(iter(values))
@@ -89,11 +140,14 @@ def source_row_compatible(
     if total < 0 or remaining < 0 or remaining > total:
         return False
 
-    try:
-        source_stock = int(source.get("stock", 0) or 0)
-        source_price = int(source.get("price", 0) or 0)
-        source_currency = int(source.get("currency_id", 0) or 0)
-    except (TypeError, ValueError, OverflowError):
+    source_stock = _source_int(source, "stock")
+    source_price = _source_int(source, "price")
+    source_currency = _source_int(source, "currency_id")
+    if (
+        source_stock is None
+        or source_price is None
+        or source_currency is None
+    ):
         return False
     if total != source_stock or price != source_price:
         return False
@@ -129,13 +183,17 @@ def bind_catalog_source(
     if getattr(runtime, "ocr_amount", None) is None and current_amount is not None:
         setattr(runtime, "ocr_amount", current_amount)
 
-    try:
-        row_id = int(source.get("row_id", 0) or 0)
-        price = int(source.get("price", 0) or 0)
-        amount = int(source.get("amount", 1) or 1)
-    except (TypeError, ValueError, OverflowError):
-        return runtime
-    if row_id <= 0 or price <= 0 or amount <= 0:
+    row_id = _source_int(source, "row_id")
+    price = _source_int(source, "price")
+    amount = _source_int(source, "amount", default=1)
+    if (
+        row_id is None
+        or row_id <= 0
+        or price is None
+        or price <= 0
+        or amount is None
+        or amount <= 0
+    ):
         return runtime
 
     setattr(runtime, "catalog_row_id", row_id)
@@ -238,17 +296,22 @@ def resolve_catalog_claim(
             (
                 item
                 for item in catalog
-                if int(item.get("row_id", 0) or 0) == claimed_row_id
+                if _source_int(item, "row_id") == claimed_row_id
             ),
             None,
         )
         if source is not None and source_row_compatible(spec, runtime, source):
+            source_price = _source_int(source, "price")
+            source_amount = _source_int(source, "amount", default=1)
+            if source_price is None or source_amount is None:
+                claim["identity_evidence"] = "catalog_row_id_conflict"
+                return claim
             claim["status"] = "matched"
             claim["source"] = source
             claim["candidates"] = [source]
             claim["filter"] = str(source.get("event_shop_filter") or token)
-            claim["price"] = int(source.get("price", 0) or 0)
-            claim["amount"] = int(source.get("amount", 1) or 1)
+            claim["price"] = source_price
+            claim["amount"] = source_amount
             claim["identity_evidence"] = "catalog_row_id"
             return claim
         claim["identity_evidence"] = "catalog_row_id_conflict"
@@ -257,8 +320,8 @@ def resolve_catalog_claim(
     candidates = [
         item
         for item in catalog
-        if int(item.get("stock", 0) or 0) == total
-        and int(item.get("currency_id", 0) or 0) == currency_id
+        if _source_int(item, "stock") == total
+        and _source_int(item, "currency_id") == currency_id
         and (
             not token
             or str(item.get("event_shop_filter") or "").lower() == token.lower()
@@ -278,7 +341,7 @@ def resolve_catalog_claim(
         candidates = [
             item
             for item in candidates
-            if int(item.get("price", 0) or 0) == price
+            if _source_int(item, "price") == price
         ]
         if not candidates:
             return claim
@@ -294,7 +357,7 @@ def resolve_catalog_claim(
         amount_candidates = [
             item
             for item in candidates
-            if int(item.get("amount", 1) or 1) == amount
+            if _source_int(item, "amount", default=1) == amount
         ]
         if amount_candidates:
             candidates = amount_candidates
@@ -306,11 +369,15 @@ def resolve_catalog_claim(
     claim["candidates"] = candidates
     if len(candidates) == 1:
         source = candidates[0]
+        source_price = _source_int(source, "price")
+        source_amount = _source_int(source, "amount", default=1)
+        if source_price is None or source_amount is None:
+            return claim
         claim["status"] = "matched"
         claim["source"] = source
         claim["filter"] = str(source.get("event_shop_filter") or token)
-        claim["price"] = int(source.get("price", claim["price"]) or claim["price"] or 0)
-        claim["amount"] = int(source.get("amount", claim["amount"]) or claim["amount"] or 1)
+        claim["price"] = source_price
+        claim["amount"] = source_amount
         claim["identity_evidence"] = "source_key"
     elif len(candidates) > 1:
         claim["status"] = "ambiguous"
