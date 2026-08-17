@@ -261,6 +261,75 @@ def test_reidentification_column_resolution_stays_fail_closed_when_not_unique():
     )
 
 
+def test_named_column_fallback_accepts_named_identity_after_crop_drift():
+    target = make_runtime(
+        "SameT1",
+        price=20,
+        total=2,
+        image=np.zeros((12, 12, 3), dtype=np.uint8),
+    )
+    target.catalog_row_id = 100
+    target.button = (200, 100, 263, 163)
+
+    other_column = make_runtime(
+        "SameT1",
+        price=20,
+        total=2,
+        image=np.full((12, 12, 3), 100, dtype=np.uint8),
+    )
+    other_column.button = (31, 300, 94, 363)
+    same_column = make_runtime(
+        "SameT1",
+        price=20,
+        total=2,
+        image=np.full((12, 12, 3), 100, dtype=np.uint8),
+    )
+    same_column.button = (201, 300, 264, 363)
+
+    assert not EventShopClerk._purchase_item_matches(same_column, target)
+    assert (
+        EventShopClerk._purchase_named_match_in_original_column(
+            [other_column, same_column],
+            target,
+        )
+        is same_column
+    )
+
+
+def test_named_column_fallback_stays_fail_closed_without_full_evidence():
+    target = make_runtime("SameT1", price=20, total=2)
+    target.catalog_row_id = 100
+    target.button = (200, 100, 263, 163)
+
+    wrong_price = make_runtime("SameT1", price=21, total=2)
+    wrong_price.button = (201, 300, 264, 363)
+    assert (
+        EventShopClerk._purchase_named_match_in_original_column(
+            [wrong_price],
+            target,
+        )
+        is None
+    )
+
+    first = make_runtime("SameT1", price=20, total=2)
+    first.button = (195, 300, 258, 363)
+    second = make_runtime("SameT1", price=20, total=2)
+    second.button = (205, 500, 268, 563)
+    assert (
+        EventShopClerk._purchase_named_match_in_original_column(
+            [first, second],
+            target,
+        )
+        is None
+    )
+
+    target.name = "101"
+    assert (
+        EventShopClerk._purchase_named_match_in_original_column([first], target)
+        is None
+    )
+
+
 def test_priority_accepts_runtime_only_for_its_proven_source_row():
     runtime = make_runtime("SameT1", price=20, total=2)
     runtime.catalog_row_id = 100

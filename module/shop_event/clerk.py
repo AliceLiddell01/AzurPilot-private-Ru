@@ -280,6 +280,42 @@ class EventShopClerk(EventShopUI):
             return None
         return same_column[0]
 
+    @classmethod
+    def _purchase_named_match_in_original_column(cls, items, target):
+        """Подтвердить source-backed цель именованным CV и исходной колонкой.
+
+        Этот резервный путь используется только для уже доказанной строки каталога,
+        когда точное сравнение сохранённого crop с новым кадром не прошло. Именованная
+        visual identity должна совпасть буквально, цена, остаток, общий запас и валюта
+        должны совпасть, а в исходной колонке должен остаться ровно один кандидат.
+        Числовая временная identity сюда не допускается.
+        """
+        try:
+            row_id = int(getattr(target, "catalog_row_id", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if row_id <= 0:
+            return None
+
+        target_name = str(getattr(target, "name", "") or "")
+        if not target_name or target_name.isdigit():
+            return None
+
+        candidates = []
+        for item in items:
+            item_row_id = getattr(item, "catalog_row_id", None)
+            if item_row_id is not None and item_row_id != row_id:
+                continue
+            if str(getattr(item, "name", "") or "") != target_name:
+                continue
+            if not all(
+                getattr(item, field, None) == getattr(target, field, None)
+                for field in ("price", "count", "total_count", "cost")
+            ):
+                continue
+            candidates.append(item)
+        return cls._purchase_match_in_original_column(candidates, target)
+
     @staticmethod
     def _clamp_scroll_position(value):
         value = float(value)
@@ -363,6 +399,20 @@ class EventShopClerk(EventShopUI):
                         "matched": len(matches),
                     }
                 )
+
+                named_column_match = None
+                if not matches:
+                    named_column_match = self._purchase_named_match_in_original_column(
+                        items,
+                        item_to_buy,
+                    )
+                    if named_column_match is not None:
+                        matches = [named_column_match]
+                        attempts[-1]["named_column_resolved"] = True
+                        logger.info(
+                            "[Магазин события — покупка] Пограничный visual drift разрешён именованной identity и исходной колонкой доказанной строки каталога"
+                        )
+
                 if not matches:
                     continue
 
