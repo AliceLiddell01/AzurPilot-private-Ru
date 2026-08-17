@@ -15,7 +15,9 @@ LATIN_WORD_RE = re.compile(r"\b[A-Za-z]{2,}\b")
 URL_RE = re.compile(r"https?://\S+")
 INLINE_CODE_RE = re.compile(r"``[^`]+``|`[^`]+`")
 FILE_TOKEN_RE = re.compile(r"\b[A-Za-z0-9_.~/-]+\.[A-Za-z0-9]+\b")
-DOTTED_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b")
+DOTTED_IDENTIFIER_RE = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b"
+)
 TECHNICAL_DIRECTIVE_PREFIXES = (
     "noqa",
     "type:",
@@ -31,55 +33,22 @@ GENERATED_ASSET_BOILERPLATE = {
     "Don't modify it manually.",
 }
 
-# Production Python, затронутый PR #105. Raw data/fixtures, тесты и dev_tools
-# намеренно не входят в языковую политику production-кода.
-TOUCHED_PRODUCTION = (
+# Постоянная production-поверхность новой Event-интеграции. Она описывается
+# архитектурными каталогами и точками интеграции, а не номером PR, этапа,
+# event ID или текущим набором generated-карт.
+EVENT_PRODUCTION_DIRECTORIES = (
+    "campaign/generated_event",
+    "module/event_datamine",
+    "module/shop_event",
+)
+EVENT_INTEGRATION_FILES = (
     "campaign/__init__.py",
-    "campaign/generated_event/__init__.py",
-    "campaign/generated_event/en_51101/__init__.py",
-    "campaign/generated_event/en_51101/a1.py",
-    "campaign/generated_event/en_51101/a2.py",
-    "campaign/generated_event/en_51101/a3.py",
-    "campaign/generated_event/en_51101/b1.py",
-    "campaign/generated_event/en_51101/b2.py",
-    "campaign/generated_event/en_51101/b3.py",
-    "campaign/generated_event/en_51101/c1.py",
-    "campaign/generated_event/en_51101/c2.py",
-    "campaign/generated_event/en_51101/c3.py",
-    "campaign/generated_event/en_51101/d1.py",
-    "campaign/generated_event/en_51101/d2.py",
-    "campaign/generated_event/en_51101/d3.py",
-    "campaign/generated_event/en_51101/sp.py",
-    "module/event_datamine/__init__.py",
-    "module/event_datamine/artifact.py",
-    "module/event_datamine/assets.py",
-    "module/event_datamine/campaign_selector.py",
-    "module/event_datamine/compiler.py",
-    "module/event_datamine/discovery.py",
-    "module/event_datamine/generator.py",
-    "module/event_datamine/map_compiler.py",
-    "module/event_datamine/model.py",
-    "module/event_datamine/patches.py",
-    "module/event_datamine/registry.py",
-    "module/event_datamine/runtime_policy.py",
-    "module/event_datamine/runtime_semantics.py",
-    "module/event_datamine/source.py",
-    "module/event_datamine/supplemental.py",
-    "module/event_datamine/supplemental_projection.py",
-    "module/event_datamine/supplemental_resolver.py",
-    "module/event_datamine/supplemental_verify.py",
     "module/log_res/log_res.py",
     "module/logger.py",
     "module/map/map_fleet_preparation.py",
     "module/map/map_operation.py",
     "module/map_detection/utils_assets.py",
     "module/retire/retirement.py",
-    "module/shop_event/clerk.py",
-    "module/shop_event/item.py",
-    "module/shop_event/notification_policy.py",
-    "module/shop_event/selector.py",
-    "module/shop_event/shop_event.py",
-    "module/shop_event/ui.py",
     "module/statistics/item.py",
     "module/template/assets.py",
     "module/webui/app.py",
@@ -149,11 +118,25 @@ def _is_generated_asset_boilerplate(relative: str, kind: str, text: str) -> bool
     )
 
 
-def _language_findings():
-    findings = []
-    for relative in TOUCHED_PRODUCTION:
+def _event_production_paths() -> tuple[Path, ...]:
+    paths: set[Path] = set()
+    for relative in EVENT_PRODUCTION_DIRECTORIES:
+        directory = ROOT / relative
+        assert directory.is_dir(), relative
+        paths.update(path for path in directory.rglob("*.py") if path.is_file())
+
+    for relative in EVENT_INTEGRATION_FILES:
         path = ROOT / relative
         assert path.is_file(), relative
+        paths.add(path)
+
+    return tuple(sorted(paths))
+
+
+def _language_findings():
+    findings = []
+    for path in _event_production_paths():
+        relative = path.relative_to(ROOT).as_posix()
         source = path.read_text(encoding="utf-8")
         for kind, entries in (
             ("comment", _comments(source)),
@@ -171,15 +154,17 @@ def _language_findings():
     return findings
 
 
-def test_touched_production_comments_and_docstrings_follow_russian_policy():
-    assert len(TOUCHED_PRODUCTION) == len(set(TOUCHED_PRODUCTION))
+def test_event_production_comments_and_docstrings_follow_russian_policy():
+    paths = _event_production_paths()
+    assert len(paths) == len(set(paths))
     findings = _language_findings()
     assert not findings, "\n".join(findings)
 
 
-def test_touched_production_runtime_sinks_follow_russian_policy():
+def test_event_production_runtime_sinks_follow_russian_policy():
     blockers = []
-    for relative in TOUCHED_PRODUCTION:
-        source = (ROOT / relative).read_text(encoding="utf-8")
+    for path in _event_production_paths():
+        relative = path.relative_to(ROOT).as_posix()
+        source = path.read_text(encoding="utf-8")
         blockers.extend(audit_source(source, relative).blockers)
     assert not blockers, "\n".join(blockers)

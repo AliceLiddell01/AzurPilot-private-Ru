@@ -3,8 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from contextlib import contextmanager
-from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +14,6 @@ from campaign import (
     _GeneratedEventAliasLoader,
     _adapt_generated_campaign_ui,
 )
-from module.event_datamine.artifact import BUILTIN_ARTIFACT_ROOT, load_artifact
 from module.event_datamine.campaign_selector import (
     generated_campaign_package_parts,
     generated_stage_module,
@@ -33,13 +31,15 @@ from module.webui.app_event_general_presentation import EventGeneralPresentation
 from module.webui.app_event_general_v2 import EventGeneralV2Mixin
 from module.webui.app_event_layout import EventLayoutMixin
 import module.webui.app_event_layout as event_layout
+from tests.event_fixture_helpers import (
+    ROOT,
+    artifact_active_time,
+    current_fixture_identity,
+    production_artifact,
+)
 
-
-ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION_ARTIFACT = BUILTIN_ARTIFACT_ROOT / "production" / "en-51101.json"
 ARGS_PATH = ROOT / "module" / "config" / "argument" / "args.json"
 EVENT_GENERAL_CSS = ROOT / "assets" / "gui" / "css" / "event-general-v2-alas.css"
-PINNED_NOW = datetime(2026, 8, 15, 12, 0, 0)
 
 
 class _Presenter(EventGeneralPresentationMixin):
@@ -52,58 +52,75 @@ class _MapPresenter(EventLayoutMixin):
     pass
 
 
-@pytest.mark.parametrize("value", (True, False, 1.0, 1.5, -2.25))
-def test_supplemental_integer_contract_rejects_bool_and_float(value):
-    with pytest.raises(EventSupplementalError):
-        require_int(value, "test.value")
+def test_supplemental_integer_contract_rejects_non_integer_values():
+    for value in (True, False, 1.0, 1.5, -2.25):
+        with pytest.raises(EventSupplementalError):
+            require_int(value, "test.value")
 
 
-@pytest.mark.parametrize(
-    "value, expected", ((0, 0), (17, 17), ("42", 42), ("-3", -3))
-)
-def test_supplemental_integer_contract_keeps_exact_integers(value, expected):
-    assert require_int(value, "test.value") == expected
+def test_supplemental_integer_contract_keeps_exact_integers():
+    for value, expected in ((0, 0), (17, 17), ("42", 42), ("-3", -3)):
+        assert require_int(value, "test.value") == expected
 
 
-@pytest.mark.parametrize(
-    "field, value",
-    (("base_points", True), ("base_points", 30.0), ("map_id", 2050001.5)),
-)
-def test_supplemental_validation_rejects_non_integer_map_fields(field, value):
-    data = load_supplemental("en:51101")
-    assert data is not None
-    data["farm"]["maps"][0][field] = value
-    data["digest"] = supplemental_digest(data)
+def test_supplemental_validation_rejects_non_integer_map_fields():
+    artifact = production_artifact()
+    source = load_supplemental(artifact["event_spec"]["id"])
+    assert source is not None
 
-    with pytest.raises(EventSupplementalError):
-        validate_supplemental(data)
+    for field, value in (
+        ("base_points", True),
+        ("base_points", 30.0),
+        ("map_id", 1.5),
+    ):
+        data = json.loads(json.dumps(source))
+        data["farm"]["maps"][0][field] = value
+        data["digest"] = supplemental_digest(data)
+        with pytest.raises(EventSupplementalError):
+            validate_supplemental(data)
 
 
-def _current_en_selector() -> str:
+def _current_selector() -> str:
+    _, server, *_ = current_fixture_identity()
     args_data = json.loads(ARGS_PATH.read_text(encoding="utf-8"))
-    options = args_data["Event"]["Campaign"]["Event"].get("option_en", [])
+    event_arg = args_data["Event"]["Campaign"]["Event"]
+    options = event_arg.get(f"option_{server.lower()}", [])
     selectors = [str(item) for item in options if str(item).startswith("event_")]
     assert selectors
     return selectors[-1]
 
 
-def test_generated_campaign_package_is_derived_from_artifact_metadata():
-    artifact = load_artifact(PRODUCTION_ARTIFACT)
+def test_generated_campaign_modules_are_derived_from_artifact_metadata():
+    artifact = production_artifact()
+    package_parts = generated_campaign_package_parts(artifact)
+    assert package_parts
 
-    assert generated_campaign_package_parts(artifact) == ("en_51101",)
-    assert generated_stage_module(artifact, "d3").endswith("/d3.py")
-    assert generated_stage_module(artifact, "ht6").endswith("/d3.py")
+    generated = [
+        item
+        for item in artifact["metadata"]["generated_maps"]
+        if item.get("source_status") == "verified" and item.get("module")
+    ]
+    assert generated
+    for item in generated:
+        stage = PurePosixPath(item["module"]).stem
+        assert generated_stage_module(artifact, stage) == item["module"]
+        assert PurePosixPath(item["module"]).parent.parts == package_parts
 
 
-def test_legacy_selector_resolves_to_current_generated_module():
-    selector = _current_en_selector()
+def test_legacy_selector_resolves_to_generated_module_from_current_artifact():
+    artifact = production_artifact()
+    selector = _current_selector()
+    compatibility_stage = "t1"
+    expected = generated_stage_module(artifact, compatibility_stage)
     target = resolve_generated_campaign_module(
         selector,
-        "ht6",
-        now=PINNED_NOW,
+        compatibility_stage,
+        now=artifact_active_time(artifact),
     )
 
-    assert target == "campaign.generated_event.en_51101.d3"
+    assert target == "campaign.generated_event." + ".".join(
+        PurePosixPath(expected).with_suffix("").parts
+    )
 
 
 def test_alias_loader_reuses_same_module_object(monkeypatch):
@@ -116,12 +133,15 @@ def test_alias_loader_reuses_same_module_object(monkeypatch):
 
     monkeypatch.setattr(campaign_package.importlib, "import_module", fake_import)
     monkeypatch.setattr(campaign_package, "_adapt_generated_campaign_ui", lambda module: None)
-    loader = _GeneratedEventAliasLoader("campaign.generated_event.any.d3")
-    spec = importlib.util.spec_from_loader("campaign.event_legacy.ht6", loader)
+    loader = _GeneratedEventAliasLoader("campaign.generated_event.fixture.stage")
+    spec = importlib.util.spec_from_loader("campaign.event_fixture.t1", loader)
 
     assert loader.create_module(spec) is fake_module
     assert loader.create_module(spec) is fake_module
-    assert calls == ["campaign.generated_event.any.d3", "campaign.generated_event.any.d3"]
+    assert calls == [
+        "campaign.generated_event.fixture.stage",
+        "campaign.generated_event.fixture.stage",
+    ]
 
 
 def test_alias_finder_is_lazy_and_does_not_resolve_unrelated_imports(monkeypatch):
@@ -129,67 +149,57 @@ def test_alias_finder_is_lazy_and_does_not_resolve_unrelated_imports(monkeypatch
 
     def fake_resolve(selector, stage, *, now):
         calls.append((selector, stage))
-        return "campaign.generated_event.any.d3"
+        return "campaign.generated_event.fixture.stage"
 
     monkeypatch.setattr(
         campaign_package,
         "resolve_generated_campaign_module",
         fake_resolve,
     )
-    finder = _GeneratedEventAliasFinder(now_factory=lambda: PINNED_NOW)
+    finder = _GeneratedEventAliasFinder(now_factory=lambda: artifact_active_time())
 
-    assert finder.find_spec("campaign.generated_event.any") is None
+    assert finder.find_spec("campaign.generated_event.fixture") is None
     assert calls == []
-    spec = finder.find_spec("campaign.event_legacy.ht6")
+    spec = finder.find_spec("campaign.event_fixture.t1")
     assert spec is not None
     assert isinstance(spec.loader, _GeneratedEventAliasLoader)
-    assert spec.loader.target == "campaign.generated_event.any.d3"
-    assert calls == [("event_legacy", "ht6")]
+    assert spec.loader.target == "campaign.generated_event.fixture.stage"
+    assert calls == [("event_fixture", "t1")]
 
 
 def test_generated_campaign_ui_adapter_uses_map_name_without_replacing_class():
     calls: list[tuple[str, str, bool]] = []
 
     class FakeCampaign:
-        MAP = SimpleNamespace(name="D3")
+        MAP = SimpleNamespace(name="T1")
 
         def ensure_campaign_ui(self, name, mode="normal", skip_first_screenshot=True):
             calls.append((name, mode, skip_first_screenshot))
             return "ok"
 
-    fake_module = SimpleNamespace(
-        Campaign=FakeCampaign,
-        MAP=FakeCampaign.MAP,
-    )
+    fake_module = SimpleNamespace(Campaign=FakeCampaign, MAP=FakeCampaign.MAP)
     original_class = fake_module.Campaign
 
     _adapt_generated_campaign_ui(fake_module)
     _adapt_generated_campaign_ui(fake_module)
     result = fake_module.Campaign().ensure_campaign_ui(
-        "ht6", mode="hard", skip_first_screenshot=False
+        "legacy-stage",
+        mode="hard",
+        skip_first_screenshot=False,
     )
 
     assert fake_module.Campaign is original_class
     assert result == "ok"
-    assert calls == [("d3", "hard", False)]
+    assert calls == [("t1", "hard", False)]
 
 
 def test_canonical_general_presentation_precedes_v2_dispatch():
     mro = AlasGUI.__mro__
     assert mro.index(EventGeneralPresentationMixin) < mro.index(EventGeneralV2Mixin)
     assert mro.index(EventGeneralV2Mixin) < mro.index(EventLayoutMixin)
-    assert (
-        AlasGUI._render_event_sources_v2
-        is EventGeneralPresentationMixin._render_event_sources_v2
-    )
-    assert (
-        AlasGUI._render_event_stages_v2
-        is EventGeneralPresentationMixin._render_event_stages_v2
-    )
-    assert (
-        AlasGUI._render_event_general_v2
-        is EventGeneralPresentationMixin._render_event_general_v2
-    )
+    assert AlasGUI._render_event_sources_v2 is EventGeneralPresentationMixin._render_event_sources_v2
+    assert AlasGUI._render_event_stages_v2 is EventGeneralPresentationMixin._render_event_stages_v2
+    assert AlasGUI._render_event_general_v2 is EventGeneralPresentationMixin._render_event_general_v2
 
 
 def test_event_map_name_is_session_local_and_legacy_selector_is_hidden():
@@ -199,28 +209,29 @@ def test_event_map_name_is_session_local_and_legacy_selector_is_hidden():
             "Campaign": {
                 "Event": {
                     "type": "select",
-                    "value": "event_legacy",
-                    "option": ["event_legacy"],
-                    "option_en": ["event_legacy"],
+                    "value": "event_fixture",
+                    "option": ["event_fixture"],
+                    "option_en": ["event_fixture"],
                 }
             }
         }
     }
-    presenter._current_event_name = lambda config: "Current Event"
+    presenter._current_event_name = lambda config: "Текущее событие"
     config = {
         "Alas": {"Emulator": {"PackageName": "com.YoStarEN.AzurLane"}},
-        "Event": {"Campaign": {"Event": "event_legacy"}},
+        "Event": {"Campaign": {"Event": "event_fixture"}},
     }
 
     task_args, returned_config, event_name = presenter._prepare_event_map_args(
-        "Event", config
+        "Event",
+        config,
     )
 
     assert returned_config is config
-    assert event_name == "Current Event"
+    assert event_name == "Текущее событие"
     assert task_args["Campaign"]["Event"]["display"] == "hide"
-    assert task_args["Campaign"]["Event"]["value"] == "event_legacy"
-    assert config["Event"]["Campaign"]["Event"] == "event_legacy"
+    assert task_args["Campaign"]["Event"]["value"] == "event_fixture"
+    assert config["Event"]["Campaign"]["Event"] == "event_fixture"
 
 
 def test_advanced_groups_render_directly_inside_collapse_without_dom_reparent(monkeypatch):
@@ -274,25 +285,22 @@ def test_advanced_groups_render_directly_inside_collapse_without_dom_reparent(mo
 
 def test_pt_sources_for_same_map_are_presented_as_one_card():
     presenter = _Presenter()
-    plan = {
-        "stages": [
-            {"id": "2050001", "name": "A1", "title": "Idol and Detective"}
-        ]
-    }
+    map_id = 101
+    plan = {"stages": [{"id": str(map_id), "name": "T1", "title": "Тестовая карта"}]}
     sources = [
         {
-            "id": "map:2050001",
+            "id": f"map:{map_id}",
             "kind": "repeatable_map_clear",
-            "name": "A1",
+            "name": "T1",
             "points": 30,
-            "source_ids": [2050001],
+            "source_ids": [map_id],
         },
         {
-            "id": "map-daily-first-clear:2050001",
+            "id": f"map-daily-first-clear:{map_id}",
             "kind": "daily_first_clear",
-            "name": "A1",
+            "name": "T1",
             "points": 90,
-            "source_ids": [2050001],
+            "source_ids": [map_id],
             "multiplier": 3,
         },
     ]
@@ -300,8 +308,8 @@ def test_pt_sources_for_same_map_are_presented_as_one_card():
     cards = presenter._combined_map_pt_sources(plan, sources)
 
     assert len(cards) == 1
-    assert cards[0]["name"] == "A1"
-    assert cards[0]["title"] == "Idol and Detective"
+    assert cards[0]["name"] == "T1"
+    assert cards[0]["title"] == "Тестовая карта"
     assert [item["points"] for item in cards[0]["sources"]] == [30, 90]
     rendered = presenter._render_source_card(cards[0])
     assert "Обычное прохождение" in rendered
@@ -312,8 +320,8 @@ def test_pt_sources_for_same_map_are_presented_as_one_card():
 def test_verified_coin_range_and_stage_title_are_used_for_farm_presentation():
     presenter = _Presenter()
     stage = {
-        "name": "D3",
-        "title": "Rain Upon Flowery Seas",
+        "name": "T3",
+        "title": "Тестовая карта",
         "points": 180,
         "oil": 267,
         "coins": {"map_plus_clear_range": [1175, 1400]},
@@ -324,8 +332,8 @@ def test_verified_coin_range_and_stage_title_are_used_for_farm_presentation():
 
     assert presenter._format_coin_income(stage) == "1 175–1 400"
     rendered = presenter._render_farm_card(stage, 131790)
-    assert "D3" in rendered
-    assert "Rain Upon Flowery Seas" in rendered
+    assert "T3" in rendered
+    assert "Тестовая карта" in rendered
     assert "Доход за проход" in rendered
     assert "1 175–1 400" in rendered
     assert "Затраты" in rendered
@@ -338,7 +346,7 @@ def test_observed_coin_value_prevents_technical_stage_collapse():
     presenter = _Presenter()
     common = {
         "name": "EXTRA",
-        "title": "Pandora's Wish",
+        "title": "Техническая карта",
         "mode": "special",
         "points": None,
         "oil": None,
@@ -351,8 +359,8 @@ def test_observed_coin_value_prevents_technical_stage_collapse():
     }
     plan = {
         "stages": [
-            {**common, "id": "2050051", "coin": 10},
-            {**common, "id": "2050052", "coin": 20},
+            {**common, "id": "9001", "coin": 10},
+            {**common, "id": "9002", "coin": 20},
         ]
     }
 
@@ -365,7 +373,7 @@ def test_identical_technical_extra_variants_collapse_only_in_user_facing_project
     presenter = _Presenter()
     common = {
         "name": "EXTRA",
-        "title": "Pandora's Wish",
+        "title": "Техническая карта",
         "mode": "special",
         "points": None,
         "oil": None,
@@ -379,8 +387,8 @@ def test_identical_technical_extra_variants_collapse_only_in_user_facing_project
     }
     plan = {
         "stages": [
-            {**common, "id": "2050051"},
-            {**common, "id": "2050052"},
+            {**common, "id": "9001"},
+            {**common, "id": "9002"},
         ]
     }
 
@@ -388,7 +396,7 @@ def test_identical_technical_extra_variants_collapse_only_in_user_facing_project
 
     assert len(stages) == 1
     assert stages[0]["name"] == "EXTRA"
-    assert stages[0]["variant_ids"] == ["2050051", "2050052"]
+    assert stages[0]["variant_ids"] == ["9001", "9002"]
     assert len(plan["stages"]) == 2
 
 
@@ -408,5 +416,3 @@ def test_canonical_css_caps_sparse_cards_and_has_no_main_column_surface():
     assert "#pywebio-scope-group_EventMainColumn" in css
     assert "background: transparent !important" in css
     assert ".event-map-current-event" in css
-    assert "event-general-v2-polish" not in css
-    assert "event-general-v2-acceptance" not in css

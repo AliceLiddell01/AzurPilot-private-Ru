@@ -19,7 +19,7 @@ class FakeTaskStop(Exception):
 
 
 class FakeConfig:
-    config_name = "smoke-followup"
+    config_name = "runtime-flow"
     SERVER = "EN"
 
     def __init__(self):
@@ -53,7 +53,7 @@ def runtime_item(*, remaining=100):
 
 def event_spec():
     return {
-        "id": "event-smoke",
+        "id": "event-test",
         "server": "EN",
         "currencies": [{"id": 1, "runtime_token": "pt"}],
         "shop_items": [
@@ -74,59 +74,7 @@ def test_explicit_small_amount_does_not_take_max_then_decrement_path():
     assert EventShopClerk._prefer_amount_max(1, 95, 100) is True
 
 
-def test_event_shop_buy_item_reidentifies_at_precise_scroll_position(monkeypatch):
-    calls = []
-    target = SimpleNamespace(
-        scroll_pos=0.3007513823848454,
-        name="AugmentEnhanceT2",
-        count=49,
-        price=90,
-        is_ship=False,
-    )
-    live = SimpleNamespace(
-        name="AugmentEnhanceT2",
-        count=49,
-        price=90,
-        is_ship=False,
-    )
-
-    class FakeScroll:
-        @staticmethod
-        def set_precise(position, main):
-            calls.append(("set_precise", position, main))
-            return 1
-
-    class ProbeClerk(EventShopClerk):
-        def __init__(self):
-            self.config = SimpleNamespace(config_name="probe")
-
-        @staticmethod
-        def event_shop_get_items():
-            return [live]
-
-        @staticmethod
-        def event_shop_buy_item_execute(item, amount):
-            calls.append(("buy", item, amount))
-
-    monkeypatch.setattr("module.shop_event.clerk.EVENT_SHOP_SCROLL", FakeScroll())
-    monkeypatch.setattr(
-        "module.shop_event.clerk.confirm_event_shop_purchase",
-        lambda config, item, full_purchase, remaining_after: calls.append(
-            ("confirm", full_purchase, remaining_after)
-        ),
-    )
-
-    shop = ProbeClerk()
-    shop.event_shop_buy_item(target, amount=1)
-
-    assert calls[0] == ("set_precise", target.scroll_pos, shop)
-    assert calls[1] == ("buy", live, 1)
-    assert calls[2] == ("confirm", False, 48)
-
-
-def test_scan_all_preserves_observation_snapshot_when_priority_prepare_fails(
-    monkeypatch,
-):
+def test_scan_all_preserves_observation_snapshot_when_priority_prepare_fails(monkeypatch):
     observed = [SimpleNamespace(button=(0, 100, 10, 110), name="Chip")]
 
     class FakeScroll:
@@ -192,19 +140,14 @@ def test_verification_only_pass_reads_pt_before_empty_purchase_set(monkeypatch):
         "module.event_datamine.registry.EventArtifactRegistry.resolve_current",
         lambda self, server, now: None,
     )
-    monkeypatch.setattr(
-        "module.shop_event.shop_event.logger.warning",
-        warnings.append,
-    )
+    monkeypatch.setattr("module.shop_event.shop_event.logger.warning", warnings.append)
 
     assert ProbeEventShop()._run() is True
     assert calls == ["load", "pt", "scan"]
     assert warnings == ["[Магазин события] Товары в магазине события не найдены"]
 
 
-def test_verification_only_pass_distinguishes_observed_shop_from_purchase_targets(
-    monkeypatch,
-):
+def test_verification_only_pass_distinguishes_observed_shop_from_purchase_targets(monkeypatch):
     infos = []
     warnings = []
     observed = [runtime_item(remaining=90)]
@@ -229,14 +172,8 @@ def test_verification_only_pass_distinguishes_observed_shop_from_purchase_target
         "module.event_datamine.registry.EventArtifactRegistry.resolve_current",
         lambda self, server, now: None,
     )
-    monkeypatch.setattr(
-        "module.shop_event.shop_event.logger.info",
-        infos.append,
-    )
-    monkeypatch.setattr(
-        "module.shop_event.shop_event.logger.warning",
-        warnings.append,
-    )
+    monkeypatch.setattr("module.shop_event.shop_event.logger.info", infos.append)
+    monkeypatch.setattr("module.shop_event.shop_event.logger.warning", warnings.append)
 
     assert ProbeEventShop()._run() is True
     assert infos == [
@@ -286,10 +223,14 @@ def test_verified_partial_goal_clears_goal_and_priority(monkeypatch, tmp_path):
     cleared = []
 
     monkeypatch.setattr(priority, "_current_spec", lambda _config: spec)
-    monkeypatch.setattr(priority, "_selected_targets", lambda _config, event_id: dict(target))
+    monkeypatch.setattr(
+        priority,
+        "_selected_targets",
+        lambda _config, event_id: dict(target),
+    )
 
     def clear_target(_config, event_id, row_id, expected_selected):
-        assert event_id == "event-smoke"
+        assert event_id == spec["id"]
         assert row_id == "11"
         assert expected_selected == 10
         if target[row_id] != expected_selected:

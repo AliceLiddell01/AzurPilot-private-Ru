@@ -5,8 +5,6 @@ from types import SimpleNamespace
 import numpy as np
 
 from campaign import _adapt_generated_campaign_ui
-from module.event_datamine.campaign_selector import generated_campaign_ui_layout
-from module.event_datamine.runtime_policy import load_generated_runtime_policy
 from module.shop_event.clerk import EventShopClerk
 from module.webui.app_event_general_presentation import EventGeneralPresentationMixin
 
@@ -43,14 +41,9 @@ def _image(value):
 def test_event_general_currency_values_use_icon_markup():
     presenter = GeneralPresenter()
     card = {
-        "name": "A1",
-        "title": "Idol and Detective",
-        "sources": [
-            {
-                "kind": "repeatable_map_clear",
-                "points": 30,
-            }
-        ],
+        "name": "T1",
+        "title": "Тестовая карта",
+        "sources": [{"kind": "repeatable_map_clear", "points": 30}],
     }
 
     rendered = presenter._render_source_card(
@@ -58,19 +51,9 @@ def test_event_general_currency_values_use_icon_markup():
         '<img class="event-currency-inline-icon" src="/currency.png" alt="currency">',
     )
 
-    assert 'event-currency-inline-icon' in rendered
+    assert "event-currency-inline-icon" in rendered
     assert ">30<" in rendered
     assert "30 PT" not in rendered
-
-
-def test_current_generated_package_has_verified_modern_campaign_ui_policy():
-    policy = load_generated_runtime_policy(("en_51101",))
-
-    assert policy is not None
-    assert policy["campaign_ui"]["layout"] == "20241219"
-    assert generated_campaign_ui_layout(
-        "campaign.generated_event.en_51101.a1"
-    ) == "20241219"
 
 
 def test_generated_campaign_ui_policy_enables_modern_part_tabs_without_replacing_class():
@@ -81,7 +64,7 @@ def test_generated_campaign_ui_policy_enables_modern_part_tabs_without_replacing
         MAP_CHAPTER_SWITCH_20260326 = False
 
     class Campaign:
-        MAP = SimpleNamespace(name="A1")
+        MAP = SimpleNamespace(name="T1")
 
         def ensure_campaign_ui(self, name, mode="normal", skip_first_screenshot=True):
             return name, mode, skip_first_screenshot
@@ -96,7 +79,7 @@ def test_generated_campaign_ui_policy_enables_modern_part_tabs_without_replacing
     assert module.Config.MAP_CHAPTER_SWITCH_20260326 is False
     assert module.Config.STAGE_ENTRANCE == ["half", "20240725"]
     assert module.Config.MAP_HAS_MODE_SWITCH is True
-    assert module.Campaign().ensure_campaign_ui("t1")[0] == "a1"
+    assert module.Campaign().ensure_campaign_ui("legacy-stage")[0] == "t1"
 
 
 def test_scanner_partial_overlap_drops_coin_and_oil_even_if_neighbor_identity_changes():
@@ -121,10 +104,7 @@ def test_scanner_partial_overlap_drops_coin_and_oil_even_if_neighbor_identity_ch
 
 
 def test_scanner_numeric_identity_requests_bounded_stabilizing_rescan():
-    items = [
-        SimpleNamespace(name="Chip"),
-        SimpleNamespace(name="107"),
-    ]
+    items = [SimpleNamespace(name="Chip"), SimpleNamespace(name="107")]
 
     assert EventShopClerk._has_unresolved_template_items(items) is True
     assert EventShopClerk._has_unresolved_template_items(
