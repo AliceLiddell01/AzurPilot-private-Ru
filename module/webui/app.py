@@ -1,10 +1,9 @@
-"""AzurPilot WebUI 的兼容入口和 ASGI 应用工厂。
+"""Совместимая точка входа AzurPilot WebUI и фабрика ASGI-приложения.
 
-提供 WebUI 的主应用类，通过多个 Mixin 组合实现各功能页面：
-仪表盘（Dashboard）、开发者菜单、开发者设置、开发者工具、
-活动工具等。同时提供 ASGI 应用创建和路由注册。
-
-该模块是 WebUI 的顶层入口，被 gui.py 启动时引用。
+Главный WebUI-контроллер собирается из mixin-классов для панели, меню и
+настроек разработчика, статистики, инструментов событий и других страниц.
+Модуль также создаёт ASGI-приложение, регистрирует маршруты и используется
+``gui.py`` как верхнеуровневая точка запуска WebUI.
 """
 
 from hashlib import sha256
@@ -84,7 +83,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _versioned_static_asset(relative_path: str) -> str:
-    """返回带内容哈希的相对静态资源地址。"""
+    """Вернуть относительный адрес статического ресурса с хешем содержимого."""
     digest = sha256((PROJECT_ROOT / relative_path).read_bytes()).hexdigest()[:12]
     return f"static/{relative_path}?v={digest}"
 
@@ -120,10 +119,12 @@ class AlasGUI(
     HomeMixin,
     Frame,
 ):
-    """组合各 WebUI 视图的会话控制器。
+    """Сеансовый контроллер, объединяющий все представления WebUI.
 
-    Mixin 的顺序明确会话能力的组合层次。统计页入口通过 ``self`` 调用具体
-    视图的渲染方法，因此各视图模块既可独立维护，也保持原有会话接口不变。
+    Порядок mixin-классов задаёт слой композиции возможностей. Статистическая
+    страница вызывает конкретные методы представлений через ``self``, поэтому
+    отдельные модули остаются независимо сопровождаемыми при сохранении
+    существующего сеансового интерфейса.
     """
 
     ALAS_MENU: Dict[str, Dict[str, List[str]]]
@@ -133,17 +134,13 @@ class AlasGUI(
 
 
 def debug() -> None:
-    """初始化 WebUI 后进入交互式调试会话。"""
+    """Инициализировать WebUI и запустить интерактивный отладочный сеанс."""
     startup()
     AlasGUI().run()
 
 
 def app():
-    """创建供 Uvicorn 使用的 ASGI 应用工厂。
-
-    Returns:
-        Starlette: 挂载 WebUI 页面和 MCP 子应用的 ASGI 应用。
-    """
+    """Создать ASGI-приложение для запуска через Uvicorn."""
     parser = argparse.ArgumentParser(description="Веб-служба AzurPilot")
     parser.add_argument(
         "-k", "--key", type=str, help="Пароль AzurPilot. По умолчанию пароль не используется"
@@ -177,10 +174,11 @@ def app():
     if args.run:
         runs = args.run
     elif State.deploy_config.Run:
-        # deploy.yaml 的旧格式仍是逗号分隔字符串，保持兼容直到配置读取器支持列表。
+        # Старый формат deploy.yaml хранит Run как строку с разделителями-запятыми;
+        # сохраняем совместимость до появления списков в конфигурационном reader.
         tmp = State.deploy_config.Run.split(",")
         runs = [item.strip(" ['\"]") for item in tmp if item]
-    # 未传入 --run 时保持 None，由进程管理器跳过启动实例。
+    # Без --run сохраняем None, чтобы менеджер процессов не запускал экземпляры.
     instances: List[str] | None = runs
 
     logger.hr("[WebUI] Конфигурация WebUI")
@@ -216,7 +214,7 @@ def app():
             is_mobile=info.user_agent.is_mobile,
             preloaded_styles=("alas",),
         )
-        # Event CSS загружается до построения меню/контента, чтобы первый кадр
+        # CSS события загружается до построения меню и контента, чтобы первый кадр
         # не зависел от асинхронной загрузки stylesheet через DOM.
         add_css(filepath_css("event-profiles-alas"))
         add_css(filepath_css("event-general-v2-alas"))

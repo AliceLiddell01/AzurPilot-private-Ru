@@ -1,9 +1,8 @@
-"""
-退役系统主处理器。
+"""Основной обработчик списания кораблей.
 
-提供舰船退役的完整流程，包括一键退役和旧退役两种模式。
-支持按稀有度筛选、退役确认、装备拆解、普通航母保留等操作。
-当船坞满载时，根据配置自动选择退役或强化策略。
+Поддерживает списание в один клик и старый ручной режим, фильтрацию по редкости,
+подтверждение списания и разбор снаряжения, сохранение обычного авианосца и
+переход между усилением и списанием при заполненном доке.
 """
 
 import re
@@ -40,11 +39,11 @@ CARD_RARITY_COLORS = {
     'R': (106, 195, 248),
     'SR': (151, 134, 254),
     'SSR': (248, 223, 107)
-    # 不支持婚戒卡牌
+    # Карточки с кольцом не поддерживаются.
 }
 
 RETIRE_CONFIRM_SCROLL = Scroll(RETIRE_CONFIRM_SCROLL_AREA, color=(74, 77, 110), name='STRATEGIC_SEARCH_SCROLL')
-# 背景颜色为 (66, 72, 77)，默认阈值 (256-221)=35 不足以区分
+# Цвет фона — (66, 72, 77); стандартного порога 35 недостаточно для надёжного различения.
 RETIRE_CONFIRM_SCROLL.color_threshold = 240
 
 COMMON_CV_FILTER_REGEX = re.compile(
@@ -72,27 +71,20 @@ TEMPLATE_COMMON_DD = {
     'DOWNES': [TEMPLATE_DOWNES_1, TEMPLATE_DOWNES_2]
 }
 
+
 class Retirement(Enhancement, QuickRetireSettingHandler):
-    """退役系统主处理器。
+    """Выполнять списание и связанное с ним усиление при заполненном доке.
 
-    组合强化处理器 (Enhancement) 和快速退役设置处理器
-    (QuickRetireSettingHandler)，提供一键退役和旧退役两种模式的
-    完整退役流程。
-
-    负责退役确认弹窗处理、装备拆解确认、普通航母保留策略，
-    以及船坞满载时退役与强化的自动切换。
-
-    Attributes:
-        _unable_to_enhance (bool): 标记当前是否无法强化，切换到退役流程。
-        _have_kept_cv (bool): 标记是否已保留一艘普通航母。
-        map_cat_attack_timer (Timer): 用于战斗中退役弹窗的计时。
+    Обработчик объединяет ``Enhancement`` и ``QuickRetireSettingHandler`` и
+    поддерживает списание в один клик, старый режим, подтверждения, разбор
+    снаряжения и сохранение обычного авианосца.
     """
     _unable_to_enhance = False
     _have_kept_cv = True
     # GAME_TIPS разрешён только после подтверждённого перехода из окна заполненного дока.
     _retirement_game_tips_pending = False
 
-    # Таймер из MapOperation для popup списания во время боя.
+    # Таймер из MapOperation для окна списания во время боя.
     map_cat_attack_timer = Timer(2)
 
     @property
@@ -100,17 +92,13 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         return self.config.is_task_enabled('GemsFarming') or self.config.is_task_enabled('ThreeOilLowCost')
 
     def _retirement_choose(self, amount=10, target_rarity=('N',)):
-        """
-        在退役界面中选择指定稀有度的舰船卡牌。
+        """Выбрать на экране списания корабли заданной редкости.
 
-        通过颜色识别每张卡牌的稀有度，然后点击目标稀有度的卡牌进行选中。
+        Редкость определяется по цвету карточки, после чего подходящие карточки
+        нажимаются до достижения ``amount``.
 
-        Args:
-            amount (int): 要退役的卡牌数量，范围 0 到 10。
-            target_rarity (tuple[str]): 目标稀有度，如 ('N',)、('N', 'R')。
-
-        Returns:
-            int: 实际选中的卡牌数量。
+        Возвращает:
+            int: фактическое число выбранных карточек.
         """
         cards = []
         rarity = []
@@ -118,7 +106,6 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             card_color = get_color(image=self.device.image, area=button.area)
             f = False
             for r, rarity_color in CARD_RARITY_COLORS.items():
-
                 if color_similar(card_color, rarity_color, threshold=15):
                     cards.append([x, y])
                     rarity.append(r)
@@ -141,18 +128,11 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         return selected
 
     def _retirement_confirm(self, skip_first_screenshot=True):
-        """
-        确认退役流程，处理所有弹出的确认对话框。
+        """Подтвердить списание и обработать последовательность всплывающих окон.
 
-        按显示层级依次处理舰船确认、装备拆解确认、获得物品和 SR/SSR 确认弹窗。
-        GemsFarming 使用的舰船没有装备可拆解，`executed` 可能永远不为 True，
-        因此使用超时机制兜底，避免无限循环。
-
-        Pages:
-            in: IN_RETIREMENT_CHECK, 以及
-                SHIP_CONFIRM_2（一键退役模式）
-                SHIP_CONFIRM（旧退役模式）
-            out: IN_RETIREMENT_CHECK
+        Проверяются подтверждение кораблей, разбор снаряжения, получение предметов
+        и подтверждение SR/SSR. Тайм-аут предотвращает бесконечное ожидание на
+        конфигурациях, где отдельные окна не появляются.
         """
         logger.info('[Списание — подтверждение] Подтверждение списания')
         executed = False
@@ -166,81 +146,69 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             else:
                 self.device.screenshot()
 
-            # 结束条件——超时兜底
+            # Завершаем по тайм-ауту как защиту от бесконечного цикла.
             if timeout.reached():
                 logger.warning('[Списание — подтверждение] Тайм-аут ожидания подтверждения; считаем списание завершённым')
                 break
-            # 有时 EQUIP_CONFIRM 没有黑色模糊背景，与 IN_RETIREMENT_CHECK 同时出现
+            # EQUIP_CONFIRM иногда появляется без затемнённого фона одновременно с IN_RETIREMENT_CHECK.
             if self.appear(IN_RETIREMENT_CHECK, offset=(20, 20)) and not self.appear(EQUIP_CONFIRM, offset=(30, 30)):
                 if executed:
                     break
             else:
                 timeout.reset()
 
-            # 点击——按显示层级排序
-            # SR/SSR 确认弹窗（一键退役或旧模式退役 SR/SSR 时出现）
+            # Обрабатываем окна в порядке визуальных слоёв.
             if self._unable_to_enhance \
                     or self.config.OldRetire_SR \
                     or self.config.OldRetire_SSR \
                     or self.config.Retirement_RetireMode == 'one_click_retire':
                 if self.handle_popup_confirm(name='RETIRE_SR_SSR', offset=(20, 50)):
-                    # 避免重复点击底层的 SHIP_CONFIRM
+                    # Не допускаем повторного нажатия нижележащего SHIP_CONFIRM.
                     self.interval_reset([SHIP_CONFIRM, SHIP_CONFIRM_2])
-                    # EQUIP_CONFIRM_2 可能被误识别为 popup confirm
+                    # EQUIP_CONFIRM_2 может ошибочно совпасть с общим popup confirm.
                     self.interval_reset([EQUIP_CONFIRM, EQUIP_CONFIRM_2])
                     continue
                 if self.config.SERVER in ['cn', 'jp', 'tw'] and \
                         self.appear_then_click(SR_SSR_CONFIRM, offset=(20, 50), interval=2):
-                    # 避免重复点击底层的 SHIP_CONFIRM
                     self.interval_reset([SHIP_CONFIRM, SHIP_CONFIRM_2])
-                    # EQUIP_CONFIRM_2 可能被误识别为 popup confirm
                     self.interval_reset([EQUIP_CONFIRM, EQUIP_CONFIRM_2])
                     continue
-            # 舰船确认（一键退役）
+            # Подтверждение кораблей в режиме списания в один клик.
             if self.match_template_color(SHIP_CONFIRM_2, offset=(30, 30), interval=2):
                 if self.retire_keep_common_cv and not self._have_kept_cv:
                     self.keep_one_common_cv()
                 self.device.click(SHIP_CONFIRM_2)
-                # GET_ITEMS_1 即将出现，清除以避免重新进入舰船确认
+                # Следующим ожидается GET_ITEMS_1; очищаем его интервал.
                 self.interval_clear(GET_ITEMS_1)
                 self.interval_reset([SHIP_CONFIRM, SHIP_CONFIRM_2])
                 continue
-            # 舰船确认（旧退役）
+            # Подтверждение кораблей в старом режиме.
             if self.match_template_color(SHIP_CONFIRM, offset=(30, 30), interval=2):
                 self.device.click(SHIP_CONFIRM)
                 continue
-            # 装备拆解确认
+            # Подтверждение разбора снаряжения.
             if self.appear_then_click(EQUIP_CONFIRM, offset=(30, 30), interval=2):
                 continue
             if self.appear_then_click(EQUIP_CONFIRM_2, offset=(30, 30), interval=2):
                 self.interval_clear(GET_ITEMS_1)
                 executed = True
                 continue
-            # 获得物品画面
+            # Экран полученных предметов.
             if self.appear(GET_ITEMS_1, offset=(30, 30), interval=2):
                 self.device.click(GET_ITEMS_1_RETIREMENT_SAVE)
                 self.interval_reset(SHIP_CONFIRM)
-                # 下一个出现的是装备拆解确认
+                # Следующим ожидается подтверждение разбора снаряжения.
                 self.interval_clear([EQUIP_CONFIRM, EQUIP_CONFIRM_2])
                 continue
 
     def retirement_appear(self):
-        """
-        检测退役确认弹窗是否出现。
-
-        Returns:
-            bool: 退役弹窗三个特征按钮全部出现则返回 True。
-        """
+        """Проверить появление окна списания по трём характерным шаблонам."""
         return self.appear(RETIRE_APPEAR_1, offset=30) \
                and self.appear(RETIRE_APPEAR_2, offset=30) \
                and self.appear(RETIRE_APPEAR_3, offset=30)
 
     def _retirement_quit(self):
-        """
-        退出退役/船坞界面，返回上一级页面。
-
-        通过 ui_back 逐级返回，直到 IN_RETIREMENT_CHECK 和 DOCK_CHECK 均消失。
-        """
+        """Выйти из экранов списания/дока на предыдущую страницу."""
         def check_func():
             return not self.appear(IN_RETIREMENT_CHECK, offset=(20, 20)) \
                    and not self.appear(DOCK_CHECK, offset=(20, 20))
@@ -249,12 +217,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
 
     @property
     def _retire_rarity(self):
-        """
-        根据用户配置获取需要退役的稀有度集合。
-
-        Returns:
-            set[str]: 稀有度集合，如 {'N', 'R'}。
-        """
+        """Вернуть набор редкостей, разрешённых настройками для списания."""
         rarity = set()
         if self.config.OldRetire_N:
             rarity.add('N')
@@ -267,15 +230,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         return rarity
 
     def _retire_wait_slow_retire(self, skip_first_screenshot=True):
-        """
-        等待一键退役后的 SHIP_CONFIRM_2 出现。
-
-        在慢速设备或大型船坞中，SHIP_CONFIRM_2 可能出现较慢。
-        如果 60 秒内未出现，GameStuckError 将被触发。
-
-        Returns:
-            bool: SHIP_CONFIRM_2 出现则返回 True。
-        """
+        """Дождаться ``SHIP_CONFIRM_2`` на медленном устройстве или большом доке."""
         logger.info('[Списание — подтверждение] Ожидание медленного списания')
         self.device.click_record_clear()
         self.device.stuck_record_clear()
@@ -285,24 +240,18 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             else:
                 self.device.screenshot()
 
-            # 结束条件
             if self.appear(SHIP_CONFIRM_2, offset=(30, 30)):
                 return True
 
     def retire_ships_one_click(self):
-        """
-        使用一键退役功能批量退役舰船。
+        """Списать подходящие корабли штатной функцией «в один клик».
 
-        一键退役不需要检查船坞，直接点击 ONE_CLICK_RETIREMENT 按钮。
-        客户端会一次性退役所有符合条件的舰船，因此只需执行一轮。
-        如果需要保留普通航母，会在退役确认前保留一艘。
-
-        Returns:
-            int: 退役的舰船数量（每轮 10 艘）。
+        Возвращает:
+            int: условное количество списанных кораблей, по 10 на выполненный цикл.
         """
         logger.hr('Списание')
         logger.info('[Списание — в один клик] Используется списание в один клик')
-        # 一键退役不需要等待加载船坞
+        # Для режима в один клик не требуется ожидать полную загрузку дока.
         self.dock_favourite_set(wait_loading=False)
         self.dock_sort_method_dsc_set(wait_loading=False)
         end = False
@@ -314,7 +263,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         while 1:
             self.handle_info_bar()
 
-            # 内层循环：ONE_CLICK_RETIREMENT -> SHIP_CONFIRM_2 或 info_bar
+            # Внутренний цикл: ONE_CLICK_RETIREMENT -> SHIP_CONFIRM_2 или info_bar.
             skip_first_screenshot = True
             click_count = 0
             while 1:
@@ -322,7 +271,6 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     skip_first_screenshot = False
                 else:
                     self.device.screenshot()
-                # 结束条件
                 if self.appear(SHIP_CONFIRM_2, offset=(30, 30)):
                     break
                 if self.info_bar_count():
@@ -330,14 +278,12 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     end = True
                     break
 
-                # 点击——多次重试后等待慢速退役
+                # После нескольких неудачных нажатий переходим к ожиданию медленного окна.
                 if click_count >= 5:
                     logger.warning('[Списание — в один клик] Не удалось выбрать корабль после 5 попыток')
                     if self._retire_wait_slow_retire():
-                        # 等待成功，继续在同一截图上触发 ONE_CLICK_RETIREMENT
                         pass
                     else:
-                        # 可能是游戏 bug，标记退役完成，上层会重新调用退役
                         end = True
                         total = 10
                         break
@@ -345,30 +291,22 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     click_count += 1
                     continue
 
-            # info_bar 提示无更多舰船可退役
+            # info_bar сообщает, что доступных для списания кораблей больше нет.
             if end:
                 break
-            # SHIP_CONFIRM_2 -> 退役确认流程
             self._retirement_confirm()
             total += 10
-            # 客户端一次性退役所有舰船，直接退出
+            # Клиент списывает подходящие корабли одной операцией; второй цикл не нужен.
             break
 
         logger.info(f'[Списание — в один клик] Всего циклов списания: {total // 10}')
         return total
 
     def retire_ships_old(self, amount=None, rarity=None):
-        """
-        使用旧退役模式手动选择并退役指定数量和稀有度的舰船。
+        """В старом режиме вручную выбрать и списать заданные редкости.
 
-        在退役界面通过颜色识别卡牌稀有度，逐批选择目标稀有度的卡牌进行退役。
-
-        Args:
-            amount (int): 要退役的数量，范围 0 到 2000。默认从配置读取。
-            rarity (tuple[str]): 目标稀有度，如 ('N',)、('N', 'R')。默认从配置读取。
-
-        Returns:
-            int: 实际退役的舰船总数。
+        Возвращает:
+            int: фактическое количество списанных кораблей.
         """
         if amount is None:
             amount = self._retire_amount
@@ -377,7 +315,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         logger.hr('Списание')
         logger.info(f'[Списание — старый режим] Количество={amount}, редкость={rarity}')
 
-        # 将稀有度映射为过滤器名称
+        # Сопоставляем внутренние обозначения редкости с фильтром дока.
         correspond_name = {
             'N': 'common',
             'R': 'rare',
@@ -421,17 +359,10 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         return total
 
     def retire_gems_farming_flagships(self, keep_one=True) -> int:
-        """
-        退役 GemsFarming 遗弃的旗舰（普通航母）。
+        """Списать ненужные обычные авианосцы из GemsFarming/ThreeOilLowCost.
 
-        筛选条件：稀有度为 common、等级 > 1、不在编队中、状态为空闲。
-        如果 keep_one 为 True，会保留等级最低的一艘。
-
-        Args:
-            keep_one (bool): 是否至少保留一艘普通航母。默认 True。
-
-        Returns:
-            int: 退役的舰船数量。
+        Выбираются свободные обычные авианосцы уровня выше 1, не находящиеся во
+        флоте. При ``keep_one=True`` сохраняется один корабль минимального уровня.
         """
         logger.info('[Списание — сохранение] Списание ненужного флагмана для фарма самоцветов / низкозатратного флота на 3 нефти')
 
@@ -462,13 +393,13 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             self.handle_info_bar()
             ships = scanner.scan(self.device.image)
             if not ships:
-                # 无可退役舰船，退出
+                # Подходящих кораблей для списания больше нет.
                 break
             if keep_one:
                 if len(ships) < 2:
                     break
                 else:
-                    # 保留等级最低的一艘
+                    # Сохраняем корабль минимального уровня.
                     ships.sort(key=lambda s: -s.level)
                     ships = ships[:-1]
 
@@ -479,31 +410,22 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
 
             self._retirement_confirm()
 
-            # 少于 10 艘时快速退出
+            # Если выбрано меньше десяти кораблей, следующей страницы уже не требуется.
             if len(ships) < 10:
                 break
 
         self._have_kept_cv = _
-        # 退役完成，即将退出，无需等待加载
+        # Списание завершено; перед выходом не ждём повторной загрузки дока.
         self.dock_filter_set(wait_loading=False)
 
         return total
 
     def handle_retirement(self):
-        """Обрабатывает списание или усиление при заполненном доке.
+        """Обработать списание или усиление при заполненном доке.
 
-        Режим выбирается из конфигурации:
-        - ``enhance``: сначала усиление, затем списание при необходимости;
-        - ``one_click_retire`` / ``old_retire``: непосредственное списание.
-
-        ``GAME_TIPS`` обрабатывается только после того, как этот обработчик сам
-        увидел и нажал окно заполненного дока. Шаблон ``GAME_TIPS`` общий для
-        разных экранов игры, поэтому без такого контекста его нельзя считать
-        частью процесса списания.
-
-        Returns:
-            bool: ``True``, если обработчик выполнил действие внутри процесса
-                списания/усиления.
+        Режим выбирается из конфигурации. ``GAME_TIPS`` обрабатывается только
+        после подтверждённого этим обработчиком перехода из окна заполненного
+        дока, поскольку шаблон используется и на других экранах.
         """
         if self._retirement_game_tips_pending and self.handle_game_tips():
             return True
@@ -518,7 +440,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             if self.appear(IN_RETIREMENT_CHECK, offset=(20, 20), interval=10):
                 self._retirement_game_tips_pending = False
                 try:
-                    # Используется режим списания из конфигурации, без локального переопределения.
+                    # Используем режим списания из конфигурации без локального переопределения.
                     self._retire_handler()
                     self._unable_to_enhance = False
                     self.interval_reset(IN_RETIREMENT_CHECK)
@@ -576,29 +498,15 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         return False
 
     def _retire_handler(self, mode=None):
-        """
-        退役调度器，根据模式分发到对应退役策略。
+        """Распределить выполнение на выбранную стратегию списания.
 
-        一键退役模式下，如果初始退役失败，会逐步放宽快速退役设置重试。
-        旧退役模式直接调用 retire_ships_old。
-
-        Args:
-            mode (str): 退役模式，'one_click_retire' 或 'old_retire'。默认从配置读取。
-
-        Returns:
-            int: 退役的舰船总数。
-
-        Raises:
-            RequestHumanTakeover: 无可退役舰船时抛出，需要用户介入。
-
-        Pages:
-            in: IN_RETIREMENT_CHECK
-            out: 退役弹窗出现前的页面
+        При режиме ``one_click_retire`` неудачная попытка постепенно ослабляет
+        настройки быстрого списания. ``old_retire`` вызывает старый ручной путь.
         """
         if mode is None:
             mode = self.config.Retirement_RetireMode
 
-        # 当模式为 'enhance' 时，使用 'one_click_retire' 作为默认退役模式
+        # Для ``enhance`` списание в один клик используется как резервный путь.
         if mode == 'enhance':
             logger.info('[Списание — док] Режим списания настроен на усиление; списание в один клик используется как резервный вариант')
             mode = 'one_click_retire'
@@ -612,7 +520,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 self.dock_filter_set()
                 total = self.retire_ships_one_click()
             if self.server_support_quick_retire_setting_fallback():
-                # 部分用户可能已设置 filter_5='all'，先尝试保留该设置
+                # Пользователь мог заранее установить filter_5='all'; сначала сохраняем эту настройку.
                 if not total:
                     logger.warning('[Списание — док] Корабли не списаны; сбрасываем первые 4 настройки быстрого списания')
                     self.quick_retire_setting_set(filter_5=None)
@@ -650,15 +558,10 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         return total
 
     def _retire_select_one(self, button, skip_first_screenshot=True):
-        """
-        在退役确认界面中选择一艘舰船（取消其退役）。
+        """Убрать один корабль из списка подтверждения списания.
 
-        通过检测 RETIRE_COIN 模板是否变化来判断是否成功选中。
-        最多重试 3 次。
-
-        Args:
-            button (Button): 要选择的舰船按钮。
-            skip_first_screenshot (bool): 是否跳过首次截图。默认 True。
+        Успех определяется по изменению шаблона ``RETIRE_COIN``; выполняется до
+        трёх повторных попыток.
         """
         count = 0
         RETIRE_COIN.load_color(self.device.image)
@@ -670,7 +573,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             else:
                 self.device.screenshot()
 
-            # 结束条件——RETIRE_COIN 模板变化说明选中成功
+            # Изменение RETIRE_COIN подтверждает успешное снятие выбора.
             if not RETIRE_COIN.match(self.device.image, offset=(20, 20), similarity=0.97):
                 return True
             if count > 3:
@@ -683,18 +586,10 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 continue
 
     def get_common_ship_filter(self, string, ship_type='cv', output=True):
-        """
-        解析普通稀有度航母/驱逐舰的过滤器字符串，返回舰船名称列表。
+        """Разобрать фильтр обычных авианосцев/эсминцев в список имён.
 
-        如果过滤器无效，自动回退到配置中的默认值并写回配置。
-
-        Args:
-            string (str): 过滤器字符串。
-            ship_type (str): 舰船类型，'cv' 或 'dd'。
-            output (bool): 是否输出日志。默认 True。
-
-        Returns:
-            list[str]: 去重后的舰船名称列表，如 ['bogue', 'hermes', 'ranger']。
+        При некорректном фильтре используется значение по умолчанию из
+        конфигурации, которое также записывается обратно в конфигурацию.
         """
         if ship_type.lower() not in ['cv', 'dd']:
             logger.warning(f'[Списание — сканирование] Недопустимый тип корабля: {ship_type}')
@@ -717,21 +612,13 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 self.config.cross_set(keys=key, value=default)
                 continue
 
-            # 结束条件——过滤器解析成功
+            # Фильтр успешно разобран.
             if output:
                 logger.attr('Порядок фильтра', ' > '.join(common_cv))
             return common_cv
 
     def retirement_get_common_rarity_cv_in_page(self):
-        """
-        在当前页面中通过模板匹配查找普通稀有度航母。
-
-        根据配置的预设（custom/any/eagle/指定航母）选择匹配模板，
-        在缩放后的截图上进行模板匹配。
-
-        Returns:
-            Button | None: 匹配到的航母按钮，未找到返回 None。
-        """
+        """Найти обычный авианосец на текущей странице по шаблону."""
         preset = self.config.GemsFarming_CommonCV
         if preset in ['custom', 'any', 'eagle']:
             filter_string = self.config.GemsFarming_CommonCVFilter if preset == 'custom' else self.config.COMMON_CV_FILTER
@@ -751,7 +638,6 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
 
             return None
         else:
-
             template = globals()[
                 f'TEMPLATE_{self.config.GemsFarming_CommonCV.upper()}']
             sim, button = template.match_result(
@@ -764,33 +650,23 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             return None
 
     def retirement_get_common_rarity_cv(self, skip_first_screenshot=False):
-        """
-        在退役确认界面中滚动查找普通稀有度航母。
-
-        从底部向顶部逐页滚动，通过模板匹配在每页中查找目标航母。
-        如果滚动条消失或到达顶部则停止。
-
-        Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。默认 False。
-
-        Returns:
-            Button | None: 找到的航母按钮（用于从退役列表中移除），未找到返回 None。
-        """
+        """Прокручивать подтверждение списания снизу вверх в поиске обычного CV."""
         swipe_count = 0
         disappear_confirm = Timer(2, count=6)
         top_checked = False
+        button = None
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
             else:
                 self.device.screenshot()
 
-            # 尝试在当前页获取航母
+            # Сначала ищем авианосец на текущей странице.
             button = self.retirement_get_common_rarity_cv_in_page()
             if button is not None:
                 return button
 
-            # 等待滚动条出现
+            # Ждём появления полосы прокрутки.
             if RETIRE_CONFIRM_SCROLL.appear(main=self):
                 disappear_confirm.clear()
             else:
@@ -810,7 +686,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 if RETIRE_CONFIRM_SCROLL.at_top(main=self):
                     logger.info('[Списание — прокрутка] Достигнут верх полосы прокрутки; остановка')
                     break
-                # 向上翻页
+                # Переходим на предыдущую страницу.
                 if swipe_count >= 7:
                     logger.info('[Списание — прокрутка] Достигнут лимит пролистываний при поиске обычного авианосца')
                     break
@@ -820,11 +696,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         return button
 
     def keep_one_common_cv(self):
-        """
-        在退役确认界面中保留一艘普通航母，将其从退役列表中移除。
-
-        通过滚动查找并选中一艘普通航母，避免 GemsFarming 全部退役。
-        """
+        """Сохранить один обычный авианосец, сняв его с подтверждения списания."""
         logger.info('Сохранение одного обычного авианосца')
         button = self.retirement_get_common_rarity_cv()
         if button is not None:

@@ -163,6 +163,7 @@ def test_user_state_public_io_is_reentrant_inside_write_lock(tmp_path):
     instance = "nested-profile"
     root = tmp_path / "state"
     initial = empty_event_user_state()
+    initial["source_event_id"] = "en:test"
     initial["shop_selections"] = {"A": 1}
     save_event_user_state(instance, initial, root=root)
     done = Event()

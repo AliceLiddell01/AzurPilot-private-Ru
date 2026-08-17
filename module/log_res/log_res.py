@@ -1,48 +1,50 @@
-"""资源变动记录与同步模块。
+"""Запись и синхронизация изменений игровых ресурсов.
 
-当各项游戏资源数值（如石油、物资、钻石、魔方等）发生变化时，
-负责更新配置文件中对应的 Dashboard 项及记录时间戳。
+При изменении значений нефти, монет, алмазов, кубов и других ресурсов модуль
+обновляет соответствующие поля ``Dashboard`` в конфигурации и время последней
+записи.
 
-使用示例：
+Пример:
     >>> log_res = LogRes(config)
-    >>> log_res.Oil = 12345  # 自动更新 Dashboard.Oil.Value 和记录时间
-    >>> log_res.Coin = {'Value': 50000, 'Limit': 99999}  # 同时记录值和上限
+    >>> log_res.Oil = 12345
+    >>> log_res.Coin = {'Value': 50000, 'Limit': 99999}
 
-Dashboard 数据结构：
-    Dashboard.<资源名> = {
-        'Value': int,      # 当前值
-        'Record': datetime, # 最后更新时间
-        'Limit': int,      # 上限（可选）
+Структура данных панели:
+    Dashboard.<имя ресурса> = {
+        'Value': int,       # Текущее значение.
+        'Record': datetime, # Время последнего обновления.
+        'Limit': int,       # Необязательный верхний предел.
     }
 """
 
-# 此文件实现了资源变动的记录与同步功能。
-# 当各项资源数值（如石油、魔方等）发生变化时，负责更新配置文件中对应的 Dashboard 项及记录时间戳。
-from cached_property import cached_property
-from module.logger import logger
-from module.config.deep import deep_get
 from datetime import datetime
+
+from cached_property import cached_property
+
+from module.config.deep import deep_get
+from module.logger import logger
 
 
 class LogRes:
+    """Синхронизировать присваивания ресурсов с разделом ``Dashboard``.
+
+    Значение ресурса задаётся как целое число либо как словарь с полями
+    ``Value`` и, при необходимости, ``Limit``/``Total``.
     """
-    set attr--->
-    Logres(AzurLaneConfig).<res_name>=resource_value:int
-    OR  ={'Value:int, 'Limit/Total':int}:dict
-    """
+
     YellowCoin: list
 
     def __init__(self, config):
         self.__dict__['config'] = config
 
     def _record_event_pt(self, value):
-        """Persist PT evidence produced by non-EventShop tasks and wake the shop safely."""
+        """Сохранить PT не из EventShop и безопасно разбудить магазин события."""
         task_name = str(
             getattr(getattr(self.config, 'task', None), 'command', '') or ''
         )
         if task_name == 'EventShop':
-            # EventShop persists its own direct OCR evidence with source
-            # ``event_shop_ocr`` and must not wake itself through Dashboard.
+            # EventShop самостоятельно сохраняет прямое OCR-наблюдение с источником
+            # ``event_shop_ocr`` и не должен будить себя через Dashboard.
             return
         try:
             from module.webui.event_currency import persist_event_currency_update
@@ -53,8 +55,8 @@ class LogRes:
                 source='dashboard_ocr',
             )
         except Exception:
-            # Resource logging is primary.  Event scheduling is additive and
-            # must never make an otherwise valid Dashboard update fail.
+            # Запись ресурса является основной операцией. Планирование EventShop —
+            # дополнительная операция и не должно ломать корректное обновление Dashboard.
             logger.exception(
                 '[Ресурсы журнала] Не удалось сохранить PT события или разбудить EventShop'
             )
@@ -80,7 +82,7 @@ class LogRes:
                             logger.exception('[Ресурсы журнала] Не удалось сохранить снимок монет')
                     if key == 'Pt':
                         self._record_event_pt(value)
-                    # 记录全量资源快照
+                    # Сохраняем полный снимок ресурсов после изменения значения.
                     self._record_all_resource_snapshot({key: value})
             elif isinstance(value, dict):
                 _mod = False
@@ -111,10 +113,10 @@ class LogRes:
                                 source=source,
                             )
                         except Exception:
-                            logger.exception('Не удалось сохранить снимок очков действия')
+                            logger.exception('[Ресурсы журнала] Не удалось сохранить снимок очков действия')
                     if key == 'Pt' and value_changed:
                         self._record_event_pt(value.get('Value'))
-                    # 记录全量资源快照
+                    # Сохраняем полный снимок ресурсов после изменения словаря.
                     value_to_record = value.get('Value') if isinstance(value, dict) else None
                     if value_to_record is not None:
                         self._record_all_resource_snapshot({key: value_to_record})
@@ -125,7 +127,7 @@ class LogRes:
             super().__setattr__(name=key, value=value)
 
     def _record_all_resource_snapshot(self, overrides=None):
-        """读取当前所有 Dashboard 资源值并记录快照"""
+        """Собрать текущие значения ``Dashboard`` и записать снимок ресурсов."""
         try:
             from module.statistics.resource_stats import record_resource_snapshot
             instance_name = getattr(self.config, 'config_name', 'default')
@@ -152,35 +154,16 @@ class LogRes:
 
     def group(self, name):
         return deep_get(self.config.data, f'Dashboard.{name}')
+
     @cached_property
     def groups(self) -> dict:
         from module.config.utils import read_file, filepath_argument
         return deep_get(d=read_file(filepath_argument("dashboard")), keys='Dashboard')
 
-    """
-    def log_res(self, name, modified: dict, update=True):
-        if name in self.groups:
-            key = f'Dashboard.{name}'
-            original = deep_get(self.config.data, keys=key)
-            _mod = False
-            for value_name, value in modified.items():
-                if value == original[value_name]:
-                    continue
-                _key = key + f'.{value_name}'
-                self.config.modified[_key] = value
-                _mod = True
-            if _mod:
-                _key_time = key + f'.Record'
-                _time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                self.config.modified[_key_time] = _time
-                if update:
-                    self.config.update()
-        else:
-            logger.warning('[日志资源] 没有此资源！')
-        return True
-        """
+
 if __name__ == '__main__':
     from module.config.config import AzurLaneConfig
+
     config = AzurLaneConfig('alas2')
     LogRes(config=config).ActionPoint = {'Total': 99999, 'Value': 99999}
     config.update()

@@ -1,8 +1,8 @@
-"""Ленивый compatibility-мост для текущих generated Event-карт.
+"""Ленивый мост совместимости для текущих сгенерированных карт события.
 
-Обычный `import campaign` не читает Event registry и не исполняет карты.
-Разрешение выполняется только при попытке импортировать конкретный этап из
-legacy selector текущего события.
+Обычный ``import campaign`` не читает реестр событий и не исполняет карты.
+Разрешение выполняется только при попытке импортировать конкретный этап через
+старый селектор текущего события.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from module.event_datamine.campaign_selector import (
 
 
 def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) -> None:
-    """Применить проверенный UI-layout и его общий scanner-contract к generated-карте."""
+    """Применить проверенную раскладку интерфейса к сгенерированной карте."""
 
     config_class = getattr(module, "Config", None)
     if config_class is None or not layout or layout == "legacy":
@@ -32,13 +32,13 @@ def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) 
         config_class.MAP_CHAPTER_SWITCH_20241219_SP = False
         config_class.MAP_CHAPTER_SWITCH_20241219_SPEX = False
         config_class.MAP_CHAPTER_SWITCH_20260326 = False
-        # Современный layout 20241219 использует те же визуальные входы этапов,
-        # что и upstream event-карты: half-state и шаблон входа 20240725.
-        # Это контракт layout, а не identity конкретного события.
+        # Современная раскладка 20241219 использует те же визуальные входы этапов,
+        # что и карты upstream: состояние ``half`` и шаблон входа 20240725.
+        # Это контракт раскладки, а не признак конкретного события.
         config_class.STAGE_ENTRANCE = ["half", "20240725"]
-        # Layout задаёт переключатель сложности по умолчанию, но явный факт
-        # конкретной карты имеет больший приоритет. Например, одноразовый SP
-        # текущего события использует тот же layout без Normal/Hard switch.
+        # Раскладка включает переключатель сложности по умолчанию, но явный факт
+        # конкретной карты имеет больший приоритет. Одноразовый SP, например,
+        # использует ту же раскладку без переключения Normal/Hard.
         if "MAP_HAS_MODE_SWITCH" not in vars(config_class):
             config_class.MAP_HAS_MODE_SWITCH = True
         return
@@ -48,14 +48,14 @@ def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) 
         config_class.MAP_CHAPTER_SWITCH_20241219_SPEX = False
         config_class.MAP_CHAPTER_SWITCH_20260326 = True
         return
-    raise ValueError(f"Неподдерживаемый generated Event UI layout: {layout!r}")
+    raise ValueError(f"Неподдерживаемая раскладка интерфейса сгенерированного события: {layout!r}")
 
 
 def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = None) -> None:
-    """Навигировать по каноническому MAP и проверенной UI-policy события.
+    """Настроить канонический ``MAP`` под проверенную политику интерфейса события.
 
-    Сам Campaign-класс не копируется: адаптируется тот же объект класса из
-    канонического generated-модуля, причём не более одного раза.
+    Сам класс ``Campaign`` не копируется: адаптируется тот же объект класса из
+    канонического сгенерированного модуля, причём не более одного раза.
     """
 
     _apply_generated_campaign_ui_policy(module, ui_layout)
@@ -84,7 +84,7 @@ def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = Non
 
 
 class _GeneratedEventAliasLoader(importlib.abc.Loader):
-    """Вернуть существующий канонический generated-модуль без повторного исполнения."""
+    """Вернуть существующий канонический сгенерированный модуль без повторного исполнения."""
 
     def __init__(self, target: str, ui_layout: str | None = None):
         self.target = target
@@ -93,19 +93,20 @@ class _GeneratedEventAliasLoader(importlib.abc.Loader):
     def create_module(self, spec):
         module = importlib.import_module(self.target)
         if self.ui_layout is None:
-            # Сохраняем совместимость с тестовыми/legacy адаптерами с одним аргументом.
+            # Сохраняем совместимость с тестовыми и старыми адаптерами,
+            # которые принимают один аргумент.
             _adapt_generated_campaign_ui(module)
         else:
             _adapt_generated_campaign_ui(module, self.ui_layout)
         return module
 
     def exec_module(self, module: ModuleType) -> None:
-        # Канонический модуль уже исполнен importlib.import_module() ровно один раз.
+        # Канонический модуль уже один раз исполнен через importlib.import_module().
         return None
 
 
 class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
-    """Лениво сопоставить legacy Event stage с generated current stage."""
+    """Лениво сопоставить старое имя этапа события с текущим сгенерированным этапом."""
 
     def __init__(self, now_factory=current_time):
         self._now_factory = now_factory
@@ -132,7 +133,7 @@ class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
 
 
 def _install_generated_event_alias_finder() -> None:
-    """Зарегистрировать finder один раз без чтения registry на старте."""
+    """Зарегистрировать поисковик один раз без чтения реестра на старте."""
 
     if any(isinstance(item, _GeneratedEventAliasFinder) for item in sys.meta_path):
         return

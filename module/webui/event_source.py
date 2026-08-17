@@ -1,4 +1,4 @@
-"""Проекция immutable EventSpec + отдельно хранимой пользовательской политики."""
+"""Проекция неизменяемого EventSpec и отдельно хранимой пользовательской политики."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from module.webui.event_observation import (
 from module.webui.event_plan import EVENT_PLAN_ROOT, empty_event_plan, load_event_plan
 from module.webui.state_lock import state_write_lock
 
-EVENT_USER_STATE_SCHEMA_VERSION = 2
+EVENT_USER_STATE_SCHEMA_VERSION = 3
 EVENT_USER_STATE_ROOT = Path("./config/state/event_user_state")
 
 
@@ -53,19 +53,19 @@ def empty_event_user_state() -> dict[str, Any]:
         "source_event_id": "",
         "explicit_empty": False,
         "shop_selections": {},
-        "legacy_unverified": None,
-        "legacy_debug_evidence": None,
     }
 
 
 def normalize_event_user_state(raw: Any) -> dict[str, Any]:
+    """Привести сохранённую политику к канонической схеме без старых снимков."""
+
     result = empty_event_user_state()
     if not isinstance(raw, Mapping):
         return result
     result["source_event_id"] = str(raw.get("source_event_id") or "")
     result["explicit_empty"] = bool(raw.get("explicit_empty"))
     selections = raw.get("shop_selections")
-    if isinstance(selections, Mapping):
+    if result["source_event_id"] and isinstance(selections, Mapping):
         for item, value in selections.items():
             if isinstance(value, (Mapping, list, tuple)):
                 continue
@@ -73,73 +73,29 @@ def normalize_event_user_state(raw: Any) -> dict[str, Any]:
                 result["shop_selections"][str(item)] = max(int(value or 0), 0)
             except TypeError, ValueError, OverflowError:
                 continue
-    legacy = raw.get("legacy_unverified")
-    result["legacy_unverified"] = dict(legacy) if isinstance(legacy, Mapping) else None
-    debug = raw.get("legacy_debug_evidence")
-    result["legacy_debug_evidence"] = (
-        dict(debug) if isinstance(debug, Mapping) else None
-    )
-    progress = raw.get("progress")
-    recurring = raw.get("recurring_status")
-    if isinstance(progress, Mapping) or isinstance(recurring, Mapping):
-        result["legacy_debug_evidence"] = {
-            "manual_progress": dict(progress)
-            if isinstance(progress, Mapping)
-            else None,
-            "manual_recurring_status": dict(recurring)
-            if isinstance(recurring, Mapping)
-            else None,
-            "note": "Stage 3 manual observation retained for diagnostics only",
-        }
     return result
 
 
-def migrate_stage2_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+def migrate_legacy_event_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Однократно перенести доказуемое пользовательское намерение из старого EventPlan."""
+
     state = empty_event_user_state()
     event = plan.get("event", {})
     source = event.get("source", {}) if isinstance(event, Mapping) else {}
     state["explicit_empty"] = (
         isinstance(source, Mapping) and source.get("kind") == "manual_empty"
     )
-    progress = plan.get("progress", {})
-    for item in plan.get("shop_items", []):
-        if not isinstance(item, Mapping):
-            continue
-        identity = str(item.get("id") or "").strip()
-        if identity:
-            state["shop_selections"][identity] = max(
-                int(item.get("selected", 0) or 0), 0
-            )
-    if isinstance(event, Mapping) and any(
-        event.get(key) for key in ("name", "farm_end", "shop_end")
-    ):
-        state["legacy_unverified"] = {
-            "event": dict(event),
-            "stages": list(plan.get("stages", [])),
-            "daily": list(plan.get("daily", [])),
-            "extra": list(plan.get("extra", [])),
-            "shop_items_without_stable_id": [
-                dict(item)
-                for item in plan.get("shop_items", [])
-                if isinstance(item, Mapping) and not str(item.get("id") or "").strip()
-            ],
-            "manual_current_pt": int(progress.get("current_pt", 0) or 0)
-            if isinstance(progress, Mapping)
-            else 0,
-            "note": "Stage 2 facts retained as unverified migration evidence; not an active provider",
-        }
-        state["legacy_debug_evidence"] = {
-            "manual_current_pt": int(progress.get("current_pt", 0) or 0)
-            if isinstance(progress, Mapping)
-            else 0,
-            "manual_sources": [
-                dict(item)
-                for kind in ("daily", "extra")
-                for item in plan.get(kind, [])
-                if isinstance(item, Mapping)
-            ],
-            "note": "Legacy manual values are debug evidence and never production truth",
-        }
+    if isinstance(event, Mapping) and event.get("id"):
+        state["source_event_id"] = str(event.get("id") or "")
+    if state["source_event_id"]:
+        for item in plan.get("shop_items", []):
+            if not isinstance(item, Mapping):
+                continue
+            identity = str(item.get("id") or "").strip()
+            if identity:
+                state["shop_selections"][identity] = max(
+                    int(item.get("selected", 0) or 0), 0
+                )
     return state
 
 
@@ -153,7 +109,7 @@ def _event_user_state_lock_path(
 def event_user_state_write_lock(
     instance: str, root: Path | str = EVENT_USER_STATE_ROOT
 ):
-    """Вернуть общую блокировку полного read-modify-write пользовательского состояния."""
+    """Вернуть общую блокировку полного цикла чтения, изменения и записи."""
 
     return state_write_lock(_event_user_state_lock_path(instance, root))
 
@@ -190,7 +146,11 @@ def _load_event_user_state_unlocked(
     content = atomic_read_text(str(path))
     if content:
         try:
-            return normalize_event_user_state(json.loads(content))
+            raw = json.loads(content)
+            normalized = normalize_event_user_state(raw)
+            if raw != normalized:
+                _save_event_user_state_unlocked(instance, normalized, root=root)
+            return normalized
         except (TypeError, ValueError) as exc:
             backup = path.with_name(f"{path.name}.corrupt-{uuid4().hex[:12]}")
             try:
@@ -205,8 +165,14 @@ def _load_event_user_state_unlocked(
                 )
     legacy_path = Path(legacy_root) / f"{_safe_instance_key(instance)}.json"
     if legacy_path.exists():
-        state = migrate_stage2_plan(load_event_plan(instance, root=legacy_root))
+        state = migrate_legacy_event_plan(load_event_plan(instance, root=legacy_root))
         _save_event_user_state_unlocked(instance, state, root=root)
+        try:
+            file_remove(str(legacy_path))
+        except OSError as exc:
+            logger.warning(
+                f"[WebUI — политика ивента] Каноническое состояние сохранено, но старый файл {legacy_path} не удалён: {exc}"
+            )
         return state
     return empty_event_user_state()
 
@@ -259,8 +225,8 @@ def event_plan_from_source(
     state: Mapping[str, Any],
     observation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    saved_source_id = str(state.get("source_event_id") or "")
     state = normalize_event_user_state(state)
+    saved_source_id = state["source_event_id"]
     if state["explicit_empty"]:
         plan = empty_event_plan(str(spec.get("server") or "EN"))
         plan["event"]["source"]["kind"] = "manual_empty"
@@ -325,8 +291,7 @@ def event_plan_from_source(
         if observation.get("current_pt") is not None
         else "unavailable",
     }
-    same_source = not saved_source_id or saved_source_id == plan["event"]["id"]
-    legacy = state.get("legacy_unverified") if same_source else None
+    same_source = bool(saved_source_id) and saved_source_id == plan["event"]["id"]
     plan["pt_sources"] = []
     for source in spec.get("pt_sources", []):
         if not isinstance(source, Mapping):
@@ -381,26 +346,6 @@ def event_plan_from_source(
                 }
             )
     selections = dict(state["shop_selections"]) if same_source else {}
-    if isinstance(legacy, Mapping):
-        source_rows = [
-            item for item in spec.get("shop_items", []) if isinstance(item, Mapping)
-        ]
-        for old in legacy.get("shop_items_without_stable_id", []):
-            if not isinstance(old, Mapping):
-                continue
-            matches = [
-                item
-                for item in source_rows
-                if str(item.get("name") or "") == str(old.get("name") or "")
-                and int(item.get("price", 0) or 0) == int(old.get("price", 0) or 0)
-                and int(item.get("stock", 0) or 0)
-                == int(old.get("stock", old.get("quantity", 0)) or 0)
-            ]
-            if len(matches) == 1:
-                identity = str(matches[0].get("row_id") or "")
-                selections.setdefault(
-                    identity, max(int(old.get("selected", 0) or 0), 0)
-                )
     shop_observed_fresh = shop_fresh
     shop_observations = {
         str(item.get("row_id")): item
@@ -476,7 +421,7 @@ def load_event_plan_from_artifact(
             observation.setdefault("findings", []).append(
                 {
                     "code": "runtime_observation_identity_rejected",
-                    "message": "Runtime observation не совпадает с current event identity",
+                    "message": "Наблюдение выполнения не совпадает с идентификатором текущего события",
                     "path": "runtime_observation",
                 }
             )
@@ -514,7 +459,7 @@ def load_event_plan_from_artifact(
             observation.setdefault("findings", []).append(
                 {
                     "code": "runtime_observation_not_newer",
-                    "message": "Runtime observation не новее сохранённого PT evidence",
+                    "message": "Наблюдение выполнения не новее сохранённых данных PT",
                     "path": "runtime_observation",
                 }
             )
@@ -524,7 +469,7 @@ def load_event_plan_from_artifact(
 def _current_pt_evidence_is_newer(
     candidate: Mapping[str, Any], existing: Mapping[str, Any]
 ) -> bool:
-    """Не позволить более старому или равному OCR evidence затереть свежую запись."""
+    """Не позволить более старым или равным данным OCR затереть свежую запись."""
 
     def timestamp(value: Any) -> float | None:
         try:
@@ -551,7 +496,7 @@ def load_builtin_event_plan(
     name: str,
     runtime_observation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Загрузить явно указанный demo/golden artifact, никогда не production default."""
+    """Загрузить явно указанный демонстрационный/эталонный артефакт, не рабочий по умолчанию."""
 
     return load_event_plan_from_artifact(
         instance, load_builtin_artifact(name), runtime_observation
@@ -590,7 +535,7 @@ def resolve_current_event_artifact(
     now: datetime | None = None,
     registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Разрешить current artifact один раз либо вернуть typed unavailable plan."""
+    """Разрешить текущий артефакт один раз либо вернуть типизированный недоступный план."""
 
     current_time = now or datetime.now()
     try:
@@ -612,7 +557,7 @@ def resolve_current_event_artifact(
         return None, _unavailable_current_plan(
             server,
             code="current_event_unavailable",
-            message="Для текущего server-local lifecycle нет production Event artifact",
+            message="Для текущего жизненного цикла сервера нет рабочего артефакта события",
         )
     return artifact, None
 
@@ -641,9 +586,15 @@ def user_state_from_plan(
     event = plan.get("event")
     if isinstance(event, Mapping) and event.get("id"):
         state["source_event_id"] = str(event["id"])
-    state["shop_selections"] = {
-        str(item.get("id")): max(int(item.get("selected", 0) or 0), 0)
-        for item in plan.get("shop_items", [])
-        if isinstance(item, Mapping) and item.get("id")
-    }
+    else:
+        state["source_event_id"] = ""
+    state["shop_selections"] = (
+        {
+            str(item.get("id")): max(int(item.get("selected", 0) or 0), 0)
+            for item in plan.get("shop_items", [])
+            if isinstance(item, Mapping) and item.get("id")
+        }
+        if state["source_event_id"]
+        else {}
+    )
     return state

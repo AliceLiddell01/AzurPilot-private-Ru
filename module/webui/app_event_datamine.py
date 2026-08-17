@@ -1,4 +1,4 @@
-"""WebUI mixin: immutable datamine facts plus mutable user policy."""
+"""WebUI-mixin: неизменяемые datamine-факты и изменяемая пользовательская политика."""
 
 from __future__ import annotations
 

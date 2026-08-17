@@ -68,8 +68,8 @@ def write_registry(
 ) -> Path:
     base = Path(root)
     data = build_registry(base)
-    # Reuse the artifact writer's atomic primitives through a temporary valid
-    # envelope, then replace it with the registry JSON deterministically.
+    # Используем атомарные примитивы writer артефактов через временный корректный
+    # контейнер, затем детерминированно заменяем его JSON-реестром.
     target = base / EVENT_REGISTRY_NAME
     target.parent.mkdir(parents=True, exist_ok=True)
     from deploy.atomic import file_remove, file_write, replace_tmp, to_tmp_file

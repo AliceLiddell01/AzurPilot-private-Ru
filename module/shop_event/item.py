@@ -54,7 +54,7 @@ class CounterOcr(Ocr):
 
     @staticmethod
     def parse_counter_result(value):
-        """Parse one ``current/total`` OCR token without guessing stock."""
+        """Разобрать один OCR-токен ``текущее/всего`` без догадок об остатке."""
         text = str(value or '').strip()
         parts = text.split('/')
         if len(parts) != 2:
@@ -89,15 +89,15 @@ class CounterOcr(Ocr):
         return [current, total]
 
     def ocr(self, image, direct_ocr=False):
-        """
-        Do OCR on a counter, such as `14/15`, and returns 14, 15
+        """Распознать счётчик вида ``14/15`` и вернуть пару ``[14, 15]``.
 
-        Args:
-            image:
-            direct_ocr:
+        Аргументы:
+            image: исходное изображение или список изображений.
+            direct_ocr: передать ли изображение непосредственно в OCR.
 
-        Returns:
-            list[list[int]: [[current, total]].
+        Возвращает:
+            Для списка изображений — список пар ``[текущее, всего]``;
+            для одного изображения — одну такую пару.
         """
         result = super().ocr(image, direct_ocr=direct_ocr)
         if isinstance(result, list):
@@ -121,9 +121,9 @@ class PriceOcr(Digit):
 PRICE_OCR = PriceOcr([], letter=(221, 221, 221), threshold=128, name='Price_ocr')
 
 
-URPT_PRICE_IN_PT = 150  # 1 URpt costs 150 pt
-COIN_PRICE_IN_URPT = 1  # 1 Coin costs 1 URpt
-UR_SHIP_PRICES_IN_URPT = [200, 300]  # UR Ships cost 200 or 300 URpt
+URPT_PRICE_IN_PT = 150  # Один URpt стоит 150 PT.
+COIN_PRICE_IN_URPT = 1  # Одна монета стоит 1 URpt.
+UR_SHIP_PRICES_IN_URPT = [200, 300]  # UR-корабли стоят 200 или 300 URpt.
 
 
 class EventShopItem(Item):
@@ -165,7 +165,7 @@ class EventShopItem(Item):
             self.cost = 'URpt'
             self.is_ship = True
         elif self.price == COIN_PRICE_IN_URPT and self.total_count == 350:
-            # URpt to Coin
+            # Обмен URpt на монеты.
             self.name = 'Coin'
             self.cost = 'URpt'
         else:
@@ -194,8 +194,7 @@ class EventShopItem(Item):
     def predict_genre(self):
         self.group, self.sub_genre, self.tier = None, None, None
 
-        # Can use regular expression to quickly populate
-        # the new attributes
+        # Регулярное выражение позволяет сразу заполнить новые признаки товара.
         name = self.name.lower()
         result = re.search(FILTER_REGEX, name)
         if result:

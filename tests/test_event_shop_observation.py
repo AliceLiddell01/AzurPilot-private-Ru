@@ -187,6 +187,7 @@ def test_desired_quantity_never_changes_observed_purchase_count():
         "shop_items": rows,
     }
     state = empty_event_user_state()
+    state["source_event_id"] = spec["id"]
     state["shop_selections"] = {"3009": 7}
 
     plan = event_plan_from_source(spec, state, observation)

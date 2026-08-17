@@ -1,16 +1,12 @@
-"""舰队准备界面管理模块。
+"""Управление экраном подготовки флота перед входом в кампанию.
 
-管理战役关卡进入前的舰队准备界面操作，包括：
-- 舰队选择和切换（通过下拉菜单）
-- 舰队推荐按钮
-- 舰队清空操作
-- 困难模式限制条件检测
-- 自动搜索设置（舰队角色分配）
+Модуль отвечает за выбор и переключение флотов через выпадающие списки,
+рекомендацию состава, очистку слотов, проверку ограничений сложного режима и
+настройку ролей флотов для автопоиска.
 
-FleetOperator 类封装了单个舰队槽位的操作逻辑，
-支持舰队的激活、停用和状态检测。
-
-继承自 InfoHandler，可处理准备界面中的弹窗。
+``FleetOperator`` инкапсулирует операции одного слота флота: выбор, очистку,
+активацию и проверку состояния. Базовый ``InfoHandler`` обрабатывает всплывающие
+окна на экране подготовки.
 """
 
 import numpy as np
@@ -29,33 +25,34 @@ from module.map.assets import *
 
 
 class FleetOperator:
-    """单个舰队槽位的操作器。
+    """Оператор одного слота флота на экране подготовки.
 
-    管理舰队准备界面中单个舰队槽位的选择、推荐和状态检测。
+    Управляет выбором, рекомендацией и проверкой состояния одного слота.
 
-    Attributes:
-        FLEET_BAR_SHAPE_Y (int): 舰队选择条的高度像素。
-        FLEET_BAR_MARGIN_Y (int): 舰队选择条的间距像素。
-        FLEET_BAR_ACTIVE_STD (int): 活跃状态的标准差阈值（活跃: 67, 非活跃: 12）。
-        FLEET_IN_USE_STD (int): 使用中状态的标准差阈值（使用中: 52, 未使用: 3-6）。
+    Атрибуты:
+        FLEET_BAR_SHAPE_Y: высота строки выбора флота в пикселях.
+        FLEET_BAR_MARGIN_Y: вертикальный интервал между строками.
+        FLEET_BAR_ACTIVE_STD: порог стандартного отклонения активной строки.
+        FLEET_IN_USE_STD: порог стандартного отклонения занятого слота.
     """
     FLEET_BAR_SHAPE_Y = 33
     FLEET_BAR_MARGIN_Y = 9
-    FLEET_BAR_ACTIVE_STD = 45  # Active: 67, inactive: 12.
-    FLEET_IN_USE_STD = 27  # In use 52, not in use (3, 6).
+    FLEET_BAR_ACTIVE_STD = 45  # Активный слот: около 67; неактивный: около 12.
+    FLEET_IN_USE_STD = 27  # Занятый слот: около 52; пустой: около 3–6.
 
     OFFSET = (-20, -80, 20, 5)
 
     def __init__(self, choose, advice, bar, clear, in_use, hard_satisfied, main):
-        """
-        Args:
-            choose (Button): Button to activate or deactivate dropdown menu.
-            advice (Button): Button to recommend ships.
-            bar (Button): Dropdown menu for fleet selection。
-            clear (Button): Button to clear current fleet.
-            in_use (Button): Button to detect if it's using current fleet.
-            hard_satisfied (Button): Area to detect if fleet satiesfies hard restrictions.
-            main (InfoHandler): Alas module.
+        """Инициализировать оператор слота флота.
+
+        Аргументы:
+            choose (Button): кнопка открытия или закрытия списка выбора.
+            advice (Button): кнопка рекомендации кораблей.
+            bar (Button): область выпадающего списка флотов.
+            clear (Button): кнопка очистки текущего флота.
+            in_use (Button): область определения занятого слота.
+            hard_satisfied (Button): область проверки ограничений сложного режима.
+            main (InfoHandler): основной модуль Alas.
         """
         self._choose = choose
         self._advice = advice
@@ -75,12 +72,13 @@ class FleetOperator:
         return str(self._choose)[:-7]
 
     def parse_fleet_bar(self, image):
-        """
-        Args:
-            image (np.ndarray): Image of dropdown menu.
+        """Получить номера выбранных флотов из изображения списка.
 
-        Returns:
-            list: List of int. Currently selected fleet ranges from 1 to 6.
+        Аргументы:
+            image (np.ndarray): изображение выпадающего списка.
+
+        Возвращает:
+            list: номера выбранных флотов в диапазоне от 1 до 6.
         """
         width, height = image_size(image)
         result = []
@@ -93,14 +91,13 @@ class FleetOperator:
         return result
 
     def get_button(self, index):
-        """
-        Convert fleet index to the Button object on dropdown menu.
+        """Получить ``Button`` строки заданного флота в выпадающем списке.
 
-        Args:
-            index (int): Fleet index, 1-6.
+        Аргументы:
+            index (int): номер флота от 1 до 6.
 
-        Returns:
-            Button: Button instance.
+        Возвращает:
+            Button: кнопка соответствующей строки.
         """
         bar = self._bar.button
         area = area_offset(area=(
@@ -112,28 +109,21 @@ class FleetOperator:
         return Button(area=(), color=(), button=area, name='%s_INDEX_%s' % (str(self._bar), str(index)))
 
     def allow(self):
-        """
-        Returns:
-            bool: If current fleet is allow to be chosen.
-        """
+        """Вернуть ``True``, если текущий слот флота доступен для выбора."""
         return self.main.appear(self._clear, offset=FleetOperator.OFFSET)
 
     def is_hard(self):
-        """
-        Returns:
-            bool: Whether to have a recommend. If so, this stage is a hard campaign.
-        """
+        """Определить, относится ли экран к кампании сложного режима."""
         return self.main.appear(self._advice, offset=FleetOperator.OFFSET)
 
     def is_hard_satisfied(self):
-        """
-        Detect how many light orange lines are there.
-        Having lines means current map has stat limits and user has satisfied at least one of them,
-        so this is a hard map.
+        """Проверить выполнение ограничений сложного режима по оранжевым линиям.
 
-        Returns:
-            bool: If current fleet satisfies hard restrictions.
-                Or None if this is not a hard mode
+        Наличие линий означает, что карта задаёт ограничения характеристик и
+        текущий флот удовлетворяет хотя бы одному из них.
+
+        Возвращает:
+            bool: выполнены ли ограничения; ``None`` для несложного режима.
         """
         if not self.is_hard():
             return None
@@ -144,7 +134,6 @@ class FleetOperator:
         parameters = {'height': 180, 'distance': 5}
         peaks, _ = signal.find_peaks(height, **parameters)
         lines = len(peaks)
-        # logger.attr('Light_orange_line', lines)
         return lines > 0
 
     def raise_hard_not_satisfied(self):
@@ -165,8 +154,9 @@ class FleetOperator:
             else:
                 main.device.screenshot()
 
-            # При очистке hard-флотов может появиться подтверждение. Сбрасываем
-            # доказательство пустого слота, чтобы не принять переходный кадр за результат.
+            # При очистке флотов сложного режима может появиться подтверждение.
+            # Сбрасываем доказательство пустого слота, чтобы не принять переходный
+            # кадр за завершённую очистку.
             if self.main.handle_popup_confirm(str(self._clear)):
                 empty_confirm.clear()
                 continue
@@ -182,7 +172,7 @@ class FleetOperator:
             empty_confirm.clear()
 
             # Если слот выглядит занятым, но CLEAR не виден, пустота не доказана.
-            # Продолжаем ждать: штатный stuck-detector завершит путь fail-closed,
+            # Продолжаем ждать: штатный детектор зависания завершит путь безопасно,
             # вместо клика по неподтверждённому элементу.
             if not self.allow():
                 continue
@@ -192,9 +182,7 @@ class FleetOperator:
                 click_timer.reset()
 
     def recommend(self, skip_first_screenshot=True):
-        """
-        Recommend fleet
-        """
+        """Заполнить слот рекомендованным флотом."""
         main = self.main
         click_timer = Timer(3, count=6)
         while 1:
@@ -203,19 +191,17 @@ class FleetOperator:
             else:
                 main.device.screenshot()
 
-            # End
+            # Завершение.
             if self.in_use():
                 break
 
-            # Click
+            # Нажатие.
             if click_timer.reached():
                 main.device.click(self._choose)
                 click_timer.reset()
 
     def open(self, skip_first_screenshot=True):
-        """
-        Activate dropdown menu for fleet selection.
-        """
+        """Открыть выпадающий список выбора флота."""
         main = self.main
         click_timer = Timer(3, count=6)
         while 1:
@@ -224,19 +210,17 @@ class FleetOperator:
             else:
                 main.device.screenshot()
 
-            # End
+            # Завершение.
             if self.bar_opened():
                 break
 
-            # Click
+            # Нажатие.
             if click_timer.reached():
                 main.device.click(self._choose)
                 click_timer.reset()
 
     def close(self, skip_first_screenshot=True):
-        """
-        Deactivate dropdown menu for fleet selection.
-        """
+        """Закрыть выпадающий список выбора флота."""
         main = self.main
         click_timer = Timer(3, count=6)
         while 1:
@@ -245,22 +229,21 @@ class FleetOperator:
             else:
                 main.device.screenshot()
 
-            # End
+            # Завершение.
             if not self.bar_opened():
                 break
 
-            # Click
+            # Нажатие.
             if click_timer.reached():
                 main.device.click(self._choose)
                 click_timer.reset()
 
     def click(self, index, skip_first_screenshot=True):
-        """
-        Choose a fleet on dropdown menu, and dropdown deactivated.
+        """Выбрать флот в списке и закрыть выпадающее меню.
 
-        Args:
-            index (int): Fleet index, 1-6.
-            skip_first_screenshot (bool):
+        Аргументы:
+            index (int): номер флота от 1 до 6.
+            skip_first_screenshot (bool): пропустить ли первый снимок экрана.
         """
         main = self.main
         button = self.get_button(index)
@@ -272,41 +255,31 @@ class FleetOperator:
                 main.device.screenshot()
 
             if not self.bar_opened():
-                # End
+                # Завершение.
                 if self.in_use():
                     break
                 else:
                     self.open()
 
-            # Click
+            # Нажатие.
             if click_timer.reached():
                 main.device.click(button)
                 click_timer.reset()
 
     def selected(self):
-        """
-        Returns:
-            list: List of int. Currently selected fleet ranges from 1 to 6.
-        """
+        """Вернуть номера выбранных флотов в диапазоне от 1 до 6."""
         data = self.parse_fleet_bar(self.main.image_crop(self._bar.button, copy=False))
         return data
 
     def in_use(self):
-        """
-        Returns:
-            bool: If has selected to any fleet.
-        """
-        # Handle the info bar of auto search info.
-        # if area_cross_area(self._in_use.area, INFO_BAR_1.area):
-        #     self.main.handle_info_bar()
-
-        # Cropping FLEET_*_IN_USE to avoid detecting info_bar, also do the trick.
-        # It also avoids wasting time on handling the info_bar.
+        """Вернуть ``True``, если в слоте выбран какой-либо флот."""
+        # Обрезаем область FLEET_*_IN_USE, чтобы не захватывать информационную
+        # панель автопоиска и не тратить время на её отдельную обработку.
         image = self.main.image_crop(self._in_use.button, copy=False)
 
-        # special fix for Perseus skin, which color is so flat
+        # Особая обработка скина Perseus с почти однородным цветом.
         # https://github.com/LmeSzinc/AzurLaneAutoScript/issues/5678
-        # no ship is in color (71, 70, 63)
+        # Для пустого слота характерен цвет (71, 70, 63).
         color = cv2.mean(image)[:3]
         if color_similar(color, (224, 154, 114), threshold=30):
             return True
@@ -315,21 +288,17 @@ class FleetOperator:
         return np.std(gray.flatten(), ddof=1) > self.FLEET_IN_USE_STD
 
     def bar_opened(self):
-        """
-        Returns:
-            bool: If dropdown menu appears.
-        """
-        # Check the brightness of the rightest column of the bar area.
+        """Вернуть ``True``, если выпадающий список открыт."""
+        # Проверяем яркость крайнего правого столбца области списка.
         luma = rgb2gray(self.main.image_crop(self._bar.button, copy=False))[:, -1]
-        # FLEET_PREPARATION is about 146~155
+        # Для FLEET_PREPARATION типичен диапазон яркости около 146–155.
         return np.sum(luma > 168) / luma.size > 0.5
 
     def ensure_to_be(self, index):
-        """
-        Set to a specific fleet.
+        """Установить конкретный флот.
 
-        Args:
-            index (int): Fleet index, 1-6.
+        Аргументы:
+            index (int): номер флота от 1 до 6.
         """
         self.open()
         if index in self.selected():
@@ -343,17 +312,18 @@ class FleetPreparation(InfoHandler):
     map_is_hard_mode = False
 
     def fleet_preparation(self, skip_first_screenshot=True):
-        """更换舰队。
+        """При необходимости заменить выбранные флоты.
 
-        Returns:
-            bool: 是否进行了更换。
+        Возвращает:
+            bool: выполнялась ли замена.
         """
         logger.info(f'[Карта — построение] Используются флоты: {[self.config.Fleet_Fleet1, self.config.Fleet_Fleet2, self.config.Submarine_Fleet]}')
         if self.map_fleet_checked:
             return False
 
-        # 跳过编队检测：信任游戏内当前预选的舰队，不操作下拉菜单
-        # 适用于舰队槽位未完全解锁的账号，避免下拉菜单检测卡死
+        # При пропуске подготовки доверяем текущим предварительно выбранным в игре
+        # флотам и не открываем выпадающие списки. Это необходимо для аккаунтов,
+        # у которых ещё разблокированы не все слоты флота.
         if self.config.Fleet_SkipPreparation:
             logger.info('[Карта — построение] Подготовка флота пропущена (Fleet_SkipPreparation=True); '
                         'используется заранее выбранный в игре флот')
@@ -384,7 +354,7 @@ class FleetPreparation(InfoHandler):
             choose=SUBMARINE_CHOOSE, advice=SUBMARINE_ADVICE, bar=SUBMARINE_BAR, clear=SUBMARINE_CLEAR,
             in_use=SUBMARINE_IN_USE, hard_satisfied=SUBMARINE_HARD_SATIESFIED, main=self)
 
-        # Check if ship is prepared in hard mode
+        # Проверяем подготовку кораблей для сложного режима.
         h1, h2, h3 = fleet_1.is_hard_satisfied(), fleet_2.is_hard_satisfied(), submarine.is_hard_satisfied()
         logger.info(f'[Карта — построение] Требования сложного режима: флот 1: {h1}, флот 2: {h2}, подлодка: {h3}')
         if self.config.SERVER in ['cn', 'en', 'jp']:
@@ -395,11 +365,11 @@ class FleetPreparation(InfoHandler):
             if self.config.Submarine_Fleet:
                 submarine.raise_hard_not_satisfied()
 
-        # Skip fleet preparation in hard mode
+        # В сложном режиме ручная подготовка обычных флотов не требуется.
         self.map_is_hard_mode = h1 is not None or h2 is not None or h3 is not None
         if self.map_is_hard_mode:
             logger.info('[Карта — построение] Сложная кампания: подготовка флота не требуется')
-            # Clear submarine if user did not set a submarine fleet
+            # Очищаем подлодку, если пользователь не настроил подводный флот.
             if submarine.allow():
                 if self.config.Submarine_Fleet:
                     pass
@@ -409,21 +379,19 @@ class FleetPreparation(InfoHandler):
                 self.config.SUBMARINE = 0
             return False
 
-        # Submarine.
-        # cache submarine.allow() to avoid inconsistency after setting fleet_2
-        # because the expanded fleet_2 may cover submarine buttons
+        # Запоминаем доступность подлодки до настройки второго флота: раскрытый
+        # второй слот может перекрыть кнопки подлодки и дать противоречивый результат.
         map_allow_submarine = submarine.allow()
         logger.attr('Подлодки разрешены', map_allow_submarine)
         if map_allow_submarine:
             if self.config.Submarine_Fleet:
                 if fleet_2.allow():
                     self.device.click(fleet_2._clear)
-                    # no need to take new screenshot, because submarine check does not need the fleet 2 part
+                    # Новый снимок здесь не нужен: проверка подлодки не зависит от области флота 2.
                 submarine.ensure_to_be(self.config.Submarine_Fleet)
             else:
-                # clear submarine and fleet2 together using simple click
-                # this is faster because no need to wait clicking animation to disappear
-                # click success can be guaranteed by later calls of clear()
+                # Быстрее очищаем подлодку и второй флот простыми нажатиями;
+                # окончательный результат затем подтверждают вызовы ``clear()``.
                 op = False
                 if fleet_2.allow():
                     self.device.click(fleet_2._clear)
@@ -434,24 +402,22 @@ class FleetPreparation(InfoHandler):
                 if op:
                     self.device.screenshot()
 
-        # No need, this may clear FLEET_2 by mistake, clear FLEET_2 in map config.
-        # if not fleet_2.allow():
-        #     self.config.FLEET_2 = 0
+        # Не отключаем FLEET_2 по одному отсутствию кнопки: так можно ошибочно
+        # очистить второй флот. Его состояние уточняется в конфигурации карты.
 
         if self.config.Fleet_Fleet2:
-            # Using both fleets.
-            # Force to set it again.
-            # Fleets may reversed, because AL no longer treat the fleet with smaller index as first fleet
+            # Используются оба флота. Выставляем их повторно, поскольку порядок
+            # флотов в игре больше не определяется только меньшим номером слота.
             fleet_2.clear()
             fleet_1.ensure_to_be(self.config.Fleet_Fleet1)
             fleet_2.ensure_to_be(self.config.Fleet_Fleet2)
         else:
-            # Not using fleet 2.
+            # Второй флот не используется.
             if fleet_2.allow():
                 fleet_2.clear()
             fleet_1.ensure_to_be(self.config.Fleet_Fleet1)
 
-        # Check if submarine is empty again.
+        # Повторно подтверждаем пустой слот подлодки после настройки флотов.
         if map_allow_submarine:
             if self.config.Submarine_Fleet:
                 pass

@@ -1,12 +1,12 @@
-"""
-活动商店商品过滤选择器。
+"""Фильтр выбора товаров магазина события.
 
-通过正则表达式定义商品分类过滤规则，支持按大类（装备/舰船/PT 等）、
-子类（SSR/SR 等）和层级（Series/Tier）三级筛选。
-提供 Filter 实例用于匹配商品名称，并支持可选的数量后缀解析
-（如 "Cube:5" 表示购买 5 个心智魔方）。
+Регулярное выражение описывает правила классификации товаров по основной группе
+(снаряжение, корабли, PT и т. п.), подгруппе (SSR, SR и т. п.) и уровню
+(серия или тир). Экземпляр ``Filter`` сопоставляет эти признаки с именем товара.
+Дополнительно поддерживается необязательный суффикс количества: например,
+``Cube:5`` означает покупку пяти кубов.
 
-Pages: in: EVENT_SHOP
+Страница: EVENT_SHOP.
 """
 import re
 
@@ -32,10 +32,9 @@ FILTER = Filter(FILTER_REGEX, FILTER_ATTR)
 
 
 def parse_filter_amount(filter_string):
-    """
-    Parse optional amount suffix from event shop filter.
+    """Извлечь необязательное количество из элементов фильтра магазина.
 
-    Examples:
+    Примеры:
         Cube:5 > Oil:2 -> {'cube': 5, 'oil': 2}
         EquipSSR > Cube -> {}
     """
@@ -61,9 +60,7 @@ def parse_filter_amount(filter_string):
 
 
 def strip_filter_amount(filter_string):
-    """
-    Remove optional amount suffix before passing filters to base Filter.
-    """
+    """Удалить суффиксы количества перед передачей строки базовому ``Filter``."""
     out = []
     for part in str(filter_string).split('>'):
         part = part.strip()
@@ -79,12 +76,9 @@ def strip_filter_amount(filter_string):
 
 
 def parse_filter_tokens(filter_string):
-    """
-    Parse filter string into ordered tokens.
+    """Разобрать строку фильтра в упорядоченный список токенов.
 
-    Returns:
-        list[dict]:
-            {'raw': str, 'name': str, 'amount': int|None, 'key': str|None}
+    Возвращает список словарей с полями ``raw``, ``name``, ``amount`` и ``key``.
     """
     out = []
     for part in str(filter_string).split('>'):
@@ -110,9 +104,9 @@ def parse_filter_tokens(filter_string):
 
 
 def rebuild_filter_tokens(tokens):
-    """
-    Rebuild filter string from ordered tokens.
-    Tokens with amount <= 0 are removed.
+    """Собрать строку фильтра из упорядоченных токенов.
+
+    Токены с количеством меньше либо равным нулю удаляются.
     """
     parts = []
     for token in tokens:

@@ -1,4 +1,4 @@
-"""EventShop-scoped notification semantics for the shared scheduler."""
+"""Политика уведомлений EventShop поверх общего планировщика."""
 
 from __future__ import annotations
 
@@ -10,16 +10,16 @@ _DISABLED_ONEPUSH = "provider: null"
 
 
 def apply_event_shop_notification_policy(config: Any) -> bool:
-    """Make EventShop's scheduler toggle mean error-only push.
+    """Использовать переключатель EventShop только для уведомлений об ошибках.
 
-    The generic scheduler interprets ``Scheduler_PushNotification`` as a
-    completion notification and can emit it after successful or recoverable
-    task results.  EventShop intentionally uses the persisted
-    ``EventShop.Scheduler.PushNotification`` preference only as permission to
-    deliver error OnePush messages.
+    Общий планировщик трактует ``Scheduler_PushNotification`` как разрешение
+    уведомлять о завершении задачи, в том числе после успешного или
+    восстанавливаемого результата. Для EventShop сохранённая настройка
+    ``EventShop.Scheduler.PushNotification`` означает только разрешение
+    отправлять сообщения OnePush об ошибках.
 
-    Returns:
-        bool: Whether EventShop error push is enabled by the user.
+    Возвращает:
+        bool: разрешены ли пользователем уведомления EventShop об ошибках.
     """
     push_on_error = bool(
         config.cross_get(
@@ -28,14 +28,15 @@ def apply_event_shop_notification_policy(config: Any) -> bool:
         )
     )
 
-    # Never let the shared scheduler turn this EventShop preference into a
-    # success/recoverable completion push.
+    # Не позволяем общему планировщику превратить настройку EventShop в
+    # уведомление об успешном или восстанавливаемом завершении задачи.
     overrides = {"Scheduler_PushNotification": False}
 
-    # Existing exception paths already use Error_OnePushConfig.  Disable that
-    # transport only for this bound EventShop config when the user has not
-    # requested error pushes.  The scheduler reloads config between tasks, so
-    # this does not mutate another task's persisted notification settings.
+    # Существующие пути обработки исключений уже используют Error_OnePushConfig.
+    # Отключаем этот транспорт только для текущей конфигурации EventShop, если
+    # пользователь не разрешил уведомления об ошибках. Между задачами
+    # планировщик заново загружает конфигурацию, поэтому сохранённые настройки
+    # другой задачи не изменяются.
     if not push_on_error:
         overrides["Error_OnePushConfig"] = _DISABLED_ONEPUSH
 
