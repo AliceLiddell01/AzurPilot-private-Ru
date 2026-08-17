@@ -13,7 +13,11 @@ from module.base.utils import (
 )
 from module.logger import logger
 from module.ocr.ocr import Digit, Ocr
-from module.shop_event.catalog import catalog_template_names, resolve_catalog_claim
+from module.shop_event.catalog import (
+    bind_catalog_source,
+    catalog_template_names,
+    resolve_catalog_claim,
+)
 from module.shop_event.selector import FILTER_REGEX
 from module.statistics.item import Item, ItemGrid
 
@@ -373,12 +377,11 @@ class EventShopItemGrid(ItemGrid):
         source = claim.get('source')
         if not isinstance(source, Mapping):
             return
-        try:
-            row_id = int(source.get('row_id'))
-        except (TypeError, ValueError, OverflowError):
-            return
-        if row_id > 0:
-            item.catalog_row_id = row_id
+        bind_catalog_source(
+            item,
+            source,
+            evidence=str(claim.get('identity_evidence') or 'source_key'),
+        )
 
     def predict_tag(self, image):
         color = cv2.mean(np.array(image))[:3]
