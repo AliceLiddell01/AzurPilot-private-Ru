@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.abc
+import importlib.machinery
 import importlib.util
 import sys
 from functools import wraps
@@ -118,6 +119,13 @@ class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
         selector, stage = parts[1], parts[2]
         if not selector.startswith("event_") or selector == "event_generated":
             return None
+
+        # Generated alias — только fallback совместимости. Реальный legacy-модуль
+        # на диске всегда имеет приоритет и не должен подменяться текущим событием
+        # из registry даже при устаревшем selector в args.json.
+        if importlib.machinery.PathFinder.find_spec(fullname, path) is not None:
+            return None
+
         resolved = resolve_generated_campaign_module(
             selector,
             stage,
