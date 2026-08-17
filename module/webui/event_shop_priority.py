@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
@@ -407,6 +406,16 @@ def _runtime_filter(item: Any) -> str:
     )
 
 
+def _runtime_row_identity_proven(row_id: str, runtime: Any) -> bool:
+    """Проверить, что runtime-товар доказан именно как указанная строка каталога."""
+    try:
+        runtime_row_id = int(getattr(runtime, "catalog_row_id", 0) or 0)
+        expected_row_id = int(row_id)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return runtime_row_id > 0 and runtime_row_id == expected_row_id
+
+
 def _verify_pending_purchase(
     state: dict[str, Any],
     *,
@@ -647,21 +656,15 @@ def prepare_event_shop_runtime_items(
         )
 
     candidates.sort(key=lambda item: (item[0], item[1]))
-    token_counts = Counter(
-        str(source.get("event_shop_filter") or "").lower()
-        for _, _, _, source, _, _ in candidates
-    )
     safe_candidates = []
     for candidate in candidates:
-        _, _, row_id, source, _, _ = candidate
+        _, _, row_id, source, runtime, _ = candidate
         token = str(source.get("event_shop_filter") or "")
         if not token:
             blocked[row_id] = "Для этого товара пока нет безопасного правила покупки"
             continue
-        if token_counts[token.lower()] > 1:
-            blocked[row_id] = (
-                "Одинаковые товары нельзя безопасно развести по разным приоритетам"
-            )
+        if not _runtime_row_identity_proven(row_id, runtime):
+            blocked[row_id] = "Не подтверждена конкретная строка каталога"
             continue
         safe_candidates.append(candidate)
 

@@ -31,6 +31,7 @@ from module.shop.assets import (
 )
 from module.shop.clerk import OCR_SHOP_AMOUNT
 from module.shop_event.assets import *
+from module.shop_event.catalog import inherit_catalog_identity
 from module.shop_event.item import (
     DELTA_ITEM,
     DELTA_PRICE_BACKGROUND,
@@ -204,14 +205,31 @@ class EventShopClerk(EventShopUI):
         max_clicks = 1 + abs(maximum_hint - target)
         return max_clicks < direct_clicks
 
-    @staticmethod
-    def _purchase_item_matches(item, target):
-        """Сопоставить цель покупки только по фактам текущего снимка сканера."""
+    @classmethod
+    def _purchase_item_matches(cls, item, target):
+        """Сопоставить предпокупочный кадр с уже доказанной целью.
+
+        При наличии row identity она имеет приоритет над именем шаблона. Если
+        локальный кадр ещё не получил row identity, разрешается только уникальное
+        визуальное совпадение с целью при полном совпадении цены, остатка и валюты.
+        Неустойчивый amount в этом резервном пути не используется.
+        """
         target_row_id = getattr(target, "catalog_row_id", None)
         item_row_id = getattr(item, "catalog_row_id", None)
         if target_row_id is not None:
-            if item_row_id != target_row_id:
+            if item_row_id is not None:
+                if item_row_id != target_row_id:
+                    return False
+                return all(
+                    getattr(item, field, None) == getattr(target, field, None)
+                    for field in ("price", "count", "total_count", "amount", "cost")
+                )
+            if not cls._same_scanner_image(item, target):
                 return False
+            return all(
+                getattr(item, field, None) == getattr(target, field, None)
+                for field in ("price", "count", "total_count", "cost")
+            )
         return all(
             getattr(item, field, None) == getattr(target, field, None)
             for field in ("name", "price", "count", "total_count", "amount")
@@ -314,7 +332,13 @@ class EventShopClerk(EventShopUI):
                     raise GameStuckError(
                         "[Магазин события — покупка] Повторная идентификация неоднозначна; нажатие покупки заблокировано"
                     )
-                return matches[0]
+                matched = matches[0]
+                if (
+                    getattr(item_to_buy, "catalog_row_id", None) is not None
+                    and getattr(matched, "catalog_row_id", None) is None
+                ):
+                    inherit_catalog_identity(matched, item_to_buy)
+                return matched
         finally:
             if previous is sentinel:
                 self.__dict__.pop("_scan_extract_templates", None)

@@ -394,7 +394,9 @@ class EventCompiler:
                     limit_args=row.get("limit_args", ""),
                 )
             )
-        return tuple(sorted(result, key=lambda item: item.row_id)), currencies
+        # Порядок config_data является исходным порядком витрины и сам является
+        # доказательным фактом. Сортировка по row_id уничтожает это свидетельство.
+        return tuple(result), currencies
 
     def compile(self, activity_id: int) -> EventSpec:
         self.findings = []

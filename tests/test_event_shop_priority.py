@@ -175,7 +175,7 @@ def test_quantity_target_stops_after_verified_goal_without_buying_rest(
     assert config.overrides["EventShop_CustomFilter"] == ""
 
 
-def test_duplicate_runtime_token_is_blocked_fail_closed(monkeypatch, tmp_path):
+def test_duplicate_runtime_token_uses_proven_source_row_identity(monkeypatch, tmp_path):
     spec = base_spec()
     spec["shop_items"] = [
         {
@@ -201,19 +201,20 @@ def test_duplicate_runtime_token_is_blocked_fail_closed(monkeypatch, tmp_path):
     set_event_shop_priority(config.config_name, spec["id"], 21, 0, root=tmp_path)
     set_event_shop_priority(config.config_name, spec["id"], 22, 1, root=tmp_path)
 
+    first = runtime_item(group="Chip", price=300, stock=10)
+    second = runtime_item(group="Chip", price=600, stock=4)
     prepared = prepare_event_shop_runtime_items(
         config,
-        [
-            runtime_item(group="Chip", price=300, stock=10),
-            runtime_item(group="Chip", price=600, stock=4),
-        ],
+        [first, second],
         root=tmp_path,
     )
     state = load_event_shop_priority(config.config_name, spec["id"], root=tmp_path)
 
-    assert list(prepared) == []
-    assert set(state["blocked"]) == {"21", "22"}
-    assert config.overrides["EventShop_CustomFilter"] == ""
+    assert list(prepared) == [first]
+    assert first.catalog_row_id == 21
+    assert second.catalog_row_id == 22
+    assert state["blocked"] == {}
+    assert config.overrides["EventShop_CustomFilter"] == "Chip:2"
 
 
 def test_priority_without_quantity_target_never_authorizes_purchase(
