@@ -145,7 +145,13 @@ def _validate_runtime_contract(spec: MapSpec, policy: MapRuntimePolicy) -> None:
 
     battle_plan = policy.battle_plan
     assert battle_plan is not None
+    seen_battles: set[int] = set()
     for step in battle_plan.siren_filter_steps:
+        if step.battle in seen_battles:
+            raise ValueError(
+                f"Runtime battle_plan карты {spec.id} содержит повторный battle_{step.battle}"
+            )
+        seen_battles.add(step.battle)
         if step.battle == spec.boss_refresh:
             raise ValueError(
                 f"Runtime battle_plan карты {spec.id} конфликтует с boss battle_{spec.boss_refresh}"
