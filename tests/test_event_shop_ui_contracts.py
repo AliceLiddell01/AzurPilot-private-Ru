@@ -68,6 +68,19 @@ def test_task_text_inputs_do_not_stretch_checkbox_switches():
     assert "width: 40px !important" in css
     assert "height: 20px !important" in css
 
+    base_thumb = _block(
+        css,
+        "#pywebio-scope-event_shop_task_fields .custom-switch "
+        ".custom-control-label::after {",
+    )
+    checked_thumb = _block(
+        css,
+        "#pywebio-scope-event_shop_task_fields .custom-switch "
+        ".custom-control-input:checked ~ .custom-control-label::after {",
+    )
+    assert "transform: translateX(0) !important" in base_thumb
+    assert "transform: translateX(20px) !important" in checked_thumb
+
 
 def test_event_shop_notification_copy_matches_scheduler_semantics():
     source = V2.read_text(encoding="utf-8")

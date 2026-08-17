@@ -535,6 +535,7 @@
     border-radius: 50% !important;
     background: var(--event-text) !important;
     box-shadow: 0 1px 2px rgba(0, 0, 0, .35) !important;
+    transform: translateX(0) !important;
 }
 
 #pywebio-scope-event_shop_task_fields .custom-switch .custom-control-input:checked ~ .custom-control-label::before {
@@ -542,7 +543,7 @@
     background: color-mix(in srgb, var(--event-accent) 72%, transparent) !important;
 }
 
-#pywebio-scope-event_shop_task_fields .custom-switch .custom-control-label::after {
+#pywebio-scope-event_shop_task_fields .custom-switch .custom-control-input:checked ~ .custom-control-label::after {
     transform: translateX(20px) !important;
 }
 
