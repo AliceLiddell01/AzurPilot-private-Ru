@@ -19,8 +19,30 @@ from module.event_datamine.artifact import (
 EVENT_ASSET_CATALOG_SCHEMA_VERSION = 1
 EVENT_ASSET_CATALOG_NAME = "assets.json"
 _SAFE_SOURCE_PATH = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
+_SAFE_STATIC_URL = re.compile(r"/static/assets/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
 _SAFE_TOKEN = re.compile(r"[A-Za-z0-9_-]+")
 _DISPLAY_EXTENSIONS = (".png", ".svg", ".webp")
+
+
+def _safe_source_path(source_path: str) -> bool:
+    """Проверить canonical source path без родительских сегментов."""
+
+    return bool(
+        source_path
+        and _SAFE_SOURCE_PATH.fullmatch(source_path)
+        and ".." not in source_path.split("/")
+    )
+
+
+def _safe_static_asset_url(url: str) -> bool:
+    """Проверить локальный static URL без обхода каталога."""
+
+    return bool(
+        url
+        and _SAFE_STATIC_URL.fullmatch(url)
+        and ".." not in url.split("/")
+        and "\\" not in url
+    )
 
 
 def asset_key(asset: Mapping[str, Any]) -> str:
@@ -29,7 +51,7 @@ def asset_key(asset: Mapping[str, Any]) -> str:
     if not kind:
         return ""
     if source_path:
-        if not _SAFE_SOURCE_PATH.fullmatch(source_path):
+        if not _safe_source_path(source_path):
             return ""
         return f"{kind}:{source_path}"
     if kind == "resource":
@@ -134,6 +156,9 @@ def build_asset_catalog(
         if len(displays) == 1:
             mappings[key] = next(iter(displays))
         elif len(displays) > 1:
+            # Несколько display-файлов не дают однозначной canonical identity.
+            # Единственный scanner fallback остаётся доказанным общим ассетом;
+            # без него ключ намеренно не публикуется.
             if len(fallbacks) == 1:
                 mappings[key] = next(iter(fallbacks))
         elif len(fallbacks) == 1:
@@ -162,9 +187,11 @@ def validate_asset_catalog(data: Any) -> dict[str, Any]:
     if not isinstance(entries, Mapping):
         raise ValueError("Event asset catalog не содержит entries")
     for key, url in entries.items():
-        if not str(key) or not str(url).startswith("/static/assets/"):
+        key_text = str(key)
+        url_text = str(url)
+        if not key_text or not _safe_static_asset_url(url_text):
             raise ValueError("Event asset catalog содержит небезопасную запись")
-        if ":" not in str(key) or ".." in str(key).split(":", 1)[1].split("/"):
+        if ":" not in key_text or not _safe_source_path(key_text.split(":", 1)[1]):
             raise ValueError("Event asset catalog содержит небезопасный source path")
     return result
 
@@ -176,7 +203,7 @@ def write_asset_catalog(
 ) -> Path:
     root = Path(artifact_root)
     target = root / EVENT_ASSET_CATALOG_NAME
-    data = build_asset_catalog(root, asset_root=asset_root)
+    data = validate_asset_catalog(build_asset_catalog(root, asset_root=asset_root))
     temp = to_tmp_file(str(target))
     try:
         file_write(

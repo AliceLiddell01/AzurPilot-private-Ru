@@ -1,10 +1,15 @@
 import json
 from pathlib import Path
 
+import pytest
+
+import module.event_datamine.assets as assets_module
 from module.event_datamine.assets import (
     asset_catalog_digest,
     asset_key,
     build_asset_catalog,
+    validate_asset_catalog,
+    write_asset_catalog,
 )
 from module.webui.event_assets import (
     ASSET_CATALOG_PATH,
@@ -92,6 +97,49 @@ def test_resource_asset_identity_falls_back_to_stable_resource_id():
     assert asset_key({"kind": "resource", "source_path": "Props/1", "game_id": 1}) == "resource:Props/1"
     assert asset_key({"kind": "resource", "source_path": "", "game_id": 0}) == ""
     assert asset_key({"kind": "item", "source_path": "", "game_id": 15008}) == ""
+
+
+def test_asset_key_rejects_parent_traversal_source_path():
+    assert asset_key({"kind": "item", "source_path": "Props/../secret"}) == ""
+    assert asset_key({"kind": "item", "source_path": "../secret"}) == ""
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "/static/assets/../../../etc/passwd",
+        "/static/assets/webui/event_shop/../secret.png",
+        "/static/assets/webui\\event_shop\\secret.png",
+    ),
+)
+def test_asset_catalog_rejects_unsafe_static_urls(url: str):
+    catalog = {
+        "asset_catalog_schema_version": 1,
+        "entries": {"item:Props/15008": url},
+    }
+    catalog["digest"] = asset_catalog_digest(catalog)
+
+    with pytest.raises(ValueError, match="небезопасную запись"):
+        validate_asset_catalog(catalog)
+
+
+def test_asset_catalog_writer_validates_before_publish(monkeypatch, tmp_path: Path):
+    catalog = {
+        "asset_catalog_schema_version": 1,
+        "entries": {
+            "item:Props/15008": "/static/assets/../../../etc/passwd",
+        },
+    }
+    catalog["digest"] = asset_catalog_digest(catalog)
+    monkeypatch.setattr(
+        assets_module,
+        "build_asset_catalog",
+        lambda *args, **kwargs: catalog,
+    )
+
+    with pytest.raises(ValueError, match="небезопасную запись"):
+        write_asset_catalog(tmp_path, asset_root=tmp_path)
+    assert not (tmp_path / "assets.json").exists()
 
 
 def test_asset_catalog_prefers_webui_display_asset_and_keeps_scanner_fallback(tmp_path: Path):
