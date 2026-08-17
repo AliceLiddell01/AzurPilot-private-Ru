@@ -236,6 +236,51 @@ class EventShopClerk(EventShopUI):
         )
 
     @staticmethod
+    def _purchase_button_center_x(item):
+        """Вернуть горизонтальный центр карточки только для корректной геометрии."""
+        button = getattr(item, "button", None)
+        try:
+            left = float(button[0])
+            right = float(button[2])
+        except (TypeError, ValueError, IndexError, KeyError):
+            return None
+        if not np.isfinite(left) or not np.isfinite(right) or right <= left:
+            return None
+        return (left + right) / 2.0
+
+    @classmethod
+    def _purchase_match_in_original_column(cls, matches, target):
+        """Разрешить несколько visual-match только доказанной исходной колонкой.
+
+        Вертикальная прокрутка не меняет колонку товара. Поэтому после доказанного
+        ``catalog_row_id`` несколько визуально похожих кандидатов можно различить
+        исходной горизонтальной позицией карточки. В допустимой колонке должен
+        оказаться ровно один кандидат; иначе покупка остаётся fail-closed.
+        """
+        try:
+            row_id = int(getattr(target, "catalog_row_id", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if row_id <= 0:
+            return None
+
+        target_center = cls._purchase_button_center_x(target)
+        if target_center is None:
+            return None
+        tolerance = max(float(ITEM_SHAPE[0]) / 2.0, 1.0)
+
+        same_column = []
+        for item in matches:
+            center = cls._purchase_button_center_x(item)
+            if center is None:
+                continue
+            if abs(center - target_center) <= tolerance:
+                same_column.append(item)
+        if len(same_column) != 1:
+            return None
+        return same_column[0]
+
+    @staticmethod
     def _clamp_scroll_position(value):
         value = float(value)
         return min(max(value, 0.0), 1.0)
@@ -320,19 +365,28 @@ class EventShopClerk(EventShopUI):
                 )
                 if not matches:
                     continue
+
+                if len(matches) > 1:
+                    matched = self._purchase_match_in_original_column(matches, item_to_buy)
+                    if matched is None:
+                        logger.error(
+                            f"[Магазин события — покупка] Найдено несколько совпадений {item_to_buy}; нажатие покупки заблокировано"
+                        )
+                        raise GameStuckError(
+                            "[Магазин события — покупка] Повторная идентификация неоднозначна; нажатие покупки заблокировано"
+                        )
+                    attempts[-1]["column_resolved"] = True
+                    logger.info(
+                        "[Магазин события — покупка] Несколько визуальных совпадений однозначно разрешены по исходной колонке доказанной строки каталога"
+                    )
+                else:
+                    matched = matches[0]
+
                 if index > 1:
                     logger.info(
                         "[Магазин события — покупка] Товар повторно идентифицирован на соседней позиции прокрутки "
                         f"после {index} попыток: {attempts}"
                     )
-                if len(matches) > 1:
-                    logger.error(
-                        f"[Магазин события — покупка] Найдено несколько совпадений {item_to_buy}; нажатие покупки заблокировано"
-                    )
-                    raise GameStuckError(
-                        "[Магазин события — покупка] Повторная идентификация неоднозначна; нажатие покупки заблокировано"
-                    )
-                matched = matches[0]
                 if (
                     getattr(item_to_buy, "catalog_row_id", None) is not None
                     and getattr(matched, "catalog_row_id", None) is None

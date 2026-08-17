@@ -216,6 +216,51 @@ def test_reidentification_rejects_conflicting_proven_row_id():
     assert not EventShopClerk._purchase_item_matches(candidate, target)
 
 
+def test_reidentification_resolves_multiple_visual_matches_by_proven_column():
+    target = make_runtime("SameT1", price=20, total=2)
+    target.catalog_row_id = 100
+    target.button = (200, 100, 263, 163)
+
+    left = make_runtime("SameT1", price=20, total=2)
+    left.button = (31, 300, 94, 363)
+    same_column = make_runtime("SameT1", price=20, total=2)
+    same_column.button = (201, 300, 264, 363)
+    right = make_runtime("SameT1", price=20, total=2)
+    right.button = (369, 300, 432, 363)
+
+    assert (
+        EventShopClerk._purchase_match_in_original_column(
+            [left, same_column, right],
+            target,
+        )
+        is same_column
+    )
+
+
+def test_reidentification_column_resolution_stays_fail_closed_when_not_unique():
+    target = make_runtime("SameT1", price=20, total=2)
+    target.catalog_row_id = 100
+    target.button = (200, 100, 263, 163)
+
+    first = make_runtime("SameT1", price=20, total=2)
+    first.button = (195, 300, 258, 363)
+    second = make_runtime("SameT1", price=20, total=2)
+    second.button = (205, 500, 268, 563)
+
+    assert (
+        EventShopClerk._purchase_match_in_original_column(
+            [first, second],
+            target,
+        )
+        is None
+    )
+    target.catalog_row_id = None
+    assert (
+        EventShopClerk._purchase_match_in_original_column([first], target)
+        is None
+    )
+
+
 def test_priority_accepts_runtime_only_for_its_proven_source_row():
     runtime = make_runtime("SameT1", price=20, total=2)
     runtime.catalog_row_id = 100
