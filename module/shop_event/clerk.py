@@ -8,6 +8,8 @@
 
 Страница входа: EVENT_SHOP
 """
+from collections.abc import Mapping
+
 import cv2
 import numpy as np
 
@@ -77,9 +79,21 @@ class EventShopClerk(EventShopUI):
             )
             raise RequestHumanTakeover from exc
 
+    def _event_shop_catalog_spec(self):
+        """Вернуть EventSpec, уже закреплённый контроллером на текущий проход."""
+        artifact = getattr(self, "_event_shop_current_artifact", None)
+        if not isinstance(artifact, Mapping):
+            return None
+        spec = artifact.get("event_spec")
+        return spec if isinstance(spec, Mapping) else None
+
     @staticmethod
     def _same_scanner_row(left, right):
         """Сравнить независимо считанные факты товара, не доверяя вычисленной валюте."""
+        left_row_id = getattr(left, "catalog_row_id", None)
+        right_row_id = getattr(right, "catalog_row_id", None)
+        if left_row_id is not None and right_row_id is not None and left_row_id != right_row_id:
+            return False
         return all(
             getattr(left, field, None) == getattr(right, field, None)
             for field in ("price", "count", "total_count", "amount")
@@ -193,6 +207,11 @@ class EventShopClerk(EventShopUI):
     @staticmethod
     def _purchase_item_matches(item, target):
         """Сопоставить цель покупки только по фактам текущего снимка сканера."""
+        target_row_id = getattr(target, "catalog_row_id", None)
+        item_row_id = getattr(item, "catalog_row_id", None)
+        if target_row_id is not None:
+            if item_row_id != target_row_id:
+                return False
         return all(
             getattr(item, field, None) == getattr(target, field, None)
             for field in ("name", "price", "count", "total_count", "amount")
@@ -349,6 +368,7 @@ class EventShopClerk(EventShopUI):
 
     def event_shop_get_items(self, scroll_pos=None):
         self.event_shop_items.grids = self._get_event_shop_grid()
+        self.event_shop_items.set_catalog_spec(self._event_shop_catalog_spec())
         extract_templates = bool(getattr(self, "_scan_extract_templates", True))
         if bool(getattr(self.config, "SHOP_EXTRACT_TEMPLATE", False)) and extract_templates:
             self.event_shop_items.extract_template(self.device.image, './assets/shop/event')
