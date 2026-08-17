@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Mapping
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
-from threading import Lock
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
@@ -23,6 +20,11 @@ from deploy.atomic import (
     to_tmp_file,
 )
 from module.logger import logger
+from module.webui.state_lock import (
+    STATE_LOCK_RETRY_INTERVAL_SECONDS,
+    STATE_LOCK_TIMEOUT_SECONDS,
+    state_write_lock,
+)
 
 EVENT_OBSERVATION_SCHEMA_VERSION = 2
 EVENT_OBSERVATION_ROOT = Path("./config/state/event_observation")
@@ -36,8 +38,6 @@ ObservationSource = Literal[
     "replay",
 ]
 CurrencyEvidenceSource = Literal["dashboard_ocr", "event_shop_ocr"]
-_OBSERVATION_PROCESS_LOCKS_GUARD = Lock()
-_OBSERVATION_PROCESS_LOCKS: dict[str, Lock] = {}
 
 
 class ObservationFinding(TypedDict):
@@ -283,45 +283,19 @@ def apply_current_pt_evidence(
     return True
 
 
-def _process_observation_lock(path: Path) -> Lock:
-    key = str(path.resolve())
-    with _OBSERVATION_PROCESS_LOCKS_GUARD:
-        lock = _OBSERVATION_PROCESS_LOCKS.get(key)
-        if lock is None:
-            lock = Lock()
-            _OBSERVATION_PROCESS_LOCKS[key] = lock
-        return lock
+def event_observation_write_lock(
+    path: Path,
+    *,
+    timeout: float = STATE_LOCK_TIMEOUT_SECONDS,
+    retry_interval: float = STATE_LOCK_RETRY_INTERVAL_SECONDS,
+):
+    """Сериализовать observation через общий bounded state-lock."""
 
-
-@contextmanager
-def event_observation_write_lock(path: Path):
-    """Сериализовать read-modify-write observation внутри процесса и между процессами."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    process_lock = _process_observation_lock(path)
-    with process_lock, path.open("a+b") as handle:
-        if os.name == "nt":
-            import msvcrt
-
-            handle.seek(0, 2)
-            if handle.tell() == 0:
-                handle.write(b"\0")
-                handle.flush()
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            try:
-                yield
-            finally:
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    return state_write_lock(
+        path,
+        timeout=timeout,
+        retry_interval=retry_interval,
+    )
 
 
 _event_observation_write_lock = event_observation_write_lock
