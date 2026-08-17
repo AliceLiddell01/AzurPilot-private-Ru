@@ -51,6 +51,25 @@ def verify_git_revision(root: Path, revision: str) -> None:
             f"Source checkout HEAD {actual} не совпадает с pinned revision {revision}"
         )
 
+    status = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if status.stdout.strip():
+        raise ValueError(
+            f"Source checkout {root} содержит незакоммиченные или неотслеживаемые "
+            f"изменения; pinned revision {revision} не воспроизводим"
+        )
+
 
 def _map_status(spec) -> str:
     if spec.unknown_grid_types or spec.unknown_effects:
