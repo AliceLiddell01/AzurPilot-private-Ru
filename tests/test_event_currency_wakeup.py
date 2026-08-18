@@ -202,7 +202,7 @@ def test_log_res_pt_change_feeds_event_currency_bridge(monkeypatch):
     config = SimpleNamespace(
         config_name="test-instance",
         task=SimpleNamespace(command="Campaign"),
-        data={"Dashboard": {"Pt": {"Value": 100, "Record": datetime(2020, 1, 1)}},
+        data={"Dashboard": {"Pt": {"Value": 100, "Record": datetime(2020, 1, 1)}}},
         modified={},
     )
     monkeypatch.setattr(LogRes, "groups", {"Pt": {}})
@@ -225,7 +225,7 @@ def test_log_res_event_shop_task_does_not_feed_dashboard_bridge(monkeypatch):
     config = SimpleNamespace(
         config_name="test-instance",
         task=SimpleNamespace(command="EventShop"),
-        data={"Dashboard": {"Pt": {"Value": 100, "Record": datetime(2020, 1, 1)}},
+        data={"Dashboard": {"Pt": {"Value": 100, "Record": datetime(2020, 1, 1)}}},
         modified={},
     )
     monkeypatch.setattr(LogRes, "groups", {"Pt": {}})
