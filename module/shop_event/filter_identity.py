@@ -11,7 +11,7 @@ from typing import Any
 FILTER_IDENTITY_SCHEMA_VERSION = 1
 FILTER_IDENTITY_PATH = Path(__file__).with_name("data") / "filter_identity.json"
 _ALLOWED_TOP_LEVEL = frozenset({"schema_version", "entries"})
-_ALLOWED_ENTRY_FIELDS = frozenset({"item_type", "item_id", "token"})
+_ALLOWED_ENTRY_FIELDS = frozenset({"item_type", "item_id", "filter"})
 
 
 class FilterIdentityDataError(ValueError):
@@ -50,7 +50,7 @@ def validate_filter_identity_data(data: Any) -> dict[tuple[int, int], str]:
             )
         item_type = raw.get("item_type")
         item_id = raw.get("item_id")
-        token = raw.get("token")
+        filter_value = raw.get("filter")
         if type(item_type) is not int or item_type <= 0:
             raise FilterIdentityDataError(
                 f"Запись identity EventShop #{index} содержит недопустимый item_type"
@@ -59,16 +59,16 @@ def validate_filter_identity_data(data: Any) -> dict[tuple[int, int], str]:
             raise FilterIdentityDataError(
                 f"Запись identity EventShop #{index} содержит недопустимый item_id"
             )
-        if not isinstance(token, str) or not token.strip():
+        if not isinstance(filter_value, str) or not filter_value.strip():
             raise FilterIdentityDataError(
-                f"Запись identity EventShop #{index} содержит пустой token"
+                f"Запись identity EventShop #{index} содержит пустой filter"
             )
         key = (item_type, item_id)
         if key in result:
             raise FilterIdentityDataError(
                 f"Повторная identity EventShop: item_type={item_type}, item_id={item_id}"
             )
-        result[key] = token.strip()
+        result[key] = filter_value.strip()
     return result
 
 

@@ -14,7 +14,7 @@ def test_packaged_filter_identity_registry_is_valid_and_supported():
     identities = load_filter_identities()
 
     assert identities
-    assert all(FILTER_REGEX.fullmatch(token.lower()) for token in identities.values())
+    assert all(FILTER_REGEX.fullmatch(value.lower()) for value in identities.values())
 
 
 def test_filter_identity_registry_rejects_duplicate_and_unknown_fields():
@@ -23,8 +23,8 @@ def test_filter_identity_registry_rejects_duplicate_and_unknown_fields():
             {
                 "schema_version": 1,
                 "entries": [
-                    {"item_type": 2, "item_id": 10, "token": "Chip"},
-                    {"item_type": 2, "item_id": 10, "token": "Oil"},
+                    {"item_type": 2, "item_id": 10, "filter": "Chip"},
+                    {"item_type": 2, "item_id": 10, "filter": "Oil"},
                 ],
             }
         )
@@ -34,7 +34,7 @@ def test_filter_identity_registry_rejects_duplicate_and_unknown_fields():
             {
                 "schema_version": 1,
                 "entries": [
-                    {"item_type": 2, "item_id": 10, "token": "Chip", "extra": True}
+                    {"item_type": 2, "item_id": 10, "filter": "Chip", "extra": True}
                 ],
             }
         )
@@ -42,7 +42,7 @@ def test_filter_identity_registry_rejects_duplicate_and_unknown_fields():
 
 def test_filter_identity_registry_rejects_nonpositive_and_boolean_ids():
     for field, value in (("item_type", 0), ("item_id", -1), ("item_id", True)):
-        entry = {"item_type": 2, "item_id": 10, "token": "Chip"}
+        entry = {"item_type": 2, "item_id": 10, "filter": "Chip"}
         entry[field] = value
         with pytest.raises(FilterIdentityDataError):
             validate_filter_identity_data(
