@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from functools import partial
 from hashlib import sha256
@@ -17,7 +16,6 @@ from module.webui.app_dependencies import (
     put_button,
     put_input,
     put_row,
-    run_js,
     toast,
     use_scope,
 )
@@ -41,21 +39,6 @@ _SHOP_SELECTED_PIN = "event_plan_shop_selected"
 _EVENT_PLAN_MUTATION_LOCK = RLock()
 _STALE_EVENT_PLAN = object()
 _UNCHANGED_EVENT_PLAN = object()
-
-
-def _plural_positions(count: int) -> str:
-    """Вернуть корректную русскую форму счётчика позиций."""
-    value = abs(int(count))
-    tail = value % 100
-    if 11 <= tail <= 14:
-        form = "позиций"
-    elif value % 10 == 1:
-        form = "позиция"
-    elif value % 10 in (2, 3, 4):
-        form = "позиции"
-    else:
-        form = "позиций"
-    return f"{count} {form}"
 
 
 class EventPlannerMixin(WebUIMixinBase):
@@ -186,50 +169,6 @@ class EventPlannerMixin(WebUIMixinBase):
             self._refresh_event_plan_page()
             return False
         return True
-
-    def _patch_event_shop_plan_values(
-        self,
-        identity: tuple[str, str, str, int, int],
-        snapshot: Mapping[str, int],
-    ) -> None:
-        """Обновить только изменившиеся числа магазина без пересборки карточек."""
-        if getattr(self, "_event_plan_active_task", "") != "EventShop":
-            return
-        key = self._shop_item_dom_key(identity)
-        payload = {
-            "selected_id": f"event-shop-selected-{key}",
-            "cost_id": f"event-shop-cost-{key}",
-            "total_id": "event-shop-plan-total",
-            "count_id": "event-shop-plan-count",
-            "selected": f"{int(snapshot['selected']):,}".replace(",", " "),
-            "cost": f"{int(snapshot['cost']):,}".replace(",", " "),
-            "total": f"{int(snapshot['total']):,}".replace(",", " "),
-            "count": _plural_positions(int(snapshot["selected_count"])),
-        }
-        run_js(
-            """
-((update) => {
-  const apply = (id, value) => {
-    const node = document.getElementById(id);
-    if (!node || node.textContent === value) return;
-    node.textContent = value;
-    node.classList.remove("event-shop-value-updated");
-    requestAnimationFrame(() => {
-      node.classList.add("event-shop-value-updated");
-      window.setTimeout(
-        () => node.classList.remove("event-shop-value-updated"),
-        220,
-      );
-    });
-  };
-  apply(update.selected_id, update.selected);
-  apply(update.cost_id, update.cost);
-  apply(update.total_id, update.total);
-  apply(update.count_id, update.count);
-})(%s);
-"""
-            % json.dumps(payload, ensure_ascii=False)
-        )
 
     @staticmethod
     def _stale_plan_message() -> None:
