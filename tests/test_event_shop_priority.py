@@ -144,7 +144,20 @@ def test_quantity_target_stops_after_verified_goal_without_buying_rest(
 ):
     spec = base_spec()
     config = FakeConfig()
-    patch_runtime_context(monkeypatch, spec, {11: 3})
+    targets = {11: 3}
+    cleared_targets = []
+    patch_runtime_context(monkeypatch, spec, targets)
+
+    def clear_selected_target(_config, event_id, row_id, expected_selected):
+        assert _config is config
+        assert event_id == spec["id"]
+        assert row_id == "11"
+        assert expected_selected == targets[11] == 3
+        targets[11] = 0
+        cleared_targets.append(row_id)
+        return True
+
+    monkeypatch.setattr(priority, "_clear_selected_target", clear_selected_target)
     set_event_shop_priority(config.config_name, spec["id"], 11, 0, root=tmp_path)
 
     chip = runtime_item(group="Chip", price=300, stock=10)
@@ -169,7 +182,10 @@ def test_quantity_target_stops_after_verified_goal_without_buying_rest(
     state = load_event_shop_priority(config.config_name, spec["id"], root=tmp_path)
 
     assert list(prepared) == []
-    assert state["priorities"]["11"] == 0
+    assert targets == {11: 0}
+    assert cleared_targets == ["11"]
+    assert "11" not in state["priorities"]
+    assert state["completed"] == ["11"]
     assert state["remaining"]["11"] == 7
     assert state["pending"] == {}
     assert config.overrides["EventShop_CustomFilter"] == ""
