@@ -87,7 +87,7 @@ def build_artifact(
         "role": role,
         "event_spec": _normalize_json(spec),
     }
-    if metadata:
+    if metadata is not None:
         result["metadata"] = _normalize_json(metadata)
     result["digest"] = artifact_digest(result)
     return result

@@ -60,3 +60,56 @@ def test_compatibility_data_rejects_tampered_digest(tmp_path: Path):
 
     with pytest.raises(CompatibilityDataError, match="Digest"):
         load_compatibility_data("en:1", root=root)
+
+
+def _compatibility_snapshot(*patches):
+    data = {
+        "compatibility_schema_version": 1,
+        "event_id": "en:1",
+        "evidence": {
+            "repository": "example/repository",
+            "revision": "1" * 40,
+        },
+        "patches": list(patches),
+    }
+    data["digest"] = compatibility_digest(data)
+    return data
+
+
+def _compatibility_patch(patch_id: str, *, map_id: int = 10):
+    return {
+        "id": patch_id,
+        "map_id": map_id,
+        "ignored_land_rotations": [10],
+        "reason": "Проверяемое структурное исключение.",
+        "source_path": "campaign/event/example.py",
+    }
+
+
+def _write_snapshot(root: Path, data: dict) -> None:
+    root.mkdir()
+    (root / "en-1.json").write_text(
+        json.dumps(data, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def test_compatibility_data_distinguishes_missing_patch_id(tmp_path: Path):
+    root = tmp_path / "compatibility"
+    _write_snapshot(root, _compatibility_snapshot(_compatibility_patch("")))
+
+    with pytest.raises(CompatibilityDataError, match="не содержит id"):
+        load_compatibility_data("en:1", root=root)
+
+
+def test_compatibility_data_distinguishes_duplicate_patch_id(tmp_path: Path):
+    root = tmp_path / "compatibility"
+    _write_snapshot(
+        root,
+        _compatibility_snapshot(
+            _compatibility_patch("duplicate", map_id=10),
+            _compatibility_patch("duplicate", map_id=11),
+        ),
+    )
+
+    with pytest.raises(CompatibilityDataError, match="Неуникальный compatibility patch id"):
+        load_compatibility_data("en:1", root=root)

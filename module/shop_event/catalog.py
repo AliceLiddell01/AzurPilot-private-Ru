@@ -68,7 +68,7 @@ def _valid_catalog_row(source: Mapping[str, Any]) -> bool:
     )
 
 
-def _catalog_rows(spec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def catalog_rows(spec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """Вернуть только source-строки, безопасные для runtime-сопоставления."""
 
     rows = spec.get("shop_items", [])
@@ -87,7 +87,7 @@ def catalog_template_names(spec: Mapping[str, Any] | None) -> set[str]:
         return set()
     return {
         str(item.get("event_shop_filter") or "")
-        for item in _catalog_rows(spec)
+        for item in catalog_rows(spec)
         if str(item.get("event_shop_filter") or "")
     }
 
@@ -289,7 +289,7 @@ def resolve_catalog_claim(
         claim["status"] = "incomplete"
         return claim
 
-    catalog = _catalog_rows(spec)
+    catalog = catalog_rows(spec)
     claimed_row_id = int_attr(runtime, "catalog_row_id")
     if claimed_row_id is not None and claimed_row_id > 0:
         source = next(

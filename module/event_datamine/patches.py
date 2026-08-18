@@ -11,6 +11,7 @@ import json
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -64,8 +65,6 @@ class CompatibilityPatch:
 
 
 def compatibility_digest(data: dict[str, Any]) -> str:
-    from hashlib import sha256
-
     clean = dict(data)
     clean.pop("digest", None)
     return sha256(canonical_json(clean).encode("utf-8")).hexdigest()
@@ -143,8 +142,12 @@ def validate_compatibility_data(data: Any, *, event_id: str) -> tuple[Compatibil
                 f"Неизвестные поля compatibility patch: {sorted(unknown_patch)}"
             )
         patch_id = str(raw.get("id") or "").strip()
-        if not patch_id or patch_id in ids:
-            raise CompatibilityDataError(f"Неуникальный compatibility patch id: {patch_id!r}")
+        if not patch_id:
+            raise CompatibilityDataError("Compatibility patch не содержит id")
+        if patch_id in ids:
+            raise CompatibilityDataError(
+                f"Неуникальный compatibility patch id: {patch_id!r}"
+            )
         map_id = raw.get("map_id")
         if isinstance(map_id, bool) or not isinstance(map_id, int) or map_id <= 0:
             raise CompatibilityDataError(f"Некорректный map_id compatibility patch: {map_id!r}")

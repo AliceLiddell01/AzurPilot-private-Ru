@@ -72,6 +72,13 @@ def test_artifact_normalizes_nested_mapping_keys_before_digest(tmp_path: Path):
         build_artifact({"id": "en:1", "nested": {1: "a", "1": "b"}})
 
 
+def test_artifact_preserves_explicit_empty_metadata():
+    artifact = build_artifact({"id": "en:1"}, metadata={})
+
+    assert artifact["metadata"] == {}
+    assert artifact["digest"] == artifact_digest(artifact)
+
+
 def test_invalid_replacement_does_not_destroy_previous_artifact(tmp_path: Path):
     path = write_artifact(tmp_path / "event.json", build_artifact({"id": "en:1"}))
     before = path.read_bytes()

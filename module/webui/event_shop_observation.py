@@ -9,6 +9,7 @@ from typing import Any
 
 from module.shop_event.catalog import (
     bind_catalog_source,
+    catalog_rows,
     int_attr,
     resolve_catalog_claim,
     source_row_compatible,
@@ -38,14 +39,6 @@ def _same_runtime_claim(left: Mapping[str, Any], right: Mapping[str, Any]) -> bo
             "amount",
         )
     )
-
-
-def _catalog_rows(spec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    return [
-        item
-        for item in spec.get("shop_items", [])
-        if isinstance(item, Mapping)
-    ]
 
 
 def _source_positions(
@@ -123,7 +116,7 @@ def _resolve_bounded_source_order(
     позиционная пара согласна по жёстким полям. Любая неполнота оставляет весь
     разрыв без изменений.
     """
-    catalog = _catalog_rows(spec)
+    catalog = catalog_rows(spec)
     positions = _source_positions(catalog)
     if positions is None or not catalog:
         return
