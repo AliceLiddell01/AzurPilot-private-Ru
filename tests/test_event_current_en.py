@@ -11,6 +11,7 @@ from module.event_datamine.discovery import discover_major_events, resolve_curre
 from module.event_datamine.map_compiler import sharecfg_values
 from module.event_datamine.registry import EventArtifactRegistry
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
+from module.event_datamine.supplemental import resolve_supplemental_event_spec
 from module.webui.event_source import load_current_event_plan
 from tests.event_fixture_helpers import (
     CURRENT_FIXTURE_ROOT,
@@ -110,6 +111,7 @@ def test_committed_current_artifact_and_production_resolver_use_fixture_result()
     assert artifact["role"] == "production"
     assert artifact["event_spec"] == build_artifact(compiled)["event_spec"]
 
+    resolved_spec, resolution = resolve_supplemental_event_spec(artifact)
     plan = load_current_event_plan(
         "test",
         server=server,
@@ -117,7 +119,9 @@ def test_committed_current_artifact_and_production_resolver_use_fixture_result()
         registry_root=BUILTIN_ARTIFACT_ROOT,
     )
     assert plan["event"]["id"] == compiled["id"]
-    assert plan["event"]["source"]["revision"] == revision
+    assert resolved_spec["provenance"]["base_revision"] == revision
+    assert plan["event"]["source"]["revision"] == resolution["composite_revision"]
+    assert plan["event"]["source"]["revision"] == resolved_spec["provenance"]["revision"]
     assert plan["event"]["source"]["verified"] is True
     assert plan["source_status"] == "verified"
 
@@ -179,3 +183,55 @@ def test_production_python_contains_no_event_specific_datamine_hardcode():
         text = path.read_text(encoding="utf-8")
         matches = sorted(token for token in forbidden if token in text)
         assert not matches, f"{path}: event-specific tokens {matches}"
+
+
+def test_current_builder_is_id_free_and_byte_deterministic(tmp_path: Path):
+    _, server, repository, revision, _ = current_fixture_identity()
+    outputs = []
+    for name in ("first", "second"):
+        root = tmp_path / name
+        build_current_event(
+            source_root=FIXTURE,
+            server=server,
+            repository=repository,
+            revision=revision,
+            output_root=root / "data",
+            asset_root=ROOT / "assets",
+            now=artifact_active_time(),
+            maps_output=root / "maps",
+            verify_git=False,
+        )
+        outputs.append(
+            {
+                path.relative_to(root).as_posix(): path.read_bytes()
+                for path in sorted(root.rglob("*"))
+                if path.is_file()
+            }
+        )
+    assert outputs[0] == outputs[1]
+    assert any(path.endswith(".py") for path in outputs[0])
+
+
+def test_current_builder_preflights_artifact_before_writing_maps(tmp_path: Path):
+    _, server, repository, revision, _ = current_fixture_identity()
+    output_root = tmp_path / "data"
+    relative_artifact = production_artifact_path().relative_to(BUILTIN_ARTIFACT_ROOT)
+    artifact = output_root / relative_artifact
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("reserved", encoding="utf-8")
+    maps_output = tmp_path / "maps"
+
+    with pytest.raises(FileExistsError):
+        build_current_event(
+            source_root=FIXTURE,
+            server=server,
+            repository=repository,
+            revision=revision,
+            output_root=output_root,
+            asset_root=ROOT / "assets",
+            now=artifact_active_time(),
+            maps_output=maps_output,
+            verify_git=False,
+        )
+
+    assert not maps_output.exists()
