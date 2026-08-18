@@ -351,20 +351,29 @@ class EventLayoutMixin(EventPlannerMixin):
                 '<div class="event-empty-card"><strong>Каталог магазина отсутствует в datamine artifact</strong></div>'
             )
 
-    def _current_event_name(self, config: Mapping[str, Any]) -> str | None:
-        """Получить отображаемое имя текущего события из активного Event artifact."""
-        if is_demo_mode():
-            return None
+    @staticmethod
+    def _event_server(config: Mapping[str, Any]) -> str | None:
+        """Безопасно определить сервер текущей конфигурации по PackageName."""
         package_name = str(
             deep_get(config, ["Alas", "Emulator", "PackageName"], "") or ""
         ).strip()
         if not package_name:
             return None
-        server = str(to_server(package_name) or "").strip().upper()
-        if not server:
+        try:
+            server = str(to_server(package_name) or "").strip().lower()
+        except ValueError:
+            return None
+        return server or None
+
+    def _current_event_name(self, config: Mapping[str, Any]) -> str | None:
+        """Получить отображаемое имя текущего события из активного Event artifact."""
+        if is_demo_mode():
+            return None
+        server = self._event_server(config)
+        if server is None:
             return None
         artifact, unavailable = resolve_current_event_artifact(
-            server=server, now=current_time()
+            server=server.upper(), now=current_time()
         )
         if artifact is None:
             if unavailable:
@@ -381,8 +390,14 @@ class EventLayoutMixin(EventPlannerMixin):
         task: str,
         config: Mapping[str, Any],
     ) -> tuple[dict[str, Any], Mapping[str, Any], str | None]:
-        """Скрыть stale selector локально, не меняя config и глобальный i18n."""
+        """Скрыть selector локально, если его значение есть среди доступных вариантов.
+
+        Config и глобальный i18n не изменяются.
+        """
         task_args = copy.deepcopy(dict(self.ALAS_ARGS[task]))
+        server = self._event_server(config)
+        if server is None:
+            return task_args, config, None
         event_name = self._current_event_name(config)
         if event_name is None:
             return task_args, config, None
@@ -400,10 +415,7 @@ class EventLayoutMixin(EventPlannerMixin):
             return task_args, config, None
         options = {
             str(item)
-            for field in (
-                "option",
-                f"option_{to_server(str(deep_get(config, ['Alas', 'Emulator', 'PackageName'], '')))}",
-            )
+            for field in ("option", f"option_{server}")
             for item in (event_arg.get(field) or [])
         }
         if selector not in options:
