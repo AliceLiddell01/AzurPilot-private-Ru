@@ -15,7 +15,7 @@ from scipy import signal
 from module.base.button import Button
 from module.base.timer import Timer
 from module.base.utils import *
-from module.exception import HardNotSatisfied
+from module.exception import GameStuckError, HardNotSatisfied
 from module.handler.assets import AUTO_SEARCH_SET_MOB, AUTO_SEARCH_SET_BOSS, \
     AUTO_SEARCH_SET_ALL, AUTO_SEARCH_SET_STANDBY, \
     AUTO_SEARCH_SET_SUB_AUTO, AUTO_SEARCH_SET_SUB_STANDBY
@@ -148,6 +148,7 @@ class FleetOperator:
         main = self.main
         click_timer = Timer(3, count=6)
         empty_confirm = Timer(0.5, count=3).clear()
+        blocked_confirm = Timer(2, count=4).clear()
         while 1:
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -159,10 +160,12 @@ class FleetOperator:
             # кадр за завершённую очистку.
             if self.main.handle_popup_confirm(str(self._clear)):
                 empty_confirm.clear()
+                blocked_confirm.clear()
                 continue
 
             in_use = self.in_use()
             if not in_use:
+                blocked_confirm.clear()
                 if not empty_confirm.started():
                     empty_confirm.start()
                 if empty_confirm.reached():
@@ -175,8 +178,15 @@ class FleetOperator:
             # Продолжаем ждать: штатный детектор зависания завершит путь безопасно,
             # вместо клика по неподтверждённому элементу.
             if not self.allow():
+                if not blocked_confirm.started():
+                    blocked_confirm.start()
+                if blocked_confirm.reached():
+                    raise GameStuckError(
+                        '[Карта — построение] Занятый слот флота устойчиво не показывает кнопку очистки'
+                    )
                 continue
 
+            blocked_confirm.clear()
             if click_timer.reached():
                 main.device.click(self._clear)
                 click_timer.reset()

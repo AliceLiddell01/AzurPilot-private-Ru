@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 import module.base.timer as timer_module
+from module.exception import GameStuckError
 from module.map.map_fleet_preparation import FleetOperator
 
 
@@ -107,6 +110,21 @@ def test_clear_does_not_accept_transient_empty_frame(monkeypatch) -> None:
 
     assert main.device.clicks == []
     assert main.device.screenshot_count >= 7
+
+
+def test_clear_fails_closed_when_populated_slot_has_no_clear_button(monkeypatch) -> None:
+    clock = _Clock()
+    monkeypatch.setattr(timer_module, "time", clock)
+
+    main = _Main(clock)
+    operator = _operator(main)
+    monkeypatch.setattr(operator, "allow", lambda: False)
+    monkeypatch.setattr(operator, "in_use", lambda: True)
+
+    with pytest.raises(GameStuckError, match="не показывает кнопку очистки"):
+        operator.clear(skip_first_screenshot=False)
+
+    assert main.device.clicks == []
 
 
 def test_clear_popup_resets_empty_confirmation(monkeypatch) -> None:

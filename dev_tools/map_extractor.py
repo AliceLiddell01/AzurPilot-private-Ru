@@ -70,7 +70,12 @@ def main(argv: list[str] | None = None) -> int:
         module_names = allocate_map_module_names(selected_maps)
         package = f"{args.server.lower()}_{args.activity_id}"
         policy = load_generated_runtime_policy((package,))
-        if policy is not None and policy["event_id"] != spec.id:
+        if policy is None:
+            raise SystemExit(
+                f"Runtime-policy generated package {package} отсутствует; "
+                "generation карт закрыт безопасным отказом"
+            )
+        if policy["event_id"] != spec.id:
             raise SystemExit(
                 "Runtime-policy generated package не соответствует EventSpec"
             )

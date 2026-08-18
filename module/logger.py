@@ -369,13 +369,15 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
                 with zipfile.ZipFile(zipFile, "w", zipfile.ZIP_DEFLATED) as zipf:
                     for file in files:
                         zipf.write(file, arcname=file.name)
-                        file.unlink()
             else:
                 zipFile = bakPath.joinpath(name).with_suffix(".tar." + ext)
                 with tarfile.open(zipFile, "w:" + ext) as tar:
                     for file in files:
                         tar.add(file, arcname=file.name)
-                        file.unlink()
+            # Исходные журналы удаляем только после успешного закрытия архива.
+            # Если daemon-поток завершится во время записи, исходные файлы останутся.
+            for file in files:
+                file.unlink()
         except Exception as e:
             logger.exception(e)
 

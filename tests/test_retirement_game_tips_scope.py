@@ -52,6 +52,7 @@ def test_retirement_allows_game_tips_after_dock_full_transition(mode, trigger):
 
     assert handler.handle_retirement() is True
     handler.handle_game_tips.assert_called_once_with()
+    assert handler._retirement_game_tips_pending is False
 
 
 def test_retirement_clears_game_tips_context_on_retirement_page():

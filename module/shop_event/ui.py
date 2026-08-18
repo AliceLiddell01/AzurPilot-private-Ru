@@ -193,10 +193,14 @@ class EventShopScroll(Scroll):
 
         with self._set_lock:
             default_drag_threshold = self.drag_threshold
+            default_edge_add = self.edge_add
             self.drag_threshold = min(
                 self.reidentify_drag_threshold,
                 self._drag_threshold_for_target(position),
             )
+            # Базовый Scroll.set подменяет random_range у краёв на edge_add.
+            # Для повторной идентификации исключаем этот намеренный overshoot.
+            self.edge_add = (0.0, 0.0)
             try:
                 dragged = super().set(
                     position,
@@ -212,6 +216,7 @@ class EventShopScroll(Scroll):
                 return dragged
             finally:
                 self.drag_threshold = default_drag_threshold
+                self.edge_add = default_edge_add
 
     def match_color(self, main):
         background_transparency = 0.2

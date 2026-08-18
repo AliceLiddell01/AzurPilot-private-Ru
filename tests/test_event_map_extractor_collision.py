@@ -48,7 +48,12 @@ def test_map_extractor_uses_unique_allocated_paths(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(extractor, "EventCompiler", _Compiler)
     monkeypatch.setattr(extractor, "build_artifact", lambda _spec: {})
     monkeypatch.setattr(extractor, "write_artifact", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(extractor, "load_generated_runtime_policy", lambda *_args: None)
+    monkeypatch.setattr(
+        extractor,
+        "load_generated_runtime_policy",
+        lambda *_args: {"event_id": "en:51101"},
+    )
+    monkeypatch.setattr(extractor, "map_runtime_policy", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(
         extractor, "generate_map_module", lambda *_args, **_kwargs: "pass\n"
     )
@@ -77,3 +82,38 @@ def test_map_extractor_uses_unique_allocated_paths(tmp_path: Path, monkeypatch):
 
     assert result == 0
     assert [path.name for path in writes] == ["extra.py", "extra_2050052.py"]
+
+
+def test_map_extractor_rejects_missing_runtime_policy(tmp_path: Path, monkeypatch):
+    spec = SimpleNamespace(
+        maps=(_map(2050001, "A1"),),
+        eligible=True,
+        id="en:51101",
+        to_dict=lambda: {"id": "en:51101"},
+    )
+
+    class _Compiler:
+        def __init__(self, _loader):
+            pass
+
+        def compile(self, _activity_id):
+            return spec
+
+    monkeypatch.setattr(extractor, "SourceSnapshot", lambda *args: object())
+    monkeypatch.setattr(extractor, "ShareCfgLoader", lambda _snapshot: object())
+    monkeypatch.setattr(extractor, "EventCompiler", _Compiler)
+    monkeypatch.setattr(extractor, "build_artifact", lambda _spec: {})
+    monkeypatch.setattr(extractor, "write_artifact", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(extractor, "load_generated_runtime_policy", lambda *_args: None)
+
+    with pytest.raises(SystemExit, match="Runtime-policy generated package en_51101 отсутствует"):
+        extractor.main(
+            [
+                "--source-root", str(tmp_path),
+                "--server", "EN",
+                "--revision", "a" * 40,
+                "--activity-id", "51101",
+                "--artifact", str(tmp_path / "artifact.json"),
+                "--maps-output", str(tmp_path / "maps"),
+            ]
+        )

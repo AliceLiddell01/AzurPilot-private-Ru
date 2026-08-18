@@ -281,12 +281,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 # После нескольких неудачных нажатий переходим к ожиданию медленного окна.
                 if click_count >= 5:
                     logger.warning('[Списание — в один клик] Не удалось выбрать корабль после 5 попыток')
-                    if self._retire_wait_slow_retire():
-                        pass
-                    else:
-                        end = True
-                        total = 10
-                        break
+                    self._retire_wait_slow_retire()
                 if self.appear_then_click(ONE_CLICK_RETIREMENT, offset=(20, 20), interval=2):
                     click_count += 1
                     continue
@@ -428,6 +423,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
         дока, поскольку шаблон используется и на других экранах.
         """
         if self._retirement_game_tips_pending and self.handle_game_tips():
+            self._retirement_game_tips_pending = False
             return True
 
         if self._unable_to_enhance:
