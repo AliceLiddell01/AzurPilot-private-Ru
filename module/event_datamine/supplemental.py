@@ -160,16 +160,13 @@ def validate_supplemental(data: Any) -> dict[str, Any]:
     farm = require_mapping(result.get("farm"), "farm")
     maps = require_list(farm.get("maps"), "farm.maps")
     _unique_ints(maps, "map_id", "farm.maps")
-    chapter_names: list[str] = []
+    known_chapters: set[str] = set()
     for item in maps:
         row = require_mapping(item, "farm.maps")
         chapter_name = str(row.get("chapter_name") or "").strip()
         if not chapter_name:
             raise EventSupplementalError("farm.maps требует chapter_name")
-        chapter_names.append(chapter_name)
-    if len(chapter_names) != len(set(chapter_names)):
-        raise EventSupplementalError("farm.maps.chapter_name содержит дубликаты")
-    known_chapters = set(chapter_names)
+        known_chapters.add(chapter_name)
 
     for item in maps:
         row = require_mapping(item, "farm.maps")

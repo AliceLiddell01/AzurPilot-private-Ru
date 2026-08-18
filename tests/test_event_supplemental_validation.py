@@ -58,6 +58,31 @@ def test_supplemental_accepts_cross_map_unlock_reference_after_assembly():
     assert validated["farm"]["maps"][1]["unlock_requires"] == ["A1"]
 
 
+def test_supplemental_accepts_same_chapter_name_for_distinct_map_ids():
+    data = _supplemental(
+        [
+            {
+                "map_id": 1,
+                "chapter_name": "A1",
+                "grants_event_pt": True,
+                "base_points": 30,
+                "unlock_requires": [],
+            },
+            {
+                "map_id": 2,
+                "chapter_name": "A1",
+                "grants_event_pt": True,
+                "base_points": 40,
+                "unlock_requires": ["A1"],
+            },
+        ]
+    )
+
+    validated = validate_supplemental(data)
+
+    assert [item["map_id"] for item in validated["farm"]["maps"]] == [1, 2]
+
+
 def test_supplemental_rejects_unknown_unlock_reference():
     data = _supplemental(
         [
@@ -114,28 +139,4 @@ def test_supplemental_rejects_invalid_oil_per_run_before_projection():
     )
 
     with pytest.raises(EventSupplementalError, match="oil.per_run"):
-        validate_supplemental(data)
-
-
-def test_supplemental_rejects_duplicate_chapter_names():
-    data = _supplemental(
-        [
-            {
-                "map_id": 1,
-                "chapter_name": "A1",
-                "grants_event_pt": True,
-                "base_points": 30,
-                "unlock_requires": [],
-            },
-            {
-                "map_id": 2,
-                "chapter_name": "A1",
-                "grants_event_pt": True,
-                "base_points": 40,
-                "unlock_requires": [],
-            },
-        ]
-    )
-
-    with pytest.raises(EventSupplementalError, match="chapter_name содержит дубликаты"):
         validate_supplemental(data)
