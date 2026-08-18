@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -87,6 +87,37 @@ def _display_asset_url(asset: Mapping[str, Any], local_root: Path) -> str:
     return ""
 
 
+def _iter_display_assets(spec: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
+    """Перебрать все типизированные AssetReference, отображаемые Event WebUI."""
+
+    for field in ("currencies", "shop_items"):
+        values = spec.get(field)
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if not isinstance(item, Mapping):
+                continue
+            asset = item.get("asset")
+            if isinstance(asset, Mapping):
+                yield asset
+
+    milestones = spec.get("milestones")
+    if not isinstance(milestones, list):
+        return
+    for milestone in milestones:
+        if not isinstance(milestone, Mapping):
+            continue
+        rewards = milestone.get("rewards")
+        if not isinstance(rewards, list):
+            continue
+        for reward in rewards:
+            if not isinstance(reward, Mapping):
+                continue
+            asset = reward.get("asset")
+            if isinstance(asset, Mapping):
+                yield asset
+
+
 def build_asset_catalog(
     artifact_root: Path | str = BUILTIN_ARTIFACT_ROOT,
     *,
@@ -94,10 +125,10 @@ def build_asset_catalog(
 ) -> dict[str, Any]:
     """Построить соответствия по canonical-путям AssetReference, а не по game ID.
 
-    Существующие шаблоны EventShop допускаются только на этапе разработки/сборки
-    и только если скомпилированная строка уже содержит безопасный legacy runtime-токен.
-    Runtime использует сгенерированное соответствие canonical path и никогда не
-    считает такой токен идентичностью ассета.
+    Display-ассеты собираются из типизированных ссылок валют, товаров и наград.
+    Существующие шаблоны EventShop допускаются только как scanner fallback для
+    строк магазина с безопасным legacy runtime-токеном. Runtime использует только
+    сгенерированное соответствие canonical path и не повторяет поиск по game ID.
     """
 
     data_root = Path(artifact_root).resolve()
@@ -112,6 +143,15 @@ def build_asset_catalog(
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ValueError(f"Некорректный Event artifact {path}") from exc
         spec = artifact["event_spec"]
+
+        for asset in _iter_display_assets(spec):
+            key = asset_key(asset)
+            if not key:
+                continue
+            display_url = _display_asset_url(asset, local_root)
+            if display_url:
+                display_candidates.setdefault(key, set()).add(display_url)
+
         for item in spec.get("shop_items", []):
             if not isinstance(item, Mapping):
                 continue
@@ -122,10 +162,6 @@ def build_asset_catalog(
             token = str(item.get("event_shop_filter") or "")
             if not key or not _SAFE_TOKEN.fullmatch(token):
                 continue
-
-            display_url = _display_asset_url(asset, local_root)
-            if display_url:
-                display_candidates.setdefault(key, set()).add(display_url)
 
             candidates = (
                 (
