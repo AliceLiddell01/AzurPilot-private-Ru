@@ -1,3 +1,4 @@
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Barrier
@@ -6,6 +7,7 @@ import module.webui.event_observation as observation_store
 import module.webui.event_observation_update as observation_update_store
 from module.webui.event_observation import (
     _current_pt_candidate_is_newer,
+    event_observation_path,
     load_event_observation,
 )
 from module.webui.event_observation_update import persist_current_pt_observation
@@ -102,3 +104,64 @@ def test_equal_pt_timestamp_keeps_existing_evidence(tmp_path):
 def test_pt_timestamp_comparison_fails_closed_on_invalid_candidate():
     existing = {"current_pt_observed_at": "2026-08-13T17:02:29+00:00"}
     assert not _current_pt_candidate_is_newer("invalid", existing)
+
+
+def test_revision_cleanup_removes_only_expired_sibling_snapshots(tmp_path):
+    event_id = "en:cleanup"
+    server = "EN"
+    instance = "ap"
+    now = datetime.now(timezone.utc)
+    expired_revision = "a" * 40
+    recent_revision = "b" * 40
+    current_revision = "c" * 40
+
+    for revision, value in ((expired_revision, 100), (recent_revision, 200)):
+        persist_current_pt_observation(
+            instance=instance,
+            event_id=event_id,
+            server=server,
+            source_revision=revision,
+            value=value,
+            observed_at=now - timedelta(minutes=5),
+            root=tmp_path,
+        )
+
+    expired_path = event_observation_path(
+        instance,
+        event_id,
+        server,
+        tmp_path,
+        source_revision=expired_revision,
+    )
+    recent_path = event_observation_path(
+        instance,
+        event_id,
+        server,
+        tmp_path,
+        source_revision=recent_revision,
+    )
+    expired_mtime = (now - timedelta(hours=49)).timestamp()
+    recent_mtime = (now - timedelta(hours=1)).timestamp()
+    os.utime(expired_path, (expired_mtime, expired_mtime))
+    os.utime(recent_path, (recent_mtime, recent_mtime))
+
+    persist_current_pt_observation(
+        instance=instance,
+        event_id=event_id,
+        server=server,
+        source_revision=current_revision,
+        value=300,
+        observed_at=now,
+        root=tmp_path,
+    )
+
+    current_path = event_observation_path(
+        instance,
+        event_id,
+        server,
+        tmp_path,
+        source_revision=current_revision,
+    )
+    assert not expired_path.exists()
+    assert recent_path.is_file()
+    assert current_path.is_file()

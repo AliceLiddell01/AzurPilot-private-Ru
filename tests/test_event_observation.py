@@ -32,7 +32,12 @@ def test_observation_round_trip_is_event_server_and_profile_scoped(tmp_path: Pat
             "current_pt": 1234,
         }
     )
-    save_event_observation("alpha", observation, root=root)
+    save_event_observation(
+        "alpha",
+        observation,
+        source_revision=revision,
+        root=root,
+    )
 
     assert (
         load_event_observation("alpha", "en:5941", "EN", revision, root=root)[
@@ -68,10 +73,19 @@ def test_fixture_and_replay_cannot_become_production_truth(tmp_path: Path):
         }
     )
     with pytest.raises(ValueError, match="fixture/replay"):
-        save_event_observation("alpha", observation, root=tmp_path)
+        save_event_observation(
+            "alpha",
+            observation,
+            source_revision="",
+            root=tmp_path,
+        )
 
     save_event_observation(
-        "alpha", observation, root=tmp_path, allow_nonproduction=True
+        "alpha",
+        observation,
+        source_revision="",
+        root=tmp_path,
+        allow_nonproduction=True,
     )
     production = load_event_observation("alpha", "en:5941", "EN", root=tmp_path)
     assert production["current_pt"] is None
@@ -81,11 +95,40 @@ def test_fixture_and_replay_cannot_become_production_truth(tmp_path: Path):
 def test_save_rejects_missing_identity_and_cross_profile_before_write(tmp_path: Path):
     missing_identity = empty_event_observation("", "", "alpha")
     with pytest.raises(ValueError, match="event_id и server"):
-        save_event_observation("alpha", missing_identity, root=tmp_path)
+        save_event_observation(
+            "alpha",
+            missing_identity,
+            source_revision="",
+            root=tmp_path,
+        )
 
     cross_profile = empty_event_observation("en:5941", "EN", "beta")
     with pytest.raises(ValueError, match="другому профилю"):
-        save_event_observation("alpha", cross_profile, root=tmp_path)
+        save_event_observation(
+            "alpha",
+            cross_profile,
+            source_revision="",
+            root=tmp_path,
+        )
+
+    assert list(tmp_path.rglob("*.json")) == []
+
+
+def test_save_rejects_cross_revision_before_write(tmp_path: Path):
+    observation = empty_event_observation(
+        "en:5941",
+        "EN",
+        "alpha",
+        "a" * 40,
+    )
+
+    with pytest.raises(ValueError, match="другой ревизии"):
+        save_event_observation(
+            "alpha",
+            observation,
+            source_revision="b" * 40,
+            root=tmp_path,
+        )
 
     assert list(tmp_path.rglob("*.json")) == []
 

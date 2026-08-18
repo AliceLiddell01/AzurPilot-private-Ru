@@ -15,6 +15,7 @@ from module.webui.event_observation import (
     event_observation_write_lock,
     load_event_observation,
     normalize_current_pt_value,
+    prune_stale_event_observations,
     save_event_observation,
 )
 
@@ -25,15 +26,16 @@ def _observation_lock_path(
     instance: str,
     event_id: str,
     server: str,
-    source_revision: str,
     root: Path | str,
 ) -> Path:
+    """Вернуть один lock-path для всех ревизий одной EventObservation identity."""
+
     observation_path = event_observation_path(
         instance,
         event_id,
         server,
         root,
-        source_revision=source_revision,
+        source_revision="",
     )
     return observation_path.with_suffix(f"{observation_path.suffix}.lock")
 
@@ -53,7 +55,6 @@ def update_event_observation(
         instance,
         event_id,
         server,
-        source_revision,
         root,
     )
     with event_observation_write_lock(lock_path):
@@ -65,7 +66,19 @@ def update_event_observation(
             root=root,
         )
         if updater(observation):
-            save_event_observation(instance, observation, root=root)
+            save_event_observation(
+                instance,
+                observation,
+                source_revision=source_revision,
+                root=root,
+            )
+            prune_stale_event_observations(
+                instance=instance,
+                event_id=event_id,
+                server=server,
+                keep_revision=source_revision,
+                root=root,
+            )
         return observation
 
 

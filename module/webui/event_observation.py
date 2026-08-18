@@ -52,6 +52,17 @@ def _safe_key(value: str, fallback: str) -> str:
     return f"{slug[:48]}-{sha256(raw.encode('utf-8')).hexdigest()[:10]}"
 
 
+def _observation_identity_location(
+    instance: str,
+    event_id: str,
+    server: str,
+    root: Path | str,
+) -> tuple[Path, str]:
+    directory = Path(root) / _safe_key(instance, "alas")
+    prefix = f"{_safe_key(server, 'EN')}-{_safe_key(event_id, 'event')}-"
+    return directory, prefix
+
+
 def event_observation_path(
     instance: str,
     event_id: str,
@@ -60,14 +71,13 @@ def event_observation_path(
     *,
     source_revision: str = "",
 ) -> Path:
-    return (
-        Path(root)
-        / _safe_key(instance, "alas")
-        / (
-            f"{_safe_key(server, 'EN')}-{_safe_key(event_id, 'event')}-"
-            f"{_safe_key(source_revision, 'revision')}.json"
-        )
+    directory, prefix = _observation_identity_location(
+        instance,
+        event_id,
+        server,
+        root,
     )
+    return directory / f"{prefix}{_safe_key(source_revision, 'revision')}.json"
 
 
 def empty_event_observation(
@@ -296,21 +306,26 @@ def save_event_observation(
     instance: str,
     observation: Mapping[str, Any],
     *,
+    source_revision: str,
     root: Path | str = EVENT_OBSERVATION_ROOT,
     allow_nonproduction: bool = False,
 ) -> Path:
     event_id = str(observation.get("event_id") or "")
     server = str(observation.get("server") or "").upper()
+    expected_revision = str(source_revision or "")
+    observed_revision = str(observation.get("source_revision") or "")
     if not event_id or not server:
         raise ValueError("EventObservation требует event_id и server")
     if str(observation.get("instance") or "") != str(instance):
         raise ValueError("EventObservation относится к другому профилю")
+    if observed_revision != expected_revision:
+        raise ValueError("EventObservation относится к другой ревизии источника")
     normalized = normalize_event_observation(
         observation,
         event_id=event_id,
         server=server,
         instance=instance,
-        source_revision=str(observation.get("source_revision") or ""),
+        source_revision=expected_revision,
     )
     if normalized["source"] in {"fixture", "replay"} and not allow_nonproduction:
         raise ValueError(
@@ -321,7 +336,7 @@ def save_event_observation(
         event_id,
         server,
         root,
-        source_revision=str(observation.get("source_revision") or ""),
+        source_revision=expected_revision,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = to_tmp_file(str(path))
@@ -338,6 +353,59 @@ def save_event_observation(
             pass
         raise
     return path
+
+
+def prune_stale_event_observations(
+    *,
+    instance: str,
+    event_id: str,
+    server: str,
+    keep_revision: str,
+    root: Path | str = EVENT_OBSERVATION_ROOT,
+    now: datetime | None = None,
+    max_age: timedelta = EVENT_OBSERVATION_MAX_AGE,
+) -> tuple[Path, ...]:
+    """Удалить только истёкшие snapshots других ревизий той же identity.
+
+    Функция вызывается под identity-lock. Свежие sibling-ревизии сохраняются, поэтому
+    поздний writer старого процесса не может удалить новый snapshot только из-за
+    того, что его собственная ревизия отличается.
+    """
+
+    directory, prefix = _observation_identity_location(instance, event_id, server, root)
+    keep_path = event_observation_path(
+        instance,
+        event_id,
+        server,
+        root,
+        source_revision=keep_revision,
+    )
+    current = now or datetime.now(timezone.utc)
+    cutoff = current.timestamp() - max_age.total_seconds()
+    removed: list[Path] = []
+    try:
+        candidates = tuple(directory.glob(f"{prefix}*.json"))
+    except OSError as exc:
+        logger.warning(
+            f"[WebUI — наблюдение ивента] Не удалось перечислить старые snapshots {directory}: {exc}"
+        )
+        return ()
+    for candidate in candidates:
+        if candidate == keep_path:
+            continue
+        try:
+            if candidate.stat().st_mtime > cutoff:
+                continue
+            file_remove(str(candidate))
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.warning(
+                f"[WebUI — наблюдение ивента] Не удалось удалить истёкший snapshot {candidate}: {exc}"
+            )
+            continue
+        removed.append(candidate)
+    return tuple(removed)
 
 
 def load_event_observation(
