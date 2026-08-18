@@ -123,21 +123,21 @@ def test_legacy_selector_resolves_to_generated_module_from_current_artifact():
     )
 
 
-def test_alias_loader_reuses_same_module_object(monkeypatch):
-    fake_module = SimpleNamespace()
+def test_alias_loader_delegates_each_create_module_to_importlib(monkeypatch):
+    modules = [SimpleNamespace(), SimpleNamespace()]
     calls: list[str] = []
 
     def fake_import(name):
         calls.append(name)
-        return fake_module
+        return modules[len(calls) - 1]
 
     monkeypatch.setattr(campaign_package.importlib, "import_module", fake_import)
     monkeypatch.setattr(campaign_package, "_adapt_generated_campaign_ui", lambda module: None)
     loader = _GeneratedEventAliasLoader("campaign.generated_event.fixture.stage")
     spec = importlib.util.spec_from_loader("campaign.event_fixture.t1", loader)
 
-    assert loader.create_module(spec) is fake_module
-    assert loader.create_module(spec) is fake_module
+    assert loader.create_module(spec) is modules[0]
+    assert loader.create_module(spec) is modules[1]
     assert calls == [
         "campaign.generated_event.fixture.stage",
         "campaign.generated_event.fixture.stage",
