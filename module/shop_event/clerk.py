@@ -597,7 +597,7 @@ class EventShopClerk(EventShopUI):
             requested = 0
         full_purchase = item_count > 0 and requested >= item_count
         if getattr(item, 'is_ship', False):
-            buy_times = item.count if amount is None else min(amount, item.count)
+            buy_times = item_count if amount is None else min(requested, item_count)
             for _ in range(buy_times):
                 self.event_shop_buy_item_execute(item, amount=1)
         else:
