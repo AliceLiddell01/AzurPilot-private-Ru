@@ -16,6 +16,15 @@ from module.webui.event_source import (
 )
 
 
+def _order_event_milestones(plan):
+    """Упорядочить пороги наград по возрастанию перед передачей в представление."""
+
+    milestones = plan.get("milestones")
+    if isinstance(milestones, list):
+        milestones.sort(key=lambda item: int(item.get("threshold", 0) or 0))
+    return plan
+
+
 class EventDatamineMixin:
     def _event_plan(self):
         config = self.alas_config.read_file(self.alas_name)
@@ -46,7 +55,8 @@ class EventDatamineMixin:
         plan = load_event_plan_from_artifact(
             self.alas_name, artifact, dashboard_observation
         )
-        return enrich_event_plan_with_supplemental(plan, spec)
+        plan = enrich_event_plan_with_supplemental(plan, spec)
+        return _order_event_milestones(plan)
 
     def _activate_generated_event_source(self) -> None:
         if is_demo_mode():
