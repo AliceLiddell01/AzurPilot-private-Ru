@@ -27,7 +27,10 @@ class EventDatamineMixin:
                 server="EN", now=now
             )
             if artifact is None:
-                assert unavailable is not None
+                if unavailable is None:
+                    raise RuntimeError(
+                        "Resolver текущего события не вернул недоступный план"
+                    )
                 return unavailable
         spec = artifact["event_spec"]
         revision = str(spec.get("provenance", {}).get("revision") or "")
