@@ -1,10 +1,9 @@
-# temp-trigger: run
 name: TEMP Runtime safety review fixes
 
 on:
-  push:
+  pull_request:
     branches:
-      - refactor/stage5-event-architecture
+      - personal/stable
     paths:
       - .github/workflows/temp-runtime-safety-review.yml
 
@@ -12,8 +11,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: temp-runtime-safety-review
-  cancel-in-progress: false
+  group: temp-runtime-safety-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 env:
   PYTHONUTF8: "1"
@@ -24,11 +23,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Checkout exact head
+      - name: Checkout exact PR head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -44,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           uv lock --check
           uv sync --locked --group ci
 
