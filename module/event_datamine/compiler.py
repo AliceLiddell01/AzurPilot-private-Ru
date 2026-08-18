@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
-from module.event_datamine.map_compiler import MapCompiler, _at, _values
+from module.event_datamine.map_compiler import MapCompiler, _at, sharecfg_values
 from module.event_datamine.model import (
     AssetReference,
     CurrencySpec,
@@ -94,9 +94,9 @@ def classify_pt_task_config(
     }
     tasks: dict[int, str] = {}
     daily_first_clear_maps: set[int] = set()
-    for config in _values(configs):
+    for config in sharecfg_values(configs):
         kind = group_kinds.get(int(_at(config, 0, 0) or 0), "unknown")
-        for value in _values(_at(config, 2, {})):
+        for value in sharecfg_values(_at(config, 2, {})):
             if not isinstance(value, int):
                 continue
             if value in task_ids:
@@ -138,7 +138,7 @@ class EventCompiler:
         for row in medals.values():
             if not isinstance(row, Mapping):
                 continue
-            for link in _values(row.get("activity_link")):
+            for link in sharecfg_values(row.get("activity_link")):
                 if int(_at(link, 1, 0) or 0) == activity_id:
                     title = str(row.get("group_name") or "").strip()
                     if title:
@@ -302,7 +302,7 @@ class EventCompiler:
         result: list[ShopItemSpec] = []
         currencies: set[int] = set()
         seen_rows: set[int] = set()
-        for row_id in _values(activity.get("config_data")):
+        for row_id in sharecfg_values(activity.get("config_data")):
             if int(row_id) in seen_rows:
                 self.findings.append(
                     ValidationFinding(
@@ -463,8 +463,8 @@ class EventCompiler:
         currency_ids: set[int] = set()
         if isinstance(milestone_row, Mapping):
             currency_ids.add(int(milestone_row.get("pt", 0) or 0))
-            targets = _values(milestone_row.get("target"))
-            rewards = _values(milestone_row.get("drop_client"))
+            targets = sharecfg_values(milestone_row.get("target"))
+            rewards = sharecfg_values(milestone_row.get("drop_client"))
             if len(targets) != len(rewards):
                 self.findings.append(
                     ValidationFinding(
@@ -543,7 +543,9 @@ class EventCompiler:
         map_ids: set[int] = set()
         for row in related.values():
             if int(row.get("type", 0) or 0) == 12:
-                map_ids.update(int(value) for value in _values(row.get("config_data")))
+                map_ids.update(
+                    int(value) for value in sharecfg_values(row.get("config_data"))
+                )
         map_compiler = MapCompiler(
             chapters,
             loops,
@@ -589,7 +591,9 @@ class EventCompiler:
         runtime_currency_tokens: dict[int, str] = {}
         for row in related.values():
             if int(row.get("type", 0) or 0) == 13:
-                task_ids.update(int(value) for value in _values(row.get("config_data")))
+                task_ids.update(
+                    int(value) for value in sharecfg_values(row.get("config_data"))
+                )
             client = row.get("config_client")
             if isinstance(client, Mapping):
                 for field, token in (("ptId", "pt"), ("uPtId", "URpt")):
@@ -608,7 +612,7 @@ class EventCompiler:
             task = tasks.get(task_id)
             if not isinstance(task, Mapping):
                 continue
-            for reward in _values(task.get("award_display")):
+            for reward in sharecfg_values(task.get("award_display")):
                 if (
                     int(_at(reward, 0, 0) or 0) == 1
                     and int(_at(reward, 1, 0) or 0) in currency_ids
