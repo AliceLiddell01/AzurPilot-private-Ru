@@ -1,7 +1,9 @@
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
 
+import module.webui.app_event_shop_v2 as shop_v2
 import module.webui.event_shop_priority as priority
 from module.webui.app_event_shop_v2 import EventShopV2Mixin
 from module.webui.event_shop_priority import (
@@ -405,10 +407,48 @@ def test_event_shop_v2_uses_data_driven_display_name():
     )
 
 
-def test_event_shop_v2_does_not_render_old_technical_status_copy():
-    import inspect
+def test_event_shop_v2_render_omits_old_technical_status_copy(monkeypatch):
+    rendered: list[str] = []
+    mixin = EventShopV2Mixin()
+    mixin.alas_name = "test-instance"
+    mixin._fmt = lambda value: str(value)
+    mixin._event_plan = lambda: {
+        "event": {
+            "id": "event-test",
+            "name": "Тестовое событие",
+            "shop_end": "2026-08-27",
+        },
+        "progress": {"current_pt": 1234},
+        "currencies": [{"name": "PT", "asset": {}}],
+        "shop_items": [],
+    }
+    monkeypatch.setattr(
+        shop_v2,
+        "load_event_shop_priority",
+        lambda _instance, _event_id: {
+            "priorities": {},
+            "purchased": [],
+            "completed": [],
+            "remaining": {},
+            "blocked": {},
+            "target_baselines": {},
+        },
+    )
+    monkeypatch.setattr(shop_v2, "event_asset_url", lambda _asset: "/asset.png")
+    monkeypatch.setattr(shop_v2, "put_html", lambda value: rendered.append(str(value)))
+    monkeypatch.setattr(shop_v2, "put_scope", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        shop_v2,
+        "use_scope",
+        lambda *_args, **_kwargs: nullcontext(),
+    )
 
-    source = inspect.getsource(EventShopV2Mixin)
-    assert "Расширенные настройки — автоматизация магазина" not in source
-    assert "Нет наблюдения" not in source
-    assert "Автоматизация на паузе" not in source
+    mixin._render_event_shop_priority_plan({})
+
+    output = "\n".join(rendered)
+    assert "Магазин текущего ивента" in output
+    assert "Активных целей" in output
+    assert "Осталось по плану" in output
+    assert "Расширенные настройки — автоматизация магазина" not in output
+    assert "Нет наблюдения" not in output
+    assert "Автоматизация на паузе" not in output
