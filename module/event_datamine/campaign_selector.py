@@ -313,11 +313,14 @@ def _configured_servers(
     *,
     args_data: Mapping[str, Any],
 ) -> set[str]:
-    event_arg = args_data.get("Event", {}).get(
-        "Campaign", {}
-    ).get("Event", {})
-    if not isinstance(event_arg, Mapping):
+    node: Any = args_data
+    for key in ("Event", "Campaign", "Event"):
+        if not isinstance(node, Mapping):
+            return set()
+        node = node.get(key, {})
+    if not isinstance(node, Mapping):
         return set()
+    event_arg = node
 
     servers: set[str] = set()
     for key, raw_options in event_arg.items():
