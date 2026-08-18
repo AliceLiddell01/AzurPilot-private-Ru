@@ -1,7 +1,7 @@
 {
   "artifacts": [
     {
-      "artifact_digest": "a713892cf7fcc76984fd9fcec94915790f17752f758e0e7789dbb9fb6bace0b5",
+      "artifact_digest": "941ebd616b4b8f8eb1179dcc947595d27f514d89c97ad4ec2e803212fc13044b",
       "farm_end": "2026-08-26 23:59:59",
       "farm_start": "2026-08-13 00:00:00",
       "id": "en:51101",
@@ -25,6 +25,6 @@
       "source_status": "partial"
     }
   ],
-  "digest": "c60acf4fb07aa15acfb3146f721f14b77e1bc8b53df3bfaf8620e74f0e3216a2",
+  "digest": "37642b8a86111c51c8eb28c9bdc0cb9056ea186f5920bde888804de5b94e8afb",
   "registry_schema_version": 1
 }

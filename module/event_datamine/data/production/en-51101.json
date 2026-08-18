@@ -1,7 +1,7 @@
 {
   "artifact_schema_version": 2,
   "compiler_version": "2",
-  "digest": "a713892cf7fcc76984fd9fcec94915790f17752f758e0e7789dbb9fb6bace0b5",
+  "digest": "941ebd616b4b8f8eb1179dcc947595d27f514d89c97ad4ec2e803212fc13044b",
   "event_spec": {
     "currencies": [
       {
@@ -132,6 +132,12 @@
         "code": "map_pt_amount_unavailable",
         "message": "ShareCfg snapshot не содержит достоверное количество PT за повторное прохождение карты",
         "path": "pt_sources.maps",
+        "severity": "warning"
+      },
+      {
+        "code": "currency_token_inferred",
+        "message": "Runtime-токен валюты выведен из единственной валюты события",
+        "path": "currencies.741.runtime_token",
         "severity": "warning"
       }
     ],
