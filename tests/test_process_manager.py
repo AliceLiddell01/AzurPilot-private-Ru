@@ -68,13 +68,13 @@ class TestProcessManagerRegistry(unittest.TestCase):
         self.assertNotIn("alas", State.process_registry)
 
     def test_stop_uses_local_process_handle_before_tree_kill(self):
-        """本地 Process 句柄存活时应优先使用 terminate/kill，而非 taskkill。"""
+        """При живом локальном Process сначала использовать terminate/kill, а не taskkill."""
         State.process_registry["alas"] = 12345
         manager = ProcessManager.get_manager("alas")
         process = Mock()
         process.pid = 12345
-        # _is_process_alive: 初始 + 同步各两次 True；_stop_local_process:
-        # terminate 后仍 True，kill 后变 False → 本地句柄成功停止。
+        # _is_process_alive: начальная и две синхронизационные проверки дают True;
+        # _stop_local_process: после terminate ещё True, после kill — False.
         process.is_alive.side_effect = [True, True, True, True, True, False]
         manager._process = process
 
@@ -92,21 +92,21 @@ class TestProcessManagerRegistry(unittest.TestCase):
         ):
             self.assertTrue(manager.stop())
 
-        # 本地句柄成功停止，不应回退到 taskkill
+        # Локальный процесс успешно остановлен, поэтому fallback на taskkill не нужен.
         kill.assert_not_called()
         process.terminate.assert_called_once()
         process.kill.assert_called_once()
         self.assertNotIn("alas", State.process_registry)
 
     def test_stop_falls_back_to_tree_kill_when_local_fails(self):
-        """本地句柄 terminate/kill 均失败时回退到 taskkill 终止进程树。"""
+        """Если локальные terminate/kill не помогли, завершить дерево через taskkill."""
         State.process_registry["alas"] = 12345
         manager = ProcessManager.get_manager("alas")
         process = Mock()
         process.pid = 12345
-        # _is_process_alive: 初始 + 同步各两次 True
-        # _stop_local_process: terminate 后 True，kill 后仍 True → 本地失败
-        # 回退 _kill_process_tree 后 join(3)，最终检查 _is_process_alive → False
+        # _is_process_alive: начальная и две синхронизационные проверки дают True.
+        # _stop_local_process: после terminate и kill процесс остаётся жив.
+        # После fallback _kill_process_tree и join(3) итоговая проверка даёт False.
         process.is_alive.side_effect = [True, True, True, True, True, True, False]
         manager._process = process
 
@@ -124,9 +124,9 @@ class TestProcessManagerRegistry(unittest.TestCase):
         ):
             self.assertTrue(manager.stop())
 
-        # 本地句柄失败，应回退到 taskkill
+        # Локальная остановка не удалась, поэтому требуется fallback на taskkill.
         kill.assert_called_once_with(12345)
-        process.kill.assert_called()  # _stop_local_process 中调用
+        process.kill.assert_called()  # Вызов выполняется внутри _stop_local_process.
         self.assertNotIn("alas", State.process_registry)
 
     def test_failed_cross_session_stop_keeps_worker_registered(self):
@@ -207,9 +207,9 @@ class TestProcessManagerRegistry(unittest.TestCase):
             self.assertFalse(manager.stop())
 
         kill.assert_not_called()
-        # join(timeout=0) 是僵尸检测探针（不阻塞），不应与实际 join(timeout>0) 混淆
+        # join(timeout=0) — неблокирующая проверка zombie-процесса, а не обычный join.
         join_calls = [c.kwargs.get("timeout") for c in process.join.call_args_list]
-        self.assertNotIn(3, join_calls, "不应调用阻塞式 join(timeout=3)")
+        self.assertNotIn(3, join_calls, "Блокирующий join(timeout=3) вызываться не должен")
         self.assertIs(manager._process, process)
         self.assertNotIn("alas", State.process_registry)
 
