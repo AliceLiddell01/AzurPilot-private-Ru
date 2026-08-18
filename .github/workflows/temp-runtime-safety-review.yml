@@ -1,4 +1,4 @@
-# temp-trigger: register
+# temp-trigger: run
 name: TEMP Runtime safety review fixes
 
 on:
