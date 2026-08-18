@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {"item_type": 1, "item_id": 1, "token": "Coin"},
+    {"item_type": 1, "item_id": 2, "token": "Oil"},
+    {"item_type": 2, "item_id": 15008, "token": "Chip"},
+    {"item_type": 2, "item_id": 15012, "token": "Array"},
+    {"item_type": 2, "item_id": 15014, "token": "AugmentCoreT3"},
+    {"item_type": 2, "item_id": 15016, "token": "AugmentEnhanceT2"},
+    {"item_type": 2, "item_id": 15020, "token": "AugmentChangeT1"},
+    {"item_type": 2, "item_id": 15021, "token": "AugmentChangeT2"},
+    {"item_type": 2, "item_id": 17003, "token": "PlateGeneralT3"},
+    {"item_type": 2, "item_id": 17013, "token": "PlateGunT3"},
+    {"item_type": 2, "item_id": 17023, "token": "PlateTorpedoT3"},
+    {"item_type": 2, "item_id": 17033, "token": "PlateAntiairT3"},
+    {"item_type": 2, "item_id": 17043, "token": "PlatePlaneT3"},
+    {"item_type": 2, "item_id": 20011, "token": "CatT1"},
+    {"item_type": 2, "item_id": 20012, "token": "CatT2"},
+    {"item_type": 2, "item_id": 20013, "token": "CatT3"},
+    {"item_type": 2, "item_id": 21048, "token": "Meta"},
+    {"item_type": 2, "item_id": 30014, "token": "BoxT4"},
+    {"item_type": 2, "item_id": 30024, "token": "BoxT4"},
+    {"item_type": 2, "item_id": 30034, "token": "BoxT4"},
+    {"item_type": 2, "item_id": 30044, "token": "BoxT4"},
+    {"item_type": 2, "item_id": 30368, "token": "SkinBox"},
+    {"item_type": 2, "item_id": 42060, "token": "PRS7"},
+    {"item_type": 2, "item_id": 42066, "token": "DRS7"},
+    {"item_type": 2, "item_id": 50001, "token": "FoodT1"},
+    {"item_type": 3, "item_id": 24400, "token": "EquipUR"},
+    {"item_type": 4, "item_id": 9707071, "token": "ShipSSR"}
+  ]
+}

@@ -22,39 +22,11 @@ from module.event_datamine.model import (
 )
 from module.event_datamine.patches import patches_for
 from module.event_datamine.source import ShareCfgError, ShareCfgLoader
+from module.shop_event.filter_identity import runtime_filter_token
 from module.shop_event.selector import FILTER_REGEX
 
 RESOURCE_NAMES = {1: "Coins", 2: "Oil", 4: "Gems", 14: "Medals"}
 ITEM_CATEGORIES = {1: "resource", 2: "item", 3: "equipment", 4: "ship"}
-RUNTIME_FILTER_BY_GAME_ID = {
-    (1, 1): "Coin",
-    (1, 2): "Oil",
-    (2, 15008): "Chip",
-    (2, 15012): "Array",
-    (2, 15014): "AugmentCoreT3",
-    (2, 15016): "AugmentEnhanceT2",
-    (2, 15020): "AugmentChangeT1",
-    (2, 15021): "AugmentChangeT2",
-    (2, 17003): "PlateGeneralT3",
-    (2, 17013): "PlateGunT3",
-    (2, 17023): "PlateTorpedoT3",
-    (2, 17033): "PlateAntiairT3",
-    (2, 17043): "PlatePlaneT3",
-    (2, 20011): "CatT1",
-    (2, 20012): "CatT2",
-    (2, 20013): "CatT3",
-    (2, 21048): "Meta",
-    (2, 30014): "BoxT4",
-    (2, 30024): "BoxT4",
-    (2, 30034): "BoxT4",
-    (2, 30044): "BoxT4",
-    (2, 30368): "SkinBox",
-    (2, 42060): "PRS7",
-    (2, 42066): "DRS7",
-    (2, 50001): "FoodT1",
-    (3, 24400): "EquipUR",
-    (4, 9707071): "ShipSSR",
-}
 _CJK_TEXT = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 _BLUEPRINT_SERIES = re.compile(
     r"^(Special )?General Blueprint - Series (\d+)$", re.IGNORECASE
@@ -212,18 +184,29 @@ class EventCompiler:
             )
         return fallback
 
-    @staticmethod
     def _runtime_filter(
+        self,
         *,
         item_type: int,
         item_id: int,
         name: str,
         rarity: int | None,
         source_path: str,
+        path: str,
     ) -> str:
-        token = RUNTIME_FILTER_BY_GAME_ID.get((item_type, item_id), "")
+        token = runtime_filter_token(item_type, item_id)
         if token:
-            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
+            if FILTER_REGEX.fullmatch(token.lower()):
+                return token
+            self.findings.append(
+                ValidationFinding(
+                    "runtime_filter_unsupported",
+                    "warning",
+                    f"Явно заданный runtime-фильтр EventShop не поддерживается: {token}",
+                    path,
+                )
+            )
+            return ""
         if item_type == 4 and rarity == 5:
             token = "ShipSSR"
             return token if FILTER_REGEX.fullmatch(token.lower()) else ""
@@ -389,6 +372,7 @@ class EventCompiler:
                             else None
                         ),
                         source_path=asset.source_path,
+                        path=f"shop.{row_id}.event_shop_filter",
                     ),
                     asset=asset,
                     limit_args=row.get("limit_args", ""),
@@ -715,6 +699,7 @@ class EventCompiler:
             "shop_activity_missing",
             "source_name_unlocalized",
             "currency_token_inferred",
+            "runtime_filter_unsupported",
         }
         is_partial = any(item.code in partial_codes for item in self.findings)
         status = "unsupported" if errors else "partial" if is_partial else "verified"
