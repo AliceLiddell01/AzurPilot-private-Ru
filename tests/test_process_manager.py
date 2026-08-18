@@ -209,7 +209,11 @@ class TestProcessManagerRegistry(unittest.TestCase):
         kill.assert_not_called()
         # join(timeout=0) — неблокирующая проверка zombie-процесса, а не обычный join.
         join_calls = [c.kwargs.get("timeout") for c in process.join.call_args_list]
-        self.assertNotIn(3, join_calls, "Блокирующий join(timeout=3) вызываться не должен")
+        self.assertTrue(join_calls)
+        self.assertTrue(
+            all(timeout == 0 for timeout in join_calls),
+            f"Ожидался только join(timeout=0): {join_calls}",
+        )
         self.assertIs(manager._process, process)
         self.assertNotIn("alas", State.process_registry)
 
