@@ -2,6 +2,11 @@
   "event_id": "en:51101",
   "fixture_schema_version": 1,
   "kind": "derived_sharecfg_subset",
+  "permitted_empty_tables": [
+    "activity_medal_group",
+    "map_event_list",
+    "map_event_template"
+  ],
   "records": {
     "activity_event_pt": 1,
     "activity_medal_group": 0,

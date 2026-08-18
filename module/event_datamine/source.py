@@ -94,10 +94,25 @@ class ShareCfgLoader:
         source = raw.get("source")
         records = raw.get("records")
         hashes = raw.get("sha256")
-        if not isinstance(source, dict) or not isinstance(records, dict) or not isinstance(hashes, dict):
+        permitted_empty = raw.get("permitted_empty_tables")
+        if (
+            not isinstance(source, dict)
+            or not isinstance(records, dict)
+            or not isinstance(hashes, dict)
+            or not isinstance(permitted_empty, list)
+        ):
             raise ShareCfgError(
                 "fixture_manifest_invalid",
-                "Manifest производного ShareCfg fixture не содержит source, records или sha256",
+                "Manifest производного ShareCfg fixture не содержит source, records, sha256 или permitted_empty_tables",
+            )
+        if any(
+            not isinstance(table, str)
+            or not re.fullmatch(r"[A-Za-z0-9_]+", table)
+            for table in permitted_empty
+        ) or len(set(permitted_empty)) != len(permitted_empty):
+            raise ShareCfgError(
+                "fixture_manifest_invalid",
+                "Manifest производного ShareCfg fixture содержит некорректный permitted_empty_tables",
             )
         expected_source = {
             "provider": self.snapshot.provider,
@@ -200,11 +215,18 @@ class ShareCfgLoader:
             return None
         records = manifest["records"]
         hashes = manifest["sha256"]
+        permitted_empty = set(manifest["permitted_empty_tables"])
         expected_count = records.get(table)
         if isinstance(expected_count, bool) or not isinstance(expected_count, int) or expected_count < 0:
             raise ShareCfgError(
                 "fixture_manifest_invalid",
                 f"Manifest fixture не содержит корректный records.{table}",
+                table=table,
+            )
+        if expected_count == 0 and table not in permitted_empty:
+            raise ShareCfgError(
+                "fixture_empty_table_not_permitted",
+                f"Manifest fixture не разрешает пустой ShareCfg {table}",
                 table=table,
             )
 

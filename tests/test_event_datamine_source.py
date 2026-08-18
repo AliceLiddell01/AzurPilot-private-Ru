@@ -29,6 +29,9 @@ def declare_json_fixture(root: Path, tables: dict[str, str], server: str = "EN")
         "event_id": "en:1",
         "fixture_schema_version": 1,
         "kind": "derived_sharecfg_subset",
+        "permitted_empty_tables": sorted(
+            table for table, count in records.items() if count == 0
+        ),
         "records": records,
         "sha256": hashes,
         "source": {
@@ -123,6 +126,19 @@ def test_manifest_explicitly_allows_empty_json_fixture(tmp_path: Path):
     declare_json_fixture(tmp_path, {"map_event_list": "{}"})
 
     assert ShareCfgLoader(snapshot(tmp_path)).load_table("map_event_list") == {}
+
+
+def test_empty_json_fixture_requires_explicit_manifest_permission(tmp_path: Path):
+    declare_json_fixture(tmp_path, {"map_event_list": "{}"})
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["permitted_empty_tables"] = []
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ShareCfgError) as caught:
+        ShareCfgLoader(snapshot(tmp_path)).load_table("map_event_list")
+
+    assert caught.value.code == "fixture_empty_table_not_permitted"
 
 
 def test_json_fixture_restores_lua_numeric_float_keys(tmp_path: Path):

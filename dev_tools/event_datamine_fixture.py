@@ -88,9 +88,25 @@ def _bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _permitted_empty_tables(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("Manifest fixture должен явно задавать permitted_empty_tables")
+    normalized = tuple(str(table).strip() for table in value)
+    if (
+        any(not table or table not in TABLES for table in normalized)
+        or len(set(normalized)) != len(normalized)
+    ):
+        raise ValueError("Manifest fixture содержит некорректный permitted_empty_tables")
+    return normalized
+
+
 def extract_current_fixture(
-    source: ShareCfgLoader, *, now: datetime
+    source: ShareCfgLoader,
+    *,
+    now: datetime,
+    permitted_empty_tables: tuple[str, ...] = (),
 ) -> tuple[dict[str, dict[int, Any]], dict[str, Any]]:
+    permitted_empty_tables = _permitted_empty_tables(permitted_empty_tables)
     candidate = resolve_current_candidate(
         discover_major_events(source), server=source.snapshot.server, now=now
     )
@@ -244,6 +260,7 @@ def extract_current_fixture(
         "fixture_schema_version": 1,
         "kind": "derived_sharecfg_subset",
         "event_id": candidate.id,
+        "permitted_empty_tables": sorted(permitted_empty_tables),
         "source": {
             "provider": source.snapshot.provider,
             "repository": source.snapshot.repository,
@@ -258,13 +275,14 @@ def extract_current_fixture(
 def write_fixture(
     output: Path, tables: Mapping[str, Mapping[int, Any]], manifest: dict[str, Any]
 ) -> None:
+    permitted_empty = set(_permitted_empty_tables(manifest.get("permitted_empty_tables")))
     table_root = output / str(manifest["source"]["server"]) / "sharecfgjson"
     table_root.mkdir(parents=True, exist_ok=True)
     hashes: dict[str, str] = {}
     for table in TABLES:
         values = tables.get(table, {})
         path = table_root / f"{table}.json"
-        if not values and table not in ShareCfgLoader.EMPTY_JSON_TABLES:
+        if not values and table not in permitted_empty:
             path.unlink(missing_ok=True)
             continue
         payload = _bytes(values)
@@ -283,6 +301,13 @@ def main() -> int:
     parser.add_argument("--revision", required=True)
     parser.add_argument("--now", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--permit-empty-table",
+        action="append",
+        choices=TABLES,
+        default=[],
+        help="Явно разрешить пустой JSON для указанной таблицы fixture",
+    )
     args = parser.parse_args()
     snapshot = SourceSnapshot(
         root=args.source_root,
@@ -291,7 +316,9 @@ def main() -> int:
         revision=args.revision,
     )
     tables, manifest = extract_current_fixture(
-        ShareCfgLoader(snapshot), now=datetime.fromisoformat(args.now)
+        ShareCfgLoader(snapshot),
+        now=datetime.fromisoformat(args.now),
+        permitted_empty_tables=tuple(args.permit_empty_table),
     )
     write_fixture(args.output, tables, manifest)
     print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
