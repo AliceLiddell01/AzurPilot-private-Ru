@@ -5,7 +5,7 @@ on:
     branches:
       - personal/stable
     paths:
-      - .github/temp_runtime_safety_fix.py
+      - .github/temp_runtime_safety_trigger.txt
 
 permissions:
   contents: write
