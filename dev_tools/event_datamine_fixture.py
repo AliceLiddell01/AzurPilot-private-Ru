@@ -14,7 +14,7 @@ from module.event_datamine.discovery import (
     discover_major_events,
     resolve_current_candidate,
 )
-from module.event_datamine.map_compiler import _values
+from module.event_datamine.map_compiler import sharecfg_values
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 
 TABLES = (
@@ -55,7 +55,7 @@ def _ints(value: Any) -> set[int]:
 
 
 def _reward_identity(value: Any) -> tuple[int, int] | None:
-    parts = _values(value)
+    parts = sharecfg_values(value)
     if len(parts) < 2:
         return None
     try:
@@ -117,9 +117,9 @@ def extract_current_fixture(
         row_id: row
         for row_id, row in loaded["activity_medal_group"].items()
         if any(
-            len(_values(link)) > 1
-            and int(_values(link)[1] or 0) == candidate.activity_id
-            for link in _values(_mapping(row).get("activity_link"))
+            len(sharecfg_values(link)) > 1
+            and int(sharecfg_values(link)[1] or 0) == candidate.activity_id
+            for link in sharecfg_values(_mapping(row).get("activity_link"))
         )
     }
 
@@ -215,7 +215,7 @@ def extract_current_fixture(
         )
     for row in selected["activity_event_pt"].values():
         currency_ids.add(int(_mapping(row).get("pt", 0) or 0))
-        for reward in _values(_mapping(row).get("drop_client")):
+        for reward in sharecfg_values(_mapping(row).get("drop_client")):
             identity = _reward_identity(reward)
             if identity:
                 identities.add(identity)

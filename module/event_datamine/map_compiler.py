@@ -25,7 +25,9 @@ GRID_TOKENS = {
 LAND_ROTATIONS = {1: "up", 2: "down", 3: "left", 4: "right"}
 
 
-def _values(value: Any) -> list[Any]:
+def sharecfg_values(value: Any) -> list[Any]:
+    """Вернуть последовательные значения декодированной структуры ShareCfg."""
+
     if isinstance(value, Mapping):
         return [
             value[key]
@@ -81,12 +83,12 @@ class EventEffectRegistry:
 
     def decode(self, event_ids: Any, templates: Mapping[int, Any]) -> _MapEffects:
         result = _MapEffects([], [], set())
-        for event_id in _values(event_ids):
+        for event_id in sharecfg_values(event_ids):
             event = templates.get(int(event_id))
             if not isinstance(event, Mapping):
                 result.unknown.add(f"missing:{event_id}")
                 continue
-            for effect in _values(event.get("effect")):
+            for effect in sharecfg_values(event.get("effect")):
                 kind = str(_at(effect, 0, ""))
                 handler = self._handlers.get(kind)
                 if handler is None:
@@ -196,7 +198,7 @@ class MapCompiler:
             if count > 0:
                 rows[wave]["enemy"] = rows[wave].get("enemy", 0) + count
         for wave, entries in enumerate(enemies):
-            count = len(_values(entries))
+            count = len(sharecfg_values(entries))
             if count:
                 while wave >= len(rows):
                     rows.append({"battle": len(rows)})
@@ -212,7 +214,7 @@ class MapCompiler:
     ) -> tuple[
         tuple[tuple[str, ...], ...], dict[tuple[int, int], str], tuple[int, ...]
     ]:
-        grids = _values(row.get("grids"))
+        grids = sharecfg_values(row.get("grids"))
         if not grids:
             return (), {}, ()
         min_y = min(int(_at(grid, 0, 0)) for grid in grids)
@@ -230,7 +232,7 @@ class MapCompiler:
                     unknown.add(grid_type)
             parsed[location] = token
         for wave in enemies:
-            for enemy in _values(wave):
+            for enemy in sharecfg_values(wave):
                 position = _at(enemy, 1, {})
                 parsed[
                     (int(_at(position, 1, 0)) - min_x, int(_at(position, 0, 0)) - min_y)
@@ -358,7 +360,7 @@ class MapCompiler:
         )
 
         land_based: list[tuple[str, str]] = []
-        for land in _values(row.get("land_based")):
+        for land in sharecfg_values(row.get("land_based")):
             rotation = int(_at(land, 2, 0) or 0)
             if rotation not in LAND_ROTATIONS:
                 findings.append(
@@ -379,9 +381,9 @@ class MapCompiler:
 
         siren_source_icons: list[str] = []
         turns: set[int] = set()
-        expedition_ids = _values(row.get("ai_expedition_list"))
+        expedition_ids = sharecfg_values(row.get("ai_expedition_list"))
         if isinstance(loop, Mapping):
-            expedition_ids += _values(loop.get("ai_expedition_list"))
+            expedition_ids += sharecfg_values(loop.get("ai_expedition_list"))
         for expedition_id in expedition_ids:
             if int(expedition_id) == 1:
                 continue
@@ -434,7 +436,7 @@ class MapCompiler:
                 int(row.get(f"star_require_{index}", index) or 0)
                 for index in range(1, 4)
             ),
-            has_story=bool(_values(row.get("story_refresh_boss"))),
+            has_story=bool(sharecfg_values(row.get("story_refresh_boss"))),
             has_fleet_step=bool(row.get("is_limit_move")),
             has_ambush=bool(row.get("is_ambush")) or bool(row.get("is_air_attack")),
             has_mystery=any(item.get("mystery", 0) for item in spawn),

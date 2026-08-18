@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from module.config.utils import SERVER_TO_TIMEZONE
-from module.event_datamine.map_compiler import _values
+from module.event_datamine.map_compiler import sharecfg_values
 from module.event_datamine.source import ShareCfgError, ShareCfgLoader
 
 
@@ -74,7 +74,7 @@ def _date_part(value: Any) -> str:
 
 def activity_times(row: Mapping[str, Any]) -> tuple[str, str]:
     value = row.get("time")
-    parts = _values(value)
+    parts = sharecfg_values(value)
     return (
         _date_part(parts[1]) if len(parts) > 1 else "",
         _date_part(parts[2]) if len(parts) > 2 else "",
@@ -97,8 +97,8 @@ def _linked_name(
     for row in medals.values():
         if not isinstance(row, Mapping):
             continue
-        for link in _values(row.get("activity_link")):
-            values = _values(link)
+        for link in sharecfg_values(row.get("activity_link")):
+            values = sharecfg_values(link)
             if len(values) > 1 and int(values[1] or 0) == activity_id:
                 title = str(row.get("group_name") or "").strip()
                 if title:
@@ -142,7 +142,7 @@ def discover_major_events(source: ShareCfgLoader) -> tuple[EventCandidate, ...]:
                 continue
             map_ids = tuple(
                 int(value)
-                for value in _values(row.get("config_data"))
+                for value in sharecfg_values(row.get("config_data"))
                 if isinstance(value, int) and int(value) in chapters
             )
             if map_ids:
@@ -181,7 +181,7 @@ def discover_major_events(source: ShareCfgLoader) -> tuple[EventCandidate, ...]:
             activity_times(row)[1]
             for _, row in related
             if int(row.get("type", 0) or 0) == 14
-            and _values(row.get("config_data"))
+            and sharecfg_values(row.get("config_data"))
             and activity_times(row)[1]
         ]
         shop_end = max(shop_ends, default=farm_end)
