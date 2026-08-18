@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "entries": [
     {"item_type": 1, "item_id": 1, "filter": "Coin"},
     {"item_type": 1, "item_id": 2, "filter": "Oil"},
@@ -28,5 +28,39 @@
     {"item_type": 2, "item_id": 50001, "filter": "FoodT1"},
     {"item_type": 3, "item_id": 24400, "filter": "EquipUR"},
     {"item_type": 4, "item_id": 9707071, "filter": "ShipSSR"}
+  ],
+  "rules": [
+    {
+      "id": "ship-ssr-by-rarity",
+      "item_type": 4,
+      "rarity": 5,
+      "filter": "ShipSSR"
+    },
+    {
+      "id": "equipment-ssr-by-rarity",
+      "item_type": 3,
+      "rarity": 5,
+      "filter": "EquipSSR"
+    },
+    {
+      "id": "skin-box-by-source-path",
+      "source_path_regex": "appearancebox",
+      "filter": "SkinBox"
+    },
+    {
+      "id": "skin-box-by-name",
+      "name_regex": "gear\\s+skin\\s+box",
+      "filter": "SkinBox"
+    },
+    {
+      "id": "general-blueprint-series",
+      "name_regex": "^General Blueprint - Series (?P<series>[1-9][0-9]*)$",
+      "filter_template": "PRS{series}"
+    },
+    {
+      "id": "special-general-blueprint-series",
+      "name_regex": "^Special General Blueprint - Series (?P<series>[1-9][0-9]*)$",
+      "filter_template": "DRS{series}"
+    }
   ]
 }

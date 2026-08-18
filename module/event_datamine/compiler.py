@@ -28,9 +28,6 @@ from module.shop_event.selector import FILTER_REGEX
 RESOURCE_NAMES = {1: "Coins", 2: "Oil", 4: "Gems", 14: "Medals"}
 ITEM_CATEGORIES = {1: "resource", 2: "item", 3: "equipment", 4: "ship"}
 _CJK_TEXT = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
-_BLUEPRINT_SERIES = re.compile(
-    r"^(Special )?General Blueprint - Series (\d+)$", re.IGNORECASE
-)
 
 
 def _date_part(value: Any) -> str:
@@ -45,7 +42,7 @@ def _date_part(value: Any) -> str:
             int(_at(clock, 1, 0)),
             int(_at(clock, 2, 0)),
         ).isoformat(sep=" ")
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return ""
 
 
@@ -76,6 +73,23 @@ def classify_pt_task_config(
             elif kind == "daily_first_clear" and value in map_ids:
                 daily_first_clear_maps.add(value)
     return tasks, daily_first_clear_maps
+
+
+def _is_ignored_land_rotation_finding(
+    finding: ValidationFinding, patches: tuple[Any, ...]
+) -> bool:
+    """Сопоставить finding с типизированным rotation из compatibility patch точно."""
+    if finding.code != "unknown_land_rotation":
+        return False
+    ignored_rotations = {
+        rotation
+        for patch in patches
+        for rotation in getattr(patch, "ignored_land_rotations", ())
+    }
+    return any(
+        finding.message == f"Неизвестный land rotation {rotation}"
+        for rotation in ignored_rotations
+    )
 
 
 class EventCompiler:
@@ -169,11 +183,17 @@ class EventCompiler:
 
     def _name(self, value: Any, fallback: str, path: str) -> str:
         name = str(value or "").strip()
-        if name and not (
-            self.source.snapshot.server == "EN" and _CJK_TEXT.search(name)
-        ):
-            return name
-        if name:
+        if not name:
+            self.findings.append(
+                ValidationFinding(
+                    "source_name_missing",
+                    "warning",
+                    "Имя в source отсутствует; используется техническая identity",
+                    path,
+                )
+            )
+            return fallback
+        if self.source.snapshot.server == "EN" and _CJK_TEXT.search(name):
             self.findings.append(
                 ValidationFinding(
                     "source_name_unlocalized",
@@ -182,7 +202,8 @@ class EventCompiler:
                     path,
                 )
             )
-        return fallback
+            return fallback
+        return name
 
     def _runtime_filter(
         self,
@@ -194,32 +215,25 @@ class EventCompiler:
         source_path: str,
         path: str,
     ) -> str:
-        token = runtime_filter_token(item_type, item_id)
-        if token:
-            if FILTER_REGEX.fullmatch(token.lower()):
-                return token
-            self.findings.append(
-                ValidationFinding(
-                    "runtime_filter_unsupported",
-                    "warning",
-                    f"Явно заданный runtime-фильтр EventShop не поддерживается: {token}",
-                    path,
-                )
-            )
+        token = runtime_filter_token(
+            item_type,
+            item_id,
+            name=name,
+            rarity=rarity,
+            source_path=source_path,
+        )
+        if not token:
             return ""
-        if item_type == 4 and rarity == 5:
-            token = "ShipSSR"
-            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
-        if item_type == 3 and rarity == 5:
-            token = "EquipSSR"
-            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
-        if "appearancebox" in source_path.lower() or "gear skin box" in name.lower():
-            token = "SkinBox"
-            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
-        blueprint = _BLUEPRINT_SERIES.fullmatch(name)
-        if blueprint:
-            token = f"{'DR' if blueprint.group(1) else 'PR'}S{blueprint.group(2)}"
-            return token if FILTER_REGEX.fullmatch(token.lower()) else ""
+        if FILTER_REGEX.fullmatch(token.lower()):
+            return token
+        self.findings.append(
+            ValidationFinding(
+                "runtime_filter_unsupported",
+                "warning",
+                f"Явно заданный runtime-фильтр EventShop не поддерживается: {token}",
+                path,
+            )
+        )
         return ""
 
     def _reward(
@@ -547,11 +561,7 @@ class EventCompiler:
                 findings = [
                     item
                     for item in findings
-                    if not (
-                        item.code == "unknown_land_rotation"
-                        and "rotation 10" in item.message
-                        and any("code 10" in patch.expected_effect for patch in patches)
-                    )
+                    if not _is_ignored_land_rotation_finding(item, patches)
                 ]
                 if spec is not None:
                     spec = replace(
@@ -697,6 +707,7 @@ class EventCompiler:
             "asset_unresolved",
             "milestone_missing",
             "shop_activity_missing",
+            "source_name_missing",
             "source_name_unlocalized",
             "currency_token_inferred",
             "runtime_filter_unsupported",
