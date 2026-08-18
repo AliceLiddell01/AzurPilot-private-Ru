@@ -69,6 +69,16 @@ def event_spec():
     }
 
 
+def _disable_event_artifact_context(monkeypatch):
+    """Изолировать runtime-flow тесты от production EventArtifactRegistry."""
+
+    monkeypatch.setattr(
+        EventShop,
+        "_begin_event_shop_pass_context",
+        lambda self: None,
+    )
+
+
 def test_explicit_small_amount_does_not_take_max_then_decrement_path():
     assert EventShopClerk._prefer_amount_max(1, 10, 100) is False
     assert EventShopClerk._prefer_amount_max(1, 95, 100) is True
@@ -136,10 +146,7 @@ def test_verification_only_pass_reads_pt_before_empty_purchase_set(monkeypatch):
             calls.append("scan")
             return []
 
-    monkeypatch.setattr(
-        "module.event_datamine.registry.EventArtifactRegistry.resolve_current",
-        lambda self, server, now: None,
-    )
+    _disable_event_artifact_context(monkeypatch)
     monkeypatch.setattr("module.shop_event.shop_event.logger.warning", warnings.append)
 
     assert ProbeEventShop()._run() is True
@@ -168,10 +175,7 @@ def test_verification_only_pass_distinguishes_observed_shop_from_purchase_target
         def scan_all():
             return PriorityRuntimeItems([], observation_items=observed)
 
-    monkeypatch.setattr(
-        "module.event_datamine.registry.EventArtifactRegistry.resolve_current",
-        lambda self, server, now: None,
-    )
+    _disable_event_artifact_context(monkeypatch)
     monkeypatch.setattr("module.shop_event.shop_event.logger.info", infos.append)
     monkeypatch.setattr("module.shop_event.shop_event.logger.warning", warnings.append)
 
@@ -204,10 +208,7 @@ def test_event_shop_pt_updates_dashboard_log(monkeypatch):
             return 5210
 
     monkeypatch.setattr("module.log_res.log_res.LogRes", FakeLogRes)
-    monkeypatch.setattr(
-        "module.event_datamine.registry.EventArtifactRegistry.resolve_current",
-        lambda self, server, now: None,
-    )
+    _disable_event_artifact_context(monkeypatch)
 
     shop = ProbeEventShop()
     shop.get_current_pts()

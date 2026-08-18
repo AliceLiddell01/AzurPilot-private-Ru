@@ -1,15 +1,17 @@
 from pathlib import Path
 
+from tests.event_css_contract_helpers import (
+    EVENT_SHOP_CSS,
+    EVENT_SHOP_PLAN_SELECTOR,
+    EVENT_SHOP_SETTINGS_SELECTOR,
+    css_block,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
-CSS = ROOT / "assets" / "gui" / "css" / "event-shop-stability-alas.css"
+CSS = EVENT_SHOP_CSS
 MATERIAL_CSS = ROOT / "assets" / "gui" / "css" / "advanced-material-alas.css"
 V2 = ROOT / "module" / "webui" / "app_event_shop_v2.py"
-
-
-def _block(css: str, selector: str) -> str:
-    assert selector in css
-    return css.split(selector, 1)[1].split("}", 1)[0]
 
 
 def test_event_shop_surface_contract_keeps_only_component_surfaces():
@@ -23,7 +25,7 @@ def test_event_shop_surface_contract_keeps_only_component_surfaces():
         '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
         '#pywebio-scope-groups > * {'
     )
-    wrapper = _block(css, wrapper_selector)
+    wrapper = css_block(css, wrapper_selector)
     for token in (
         "border: 0 !important",
         "border-radius: 0 !important",
@@ -36,23 +38,15 @@ def test_event_shop_surface_contract_keeps_only_component_surfaces():
     ):
         assert token in wrapper
 
-    plan_selector = (
-        '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
-        '#pywebio-scope-group_EventShopPlan {'
-    )
-    plan = _block(css, plan_selector)
+    plan = css_block(css, EVENT_SHOP_PLAN_SELECTOR)
     assert "background: transparent !important" in plan
     assert "backdrop-filter: none !important" in plan
 
-    settings_selector = (
-        '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
-        '#pywebio-scope-group_EventShopTaskSettings {'
-    )
-    settings = _block(css, settings_selector)
+    settings = css_block(css, EVENT_SHOP_SETTINGS_SELECTOR)
     assert "background: var(--event-surface) !important" in settings
     assert "border: 1px solid var(--event-border) !important" in settings
 
-    cards = _block(
+    cards = css_block(
         css,
         '#pywebio-scope-event_shop_v2_grid > [id^="pywebio-scope-event_shop_card_"] {',
     )
@@ -68,12 +62,12 @@ def test_task_text_inputs_do_not_stretch_checkbox_switches():
     assert "width: 40px !important" in css
     assert "height: 20px !important" in css
 
-    base_thumb = _block(
+    base_thumb = css_block(
         css,
         "#pywebio-scope-event_shop_task_fields .custom-switch "
         ".custom-control-label::after {",
     )
-    checked_thumb = _block(
+    checked_thumb = css_block(
         css,
         "#pywebio-scope-event_shop_task_fields .custom-switch "
         ".custom-control-input:checked ~ .custom-control-label::after {",

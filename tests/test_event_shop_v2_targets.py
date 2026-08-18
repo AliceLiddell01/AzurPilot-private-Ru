@@ -1,9 +1,17 @@
 from pathlib import Path
 
+from tests.event_css_contract_helpers import (
+    EVENT_SHOP_CSS,
+    EVENT_SHOP_HERO_SELECTOR,
+    EVENT_SHOP_PLAN_SELECTOR,
+    EVENT_SHOP_SETTINGS_SELECTOR,
+    css_block,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 V2 = ROOT / "module" / "webui" / "app_event_shop_v2.py"
-CSS = ROOT / "assets" / "gui" / "css" / "event-shop-stability-alas.css"
+CSS = EVENT_SHOP_CSS
 
 
 def test_event_shop_v2_restores_quantity_target_controls():
@@ -49,34 +57,23 @@ def test_event_shop_v2_keeps_availability_next_to_terminal_status():
 def test_event_shop_v2_flattens_layout_but_keeps_component_surfaces():
     css = CSS.read_text(encoding="utf-8")
 
-    plan_selector = (
-        '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
-        '#pywebio-scope-group_EventShopPlan {'
-    )
-    assert plan_selector in css
-    plan = css.split(plan_selector, 1)[1].split("}", 1)[0]
+    plan = css_block(css, EVENT_SHOP_PLAN_SELECTOR)
     assert "background: transparent !important;" in plan
     assert "box-shadow: none !important;" in plan
     assert "backdrop-filter: none !important;" in plan
 
-    settings_selector = (
-        '#pywebio-scope-content.event-modern-page[data-event-task="EventShop"] '
-        '#pywebio-scope-group_EventShopTaskSettings {'
-    )
-    assert settings_selector in css
-    settings = css.split(settings_selector, 1)[1].split("}", 1)[0]
+    settings = css_block(css, EVENT_SHOP_SETTINGS_SELECTOR)
     assert "background: var(--event-surface) !important;" in settings
     assert "border: 1px solid var(--event-border) !important;" in settings
 
-    assert ".event-shop-v2-hero" in css
-    assert "background: transparent;" in css
+    hero = css_block(css, EVENT_SHOP_HERO_SELECTOR)
+    assert "background: transparent;" in hero
 
 
 def test_event_shop_task_fields_use_vertical_layout_instead_of_narrow_columns():
     css = CSS.read_text(encoding="utf-8")
     marker = '#pywebio-scope-event_shop_task_fields > [id^="pywebio-scope-arg_container_"] {'
-    assert marker in css
-    block = css.split(marker, 1)[1].split("}", 1)[0]
+    block = css_block(css, marker)
 
     assert "grid-template-columns: 1fr" in block
     assert "align-items: stretch" in block

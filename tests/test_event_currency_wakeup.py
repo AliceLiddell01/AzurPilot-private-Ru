@@ -239,4 +239,6 @@ def test_log_res_event_shop_task_does_not_feed_dashboard_bridge(monkeypatch):
 
     LogRes(config).Pt = 150
 
+    assert config.modified["Dashboard.Pt.Value"] == 150
+    assert "Dashboard.Pt.Record" in config.modified
     assert calls == []
