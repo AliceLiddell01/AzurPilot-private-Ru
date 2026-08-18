@@ -11,6 +11,14 @@ from pathlib import Path
 from typing import Sequence, TextIO
 
 
+def normalize_exit_code(return_code: int) -> int:
+    """Нормализовать завершение по сигналу к shell-совместимому коду."""
+
+    if return_code < 0:
+        return 128 + abs(return_code)
+    return return_code
+
+
 def run_command(
     command: Sequence[str],
     *,
@@ -122,9 +130,13 @@ def run_command(
             reader.join(timeout=5.0)
             process.stdout.close()
 
+        normalized_exit_code = normalize_exit_code(return_code)
         elapsed = int(time.monotonic() - started_at)
-        emit(f"[ci] {label}: завершено за {elapsed} с, код выхода {return_code}.")
-        return return_code
+        emit(
+            f"[ci] {label}: завершено за {elapsed} с, "
+            f"код выхода {normalized_exit_code}."
+        )
+        return normalized_exit_code
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
