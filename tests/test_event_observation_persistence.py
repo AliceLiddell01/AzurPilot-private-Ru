@@ -2,11 +2,18 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Barrier
 
+import module.webui.event_observation as observation_store
+import module.webui.event_observation_update as observation_update_store
 from module.webui.event_observation import (
     _current_pt_candidate_is_newer,
     load_event_observation,
-    persist_current_pt_observation,
 )
+from module.webui.event_observation_update import persist_current_pt_observation
+
+
+def test_pt_persistence_is_owned_only_by_transaction_module():
+    assert not hasattr(observation_store, "persist_current_pt_observation")
+    assert callable(observation_update_store.persist_current_pt_observation)
 
 
 def test_later_arriving_older_pt_ocr_cannot_replace_newer_persisted_evidence(tmp_path):

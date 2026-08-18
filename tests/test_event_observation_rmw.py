@@ -2,12 +2,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
-import module.webui.event_observation as observation_store
-from module.webui.event_observation import (
-    load_event_observation,
+import module.webui.event_observation_update as observation_update_store
+from module.webui.event_observation import load_event_observation
+from module.webui.event_observation_update import (
     persist_current_pt_observation,
+    persist_current_pt_transition,
 )
-from module.webui.event_observation_update import persist_current_pt_transition
 from module.webui.event_shop_observation import persist_event_shop_observation
 
 
@@ -59,7 +59,7 @@ def test_pt_and_shop_writers_share_one_read_modify_write_lock(monkeypatch, tmp_p
     release_pt_save = Event()
     shop_started = Event()
     shop_finished = Event()
-    original_save = observation_store.save_event_observation
+    original_save = observation_update_store.save_event_observation
 
     def blocking_save(instance, observation, **kwargs):
         if (
@@ -71,7 +71,7 @@ def test_pt_and_shop_writers_share_one_read_modify_write_lock(monkeypatch, tmp_p
             assert release_pt_save.wait(timeout=5)
         return original_save(instance, observation, **kwargs)
 
-    monkeypatch.setattr(observation_store, "save_event_observation", blocking_save)
+    monkeypatch.setattr(observation_update_store, "save_event_observation", blocking_save)
 
     def write_pt():
         return persist_current_pt_observation(

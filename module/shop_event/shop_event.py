@@ -104,7 +104,9 @@ class EventShop(EventShopClerk):
             )
 
         try:
-            from module.webui.event_observation import persist_current_pt_observation
+            from module.webui.event_observation_update import (
+                persist_current_pt_observation,
+            )
 
             artifact = self._current_event_artifact()
             if artifact is not None:

@@ -1,4 +1,4 @@
-"""Типизированные fail-closed runtime-наблюдения для пользовательского интерфейса ивента."""
+"""Типизированные наблюдения времени выполнения с безопасным отказом для интерфейса события."""
 
 from __future__ import annotations
 
@@ -106,12 +106,6 @@ def normalize_current_pt_value(value: Any) -> int | None:
     return result if result >= 0 else None
 
 
-def _optional_non_negative_int(value: Any) -> int | None:
-    """Обратная совместимость для внутренних вызовов старого имени helper."""
-
-    return normalize_current_pt_value(value)
-
-
 def _finding(code: str, message: str, path: str = "") -> ObservationFinding:
     return {"code": code, "message": message, "path": path}
 
@@ -167,7 +161,7 @@ def normalize_event_observation(
         result["findings"].append(
             _finding(
                 "cross_revision_rejected",
-                "Наблюдение относится к другой source revision",
+                "Наблюдение относится к другой ревизии источника",
                 "source_revision",
             )
         )
@@ -229,7 +223,7 @@ def _pt_evidence_timestamp(value: Any) -> datetime | None:
 def _current_pt_candidate_is_newer(
     candidate_timestamp: Any, existing: Mapping[str, Any]
 ) -> bool:
-    """Принимать только доказанно более свежее PT evidence; равное время не заменяет запись."""
+    """Принимать только доказанно более свежие данные PT; равное время не заменяет запись."""
 
     candidate_at = _pt_evidence_timestamp(candidate_timestamp)
     existing_at = _pt_evidence_timestamp(
@@ -247,7 +241,7 @@ def apply_current_pt_evidence(
     timestamp: str,
     source: CurrencyEvidenceSource,
 ) -> bool:
-    """Применить единый контракт выбора и записи свежего PT evidence."""
+    """Применить единый контракт выбора и записи свежих данных PT."""
 
     if not _current_pt_candidate_is_newer(timestamp, observation):
         return False
@@ -289,16 +283,13 @@ def event_observation_write_lock(
     timeout: float = STATE_LOCK_TIMEOUT_SECONDS,
     retry_interval: float = STATE_LOCK_RETRY_INTERVAL_SECONDS,
 ):
-    """Сериализовать observation через общую блокировку состояния с ограниченным ожиданием."""
+    """Сериализовать наблюдение через общую блокировку состояния с ограниченным ожиданием."""
 
     return state_write_lock(
         path,
         timeout=timeout,
         retry_interval=retry_interval,
     )
-
-
-_event_observation_write_lock = event_observation_write_lock
 
 
 def save_event_observation(
@@ -323,7 +314,7 @@ def save_event_observation(
     )
     if normalized["source"] in {"fixture", "replay"} and not allow_nonproduction:
         raise ValueError(
-            "Fixture/replay evidence запрещено сохранять как production observation"
+            "Наблюдения источников fixture/replay запрещено сохранять как производственные"
         )
     path = event_observation_path(
         instance,
@@ -391,7 +382,7 @@ def load_event_observation(
         clean["findings"].append(
             _finding(
                 "nonproduction_evidence_rejected",
-                "Fixture/replay evidence не используется в production UI",
+                "Данные fixture/replay не используются в производственном интерфейсе",
                 "source",
             )
         )
@@ -440,46 +431,3 @@ def dashboard_pt_observation(
             )
         )
     return result
-
-
-def persist_current_pt_observation(
-    *,
-    instance: str,
-    event_id: str,
-    server: str,
-    source_revision: str,
-    value: Any,
-    observed_at: datetime | None = None,
-    source: CurrencyEvidenceSource = "event_shop_ocr",
-    root: Path | str = EVENT_OBSERVATION_ROOT,
-) -> dict[str, Any]:
-    """Сохранить свежее OCR-наблюдение для точной идентичности текущего события."""
-
-    timestamp = (
-        (observed_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
-    )
-    observation_path = event_observation_path(
-        instance,
-        event_id,
-        server,
-        root,
-        source_revision=source_revision,
-    )
-    lock_path = observation_path.with_suffix(f"{observation_path.suffix}.lock")
-    with event_observation_write_lock(lock_path):
-        observation = load_event_observation(
-            instance,
-            event_id,
-            server,
-            source_revision,
-            root=root,
-        )
-        if not apply_current_pt_evidence(
-            observation,
-            value=value,
-            timestamp=timestamp,
-            source=source,
-        ):
-            return observation
-        save_event_observation(instance, observation, root=root)
-        return observation

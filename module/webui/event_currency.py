@@ -4,28 +4,20 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
-from module.webui.event_observation import EVENT_OBSERVATION_ROOT
+from module.webui.event_observation import (
+    EVENT_OBSERVATION_ROOT,
+    CurrencyEvidenceSource,
+    normalize_current_pt_value,
+)
 from module.webui.event_observation_update import persist_current_pt_transition
 from module.webui.event_shop_priority import (
     EVENT_SHOP_PRIORITY_ROOT,
     load_event_shop_priority,
 )
-
-CurrencyEvidenceSource = Literal["dashboard_ocr", "event_shop_ocr"]
-
-
-def _optional_non_negative_int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        result = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return result if result >= 0 else None
 
 
 def persist_event_currency_update(
@@ -40,8 +32,8 @@ def persist_event_currency_update(
     """Сохранить PT и разбудить EventShop только после доказанного роста.
 
     Точное предыдущее PT читается под той же блокировкой, под которой
-    принимается новое evidence. Поэтому конкурентный writer не может превратить
-    фактическое снижение в ложный сигнал роста.
+    принимаются новые данные наблюдения. Поэтому конкурентная запись не может
+    превратить фактическое снижение в ложный сигнал роста.
     """
 
     instance = str(getattr(config, "config_name", "") or "")
@@ -82,7 +74,7 @@ def persist_event_currency_update(
     if source == "event_shop_ocr":
         return observation
 
-    current_value = _optional_non_negative_int(observation.get("current_pt"))
+    current_value = normalize_current_pt_value(observation.get("current_pt"))
     if (
         previous_value is None
         or current_value is None

@@ -1,4 +1,4 @@
-"""Сериализованные read-modify-write операции над EventObservation."""
+"""Сериализованные операции чтения → изменения → записи EventObservation."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def update_event_observation(
     updater: ObservationUpdater,
     root: Path | str = EVENT_OBSERVATION_ROOT,
 ) -> dict[str, Any]:
-    """Выполнить один сериализованный load → mutate → save для observation."""
+    """Выполнить одну сериализованную операцию чтения → изменения → записи."""
 
     lock_path = _observation_lock_path(
         instance,
@@ -110,3 +110,29 @@ def persist_current_pt_transition(
         root=root,
     )
     return observation, previous_value, accepted
+
+
+def persist_current_pt_observation(
+    *,
+    instance: str,
+    event_id: str,
+    server: str,
+    source_revision: str,
+    value: Any,
+    observed_at: datetime | None = None,
+    source: CurrencyEvidenceSource = "event_shop_ocr",
+    root: Path | str = EVENT_OBSERVATION_ROOT,
+) -> dict[str, Any]:
+    """Сохранить свежее OCR-наблюдение PT через единственную транзакцию обновления."""
+
+    observation, _, _ = persist_current_pt_transition(
+        instance=instance,
+        event_id=event_id,
+        server=server,
+        source_revision=source_revision,
+        value=value,
+        observed_at=observed_at,
+        source=source,
+        root=root,
+    )
+    return observation
