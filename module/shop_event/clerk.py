@@ -590,19 +590,25 @@ class EventShopClerk(EventShopUI):
     def event_shop_buy_item(self, item_to_buy, amount=None):
         item = self._reidentify_event_shop_item(item_to_buy)
         try:
-            item_count = max(int(item.count), 0)
-            requested = item_count if amount is None else max(int(amount), 0)
-        except (TypeError, ValueError, OverflowError):
-            item_count = 0
-            requested = 0
-        full_purchase = item_count > 0 and requested >= item_count
+            item_count = int(item.count)
+            requested = item_count if amount is None else int(amount)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise GameStuckError(
+                "[Магазин события — покупка] Некорректное количество товара; покупка заблокирована"
+            ) from exc
+        if item_count <= 0 or requested <= 0:
+            raise GameStuckError(
+                "[Магазин события — покупка] Количество товара или покупки должно быть положительным; покупка заблокирована"
+            )
+
+        effective_count = min(requested, item_count)
+        full_purchase = effective_count == item_count
         if getattr(item, 'is_ship', False):
-            buy_times = item_count if amount is None else min(requested, item_count)
-            for _ in range(buy_times):
+            for _ in range(effective_count):
                 self.event_shop_buy_item_execute(item, amount=1)
         else:
-            self.event_shop_buy_item_execute(item, amount=amount)
-        remaining_after = max(item_count - min(requested, item_count), 0)
+            self.event_shop_buy_item_execute(item, amount=effective_count)
+        remaining_after = item_count - effective_count
         try:
             confirm_event_shop_purchase(
                 self.config,
