@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from module.event_datamine.registry import EventArtifactRegistry
+from module.event_datamine.registry import load_event_artifact_registry
 from module.logger import logger
 from module.webui.event_observation import (
     EVENT_OBSERVATION_ROOT,
@@ -41,7 +41,7 @@ def persist_event_currency_update(
         raise ValueError("Для наблюдения валюты события требуется имя профиля")
 
     server = str(getattr(config, "SERVER", "EN") or "EN").upper()
-    artifact = EventArtifactRegistry().resolve_current(server, datetime.now())
+    artifact = load_event_artifact_registry().resolve_current(server, datetime.now())
     if not isinstance(artifact, dict):
         return None
     spec = artifact.get("event_spec")

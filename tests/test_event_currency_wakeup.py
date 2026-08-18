@@ -33,11 +33,10 @@ def _spec():
 
 
 def _patch_current_event(monkeypatch, spec):
-    monkeypatch.setattr(
-        currency.EventArtifactRegistry,
-        "resolve_current",
-        lambda self, server, now: {"event_spec": spec},
+    registry = SimpleNamespace(
+        resolve_current=lambda server, now: {"event_spec": spec}
     )
+    monkeypatch.setattr(currency, "load_event_artifact_registry", lambda: registry)
 
 
 def test_proven_dashboard_pt_increase_wakes_enabled_event_shop(monkeypatch, tmp_path):
@@ -203,7 +202,7 @@ def test_log_res_pt_change_feeds_event_currency_bridge(monkeypatch):
     config = SimpleNamespace(
         config_name="test-instance",
         task=SimpleNamespace(command="Campaign"),
-        data={"Dashboard": {"Pt": {"Value": 100, "Record": datetime(2020, 1, 1)}}},
+        data={"Dashboard": {"Pt": {"Value": 100, "Record": datetime(2020, 1, 1)}},
         modified={},
     )
     monkeypatch.setattr(LogRes, "groups", {"Pt": {}})
@@ -226,7 +225,7 @@ def test_log_res_event_shop_task_does_not_feed_dashboard_bridge(monkeypatch):
     config = SimpleNamespace(
         config_name="test-instance",
         task=SimpleNamespace(command="EventShop"),
-        data={"Dashboard": {"Pt": {"Value": 100, "Record": datetime(2020, 1, 1)}}},
+        data={"Dashboard": {"Pt": {"Value": 100, "Record": datetime(2020, 1, 1)}},
         modified={},
     )
     monkeypatch.setattr(LogRes, "groups", {"Pt": {}})

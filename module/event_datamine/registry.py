@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from datetime import datetime
+from functools import lru_cache
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +27,6 @@ EVENT_REGISTRY_NAME = "index.json"
 def registry_digest(data: Mapping[str, Any]) -> str:
     clean = dict(data)
     clean.pop("digest", None)
-    from hashlib import sha256
-
     return sha256(canonical_json(clean).encode("utf-8")).hexdigest()
 
 
@@ -71,8 +71,6 @@ def write_registry(
 ) -> Path:
     base = Path(root)
     data = build_registry(base)
-    # Используем атомарные примитивы writer артефактов через временный корректный
-    # контейнер, затем детерминированно заменяем его JSON-реестром.
     target = base / EVENT_REGISTRY_NAME
     target.parent.mkdir(parents=True, exist_ok=True)
     from deploy.atomic import file_remove, file_write, replace_tmp, to_tmp_file
@@ -226,3 +224,31 @@ class EventArtifactRegistry:
                     candidates=[item["id"] for item in matches],
                 )
         return None
+
+
+@lru_cache(maxsize=8)
+def _validated_registry_snapshot(
+    root: str,
+    index_revision: str,
+) -> EventArtifactRegistry:
+    """Переиспользовать уже проверенный snapshot только для точной ревизии index."""
+
+    del index_revision
+    return EventArtifactRegistry(root)
+
+
+def load_event_artifact_registry(
+    root: Path | str = BUILTIN_ARTIFACT_ROOT,
+) -> EventArtifactRegistry:
+    """Загрузить проверенный registry с invalidation по содержимому ``index.json``.
+
+    Сам index остаётся дешёвым source-of-truth поколения. Пока он побайтно тот же,
+    runtime использует уже валидированный immutable snapshot и не перечитывает все
+    artifacts. После атомарной регенерации index его SHA-256 меняется и создаётся
+    новый полностью проверенный snapshot.
+    """
+
+    base = Path(root).resolve()
+    index_path = base / EVENT_REGISTRY_NAME
+    index_revision = sha256(index_path.read_bytes()).hexdigest()
+    return _validated_registry_snapshot(str(base), index_revision)

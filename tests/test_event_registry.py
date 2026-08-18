@@ -8,6 +8,7 @@ from module.event_datamine.discovery import EventDiscoveryError
 from module.event_datamine.registry import (
     EventArtifactRegistry,
     build_registry,
+    load_event_artifact_registry,
     write_registry,
 )
 
@@ -91,3 +92,27 @@ def test_registry_build_rejects_corrupt_artifact_instead_of_skipping_it(tmp_path
 
     with pytest.raises(ValueError, match="Некорректный Event artifact"):
         build_registry(tmp_path)
+
+
+def test_registry_cache_tracks_exact_index_revision(tmp_path: Path):
+    _write(
+        tmp_path,
+        "event.json",
+        _artifact("en:first", "2026-08-01", "2026-08-20", "2026-08-27"),
+    )
+
+    first = load_event_artifact_registry(tmp_path)
+    repeated = load_event_artifact_registry(tmp_path)
+
+    assert repeated is first
+    assert first.resolve_current("EN", datetime(2026, 8, 10))["event_spec"]["id"] == "en:first"
+
+    _write(
+        tmp_path,
+        "event.json",
+        _artifact("en:second", "2026-08-01", "2026-08-20", "2026-08-27"),
+    )
+    refreshed = load_event_artifact_registry(tmp_path)
+
+    assert refreshed is not first
+    assert refreshed.resolve_current("EN", datetime(2026, 8, 10))["event_spec"]["id"] == "en:second"
