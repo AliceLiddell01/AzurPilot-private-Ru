@@ -248,6 +248,7 @@ jobs:
         timeout-minutes: 10
         with:
           fetch-depth: 1
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Проверить exact head
