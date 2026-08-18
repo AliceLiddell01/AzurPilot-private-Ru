@@ -73,6 +73,14 @@ def require_int(value: Any, path: str) -> int:
     raise EventSupplementalError(f"{path} должен быть целым числом")
 
 
+def require_positive_json_int(value: Any, path: str) -> int:
+    """Проверить runtime-число без строковых и bool coercion."""
+
+    if type(value) is not int or value <= 0:
+        raise EventSupplementalError(f"{path} должен быть положительным JSON integer")
+    return value
+
+
 def _unique_ints(items: list[Any], field: str, path: str) -> None:
     values: list[int] = []
     for item in items:
@@ -152,10 +160,20 @@ def validate_supplemental(data: Any) -> dict[str, Any]:
     farm = require_mapping(result.get("farm"), "farm")
     maps = require_list(farm.get("maps"), "farm.maps")
     _unique_ints(maps, "map_id", "farm.maps")
+    chapter_names: list[str] = []
     for item in maps:
         row = require_mapping(item, "farm.maps")
-        if not str(row.get("chapter_name") or "").strip():
+        chapter_name = str(row.get("chapter_name") or "").strip()
+        if not chapter_name:
             raise EventSupplementalError("farm.maps требует chapter_name")
+        chapter_names.append(chapter_name)
+    if len(chapter_names) != len(set(chapter_names)):
+        raise EventSupplementalError("farm.maps.chapter_name содержит дубликаты")
+    known_chapters = set(chapter_names)
+
+    for item in maps:
+        row = require_mapping(item, "farm.maps")
+        chapter_name = str(row.get("chapter_name") or "").strip()
         grants_pt = row.get("grants_event_pt")
         if not isinstance(grants_pt, bool):
             raise EventSupplementalError("farm.maps.grants_event_pt должен быть bool")
@@ -167,6 +185,46 @@ def validate_supplemental(data: Any) -> dict[str, Any]:
             raise EventSupplementalError(
                 f"farm map {row.get('map_id')} не даёт PT, но содержит base_points"
             )
+
+        unlock_requires = require_list(
+            row.get("unlock_requires", []),
+            f"farm.maps.{chapter_name}.unlock_requires",
+        )
+        normalized_requires: list[str] = []
+        for required in unlock_requires:
+            if not isinstance(required, str) or not required.strip():
+                raise EventSupplementalError(
+                    f"farm.maps.{chapter_name}.unlock_requires должен содержать непустые chapter_name"
+                )
+            normalized_requires.append(required.strip())
+        if len(normalized_requires) != len(set(normalized_requires)):
+            raise EventSupplementalError(
+                f"farm.maps.{chapter_name}.unlock_requires содержит дубликаты"
+            )
+        unknown_requires = sorted(set(normalized_requires) - known_chapters)
+        if unknown_requires:
+            raise EventSupplementalError(
+                f"farm.maps.{chapter_name}.unlock_requires ссылается на неизвестные карты: "
+                + ", ".join(unknown_requires)
+            )
+
+        if "daily_first_clear_multiplier" in row:
+            require_positive_json_int(
+                row["daily_first_clear_multiplier"],
+                f"farm.maps.{chapter_name}.daily_first_clear_multiplier",
+            )
+        if "daily_limit" in row:
+            require_positive_json_int(
+                row["daily_limit"],
+                f"farm.maps.{chapter_name}.daily_limit",
+            )
+        if "oil" in row:
+            oil = require_mapping(row["oil"], f"farm.maps.{chapter_name}.oil")
+            if "per_run" in oil:
+                require_positive_json_int(
+                    oil["per_run"],
+                    f"farm.maps.{chapter_name}.oil.per_run",
+                )
 
     verification = require_mapping(result.get("verification"), "verification")
     require_mapping(verification.get("shop"), "verification.shop")

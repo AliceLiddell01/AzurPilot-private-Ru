@@ -71,9 +71,19 @@ def verify_git_revision(root: Path, revision: str) -> None:
         )
 
 
+def _has_topology_hole(spec) -> bool:
+    matrices = (
+        getattr(spec, "map_data", ()),
+        getattr(spec, "map_data_loop", ()) or (),
+    )
+    return any(cell == "??" for matrix in matrices for row in matrix for cell in row)
+
+
 def _map_status(spec) -> str:
     if spec.unknown_grid_types or spec.unknown_effects:
         return "unsupported"
+    if _has_topology_hole(spec):
+        return "partial"
     return "verified"
 
 
