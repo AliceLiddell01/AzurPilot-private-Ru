@@ -351,7 +351,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
             f'<small>{escape(description)}</small></div>'
             f'<span class="event-subsection-count">{len(items)}</span></div>'
-            f'<div class="event-quest-grid'>{\"\".join(cards)}</div>'
+            f'<div class="event-quest-grid'>{"".join(cards)}</div>'
             "</section>"
         )
 
@@ -445,7 +445,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
         if cards:
             put_html(
                 '<div class="event-reward-track-shell">'
-                f'<div id="event-reward-track" class="event-reward-track'>{\"\".join(cards)}</div>'
+                f'<div id="event-reward-track" class="event-reward-track'>{"".join(cards)}</div>'
                 "</div>"
             )
         else:
