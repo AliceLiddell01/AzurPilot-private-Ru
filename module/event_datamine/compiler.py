@@ -672,7 +672,16 @@ class EventCompiler:
 
         valid_currency_ids = {value for value in currency_ids if value}
         if len(valid_currency_ids) == 1 and not runtime_currency_tokens:
-            runtime_currency_tokens[next(iter(valid_currency_ids))] = "pt"
+            currency_id = next(iter(valid_currency_ids))
+            runtime_currency_tokens[currency_id] = "pt"
+            self.findings.append(
+                ValidationFinding(
+                    "currency_token_inferred",
+                    "warning",
+                    "Runtime-токен валюты выведен из единственной валюты события",
+                    f"currencies.{currency_id}.runtime_token",
+                )
+            )
         currencies = []
         for currency_id in sorted(valid_currency_ids):
             resource = resources.get(currency_id, {})
@@ -705,6 +714,7 @@ class EventCompiler:
             "milestone_missing",
             "shop_activity_missing",
             "source_name_unlocalized",
+            "currency_token_inferred",
         }
         is_partial = any(item.code in partial_codes for item in self.findings)
         status = "unsupported" if errors else "partial" if is_partial else "verified"

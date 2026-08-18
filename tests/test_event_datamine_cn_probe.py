@@ -48,6 +48,13 @@ pg.base.activity_template[51109] = {{ id = 51109, mark = 20260813, type = 74, co
     assert len(spec.shop_items) == 1
     assert len(spec.milestones) == 1
     assert [item.id for item in spec.currencies] == [741]
+    assert spec.currencies[0].runtime_token == "pt"
+    assert any(
+        item.code == "currency_token_inferred"
+        and item.severity == "warning"
+        and item.path == "currencies.741.runtime_token"
+        for item in spec.findings
+    )
     assert any(
         item.code in {"table_missing", "event_maps_missing"}
         and item.severity == "error"
