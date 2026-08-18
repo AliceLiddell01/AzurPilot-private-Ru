@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import module.webui.event_currency as currency
 from module.log_res.log_res import LogRes
-from module.webui.event_observation import persist_current_pt_observation
+from module.webui.event_observation_update import persist_current_pt_observation
 from module.webui.event_shop_priority import set_event_shop_priority
 
 

@@ -11,9 +11,9 @@ from module.webui.event_observation import (
     event_observation_path,
     load_event_observation,
     observation_is_fresh,
-    persist_current_pt_observation,
     save_event_observation,
 )
+from module.webui.event_observation_update import persist_current_pt_observation
 from module.webui.event_source import (
     _current_pt_evidence_is_newer,
     empty_event_user_state,
@@ -67,7 +67,7 @@ def test_fixture_and_replay_cannot_become_production_truth(tmp_path: Path):
             "current_pt": 999,
         }
     )
-    with pytest.raises(ValueError, match="Fixture/replay"):
+    with pytest.raises(ValueError, match="fixture/replay"):
         save_event_observation("alpha", observation, root=tmp_path)
 
     save_event_observation(
