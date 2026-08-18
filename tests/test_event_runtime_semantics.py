@@ -38,6 +38,28 @@ def _map(*, boss_refresh: int = 0):
     )
 
 
+def _detector_policy():
+    return {
+        "internal_lines": {
+            "height": [80, 238],
+            "width": [0.9, 10],
+            "prominence": 10,
+            "distance": 35,
+        },
+        "edge_lines": {
+            "height": [238, 255],
+            "prominence": 10,
+            "distance": 50,
+            "wlen": 1000,
+        },
+        "swipe": {
+            "adb": [1.0, 1.1],
+            "minitouch": [1.0, 1.1],
+            "maatouch": [1.0, 1.1],
+        },
+    }
+
+
 def test_camera_policy_rejects_arbitrary_fields():
     with pytest.raises(EventRuntimePolicyError, match="неизвестные поля"):
         parse_camera_calibration(
@@ -52,28 +74,34 @@ def test_camera_policy_rejects_arbitrary_fields():
 
 
 def test_detector_policy_rejects_arbitrary_config_names():
+    policy = _detector_policy()
+    policy["ARBITRARY_CONFIG"] = True
+
     with pytest.raises(EventRuntimePolicyError, match="неизвестные поля"):
         parse_detector_calibration(
-            {
-                "internal_lines": {
-                    "height": [80, 238],
-                    "width": [0.9, 10],
-                    "prominence": 10,
-                    "distance": 35,
-                },
-                "edge_lines": {
-                    "height": [238, 255],
-                    "prominence": 10,
-                    "distance": 50,
-                    "wlen": 1000,
-                },
-                "swipe": {
-                    "adb": [1.0, 1.1],
-                    "minitouch": [1.0, 1.1],
-                    "maatouch": [1.0, 1.1],
-                },
-                "ARBITRARY_CONFIG": True,
-            },
+            policy,
+            map_id=1,
+            error_type=EventRuntimePolicyError,
+        )
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "match"),
+    [
+        ("internal_lines", "height", [200, 300], "диапазоне 0..255"),
+        ("internal_lines", "width", [10, 0.9], "упорядочен"),
+        ("internal_lines", "prominence", 0, "положительные prominence/distance"),
+    ],
+)
+def test_detector_policy_rejects_invalid_line_peak_boundaries(
+    section, field, value, match
+):
+    policy = _detector_policy()
+    policy[section][field] = value
+
+    with pytest.raises(EventRuntimePolicyError, match=match):
+        parse_detector_calibration(
+            policy,
             map_id=1,
             error_type=EventRuntimePolicyError,
         )

@@ -274,6 +274,7 @@ def test_source_price_and_amount_normalize_runtime_item_but_keep_ocr_evidence():
 def test_event_shop_ocr_regions_exclude_currency_icon_and_bottom_item_border():
     grid = EventShopItemGrid(grids=None, templates={})
 
-    assert grid.price_area[0] >= 0
-    assert grid.price_area[2] <= ITEM_SHAPE[0] + 20
+    # Текст цены начинается правее иконки валюты и заканчивается на той же границе.
+    assert grid.price_area[0] > grid.cost_area[0]
+    assert grid.price_area[2] == grid.cost_area[2]
     assert grid.amount_area[3] < ITEM_SHAPE[1]
