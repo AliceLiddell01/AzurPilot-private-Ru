@@ -106,6 +106,13 @@ class _GeneratedEventAliasLoader(importlib.abc.Loader):
         return None
 
 
+class _GeneratedEventAliasPackageLoader(importlib.abc.Loader):
+    """Создать только промежуточный package для отсутствующего legacy selector."""
+
+    def exec_module(self, module: ModuleType) -> None:
+        return None
+
+
 class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
     """Лениво сопоставить старое имя этапа события с текущим сгенерированным этапом."""
 
@@ -114,9 +121,9 @@ class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
 
     def find_spec(self, fullname, path=None, target=None):
         parts = str(fullname).split(".")
-        if len(parts) != 3 or parts[0] != "campaign":
+        if len(parts) not in {2, 3} or parts[0] != "campaign":
             return None
-        selector, stage = parts[1], parts[2]
+        selector = parts[1]
         if not selector.startswith("event_") or selector == "event_generated":
             return None
 
@@ -126,6 +133,17 @@ class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
         if importlib.machinery.PathFinder.find_spec(fullname, path) is not None:
             return None
 
+        if len(parts) == 2:
+            # Python сначала импортирует родительский selector package и лишь затем
+            # конкретный stage. Пустой synthetic package не разрешает карту сам:
+            # полный stage ниже всё равно проходит существующий fail-closed resolver.
+            return importlib.util.spec_from_loader(
+                fullname,
+                _GeneratedEventAliasPackageLoader(),
+                is_package=True,
+            )
+
+        stage = parts[2]
         resolved = resolve_generated_campaign_module(
             selector,
             stage,
