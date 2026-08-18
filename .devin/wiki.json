@@ -4,5 +4,300 @@
       "author": "Repository maintainer",
       "content": "Generate the entire DeepWiki documentation for this repository in Russian. All page titles, section headings, prose, explanations, tables, captions, notes, navigation-oriented wording, and Mermaid diagram labels must be written in natural, professional Russian. Preserve source-code identifiers, class and function names, variable names, file and directory paths, configuration keys, command-line commands, API/protocol names, package names, literal strings, URLs, event identifiers, and other machine-facing or source-facing tokens exactly as they appear in the repository. Do not mechanically translate established technical identifiers. When useful for clarity, give an established English technical term in parentheses on first use after the Russian term. Treat the current AzurPilot Private RU codebase and its personal/stable branch as the canonical state to document. The master branch is an upstream mirror and must not be treated as the source of personal behavior or features. Distinguish clearly between behavior implemented in this fork and behavior inherited from or described only in upstream AzurPilot / AzurLaneAutoScript. This repository is a Russian-localized personal fork focused on controlled updates, transparent runtime behavior, reduced project-controlled network dependencies, and a ru-RU first-party interface. The game-side target is Global/EN where the repository explicitly enforces it. Document the implementation that actually exists in the repository; do not invent behavior, configuration, architecture, guarantees, or relationships that are not supported by source code or repository documentation. If evidence is ambiguous, state the uncertainty instead of guessing."
     }
+  ],
+  "pages": [
+    {
+      "title": "AzurPilot Overview",
+      "purpose": "High-level introduction to AzurPilot: what it is, its architecture layers, key entry points (alas.py, gui.py), and how the major subsystems relate. Links to all child sections for deeper coverage.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Getting Started & Deployment",
+      "purpose": "How to install, configure, and run AzurPilot. Covers the PowerShell scripts (Start, Update, Repair, Build), deploy.yaml configuration, Docker deployment, and the dependency management system using uv/pyproject.toml.",
+      "parent": "AzurPilot Overview",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Task Scheduler & Runtime Loop",
+      "purpose": "How alas.py orchestrates the main task loop: config loading, task dispatch, error recovery (ADB offline, game stuck), emulator restart logic, and exception hierarchy (RequestHumanTakeover, TaskEnd, CampaignEnd).",
+      "parent": "AzurPilot Overview",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Configuration System",
+      "purpose": "Overview of how AzurPilot's configuration is defined, generated, and consumed. Introduces the YAML-to-JSON pipeline, the GeneratedConfig class, and i18n. Links to child pages for details.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Configuration Generation Pipeline",
+      "purpose": "Deep dive into ConfigUpdater and ConfigGenerator: how argument.yaml, task.yaml, override.yaml, and default.yaml are merged into args.json, menu.json, config_generated.py, and i18n/*.json. Covers the event insertion and package/server injection methods.",
+      "parent": "Configuration System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Runtime Configuration & i18n",
+      "purpose": "How AzurLaneConfig (config.py) is used at runtime: reading/writing instance configs, config migration/redirection rules, server selection, and the Russian localization (ru-RU.json) enforcement system.",
+      "parent": "Configuration System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Device Abstraction Layer",
+      "purpose": "Overview of how AzurPilot communicates with Android emulators: connection management, screenshot acquisition, and input injection. Links to child pages for screenshot backends and control backends.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Connection & ADB Management",
+      "purpose": "Details of ConnectionAttr and Connection classes: ADB binary management, device serial resolution, adb_shell/adb_command execution, netcat reverse server, retry/recovery pipeline, and emulator platform detection (Windows, Mac).",
+      "parent": "Device Abstraction Layer",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Screenshot Backends",
+      "purpose": "All screenshot acquisition methods: standard screencap, DroidCast/DroidCast_raw, aScreenCap, nemu_ipc (MuMu IPC via DLL), ldopengl (LDPlayer OpenGL), scrcpy, and uiautomator2. Covers resolution normalization to 1280x720 and dedithering.",
+      "parent": "Device Abstraction Layer",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Control & Input Backends",
+      "purpose": "Input injection methods: minitouch, MaaTouch, scrcpy control, Hermit (Accessibility), and standard ADB input. Covers Bézier curve swipe generation, drag operations, and AppControl (app_start/stop, dump_hierarchy).",
+      "parent": "Device Abstraction Layer",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Core Automation Framework",
+      "purpose": "The foundational classes that all game modules build on: ModuleBase, Button/Template/Timer primitives, OCR engine, UI page graph, and map detection. Links to child pages for each subsystem.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "ModuleBase, Button & Template Primitives",
+      "purpose": "ModuleBase class: appear/appear_then_click/loop state loop, image_crop, color checks. Button (area, color, button coords), ButtonGrid, Template (cv2 matching, GIF support), Timer, and the randomized click/swipe utilities in base/utils.py.",
+      "parent": "Core Automation Framework",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "OCR Engine",
+      "purpose": "The full OCR stack: AlOcr (RapidOCR/ONNX/NCNN backends, AlOcrQueue worker thread, model registry), classic Ocr/Digit/DigitCounter/Duration classes, pre-processing pipeline (extract_letters, crop_to_text), server-specific models (azur_lane, jp, tw), and the RPC interface.",
+      "parent": "Core Automation Framework",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "UI Navigation Graph",
+      "purpose": "The Page-based navigation system: Page nodes, check_button identification, BFS pathfinding in ui_goto/ui_ensure, ui_get_current_page state recovery, ui_additional popup handlers, and the Scroll/Switch/Navbar/Setting UI widget primitives.",
+      "parent": "Core Automation Framework",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Map Detection",
+      "purpose": "Computer vision pipeline for campaign maps: Perspective (vanishing point detection), Homography (grid alignment matrix), View (Grid object generation), GridPredictor (enemy/mystery/siren tile classification via relative_crop), and OSGrid for Operation Siren.",
+      "parent": "Core Automation Framework",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Campaign & Combat Engine",
+      "purpose": "Overview of the standard campaign automation: map navigation, fleet management, combat loop, and the campaign data architecture. Links to child pages for combat, campaign maps, and special farming modes.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Combat Loop",
+      "purpose": "The core combat cycle: entering battle, auto/manual mode, HP monitoring (HPBalancer, HpDaemon), emotion tracking, submarine handling, battle settlement, and the auto-search feature. Covers ExerciseCombat (PvP) and its opponent selection logic.",
+      "parent": "Campaign & Combat Engine",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Campaign Maps & Event Stages",
+      "purpose": "How individual campaign maps are defined: campaign_base.py inheritance, stage-specific Python files (campaign_N_M.py), CampaignUI chapter/mode navigation, CampaignOcr, Hard Mode, SOS missions, War Archives, and the map_extractor dev tool for generating new event maps.",
+      "parent": "Campaign & Combat Engine",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Gems Farming & Ship Management",
+      "purpose": "GemsFarming automation: flagship rotation at Level 32 or low emotion, equipment transfer via Base64 codes, dock maintenance (Retirement, Enhancement), ShipScanner (LevelScanner, EmotionScanner, RarityScanner), and HPBalancer for sustained low-level farming.",
+      "parent": "Campaign & Combat Engine",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Operation Siren",
+      "purpose": "Overview of the Operation Siren (大世界) automation system: its distinct architecture, globe/zone map duality, and task hierarchy. Links to child pages for navigation, tasks, and the Ash Beacon META system.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "OS Navigation & Fleet Control",
+      "purpose": "OSMap and GlobeCamera: globe_goto inter-zone travel, Homography-based camera stabilization, wait_until_walk_stable, Radar minimap detection, Zone/ZoneManager data model, FleetSelector (4-fleet dropdown), and ActionPointHandler (AP tracking and replenishment).",
+      "parent": "Operation Siren",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "OS Tasks & Scheduling",
+      "purpose": "All Operation Siren task modules: OpsiDaily, OpsiAbyssal, OpsiStronghold, OpsiExplore, OpsiObscure, OpsiMeowfficerFarming, OpsiHazardLeveling, cross-month reset, voucher collection, and the Smart Scheduling+ cross-task priority logic.",
+      "parent": "Operation Siren",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Ash Beacon & META Combat",
+      "purpose": "OSAsh beacon data collection, OpsiAshBeacon META combat (AshCombat class), AshBeaconAssist for helping other players, MetaReward collection (BeaconReward, DossierReward), and the os_shop/port_shop for OS-specific purchasing.",
+      "parent": "Operation Siren",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Game Feature Modules",
+      "purpose": "Overview of all standalone game feature automation modules. Each handles a specific in-game system. Links to child pages grouped by feature category.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Daily & Recurring Tasks",
+      "purpose": "Automation for daily/weekly recurring tasks: Daily missions (Escort, Advance, Fierce Assault), Exercise/PvP (opponent selection, Admiral Trial scheduling), Commission management (filter/select/start/receive), Guild (logistics, operations, boss raids), and Dorm (feeding, furniture).",
+      "parent": "Game Feature Modules",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Research Lab",
+      "purpose": "RewardResearch automation: project detection (OCR for CN/EN/TW, template-click for JP), ResearchSelector filter pipeline (FILTER_REGEX, presets, enforce mode), ResearchQueue 5-slot management, requirement fulfillment (E-series gear scrapping, T-series commissions), and the 6th project handling.",
+      "parent": "Game Feature Modules",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Shops & Rewards",
+      "purpose": "All shop and reward collection modules: general shop, medal shop, guild shop, merit shop, voucher shop, event shop (ShopEvent), OS shop/port shop, Reward module (oil/coin/exp collection, mission claims), Tactical Academy (book selection, skill training), Gacha, Shipyard, and Freebies/Battle Pass.",
+      "parent": "Game Feature Modules",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Raid, Coalition & Event Systems",
+      "purpose": "Event-driven combat modules: Raid (ticket management, PT tracking, RPG variant), Coalition (cooperative combat, SP stages), Event Hospital (clue collection, combat), EventStory automation, and the Minigame module.",
+      "parent": "Game Feature Modules",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Island (Vacation Mode)",
+      "purpose": "The Island/Vacation mode automation: IslandShopBase production scheduling (restaurant, teahouse, manufacturing), farming, ranching, mining, fishery, pearl selling, daily interactions/orders/gathering, cargo preparation, air drops, and character selection dispatch.",
+      "parent": "Game Feature Modules",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Private Quarters, Storage & Dock Inventory",
+      "purpose": "Private Quarters daily interactions, Storage module (equipment disassembly, box usage), and the Dock Inventory system (DockIdentityCatalog, ship name OCR with fuzzy matching, DockCardGridScanner, identity resolution methods).",
+      "parent": "Game Feature Modules",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    }
   ]
 }
