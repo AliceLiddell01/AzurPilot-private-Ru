@@ -100,6 +100,36 @@ def _restore_module(name: str, previous: object) -> None:
         sys.modules[name] = previous
 
 
+def _stop_parallel_processes(
+    processes: list[tuple[subprocess.Popen, Path, IO[str], int]],
+) -> None:
+    """Остановить и дождаться уже запущенных pytest-процессов после сбоя."""
+
+    for process, _, _, _ in processes:
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+
+    for process, _, _, _ in processes:
+        if process.poll() is not None:
+            continue
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                continue
+            try:
+                process.wait(timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        except OSError:
+            pass
+
+
 def pytest_cmdline_main(config: pytest.Config) -> int | None:
     if os.environ.get(_CHILD_ENV) == "1" or not _parallel_requested():
         return None
@@ -126,6 +156,7 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
         f"shard-ов: {shard_count}, файлов: {len(files)}"
     )
     processes: list[tuple[subprocess.Popen, Path, IO[str], int]] = []
+    log_handles: list[IO[str]] = []
     exit_codes: list[int] = []
     with tempfile.TemporaryDirectory(prefix="azurpilot-pytest-") as temp_dir:
         temp_root = Path(temp_dir)
@@ -133,6 +164,7 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
             for index, shard in enumerate(shards):
                 log_path = temp_root / f"shard-{index}.log"
                 log_handle = log_path.open("w", encoding="utf-8")
+                log_handles.append(log_handle)
                 env = os.environ.copy()
                 env[_CHILD_ENV] = "1"
                 process = subprocess.Popen(
@@ -152,13 +184,11 @@ def pytest_cmdline_main(config: pytest.Config) -> int | None:
 
             for process, _, _, _ in processes:
                 exit_codes.append(process.wait())
-        except KeyboardInterrupt:
-            for process, _, _, _ in processes:
-                if process.poll() is None:
-                    process.terminate()
+        except BaseException:
+            _stop_parallel_processes(processes)
             raise
         finally:
-            for _, _, log_handle, _ in processes:
+            for log_handle in log_handles:
                 log_handle.close()
 
         for index, ((_, log_path, _, file_count), exit_code) in enumerate(
