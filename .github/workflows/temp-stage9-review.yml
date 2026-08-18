@@ -5,6 +5,7 @@ on:
     branches:
       - personal/stable
     paths:
+      - .github/workflows/temp-stage9-review.yml
       - .github/temp_stage9_review_trigger.txt
 
 permissions:
