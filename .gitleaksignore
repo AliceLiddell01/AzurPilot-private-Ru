@@ -1,0 +1,2 @@
+# Исторический false positive: игровая строка EventShop, не секрет.
+66036eab550eee7d089aa896d135e476ff04a8be:module/shop_event/data/filter_identity.json:generic-api-key:9
