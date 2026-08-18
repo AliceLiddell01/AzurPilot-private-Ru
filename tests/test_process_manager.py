@@ -246,7 +246,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
         starter_manager = ProcessManager("alas")
         old_process = Mock()
         old_process.pid = 12345
-        old_process.is_alive.side_effect = [True, False]
+        old_process.is_alive.side_effect = [True, False, False]
         manager._process = old_process
 
         stop_entered = threading.Event()
