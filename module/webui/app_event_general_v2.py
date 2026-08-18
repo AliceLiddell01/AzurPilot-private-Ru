@@ -351,7 +351,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             f'<div class="event-map-group-heading"><div><strong>{escape(title)}</strong>'
             f'<small>{escape(description)}</small></div>'
             f'<span class="event-subsection-count">{len(items)}</span></div>'
-            f'<div class="event-quest-grid">{"".join(cards)}</div>'
+            f'<div class="event-quest-grid'>{"".join(cards)}</div>'
             "</section>"
         )
 
@@ -399,14 +399,14 @@ class EventGeneralV2Mixin(WebUIMixinBase):
             size="auto auto",
         ).style("--event-reward-track-controls--")
 
-        next_threshold = next(
+        next_threshold = min(
             (
                 int(item.get("threshold", 0) or 0)
                 for item in milestones
                 if current_pt is not None
                 and int(item.get("threshold", 0) or 0) > current_pt
             ),
-            None,
+            default=None,
         )
         cards: list[str] = []
         for milestone in milestones:
@@ -445,7 +445,7 @@ class EventGeneralV2Mixin(WebUIMixinBase):
         if cards:
             put_html(
                 '<div class="event-reward-track-shell">'
-                f'<div id="event-reward-track" class="event-reward-track">{"".join(cards)}</div>'
+                f'<div id="event-reward-track" class="event-reward-track'>{"".join(cards)}</div>'
                 "</div>"
             )
         else:
