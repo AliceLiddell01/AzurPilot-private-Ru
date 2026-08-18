@@ -8,7 +8,7 @@ from dev_tools.event_datamine_build import build_current_event
 from module.event_datamine.artifact import BUILTIN_ARTIFACT_ROOT, build_artifact, load_artifact
 from module.event_datamine.compiler import EventCompiler
 from module.event_datamine.discovery import discover_major_events, resolve_current_candidate
-from module.event_datamine.map_compiler import _values
+from module.event_datamine.map_compiler import sharecfg_values
 from module.event_datamine.registry import EventArtifactRegistry
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 from module.webui.event_source import load_current_event_plan
@@ -68,15 +68,15 @@ def test_current_fixture_compiles_complete_relations_with_independent_oracles():
         int(value)
         for row in related
         if int(row.get("type", 0)) == 12
-        for value in _values(row.get("config_data"))
+        for value in sharecfg_values(row.get("config_data"))
     }
     source_currencies = {
         int(row["resource_type"])
         for row in loader.load_table("activity_shop_template").values()
     } | {int(milestone["pt"])}
 
-    assert len(spec.shop_items) == len(_values(shop_activity["config_data"]))
-    assert len(spec.milestones) == len(_values(milestone["target"]))
+    assert len(spec.shop_items) == len(sharecfg_values(shop_activity["config_data"]))
+    assert len(spec.milestones) == len(sharecfg_values(milestone["target"]))
     assert {item.id for item in spec.maps} == source_maps
     assert {item.id for item in spec.currencies} == source_currencies
     assert spec.provenance.revision == current_fixture_identity()[3]
