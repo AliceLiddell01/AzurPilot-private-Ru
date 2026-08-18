@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -51,13 +52,11 @@ class ShareCfgLoader:
         "TW": ("TW", "zh-TW", "zh-tw"),
         "KR": ("KR", "ko-KR", "ko-kr"),
     }
-    EMPTY_JSON_TABLES: ClassVar[frozenset[str]] = frozenset(
-        {"activity_medal_group", "map_event_list", "map_event_template"}
-    )
 
     def __init__(self, snapshot: SourceSnapshot) -> None:
         self.snapshot = snapshot
         self.server_root = self._server_root()
+        self._fixture_manifest = self._load_fixture_manifest()
         self._cache: dict[str, dict[int, Any]] = {}
 
     def _server_root(self) -> Path:
@@ -71,6 +70,53 @@ class ShareCfgLoader:
             "server_missing",
             f"Каталог сервера {self.snapshot.server} отсутствует в snapshot",
         )
+
+    def _load_fixture_manifest(self) -> dict[str, Any] | None:
+        """Разрешить JSON-fixture только по явному manifest с source evidence."""
+
+        path = (self.snapshot.root / "manifest.json").resolve()
+        if path.parent != self.snapshot.root or not path.is_file():
+            return None
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ShareCfgError(
+                "fixture_manifest_invalid",
+                f"Не удалось прочитать manifest производного ShareCfg fixture: {exc}",
+            ) from exc
+        if not isinstance(raw, dict) or raw.get("kind") != "derived_sharecfg_subset":
+            return None
+        if raw.get("fixture_schema_version") != 1:
+            raise ShareCfgError(
+                "fixture_manifest_invalid",
+                "Неподдерживаемая версия manifest производного ShareCfg fixture",
+            )
+        source = raw.get("source")
+        records = raw.get("records")
+        hashes = raw.get("sha256")
+        if not isinstance(source, dict) or not isinstance(records, dict) or not isinstance(hashes, dict):
+            raise ShareCfgError(
+                "fixture_manifest_invalid",
+                "Manifest производного ShareCfg fixture не содержит source, records или sha256",
+            )
+        expected_source = {
+            "provider": self.snapshot.provider,
+            "repository": self.snapshot.repository,
+            "revision": self.snapshot.revision,
+            "server": self.snapshot.server,
+        }
+        actual_source = {
+            "provider": str(source.get("provider") or ""),
+            "repository": str(source.get("repository") or ""),
+            "revision": str(source.get("revision") or ""),
+            "server": str(source.get("server") or "").upper(),
+        }
+        if actual_source != expected_source:
+            raise ShareCfgError(
+                "fixture_source_mismatch",
+                "Manifest производного ShareCfg fixture не соответствует pinned source identity",
+            )
+        return raw
 
     @staticmethod
     def _validate_table_name(table: str) -> str:
@@ -148,61 +194,90 @@ class ShareCfgLoader:
         except OSError as exc:
             raise ShareCfgError("source_read_failed", str(exc), table=table) from exc
 
+    def _load_fixture_table(self, table: str) -> dict[int, Any] | None:
+        manifest = self._fixture_manifest
+        if manifest is None:
+            return None
+        records = manifest["records"]
+        hashes = manifest["sha256"]
+        expected_count = records.get(table)
+        if isinstance(expected_count, bool) or not isinstance(expected_count, int) or expected_count < 0:
+            raise ShareCfgError(
+                "fixture_manifest_invalid",
+                f"Manifest fixture не содержит корректный records.{table}",
+                table=table,
+            )
+
+        fixture = (self.server_root / "sharecfgjson" / f"{table}.json").resolve()
+        if not fixture.is_file():
+            raise ShareCfgError(
+                "fixture_table_missing",
+                f"Manifest fixture объявляет ShareCfg {table}, но JSON-файл отсутствует",
+                table=table,
+            )
+        relative = fixture.relative_to(self.snapshot.root).as_posix()
+        expected_hash = hashes.get(relative)
+        if not isinstance(expected_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+            raise ShareCfgError(
+                "fixture_manifest_invalid",
+                f"Manifest fixture не содержит корректный SHA-256 для {relative}",
+                table=table,
+            )
+        try:
+            payload = fixture.read_bytes()
+        except OSError as exc:
+            raise ShareCfgError("source_read_failed", str(exc), table=table) from exc
+        if sha256(payload).hexdigest() != expected_hash:
+            raise ShareCfgError(
+                "fixture_hash_mismatch",
+                f"SHA-256 производного ShareCfg fixture {table} не совпадает с manifest",
+                table=table,
+            )
+        try:
+            raw = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ShareCfgError(
+                "fixture_json_invalid", str(exc), table=table
+            ) from exc
+        if not isinstance(raw, dict) or len(raw) != expected_count:
+            raise ShareCfgError(
+                "unsupported_table_shape",
+                f"Fixture ShareCfg {table} не соответствует records={expected_count}",
+                table=table,
+            )
+
+        def restore_keys(value: Any) -> Any:
+            if isinstance(value, dict):
+                restored = {}
+                for key, item in value.items():
+                    normalized = key
+                    if isinstance(key, str) and re.fullmatch(r"-?\d+", key):
+                        normalized = int(key)
+                    elif isinstance(key, str) and re.fullmatch(r"-?\d+\.\d+", key):
+                        normalized = float(key)
+                    if normalized in restored:
+                        raise ShareCfgError(
+                            "fixture_key_collision",
+                            f"Fixture ShareCfg {table} содержит конфликт числовых ключей",
+                            table=table,
+                        )
+                    restored[normalized] = restore_keys(item)
+                return restored
+            if isinstance(value, list):
+                return [restore_keys(item) for item in value]
+            return value
+
+        return restore_keys(raw)
+
     def load_table(self, table: str) -> dict[int, Any]:
         table = self._validate_table_name(table)
         if table in self._cache:
             return self._cache[table]
 
-        # Производные test fixtures используют детерминированное JSON-
-        # представление уже декодированных строк ShareCfg. Этот путь не
-        # исполняет Lua и не меняет production-формат источника.
-        fixture = self.server_root / "sharecfgjson" / f"{table}.json"
-        if fixture.is_file():
-            try:
-                raw = json.loads(self._read(fixture, table))
-            except json.JSONDecodeError as exc:
-                raise ShareCfgError(
-                    "fixture_json_invalid", str(exc), table=table
-                ) from exc
-            if not isinstance(raw, dict):
-                raise ShareCfgError(
-                    "unsupported_table_shape",
-                    f"Fixture ShareCfg {table} должен быть JSON object",
-                    table=table,
-                )
-            if not raw and table not in self.EMPTY_JSON_TABLES:
-                raise ShareCfgError(
-                    "unsupported_table_shape",
-                    f"Fixture ShareCfg {table} не содержит строк данных",
-                    table=table,
-                )
-
-            def restore_keys(value: Any) -> Any:
-                if isinstance(value, dict):
-                    restored = {}
-                    for key, item in value.items():
-                        normalized = key
-                        if isinstance(key, str) and re.fullmatch(r"-?\d+", key):
-                            normalized = int(key)
-                        elif isinstance(key, str) and re.fullmatch(
-                            r"-?\d+\.\d+", key
-                        ):
-                            normalized = float(key)
-                        if normalized in restored:
-                            raise ShareCfgError(
-                                "fixture_key_collision",
-                                f"Fixture ShareCfg {table} содержит конфликт числовых ключей",
-                                table=table,
-                            )
-                        restored[normalized] = restore_keys(item)
-                    return restored
-                if isinstance(value, list):
-                    return [restore_keys(item) for item in value]
-                return value
-
-            parsed = restore_keys(raw)
-            self._cache[table] = parsed
-            return parsed
+        fixture = self._load_fixture_table(table)
+        if fixture is not None:
+            self._cache[table] = fixture
+            return fixture
 
         wrapper = self.server_root / "sharecfg" / f"{table}.lua"
         full = self.server_root / "sharecfgdata" / f"{table}.lua"
