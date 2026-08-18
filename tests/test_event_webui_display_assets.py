@@ -20,30 +20,59 @@ def _write_catalog(path: Path, entries: dict[str, str]) -> None:
     )
 
 
-def test_webui_display_identity_distinguishes_shared_scanner_source(tmp_path: Path):
+def test_webui_runtime_does_not_bypass_canonical_catalog_with_display_file(
+    tmp_path: Path,
+):
     asset_root = tmp_path / "assets"
     display_root = asset_root / "webui" / "event_shop"
+    scanner_root = asset_root / "shop" / "event"
     display_root.mkdir(parents=True)
+    scanner_root.mkdir(parents=True)
     (display_root / "item-30014.svg").write_text("<svg/>", encoding="utf-8")
-    (display_root / "item-30024.svg").write_text("<svg/>", encoding="utf-8")
+    (scanner_root / "BoxT4.png").write_bytes(b"scanner")
 
-    eagle = {
+    catalog_path = tmp_path / "data" / "assets.json"
+    _write_catalog(
+        catalog_path,
+        {"item:Props/30004": "/static/assets/shop/event/BoxT4.png"},
+    )
+    asset = {
         "kind": "item",
         "game_id": "30014",
         "source_path": "Props/30004",
     }
-    royal = {
+
+    assert event_asset_url(
+        asset,
+        catalog_path=catalog_path,
+        asset_root=asset_root,
+    ) == "/static/assets/shop/event/BoxT4.png"
+
+
+def test_webui_runtime_uses_display_asset_only_when_catalog_selected_it(
+    tmp_path: Path,
+):
+    asset_root = tmp_path / "assets"
+    display_root = asset_root / "webui" / "event_shop"
+    display_root.mkdir(parents=True)
+    (display_root / "item-30014.svg").write_text("<svg/>", encoding="utf-8")
+
+    catalog_path = tmp_path / "data" / "assets.json"
+    _write_catalog(
+        catalog_path,
+        {"item:Props/30004": "/static/assets/webui/event_shop/item-30014.svg"},
+    )
+    asset = {
         "kind": "item",
-        "game_id": "30024",
+        "game_id": "30014",
         "source_path": "Props/30004",
     }
 
-    assert event_asset_url(eagle, asset_root=asset_root) == (
-        "/static/assets/webui/event_shop/item-30014.svg"
-    )
-    assert event_asset_url(royal, asset_root=asset_root) == (
-        "/static/assets/webui/event_shop/item-30024.svg"
-    )
+    assert event_asset_url(
+        asset,
+        catalog_path=catalog_path,
+        asset_root=asset_root,
+    ) == "/static/assets/webui/event_shop/item-30014.svg"
 
 
 def test_webui_display_identity_keeps_canonical_fallback(tmp_path: Path):
