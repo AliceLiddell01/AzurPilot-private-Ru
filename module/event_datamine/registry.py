@@ -13,7 +13,10 @@ from module.event_datamine.artifact import (
     canonical_json,
     load_artifact,
 )
-from module.event_datamine.discovery import EventDiscoveryError
+from module.event_datamine.discovery import (
+    EventDiscoveryError,
+    server_local_wall_time,
+)
 
 EVENT_REGISTRY_SCHEMA_VERSION = 1
 EVENT_REGISTRY_NAME = "index.json"
@@ -113,7 +116,7 @@ def _parse_time(value: Any) -> datetime:
 def artifact_lifecycle(entry: Mapping[str, Any], now: datetime) -> str:
     if entry.get("role") == "demo":
         return "demo"
-    current = now.replace(tzinfo=None) if now.tzinfo is not None else now
+    current = server_local_wall_time(now, str(entry.get("server") or ""))
     start = _parse_time(entry.get("farm_start"))
     farm_end = _parse_time(entry.get("farm_end"))
     shop_end = _parse_time(entry.get("shop_end") or entry.get("farm_end"))

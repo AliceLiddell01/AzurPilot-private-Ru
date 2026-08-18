@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
+from module.config.utils import SERVER_TO_TIMEZONE
 from module.event_datamine.map_compiler import _values
 from module.event_datamine.source import ShareCfgError, ShareCfgLoader
 
@@ -21,6 +22,22 @@ class EventDiscoveryError(ValueError):
         super().__init__(message)
         self.code = code
         self.candidates = tuple(candidates)
+
+
+def server_local_wall_time(value: datetime, server: str) -> datetime:
+    """Привести datetime с часовым поясом к локальным часам сервера."""
+
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=None)
+    normalized_server = str(server or "").lower()
+    try:
+        offset = SERVER_TO_TIMEZONE[normalized_server]
+    except KeyError as exc:
+        raise EventDiscoveryError(
+            "unsupported_server_timezone",
+            f"Для сервера {server!r} не задан часовой пояс lifecycle",
+        ) from exc
+    return value.astimezone(timezone(offset)).replace(tzinfo=None)
 
 
 @dataclass(frozen=True)
@@ -198,7 +215,7 @@ def lifecycle(candidate: EventCandidate, now: datetime) -> str:
     start = datetime.fromisoformat(candidate.farm_start)
     farm_end = datetime.fromisoformat(candidate.farm_end)
     shop_end = datetime.fromisoformat(candidate.shop_end)
-    current = now.replace(tzinfo=None) if now.tzinfo is not None else now
+    current = server_local_wall_time(now, candidate.server)
     if current < start:
         return "upcoming"
     if current <= farm_end:
