@@ -6,7 +6,7 @@
 核心功能：
 - 地图滑动：通过滑动向量控制相机在地图上移动
 - 视图更新：通过透视检测（Perspective Detection）解析当前视野中的网格信息
-- 坐标转换：全局坐标（map 坐标）与局部坐标（view 坐标）的相互转换
+- 坐标转换：全局坐标（map 坐标）与局部坐标（view 坐标）之间的转换
 - 全图扫描：系统性地扫描整个地图，发现所有敌人和事件
 - 错误恢复：处理各种检测错误（信息栏遮挡、弹窗、剧情等）
 
@@ -62,6 +62,8 @@ class Camera(MapOperation):
     grid_class = Grid
     _prev_view = None
     _prev_swipe = None
+    # После изменения положения камеры один ракурс можно повторить ограниченное число раз.
+    FULL_SCAN_RETRY_LIMIT = 2
 
     def _map_swipe(self, vector, box=(123, 159, 1175, 628)):
         """
@@ -289,7 +291,7 @@ class Camera(MapOperation):
 
         Args:
             camera (bool): 为 True 时更新相机位置和透视数据。
-            wait_swipe (bool): 为 True 时等待相机到达格子中心。
+            wait_swipe (bool): 为 True时等待相机到达格子中心。
             allow_error (bool): 为 True 时遇到检测错误则退出。
         """
         error_confirm = Timer(5, count=10).start()
@@ -458,25 +460,58 @@ class Camera(MapOperation):
         queue = queue if queue else self.map.camera_data
         if must_scan:
             queue = queue.add(must_scan)
+        deferred = queue[:0]
+        retrying_deferred = False
+        failed_attempts = {}
 
         while len(queue) > 0:
             if self.map.missing_is_none(battle_count, mystery_count, siren_count, carrier_count, mode):
-                if must_scan and queue.count != queue.delete(must_scan).count:
+                must_scan_pending = False
+                if must_scan:
+                    must_scan_pending = (
+                        queue.count != queue.delete(must_scan).count
+                        or deferred.count != deferred.delete(must_scan).count
+                    )
+                if must_scan_pending:
                     logger.info('[Карта — камера] Сканирование продолжается')
-                    pass
                 else:
                     logger.info('[Карта — камера] Все точки появления найдены; сканирование остановлено досрочно')
                     break
 
             queue = queue.sort_by_camera_distance(self.camera)
-            self.focus_to(queue[0])
+            target = queue[0]
+            self.focus_to(target)
             self.focus_to_grid_center(0.25)
             success = self.map.update(grids=self.view, camera=self.camera, mode=mode)
             if not success:
-                self.ensure_edge_insight(skip_first_update=False)
-                continue
+                location = target.location
+                failed_attempts[location] = failed_attempts.get(location, 0) + 1
+                recovery = self.ensure_edge_insight(skip_first_update=False)
+                camera_moved = any(x != 0 or y != 0 for x, y in recovery)
+                if camera_moved and failed_attempts[location] <= self.FULL_SCAN_RETRY_LIMIT:
+                    logger.warning(
+                        f'[Карта — камера] Повторяю сканирование точки {target} после изменения положения камеры'
+                    )
+                    continue
+                if retrying_deferred:
+                    raise MapDetectionError(
+                        f'Повторное сканирование точки {target} не удалось: '
+                        'распознанные клетки остаются несовместимы с моделью карты'
+                    )
+                logger.warning(
+                    f'[Карта — камера] Откладываю проблемную точку сканирования {target} и проверяю другие ракурсы'
+                )
+                deferred = deferred.add(queue[:1])
+                queue = queue[1:]
+            else:
+                failed_attempts.pop(target.location, None)
+                queue = queue[1:]
 
-            queue = queue[1:]
+            if not queue and deferred:
+                logger.info('[Карта — камера] Повторное сканирование отложенных точек')
+                queue = deferred
+                deferred = deferred[:0]
+                retrying_deferred = True
 
         self.map.missing_predict(battle_count, mystery_count, siren_count, carrier_count, mode)
         self.map.show()
