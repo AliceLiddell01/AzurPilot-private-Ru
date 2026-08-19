@@ -23,6 +23,50 @@ T = TypeVar("T")
 DEPENDENCY_SYNC_PENDING_FILE = "./config/webui-dependency-sync-pending"
 
 
+def _ensure_gui_process_lifetime_guard() -> None:
+    """Включить Windows-защиту только для корневого процесса ``gui.py``."""
+    if os.name != "nt":
+        return
+    if multiprocessing.current_process().name != "MainProcess":
+        return
+
+    import sys
+
+    if os.path.basename(sys.argv[0]).casefold() != "gui.py":
+        return
+
+    from module.logger import logger
+    from module.webui.windows_process_lifetime import (
+        install_windows_process_lifetime_guards,
+    )
+
+    try:
+        parent_pid = install_windows_process_lifetime_guards()
+    except OSError as exc:
+        logger.exception_context(
+            title="Не удалось включить защиту дерева процессов WebUI",
+            exc=exc,
+            impact=(
+                "При аварийном закрытии управляющей консоли дочерние процессы "
+                "могут остаться без владельца; запуск WebUI остановлен."
+            ),
+            action=(
+                "Проверьте права управления процессами Windows и повторите запуск "
+                "AzurPilot из обычной PowerShell-консоли."
+            ),
+            level=50,
+        )
+        raise RuntimeError("Защита жизненного цикла WebUI не инициализирована") from exc
+
+    if parent_pid is None:
+        logger.info("[WebUI] Защита дерева процессов Windows активирована")
+    else:
+        logger.info(
+            f"[WebUI] Защита дерева процессов Windows активирована "
+            f"(родительская консоль PID: {parent_pid})"
+        )
+
+
 def mark_dependency_sync_pending() -> None:
     """持久化依赖同步待处理状态，供新父进程在启动前恢复。"""
     atomic_write(DEPENDENCY_SYNC_PENDING_FILE, "pending\n")
@@ -57,7 +101,7 @@ class cached_class_property(Generic[T]):
     class AliasConflict(ValueError):
         pass
 
-    def __init__(self, func: Callable[..., T]):
+    def __init__(self, func: Callable[[], T]):
         self.__func__ = func
         self.__cache_name__ = '_{}_'.format(func.__name__.strip('_'))
         if self.__cache_name__ == func.__name__:
@@ -183,6 +227,8 @@ class State:
     @cached_class_property
     def deploy_config(self) -> "DeployConfig":
         """Мигрировать UI locale до первого чтения и кеширования deploy-конфигурации."""
+        _ensure_gui_process_lifetime_guard()
+
         from deploy.language_migration import migrate_deploy_language
 
         migration = migrate_deploy_language()
