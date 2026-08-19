@@ -375,6 +375,12 @@ class EventShop(EventShopClerk):
             buy_amount = min(affordable_amount, target_amount)
             if buy_amount <= 0:
                 logger.warning(f"[Магазин события] Невозможно купить товар: {str(item)}")
+                if bool(getattr(self.config, "EventShop_PriorityMode", False)):
+                    logger.info(
+                        "[Магазин события — приоритеты] Товар верхней группы сейчас недоступен; "
+                        "проверяется следующий товар той же группы"
+                    )
+                    continue
                 if self.is_event_ended:
                     logger.info("[Магазин события] Событие завершено; товар пропущен, продолжается попытка купить другие товары")
                     continue
