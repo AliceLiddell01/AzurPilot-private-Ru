@@ -41,13 +41,16 @@ class View(MapDetector):
     def __contains__(self, item):
         return tuple(item) in self.grids
 
+    def _log_detection(self, message):
+        if self.mode == 'os':
+            logger.debug(message)
+        else:
+            logger.info(message)
+
     def show(self):
         for y in range(self.shape[1] + 1):
             text = ' '.join([self[(x, y)].str if (x, y) in self else '..' for x in range(self.shape[0] + 1)])
-            if self.mode == 'os':
-                logger.debug(text)
-            else:
-                logger.info(text)
+            self._log_detection(text)
 
     def _image_clear_ui(self, image):
         if self.mode == 'os':
@@ -78,7 +81,10 @@ class View(MapDetector):
             raise MapDetectionError('Клетки карты не найдены')
         offset = np.min(offset, axis=0)
         if np.sum(np.abs(offset)) > 0:
-            logger.attr_align('grids_offset', tuple(offset.tolist()))
+            if self.mode == 'os':
+                self._log_detection(f'[Распознавание карты — обзор] Смещение сетки: {tuple(offset.tolist())}')
+            else:
+                logger.attr_align('grids_offset', tuple(offset.tolist()))
             self.grids = {}
             for loca, grid in grids.items():
                 x, y = np.subtract(loca, offset)
@@ -94,7 +100,10 @@ class View(MapDetector):
             points = grid.grid2screen(np.add([[0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]], offset))
             self.swipe_base = np.array([np.linalg.norm(points[0] - points[1]), np.linalg.norm(points[2] - points[3])])
             self.center_loca = tuple(np.add(loca, offset).tolist())
-            logger.attr_align('center_loca', self.center_loca)
+            if self.mode == 'os':
+                self._log_detection(f'[Распознавание карты — обзор] Центр обзора: {self.center_loca}')
+            else:
+                logger.attr_align('center_loca', self.center_loca)
             if self.center_loca in self:
                 self.center_offset = self.grids[self.center_loca].screen2grid([self.config.SCREEN_CENTER])[0]
             else:
@@ -109,7 +118,13 @@ class View(MapDetector):
         start_time = time.time()
         for grid in self:
             grid.predict()
-        logger.attr_align('predict', len(self.grids.keys()), front=float2str(time.time() - start_time) + 's')
+        time_cost = float2str(time.time() - start_time)
+        if self.mode == 'os':
+            self._log_detection(
+                f'[Распознавание карты — обзор] Распознано клеток: {len(self.grids.keys())} (время {time_cost} с)'
+            )
+        else:
+            logger.attr_align('predict', len(self.grids.keys()), front=time_cost + 's')
 
     def update(self, image):
         """更新所有网格的图像。
@@ -174,8 +189,10 @@ class View(MapDetector):
                 diff = np.subtract(current_fleet[0].location, previous_fleet[0].location) - offset
                 # print(current_fleet[0].location, previous_fleet[0].location, offset, diff)
                 diff = tuple(diff.tolist())
-                logger.info(f'[Распознавание карты — обзор] Прогноз сдвига карты: {diff} ({float2str(time.time() - start_time) + "s"}'
-                            f', совпадение текущего флота)')
+                self._log_detection(
+                    f'[Распознавание карты — обзор] Прогноз сдвига карты: {diff} '
+                    f'({float2str(time.time() - start_time) + "s"}, совпадение текущего флота)'
+                )
                 return diff
 
         if with_sea_grids:
@@ -193,11 +210,15 @@ class View(MapDetector):
             # print(diff)
             if len(diff) == 1 \
                     or len(diff) >= 2 and diff[0][1] > diff[1][1]:
-                logger.info(f'[Распознавание карты — обзор] Прогноз сдвига карты: {diff[0][0]} '
-                            f'({float2str(time.time() - start_time) + "s"}, совпадений: {diff[0][1]})')
+                self._log_detection(
+                    f'[Распознавание карты — обзор] Прогноз сдвига карты: {diff[0][0]} '
+                    f'({float2str(time.time() - start_time) + "s"}, совпадений: {diff[0][1]})'
+                )
                 return diff[0][0]
 
         # 无法预测
-        logger.info(f'[Распознавание карты — обзор] Прогноз сдвига карты отсутствует '
-                    f'({float2str(time.time() - start_time) + "s"}, совпадений нет)')
+        self._log_detection(
+            f'[Распознавание карты — обзор] Прогноз сдвига карты отсутствует '
+            f'({float2str(time.time() - start_time) + "s"}, совпадений нет)'
+        )
         return None

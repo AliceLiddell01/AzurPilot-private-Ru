@@ -189,7 +189,10 @@ class GlobeDetection:
         self.center_loca = loca
 
         time_cost = round(time.time() - start_time, 3)
-        logger.attr_align('Центр карты мира', loca)
-        logger.attr_align('Сходство', float2str(similarity), front=float2str(time_cost) + 's')
+        logger.debug(f'[Операция «Сирена» — распознавание] Центр карты мира: {loca}')
+        logger.debug(
+            f'[Операция «Сирена» — распознавание] Сходство: {float2str(similarity)} '
+            f'(время {float2str(time_cost)} с)'
+        )
         if similarity < 0.1:
             logger.warning('[Операция «Сирена» — распознавание] Слишком низкое сходство при сопоставлении с картой глобуса')
