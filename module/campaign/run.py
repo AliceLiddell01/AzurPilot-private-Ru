@@ -179,7 +179,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             handle_notify(
                 self.config.Error_OnePushConfig,
                 title=f"AzurPilot <{self.config.config_name}>: кампания завершена",
-                content=f"<{self.config.config_name}> {self.name}: получен лимит уровня"
+                content=f"<{self.config.config_name}> {self.name}: получен новый корабль"
             )
             return True
         # 活动限制
