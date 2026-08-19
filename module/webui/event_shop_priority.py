@@ -21,7 +21,7 @@ from deploy.atomic import (
     replace_tmp,
     to_tmp_file,
 )
-from module.event_datamine.registry import EventArtifactRegistry
+from module.event_datamine.registry import load_event_artifact_registry
 from module.logger import logger
 from module.webui.event_shop_observation import reconcile_event_shop
 from module.webui.event_source import load_event_user_state, mutate_event_user_state
@@ -308,7 +308,7 @@ def _server_from_config(config: Any) -> str:
 
 
 def _current_spec(config: Any) -> Mapping[str, Any] | None:
-    artifact = EventArtifactRegistry().resolve_current(
+    artifact = load_event_artifact_registry().resolve_current(
         _server_from_config(config), datetime.now()
     )
     if not isinstance(artifact, Mapping):
@@ -743,7 +743,7 @@ def confirm_event_shop_purchase(
 
 def wake_event_shop_after_currency_increase(
     *,
-    instance: str,
+    config: Any,
     event_id: str,
     previous_value: int | None,
     current_value: int | None,
@@ -756,6 +756,7 @@ def wake_event_shop_after_currency_increase(
     if previous_value is None or current_value is None or current_value <= previous_value:
         return False
 
+    instance = str(config.config_name)
     state = load_event_shop_priority(instance, event_id, root=root)
     possible = (
         set(state["priorities"]) - set(state["purchased"]) - set(state["blocked"])
@@ -764,9 +765,6 @@ def wake_event_shop_after_currency_increase(
         return False
 
     try:
-        from module.config.config import AzurLaneConfig
-
-        config = AzurLaneConfig(config_name=instance)
         if not config.is_task_enabled("EventShop"):
             return False
 
