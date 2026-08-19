@@ -5,9 +5,9 @@
 - EventBase загружает карты и приводит имена этапов к текущему источнику;
 - STAGE_FILTER применяет пользовательский фильтр этапов.
 
-Для current generated-события список этапов берётся из verified-каталога
-Event artifact. Физический каталог campaign/{event_name}/ остаётся fallback
-только для исторических legacy-событий.
+Для generated-события список этапов берётся из verified-каталога Event artifact.
+Физический каталог campaign/{event_name}/ остаётся fallback только для
+исторических legacy-событий.
 """
 
 import os
@@ -15,7 +15,6 @@ import re
 
 from module.base.filter import Filter
 from module.campaign.run import CampaignRun
-from module.config.time_source import now as current_time
 from module.event_datamine.campaign_selector import (
     generated_stage_target,
     resolve_generated_campaign_modules,
@@ -54,16 +53,13 @@ class EventBase(CampaignRun):
     def available_stages(self):
         """Вернуть доступные этапы текущего события из безопасного источника.
 
-        Для current generated-события источником является verified-каталог
-        artifact. Физический legacy-каталог используется только как fallback,
-        когда selector не относится к current generated-событию.
+        Для generated-события источником является verified-каталог artifact.
+        Физический legacy-каталог используется только как fallback, когда
+        selector не закреплён за generated-событием на текущем сервере.
         """
 
         selector = self.config.Campaign_Event
-        modules = resolve_generated_campaign_modules(
-            selector,
-            now=current_time(),
-        )
+        modules = resolve_generated_campaign_modules(selector)
         if modules is not None:
             return [EventStage(f'{stage}.py') for stage in modules]
         return [
@@ -74,16 +70,13 @@ class EventBase(CampaignRun):
     def convert_stages(self, stages):
         """Привести этапы к именам, соответствующим текущему источнику карт.
 
-        Current generated-событие сохраняет канонические имена из verified
-        artifact и не пропускает фильтры через legacy T/HT aliases. Для
-        исторических событий сохраняется прежняя нормализация handle_stage_name().
+        Generated-событие сохраняет канонические имена из verified artifact и
+        не пропускает фильтры через legacy T/HT aliases. Для исторических
+        событий сохраняется прежняя нормализация handle_stage_name().
         """
 
         selector = self.config.Campaign_Event
-        modules = resolve_generated_campaign_modules(
-            selector,
-            now=current_time(),
-        )
+        modules = resolve_generated_campaign_modules(selector)
 
         def convert(n):
             if modules is not None:
