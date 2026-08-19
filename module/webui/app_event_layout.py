@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Iterable, Mapping
-from functools import partial
 from html import escape
 from typing import Any
 
@@ -32,8 +31,6 @@ from module.webui.app_dependencies import (
 )
 from module.webui.app_event_planner import EventPlannerMixin
 from module.webui.app_helpers import is_demo_mode
-from module.webui.event_assets import event_asset_url
-from module.webui.event_plan import shop_plan_total
 from module.webui.event_source import resolve_current_event_artifact
 
 EVENT_MAP_TASKS = frozenset({"Event", "Event2", "Event3"})
@@ -205,151 +202,6 @@ class EventLayoutMixin(EventPlannerMixin):
         close_popup()
         toast("Цель PT сохранена", color="success")
         self._refresh_event_plan_page()
-
-    def _render_event_shop_plan(self, config: Mapping[str, Any]) -> None:
-        self._event_plan_active_task = "EventShop"
-        plan = self._event_plan()
-        items = list(plan["shop_items"])
-        total = shop_plan_total(plan)
-        selected = [item for item in items if int(item.get("selected", 0) or 0) > 0]
-        catalog_total = sum(
-            int(item.get("price", 0) or 0) * int(item.get("stock", 0) or 0)
-            for item in items
-        )
-        observed_known = bool(items) and all(
-            item.get("match_status") == "matched"
-            and isinstance(item.get("remaining"), int)
-            for item in items
-        )
-        observed_total = (
-            sum(
-                int(item.get("price", 0) or 0) * int(item["remaining"])
-                for item in items
-            )
-            if observed_known
-            else None
-        )
-        currencies = {
-            int(item.get("id", 0) or 0): item
-            for item in plan.get("currencies", [])
-            if isinstance(item, Mapping)
-        }
-        primary_currency = next(iter(currencies.values()), {})
-        currency_icon = event_asset_url(
-            primary_currency.get("asset")
-            if isinstance(primary_currency, Mapping)
-            else None
-        )
-        shop_end = str(plan["event"].get("shop_end") or "Не задано")
-        put_html(f"""
-<section class="event-shop-hero"><div><div class="event-eyebrow">Каталог текущего EN-ивента</div>
-<h3>{escape(str(plan["event"].get("name") or "Текущий ивент не задан"))}</h3>
-<p>Магазин доступен до {escape(shop_end)}. Желаемое количество не подменяет runtime-наблюдение.</p>
-<div class="event-shop-currency"><img src="{escape(currency_icon)}" alt=""><span>{escape(str(primary_currency.get("name") or "Валюта события"))}</span></div></div>
-<div class="event-shop-totals">
-  <div><span>Полный выкуп</span><strong>{self._fmt(catalog_total)}</strong><small>{len(items)} товаров</small></div>
-  <div><span>Ваш план</span><strong id="event-shop-plan-total" class="event-shop-live-value">{self._fmt(total)}</strong><small id="event-shop-plan-count" class="event-shop-live-value">{len(selected)} позиций</small></div>
-  <div><span>Осталось по scan</span><strong>{self._fmt(observed_total) if observed_total is not None else "Нет данных"}</strong><small>{"Полный snapshot" if observed_known else "Наблюдение недоступно"}</small></div>
-</div></section>""")
-        put_scope("event_shop_safety_status")
-        if items:
-            put_scope("event_shop_grid")
-            card_scope_ids = []
-            with use_scope("event_shop_grid"):
-                for index, item in enumerate(items):
-                    identity = self._shop_item_identity(item)
-                    live_key = self._shop_item_dom_key(identity)
-                    observation_label = {
-                        "matched": "Наблюдение сопоставлено",
-                        "ambiguous": "Наблюдение неоднозначно",
-                        "unmatched": "Не сопоставлено",
-                        "invalid_counter": "Ошибка счётчика",
-                        "unavailable": "Нет наблюдения",
-                    }.get(
-                        str(item.get("match_status") or "unavailable"),
-                        "Нет наблюдения",
-                    )
-                    scope_id = f"event_shop_card_{index}"
-                    card_scope_ids.append(f"pywebio-scope-{scope_id}")
-                    put_scope(scope_id)
-                    currency = currencies.get(int(item.get("currency_id", 0) or 0), {})
-                    with use_scope(scope_id):
-                        put_html(
-                            '<div class="event-shop-card-visual">'
-                            f'<span class="event-shop-stock">Доступно: {escape(self._fmt(item.get("stock")))}</span>'
-                            f'<img src="{escape(event_asset_url(item.get("asset")))}" alt="{escape(str(item.get("name") or "Товар"))}">'
-                            f'<span class="event-shop-rarity event-rarity-{escape(str(item.get("rarity") or "unknown"))}">Редкость {escape(str(item.get("rarity") if item.get("rarity") is not None else "—"))}</span>'
-                            f'<h4>{escape(str(item.get("name") or "Без названия"))}</h4>'
-                            f'<small>{escape(str(item.get("category") or "неизвестно"))} · набор ×{escape(self._fmt(item.get("amount", 1)))}</small>'
-                            '<div class="event-shop-price">'
-                            f'<img src="{escape(event_asset_url(currency.get("asset") if isinstance(currency, Mapping) else None))}" alt="">'
-                            f'<strong>{escape(self._fmt(item.get("price")))}</strong></div></div>'
-                            '<div class="event-shop-observation">'
-                            f'<span>{escape(observation_label)}</span>'
-                            f'<small>Куплено: {escape(self._fmt(item.get("purchased")) if item.get("purchased") is not None else "Нет данных")} · Осталось: {escape(self._fmt(item.get("remaining")) if item.get("remaining") is not None else "Нет данных")}</small></div>'
-                            '<div class="event-shop-desired">'
-                            f'<span>Цель</span><strong><span id="event-shop-selected-{live_key}" class="event-shop-live-value">{escape(self._fmt(item.get("selected")))}</span> / {escape(self._fmt(item.get("stock")))}</strong>'
-                            f'<small>Стоимость: <span id="event-shop-cost-{live_key}" class="event-shop-live-value">{escape(self._fmt(int(item.get("price", 0) or 0) * int(item.get("selected", 0) or 0)))}</span></small></div>'
-                            f'<div class="event-shop-automation">{"Совместимо с автоматизацией" if item.get("filter") else "Автоматизация не поддерживается"}</div>'
-                        )
-                        put_row(
-                            [
-                                put_button(
-                                    "−",
-                                    onclick=partial(
-                                        self._change_shop_quantity,
-                                        identity,
-                                        "decrement",
-                                    ),
-                                    color="off",
-                                ),
-                                put_button(
-                                    "+",
-                                    onclick=partial(
-                                        self._change_shop_quantity,
-                                        identity,
-                                        "increment",
-                                    ),
-                                    color="off",
-                                ),
-                                put_button(
-                                    "MAX",
-                                    onclick=partial(
-                                        self._change_shop_quantity,
-                                        identity,
-                                        "maximum",
-                                    ),
-                                    color="off",
-                                ),
-                                put_button(
-                                    "Сброс",
-                                    onclick=partial(
-                                        self._change_shop_quantity,
-                                        identity,
-                                        "clear",
-                                    ),
-                                    color="off",
-                                ),
-                            ],
-                            size="auto auto auto auto",
-                        )
-            run_js(
-                """
-(() => {
-  const grid = document.getElementById("pywebio-scope-event_shop_grid");
-  if (grid) grid.classList.add("event-shop-grid");
-  for (const id of %s) {
-    const card = document.getElementById(id);
-    if (card) card.classList.add("event-shop-card");
-  }
-})();
-"""
-                % json.dumps(card_scope_ids)
-            )
-        else:
-            put_html(
-                '<div class="event-empty-card"><strong>Каталог магазина отсутствует в datamine artifact</strong></div>'
-            )
 
     @staticmethod
     def _event_server(config: Mapping[str, Any]) -> str | None:
