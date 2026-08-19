@@ -26,6 +26,9 @@ class _RuntimeConfig:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+    def merge(self, _other):
+        return self
+
 
 class _MergeConfig:
     def merge(self, _other):
@@ -112,6 +115,86 @@ def test_run_resolves_generated_stage_before_legacy_normalization(monkeypatch):
     }
     assert runner.config.Campaign_Name == "a1"
     assert runner.config.Campaign_Event == "event_legacy_selector"
+
+
+def test_run_pins_generated_route_for_load(monkeypatch):
+    target = "campaign.generated_event.en_current.a1"
+    routing_time = object()
+    fake_module = SimpleNamespace(
+        Config=lambda: object(),
+        Campaign=lambda config, device: SimpleNamespace(
+            config=config,
+            device=device,
+            ensure_auto_search_exit=lambda: None,
+        ),
+    )
+    runner = CampaignRun.__new__(CampaignRun)
+    runner.config = _RuntimeConfig()
+    runner.device = object()
+    resolver_calls = []
+    imports = []
+
+    monkeypatch.setattr(campaign_run_module, "current_time", lambda: routing_time)
+
+    def resolve(selector, stage, *, now):
+        resolver_calls.append((selector, stage, now))
+        if len(resolver_calls) > 1:
+            raise AssertionError(
+                "load_campaign не должен повторно разрешать уже выбранный runtime-маршрут"
+            )
+        return target
+
+    monkeypatch.setattr(
+        campaign_run_module,
+        "resolve_generated_campaign_module",
+        resolve,
+    )
+    monkeypatch.setattr(
+        campaign_run_module.importlib,
+        "import_module",
+        lambda name, package=None: imports.append((name, package)) or fake_module,
+    )
+    monkeypatch.setattr(
+        campaign_run_module,
+        "generated_campaign_ui_layout",
+        lambda module_name: "20241219",
+    )
+    monkeypatch.setattr(
+        campaign_run_module,
+        "_adapt_generated_campaign_ui",
+        lambda module, layout: None,
+    )
+
+    runner.run("A1", folder="event_selector", total=-1)
+
+    assert resolver_calls == [("event_selector", "a1", routing_time)]
+    assert imports == [(target, None)]
+    assert not hasattr(runner, "_campaign_load_route")
+
+
+def test_run_clears_pinned_route_when_load_fails(monkeypatch):
+    target = "campaign.generated_event.en_current.a1"
+    runner = CampaignRun.__new__(CampaignRun)
+    runner.config = _RuntimeConfig()
+    runner.device = object()
+
+    monkeypatch.setattr(campaign_run_module, "current_time", lambda: object())
+    monkeypatch.setattr(
+        campaign_run_module,
+        "resolve_generated_campaign_module",
+        lambda selector, stage, *, now: target,
+    )
+
+    def fail_load(name, folder="campaign_main"):
+        assert runner._campaign_load_route == (folder, name, target)
+        raise RuntimeError("ошибка загрузки")
+
+    runner.load_campaign = fail_load
+
+    with pytest.raises(RuntimeError, match="ошибка загрузки"):
+        runner.run("A1", folder="event_selector", total=-1)
+
+    assert not hasattr(runner, "_campaign_load_route")
 
 
 def test_run_resolves_generated_stage_after_dynamic_folder_routing(monkeypatch):

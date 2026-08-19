@@ -72,11 +72,15 @@ class CampaignRun(CampaignEvent, ShopStatus):
         event registry до legacy-импорта. Исторический импорт остаётся fallback,
         если selector не относится к текущему generated-событию.
         """
-        generated_module = resolve_generated_campaign_module(
-            folder,
-            name,
-            now=current_time(),
-        )
+        route = getattr(self, '_campaign_load_route', None)
+        if route is not None and route[:2] == (folder, name):
+            generated_module = route[2]
+        else:
+            generated_module = resolve_generated_campaign_module(
+                folder,
+                name,
+                now=current_time(),
+            )
         if generated_module is not None:
             name = generated_module.rsplit('.', 1)[-1]
 
@@ -477,7 +481,11 @@ class CampaignRun(CampaignEvent, ShopStatus):
             name = generated_module.rsplit('.', 1)[-1]
 
         self.config.override(Campaign_Name=name, Campaign_Event=folder)
-        self.load_campaign(name, folder=folder)
+        self._campaign_load_route = (folder, name, generated_module)
+        try:
+            self.load_campaign(name, folder=folder)
+        finally:
+            del self._campaign_load_route
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
