@@ -675,8 +675,8 @@ class Connection(ConnectionAttr):
         else:
             # 创建新的 reverse 转发
             port = random_port(self.config.FORWARD_PORT_RANGE)
-            reverse = ReverseItem(remote, f'tcp:{port}')
-            logger.info(f'[Устройство — соединение] Создание обратного перенаправления: {reverse}')
+            reverse = ReverseItem(self.serial, f'tcp:{port}', remote)
+            logger.info(f'[Устройство — соединение] Создание обратного перенаправления порта: {reverse}')
             self._adb_reverse_transport(reverse.remote, reverse.local)
             return port
 
@@ -721,7 +721,7 @@ class Connection(ConnectionAttr):
                 c.send_command(list_cmd)
                 c.check_okay()
         except AdbError as e:
-            # 移除不存在的转发时不会抛出异常
+            # 移除不存在的 reverse 时不会抛出异常
             # adbutils.errors.AdbError: listener 'tcp:8888' not found
             msg = str(e)
             if re.search(r'listener .*? not found', msg):
@@ -1040,8 +1040,9 @@ class Connection(ConnectionAttr):
             if o in Connection._orientation_description:
                 pass
             else:
+                invalid_orientation = o
                 o = 0
-                logger.warning(f'[Устройство — соединение] Недопустимая ориентация устройства: {o}; используется обычная ориентация')
+                logger.warning(f'[Устройство — соединение] Недопустимая ориентация устройства: {invalid_orientation}; используется обычная ориентация')
         else:
             o = 0
             logger.warning('[Устройство — соединение] Не удалось получить ориентацию устройства; используется обычная ориентация')
