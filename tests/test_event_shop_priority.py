@@ -400,10 +400,20 @@ def test_urpt_priority_is_blocked_until_safe_priority_runtime_support(
     assert "UR-очки" in state["blocked"]["31"]
 
 
-def test_event_shop_v2_uses_data_driven_display_name():
+def test_event_shop_v2_uses_data_driven_display_name(monkeypatch):
+    monkeypatch.setattr(
+        shop_v2,
+        "_shop_presentation_names",
+        lambda: {"event-shop-test-token": "Тестовое имя"},
+    )
+
     assert (
-        EventShopV2Mixin._event_shop_display_name("Game item 2:30387")
-        == "Gear Skin Box (Seaside Speedstars)"
+        EventShopV2Mixin._event_shop_display_name("event-shop-test-token")
+        == "Тестовое имя"
+    )
+    assert (
+        EventShopV2Mixin._event_shop_display_name("event-shop-missing-token")
+        == "event-shop-missing-token"
     )
 
 
