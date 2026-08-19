@@ -1,14 +1,13 @@
-"""活动战役基础模块。
+"""Базовые инструменты для этапов событий.
 
-提供活动关卡的基类和通用工具，供 CampaignABCD、CampaignSP 等子类继承。
+Модуль предоставляет общий слой для CampaignABCD и CampaignSP:
+- EventStage представляет имя этапа;
+- EventBase загружает карты и приводит имена этапов к текущему источнику;
+- STAGE_FILTER применяет пользовательский фильтр этапов.
 
-主要功能：
-- EventStage: 从活动目录中的 .py 文件名提取关卡名称
-- EventBase: 活动战役基类，提供关卡名称转换和过滤功能
-- STAGE_FILTER: 基于正则的关卡过滤器，用于用户自定义关卡选择
-
-活动地图文件存放在 campaign/{event_name}/ 目录下，
-每个 .py 文件对应一个关卡（如 a1.py, b1.py, sp.py）。
+Для current generated-события список этапов берётся из verified-каталога
+Event artifact. Физический каталог campaign/{event_name}/ остаётся fallback
+только для исторических legacy-событий.
 """
 
 import os
@@ -27,11 +26,10 @@ STAGE_FILTER = Filter(regex=re.compile('^(.*?)$'), attr=('stage',))
 
 
 class EventStage:
-    """活动关卡文件的封装，从文件名提取关卡名称。"""
+    """Представление этапа события, полученного из имени campaign-модуля."""
 
     def __init__(self, filename):
         self.filename = filename
-        # 从文件名中去掉 .py 后缀作为关卡名
         self.stage = 'unknown'
         if filename[-3:] == '.py':
             self.stage = filename[:-3]
@@ -44,13 +42,10 @@ class EventStage:
 
 
 class EventBase(CampaignRun):
-    """活动战役基类，继承自 CampaignRun。
-
-    提供活动关卡加载、关卡名称转换和关卡过滤等基础功能。
-    """
+    """Базовый исполнитель событий с единым выбором источника этапов."""
 
     def load_campaign(self, *args, **kwargs):
-        """加载战役地图，并强制关闭一次性关卡标记。"""
+        """Загрузить карту и отключить ограничение одноразового этапа для daily-задач."""
         super().load_campaign(*args, **kwargs)
         self.campaign.config.temporary(
             MAP_IS_ONE_TIME_STAGE=False
