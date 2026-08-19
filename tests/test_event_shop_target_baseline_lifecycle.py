@@ -1,4 +1,5 @@
 from module.webui.event_shop_priority import (
+    EVENT_SHOP_PRIORITY_SCHEMA_VERSION,
     load_event_shop_priority,
     save_event_shop_priority,
     set_event_shop_priority,
@@ -8,7 +9,7 @@ from module.webui.event_shop_priority import (
 
 def _state(event_id="event-lifecycle"):
     return {
-        "schema_version": 4,
+        "schema_version": EVENT_SHOP_PRIORITY_SCHEMA_VERSION,
         "event_id": event_id,
         "priorities": {},
         "purchased": [],
