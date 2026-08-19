@@ -120,7 +120,7 @@ class GlobeCamera(GlobeOperation, ZoneManager):
         self.globe.load(self.device.image)
         self.globe_camera = self.globe.center_loca
         center = self.camera_to_zone(self.globe.center_loca)
-        logger.attr('Центр глобуса', center.zone_id)
+        logger.debug(f'[Операция «Сирена» — глобус] Центр глобуса: {center.zone_id}')
 
     def globe_swipe(self, vector, box=(20, 220, 980, 620)):
         """
@@ -351,7 +351,7 @@ class GlobeCamera(GlobeOperation, ZoneManager):
         while zones:
             prev = self.camera_to_zone(self.globe_camera)
             zone = zones.sort_by_camera_distance(prev.location)[0]
-            logger.info(f'[Операция «Сирена» — глобус] Поиск крепости Сирен рядом с зоной {zone}')
+            logger.debug(f'[Операция «Сирена» — глобус] Проверка крепости Сирен рядом с зоной {zone}')
             self.globe_in_sight(zone, sight=sight)
 
             to_check = zones.filter(lambda z: point_in_area(self.globe2screen([z.location])[0], area=sight))
@@ -366,7 +366,7 @@ class GlobeCamera(GlobeOperation, ZoneManager):
                         logger.warning('[Операция «Сирена» — глобус] Это не крепость Сирен; поиск продолжается')
                         self.ensure_no_zone_pinned()
                 else:
-                    logger.info(f'[Операция «Сирена» — глобус] Зона {zone.zone_id} не является крепостью Сирен')
+                    logger.debug(f'[Операция «Сирена» — глобус] Зона {zone.zone_id} не является крепостью Сирен')
 
             zones = zones.delete(to_check)
 

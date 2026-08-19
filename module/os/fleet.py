@@ -391,7 +391,7 @@ class OSFleet(OSCamera, Combat, Fleet, OSAsh):
         for _ in self.loop(skip_first=skip_first_screenshot):
             self.update_os()
             current = self.view.backend.homo_loca
-            logger.attr('Положение гомографии', current)
+            logger.debug(f'[Операция «Сирена» — камера] Положение гомографии: {current}')
             if record is None or (current is not None and np.linalg.norm(np.subtract(current, record)) < 3):
                 if confirm_timer.reached():
                     break
@@ -549,7 +549,7 @@ class OSFleet(OSCamera, Combat, Fleet, OSAsh):
             if self.match_template_color(IN_MAP, offset=(200, 5), threshold=50):
                 self.update_os()
                 current = self.view.backend.homo_loca
-                logger.attr('Положение гомографии', current)
+                logger.debug(f'[Операция «Сирена» — камера] Положение гомографии: {current}')
                 # 已知最大距离为 4.48px，homo_loca 在 (56, 60) 和 (52, 58) 之间
                 if record is None or (current is not None and np.linalg.norm(np.subtract(current, record)) < 5.5):
                     if confirm_timer.reached():

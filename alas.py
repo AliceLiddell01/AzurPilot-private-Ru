@@ -25,6 +25,7 @@ from module.config.utils import (
 from module.config.locale import UI_LOCALE
 from module.exception import *
 from module.logger import logger
+from module.logging_context import task_logging_context
 from module.notify import handle_notify, notify_webui
 
 # 缓存 i18n 任务名查找
@@ -337,6 +338,7 @@ class AzurLaneAutoScript:
         logger.info('[Alas] Azur Lane восстановлена: post-restart login/UI health check успешно завершён')
         return True
 
+    @task_logging_context
     def run(self, command, skip_first_screenshot=False):
         """
         执行指定任务命令，捕获异常并决定后续行为。
