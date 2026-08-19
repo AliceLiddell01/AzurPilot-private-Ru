@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import module.webui.event_currency as currency
+import module.webui.event_shop_priority as priority
 from module.log_res.log_res import LogRes
 from module.webui.event_observation_update import persist_current_pt_observation
 from module.webui.event_shop_priority import set_event_shop_priority
@@ -29,6 +30,16 @@ def _spec():
         "id": "event-test",
         "server": "EN",
         "provenance": {"revision": "c" * 40},
+        "shop_items": [
+            {
+                "row_id": 11,
+                "stock": 1,
+                "price": 100,
+                "currency_id": 1,
+                "amount": 1,
+                "event_shop_filter": "Chip",
+            }
+        ],
     }
 
 
@@ -37,6 +48,12 @@ def _patch_current_event(monkeypatch, spec):
         resolve_current=lambda server, now: {"event_spec": spec}
     )
     monkeypatch.setattr(currency, "load_event_artifact_registry", lambda: registry)
+    monkeypatch.setattr(priority, "_current_spec", lambda config: spec)
+    monkeypatch.setattr(
+        priority,
+        "_selected_targets",
+        lambda config, event_id: {"11": 1},
+    )
 
 
 def test_proven_dashboard_pt_increase_wakes_enabled_event_shop(monkeypatch, tmp_path):
@@ -77,6 +94,7 @@ def test_proven_dashboard_pt_increase_wakes_enabled_event_shop(monkeypatch, tmp_
 
     assert result is not None
     assert result["current_pt"] == 150
+    assert result["current_pt_status"] == "observed"
     assert config.task_calls == [("EventShop", False)]
 
 
@@ -106,7 +124,7 @@ def test_pt_decrease_does_not_wake_event_shop(monkeypatch, tmp_path):
         root=priority_root,
     )
 
-    currency.persist_event_currency_update(
+    result = currency.persist_event_currency_update(
         config,
         150,
         source="dashboard_ocr",
@@ -115,6 +133,9 @@ def test_pt_decrease_does_not_wake_event_shop(monkeypatch, tmp_path):
         priority_root=priority_root,
     )
 
+    assert result is not None
+    assert result["current_pt"] == 150
+    assert result["current_pt_status"] == "observed"
     assert config.task_calls == []
 
 
@@ -185,7 +206,7 @@ def test_event_shop_ocr_never_wakes_itself(monkeypatch, tmp_path):
         root=priority_root,
     )
 
-    currency.persist_event_currency_update(
+    result = currency.persist_event_currency_update(
         config,
         150,
         source="event_shop_ocr",
@@ -194,6 +215,9 @@ def test_event_shop_ocr_never_wakes_itself(monkeypatch, tmp_path):
         priority_root=priority_root,
     )
 
+    assert result is not None
+    assert result["current_pt"] == 150
+    assert result["current_pt_status"] == "observed"
     assert config.task_calls == []
 
 
