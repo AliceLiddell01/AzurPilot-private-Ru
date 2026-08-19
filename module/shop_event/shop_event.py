@@ -1,71 +1,102 @@
-"""活动商店模块。
+"""Автоматизация покупок в магазине события.
 
-提供碧蓝航线活动商店的自动化购买功能，包括：
-- 活动点数（pt/URpt）的获取与余额管理
-- UR 舰船购买逻辑（含 URpt 不足时的自动兑换）
-- 未获取物品（unobtained）的优先购买
-- 基于预设或自定义过滤器的批量购买策略
-- 自定义过滤器的消耗量追踪与自动禁用
-
-支持多个活动商店标签页的自动切换与遍历。
+Модуль управляет балансами PT/URpt, покупкой UR-кораблей и обменом URpt,
+приоритетом неполученных товаров, пакетными покупками по предустановленному или
+пользовательскому фильтру и обходом нескольких вкладок магазина события.
 """
 from typing import List, Tuple
 
 from module.base.decorator import del_cached_property
 from module.base.timer import Timer
+from module.config.time_source import now as current_time
+from module.event_datamine.registry import load_event_artifact_registry
 from module.logger import logger
-from module.shop.assets import NAV_GENERAL, NAV_EVENT
+from module.shop.assets import NAV_EVENT, NAV_GENERAL
 from module.shop_event.assets import NO_NAV_EVENT_CHECK
 from module.shop_event.clerk import EventShopClerk, ItemNotFoundError
-from module.shop_event.item import EventShopItem, UR_SHIP_PRICES_IN_URPT, COIN_PRICE_IN_URPT, URPT_PRICE_IN_PT
+from module.shop_event.item import (
+    COIN_PRICE_IN_URPT,
+    UR_SHIP_PRICES_IN_URPT,
+    URPT_PRICE_IN_PT,
+    EventShopItem,
+)
 from module.shop_event.selector import (
     EVENT_SHOP_PRESET_FILTER,
     FILTER,
     parse_filter_amount,
-    strip_filter_amount,
     parse_filter_tokens,
     rebuild_filter_tokens,
+    strip_filter_amount,
 )
 from module.ui.assets import SHOP_GOTO_MUNITIONS
-from module.ui.page import page_shop, page_munitions
+from module.ui.page import page_munitions, page_shop
 
 
 class EventShop(EventShopClerk):
-    """活动商店自动化购买控制器。
+    """Контроллер полного цикла покупок в магазине события.
 
-    继承 EventShopClerk，实现完整的活动商店购买流程：
-    1. 获取当前活动点数（pt / URpt）
-    2. 优先处理 URpt 相关物品（UR 舰船、URpt 兑换、金币）
-    3. 处理未获取物品（unobtained tag）的购买
-    4. 根据过滤器配置批量购买剩余物品
-    5. 活动结束后自动消耗自定义过滤器中的购买数量
-
-    支持多个活动商店标签页的自动遍历，每个标签页独立执行购买逻辑。
-
-    Attributes:
-        pt (int): 当前活动点数余额。
-        urpt (int): 当前 UR 活动点数余额。
-        pt_preserved (int): 为后续购买预留的活动点数。
+    Последовательно получает текущие PT/URpt, обрабатывает связанные с URpt
+    товары, неполученные позиции, обычный фильтр покупок и при необходимости
+    расходует лимиты пользовательского фильтра. Поддерживает несколько вкладок
+    магазина, обрабатывая каждую отдельно.
     """
     pt = 0
     urpt = 0
     pt_preserved = 0
+    _event_shop_current_artifact = None
+    _event_shop_current_artifact_resolved = False
+    _event_shop_last_persisted_pt = None
 
-    def event_shop_buy_item(self, item_to_buy, amount=None):
-        # Fail closed before the click: even a partially successful purchase
-        # must never leave the pre-purchase snapshot looking fresh.
+    def _begin_event_shop_pass_context(self):
+        """Разрешить текущий артефакт события один раз для полного прохода."""
+        self._event_shop_current_artifact_resolved = True
+        self._event_shop_last_persisted_pt = None
         try:
-            from module.event_datamine.artifact import load_builtin_artifact
-            from module.webui.event_shop_observation import invalidate_event_shop_observation
-
-            spec = load_builtin_artifact()["event_spec"]
-            invalidate_event_shop_observation(
-                instance=self.config.config_name,
-                event_id=str(spec.get("id") or ""),
-                server=str(spec.get("server") or "EN"),
+            self._event_shop_current_artifact = load_event_artifact_registry().resolve_current(
+                "EN", current_time()
             )
         except (OSError, TypeError, ValueError) as exc:
-            logger.warning(f"[Магазин события — наблюдение] Не удалось инвалидировать snapshot: {exc}")
+            self._event_shop_current_artifact = None
+            logger.warning(
+                f"[Магазин события — контекст] Не удалось разрешить текущий артефакт события: {exc}"
+            )
+        else:
+            if self._event_shop_current_artifact is None:
+                logger.warning(
+                    "[Магазин события — контекст] Текущий артефакт события не разрешён; "
+                    "сохранение и инвалидация наблюдений недоступны"
+                )
+        return self._event_shop_current_artifact
+
+    def _current_event_artifact(self):
+        """Вернуть артефакт текущего прохода, лениво создав контекст вне _run()."""
+        if not getattr(self, "_event_shop_current_artifact_resolved", False):
+            return self._begin_event_shop_pass_context()
+        return self._event_shop_current_artifact
+
+    def event_shop_buy_item(self, item_to_buy, amount=None):
+        # До клика работаем fail-closed: даже частично успешная покупка
+        # не должна оставлять снимок до покупки помеченным как свежий.
+        try:
+            from module.webui.event_shop_observation import (
+                invalidate_event_shop_observation,
+            )
+
+            artifact = self._current_event_artifact()
+            if artifact is not None:
+                spec = artifact["event_spec"]
+                invalidate_event_shop_observation(
+                    instance=self.config.config_name,
+                    event_id=str(spec.get("id") or ""),
+                    server=str(spec.get("server") or "EN"),
+                    source_revision=str(
+                        spec.get("provenance", {}).get("revision") or ""
+                    ),
+                )
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                f"[Магазин события — наблюдение] Не удалось инвалидировать снимок: {exc}"
+            )
         return super().event_shop_buy_item(item_to_buy, amount=amount)
 
     def get_current_pts(self):
@@ -73,26 +104,52 @@ class EventShop(EventShopClerk):
         if self.event_shop_has_urpt:
             self.urpt = self.event_shop_get_urpt()
 
+        try:
+            from module.log_res.log_res import LogRes
+
+            LogRes(config=self.config).Pt = self.pt
+        except Exception as exc:
+            logger.warning(
+                f"[Магазин события — ресурсы] Не удалось обновить PT в журнале: {exc}"
+            )
+
+        try:
+            from module.webui.event_observation_update import (
+                persist_current_pt_observation,
+            )
+
+            artifact = self._current_event_artifact()
+            last_persisted = getattr(self, "_event_shop_last_persisted_pt", None)
+            if artifact is not None and last_persisted != self.pt:
+                spec = artifact["event_spec"]
+                persist_current_pt_observation(
+                    instance=self.config.config_name,
+                    event_id=str(spec.get("id") or ""),
+                    server=str(spec.get("server") or "EN"),
+                    source_revision=str(
+                        spec.get("provenance", {}).get("revision") or ""
+                    ),
+                    value=self.pt,
+                    source="event_shop_ocr",
+                )
+                self._event_shop_last_persisted_pt = self.pt
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                f"[Магазин события — наблюдение] Не удалось сохранить OCR PT: {exc}"
+            )
+
     def preserve_pt(self, amount: int):
-        """
-        Preserve pt for future use.
-        """
+        """Зарезервировать PT для последующих покупок."""
         self.pt_preserved += amount
         logger.info(f"[Магазин события] Зарезервировано {amount} PT для последующего использования. Всего зарезервировано PT: {self.pt_preserved}")
 
     def handle_items_related_with_urpt(self, items: List[EventShopItem], num_of_ships_to_buy: int = 2) \
             -> Tuple[List[EventShopItem], List[EventShopItem]]:
-        """
-        Buy items (currently only ships) with URpt and buy URpt if necessary.
+        """Обработать URpt-товары до обычных покупок.
 
-        Should be called first before buying other items, and should not be called again after buying other items.
-
-        Returns:
-            Tuple[List[EventShopItem], List[EventShopItem]]:
-            A tuple of two lists:
-            - The first list contains other normal items that are not related to URpt.
-            - The second list contains special items that are related to URpt (URpt, coins),
-            that should be dealt with at last.
+        При необходимости резервирует PT или покупает URpt, чтобы приобрести
+        заданное число UR-кораблей. Возвращает обычные товары и отдельный список
+        URpt/монет, который следует обрабатывать последним.
         """
         if not self.event_shop_has_urpt:
             logger.info("[Магазин события] В магазине события нет UR-очков; обработка связанных с UR-очками товаров пропущена")
@@ -113,7 +170,7 @@ class EventShop(EventShopClerk):
             else:
                 other_items.append(item)
 
-        # Buy ships first.
+        # Сначала покупаем корабли.
         urpt_preserve = False
         ship_items.sort(key=lambda item: item.price)
         if ship_items and num_of_ships_to_buy > 0:
@@ -177,17 +234,12 @@ class EventShop(EventShopClerk):
 
     def handle_unobtained_items(self, items: List[EventShopItem], buy_unobtained_items=False) \
             -> Tuple[List[EventShopItem], List[EventShopItem]]:
-        """
-        Buy all items (ships) with tag "unobtained" in the event shop.
-        This should be done after handling URpt-related items but before buying other items.
+        """Купить товары с меткой ``unobtained`` перед обычными покупками.
 
-        For items with stock more than 1, should buy only one and let filter string decide whether to buy more.
-        The second return value will contain items with stock more than 1 that have been bought once,
-        so that the caller can (and maybe should) rescan the shop.
-
-        Args:
-            items (List[EventShopItem]): List of items to buy.
-            buy_unobtained_items (bool): Whether to buy unobtained items. Default is False.
+        Если у товара запас больше единицы, покупается только одна единица, а
+        дальнейшее количество определяет фильтр. Второй список содержит такие
+        частично обработанные товары, чтобы вызывающий код мог пересканировать
+        магазин.
         """
         if not buy_unobtained_items:
             return items, []
@@ -214,7 +266,7 @@ class EventShop(EventShopClerk):
                 item.count -= 1
                 multiple_items.append(item)
             else:
-                # If the item has stock 1, it won't appear in the rescan.
+                # Товар с запасом 1 исчезнет после покупки и не попадёт в повторный скан.
                 pass
 
         return items, multiple_items
@@ -248,31 +300,41 @@ class EventShop(EventShopClerk):
         return ''
 
     def _run(self):
-        """
-        Pages:
-            in: shop_event
-        """
+        """Выполнить один полный проход текущей вкладки магазина события."""
+        # Все чтения EventSpec в одном проходе используют один и тот же артефакт.
+        # Это исключает повторное чтение реестра и расхождение identity внутри прохода.
+        self._begin_event_shop_pass_context()
         self.event_shop_load_ensure()
+        # PT — полноценное наблюдение каждого прохода EventShop, включая
+        # проверочный проход, в котором новых кандидатов на покупку уже нет.
+        self.get_current_pts()
         items = self.scan_all()
         try:
-            from module.event_datamine.artifact import load_builtin_artifact
-            from module.webui.event_shop_observation import persist_event_shop_observation
-
-            observation_spec = load_builtin_artifact()["event_spec"]
-            persist_event_shop_observation(
-                instance=self.config.config_name,
-                spec=observation_spec,
-                runtime_items=items,
+            from module.webui.event_shop_observation import (
+                persist_event_shop_observation,
             )
+
+            artifact = self._current_event_artifact()
+            if artifact is not None:
+                persist_event_shop_observation(
+                    instance=self.config.config_name,
+                    spec=artifact["event_spec"],
+                    runtime_items=items,
+                )
         except (OSError, TypeError, ValueError) as exc:
-            # Observation is additive evidence. Its storage failure must not
-            # silently change the established EventShop purchase policy.
-            logger.warning(f"[Магазин события — наблюдение] Не удалось сохранить snapshot: {exc}")
+            # Наблюдение является дополнительным доказательством: сбой его хранилища не
+            # должен незаметно менять уже установленную политику покупок EventShop.
+            logger.warning(f"[Магазин события — наблюдение] Не удалось сохранить снимок: {exc}")
         if not len(items):
-            logger.warning("[Магазин события] Товары в магазине события не найдены")
+            observation_items = getattr(items, "observation_items", items)
+            if observation_items:
+                logger.info(
+                    "[Магазин события] Нет товаров, требующих покупки по текущим целям и приоритетам"
+                )
+            else:
+                logger.warning("[Магазин события] Товары в магазине события не найдены")
             return True
         logger.hr("Покупки в магазине события", level=2)
-        self.get_current_pts()
         items, urpt_related_items = self.handle_items_related_with_urpt(items, self.config.EventShop_BuyURShip)
         self.get_current_pts()
         items, unobtained_multiple_stock_items = self.handle_unobtained_items(items, self.config.EventShop_UnlockSSRShip)
@@ -341,7 +403,7 @@ class EventShop(EventShopClerk):
                 logger.info(f"[Магазин события] Товар успешно куплен: {str(item)}")
                 self.get_current_pts()
 
-        # Consume custom filter amounts based on actual purchased quantities.
+        # Уменьшаем лимиты пользовательского фильтра на реально купленное количество.
         if self.config.EventShop_PresetFilter == 'custom' and filter_tokens:
             changed = False
             for token in filter_tokens:
@@ -365,10 +427,7 @@ class EventShop(EventShopClerk):
         return True
 
     def run(self):
-        """
-        There may be multiple event shops.
-        This function will iterate through all of them and perform the necessary operations.
-        """
+        """Обойти все вкладки магазина события и выполнить необходимые операции."""
         self.ui_goto_main()
         self.ui_ensure(page_shop)
         timeout = Timer(2, count=4)
@@ -391,7 +450,7 @@ class EventShop(EventShopClerk):
         logger.info(f"[Магазин события] Обнаружено магазинов события: {count}; начало обработки")
         for i in range(count):
             navbar.set(main=self, left=i + 1)
-            for _ in range(7):  # Refresh up to 7 times to deal with buying failures
+            for _ in range(7):  # До семи обновлений на случай неудачных покупок.
                 try:
                     self.pt_preserved = 0
                     self._run()

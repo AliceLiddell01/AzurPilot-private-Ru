@@ -1,31 +1,89 @@
-"""Local-only asset resolver for Event UI."""
+"""Локальный resolver по сгенерированным canonical-путям AssetReference."""
 
 from __future__ import annotations
 
-import re
+import json
+from collections.abc import Mapping
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
+
+from module.event_datamine.artifact import BUILTIN_ARTIFACT_ROOT
+from module.event_datamine.assets import asset_key, validate_asset_catalog
 
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets"
+ASSET_CATALOG_PATH = BUILTIN_ARTIFACT_ROOT / "assets.json"
 PLACEHOLDER_URL = "/static/assets/gui/icon/event-placeholder.svg"
-REWARD_ICON_BY_GAME_ID = {
-    (1, 1): "/static/assets/gui/icon/icon_5.png",
-    (1, 2): "/static/assets/gui/icon/icon_4.png",
-    (2, 15008): "/static/assets/gui/icon/icon_3.png",
-}
 
 
-def event_shop_asset_url(filter_token: str, *, asset_root: Path = ASSET_ROOT) -> str:
-    token = str(filter_token or "")
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", token):
+@lru_cache(maxsize=4)
+def _catalog(path: str, modified_ns: int, size: int) -> dict[str, str]:
+    del modified_ns, size
+    data = validate_asset_catalog(json.loads(Path(path).read_text(encoding="utf-8")))
+    return {str(key): str(value) for key, value in data["entries"].items()}
+
+
+def event_asset_url(
+    asset: Mapping[str, Any] | None,
+    *,
+    catalog_path: Path | str = ASSET_CATALOG_PATH,
+    asset_root: Path | str = ASSET_ROOT,
+) -> str:
+    """Разрешить ассет только через сгенерированное canonical-сопоставление.
+
+    Решение между display-ассетом и scanner fallback принимает builder каталога.
+    Runtime не повторяет поиск по ``game_id`` и тем самым не обходит проверенную
+    неоднозначность canonical source path.
+    """
+
+    if not isinstance(asset, Mapping):
         return PLACEHOLDER_URL
-    candidate = (asset_root / "shop" / "event" / f"{token}.png").resolve()
-    expected_root = (asset_root / "shop" / "event").resolve()
-    if expected_root not in candidate.parents or not candidate.is_file():
+    key = asset_key(asset)
+    if not key:
         return PLACEHOLDER_URL
-    return f"/static/assets/shop/event/{token}.png"
+    try:
+        resolved_catalog = Path(catalog_path).resolve()
+        stat = resolved_catalog.stat()
+        url = _catalog(
+            str(resolved_catalog), stat.st_mtime_ns, stat.st_size
+        ).get(key, "")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return PLACEHOLDER_URL
+    prefix = "/static/assets/"
+    if not url.startswith(prefix):
+        return PLACEHOLDER_URL
+    relative = Path(url.removeprefix(prefix))
+    if relative.is_absolute() or ".." in relative.parts:
+        return PLACEHOLDER_URL
+    root = Path(asset_root).resolve()
+    candidate = (root / relative).resolve()
+    if root not in candidate.parents or not candidate.is_file():
+        return PLACEHOLDER_URL
+    return url
 
 
-def event_reward_asset_url(reward_type: int, reward_id: int) -> str:
-    return REWARD_ICON_BY_GAME_ID.get(
-        (int(reward_type), int(reward_id)), PLACEHOLDER_URL
+def event_asset_resolved(asset: Mapping[str, Any] | None, **kwargs: Any) -> bool:
+    return event_asset_url(asset, **kwargs) != PLACEHOLDER_URL
+
+
+def event_shop_asset_url(
+    item_or_asset: Mapping[str, Any] | None,
+    *,
+    catalog_path: Path | str = ASSET_CATALOG_PATH,
+    asset_root: Path | str = ASSET_ROOT,
+) -> str:
+    if not isinstance(item_or_asset, Mapping):
+        return PLACEHOLDER_URL
+    nested = item_or_asset.get("asset")
+    asset = nested if isinstance(nested, Mapping) else item_or_asset
+    return event_asset_url(
+        asset,
+        catalog_path=catalog_path,
+        asset_root=asset_root,
     )
+
+
+def event_reward_asset_url(
+    asset: Mapping[str, Any] | None, **kwargs: Any
+) -> str:
+    return event_asset_url(asset, **kwargs)

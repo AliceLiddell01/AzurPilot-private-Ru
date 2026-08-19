@@ -1,13 +1,23 @@
 import re
+from collections.abc import Mapping
 
 import cv2
 import numpy as np
 
 import module.config.server as server
-
-from module.base.utils import color_similarity_2d, color_similar, rgb2luma
+from module.base.utils import (
+    color_similar,
+    color_similarity_2d,
+    lower_template_match_similarity,
+    rgb2luma,
+)
 from module.logger import logger
-from module.ocr.ocr import Ocr, Digit
+from module.ocr.ocr import Digit, Ocr
+from module.shop_event.catalog import (
+    bind_catalog_source,
+    catalog_template_names,
+    resolve_catalog_claim,
+)
 from module.shop_event.selector import FILTER_REGEX
 from module.statistics.item import Item, ItemGrid
 
@@ -17,11 +27,16 @@ DELTA_PRICE_BACKGROUND = (14, 164)
 DELTA_ITEM = (45, 44, 45 + ITEM_SHAPE[0], 33 + ITEM_SHAPE[1])
 DELTA_AMOUNT = (13, 144, 136, 160)
 DELTA_PRICE = (28, 164, 128, 193)
+# Текст цены начинается правее иконки валюты. Отдельная область не даёт
+# локальным краям плашки или PT-иконке превращаться в ведущую OCR-цифру.
+DELTA_PRICE_TEXT = (64, 164, 128, 193)
 DELTA_TAG = (108, 30, 155, 52)
 COUNTER_COLOR = (106, 120, 131)
 COUNTER_THRESHOLD = 150
 PRICE_THRESHOLD = 230
 PRICE_BACKGROUND_COLOR = (61, 78, 91)
+EVENT_TEMPLATE_SEARCH_MARGIN = 4
+EVENT_TEMPLATE_MIN_GAP = 0.02
 if server.server == 'jp':
     COUNTER_LEFT_STRIP = 54
 elif server.server == 'en':
@@ -53,66 +68,65 @@ class CounterOcr(Ocr):
         result = result.replace('B', '8')
         return result
 
+    @staticmethod
+    def parse_counter_result(value):
+        """Разобрать один OCR-токен ``текущее/всего`` без догадок об остатке."""
+        text = str(value or '').strip()
+        parts = text.split('/')
+        if len(parts) != 2:
+            logger.warning(
+                f'[Магазин события — товар] Некорректный формат счётчика OCR: {text!r}'
+            )
+            return [0, 0]
+
+        current_text, total_text = (part.strip() for part in parts)
+        if not total_text.isdecimal():
+            logger.warning(
+                f'[Магазин события — товар] Не удалось прочитать максимальный остаток OCR: {text!r}; '
+                'товар заблокирован для текущего сканирования'
+            )
+            return [0, 0]
+
+        total = int(total_text)
+        if not current_text.isdecimal():
+            logger.warning(
+                f'[Магазин события — товар] Не удалось прочитать текущий остаток OCR: {text!r}; '
+                f'используется безопасный остаток 0/{total}'
+            )
+            return [0, total]
+
+        current = int(current_text)
+        if current > total:
+            logger.warning(
+                f'[Магазин события — товар] OCR вернул невозможный остаток {current}/{total}; '
+                'товар заблокирован для текущего сканирования'
+            )
+            return [0, total]
+        return [current, total]
+
     def ocr(self, image, direct_ocr=False):
+        """Распознать счётчик вида ``14/15`` и вернуть пару ``[14, 15]``.
+
+        Аргументы:
+            image: исходное изображение или список изображений.
+            direct_ocr: передать ли изображение непосредственно в OCR.
+
+        Возвращает:
+            Для списка изображений — список пар ``[текущее, всего]``;
+            для одного изображения — одну такую пару.
         """
-        Do OCR on a counter, such as `14/15`, and returns 14, 15
-
-        Args:
-            image:
-            direct_ocr:
-
-        Returns:
-            list[list[int]: [[current, total]].
-        """
-        result_list = super().ocr(image, direct_ocr=direct_ocr)
-        if isinstance(result_list, list):
-            parsed = []
-            for i in result_list:
-                if not i or '/' not in i:
-                    logger.warning(f'[Магазин события — товар] Некорректный формат результата OCR: {i}')
-                    parsed.append([0, 0])
-                    continue
-
-                parts = i.split('/')
-                if len(parts) != 2:
-                    logger.warning(f'[Магазин события — товар] Некорректный формат счётчика: {i}')
-                    parsed.append([0, 0])
-                    continue
-                parsed.append([int(j) for j in parts])
-
-            return parsed
-        else:
-            if not result_list or '/' not in result_list:
-                logger.warning(f'[Магазин события — товар] Некорректный результат OCR: {result_list}')
-                return [0, 0]
-
-            parts = result_list.split('/')
-            if len(parts) != 2:
-                logger.warning(f'[Магазин события — товар] Некорректный формат счётчика: {result_list}')
-                return [0, 0]
-
-            return [int(i) for i in parts]
+        result = super().ocr(image, direct_ocr=direct_ocr)
+        if isinstance(result, list):
+            return [self.parse_counter_result(value) for value in result]
+        return self.parse_counter_result(result)
 
 
-class PriceOcr(Digit):
-    def pre_process(self, image):
-        mask = color_similarity_2d(image, PRICE_BACKGROUND_COLOR)
-        brightness = np.min(mask, axis=0)
-        match = np.where(brightness < PRICE_THRESHOLD)[0]
-        if len(match):
-            left = match[0] + 20
-            total = mask.shape[1]
-            if left < total:
-                image = image[:, left:]
-        image = super().pre_process(image)
-        return image
-
-PRICE_OCR = PriceOcr([], letter=(221, 221, 221), threshold=128, name='Price_ocr')
+PRICE_OCR = Digit([], letter=(221, 221, 221), threshold=128, name='Price_ocr')
 
 
-URPT_PRICE_IN_PT = 150  # 1 URpt costs 150 pt
-COIN_PRICE_IN_URPT = 1  # 1 Coin costs 1 URpt
-UR_SHIP_PRICES_IN_URPT = [200, 300]  # UR Ships cost 200 or 300 URpt
+URPT_PRICE_IN_PT = 150  # Один URpt стоит 150 PT.
+COIN_PRICE_IN_URPT = 1  # Одна монета стоит 1 URpt.
+UR_SHIP_PRICES_IN_URPT = [200, 300]  # UR-корабли стоят 200 или 300 URpt.
 
 
 class EventShopItem(Item):
@@ -124,6 +138,9 @@ class EventShopItem(Item):
         self._scroll_pos = None
         self.total_count = -1
         self.count = 1
+        self.ocr_price = self.price
+        self.ocr_amount = self.amount
+        self.catalog_row_id = None
 
     def __str__(self):
         name = f'{self.name}_x{self.amount}_{self.count}/{self.total_count}_{self.cost}_x{self.price}'
@@ -154,7 +171,7 @@ class EventShopItem(Item):
             self.cost = 'URpt'
             self.is_ship = True
         elif self.price == COIN_PRICE_IN_URPT and self.total_count == 350:
-            # URpt to Coin
+            # Обмен URpt на монеты.
             self.name = 'Coin'
             self.cost = 'URpt'
         else:
@@ -174,20 +191,16 @@ class EventShopItem(Item):
             elif self.price == URPT_PRICE_IN_PT and self.total_count == 500:
                 self.name = 'URpt'
             elif self.name.isdigit():
-                logger.warning(f'[Магазин события — товар] Неопознанный товар, цена {self.price}, всего {self.total_count}; '
-                               # f'defaulting to EquipSSR')
-                               f'изображение сохранено для анализа.')
-                import os
-                from module.base.utils import save_image
-                os.mkdir('assets/shop/event/new_templates/') if not os.path.exists('assets/shop/event/new_templates/') else None
-                save_image(self.image, f'assets/shop/event/new_templates/{self.name}.png')
-                # self.name = 'EquipSSR'
+                logger.warning(
+                    f'[Магазин события — товар] Неопознанный товар, цена {self.price}, всего {self.total_count}; '
+                    f'принадлежность не подтверждена; область={self.button}, '
+                    f'позиция прокрутки={self.scroll_pos}.'
+                )
 
     def predict_genre(self):
         self.group, self.sub_genre, self.tier = None, None, None
 
-        # Can use regular expression to quickly populate
-        # the new attributes
+        # Регулярное выражение позволяет сразу заполнить новые признаки товара.
         name = self.name.lower()
         result = re.search(FILTER_REGEX, name)
         if result:
@@ -204,11 +217,13 @@ class EventShopItemGrid(ItemGrid):
                  grids,
                  templates,
                  template_area=(0, 0, ITEM_SHAPE[0], ITEM_SHAPE[1]),
-                 amount_area=(31, 50, ITEM_SHAPE[0], ITEM_SHAPE[1]),
+                 # Последние два пикселя иконки содержат нижнюю рамку карточки;
+                 # она не относится к amount и при малом Y-сдвиге загрязняет OCR.
+                 amount_area=(31, 50, ITEM_SHAPE[0], ITEM_SHAPE[1] - 2),
                  cost_area=(DELTA_PRICE[0] - DELTA_ITEM[0], DELTA_PRICE[1] - DELTA_ITEM[1],
                             DELTA_PRICE[2] - DELTA_ITEM[0], DELTA_PRICE[3] - DELTA_ITEM[1]),
-                 price_area=(DELTA_PRICE[0] - DELTA_ITEM[0], DELTA_PRICE[1] - DELTA_ITEM[1],
-                             DELTA_PRICE[2] - DELTA_ITEM[0], DELTA_PRICE[3] - DELTA_ITEM[1]),
+                 price_area=(DELTA_PRICE_TEXT[0] - DELTA_ITEM[0], DELTA_PRICE_TEXT[1] - DELTA_ITEM[1],
+                             DELTA_PRICE_TEXT[2] - DELTA_ITEM[0], DELTA_PRICE_TEXT[3] - DELTA_ITEM[1]),
                  tag_area=(DELTA_TAG[0] - DELTA_ITEM[0], DELTA_TAG[1] - DELTA_ITEM[1],
                            DELTA_TAG[2] - DELTA_ITEM[0], DELTA_TAG[3] - DELTA_ITEM[1]),
                  counter_area=(DELTA_AMOUNT[0] - DELTA_ITEM[0], DELTA_AMOUNT[1] - DELTA_ITEM[1],
@@ -218,6 +233,155 @@ class EventShopItemGrid(ItemGrid):
         self.counter_ocr = CounterOcr([], letter=COUNTER_COLOR, name="CounterOcr")
         self.counter_area = counter_area
         self.price_ocr = PRICE_OCR
+        self._catalog_spec = None
+        self._allowed_template_names = None
+
+    @staticmethod
+    def _canonical_template_name(name):
+        value = str(name or '')
+        if '_' in value:
+            prefix, suffix = value.rsplit('_', 1)
+            if suffix.isdigit():
+                return prefix
+        return value
+
+    @staticmethod
+    def _template_similarity(image, template, *, tolerant):
+        """Оценить similarity с ограниченным поиском малой трансляции иконки."""
+        candidate = template
+        if tolerant:
+            margin = EVENT_TEMPLATE_SEARCH_MARGIN
+            height, width = template.shape[:2]
+            if height > margin * 2 and width > margin * 2:
+                candidate = template[margin:-margin, margin:-margin]
+        if image.shape[0] < candidate.shape[0] or image.shape[1] < candidate.shape[1]:
+            return -1.0
+        result = cv2.matchTemplate(image, candidate, cv2.TM_CCOEFF_NORMED)
+        return float(cv2.minMaxLoc(result)[1])
+
+    def set_catalog_spec(self, spec):
+        """Ограничить runtime identity source-каталогом одного прохода EventShop."""
+        self._catalog_spec = spec if isinstance(spec, Mapping) else None
+        if self._catalog_spec is None:
+            self._allowed_template_names = None
+        else:
+            self._allowed_template_names = catalog_template_names(self._catalog_spec)
+
+    def _template_color_matches(self, image_color, name):
+        template_color = self.colors.get(name)
+        if template_color is None:
+            template_color = cv2.mean(self.templates[name])[:3]
+        return color_similar(color1=image_color, color2=template_color, threshold=30)
+
+    def _best_named_catalog_template(self, image, image_color, similarity):
+        """Найти уверенную именованную identity, группируя варианты одного товара."""
+        by_identity = {}
+        names = sorted(
+            (name for name in self.templates if not name.isdigit()),
+            key=lambda name: self.templates_hit.get(name, 0),
+            reverse=True,
+        )
+        for name in names:
+            identity = self._canonical_template_name(name)
+            if identity not in self._allowed_template_names:
+                continue
+            if not self._template_color_matches(image_color, name):
+                continue
+            score = self._template_similarity(image, self.templates[name], tolerant=True)
+            current = by_identity.get(identity)
+            if current is None or score > current[0]:
+                by_identity[identity] = (score, name)
+
+        ranked = sorted(by_identity.values(), key=lambda item: item[0], reverse=True)
+        if not ranked:
+            return None
+        best_score, best_name = ranked[0]
+        second_score = ranked[1][0] if len(ranked) > 1 else -1.0
+        if best_score > similarity and best_score - second_score >= EVENT_TEMPLATE_MIN_GAP:
+            return best_name
+        return None
+
+    def _best_numeric_template(self, image, image_color, similarity):
+        """Использовать временную identity только если именованная не доказана."""
+        ranked = []
+        for name in sorted(
+            (name for name in self.templates if name.isdigit()),
+            key=lambda name: self.templates_hit.get(name, 0),
+            reverse=True,
+        ):
+            if not self._template_color_matches(image_color, name):
+                continue
+            score = self._template_similarity(image, self.templates[name], tolerant=False)
+            if score > similarity:
+                ranked.append((score, name))
+        ranked.sort(reverse=True)
+        if not ranked:
+            return None
+        best_score, best_name = ranked[0]
+        second_score = ranked[1][0] if len(ranked) > 1 else -1.0
+        if best_score - second_score < EVENT_TEMPLATE_MIN_GAP:
+            return None
+        return best_name
+
+    def match_template(self, image, similarity=None):
+        """Сначала доказать catalog identity, затем использовать временный fallback."""
+        if self._allowed_template_names is None:
+            return super().match_template(image, similarity=similarity)
+        if similarity is None:
+            similarity = self.similarity
+        similarity = lower_template_match_similarity(similarity)
+        color = cv2.mean(image)[:3]
+
+        best_name = self._best_named_catalog_template(image, color, similarity)
+        if best_name is None:
+            best_name = self._best_numeric_template(image, color, similarity)
+        if best_name is not None:
+            self.templates_hit[best_name] += 1
+            return best_name
+
+        self.next_template_index += 1
+        name = str(self.next_template_index)
+        template = image.copy()
+        self.colors[name] = cv2.mean(template)[:3]
+        self.templates[name] = template
+        self.templates_hit[name] = self.templates_hit.get(name, 0) + 1
+        logger.debug(f'[Магазин события — товар] Временная numeric identity: {name}')
+        return name
+
+    def _apply_catalog_evidence(self, item):
+        item.ocr_price = item.price
+        item.ocr_amount = item.amount
+        item.catalog_row_id = None
+        if self._catalog_spec is None:
+            return
+        claim = resolve_catalog_claim(self._catalog_spec, item)
+
+        resolved_price = claim.get('price')
+        if isinstance(resolved_price, int) and resolved_price > 0 and item.price != resolved_price:
+            logger.debug(
+                '[Магазин события — товар] OCR price нормализована согласованным EventSpec: '
+                f'{item.price} -> {resolved_price}'
+            )
+            item.price = resolved_price
+
+        resolved_amount = claim.get('amount')
+        if isinstance(resolved_amount, int) and resolved_amount > 0 and item.amount != resolved_amount:
+            logger.debug(
+                '[Магазин события — товар] OCR amount нормализован согласованным EventSpec: '
+                f'{item.amount} -> {resolved_amount}'
+            )
+            item.amount = resolved_amount
+
+        if claim.get('status') != 'matched':
+            return
+        source = claim.get('source')
+        if not isinstance(source, Mapping):
+            return
+        bind_catalog_source(
+            item,
+            source,
+            evidence=str(claim.get('identity_evidence') or 'source_key'),
+        )
 
     def predict_tag(self, image):
         color = cv2.mean(np.array(image))[:3]
@@ -240,5 +404,6 @@ class EventShopItemGrid(ItemGrid):
         for i in self.items:
             i.correct_name_and_cost()
             i.predict_genre()
+            self._apply_catalog_evidence(i)
 
         return self.items

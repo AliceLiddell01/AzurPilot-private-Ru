@@ -1,0 +1,188 @@
+{
+  "audit_schema_version": 1,
+  "campaign_ui_layout": "20241219",
+  "classification": {
+    "generic_defaults": "Общие значения AzurPilot, которые не должны дублироваться в event runtime-policy.",
+    "irrelevant_implementation_detail": "Наследование Config, неиспользуемые imports и не-EN ассеты, не являющиеся runtime-семантикой продукта.",
+    "obsolete_upstream_workaround": "Ручные мосты старого генератора, которые в текущей архитектуре заменены типизированной policy.",
+    "source_facts": "Структура карты и игровые факты из ShareCfg/EventSpec; не берутся из ручного Python upstream.",
+    "validated_runtime_evidence": "Ручная runtime-калибровка или поведение карты, закреплённые конкретным upstream revision."
+  },
+  "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+  "event_id": "en:51101",
+  "generated_package": "en_51101",
+  "maps": [
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "campaign"},
+      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["D2"]},
+      "chapter_name": "A1",
+      "map_id": 2050001,
+      "profile": "ac_regular",
+      "source_path": "campaign/event_20260813_cn/a1.py",
+      "upstream_blob_sha": "96b97f890e874420f26b6d6ea12a07e8d8f5c302"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "campaign"},
+      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["F5"]},
+      "chapter_name": "A2",
+      "map_id": 2050002,
+      "profile": "ac_regular",
+      "source_path": "campaign/event_20260813_cn/a2.py",
+      "upstream_blob_sha": "93031e569c1d5feffc3a7a3ea47e662ce8bc654d"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "campaign"},
+      "camera_calibration": {"camera_data": ["D2", "D4", "D7"], "spawn_points": ["D7"]},
+      "chapter_name": "A3",
+      "map_id": 2050003,
+      "profile": "ac_narrow",
+      "source_path": "campaign/event_20260813_cn/a3.py",
+      "upstream_blob_sha": "6777b3ad756e4cdb26515dda4862db2c9e4e68f5"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "campaign"},
+      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["F2", "D2"]},
+      "chapter_name": "B1",
+      "map_id": 2050004,
+      "profile": "bd",
+      "source_path": "campaign/event_20260813_cn/b1.py",
+      "upstream_blob_sha": "382f0ba927743bd04c9176d7420182c6ce340be1"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "boss_fleet"},
+      "camera_calibration": {"camera_data": ["D3", "D6", "G2", "G5"], "spawn_points": ["D3"]},
+      "chapter_name": "B2",
+      "map_id": 2050005,
+      "profile": "bd",
+      "source_path": "campaign/event_20260813_cn/b2.py",
+      "upstream_blob_sha": "f8df2cecbe43711f54b876f94446aaed3c1e8938"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "boss_fleet"},
+      "camera_calibration": {"camera_data": ["D4", "D6", "F4", "F6"], "spawn_points": ["D4"]},
+      "chapter_name": "B3",
+      "map_id": 2050006,
+      "profile": "bd",
+      "source_path": "campaign/event_20260813_cn/b3.py",
+      "upstream_blob_sha": "5dcf4157f714debcba9ac48641a05c4135cf6538"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "campaign"},
+      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["D2"]},
+      "chapter_name": "C1",
+      "map_id": 2050021,
+      "profile": "ac_regular",
+      "source_path": "campaign/event_20260813_cn/c1.py",
+      "upstream_blob_sha": "ec3cb78c6dc9cde03179e0a12fcb62f1a011227a"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "campaign"},
+      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["F5"]},
+      "chapter_name": "C2",
+      "map_id": 2050022,
+      "profile": "ac_regular",
+      "source_path": "campaign/event_20260813_cn/c2.py",
+      "upstream_blob_sha": "7dcea24b980b8d0c581246a8d674bbee1ac5375c"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "boss_fleet"},
+      "camera_calibration": {"camera_data": ["D2", "D4", "D7"], "spawn_points": ["D7"]},
+      "chapter_name": "C3",
+      "map_id": 2050023,
+      "profile": "ac_narrow",
+      "source_path": "campaign/event_20260813_cn/c3.py",
+      "upstream_blob_sha": "5f7bb4772d0c12fb52b4b291286103aaa9c19fac"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 0}]},
+      "boss_clear": {"strategy": "boss_fleet"},
+      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["F2", "D2"]},
+      "chapter_name": "D1",
+      "map_id": 2050024,
+      "profile": "bd",
+      "source_path": "campaign/event_20260813_cn/d1.py",
+      "upstream_blob_sha": "cca2982a8b3b4c5d0f0b060e8351bd4da69a3abb"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 1}, {"battle": 5, "preserve": 0}]},
+      "boss_clear": {"strategy": "boss_fleet"},
+      "camera_calibration": {"camera_data": ["D3", "D6", "G2", "G5"], "spawn_points": ["D3"]},
+      "chapter_name": "D2",
+      "map_id": 2050025,
+      "profile": "bd",
+      "source_path": "campaign/event_20260813_cn/d2.py",
+      "upstream_blob_sha": "18c58eda7e1d6fe4872fd17ad6c840ad4f98d934"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 1}, {"battle": 5, "preserve": 0}]},
+      "boss_clear": {"strategy": "boss_fleet"},
+      "camera_calibration": {"camera_data": ["D4", "D6", "F4", "F6"], "spawn_points": ["D4"]},
+      "chapter_name": "D3",
+      "map_id": 2050026,
+      "profile": "bd",
+      "source_path": "campaign/event_20260813_cn/d3.py",
+      "upstream_blob_sha": "8cbb15e20f8fc44947936f4c29f8d5a12de67391"
+    },
+    {
+      "battle_plan": {"siren_filter_steps": [{"battle": 0, "preserve": 2}, {"battle": 5, "preserve": 0}]},
+      "boss_clear": {"strategy": "boss_fleet"},
+      "camera_calibration": {"camera_data": ["D4", "D6", "F4", "F6"], "spawn_points": ["D4", "F4"]},
+      "chapter_name": "SP",
+      "map_id": 2050041,
+      "profile": "sp",
+      "source_path": "campaign/event_20260813_cn/sp.py",
+      "stage_entry": {"has_mode_switch": false, "one_time": true},
+      "upstream_blob_sha": "03d3c193120aafcf66fb45922c50f15ed6ec384d"
+    }
+  ],
+  "profiles": {
+    "ac_narrow": {
+      "detector_calibration": {
+        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
+        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
+        "swipe": {"adb": [1.007, 1.026], "maatouch": [0.946, 0.963], "minitouch": [0.974, 0.992]}
+      },
+      "siren_recognition": {"boss_icon_small": true, "templates": []}
+    },
+    "ac_regular": {
+      "detector_calibration": {
+        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
+        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
+        "swipe": {"adb": [1.207, 1.229], "maatouch": [1.133, 1.153], "minitouch": [1.167, 1.189]}
+      },
+      "siren_recognition": {"boss_icon_small": true, "templates": []}
+    },
+    "bd": {
+      "detector_calibration": {
+        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
+        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
+        "swipe": {"adb": [1.136, 1.158], "maatouch": [1.067, 1.086], "minitouch": [1.099, 1.119]},
+        "walk_use_current_fleet": true
+      },
+      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_BB", "BonhommeRichard_CV"]}
+    },
+    "sp": {
+      "detector_calibration": {
+        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
+        "ensure_edge_insight_corner": "bottom",
+        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
+        "swipe": {"adb": [1.149, 1.17], "maatouch": [1.079, 1.098], "minitouch": [1.111, 1.132]}
+      },
+      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_SS"]}
+    }
+  },
+  "upstream": {
+    "event_path": "campaign/event_20260813_cn",
+    "repository": "wess09/AzurPilot",
+    "revision": "857deff50a845db1e4aa223c58ad5899155990d1"
+  }
+}

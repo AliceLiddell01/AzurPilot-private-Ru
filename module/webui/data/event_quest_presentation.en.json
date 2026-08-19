@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "pattern": "Build\\s+(?P<amount>\\d+)\\s+ships?",
+      "group": "daily",
+      "title": "Построить {amount} {noun}",
+      "description": "Постройте {amount} {noun} на верфи.",
+      "plurals": {
+        "noun": {
+          "field": "amount",
+          "forms": ["корабль", "корабля", "кораблей"]
+        }
+      }
+    },
+    {
+      "pattern": "Sortie\\s+and\\s+obtain\\s+(?P<amount>\\d+)\\s+victories?",
+      "group": "daily",
+      "title": "Одержать {amount} {noun}",
+      "description": "Совершайте боевые выходы и одержите {amount} {noun}.",
+      "plurals": {
+        "noun": {
+          "field": "amount",
+          "forms": ["победу", "победы", "побед"]
+        }
+      }
+    },
+    {
+      "pattern": "Clear\\s+any\\s+Hard\\s+Mode\\s+stage\\s+(?P<amount>\\d+)\\s+times?",
+      "group": "daily",
+      "title": "Пройти этап в режиме Hard",
+      "description": "Завершите любой этап Hard Mode {amount} {times}.",
+      "plurals": {
+        "times": {
+          "field": "amount",
+          "forms": ["раз", "раза", "раз"]
+        }
+      }
+    },
+    {
+      "pattern": "Clear\\s+(?P<left>[A-Z]+\\d+)\\s+or\\s+(?P<right>[A-Z]+\\d+)",
+      "group": "event",
+      "title": "Пройти {left} или {right}",
+      "description": "Завершите любой из указанных этапов текущего события.",
+      "upper_fields": ["left", "right"]
+    },
+    {
+      "pattern": "Clear\\s+any\\s+event\\s+stage\\s+(?P<amount>\\d+)\\s+times?",
+      "group": "event",
+      "title": "Пройти любой этап события {amount} {times}",
+      "description": "Завершите любой этап текущего события суммарно {amount} {times}.",
+      "plurals": {
+        "times": {
+          "field": "amount",
+          "forms": ["раз", "раза", "раз"]
+        }
+      }
+    }
+  ]
+}

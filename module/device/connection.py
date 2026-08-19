@@ -1010,23 +1010,23 @@ class Connection(ConnectionAttr):
         time.sleep(ensure_time(second))
 
     _orientation_description = {
-        0: '正常',
-        1: 'HOME 键在右侧',
-        2: 'HOME 键在顶部',
-        3: 'HOME 键在左侧',
+        0: 'обычная',
+        1: 'кнопка «Домой» справа',
+        2: 'кнопка «Домой» сверху',
+        3: 'кнопка «Домой» слева',
     }
     orientation = 0
 
     @retry
     def get_orientation(self):
-        """获取设备屏幕方向。
+        """Получить ориентацию экрана устройства.
 
         Returns:
-            int: 屏幕方向值：
-                0: 正常
-                1: HOME 键在右侧
-                2: HOME 键在顶部
-                3: HOME 键在左侧
+            int: Значение ориентации экрана:
+                0: обычная
+                1: кнопка «Домой» справа
+                2: кнопка «Домой» сверху
+                3: кнопка «Домой» слева
         """
         _DISPLAY_RE = re.compile(
             r'.*DisplayViewport{.*valid=true, .*orientation=(?P<orientation>\d+), .*deviceWidth=(?P<width>\d+), deviceHeight=(?P<height>\d+).*'
@@ -1040,8 +1040,9 @@ class Connection(ConnectionAttr):
             if o in Connection._orientation_description:
                 pass
             else:
+                invalid_orientation = o
                 o = 0
-                logger.warning(f'[Устройство — соединение] Недопустимая ориентация устройства: {o}; используется обычная ориентация')
+                logger.warning(f'[Устройство — соединение] Недопустимая ориентация устройства: {invalid_orientation}; используется обычная ориентация')
         else:
             o = 0
             logger.warning('[Устройство — соединение] Не удалось получить ориентацию устройства; используется обычная ориентация')

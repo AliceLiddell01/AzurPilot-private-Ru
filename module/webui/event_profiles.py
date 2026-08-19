@@ -1,8 +1,8 @@
-"""Pure state helpers for the WebUI event-profile presentation layer.
+"""Чистые помощники состояния для представления профилей событий в WebUI.
 
-The legacy runtime task IDs remain stable. This module only decides which
-Event-group entries are visible in WebUI and stores user-facing names for the
-optional Event2/Event3 slots inside EventGeneral.Storage.Storage.
+Стабильные runtime-ID старых задач сохраняются. Модуль только определяет,
+какие пункты группы Event видны в WebUI, и хранит пользовательские имена для
+необязательных слотов Event2/Event3 внутри EventGeneral.Storage.Storage.
 """
 
 from __future__ import annotations
@@ -12,9 +12,10 @@ from typing import Any, Mapping, MutableMapping
 
 EVENT_MENU_LABEL = "Ивент"
 EVENT_TASK_LABELS = {
-    "EventGeneral": "Общие настройки ивента",
+    "EventGeneral": "Общая информация о текущем ивенте",
     "Event": "Ивентовая карта",
     "EventShop": "Магазин ивента",
+    "EventRewards": "Награды ивента",
 }
 OPTIONAL_EVENT_PROFILE_SLOTS = ("Event2", "Event3")
 OPTIONAL_EVENT_PROFILE_DEFAULT_LABELS = {
@@ -22,10 +23,10 @@ OPTIONAL_EVENT_PROFILE_DEFAULT_LABELS = {
     "Event3": "Доп. ивентовый профиль 2",
 }
 
-# These task IDs are intentionally retained in task/config/runtime. They are
-# reusable handlers for uncommon event formats, not dead code. WebUI hides
-# them by default and exposes an already-enabled legacy task so the user can
-# still reach and disable it safely.
+# Эти ID задач намеренно сохраняются в task/config/runtime: это повторно
+# используемые обработчики редких форматов событий, а не мёртвый код. WebUI
+# по умолчанию их скрывает, но уже включённая старая задача остаётся доступной,
+# чтобы пользователь мог безопасно её открыть и отключить.
 SPECIAL_EVENT_PRESET_TASKS = frozenset(
     {
         "Raid",
@@ -63,7 +64,7 @@ def _event_general_storage(config: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def event_general_storage_for_display(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Return task storage without WebUI-only event-profile metadata."""
+    """Вернуть хранилище задачи без служебных метаданных профилей WebUI."""
     visible = dict(_event_general_storage(config))
     visible.pop(_EVENT_PROFILE_STORAGE_KEY, None)
     return visible

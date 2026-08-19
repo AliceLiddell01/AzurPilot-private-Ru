@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "entries": [
+    {"item_type": 1, "item_id": 1, "filter": "Coin"},
+    {"item_type": 1, "item_id": 2, "filter": "Oil"},
+    {"item_type": 2, "item_id": 15008, "filter": "Chip"},
+    {"item_type": 2, "item_id": 15012, "filter": "Array"},
+    {"item_type": 2, "item_id": 15014, "filter": "AugmentCoreT3"},
+    {"item_type": 2, "item_id": 15016, "filter": "AugmentEnhanceT2"},
+    {"item_type": 2, "item_id": 15020, "filter": "AugmentChangeT1"},
+    {"item_type": 2, "item_id": 15021, "filter": "AugmentChangeT2"},
+    {"item_type": 2, "item_id": 17003, "filter": "PlateGeneralT3"},
+    {"item_type": 2, "item_id": 17013, "filter": "PlateGunT3"},
+    {"item_type": 2, "item_id": 17023, "filter": "PlateTorpedoT3"},
+    {"item_type": 2, "item_id": 17033, "filter": "PlateAntiairT3"},
+    {"item_type": 2, "item_id": 17043, "filter": "PlatePlaneT3"},
+    {"item_type": 2, "item_id": 20011, "filter": "CatT1"},
+    {"item_type": 2, "item_id": 20012, "filter": "CatT2"},
+    {"item_type": 2, "item_id": 20013, "filter": "CatT3"},
+    {"item_type": 2, "item_id": 21048, "filter": "Meta"},
+    {"item_type": 2, "item_id": 30014, "filter": "BoxT4"},
+    {"item_type": 2, "item_id": 30024, "filter": "BoxT4"},
+    {"item_type": 2, "item_id": 30034, "filter": "BoxT4"},
+    {"item_type": 2, "item_id": 30044, "filter": "BoxT4"},
+    {"item_type": 2, "item_id": 30368, "filter": "SkinBox"},
+    {"item_type": 2, "item_id": 42060, "filter": "PRS7"},
+    {"item_type": 2, "item_id": 42066, "filter": "DRS7"},
+    {"item_type": 2, "item_id": 50001, "filter": "FoodT1"},
+    {"item_type": 3, "item_id": 24400, "filter": "EquipUR"},
+    {"item_type": 4, "item_id": 9707071, "filter": "ShipSSR"}
+  ],
+  "rules": [
+    {
+      "id": "ship-ssr-by-rarity",
+      "item_type": 4,
+      "rarity": 5,
+      "filter": "ShipSSR"
+    },
+    {
+      "id": "equipment-ssr-by-rarity",
+      "item_type": 3,
+      "rarity": 5,
+      "filter": "EquipSSR"
+    },
+    {
+      "id": "skin-box-by-source-path",
+      "source_path_regex": "appearancebox",
+      "filter": "SkinBox"
+    },
+    {
+      "id": "skin-box-by-name",
+      "name_regex": "gear\\s+skin\\s+box",
+      "filter": "SkinBox"
+    },
+    {
+      "id": "general-blueprint-series",
+      "name_regex": "^General Blueprint - Series (?P<series>[1-9][0-9]*)$",
+      "filter_template": "PRS{series}"
+    },
+    {
+      "id": "special-general-blueprint-series",
+      "name_regex": "^Special General Blueprint - Series (?P<series>[1-9][0-9]*)$",
+      "filter_template": "DRS{series}"
+    }
+  ]
+}

@@ -1,0 +1,1714 @@
+{
+  "15008": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Chips, derived from Wisdom Cubes, used for Cognitive Awakening. Can be used on ships that have reached <color=#A9F548>Level 100 or higher</color> to increase their Level Cap. ",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/15008",
+    "id": 15008,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Cognitive Chips ",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 1,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "15012": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Complex arrays, derived from Wisdom Cubes, used for Cognitive Awakening. Can be used on ships that have reached <color=#92fc63>Level 120 and have been fully Limit Broken</color> to increase their Level Cap.",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/15012",
+    "id": 15012,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Cognitive Array",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 1,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "15014": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Resource used to make and uncap Augment Modules.",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/15014",
+    "id": 15014,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Augment Module Core",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 2,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "15016": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Resource used to craft, upgrade and convert Augment Modules.",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/15016",
+    "id": 15016,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Augment Module Stone T2",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 24,
+    "usage": "usage_spweapon",
+    "usage_arg": {
+      "0": 100
+    },
+    "virtual_type": 0
+  },
+  "15017": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Resource used to craft, upgrade and convert Augment Modules.",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/15017",
+    "id": 15017,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Augment Module Stone T3",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 24,
+    "usage": "usage_spweapon",
+    "usage_arg": {
+      "0": 1000
+    },
+    "virtual_type": 0
+  },
+  "15020": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Used to reroll the attribute bonuses obtained from Conversion.",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/15019",
+    "id": 15020,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Augment Module Conversion Stone T1",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 2,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "15021": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Used to reroll the attribute bonuses obtained from Conversion.",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/15020",
+    "id": 15021,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Augment Module Conversion Stone T2",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 2,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "16003": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to grant additional EXP when training a ship's offensive skills",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/16003",
+    "id": 16003,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Offensive Skill Book",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 10,
+    "usage": "usage_book",
+    "usage_arg": {
+      "0": 28800,
+      "1": 800,
+      "2": 1,
+      "3": 50
+    },
+    "virtual_type": 0
+  },
+  "16013": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to grant additional EXP when training a ship's defensive skills",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/16013",
+    "id": 16013,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Defensive Skill Book",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 10,
+    "usage": "usage_book",
+    "usage_arg": {
+      "0": 28800,
+      "1": 800,
+      "2": 2,
+      "3": 50
+    },
+    "virtual_type": 0
+  },
+  "16023": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to grant additional EXP when training a ship's support skills",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/16023",
+    "id": 16023,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Support Skill Book",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 10,
+    "usage": "usage_book",
+    "usage_arg": {
+      "0": 28800,
+      "1": 800,
+      "2": 3,
+      "3": 50
+    },
+    "virtual_type": 0
+  },
+  "17003": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "A part most commonly used while improving gear.",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/17003",
+    "id": 17003,
+    "index": {},
+    "is_world": 1,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 General Part",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 4,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "17013": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use this part to improve main guns",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/17013",
+    "id": 17013,
+    "index": {},
+    "is_world": 1,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Main Gun Part",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 4,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "17023": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use this part to improve torpedoes",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/17023",
+    "id": 17023,
+    "index": {},
+    "is_world": 1,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Torpedo Part",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 4,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "17033": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use this part to improve anti-air guns",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/17033",
+    "id": 17033,
+    "index": {},
+    "is_world": 1,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Anti-Air Gun Part",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 4,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "17043": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use this part to improve aircrafts",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/17043",
+    "id": 17043,
+    "index": {},
+    "is_world": 1,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Aircraft Part",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 4,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "18002": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to improve Destroyers",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/18002",
+    "id": 18002,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T2 Destroyer Retrofit Blueprint",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 7,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "18003": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to improve Destroyers",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/18003",
+    "id": 18003,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Destroyer Retrofit Blueprint",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 7,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "18012": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to improve Cruisers",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/18012",
+    "id": 18012,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T2 Cruiser Retrofit Blueprint",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 7,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "18013": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to improve Cruisers",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/18013",
+    "id": 18013,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Cruiser Retrofit Blueprint",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 7,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "18022": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to improve Battleships",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/18022",
+    "id": 18022,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T2 Battleship Retrofit Blueprint",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 7,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "18023": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to improve Battleships",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/18023",
+    "id": 18023,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Battleship Retrofit Blueprint",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 7,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "18032": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to improve Carriers",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/18032",
+    "id": 18032,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T2 Carrier Retrofit Blueprint",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 7,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "18033": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Use to improve Carriers",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/18033",
+    "id": 18033,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T3 Carrier Retrofit Blueprint",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 7,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "20011": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "A plain box purchased from Akashi. What might be inside...?",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/20011",
+    "id": 20011,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Rare Cat Box",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 2,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 2,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "20012": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "A slick box purchased from Akashi. What might be inside...?",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/20012",
+    "id": 20012,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Elite Cat Box",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 3,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 2,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "20013": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "An ornate box purchased from Akashi. What might be inside...?",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/20013",
+    "id": 20013,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Super Rare Cat Box",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 2,
+    "usage": "usage_undefined",
+    "usage_arg": "[]",
+    "virtual_type": 0
+  },
+  "30014": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "May contain 1 piece of Super Rare Eagle Union faction gear:\\n15% chance to receive <color=#ffde38>Super Rare gear</color>.\\n85% chance to receive <color=#d797ff>Elite gear</color>.",
+    "display_effect": "OpenBox",
+    "display_icon": {},
+    "icon": "Props/30004",
+    "id": 30014,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T4 Eagle Tech Pack",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 5,
+    "usage": "usage_drop",
+    "usage_arg": "30014",
+    "virtual_type": 0
+  },
+  "30015": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Contains 1 piece of Super Rare Eagle faction gear:\\nGuaranteed to receive <color=#fff157>Super Rare gear</color>",
+    "display_effect": "OpenBox",
+    "display_icon": {},
+    "icon": "Props/30005",
+    "id": 30015,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T5 Eagle Tech Pack",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 5,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 5,
+    "usage": "usage_drop",
+    "usage_arg": "30015",
+    "virtual_type": 0
+  },
+  "30024": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "May contain 1 piece of Super Rare Royal Navy faction gear:\\n15% chance to receive <color=#ffde38>Super Rare gear</color>.\\n85% chance to receive <color=#d797ff>Elite gear</color>.",
+    "display_effect": "OpenBox",
+    "display_icon": {},
+    "icon": "Props/30004",
+    "id": 30024,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T4 Royal Tech Pack",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 5,
+    "usage": "usage_drop",
+    "usage_arg": "30024",
+    "virtual_type": 0
+  },
+  "30034": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "May contain 1 piece of Super Rare Sakura Empire faction gear:\\n15% chance to receive <color=#ffde38>Super Rare gear</color>.\\n85% chance to receive <color=#d797ff>Elite gear</color>.",
+    "display_effect": "OpenBox",
+    "display_icon": {},
+    "icon": "Props/30004",
+    "id": 30034,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T4 Sakura Tech Pack",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 5,
+    "usage": "usage_drop",
+    "usage_arg": "30034",
+    "virtual_type": 0
+  },
+  "30044": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "May contain 1 piece of Super Rare Iron Blood faction gear:\\n15% chance to receive <color=#ffde38>Super Rare gear</color>.\\n85% chance to receive <color=#d797ff>Elite gear</color>.",
+    "display_effect": "OpenBox",
+    "display_icon": {},
+    "icon": "Props/30004",
+    "id": 30044,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "T4 Iron Blood Tech Pack",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 5,
+    "usage": "usage_drop",
+    "usage_arg": "30044",
+    "virtual_type": 0
+  },
+  "30114": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Can be used to obtain a T4 Part of your choosing.",
+    "display_effect": "",
+    "display_icon": {
+      "0": {
+        "0": 2,
+        "1": 17004,
+        "2": 1
+      },
+      "1": {
+        "0": 2,
+        "1": 17014,
+        "2": 1
+      },
+      "2": {
+        "0": 2,
+        "1": 17024,
+        "2": 1
+      },
+      "3": {
+        "0": 2,
+        "1": 17034,
+        "2": 1
+      },
+      "4": {
+        "0": 2,
+        "1": 17044,
+        "2": 1
+      }
+    },
+    "icon": "Props/30114",
+    "id": 30114,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Universal T4 Part",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 13,
+    "usage": "usage_drop_appointed",
+    "usage_arg": {
+      "0": {
+        "0": 2,
+        "1": 17004,
+        "2": 1
+      },
+      "1": {
+        "0": 2,
+        "1": 17014,
+        "2": 1
+      },
+      "2": {
+        "0": 2,
+        "1": 17024,
+        "2": 1
+      },
+      "3": {
+        "0": 2,
+        "1": 17034,
+        "2": 1
+      },
+      "4": {
+        "0": 2,
+        "1": 17044,
+        "2": 1
+      }
+    },
+    "virtual_type": 0
+  },
+  "30387": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "可以获得一件随机的滨海极速风格外观装备",
+    "display_effect": "",
+    "display_icon": {
+      "0": {
+        "0": 9,
+        "1": 4420,
+        "2": 1
+      },
+      "1": {
+        "0": 9,
+        "1": 4421,
+        "2": 1
+      },
+      "10": {
+        "0": 9,
+        "1": 4430,
+        "2": 1
+      },
+      "11": {
+        "0": 9,
+        "1": 4431,
+        "2": 1
+      },
+      "12": {
+        "0": 9,
+        "1": 4432,
+        "2": 1
+      },
+      "13": {
+        "0": 9,
+        "1": 4433,
+        "2": 1
+      },
+      "14": {
+        "0": 9,
+        "1": 4434,
+        "2": 1
+      },
+      "15": {
+        "0": 9,
+        "1": 4435,
+        "2": 1
+      },
+      "16": {
+        "0": 9,
+        "1": 4436,
+        "2": 1
+      },
+      "17": {
+        "0": 9,
+        "1": 4437,
+        "2": 1
+      },
+      "2": {
+        "0": 9,
+        "1": 4422,
+        "2": 1
+      },
+      "3": {
+        "0": 9,
+        "1": 4423,
+        "2": 1
+      },
+      "4": {
+        "0": 9,
+        "1": 4424,
+        "2": 1
+      },
+      "5": {
+        "0": 9,
+        "1": 4425,
+        "2": 1
+      },
+      "6": {
+        "0": 9,
+        "1": 4426,
+        "2": 1
+      },
+      "7": {
+        "0": 9,
+        "1": 4427,
+        "2": 1
+      },
+      "8": {
+        "0": 9,
+        "1": 4428,
+        "2": 1
+      },
+      "9": {
+        "0": 9,
+        "1": 4429,
+        "2": 1
+      }
+    },
+    "icon": "Props/appearanceboxbinhaijisu",
+    "id": 30387,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "外观装备箱(滨海极速)",
+    "open_directly": 1,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 7000
+    },
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 11,
+    "usage": "usage_drop",
+    "usage_arg": "30384",
+    "virtual_type": 0
+  },
+  "42080": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Can be converted to a Blueprint for any of the Series 1 through 9 Priority ships.",
+    "display_effect": "",
+    "display_icon": {
+      "0": {
+        "0": 2,
+        "1": 42081,
+        "2": 1
+      },
+      "1": {
+        "0": 2,
+        "1": 42082,
+        "2": 1
+      },
+      "10": {
+        "0": 2,
+        "1": 42053,
+        "2": 1
+      },
+      "11": {
+        "0": 2,
+        "1": 42055,
+        "2": 1
+      },
+      "12": {
+        "0": 2,
+        "1": 42042,
+        "2": 1
+      },
+      "13": {
+        "0": 2,
+        "1": 42043,
+        "2": 1
+      },
+      "14": {
+        "0": 2,
+        "1": 42044,
+        "2": 1
+      },
+      "15": {
+        "0": 2,
+        "1": 42031,
+        "2": 1
+      },
+      "16": {
+        "0": 2,
+        "1": 42034,
+        "2": 1
+      },
+      "17": {
+        "0": 2,
+        "1": 42035,
+        "2": 1
+      },
+      "18": {
+        "0": 2,
+        "1": 42021,
+        "2": 1
+      },
+      "19": {
+        "0": 2,
+        "1": 42023,
+        "2": 1
+      },
+      "2": {
+        "0": 2,
+        "1": 42084,
+        "2": 1
+      },
+      "20": {
+        "0": 2,
+        "1": 42024,
+        "2": 1
+      },
+      "21": {
+        "0": 2,
+        "1": 42025,
+        "2": 1
+      },
+      "22": {
+        "0": 2,
+        "1": 42011,
+        "2": 1
+      },
+      "23": {
+        "0": 2,
+        "1": 42012,
+        "2": 1
+      },
+      "24": {
+        "0": 2,
+        "1": 42013,
+        "2": 1
+      },
+      "25": {
+        "0": 2,
+        "1": 42016,
+        "2": 1
+      },
+      "26": {
+        "0": 2,
+        "1": 42001,
+        "2": 1
+      },
+      "27": {
+        "0": 2,
+        "1": 42002,
+        "2": 1
+      },
+      "28": {
+        "0": 2,
+        "1": 42003,
+        "2": 1
+      },
+      "29": {
+        "0": 2,
+        "1": 42004,
+        "2": 1
+      },
+      "3": {
+        "0": 2,
+        "1": 42071,
+        "2": 1
+      },
+      "30": {
+        "0": 2,
+        "1": 42005,
+        "2": 1
+      },
+      "31": {
+        "0": 2,
+        "1": 42006,
+        "2": 1
+      },
+      "4": {
+        "0": 2,
+        "1": 42073,
+        "2": 1
+      },
+      "5": {
+        "0": 2,
+        "1": 42074,
+        "2": 1
+      },
+      "6": {
+        "0": 2,
+        "1": 42061,
+        "2": 1
+      },
+      "7": {
+        "0": 2,
+        "1": 42062,
+        "2": 1
+      },
+      "8": {
+        "0": 2,
+        "1": 42065,
+        "2": 1
+      },
+      "9": {
+        "0": 2,
+        "1": 42052,
+        "2": 1
+      }
+    },
+    "icon": "Props/42080",
+    "id": 42080,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "General Blueprint - Series 9",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 4,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 13,
+    "usage": "usage_drop_appointed",
+    "usage_arg": {
+      "0": {
+        "0": 2,
+        "1": 42081,
+        "2": 1
+      },
+      "1": {
+        "0": 2,
+        "1": 42082,
+        "2": 1
+      },
+      "10": {
+        "0": 2,
+        "1": 42053,
+        "2": 1
+      },
+      "11": {
+        "0": 2,
+        "1": 42055,
+        "2": 1
+      },
+      "12": {
+        "0": 2,
+        "1": 42042,
+        "2": 1
+      },
+      "13": {
+        "0": 2,
+        "1": 42043,
+        "2": 1
+      },
+      "14": {
+        "0": 2,
+        "1": 42044,
+        "2": 1
+      },
+      "15": {
+        "0": 2,
+        "1": 42031,
+        "2": 1
+      },
+      "16": {
+        "0": 2,
+        "1": 42034,
+        "2": 1
+      },
+      "17": {
+        "0": 2,
+        "1": 42035,
+        "2": 1
+      },
+      "18": {
+        "0": 2,
+        "1": 42021,
+        "2": 1
+      },
+      "19": {
+        "0": 2,
+        "1": 42023,
+        "2": 1
+      },
+      "2": {
+        "0": 2,
+        "1": 42084,
+        "2": 1
+      },
+      "20": {
+        "0": 2,
+        "1": 42024,
+        "2": 1
+      },
+      "21": {
+        "0": 2,
+        "1": 42025,
+        "2": 1
+      },
+      "22": {
+        "0": 2,
+        "1": 42011,
+        "2": 1
+      },
+      "23": {
+        "0": 2,
+        "1": 42012,
+        "2": 1
+      },
+      "24": {
+        "0": 2,
+        "1": 42013,
+        "2": 1
+      },
+      "25": {
+        "0": 2,
+        "1": 42016,
+        "2": 1
+      },
+      "26": {
+        "0": 2,
+        "1": 42001,
+        "2": 1
+      },
+      "27": {
+        "0": 2,
+        "1": 42002,
+        "2": 1
+      },
+      "28": {
+        "0": 2,
+        "1": 42003,
+        "2": 1
+      },
+      "29": {
+        "0": 2,
+        "1": 42004,
+        "2": 1
+      },
+      "3": {
+        "0": 2,
+        "1": 42071,
+        "2": 1
+      },
+      "30": {
+        "0": 2,
+        "1": 42005,
+        "2": 1
+      },
+      "31": {
+        "0": 2,
+        "1": 42006,
+        "2": 1
+      },
+      "4": {
+        "0": 2,
+        "1": 42073,
+        "2": 1
+      },
+      "5": {
+        "0": 2,
+        "1": 42074,
+        "2": 1
+      },
+      "6": {
+        "0": 2,
+        "1": 42061,
+        "2": 1
+      },
+      "7": {
+        "0": 2,
+        "1": 42062,
+        "2": 1
+      },
+      "8": {
+        "0": 2,
+        "1": 42065,
+        "2": 1
+      },
+      "9": {
+        "0": 2,
+        "1": 42052,
+        "2": 1
+      }
+    },
+    "virtual_type": 0
+  },
+  "42086": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Can be converted to a Blueprint for any of the Series 2 through 9 DR ships.",
+    "display_effect": "",
+    "display_icon": {
+      "0": {
+        "0": 2,
+        "1": 42083,
+        "2": 1
+      },
+      "1": {
+        "0": 2,
+        "1": 42085,
+        "2": 1
+      },
+      "10": {
+        "0": 2,
+        "1": 42032,
+        "2": 1
+      },
+      "11": {
+        "0": 2,
+        "1": 42033,
+        "2": 1
+      },
+      "12": {
+        "0": 2,
+        "1": 42022,
+        "2": 1
+      },
+      "13": {
+        "0": 2,
+        "1": 42014,
+        "2": 1
+      },
+      "14": {
+        "0": 2,
+        "1": 42015,
+        "2": 1
+      },
+      "2": {
+        "0": 2,
+        "1": 42072,
+        "2": 1
+      },
+      "3": {
+        "0": 2,
+        "1": 42075,
+        "2": 1
+      },
+      "4": {
+        "0": 2,
+        "1": 42063,
+        "2": 1
+      },
+      "5": {
+        "0": 2,
+        "1": 42064,
+        "2": 1
+      },
+      "6": {
+        "0": 2,
+        "1": 42051,
+        "2": 1
+      },
+      "7": {
+        "0": 2,
+        "1": 42054,
+        "2": 1
+      },
+      "8": {
+        "0": 2,
+        "1": 42041,
+        "2": 1
+      },
+      "9": {
+        "0": 2,
+        "1": 42045,
+        "2": 1
+      }
+    },
+    "icon": "Props/42086",
+    "id": 42086,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Special General Blueprint - Series 9",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {},
+    "rarity": 5,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 13,
+    "usage": "usage_drop_appointed",
+    "usage_arg": {
+      "0": {
+        "0": 2,
+        "1": 42083,
+        "2": 1
+      },
+      "1": {
+        "0": 2,
+        "1": 42085,
+        "2": 1
+      },
+      "10": {
+        "0": 2,
+        "1": 42032,
+        "2": 1
+      },
+      "11": {
+        "0": 2,
+        "1": 42033,
+        "2": 1
+      },
+      "12": {
+        "0": 2,
+        "1": 42022,
+        "2": 1
+      },
+      "13": {
+        "0": 2,
+        "1": 42014,
+        "2": 1
+      },
+      "14": {
+        "0": 2,
+        "1": 42015,
+        "2": 1
+      },
+      "2": {
+        "0": 2,
+        "1": 42072,
+        "2": 1
+      },
+      "3": {
+        "0": 2,
+        "1": 42075,
+        "2": 1
+      },
+      "4": {
+        "0": 2,
+        "1": 42063,
+        "2": 1
+      },
+      "5": {
+        "0": 2,
+        "1": 42064,
+        "2": 1
+      },
+      "6": {
+        "0": 2,
+        "1": 42051,
+        "2": 1
+      },
+      "7": {
+        "0": 2,
+        "1": 42054,
+        "2": 1
+      },
+      "8": {
+        "0": 2,
+        "1": 42041,
+        "2": 1
+      },
+      "9": {
+        "0": 2,
+        "1": 42045,
+        "2": 1
+      }
+    },
+    "virtual_type": 0
+  },
+  "50001": {
+    "combination_display": {},
+    "compose_number": 0,
+    "display": "Oxy-cola has a unique and acquired taste. Perhaps not the most suitable drink for a Commander.",
+    "display_effect": "",
+    "display_icon": {},
+    "icon": "Props/suansukele",
+    "id": 50001,
+    "index": {},
+    "is_world": 0,
+    "limit": {},
+    "link_id": 0,
+    "max_num": 0,
+    "name": "Oxy-cola",
+    "open_directly": 0,
+    "order": 0,
+    "other_item_cost": "[]",
+    "other_resource_cost": "[]",
+    "price": {
+      "0": 1,
+      "1": 100
+    },
+    "rarity": 2,
+    "replace_item": 0,
+    "shiptrans_id": {},
+    "target_id": 0,
+    "time_limit": 0,
+    "type": 3,
+    "usage": "usage_food",
+    "usage_arg": {
+      "0": 1000
+    },
+    "virtual_type": 0
+  }
+}

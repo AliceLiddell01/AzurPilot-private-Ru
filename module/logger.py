@@ -1,22 +1,19 @@
-"""AzurPilot 日志（Logger）系统模块。
+"""Система журналирования AzurPilot.
 
-基于 Rich 库构建的多目标日志系统，支持控制台彩色输出、文件轮转记录
-和 WebUI 流式渲染。全局 logger 实例（alas）被整个框架共享使用。
+Модуль построен на Rich и поддерживает цветной вывод в консоль, ротацию
+файловых журналов и потоковую отрисовку в WebUI. Глобальный экземпляр
+``logger`` с именем ``alas`` используется всем приложением.
 
-主要组件：
-    - RichFileHandler: 文件日志处理器（基于 Rich 格式化）。
-    - RichRenderableHandler: 将日志渲染为可渲染对象传递给回调，用于 WebUI 实时展示。
-    - RichTimedRotatingHandler: 按时间轮转的文件日志处理器，支持跨平台多进程。
-    - HTMLConsole: 输出 HTML 格式的 Rich Console，用于 WebUI 渲染。
-    - Highlighter: 自定义正则高亮器，高亮路径、URL、Python 布尔值/None 等。
+Основные компоненты:
+    - ``RichFileHandler`` — обработчик файлового журнала на базе Rich.
+    - ``RichRenderableHandler`` — передаёт отрисованные объекты callback-функции WebUI.
+    - ``RichTimedRotatingHandler`` — ротация файлов по времени с учётом процессов.
+    - ``HTMLConsole`` — Rich Console для HTML/WebUI.
+    - ``Highlighter`` — подсветка путей, времени и технических значений.
 
-提供的辅助函数：
-    - hr(): 分节标题输出（支持 4 级标题）。
-    - attr() / attr_align(): 属性对齐输出。
-    - error_context() / exception_context(): 结构化错误信息输出。
-
-全局 logger 实例通过 monkey-patch 方式扩展了上述方法，作为整个框架的
-统一日志入口。
+Вспомогательные функции ``hr()``, ``attr()``, ``attr_align()``,
+``error_context()`` и ``exception_context()`` добавляются к глобальному logger
+как единая точка журналирования проекта.
 """
 
 import datetime
@@ -55,12 +52,12 @@ def empty_function(*args, **kwargs):
     pass
 
 
-# cnocr 会在 cnocr.utils 中设置 root logger
-# 删除 logging.basicConfig 以避免日志消息重复输出。
+# cnocr настраивает root logger внутри cnocr.utils. Отключаем
+# logging.basicConfig, чтобы сообщения не выводились дважды.
 logging.basicConfig = empty_function
-logging.raiseExceptions = True  # 设为 True 可在控制台看到编码错误
+logging.raiseExceptions = True  # Позволяет увидеть ошибки кодировки в консоли.
 
-# 移除 HTTP 关键字（GET、POST 等）避免日志高亮误判
+# Убираем HTTP-ключевые слова (GET, POST и т. п.), чтобы не подсвечивать их ошибочно.
 RichHandler.KEYWORDS = []
 
 _SENSITIVE_NAME_RE = re.compile(
@@ -144,12 +141,12 @@ def sanitize_rich_traceback(renderable: Traceback) -> Traceback:
 
 
 class RichFileHandler(RichHandler):
-    # 重命名，用于区分文件日志处理器
+    # Отдельный тип нужен, чтобы отличать файловый Rich-обработчик от остальных.
     pass
 
 
 class RichRenderableHandler(RichHandler):
-    """将渲染对象传递给回调函数的日志处理器。"""
+    """Передавать отрисованный объект журнала в callback-функцию."""
 
     def __init__(self, *args, func: Callable[[ConsoleRenderable], None] = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -193,7 +190,7 @@ class RichRenderableHandler(RichHandler):
             record=record, traceback=traceback, message_renderable=message_renderable
         )
 
-        # 直接将渲染对象传入回调函数
+        # Передаём готовый Rich-объект непосредственно callback-функции.
         self._func(log_renderable)
 
     def handle(self, record: logging.LogRecord) -> bool:
@@ -220,29 +217,29 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
             show_time=False,
             show_level=False,
             rich_tracebacks=True,
-            tracebacks_show_locals=True,
+            tracebacks_show_locals=False,
             tracebacks_extra_lines=3,
             highlighter=NullHighlighter(),
         )
-        # 保持一致的日志格式
+        # Используем единый формат для файловых журналов.
         self.richd.setFormatter(
             logging.Formatter(
                 fmt="%(asctime)s.%(msecs)03d | %(levelname)s | %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
             )
         )
-        # 用于兼容 alas.save_error_log() 接口
+        # Совместимость с интерфейсом alas.save_error_log().
         self.log_file = None
-        # 用于 expire 方法
+        # Поля используются методом expire().
         self.pname = pname
         self.bak = bak_method.lower()
         self.compression = zip_method.lower()
 
-        # 覆盖初始 rolloverAt 和 rich.console.file
+        # Переопределяем начальный rolloverAt и поток Rich Console.
         self.rolloverAt = time.time()
         self.doRollover()
 
-        # 关闭不必要的文件流
+        # Закрываем лишний файловый поток базового обработчика.
         self.stream.close()
         self.stream = None
     
@@ -269,10 +266,7 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
         return count, bak_method, zip_method
 
     def getFilesToDelete(self) -> List[Path]:
-        """确定日志轮转时需要删除的旧日志文件。
-
-        覆盖原始方法，使用 RichHandler 并保持统一的日志格式。
-        """
+        """Определить старые файлы журнала, подлежащие удалению при ротации."""
         dirName, baseName = os.path.split(self.baseFilename)
         fileNames = os.listdir(dirName)
         result = []
@@ -291,10 +285,7 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
         return result
 
     def doRollover(self) -> None:
-        """执行日志轮转。
-
-        覆盖原始方法，使用 RichHandler 处理日志输出。
-        """
+        """Выполнить ротацию журнала и переключить файловый поток Rich."""
         if self.richd.console:
             self.richd.console.file.close()
             self.richd.console.file = None
@@ -315,7 +306,7 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
                 timeTuple = time.localtime(t + addend)
 
         path = Path(self.baseFilename)
-        # 2021-08-01 + _ + alas.txt -> "2021-08-01_alas.txt"
+        # 2021-08-01 + _ + alas.txt -> "2021-08-01_alas.txt".
         newPath = path.with_name(
             time.strftime(self.suffix, timeTuple) + "_" + path.name
         )
@@ -325,20 +316,18 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
             files = self.getFilesToDelete()
             if files:
                 threading.Thread(target=self.expire, args=(files,), daemon=True).start()
-                # self.expire(files)
 
         newRolloverAt = self.computeRollover(currentTime)
         while newRolloverAt <= currentTime:
             newRolloverAt = newRolloverAt + self.interval
-        # 如果跨越夏令时边界且为午夜或周轮转，需要调整时间
+        # При переходе через границу летнего времени для полуночной/недельной
+        # ротации компенсируем изменение смещения.
         if (self.when == "MIDNIGHT" or self.when.startswith("W")) and not self.utc:
             dstAtRollover = time.localtime(newRolloverAt)[-1]
             if dstNow != dstAtRollover:
-                if (
-                    not dstNow
-                ):  # 夏令时在下次轮转前生效，需要减去一小时
+                if not dstNow:
                     addend = -3600
-                else:  # 夏令时在下次轮转前结束，需要加上一小时
+                else:
                     addend = 3600
                 newRolloverAt += addend
         self.rolloverAt = newRolloverAt
@@ -346,12 +335,12 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
         self.log_file = str(newPath.resolve())
 
     def expire(self, files: List[Path]) -> None:
-        """删除或备份过期的日志文件。
+        """Удалить или архивировать просроченные файлы журнала.
 
-        处理模板:
-            2021-08-01_alas.txt...2021-08-07_alas.txt   ->  bak/2021-08-01~2021-08-07_alas.tar.bz2
-            2021-08-01_gui.txt                          ->  bak/2021-08-01_gui.zip
-            2021-08-01_gui.txt(copy)                    ->  bak/2021-08-01_gui.txt(copy)
+        Примеры:
+            2021-08-01_alas.txt...2021-08-07_alas.txt -> bak/2021-08-01~2021-08-07_alas.tar.bz2
+            2021-08-01_gui.txt -> bak/2021-08-01_gui.zip
+            2021-08-01_gui.txt (copy) -> bak/2021-08-01_gui.txt
         """
         basePath = Path(self.baseFilename)
         bakPath = basePath.parent / "bak"
@@ -380,13 +369,15 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
                 with zipfile.ZipFile(zipFile, "w", zipfile.ZIP_DEFLATED) as zipf:
                     for file in files:
                         zipf.write(file, arcname=file.name)
-                        file.unlink()
             else:
                 zipFile = bakPath.joinpath(name).with_suffix(".tar." + ext)
                 with tarfile.open(zipFile, "w:" + ext) as tar:
                     for file in files:
                         tar.add(file, arcname=file.name)
-                        file.unlink()
+            # Исходные журналы удаляем только после успешного закрытия архива.
+            # Если daemon-поток завершится во время записи, исходные файлы останутся.
+            for file in files:
+                file.unlink()
         except Exception as e:
             logger.exception(e)
 
@@ -403,9 +394,9 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
 
 
 class HTMLConsole(Console):
-    """强制启用完整功能的控制台（用于 Web 输出）。
+    """Rich Console с принудительно включёнными возможностями для Web-вывода.
 
-    注意：目前部分功能尚未生效。
+    Часть возможностей пока не используется.
     """
 
     @property
@@ -424,15 +415,11 @@ class HTMLConsole(Console):
 class Highlighter(RegexHighlighter):
     base_style = 'web.'
     highlights = [
-        # (r'(?P<datetime>(\d{2}|\d{4})(?:\-)?([0]{1}\d{1}|[1]{1}[0-2]{1})'
-        #  r'(?:\-)?([0-2]{1}\d{1}|[3]{1}[0-1]{1})(?:\s)?([0-1]{1}\d{1}|'
-        #  r'[2]{1}[0-3]{1})(?::)?([0-5]{1}\d{1})(?::)?([0-5]{1}\d{1}).\d+\b)'),
         (r'(?P<time>([0-1]{1}\d{1}|[2]{1}[0-3]{1})(?::)?'
          r'([0-5]{1}\d{1})(?::)?([0-5]{1}\d{1})(.\d+\b))'),
         r"(?P<brace>[\{\[\(\)\]\}])",
         r"\b(?P<bool_true>True)\b|\b(?P<bool_false>False)\b|\b(?P<none>None)\b",
         r"(?P<path>(([A-Za-z]\:)|.)?\B([\/\\][\w\.\-\_\+]+)*[\/\\])(?P<filename>[\w\.\-\_\+]*)?",
-        # r"(?<![\\\w])(?P<str>b?\'\'\'.*?(?<!\\)\'\'\'|b?\'.*?(?<!\\)\'|b?\"\"\".*?(?<!\\)\"\"\"|b?\".*?(?<!\\)\")",
     ]
 
 
@@ -467,29 +454,23 @@ diagnostic_hdlr = DiagnosticContextHandler(
 diagnostic_hdlr.setFormatter(file_formatter)
 logger.addHandler(diagnostic_hdlr)
 
-# 添加控制台日志处理器
-# console = logging.StreamHandler(stream=sys.stdout)
-# console.setFormatter(formatter)
-# console.flush = sys.stdout.flush
-# logger.addHandler(console)
-
-# 添加 Rich 控制台日志处理器
+# Консольный обработчик стандартного logging оставлен в истории как заменённый Rich.
 stdout_console = console = Console()
 console_hdlr = RichHandler(
     show_path=False,
     show_time=False,
     rich_tracebacks=True,
-    tracebacks_show_locals=True,
+    tracebacks_show_locals=False,
     tracebacks_extra_lines=3,
 )
 console_hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
 console_hdlr.setFormatter(console_formatter)
 logger.addHandler(console_hdlr)
 
-# 确保运行在 AzurPilot 根目录下
+# Гарантируем запуск из корня AzurPilot.
 os.chdir(os.path.join(os.path.dirname(__file__), '../'))
 
-# 添加文件日志处理器
+# Файловый обработчик журнала.
 pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 
 
@@ -522,13 +503,13 @@ def _set_file_logger(name=pyw_name):
 def set_file_logger(name=pyw_name):
     if "_" in name:
         name = name.split("_", 1)[0]
-    # Windows 下有 "SyncManager-N:N"、"MainProcess"、"Process-N"、"gui" 四种进程
-    # Linux 下没有 "SyncManager" 进程，只有 "MainProcess"
+    # В Windows возможны процессы ``SyncManager-N:N``, ``MainProcess``,
+    # ``Process-N`` и ``gui``; в Linux отдельного SyncManager обычно нет.
     if os.name == "nt":
-        # Windows 下这些进程无需保存日志文件
+        # Эти служебные процессы Windows не должны создавать отдельные журналы.
         processes = ["SyncManager-", "MainProcess", "Process-"]
         pname = multiprocessing.current_process().name.replace(":", "_")
-        # 每个进程在 AzurPilot 启动时只应调用一次。
+        # Каждый процесс должен настраивать файловый logger не более одного раза.
         if any(isinstance(hdlr, RichTimedRotatingHandler) for hdlr in logger.handlers):
             return
     else:
@@ -536,7 +517,7 @@ def set_file_logger(name=pyw_name):
         pname = name
         for hdlr in logger.handlers:
             if isinstance(hdlr, RichTimedRotatingHandler):
-                # 每个进程在 AzurPilot 启动时只应调用一次。
+                # Каждый процесс должен настраивать файловый logger не более одного раза.
                 if hdlr.pname == name:
                     return
                 else:
@@ -588,7 +569,7 @@ def set_func_logger(func):
         show_time=False,
         show_level=True,
         rich_tracebacks=True,
-        tracebacks_show_locals=True,
+        tracebacks_show_locals=False,
         tracebacks_extra_lines=2,
         highlighter=Highlighter(),
     )
@@ -602,9 +583,9 @@ def set_func_logger(func):
 def _get_renderables(
         self: Console, *objects, sep=" ", end="\n", justify=None, emoji=None, markup=None, highlight=None,
 ) -> List[ConsoleRenderable]:
-    """获取可渲染对象列表。
+    """Получить список Rich-объектов для последующей отрисовки.
 
-    参考 rich.console.Console.print() 的实现。
+    Реализация соответствует сборке объектов в ``rich.console.Console.print()``.
     """
     if not objects:
         objects = (NewLine(),)
@@ -741,15 +722,15 @@ def show():
     logger.info(r'True, False, None')
     logger.info(r'E:/path\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt')
     local_var1 = 'This is local variable'
-    # 异常发生前的行
+    # Строка перед тестовым исключением.
     raise Exception("Exception")
-    # 异常发生后的行
 
 
 def error_context(title, reason, impact, action, exc=None, level=logging.ERROR, with_traceback=None):
-    """输出包含原因、影响和处理建议的统一错误信息。
+    """Вывести унифицированную ошибку с причиной, влиянием и рекомендацией.
 
-    ``with_traceback`` 为 ``None`` 时，保持原有行为：传入异常对象则输出完整堆栈。
+    При ``with_traceback=None`` сохраняется прежнее поведение: если передан
+    объект исключения, выводится полная трассировка.
     """
     message = '\n'.join([
         f'[Ошибка] {title}',
@@ -765,7 +746,7 @@ def error_context(title, reason, impact, action, exc=None, level=logging.ERROR, 
 
 
 def exception_context(title, exc, impact, action, level=logging.ERROR):
-    """输出未知异常的统一错误信息并保留完整堆栈。"""
+    """Вывести неизвестное исключение в едином формате, сохранив трассировку."""
     error_context(
         title=title,
         reason=f'Программа вызвала исключение {type(exc).__name__}; точную причину определите по трассировке ниже.',

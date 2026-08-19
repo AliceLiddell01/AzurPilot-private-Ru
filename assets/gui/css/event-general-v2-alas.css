@@ -1,0 +1,756 @@
+/* Канонический стиль EventGeneral/EventRewards без каскада polish/acceptance overrides. */
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-groups,
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] #pywebio-scope-groups {
+    overflow: visible !important;
+}
+
+/* EventGeneral: один layout-shell, без отдельной стеклянной поверхности вокруг main-column. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-groups > *[style*="--event-general-v2-layout--"],
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventMainColumn,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSideColumn,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventOverview,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSources,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventStages {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] *[style*="--event-general-v2-layout--"] {
+    align-items: flex-start;
+    gap: 20px;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventMainColumn,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSideColumn {
+    min-width: 0;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSideColumn {
+    position: sticky;
+    top: 70px;
+}
+
+/* Верхний обзор — самостоятельная поверхность. Внешнего контейнера вокруг неё нет. */
+.event-general-v2-hero,
+.event-rewards-v2-hero {
+    overflow: hidden;
+    margin: 0 0 12px;
+    border: 1px solid var(--event-border);
+    border-left: 3px solid var(--event-accent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--event-surface-strong) 92%, transparent);
+    box-shadow: var(--event-shadow);
+    padding: clamp(16px, 2vw, 24px);
+}
+
+.event-general-v2-hero h3,
+.event-rewards-v2-hero h3 {
+    margin: 0;
+    color: var(--event-text);
+    font-size: clamp(1.22rem, 1.7vw, 1.65rem);
+    font-weight: 720;
+    letter-spacing: -.02em;
+}
+
+.event-general-v2-dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 16px;
+    margin-top: 8px;
+    color: var(--event-muted);
+    font-size: .82rem;
+}
+
+.event-general-v2-dates strong,
+.event-rewards-v2-hero strong {
+    color: var(--event-text);
+}
+
+.event-general-v2-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 9px;
+    margin-top: 17px;
+}
+
+.event-general-v2-metric {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+    border: 1px solid var(--event-border);
+    border-radius: 10px;
+    background: var(--event-surface-strong);
+    padding: 12px 13px;
+}
+
+.event-general-v2-metric-accent {
+    border-color: color-mix(in srgb, var(--event-accent) 30%, var(--event-border));
+    background: var(--event-accent-soft);
+}
+
+.event-general-v2-metric small,
+.event-general-v2-metric span,
+.event-rewards-v2-hero > span {
+    color: var(--event-muted);
+    font-size: .7rem;
+}
+
+.event-general-v2-metric strong {
+    overflow: hidden;
+    margin: 2px 0;
+    color: var(--event-text);
+    font-size: clamp(1rem, 1.35vw, 1.3rem);
+    text-overflow: ellipsis;
+}
+
+.event-general-v2-progress {
+    overflow: hidden;
+    height: 6px;
+    margin-top: 13px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--event-muted) 14%, transparent);
+}
+
+.event-general-v2-progress > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--event-accent);
+    transition: width 320ms cubic-bezier(.2, .8, .2, 1);
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-v2-primary-action--"] {
+    margin: 0 0 10px !important;
+}
+
+/* Правый rail: только две реальные карточки, без дополнительной оболочки. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventProfiles,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer {
+    margin: 0 0 12px !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: 12px !important;
+    background: var(--event-surface-strong) !important;
+    box-shadow: var(--event-shadow) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 14px !important;
+}
+
+.event-general-compact-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--event-divider);
+}
+
+.event-general-compact-heading strong,
+.event-general-profile-name {
+    color: var(--event-text);
+    font-size: .86rem;
+    font-weight: 680;
+}
+
+.event-general-compact-heading small,
+.event-general-compact-empty,
+.event-general-profile-limit {
+    color: var(--event-muted);
+    font-size: .72rem;
+    line-height: 1.4;
+}
+
+.event-general-compact-empty {
+    padding: 4px 0 7px;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-row--"] {
+    align-items: center;
+    gap: 9px;
+    margin: 6px 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-row--"] > div {
+    min-width: 0;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-row--"] .btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-row--"] .btn,
+#pywebio-scope-content.event-modern-page [style*="--event-general-profile-add--"] {
+    padding: 6px 10px !important;
+    font-size: .74rem !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer > div > p,
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer [style*="--arg-help--"],
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer .hr-group {
+    display: none !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer::before {
+    content: "Настройки баланса задач";
+    display: block;
+    margin-bottom: 8px;
+    color: var(--event-text);
+    font-size: .86rem;
+    font-weight: 680;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer [id^="pywebio-scope-arg_container-"] {
+    min-height: 0 !important;
+    margin: 7px 0 !important;
+    padding: 0 !important;
+}
+
+/* Секции main-column разделяются отступом и заголовком, а не большой фоновой карточкой. */
+.event-general-v2-section-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 20px 0 9px;
+}
+
+.event-general-v2-section-heading > strong,
+.event-general-v2-section-heading > div > strong {
+    display: block;
+    color: var(--event-text);
+    font-size: .98rem;
+    font-weight: 720;
+}
+
+.event-general-v2-section-heading > small,
+.event-general-v2-section-heading > div > small {
+    display: block;
+    margin-top: 2px;
+    color: var(--event-muted);
+    font-size: .74rem;
+}
+
+.event-map-group,
+.event-quest-group {
+    margin: 0 0 16px;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+}
+
+.event-map-group-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 10px 0 8px;
+}
+
+.event-map-group-heading > div {
+    min-width: 0;
+}
+
+.event-map-group-heading strong {
+    display: block;
+    color: var(--event-text);
+    font-size: .93rem;
+    font-weight: 720;
+}
+
+.event-map-group-heading small {
+    display: block;
+    margin-top: 2px;
+    color: var(--event-muted);
+    font-size: .72rem;
+}
+
+.event-source-grid-v2,
+.event-farm-grid-v2 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+}
+
+.event-map-group-special .event-source-grid-v2,
+.event-map-group-special .event-farm-grid-v2 {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 320px)) !important;
+    justify-content: start;
+}
+
+.event-source-card-v2,
+.event-farm-card-v2 {
+    min-height: 0 !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: 11px !important;
+    background: var(--event-surface-strong) !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 13px 14px !important;
+}
+
+.event-source-card-heading,
+.event-farm-card-head {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.event-source-card-heading > strong,
+.event-farm-card-head > strong {
+    color: var(--event-text);
+    font-size: .98rem;
+    line-height: 1.25;
+}
+
+.event-stage-title {
+    color: var(--event-muted);
+    font-size: .72rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.event-source-values {
+    display: grid;
+    gap: 7px;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid var(--event-divider);
+}
+
+.event-source-value-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.event-source-value-row small {
+    color: var(--event-muted);
+    font-size: .7rem;
+}
+
+.event-source-value-row b {
+    color: var(--event-accent);
+    font-size: .82rem;
+    white-space: nowrap;
+}
+
+.event-source-value-row em {
+    margin-left: 3px;
+    color: var(--event-muted);
+    font-size: .68rem;
+    font-style: normal;
+    font-weight: 600;
+}
+
+.event-farm-sections {
+    display: grid;
+    gap: 10px;
+    margin-top: 11px;
+}
+
+.event-farm-block {
+    padding-top: 8px;
+    border-top: 1px solid var(--event-divider);
+}
+
+.event-farm-block-title {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--event-muted);
+    font-size: .68rem;
+    font-weight: 650;
+    letter-spacing: .01em;
+}
+
+.event-farm-block .event-farm-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px !important;
+    margin: 0 !important;
+}
+
+.event-farm-block .event-farm-facts > span {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.event-farm-reward-line {
+    display: grid;
+    gap: 2px;
+    margin-top: 9px;
+    padding-top: 8px;
+    border-top: 1px solid var(--event-divider);
+}
+
+.event-farm-reward-line small {
+    color: var(--event-muted);
+    font-size: .68rem;
+}
+
+.event-farm-reward-line span {
+    color: var(--event-text);
+    font-size: .74rem;
+    line-height: 1.4;
+}
+
+.event-currency-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.event-currency-inline-icon,
+.event-general-v2-currency-icon {
+    display: inline-block;
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+    object-fit: contain;
+    vertical-align: middle;
+}
+
+.event-general-v2-metric > strong .event-general-v2-currency-icon {
+    width: 20px;
+    height: 20px;
+    flex-basis: 20px;
+}
+
+.event-currency-inline-fallback {
+    font-size: .68rem;
+    font-weight: 700;
+}
+
+/* Rewards — одна основная поверхность страницы, карточки внутри матовые. */
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] #pywebio-scope-group_EventRewards {
+    margin: 0 !important;
+    border: 1px solid var(--event-border) !important;
+    border-radius: 14px !important;
+    background: color-mix(in srgb, var(--event-surface-strong) 64%, transparent) !important;
+    box-shadow: var(--event-shadow-lg) !important;
+    -webkit-backdrop-filter: blur(14px) saturate(125%) !important;
+    backdrop-filter: blur(14px) saturate(125%) !important;
+    padding: 16px !important;
+}
+
+#pywebio-scope-content.event-modern-page[data-event-task="EventRewards"] .event-rewards-v2-hero {
+    margin: 0 0 12px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--event-divider) !important;
+    border-left: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    padding: 0 0 14px !important;
+}
+
+.event-rewards-v2-balance,
+.event-reward-threshold-value {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 6px;
+}
+
+.event-rewards-v2-balance img,
+.event-reward-threshold-value img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-reward-track-controls--"] {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin: -3px 0 7px !important;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-reward-track-controls--"] > div {
+    flex: 0 0 auto !important;
+    padding: 0 !important;
+}
+
+#pywebio-scope-content.event-modern-page [style*="--event-reward-track-controls--"] .btn {
+    min-width: 38px;
+    padding: 6px 10px !important;
+}
+
+.event-reward-track-shell {
+    overflow: hidden;
+    margin-top: 2px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+}
+
+.event-reward-track {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(270px, 300px);
+    gap: 12px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-behavior: smooth;
+    scroll-snap-type: inline mandatory;
+    scrollbar-width: thin;
+    padding: 2px 2px 8px;
+}
+
+.event-reward-track-card {
+    display: flex;
+    min-height: 242px;
+    flex-direction: column;
+    gap: 12px;
+    scroll-snap-align: start;
+    border: 1px solid var(--event-border);
+    border-radius: 13px;
+    background: var(--event-surface-strong);
+    box-shadow: var(--event-shadow);
+    padding: 16px;
+}
+
+.event-reward-track-card.event-reward-card-reached {
+    opacity: 1;
+}
+
+.event-reward-track-card.event-reward-card-next {
+    border-color: color-mix(in srgb, var(--event-accent) 58%, var(--event-border));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--event-accent) 20%, transparent), var(--event-shadow-lg);
+}
+
+.event-reward-track-threshold {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--event-divider);
+}
+
+.event-reward-track-threshold small,
+.event-reward-track-status {
+    color: var(--event-muted);
+    font-size: .72rem;
+}
+
+.event-reward-track-threshold strong {
+    color: var(--event-text);
+    font-size: 1.04rem;
+}
+
+.event-reward-track-items {
+    display: flex;
+    min-height: 116px;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.event-reward-track-item {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 54px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    color: var(--event-text);
+    font-size: .82rem;
+}
+
+.event-reward-track-item img {
+    width: 54px;
+    height: 54px;
+    border-radius: 9px;
+    object-fit: contain;
+}
+
+.event-reward-track-item span {
+    overflow-wrap: anywhere;
+}
+
+.event-reward-track-item b {
+    color: var(--event-accent);
+    font-size: .84rem;
+    white-space: nowrap;
+}
+
+.event-quest-heading {
+    margin-top: 20px;
+}
+
+.event-quest-group {
+    margin-top: 12px;
+}
+
+.event-quest-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(265px, 1fr));
+    gap: 10px;
+}
+
+.event-quest-card {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    min-height: 156px;
+    flex-direction: column;
+    gap: 7px;
+    border: 1px solid var(--event-border);
+    border-radius: 12px;
+    background: var(--event-surface-strong);
+    box-shadow: var(--event-shadow);
+    padding: 15px 16px 48px;
+}
+
+.event-quest-card > strong {
+    color: var(--event-text);
+    font-size: .92rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.event-quest-card p {
+    margin: 0;
+    color: var(--event-muted);
+    font-size: .75rem;
+    line-height: 1.42;
+}
+
+.event-quest-reward {
+    position: absolute;
+    right: 16px;
+    bottom: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--event-accent);
+}
+
+.event-quest-reward img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+.event-quest-reward b {
+    color: var(--event-accent);
+    font-size: .84rem;
+}
+
+/* Ивентовая карта: локальное имя текущего события, без global i18n. */
+.event-map-current-event {
+    display: grid;
+    grid-template-columns: minmax(130px, 190px) minmax(0, 1fr);
+    align-items: center;
+    gap: 3px 18px;
+    margin: 8px 0 12px;
+    border: 1px solid var(--event-border);
+    border-radius: 11px;
+    background: var(--event-surface-strong);
+    padding: 12px 14px;
+}
+
+.event-map-current-event > span {
+    color: var(--event-muted);
+    font-size: .76rem;
+}
+
+.event-map-current-event > strong {
+    min-width: 0;
+    color: var(--event-text);
+    font-size: .9rem;
+    overflow-wrap: anywhere;
+}
+
+.event-map-current-event > small {
+    grid-column: 2;
+    color: var(--event-muted);
+    font-size: .68rem;
+}
+
+@media (max-width: 1180px) {
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] *[style*="--event-general-v2-layout--"] {
+        display: block !important;
+    }
+
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSideColumn {
+        position: static;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin: 12px 0 !important;
+    }
+
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventProfiles,
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_TaskBalancer {
+        margin: 0 !important;
+    }
+
+    .event-source-grid-v2,
+    .event-farm-grid-v2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    .event-map-group-special .event-source-grid-v2,
+    .event-map-group-special .event-farm-grid-v2 {
+        grid-template-columns: repeat(auto-fill, minmax(230px, 320px)) !important;
+    }
+}
+
+@media (max-width: 760px) {
+    .event-general-v2-metrics,
+    #pywebio-scope-content.event-modern-page[data-event-task="EventGeneral"] #pywebio-scope-group_EventSideColumn,
+    .event-source-grid-v2,
+    .event-farm-grid-v2,
+    .event-map-group-special .event-source-grid-v2,
+    .event-map-group-special .event-farm-grid-v2,
+    .event-quest-grid,
+    .event-map-current-event {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .event-general-v2-section-heading,
+    .event-map-group-heading {
+        align-items: flex-start;
+    }
+
+    .event-general-v2-section-heading {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .event-map-current-event > small {
+        grid-column: 1;
+    }
+
+    .event-reward-track {
+        grid-auto-columns: minmax(250px, 84vw);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .event-general-v2-progress > span,
+    .event-reward-track {
+        scroll-behavior: auto;
+        transition: none;
+    }
+}

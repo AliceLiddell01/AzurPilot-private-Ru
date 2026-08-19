@@ -8,11 +8,15 @@ from pathlib import Path
 from module.event_datamine.artifact import build_artifact, write_artifact
 from module.event_datamine.compiler import EventCompiler
 from module.event_datamine.generator import (
+    allocate_map_module_names,
     generate_map_module,
-    map_module_name,
+    map_module_path,
     write_map_module,
 )
-from module.event_datamine.patches import patches_for
+from module.event_datamine.runtime_policy import (
+    load_generated_runtime_policy,
+    map_runtime_policy,
+)
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
 
 
@@ -62,9 +66,29 @@ def main(argv: list[str] | None = None) -> int:
                 "EventSpec не eligible для production map generation; см. findings artifact"
             )
         selected_ids = set(args.map_id or ())
-        for item in select_maps(spec.maps, selected_ids):
-            path = args.maps_output / f"{map_module_name(item.chapter_name)}.py"
-            content = generate_map_module(item, patches=patches_for(spec.id, item.id))
+        selected_maps = select_maps(spec.maps, selected_ids)
+        module_names = allocate_map_module_names(selected_maps)
+        package = f"{args.server.lower()}_{args.activity_id}"
+        policy = load_generated_runtime_policy((package,))
+        if policy is None:
+            raise SystemExit(
+                f"Runtime-policy generated package {package} отсутствует; "
+                "generation карт закрыт безопасным отказом"
+            )
+        if policy["event_id"] != spec.id:
+            raise SystemExit(
+                "Runtime-policy generated package не соответствует EventSpec"
+            )
+        for item, module_name in zip(selected_maps, module_names, strict=True):
+            path = map_module_path(args.maps_output, module_name)
+            content = generate_map_module(
+                item,
+                runtime_policy=map_runtime_policy(
+                    policy,
+                    map_id=item.id,
+                    chapter_name=item.chapter_name,
+                ),
+            )
             write_map_module(path, content, overwrite=args.overwrite)
     return 0
 
