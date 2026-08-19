@@ -11,10 +11,17 @@
 每个 .py 文件对应一个关卡（如 a1.py, b1.py, sp.py）。
 """
 
+import os
 import re
 
 from module.base.filter import Filter
 from module.campaign.run import CampaignRun
+from module.config.time_source import now as current_time
+from module.event_datamine.campaign_selector import (
+    generated_stage_target,
+    resolve_generated_campaign_modules,
+)
+from module.handler.fast_forward import to_map_file_name
 
 STAGE_FILTER = Filter(regex=re.compile('^(.*?)$'), attr=('stage',))
 
@@ -49,21 +56,46 @@ class EventBase(CampaignRun):
             MAP_IS_ONE_TIME_STAGE=False
         )
 
+    def available_stages(self):
+        """Вернуть доступные этапы текущего события из безопасного источника.
+
+        Для current generated-события источником является verified-каталог
+        artifact. Физический legacy-каталог используется только как fallback,
+        когда selector не относится к current generated-событию.
+        """
+
+        selector = self.config.Campaign_Event
+        modules = resolve_generated_campaign_modules(
+            selector,
+            now=current_time(),
+        )
+        if modules is not None:
+            return [EventStage(f'{stage}.py') for stage in modules]
+        return [
+            EventStage(file)
+            for file in os.listdir(f'./campaign/{selector}')
+        ]
+
     def convert_stages(self, stages):
-        """将各种格式的输入转换为正确的关卡名称。
+        """Привести этапы к именам, соответствующим текущему источнику карт.
 
-        支持字符串、EventStage 列表和 Filter 对象三种输入格式，
-        统一调用 handle_stage_name 进行名称规范化。
-
-        Args:
-            stages: 待转换的关卡输入，可以是 str、list[EventStage | str] 或 Filter。
-
-        Returns:
-            转换后的关卡数据，类型与输入一致。
+        Current generated-событие сохраняет канонические имена из verified
+        artifact и не пропускает фильтры через legacy T/HT aliases. Для
+        исторических событий сохраняется прежняя нормализация handle_stage_name().
         """
 
         def convert(n):
-            return self.handle_stage_name(n, folder=self.config.Campaign_Event)[0]
+            selector = self.config.Campaign_Event
+            modules = resolve_generated_campaign_modules(
+                selector,
+                now=current_time(),
+            )
+            if modules is not None:
+                target = generated_stage_target(modules, n)
+                if target is not None:
+                    return target.rsplit('.', 1)[-1]
+                return to_map_file_name(n)
+            return self.handle_stage_name(n, folder=selector)[0]
 
         if isinstance(stages, str):
             return convert(stages)
