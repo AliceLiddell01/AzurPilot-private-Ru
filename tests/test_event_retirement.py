@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import module.event_datamine.retirement as retirement_module
 from module.event_datamine.artifact import build_artifact, write_artifact
 from module.event_datamine.assets import write_asset_catalog
 from module.event_datamine.registry import EventArtifactRegistry, write_registry
@@ -85,6 +86,37 @@ def _write_overlay_side_data(
         encoding="utf-8",
     )
     return supplemental, compatibility
+
+
+def _write_expired_artifact(
+    artifact_root: Path,
+    event_id: str,
+    package: str,
+    name: str,
+) -> Path:
+    target = artifact_root / "production" / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_artifact(
+        target,
+        _artifact(
+            event_id,
+            package,
+            farm_start="2026-07-01",
+            farm_end="2026-07-20",
+            shop_end="2026-07-27",
+        ),
+    )
+    return target
+
+
+def _snapshot_files(paths) -> dict[Path, bytes]:
+    return {path: path.read_bytes() for path in paths}
+
+
+def _assert_snapshot(snapshot: dict[Path, bytes]) -> None:
+    for path, expected in snapshot.items():
+        assert path.is_file()
+        assert path.read_bytes() == expected
 
 
 def test_retirement_removes_only_expired_overlay_and_preserves_shared_assets(
@@ -255,3 +287,216 @@ def test_retirement_rejects_non_expired_overlay_without_mutation(tmp_path: Path)
     assert package.is_dir()
     assert supplemental.is_dir()
     assert compatibility.is_file()
+
+
+def test_retirement_rejects_package_shared_by_another_event_without_mutation(
+    tmp_path: Path,
+):
+    artifact_root = tmp_path / "data"
+    asset_root = tmp_path / "assets"
+    generated_root = tmp_path / "generated"
+    supplemental_root = tmp_path / "supplemental"
+    compatibility_root = tmp_path / "compatibility"
+
+    event_a = "en:401"
+    event_b = "en:402"
+    artifact_a = _write_expired_artifact(
+        artifact_root,
+        event_a,
+        "en_shared",
+        "a.json",
+    )
+    artifact_b = _write_expired_artifact(
+        artifact_root,
+        event_b,
+        "en_shared",
+        "b.json",
+    )
+    write_registry(
+        artifact_root,
+        campaign_selector={
+            "server": "EN",
+            "selector": "event_a",
+            "event_id": event_a,
+        },
+    )
+    write_registry(
+        artifact_root,
+        campaign_selector={
+            "server": "EN",
+            "selector": "event_b",
+            "event_id": event_b,
+        },
+    )
+    package = _write_package(generated_root, "en_shared", event_a)
+    before = _snapshot_files(
+        (
+            artifact_a,
+            artifact_b,
+            artifact_root / "index.json",
+            package / "__init__.py",
+            package / "a1.py",
+            package / "runtime.json",
+        )
+    )
+
+    with pytest.raises(
+        EventOverlayRetirementError,
+        match="используется другим Event artifact",
+    ):
+        retire_event_overlay(
+            event_a,
+            now=datetime(2026, 8, 10),
+            artifact_root=artifact_root,
+            asset_root=asset_root,
+            generated_root=generated_root,
+            supplemental_root=supplemental_root,
+            compatibility_root=compatibility_root,
+        )
+
+    _assert_snapshot(before)
+    registry = EventArtifactRegistry(artifact_root)
+    assert registry.resolve_campaign_selector("EN", "event_a") is not None
+    assert registry.resolve_campaign_selector("EN", "event_b") is not None
+
+
+def test_retirement_rejects_unexpected_generated_source_without_mutation(
+    tmp_path: Path,
+):
+    artifact_root = tmp_path / "data"
+    asset_root = tmp_path / "assets"
+    generated_root = tmp_path / "generated"
+    supplemental_root = tmp_path / "supplemental"
+    compatibility_root = tmp_path / "compatibility"
+
+    event_id = "en:501"
+    artifact_path = _write_expired_artifact(
+        artifact_root,
+        event_id,
+        "en_unexpected",
+        "unexpected.json",
+    )
+    write_registry(
+        artifact_root,
+        campaign_selector={
+            "server": "EN",
+            "selector": "event_unexpected",
+            "event_id": event_id,
+        },
+    )
+    package = _write_package(generated_root, "en_unexpected", event_id)
+    unexpected = package / "manual.py"
+    unexpected.write_text("VALUE = 'manual'\n", encoding="utf-8")
+    before = _snapshot_files(
+        (
+            artifact_path,
+            artifact_root / "index.json",
+            package / "__init__.py",
+            package / "a1.py",
+            package / "runtime.json",
+            unexpected,
+        )
+    )
+
+    with pytest.raises(
+        EventOverlayRetirementError,
+        match="содержит неожиданные source files",
+    ):
+        retire_event_overlay(
+            event_id,
+            now=datetime(2026, 8, 10),
+            artifact_root=artifact_root,
+            asset_root=asset_root,
+            generated_root=generated_root,
+            supplemental_root=supplemental_root,
+            compatibility_root=compatibility_root,
+        )
+
+    _assert_snapshot(before)
+    registry = EventArtifactRegistry(artifact_root)
+    assert registry.resolve_campaign_selector("EN", "event_unexpected") is not None
+
+
+def test_retirement_rolls_back_deleted_overlay_after_mid_operation_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    artifact_root = tmp_path / "data"
+    asset_root = tmp_path / "assets"
+    generated_root = tmp_path / "generated"
+    supplemental_root = tmp_path / "supplemental"
+    compatibility_root = tmp_path / "compatibility"
+
+    event_id = "en:601"
+    artifact_path = _write_expired_artifact(
+        artifact_root,
+        event_id,
+        "en_rollback",
+        "rollback.json",
+    )
+    write_registry(
+        artifact_root,
+        campaign_selector={
+            "server": "EN",
+            "selector": "event_rollback",
+            "event_id": event_id,
+        },
+    )
+
+    shared_asset = asset_root / "webui" / "event_shop" / "resource-1.png"
+    shared_asset.parent.mkdir(parents=True)
+    shared_asset.write_bytes(b"shared-asset")
+    write_asset_catalog(artifact_root, asset_root=asset_root)
+
+    package = _write_package(generated_root, "en_rollback", event_id)
+    supplemental, compatibility = _write_overlay_side_data(
+        event_id,
+        supplemental_root=supplemental_root,
+        compatibility_root=compatibility_root,
+    )
+    before = _snapshot_files(
+        (
+            artifact_path,
+            artifact_root / "index.json",
+            artifact_root / "assets.json",
+            package / "__init__.py",
+            package / "a1.py",
+            package / "runtime.json",
+            supplemental / "manifest.json",
+            supplemental / "part.json",
+            compatibility,
+        )
+    )
+
+    original_remove_empty_directories = retirement_module._remove_empty_directories
+    supplemental_resolved = supplemental.resolve()
+
+    def fail_after_supplemental_delete(directory):
+        if Path(directory).resolve() == supplemental_resolved:
+            raise RuntimeError("синтетический сбой retirement")
+        original_remove_empty_directories(directory)
+
+    monkeypatch.setattr(
+        retirement_module,
+        "_remove_empty_directories",
+        fail_after_supplemental_delete,
+    )
+
+    with pytest.raises(RuntimeError, match="синтетический сбой retirement"):
+        retire_event_overlay(
+            event_id,
+            now=datetime(2026, 8, 10),
+            artifact_root=artifact_root,
+            asset_root=asset_root,
+            generated_root=generated_root,
+            supplemental_root=supplemental_root,
+            compatibility_root=compatibility_root,
+        )
+
+    _assert_snapshot(before)
+    assert package.is_dir()
+    assert supplemental.is_dir()
+    registry = EventArtifactRegistry(artifact_root)
+    resolved = registry.resolve_campaign_selector("EN", "event_rollback")
+    assert resolved is not None
+    assert resolved["event_spec"]["id"] == event_id

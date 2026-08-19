@@ -16,6 +16,7 @@ from module.event_datamine.campaign_selector import (
     resolve_generated_campaign_module,
     resolve_generated_campaign_modules,
 )
+from module.exception import RequestHumanTakeover
 
 
 class _Registry:
@@ -167,6 +168,70 @@ def test_event_base_keeps_legacy_directory_fallback(monkeypatch):
         "unknown",
     ]
     assert runner.convert_stages("A1") == "legacy-a1"
+
+
+@pytest.mark.parametrize("runner_class", [CampaignABCD, CampaignSP])
+def test_event_tasks_fail_closed_on_corrupt_generated_catalog(
+    monkeypatch,
+    runner_class,
+):
+    runner = runner_class.__new__(runner_class)
+    runner.config = SimpleNamespace(Campaign_Event="event_current")
+    diagnostics = []
+
+    def fail_resolver(_selector):
+        raise EventCampaignSelectorError("повреждённая привязка каталога")
+
+    monkeypatch.setattr(
+        event_base_module,
+        "resolve_generated_campaign_modules",
+        fail_resolver,
+    )
+    monkeypatch.setattr(
+        event_base_module.logger,
+        "error_context",
+        lambda **kwargs: diagnostics.append(kwargs),
+    )
+    monkeypatch.setattr(
+        EventBase,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("CampaignRun.run не должен запускаться после ошибки каталога")
+        ),
+    )
+
+    with pytest.raises(RequestHumanTakeover) as error:
+        runner.run()
+
+    assert isinstance(error.value.__cause__, EventCampaignSelectorError)
+    assert diagnostics
+    assert "legacy-каталог запрещён" in diagnostics[0]["impact"]
+
+
+def test_event_base_convert_stages_fail_closed_on_corrupt_generated_catalog(
+    monkeypatch,
+):
+    runner = EventBase.__new__(EventBase)
+    runner.config = SimpleNamespace(Campaign_Event="event_current")
+
+    def fail_resolver(_selector):
+        raise EventCampaignSelectorError("повреждённая привязка каталога")
+
+    monkeypatch.setattr(
+        event_base_module,
+        "resolve_generated_campaign_modules",
+        fail_resolver,
+    )
+    monkeypatch.setattr(
+        event_base_module.logger,
+        "error_context",
+        lambda **_kwargs: None,
+    )
+
+    with pytest.raises(RequestHumanTakeover) as error:
+        runner.convert_stages("A1")
+
+    assert isinstance(error.value.__cause__, EventCampaignSelectorError)
 
 
 def test_campaign_abcd_runs_generated_stages_from_catalog(monkeypatch):

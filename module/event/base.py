@@ -16,10 +16,13 @@ import re
 from module.base.filter import Filter
 from module.campaign.run import CampaignRun
 from module.event_datamine.campaign_selector import (
+    EventCampaignSelectorError,
     generated_stage_target,
     resolve_generated_campaign_modules,
 )
+from module.exception import RequestHumanTakeover
 from module.handler.fast_forward import to_map_file_name
+from module.logger import logger
 
 STAGE_FILTER = Filter(regex=re.compile('^(.*?)$'), attr=('stage',))
 
@@ -50,6 +53,27 @@ class EventBase(CampaignRun):
             MAP_IS_ONE_TIME_STAGE=False
         )
 
+    def _resolve_generated_stage_catalog(self, selector):
+        """Разрешить generated-каталог или безопасно остановить задачу."""
+
+        try:
+            return resolve_generated_campaign_modules(selector)
+        except EventCampaignSelectorError as error:
+            logger.error_context(
+                title='Не удалось безопасно разрешить каталог generated-события',
+                reason=str(error),
+                impact=(
+                    'Маршрутизация этапов события остановлена; переход на случайный '
+                    'legacy-каталог запрещён.'
+                ),
+                action=(
+                    'Проверьте Campaign.Event и перегенерируйте Event registry/artifact '
+                    'из актуального source snapshot перед повторным запуском.'
+                ),
+                level=50,
+            )
+            raise RequestHumanTakeover from error
+
     def available_stages(self):
         """Вернуть доступные этапы текущего события из безопасного источника.
 
@@ -59,7 +83,7 @@ class EventBase(CampaignRun):
         """
 
         selector = self.config.Campaign_Event
-        modules = resolve_generated_campaign_modules(selector)
+        modules = self._resolve_generated_stage_catalog(selector)
         if modules is not None:
             return [EventStage(f'{stage}.py') for stage in modules]
         return [
@@ -76,7 +100,7 @@ class EventBase(CampaignRun):
         """
 
         selector = self.config.Campaign_Event
-        modules = resolve_generated_campaign_modules(selector)
+        modules = self._resolve_generated_stage_catalog(selector)
 
         def convert(n):
             if modules is not None:
