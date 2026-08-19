@@ -427,7 +427,7 @@ WEB_THEME = Theme({
     "web.brace": Style(bold=True),
     "web.bool_true": Style(color="bright_green", italic=True),
     "web.bool_false": Style(color="bright_red", italic=True),
-    "web.none": Style(color="magenta", italic=True),
+    "web.none": Style(color="magenta"),
     "web.path": Style(color="magenta"),
     "web.filename": Style(color="bright_magenta"),
     "web.str": Style(color="green", italic=False, bold=False),
@@ -475,7 +475,9 @@ pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 
 
 def _configure_diagnostic_logger(name):
-    diagnostic_file = Path('./log/diagnostic').joinpath(f'{name}.txt')
+    diagnostic_file = Path('./log/diagnostic').joinpath(
+        f'{datetime.date.today()}_{name}.txt'
+    )
     diagnostic_hdlr.configure_output(diagnostic_file, file_formatter)
     logger.diagnostic_log_file = str(diagnostic_file.resolve())
 
