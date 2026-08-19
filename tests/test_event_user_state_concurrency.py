@@ -98,7 +98,7 @@ def test_user_state_transaction_serializes_processes_without_lost_update(tmp_pat
         assert first_entered.wait(15)
         second.start()
         assert second_ready.wait(15)
-        assert not second_entered.wait(1.0)
+        assert not second_entered.wait(3.0)
         release_first.set()
         assert second_entered.wait(15)
         first.join(20)
@@ -210,7 +210,7 @@ def test_event_plan_mutation_blocks_runtime_until_fresh_write(monkeypatch, tmp_p
 
         def _event_plan(self):
             plan_read.set()
-            assert allow_plan_write.wait(3)
+            assert allow_plan_write.wait(5)
             return {
                 "event": {"id": "en:test"},
                 "shop_items": [
@@ -259,12 +259,12 @@ def test_event_plan_mutation_blocks_runtime_until_fresh_write(monkeypatch, tmp_p
     ui_thread.start()
     assert plan_read.wait(3)
     runtime_thread.start()
-    assert not runtime_entered.wait(0.2), (
+    assert not runtime_entered.wait(1.5), (
         "Runtime вошёл между чтением плана и записью WebUI"
     )
     allow_plan_write.set()
-    ui_thread.join(3)
-    runtime_thread.join(3)
+    ui_thread.join(5)
+    runtime_thread.join(5)
     assert not ui_thread.is_alive()
     assert not runtime_thread.is_alive()
     assert ui_result == [True]
