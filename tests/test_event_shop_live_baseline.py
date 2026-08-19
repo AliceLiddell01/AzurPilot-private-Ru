@@ -25,5 +25,10 @@ def test_event_shop_live_fingerprint_tracks_target_baseline():
         user_state,
         priority_state,
     )
+    repeated = EventShopLiveMixin._event_shop_live_plan_fingerprint(
+        user_state,
+        priority_state,
+    )
 
     assert after != before
+    assert repeated == after
