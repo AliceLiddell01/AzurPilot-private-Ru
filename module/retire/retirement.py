@@ -243,6 +243,19 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             if self.appear(SHIP_CONFIRM_2, offset=(30, 30)):
                 return True
 
+    def _one_click_retirement_click(self):
+        """Нажать кнопку списания, сохранив совместимость обычного и смещённого интерфейса."""
+        ONE_CLICK_RETIREMENT.clear_offset()
+        if self.appear_then_click(ONE_CLICK_RETIREMENT, interval=2):
+            return True
+
+        ONE_CLICK_RETIREMENT.clear_offset()
+        if self.appear_then_click(ONE_CLICK_RETIREMENT, offset=(20, 20), interval=2):
+            return True
+
+        ONE_CLICK_RETIREMENT.clear_offset()
+        return False
+
     def retire_ships_one_click(self):
         """Списать подходящие корабли штатной функцией «в один клик».
 
@@ -282,7 +295,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 if click_count >= 5:
                     logger.warning('[Списание — в один клик] Не удалось выбрать корабль после 5 попыток')
                     self._retire_wait_slow_retire()
-                if self.appear_then_click(ONE_CLICK_RETIREMENT, offset=(20, 20), interval=2):
+                if self._one_click_retirement_click():
                     click_count += 1
                     continue
 
