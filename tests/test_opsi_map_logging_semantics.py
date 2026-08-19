@@ -63,7 +63,7 @@ class TestOpsiViewLoggingSemantics(unittest.TestCase):
         info.assert_not_called()
         attr_align.assert_not_called()
 
-    def test_campaign_prediction_summary_keeps_info_attribute(self):
+    def test_campaign_prediction_summary_moves_to_debug(self):
         grid = Mock()
         view = View.__new__(View)
         view.mode = 'main'
@@ -71,16 +71,17 @@ class TestOpsiViewLoggingSemantics(unittest.TestCase):
 
         with (
             patch('module.map_detection.view.logger.debug') as debug,
+            patch('module.map_detection.view.logger.info') as info,
             patch('module.map_detection.view.logger.attr_align') as attr_align,
         ):
             result = view.predict()
 
         self.assertIsNone(result)
         grid.predict.assert_called_once_with()
-        debug.assert_not_called()
-        attr_align.assert_called_once()
-        self.assertEqual('predict', attr_align.call_args.args[0])
-        self.assertEqual(1, attr_align.call_args.args[1])
+        debug.assert_called_once()
+        self.assertIn('Распознано клеток: 1', debug.call_args.args[0])
+        info.assert_not_called()
+        attr_align.assert_not_called()
 
 
 class TestGlobeDetectionLoggingSemantics(unittest.TestCase):

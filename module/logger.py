@@ -475,7 +475,9 @@ pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 
 
 def _configure_diagnostic_logger(name):
-    diagnostic_file = Path('./log/diagnostic').joinpath(f'{name}.txt')
+    diagnostic_file = Path('./log/diagnostic').joinpath(
+        f'{datetime.date.today()}_{name}.txt'
+    )
     diagnostic_hdlr.configure_output(diagnostic_file, file_formatter)
     logger.diagnostic_log_file = str(diagnostic_file.resolve())
 
