@@ -30,6 +30,7 @@ def _spec():
         "id": "event-test",
         "server": "EN",
         "provenance": {"revision": "c" * 40},
+        "currencies": [{"id": 1, "runtime_token": "pt"}],
         "shop_items": [
             {
                 "row_id": 11,
@@ -70,7 +71,7 @@ def test_proven_dashboard_pt_increase_wakes_enabled_event_shop(monkeypatch, tmp_
         event_id=spec["id"],
         server="EN",
         source_revision=spec["provenance"]["revision"],
-        value=100,
+        value=50,
         observed_at=previous_at,
         source="dashboard_ocr",
         root=observation_root,
