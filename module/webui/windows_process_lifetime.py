@@ -6,6 +6,7 @@ import ctypes
 import os
 import threading
 from ctypes import wintypes
+from typing import NoReturn
 
 
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
@@ -90,8 +91,7 @@ def _kernel32():
     return kernel32
 
 
-def _raise_last_win32_error(action: str) -> None:
-    error_code = ctypes.get_last_error()
+def _raise_last_win32_error(error_code: int, action: str) -> NoReturn:
     raise OSError(error_code, f"{action}: {ctypes.FormatError(error_code)}")
 
 
@@ -99,7 +99,10 @@ def _create_process_tree_job() -> int:
     kernel32 = _kernel32()
     handle = kernel32.CreateJobObjectW(None, None)
     if not handle:
-        _raise_last_win32_error("Не удалось создать Windows Job Object")
+        _raise_last_win32_error(
+            ctypes.get_last_error(),
+            "Не удалось создать Windows Job Object",
+        )
 
     information = _JobObjectExtendedLimitInformation()
     information.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
@@ -110,16 +113,20 @@ def _create_process_tree_job() -> int:
         ctypes.sizeof(information),
     )
     if not configured:
+        error_code = ctypes.get_last_error()
         kernel32.CloseHandle(handle)
         _raise_last_win32_error(
-            "Не удалось включить завершение дерева процессов при закрытии Job Object"
+            error_code,
+            "Не удалось включить завершение дерева процессов при закрытии Job Object",
         )
 
     assigned = kernel32.AssignProcessToJobObject(handle, kernel32.GetCurrentProcess())
     if not assigned:
+        error_code = ctypes.get_last_error()
         kernel32.CloseHandle(handle)
         _raise_last_win32_error(
-            "Не удалось привязать WebUI к Windows Job Object"
+            error_code,
+            "Не удалось привязать WebUI к Windows Job Object",
         )
     return int(handle)
 
@@ -147,9 +154,20 @@ def _find_console_parent_process():
 
 
 def _wait_for_console_parent_exit(parent) -> None:
+    import psutil
+
     try:
         parent.wait()
-    except Exception:
+    except psutil.NoSuchProcess:
+        # Консоль могла завершиться между обнаружением процесса и запуском watcher.
+        pass
+    except Exception as exc:
+        from module.logger import logger
+
+        logger.warning(
+            f"[WebUI] Наблюдение за консолью PID {parent.pid} прервано: "
+            f"{type(exc).__name__}: {exc}. Автозавершение по смерти консоли отключено"
+        )
         return
 
     # Аварийный выход намеренный: закрытие собственного Job Object процессом
