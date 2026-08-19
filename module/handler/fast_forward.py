@@ -280,7 +280,7 @@ class FastForwardHandler(AutoSearchHandler):
         处理自动搜索开关。
 
         Returns:
-            bool: 是否进行了更改。
+            bool: 是否进行了切换操作。
 
         Pages:
             in: MAP_PREPARATION
