@@ -22,7 +22,6 @@ from module.campaign.campaign_event import CampaignEvent
 from module.shop.shop_status import ShopStatus
 from module.campaign.campaign_ui import MODE_SWITCH_1
 from module.config.config import AzurLaneConfig
-from module.config.time_source import now as current_time
 from module.event_datamine.campaign_selector import (
     generated_campaign_ui_layout,
     resolve_generated_campaign_module,
@@ -68,19 +67,15 @@ class CampaignRun(CampaignEvent, ShopStatus):
     def load_campaign(self, name, folder='campaign_main'):
         """Загрузить модуль карты кампании.
 
-        Для текущего generated-события канонический модуль разрешается через
-        event registry до legacy-импорта. Исторический импорт остаётся fallback,
-        если selector не относится к текущему generated-событию.
+        Для generated-события канонический модуль разрешается через event registry
+        до legacy-импорта. Исторический импорт остаётся fallback, если selector
+        не закреплён за generated artifact.
         """
         route = getattr(self, '_campaign_load_route', None)
         if route is not None and route[:2] == (folder, name):
             generated_module = route[2]
         else:
-            generated_module = resolve_generated_campaign_module(
-                folder,
-                name,
-                now=current_time(),
-            )
+            generated_module = resolve_generated_campaign_module(folder, name)
         if generated_module is not None:
             name = generated_module.rsplit('.', 1)[-1]
 
@@ -184,7 +179,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             handle_notify(
                 self.config.Error_OnePushConfig,
                 title=f"AzurPilot <{self.config.config_name}>: кампания завершена",
-                content=f"<{self.config.config_name}> {self.name}: получен новый корабль"
+                content=f"<{self.config.config_name}> {self.name}: получен лимит уровня"
             )
             return True
         # 活动限制
@@ -464,19 +459,10 @@ class CampaignRun(CampaignEvent, ShopStatus):
     def run(self, name, folder='campaign_main', mode='normal', total=0):
         """Запустить задачу кампании для выбранной карты."""
         requested_name = to_map_file_name(name)
-        routing_time = current_time()
-        generated_module = resolve_generated_campaign_module(
-            folder,
-            requested_name,
-            now=routing_time,
-        )
+        generated_module = resolve_generated_campaign_module(folder, requested_name)
         if generated_module is None:
             name, folder = self.handle_stage_name(requested_name, folder, mode=mode)
-            generated_module = resolve_generated_campaign_module(
-                folder,
-                name,
-                now=routing_time,
-            )
+            generated_module = resolve_generated_campaign_module(folder, name)
         if generated_module is not None:
             name = generated_module.rsplit('.', 1)[-1]
 
