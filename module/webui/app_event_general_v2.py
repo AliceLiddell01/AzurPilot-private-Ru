@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
-from functools import partial
+from functools import lru_cache, partial
 from html import escape
+from pathlib import Path
 from typing import Any
 
 from module.webui.app_dependencies import (
@@ -42,6 +44,31 @@ _MAP_GROUPS = (
 )
 _QUEST_SOURCE_KINDS = frozenset({"unknown", "daily", "weekly", "one_time"})
 _QUEST_DAILY_KINDS = frozenset({"daily"})
+_QUEST_PRESENTATION_PATH = Path(__file__).resolve().parent / "data" / "event_quest_presentation.en.json"
+
+
+@lru_cache(maxsize=1)
+def _quest_presentation_rules() -> tuple[Mapping[str, Any], ...]:
+    """Загрузить декларативные правила отображения заданий EN-событий."""
+    try:
+        raw = json.loads(_QUEST_PRESENTATION_PATH.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError) as exc:
+        logger.warning(
+            f"[WebUI — задания события] Не удалось загрузить каталог отображения: {exc}"
+        )
+        return ()
+    if not isinstance(raw, Mapping) or raw.get("schema_version") != 1:
+        logger.warning("[WebUI — задания события] Каталог отображения имеет неподдерживаемую схему")
+        return ()
+    rules = raw.get("rules")
+    if not isinstance(rules, list):
+        logger.warning("[WebUI — задания события] Каталог отображения не содержит список правил")
+        return ()
+    return tuple(
+        rule
+        for rule in rules
+        if isinstance(rule, Mapping) and str(rule.get("pattern") or "").strip()
+    )
 
 
 class EventGeneralV2Mixin(WebUIMixinBase):
@@ -172,75 +199,64 @@ class EventGeneralV2Mixin(WebUIMixinBase):
         normalized = original.rstrip(".")
         kind = str(item.get("kind") or "")
 
-        match = re.fullmatch(r"Build\s+(\d+)\s+ships?", normalized, re.IGNORECASE)
-        if match:
-            amount = int(match.group(1))
-            noun = cls._ru_plural(amount, "корабль", "корабля", "кораблей")
-            return (
-                "daily",
-                f"Построить {amount} {noun}",
-                f"Постройте {amount} {noun} на верфи.",
-                original,
-            )
+        for rule in _quest_presentation_rules():
+            pattern = str(rule.get("pattern") or "")
+            try:
+                match = re.fullmatch(pattern, normalized, re.IGNORECASE)
+            except re.error:
+                continue
+            if match is None:
+                continue
 
-        match = re.fullmatch(
-            r"Sortie\s+and\s+obtain\s+(\d+)\s+victories?",
-            normalized,
-            re.IGNORECASE,
-        )
-        if match:
-            amount = int(match.group(1))
-            noun = cls._ru_plural(amount, "победу", "победы", "побед")
-            return (
-                "daily",
-                f"Одержать {amount} {noun}",
-                f"Совершайте боевые выходы и одержите {amount} {noun}.",
-                original,
-            )
+            values: dict[str, Any] = {}
+            for field, value in match.groupdict().items():
+                if value is None:
+                    continue
+                values[field] = int(value) if value.isdigit() else value
 
-        match = re.fullmatch(
-            r"Clear\s+any\s+Hard\s+Mode\s+stage\s+(\d+)\s+times?",
-            normalized,
-            re.IGNORECASE,
-        )
-        if match:
-            amount = int(match.group(1))
-            times = cls._ru_plural(amount, "раз", "раза", "раз")
-            return (
-                "daily",
-                "Пройти этап в режиме Hard",
-                f"Завершите любой этап Hard Mode {amount} {times}.",
-                original,
-            )
+            upper_fields = rule.get("upper_fields", [])
+            if isinstance(upper_fields, list):
+                for field in upper_fields:
+                    key = str(field)
+                    if key in values:
+                        values[key] = str(values[key]).upper()
 
-        match = re.fullmatch(
-            r"Clear\s+([A-Z]+\d+)\s+or\s+([A-Z]+\d+)",
-            normalized,
-            re.IGNORECASE,
-        )
-        if match:
-            left, right = match.group(1).upper(), match.group(2).upper()
-            return (
-                "event",
-                f"Пройти {left} или {right}",
-                "Завершите любой из указанных этапов текущего события.",
-                original,
-            )
+            plurals = rule.get("plurals", {})
+            if not isinstance(plurals, Mapping):
+                continue
+            valid_rule = True
+            for target, plural in plurals.items():
+                if not isinstance(plural, Mapping):
+                    valid_rule = False
+                    break
+                source_field = str(plural.get("field") or "")
+                forms = plural.get("forms")
+                if not isinstance(forms, list) or len(forms) != 3:
+                    valid_rule = False
+                    break
+                try:
+                    amount = int(values[source_field])
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    valid_rule = False
+                    break
+                values[str(target)] = cls._ru_plural(
+                    amount,
+                    str(forms[0]),
+                    str(forms[1]),
+                    str(forms[2]),
+                )
+            if not valid_rule:
+                continue
 
-        match = re.fullmatch(
-            r"Clear\s+any\s+event\s+stage\s+(\d+)\s+times?",
-            normalized,
-            re.IGNORECASE,
-        )
-        if match:
-            amount = int(match.group(1))
-            times = cls._ru_plural(amount, "раз", "раза", "раз")
-            return (
-                "event",
-                f"Пройти любой этап события {amount} {times}",
-                f"Завершите любой этап текущего события суммарно {amount} {times}.",
-                original,
-            )
+            try:
+                group = str(rule.get("group") or "event")
+                title = str(rule.get("title") or "").format(**values)
+                description = str(rule.get("description") or "").format(**values)
+            except (KeyError, ValueError):
+                continue
+            if group not in {"daily", "event"} or not title or not description:
+                continue
+            return group, title, description, original
 
         group = "daily" if kind in _QUEST_DAILY_KINDS else "event"
         return (
@@ -419,15 +435,20 @@ class EventGeneralV2Mixin(WebUIMixinBase):
                 status = f"Осталось {self._fmt(threshold - current_pt)}"
             else:
                 status = "Прогресс пока недоступен"
-            rewards = "".join(
-                '<span class="event-reward-track-item">'
-                f'<img src="{escape(event_asset_url(reward.get("asset")))}" alt="">'
-                f'<span>{escape(str(reward.get("name") or "Награда"))}</span>'
-                f'<b>× {escape(self._fmt(reward.get("amount")))}</b>'
-                "</span>"
-                for reward in milestone.get("rewards", [])
-                if isinstance(reward, Mapping)
-            )
+            reward_items: list[str] = []
+            for reward in milestone.get("rewards", []):
+                if not isinstance(reward, Mapping):
+                    continue
+                amount = reward.get("amount")
+                amount_text = "—" if amount is None else self._fmt(amount)
+                reward_items.append(
+                    '<span class="event-reward-track-item">'
+                    f'<img src="{escape(event_asset_url(reward.get("asset")))}" alt="">'
+                    f'<span>{escape(str(reward.get("name") or "Награда"))}</span>'
+                    f'<b>× {escape(amount_text)}</b>'
+                    "</span>"
+                )
+            rewards = "".join(reward_items)
             state_class = " event-reward-card-reached" if reached else ""
             if is_next:
                 state_class += " event-reward-card-next"
