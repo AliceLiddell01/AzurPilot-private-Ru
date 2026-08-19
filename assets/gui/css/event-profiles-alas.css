@@ -1,11 +1,11 @@
-/* Modern Event experience: scoped dashboard, compact actions and progressive disclosure. */
+/* Современный Event-интерфейс: scoped-dashboard, компактные действия и progressive disclosure. */
 
 :root {
     /*
-     * Event pages run in every bundled theme.  The default theme exposes the
-     * stable --alas-entry-* contract, while the optional material theme also
-     * exposes --alas-apple-*.  Referencing only the latter invalidated entire
-     * declarations in the default theme and left the pages looking unstyled.
+     * Event-страницы работают во всех встроенных темах. Тема по умолчанию
+     * предоставляет стабильный контракт --alas-entry-*, а дополнительная material-тема
+     * также предоставляет --alas-apple-*. Использование только второго набора делало
+     * целые объявления недействительными в теме по умолчанию и оставляло страницы без оформления.
      */
     --event-surface: color-mix(in srgb, var(--alas-entry-surface, var(--alas-apple-card-bg, #fff)) 94%, transparent);
     --event-surface-strong: var(--alas-entry-surface, var(--alas-apple-card-bg-solid, #fff));
@@ -66,7 +66,7 @@ body.event-modern-active .modal-content .modal-body,
     padding: .8rem 1.15rem 1.15rem !important;
 }
 
-/* Event-only shell: stronger hierarchy than the stock PyWebIO cards. */
+/* Event-shell с более выраженной иерархией, чем стандартные карточки PyWebIO. */
 #pywebio-scope-content.event-modern-page #pywebio-scope-groups {
     overflow: visible !important;
 }
@@ -90,8 +90,7 @@ body.event-modern-active .modal-content .modal-body,
     transition: background-color var(--event-ease), border-color var(--event-ease), box-shadow var(--event-ease) !important;
 }
 
-.event-dashboard-hero,
-.event-shop-hero {
+.event-dashboard-hero {
     overflow: hidden;
     border: 1px solid var(--event-border);
     border-left: 3px solid var(--event-accent);
@@ -110,8 +109,7 @@ body.event-modern-active .modal-content .modal-body,
     text-transform: uppercase;
 }
 
-.event-dashboard-hero h3,
-.event-shop-hero h3 {
+.event-dashboard-hero h3 {
     margin: 0;
     color: var(--event-text);
     font-size: clamp(1.25rem, 1.8vw, 1.75rem);
@@ -163,8 +161,7 @@ body.event-modern-active .modal-content .modal-body,
     padding: 3px 8px 3px 4px;
 }
 
-.event-currency-chip img,
-.event-shop-currency img {
+.event-currency-chip img {
     width: 24px;
     height: 24px;
     object-fit: contain;
@@ -408,7 +405,7 @@ body.event-modern-active .modal-content .modal-body,
 .event-empty-card strong { color: var(--event-text); font-size: .9rem; }
 .event-empty-card small { color: var(--event-muted); font-size: .78rem; }
 
-/* Compact data surfaces instead of stock admin tables. */
+/* Компактные поверхности данных вместо стандартных административных таблиц. */
 #pywebio-scope-content.event-modern-page table {
     overflow: hidden;
     margin: 8px 0 10px !important;
@@ -443,68 +440,6 @@ body.event-modern-active .modal-content .modal-body,
 #pywebio-scope-content.event-modern-page table tbody tr:last-child td { border-bottom: 0 !important; }
 #pywebio-scope-content.event-modern-page table tbody tr:hover td { background: color-mix(in srgb, var(--event-accent) 7%, transparent) !important; }
 #pywebio-scope-content.event-modern-page table .btn { padding: 6px 10px !important; font-size: .76rem !important; }
-
-.event-shop-hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(300px, .9fr);
-    align-items: center;
-    gap: 18px;
-}
-
-.event-shop-hero p {
-    max-width: 720px;
-    margin: 7px 0 0;
-    color: var(--event-muted);
-    font-size: .84rem;
-}
-
-.event-shop-currency { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: var(--event-text); font-size: .8rem; }
-.event-shop-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.event-shop-totals > div { display: flex; min-width: 0; flex-direction: column; border: 1px solid var(--event-border); border-radius: 12px; background: var(--event-surface-soft); padding: 10px; }
-.event-shop-totals span,
-.event-shop-totals small { color: var(--event-muted); font-size: .66rem; }
-.event-shop-totals strong { margin: 3px 0; color: var(--event-text); font-size: 1rem; overflow-wrap: anywhere; }
-
-.event-shop-grid {
-    display: grid;
-    width: 100%;
-    max-width: 100%;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 12px;
-}
-
-.event-shop-card {
-    display: flex;
-    min-width: 0;
-    max-width: 100%;
-    flex-direction: column;
-    justify-content: space-between;
-    overflow: hidden;
-    border: 1px solid var(--event-border);
-    border-radius: 15px;
-    background: var(--event-surface-soft);
-    padding: 12px;
-}
-
-.event-shop-card-visual { position: relative; display: flex; min-width: 0; flex-direction: column; align-items: center; text-align: center; }
-.event-shop-card-visual > img { width: min(112px, 52%); height: 112px; margin: 16px auto 8px; object-fit: contain; }
-.event-shop-card-visual h4 { min-height: 2.5em; margin: 7px 0 2px; color: var(--event-text); font-size: .88rem; line-height: 1.25; overflow-wrap: anywhere; }
-.event-shop-card-visual > small { color: var(--event-muted); font-size: .68rem; }
-.event-shop-stock { position: absolute; top: 0; left: 0; border-radius: 999px; background: var(--event-surface-strong); color: var(--event-muted); padding: 4px 7px; font-size: .66rem; }
-.event-shop-rarity { position: absolute; top: 0; right: 0; color: var(--event-accent); font-size: .64rem; font-weight: 700; }
-.event-shop-price { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--event-text); }
-.event-shop-price img { width: 24px; height: 24px; object-fit: contain; }
-.event-shop-observation,
-.event-shop-desired { display: flex; min-width: 0; flex-direction: column; gap: 2px; margin-top: 9px; border-top: 1px solid var(--event-divider); padding-top: 8px; }
-.event-shop-observation span,
-.event-shop-desired span { color: var(--event-muted); font-size: .68rem; }
-.event-shop-observation small,
-.event-shop-desired small { color: var(--event-muted); font-size: .66rem; overflow-wrap: anywhere; }
-.event-shop-desired strong { color: var(--event-text); }
-.event-shop-automation { margin: 8px 0 3px; color: var(--event-muted); font-size: .66rem; text-align: center; }
-.event-shop-card .row { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 !important; }
-.event-shop-card .row > div { min-width: 0; flex: 1 1 auto; padding: 0 !important; }
-.event-shop-card .btn { width: 100%; min-width: 44px; }
 
 .event-automation-status,
 .event-inline-note {
@@ -546,7 +481,7 @@ body.event-modern-active .modal-content .modal-body,
     padding: 13px 15px;
 }
 
-/* Редкие runtime-настройки рендерятся сразу в native collapse. */
+/* Редкие runtime-настройки сразу рендерятся внутри штатного collapse. */
 #pywebio-scope-content.event-modern-page details[style*="--event-advanced-details--"] {
     overflow: hidden;
     margin: 10px 0 14px;
@@ -589,7 +524,7 @@ body.event-modern-active .modal-content .modal-body,
     box-shadow: none !important;
 }
 
-/* Остальные native collapse остаются вторичными. */
+/* Остальные штатные collapse остаются вторичными. */
 #pywebio-scope-content.event-modern-page details:not([style*="--event-advanced-details--"]) {
     overflow: hidden;
     margin-top: 10px;
@@ -605,7 +540,7 @@ body.event-modern-active .modal-content .modal-body,
     font-weight: 620;
 }
 
-/* Additional Event profiles inherit the same compact surface. */
+/* Дополнительные Event-профили наследуют ту же компактную поверхность. */
 #pywebio-scope-group_EventProfiles .pywebio-output > div,
 #pywebio-scope-group_EventProfiles .row {
     gap: 8px;
@@ -657,11 +592,7 @@ body.event-modern-active .modal-content .modal-body,
         padding: 13px !important;
         border-radius: 16px !important;
     }
-    .event-dashboard-hero,
-    .event-shop-hero { padding: 16px; border-radius: 15px; }
-    .event-shop-hero { grid-template-columns: 1fr; }
-    .event-shop-totals { grid-template-columns: 1fr; }
-    .event-shop-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+    .event-dashboard-hero { padding: 16px; border-radius: 15px; }
     .event-metrics-grid { grid-template-columns: 1fr 1fr; }
     .event-hero-meta { flex-direction: column; align-items: flex-start; gap: 5px; }
     .event-section-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
@@ -675,8 +606,7 @@ body.event-modern-active .modal-content .modal-body,
     }
     .event-metrics-grid { grid-template-columns: 1fr; }
     .event-source-grid,
-    .event-milestone-grid,
-    .event-shop-grid { grid-template-columns: 1fr; }
+    .event-milestone-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
