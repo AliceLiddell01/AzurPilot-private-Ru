@@ -43,6 +43,20 @@ def _current(loader):
     return candidate
 
 
+def _current_selector() -> str:
+    event_id, server, *_ = current_fixture_identity()
+    registry = json.loads(
+        (BUILTIN_ARTIFACT_ROOT / "index.json").read_text(encoding="utf-8")
+    )
+    selectors = [
+        str(item["selector"])
+        for item in registry["campaign_selectors"]
+        if item.get("server") == server and item.get("event_id") == event_id
+    ]
+    assert len(selectors) == 1
+    return selectors[0]
+
+
 def test_current_fixture_preserves_source_identity_and_hashes():
     manifest = current_fixture_manifest()
     _, _, _, revision, _ = current_fixture_identity()
@@ -187,12 +201,14 @@ def test_production_python_contains_no_event_specific_datamine_hardcode():
 
 def test_current_builder_is_id_free_and_byte_deterministic(tmp_path: Path):
     _, server, repository, revision, _ = current_fixture_identity()
+    selector = _current_selector()
     outputs = []
     for name in ("first", "second"):
         root = tmp_path / name
         build_current_event(
             source_root=FIXTURE,
             server=server,
+            campaign_selector=selector,
             repository=repository,
             revision=revision,
             output_root=root / "data",
@@ -225,6 +241,7 @@ def test_current_builder_preflights_artifact_before_writing_maps(tmp_path: Path)
         build_current_event(
             source_root=FIXTURE,
             server=server,
+            campaign_selector=_current_selector(),
             repository=repository,
             revision=revision,
             output_root=output_root,

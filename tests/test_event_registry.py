@@ -50,6 +50,90 @@ def test_registry_excludes_demo_and_selects_active_then_redemption(tmp_path: Pat
     assert registry.resolve_current("EN", datetime(2027, 1, 1)) is None
 
 
+def test_registry_campaign_selector_survives_expired_lifecycle(tmp_path: Path):
+    artifact = _artifact(
+        "en:expired",
+        "2026-08-01",
+        "2026-08-20",
+        "2026-08-27",
+    )
+    write_artifact(tmp_path / "expired.json", artifact)
+    write_registry(
+        tmp_path,
+        campaign_selector={
+            "server": "EN",
+            "selector": "event_20260801_cn",
+            "event_id": "en:expired",
+        },
+    )
+    registry = EventArtifactRegistry(tmp_path)
+
+    assert registry.resolve_current("EN", datetime(2027, 1, 1)) is None
+    resolved = registry.resolve_campaign_selector("en", "event_20260801_cn")
+    assert resolved is not None
+    assert resolved["event_spec"]["id"] == "en:expired"
+
+
+def test_registry_campaign_selector_upsert_preserves_other_bindings(tmp_path: Path):
+    write_artifact(
+        tmp_path / "first.json",
+        _artifact("en:first", "2026-08-01", "2026-08-20", "2026-08-27"),
+    )
+    write_artifact(
+        tmp_path / "second.json",
+        _artifact("en:second", "2026-09-01", "2026-09-20", "2026-09-27"),
+    )
+    write_registry(
+        tmp_path,
+        campaign_selector={
+            "server": "EN",
+            "selector": "event_first_cn",
+            "event_id": "en:first",
+        },
+    )
+    write_registry(
+        tmp_path,
+        campaign_selector={
+            "server": "EN",
+            "selector": "event_second_cn",
+            "event_id": "en:second",
+        },
+    )
+    registry = EventArtifactRegistry(tmp_path)
+
+    assert registry.resolve_campaign_selector("EN", "event_first_cn")["event_spec"]["id"] == "en:first"
+    assert registry.resolve_campaign_selector("EN", "event_second_cn")["event_spec"]["id"] == "en:second"
+
+    write_registry(
+        tmp_path,
+        campaign_selector={
+            "server": "EN",
+            "selector": "event_first_cn",
+            "event_id": "en:second",
+        },
+    )
+    refreshed = EventArtifactRegistry(tmp_path)
+    assert refreshed.resolve_campaign_selector("EN", "event_first_cn")["event_spec"]["id"] == "en:second"
+    assert refreshed.resolve_campaign_selector("EN", "event_second_cn")["event_spec"]["id"] == "en:second"
+
+
+def test_registry_rejects_selector_to_missing_artifact(tmp_path: Path):
+    write_artifact(
+        tmp_path / "event.json",
+        _artifact("en:event", "2026-08-01", "2026-08-20", "2026-08-27"),
+    )
+
+    with pytest.raises(ValueError, match="не разрешается в один Event artifact"):
+        write_registry(
+            tmp_path,
+            campaign_selector={
+                "server": "EN",
+                "selector": "event_missing_cn",
+                "event_id": "en:missing",
+            },
+        )
+
+
 def test_registry_multiple_active_events_fail_closed(tmp_path: Path):
     for suffix in ("one", "two"):
         write_artifact(

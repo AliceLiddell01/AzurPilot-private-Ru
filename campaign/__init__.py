@@ -1,8 +1,8 @@
-"""Ленивый мост совместимости для текущих сгенерированных карт события.
+"""Ленивый мост совместимости для сгенерированных карт события.
 
 Обычный ``import campaign`` не читает реестр событий и не исполняет карты.
 Разрешение выполняется только при попытке импортировать конкретный этап через
-старый селектор текущего события.
+закреплённый в Event registry selector.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import sys
 from functools import wraps
 from types import ModuleType
 
-from module.config.time_source import now as current_time
 from module.event_datamine.campaign_selector import (
     generated_campaign_ui_layout,
     resolve_generated_campaign_module,
@@ -114,10 +113,7 @@ class _GeneratedEventAliasPackageLoader(importlib.abc.Loader):
 
 
 class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
-    """Лениво сопоставить старое имя этапа события с текущим сгенерированным этапом."""
-
-    def __init__(self, now_factory=current_time):
-        self._now_factory = now_factory
+    """Лениво сопоставить старое имя этапа события со сгенерированным этапом."""
 
     def find_spec(self, fullname, path=None, target=None):
         parts = str(fullname).split(".")
@@ -128,8 +124,8 @@ class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
             return None
 
         # Generated alias — только fallback совместимости. Реальный legacy-модуль
-        # на диске всегда имеет приоритет и не должен подменяться текущим событием
-        # из registry даже при устаревшем selector в args.json.
+        # на диске всегда имеет приоритет и не должен подменяться generated-событием
+        # даже при совпадающем selector из Event registry.
         if importlib.machinery.PathFinder.find_spec(fullname, path) is not None:
             return None
 
@@ -147,7 +143,6 @@ class _GeneratedEventAliasFinder(importlib.abc.MetaPathFinder):
         resolved = resolve_generated_campaign_module(
             selector,
             stage,
-            now=self._now_factory(),
         )
         if resolved is None:
             return None

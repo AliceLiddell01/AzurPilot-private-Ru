@@ -25,6 +25,13 @@
       "source_status": "partial"
     }
   ],
-  "digest": "37642b8a86111c51c8eb28c9bdc0cb9056ea186f5920bde888804de5b94e8afb",
-  "registry_schema_version": 1
+  "campaign_selectors": [
+    {
+      "event_id": "en:51101",
+      "selector": "event_20260625_cn",
+      "server": "EN"
+    }
+  ],
+  "digest": "442223c8965d08473765e662e6bf31484e21cc61a1ed829c349f086ce9e9fbac",
+  "registry_schema_version": 2
 }

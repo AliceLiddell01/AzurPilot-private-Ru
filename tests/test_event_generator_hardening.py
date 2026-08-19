@@ -111,6 +111,7 @@ def test_builder_preflights_late_map_collision_before_any_write(
         builder.build_current_event(
             source_root=tmp_path,
             server="EN",
+            campaign_selector="event_fixture",
             repository="source",
             revision="revision",
             output_root=tmp_path / "data",
@@ -153,6 +154,7 @@ def test_builder_rejects_derived_duplicate_module_name_before_any_write(
         builder.build_current_event(
             source_root=tmp_path,
             server="EN",
+            campaign_selector="event_fixture",
             repository="source",
             revision="revision",
             output_root=output_root,

@@ -1,14 +1,15 @@
-"""战役任务运行器模块。
+"""Исполнитель задач кампании.
 
-提供战役任务的完整运行框架，包括：
-- 战役地图模块的动态加载与实例化
-- 多种停止条件检测（运行次数、等级、石油、金币、活动 PT 等）
-- 关卡名称的标准化处理（活动名称映射、特殊 SP 名称转换、关卡循环）
-- 自动搜索续战逻辑
-- 委托通知处理
+Модуль предоставляет полный контур выполнения кампании:
+- динамическую загрузку и создание модулей карт;
+- проверку условий остановки по числу запусков, уровню, нефти, монетам и PT события;
+- нормализацию имён этапов, включая event aliases, специальные SP и циклы этапов;
+- продолжение автоматического поиска;
+- обработку уведомлений о комиссиях.
 
-本模块是战役任务的顶层编排器，被 alas.py 中的任务方法调用。
-负责从加载地图文件到循环执行战役的完整生命周期管理。
+Это верхнеуровневый оркестратор задач кампании, вызываемый методами задач из
+``alas.py``. Он управляет полным жизненным циклом от загрузки файла карты до
+циклического выполнения кампании.
 """
 
 import copy
@@ -16,11 +17,17 @@ import importlib
 import os
 import random
 
+from campaign import _adapt_generated_campaign_ui
 from module.campaign.campaign_base import CampaignBase
 from module.campaign.campaign_event import CampaignEvent
 from module.shop.shop_status import ShopStatus
 from module.campaign.campaign_ui import MODE_SWITCH_1
 from module.config.config import AzurLaneConfig
+from module.event_datamine.campaign_selector import (
+    EventCampaignSelectorError,
+    generated_campaign_ui_layout,
+    resolve_generated_campaign_module,
+)
 from module.exception import CampaignEnd, RequestHumanTakeover, ScriptEnd
 from module.handler.fast_forward import map_files, to_map_file_name
 from module.logger import logger
@@ -29,25 +36,26 @@ from module.ui.page import page_campaign
 
 
 class CampaignRun(CampaignEvent, ShopStatus):
-    """战役任务运行器。
+    """Исполнитель задач кампании.
 
-    管理战役任务的完整生命周期：从动态加载战役地图模块，到循环执行战役并
-    检测各种停止条件。是所有战役类任务（Main、Event、GemsFarming 等）的
-    基础运行框架。
+    Управляет полным жизненным циклом задачи: динамически загружает модуль карты,
+    создаёт объект Campaign, выполняет кампанию в цикле и проверяет условия
+    остановки. Это базовый исполнитель для Main, Event, GemsFarming и других
+    campaign-задач.
 
-    通过 load_campaign() 动态导入 campaign/ 目录下的地图定义文件，
-    实例化对应的 Campaign 对象，然后通过 run() 方法循环执行战役。
+    ``load_campaign()`` импортирует определение карты из ``campaign/``, а
+    ``run()`` выполняет созданную Campaign до срабатывания условия остановки.
 
-    Attributes:
-        folder (str): campaign/ 下的地图文件夹名称，如 'campaign_main'。
-        name (str): 地图文件名，如 '7-2'、'a1'、'sp3'。
-        stage (str): 关卡标识，由 name 计算得出，用于 UI 导航。
-        module: 动态加载的地图模块对象。
-        config (AzurLaneConfig): 配置对象。
-        campaign (CampaignBase): 当前战役的执行实例。
-        run_count (int): 已完成的运行次数。
-        run_limit (int): 运行次数限制。
-        is_stage_loop (bool): 是否处于关卡循环模式。
+    Атрибуты:
+        folder (str): имя каталога карты внутри ``campaign/``, например ``campaign_main``.
+        name (str): имя файла карты, например ``7-2``, ``a1`` или ``sp3``.
+        stage (str): идентификатор этапа для навигации UI, вычисляемый из ``name``.
+        module: динамически загруженный модуль карты.
+        config (AzurLaneConfig): конфигурация задачи.
+        campaign (CampaignBase): текущий исполнитель кампании.
+        run_count (int): число завершённых запусков.
+        run_limit (int): ограничение числа запусков.
+        is_stage_loop (bool): признак режима цикла этапов.
     """
     folder: str
     name: str
@@ -59,18 +67,45 @@ class CampaignRun(CampaignEvent, ShopStatus):
     run_limit: int
     is_stage_loop = False
 
+    def _resolve_generated_campaign_module(self, folder, name):
+        """Разрешить generated-маршрут и остановить задачу при невалидной привязке."""
+
+        try:
+            return resolve_generated_campaign_module(folder, name)
+        except EventCampaignSelectorError as error:
+            logger.error_context(
+                title='Не удалось безопасно разрешить карту generated-события',
+                reason=str(error),
+                impact=(
+                    'Маршрутизация кампании остановлена; переход на случайную '
+                    'legacy-карту запрещён.'
+                ),
+                action=(
+                    'Проверьте Campaign.Event и перегенерируйте Event registry/artifact '
+                    'из актуального source snapshot перед повторным запуском.'
+                ),
+                level=50,
+            )
+            raise RequestHumanTakeover from error
+
     def load_campaign(self, name, folder='campaign_main'):
-        """
-        加载战役地图模块。
+        """Загрузить модуль карты кампании.
 
-        Args:
-            name (str): campaign 目录下 .py 文件的名称。
-            folder (str): campaign 下的文件夹名称。
-
-        Returns:
-            bool: 是否成功加载。
+        Для generated-события канонический модуль разрешается через event registry
+        до legacy-импорта. Исторический импорт остаётся fallback, если selector
+        не закреплён за generated artifact.
         """
-        if hasattr(self, 'name') and name == self.name:
+        route = getattr(self, '_campaign_load_route', None)
+        if route is not None and route[:2] == (folder, name):
+            generated_module = route[2]
+        else:
+            generated_module = self._resolve_generated_campaign_module(folder, name)
+        if generated_module is not None:
+            name = generated_module.rsplit('.', 1)[-1]
+
+        module_name = generated_module or f'campaign.{folder}.{name}'
+        source_identity = (folder, module_name)
+        if getattr(self, '_campaign_source_identity', None) == source_identity:
             return False
 
         self.name = name
@@ -82,13 +117,24 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.stage = name
 
         try:
-            self.module = importlib.import_module('.' + name, f'campaign.{folder}')
-        except ModuleNotFoundError:
-            logger.warning(f'Файл карты не найден: campaign.{folder}.{name}')
-            logger.warning('[Кампания] Файл карты не найден. Обычно это означает, что выбранная пользователем карта не поддерживается или рабочий каталог задан неверно.')
-            if not os.path.exists(f'./campaign/{folder}'):
-                logger.warning(f'[Кампания — запуск] Каталог не существует: ./campaign/{folder}')
+            if generated_module is None:
+                self.module = importlib.import_module('.' + name, f'campaign.{folder}')
             else:
+                self.module = importlib.import_module(generated_module)
+                _adapt_generated_campaign_ui(
+                    self.module,
+                    generated_campaign_ui_layout(generated_module),
+                )
+        except ModuleNotFoundError as error:
+            missing_name = error.name or ''
+            if missing_name != module_name and not module_name.startswith(f'{missing_name}.'):
+                raise
+
+            logger.warning(f'Файл карты не найден: {module_name}')
+            logger.warning('[Кампания] Файл карты не найден. Обычно это означает, что выбранная пользователем карта не поддерживается или рабочий каталог задан неверно.')
+            if generated_module is None and not os.path.exists(f'./campaign/{folder}'):
+                logger.warning(f'[Кампания — запуск] Каталог не существует: ./campaign/{folder}')
+            elif generated_module is None:
                 files = map_files(folder)
                 logger.warning(f'[Кампания — запуск] Доступные файлы: {files}')
 
@@ -99,17 +145,17 @@ class CampaignRun(CampaignEvent, ShopStatus):
         config = copy.deepcopy(self.config).merge(self.module.Config())
         device = self.device
         self.campaign = self.module.Campaign(config=config, device=device)
+        self._campaign_source_identity = source_identity
 
         return True
 
     def triggered_stop_condition(self, oil_check=True):
-        """
-        检查是否触发停止条件。
+        """Проверить, сработало ли какое-либо условие остановки.
 
-        Returns:
-            bool: 是否触发停止条件。
+        Возвращает:
+            bool: Сработало ли условие остановки.
         """
-        # 运行次数限制
+        # Ограничение числа запусков.
         if self.run_limit and self.config.StopCondition_RunCount <= 0:
             logger.hr('Сработало условие остановки: число запусков')
             self.config.StopCondition_RunCount = 0
@@ -120,7 +166,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
                 content=f"<{self.config.config_name}> {self.name}: достигнут лимит запусков"
             )
             return True
-        # 等级限制
+        # Ограничение уровня.
         if self.config.StopCondition_ReachLevel and self.campaign.config.LV_TRIGGERED:
             logger.hr(f'Сработало условие остановки: достигнут уровень {self.config.StopCondition_ReachLevel}')
             self.config.Scheduler_Enable = False
@@ -130,26 +176,26 @@ class CampaignRun(CampaignEvent, ShopStatus):
                 content=f"<{self.config.config_name}> {self.name}: достигнут лимит уровня"
             )
             return True
-        # 石油限制
+        # Ограничения ресурсов.
         if oil_check:
-            # 钻石限制
+            # Проверить самоцветы.
             self.status_get_gems()
-            # 金币限制
+            # Проверить монеты.
             self.get_coin()
             if self.get_oil() < max(500, self.config.StopCondition_OilLimit):
                 logger.hr('Сработало условие остановки: лимит нефти')
                 self.config.task_delay(minute=(120, 240))
                 return True
-        # 金币限制
+        # Ограничение монет.
         if oil_check and self.coin_limit_triggered():
             logger.hr('Сработало условие остановки: лимит монет')
             return True
-        # 自动搜索石油限制
+        # Ограничение нефти в автоматическом поиске.
         if self.campaign.auto_search_oil_limit_triggered:
             logger.hr('Сработало условие остановки: лимит нефти в автопоиске')
             self.config.task_delay(minute=(120, 240))
             return True
-        # 获得新舰船
+        # Получение нового корабля.
         if self.config.StopCondition_GetNewShip and self.campaign.config.GET_SHIP_TRIGGERED:
             logger.hr('Сработало условие остановки: получен новый корабль')
             self.config.Scheduler_Enable = False
@@ -159,16 +205,16 @@ class CampaignRun(CampaignEvent, ShopStatus):
                 content=f"<{self.config.config_name}> {self.name}: получен новый корабль"
             )
             return True
-        # 活动限制
+        # Ограничение PT события.
         if oil_check and self.campaign.event_pt_limit_triggered():
             logger.hr('Сработало условие остановки: лимит очков события')
             return True
-        # 自动搜索任务均衡器
+        # Балансировщик задач в автоматическом поиске.
         if self.config.TaskBalancer_Enable and self.campaign.auto_search_coin_limit_triggered:
             logger.hr('Сработало условие остановки: лимит монет в автопоиске')
             self.handle_task_balancer()
             return True
-        # 任务均衡器
+        # Обычный балансировщик задач.
         if oil_check and self.run_count >= 1:
             if self.config.TaskBalancer_Enable and self.triggered_task_balancer():
                 logger.hr('Сработало условие остановки: лимит монет')
@@ -178,11 +224,10 @@ class CampaignRun(CampaignEvent, ShopStatus):
         return False
 
     def _triggered_app_restart(self):
-        """
-        检查是否触发重启条件。
+        """Проверить, требуется ли перезапуск приложения.
 
-        Returns:
-            bool: 是否触发重启条件。
+        Возвращает:
+            bool: Требуется ли перезапуск приложения.
         """
         if not self.campaign.emotion.is_ignore:
             if self.campaign.emotion.triggered_bug():
@@ -199,29 +244,30 @@ class CampaignRun(CampaignEvent, ShopStatus):
         return False
 
     def handle_stage_name(self, name, folder, mode='normal'):
-        """
-        处理错误的关卡名称。
-        部分活动中 SP 的名称可能不同，如 'vsp'、muse sp。
-        为方便调用，其地图文件应命名为 'sp.py'。
+        """Нормализовать имя этапа кампании.
 
-        Args:
-            name (str): .py 文件名称。
-            folder (str): campaign 下的文件夹名称。
+        У некоторых событий SP может иметь другое имя, например ``vsp`` или Muse SP.
+        Для единообразного вызова соответствующий файл карты должен называться
+        ``sp.py``.
 
-        Returns:
-            str, str: (name, folder)。
+        Аргументы:
+            name (str): имя файла ``.py``.
+            folder (str): каталог внутри ``campaign``.
+
+        Возвращает:
+            tuple[str, str]: нормализованные ``(name, folder)``.
         """
         name = to_map_file_name(name)
-        # 处理 event_20251218_cn d3-3 特殊情况
+        # Специальная обработка d3-3 события event_20251218_cn.
         if folder == 'event_20251218_cn':
-            # 将 d3-3 转换为 d3_3 以使用三战撤退逻辑
+            # Преобразовать d3-3 в d3_3 для логики отступления после трёх боёв.
             if name == 'd3-3':
                 name = 'd3_3'
                 logger.info('[Кампания — запуск] Имя этапа d3-3 преобразовано в d3_3 (логика отступления после трёх боёв)')
-            # d3 保持不变，使用标准逻辑
+            # d3 остаётся без изменений и использует стандартную логику.
             elif name == 'd3':
                 logger.info('[Кампания — запуск] Для этапа d3 используется стандартная логика')
-        # GemsFarming 和 ThreeOilLowCost 自动选择活动或主线章节
+        # GemsFarming и ThreeOilLowCost автоматически выбирают событие или основную кампанию.
         if self.config.task.command in ['GemsFarming', 'ThreeOilLowCost']:
             if self.stage_is_main(name):
                 logger.info(f'Этап {name} загружен из campaign_main')
@@ -231,9 +277,9 @@ class CampaignRun(CampaignEvent, ShopStatus):
                 if folder is not None:
                     logger.info(f'Этап {name} загружен из события {folder}')
                 else:
-                    logger.warning(f'Не удалось определить последнее событие; используется campaign_main')
+                    logger.warning('Не удалось определить последнее событие; используется campaign_main')
                     folder = 'campaign_main'
-        # 处理特殊 SP 地图名称
+        # Нормализация специальных имён SP.
         if folder == 'event_20201126_cn' and name == 'vsp':
             name = 'sp'
         if folder == 'event_20210723_cn' and name == 'vsp':
@@ -253,7 +299,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
         if folder == 'event_20240724_cn':
             if name in ['ysp', 'y.sp']:
                 name = 'sp'
-        # 转换为 T 章节
+        # Преобразование в главы T.
         convert = {
             'a1': 't1',
             'a2': 't2',
@@ -277,13 +323,12 @@ class CampaignRun(CampaignEvent, ShopStatus):
             'event_20250814_cn',
             'event_20251023_cn',
             'event_20260326_cn',
-            'event_20260625_cn',
             'war_archives_20230525_cn',
             'war_archives_20231026_cn',
             'war_archives_20240725_cn',
         ]:
             name = convert.get(name, name)
-        # 在 A/B/C/D 和 T/HT 之间转换
+        # Преобразование между A/B/C/D и T/HT.
         convert = {
             'a1': 't1',
             'a2': 't2',
@@ -303,7 +348,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             'event_20221124_cn',
             'event_20230525_cn',
             'war_archives_20200917_cn',
-            # T 章节
+            # События с главами T.
             'event_20211125_cn',
             'event_20231026_cn',
             'event_20231123_cn',
@@ -316,7 +361,6 @@ class CampaignRun(CampaignEvent, ShopStatus):
             'event_20250814_cn',
             'event_20251023_cn',
             'event_20260326_cn',
-            'event_20260625_cn',
             'war_archives_20230525_cn',
             'war_archives_20231026_cn',
             'war_archives_20240725_cn',
@@ -325,11 +369,10 @@ class CampaignRun(CampaignEvent, ShopStatus):
         else:
             reverse = {v: k for k, v in convert.items()}
             name = reverse.get(name, name)
-        # 炼金术士与秘密群岛
-        # 处理拼写错误
+        # Событие «Алхимик и таинственные острова»: исправление исторической опечатки.
         if folder == 'event_20221124_cn':
             name = name.replace('ht', 'th')
-        # TH 章节没有 map_percentage 和 3_stars
+        # В главах TH отсутствуют map_percentage и 3_stars.
         if folder == 'event_20221124_cn' and name.startswith('th'):
             if self.config.StopCondition_MapAchievement not in ['non_stop', 'non_stop_clear_all']:
                 logger.info(f'[Кампания — запуск] Для главы TH события event_20221124_cn '
@@ -340,25 +383,25 @@ class CampaignRun(CampaignEvent, ShopStatus):
                 logger.info(f'[Кампания — запуск] Для главы TS события event_20250724_cn '
                             f'StopCondition.MapAchievement принудительно задано как threat_safe')
                 self.config.override(StopCondition_MapAchievement='threat_safe')
-        # event_20211125_cn 的 TSS 地图为限时地图
+        # TSS-карта события event_20211125_cn является ограниченной по времени.
         if folder == 'event_20211125_cn' and 'tss' in name:
             self.config.override(
-                StopCondition_OilLimit=0,  # No oil cost
+                StopCondition_OilLimit=0,  # Нефть не расходуется.
                 StopCondition_MapAchievement='100_percent_clear',
                 StopCondition_StageIncrease=True,
-                Emotion_Mode='ignore',  # No emotion cost
-                Fleet_Fleet2=0,  # Has only one fleet
-                Submarine_Fleet=0,  # No submarine
+                Emotion_Mode='ignore',  # Настроение не расходуется.
+                Fleet_Fleet2=0,  # Доступен только один флот.
+                Submarine_Fleet=0,  # Подлодки недоступны.
             )
-        # event_20230817_cn 剧情状态
+        # Сюжетное состояние события event_20230817_cn.
         if folder == 'event_20230817_cn':
             if name.startswith('e0'):
                 name = 'a1'
-        # event_20240829_cn，TP -> SP
+        # В event_20240829_cn имя TP соответствует SP.
         if folder == 'event_20240829_cn':
             if name == 'tp':
                 name = 'sp'
-        # 关卡循环
+        # Цикл этапов.
         for alias, stages in self.config.STAGE_LOOP_ALIAS.items():
             alias_folder, alias = alias
             if folder == alias_folder and name == alias.lower():
@@ -376,14 +419,14 @@ class CampaignRun(CampaignEvent, ShopStatus):
                                 f'выбран следующий этап по порядку: {stage}')
                 name = stage.lower()
                 self.is_stage_loop = True
-                # 禁用连续通关
+                # Отключить непрерывную зачистку.
                 logger.info('[Кампания — запуск] Непрерывная зачистка отключена')
                 self.config.override(StopCondition_MapAchievement='non_stop')
                 self.config.override(StopCondition_StageIncrease=False)
-        # 如果模式为 hard 且文件存在，将 campaign_main 转换为 campaign_hard
+        # В hard-режиме при наличии файла использовать campaign_hard вместо campaign_main.
         if mode == 'hard' and folder == 'campaign_main' and name in map_files('campaign_hard'):
             folder = 'campaign_hard'
-        # event_20240912_cn 没有 "威胁：安全" 指示器，回退 MapAchievement
+        # В event_20240912_cn нет индикатора «угроза: безопасно», поэтому нужен fallback MapAchievement.
         if folder == 'event_20240912_cn':
             if self.config.StopCondition_MapAchievement == 'threat_safe':
                 logger.info(
@@ -399,70 +442,78 @@ class CampaignRun(CampaignEvent, ShopStatus):
         return name, folder
 
     def can_use_auto_search_continue(self):
-        """检查是否可以继续使用自动搜索。
+        """Проверить, можно ли продолжить текущий автоматический поиск.
 
-        当已在自动搜索菜单中、已完成至少一次运行、且未设置地图成就条件时，
-        可以跳过 ensure_campaign_ui 直接继续自动搜索。
+        Если меню автоматического поиска уже открыто, выполнен хотя бы один запуск
+        и не задано условие достижения карты, повторный ensure_campaign_ui не нужен.
 
-        Returns:
-            bool: 是否可以继续自动搜索。
+        Возвращает:
+            bool: Можно ли продолжить автоматический поиск.
         """
-        # 自动搜索菜单中无法更新地图信息
-        # 如果设置了地图成就则关闭
+        # В меню автоматического поиска нельзя обновить информацию о карте.
+        # При заданном условии достижения карты продолжение запрещено.
         if self.config.StopCondition_MapAchievement != 'non_stop':
             return False
 
         return self.run_count > 0 and self.campaign.map_is_auto_search
 
     def after_campaign_run(self):
-        """单次战役完成后的扩展钩子。"""
+        """Расширяемый hook после завершения одного запуска кампании."""
         pass
 
     def handle_commission_notice(self):
-        """
-        检查委托通知。如果发现委托完成，停止当前任务并调用委托处理。
+        """Обработать уведомление о завершившейся комиссии.
 
-        Raises:
-            TaskEnd: 发现委托通知时抛出。
+        Если обнаружено уведомление, текущая задача останавливается и вызывается
+        обработка комиссий.
 
-        Pages:
-            in: page_campaign
+        Исключения:
+            TaskEnd: выбрасывается после обнаружения уведомления о комиссии.
+
+        Страницы:
+            вход: page_campaign
         """
         if self.config.is_task_enabled('Commission') and self.campaign.commission_notice_show_at_campaign():
             logger.info('[Кампания — запуск] Обнаружено уведомление о комиссии')
             self.config.task_call('Commission')
-            self.config.task_stop('Commission notice found')
+            self.config.task_stop('Обнаружено уведомление о комиссии')
 
     def run(self, name, folder='campaign_main', mode='normal', total=0):
-        """
-        运行战役任务。
+        """Запустить задачу кампании для выбранной карты."""
+        requested_name = to_map_file_name(name)
+        generated_module = self._resolve_generated_campaign_module(
+            folder,
+            requested_name,
+        )
+        if generated_module is None:
+            name, folder = self.handle_stage_name(requested_name, folder, mode=mode)
+            generated_module = self._resolve_generated_campaign_module(folder, name)
+        if generated_module is not None:
+            name = generated_module.rsplit('.', 1)[-1]
 
-        Args:
-            name (str): .py 文件名称。
-            folder (str): campaign 下的文件夹名称。
-            mode (str): `normal` 或 `hard`。
-            total (int): 总运行次数限制。
-        """
-        name, folder = self.handle_stage_name(name, folder, mode=mode)
         self.config.override(Campaign_Name=name, Campaign_Event=folder)
-        self.load_campaign(name, folder=folder)
+        self._campaign_load_route = (folder, name, generated_module)
+        try:
+            self.load_campaign(name, folder=folder)
+        finally:
+            del self._campaign_load_route
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
-            # 结束条件
+            # Условия завершения.
             if total and self.run_count >= total:
                 break
             if self.campaign.event_time_limit_triggered():
                 self.config.task_stop()
 
-            # 日志
+            # Логирование текущего запуска.
             logger.hr(name, level=1)
             if self.config.StopCondition_RunCount > 0:
                 logger.info(f'[Кампания — запуск] Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
                 logger.info(f'[Кампания — запуск] Выполнено запусков: {self.run_count}')
 
-            # 确保 UI 状态
+            # Приведение UI к состоянию выбранной карты.
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             if not self.device.has_cached_image:
@@ -480,7 +531,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
                     logger.info('[Кампания] Открыто меню автопоиска; ensure_campaign_ui пропущен.')
                 else:
                     logger.info('[Кампания] Открыто меню автопоиска; закрываю его.')
-                    # 因为 event_20240725 任务均衡器删除了 self.campaign.ensure_auto_search_exit()
+                    # После task-balancer события event_20240725 выход из автопоиска здесь больше не выполняется отдельно.
                     self.campaign.ensure_campaign_ui(name=self.stage, mode=mode)
             else:
                 self.campaign.ensure_campaign_ui(name=self.stage, mode=mode)
@@ -488,7 +539,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.disable_raid_on_event()
             self.handle_commission_notice()
 
-            # 如果在困难模式，检查剩余次数
+            # В сложном режиме проверяем оставшиеся попытки.
             if self.ui_page_appear(page_campaign) and MODE_SWITCH_1.get(main=self) == 'normal':
                 from module.hard.hard import OCR_HARD_REMAIN
                 remain = OCR_HARD_REMAIN.ocr(self.device.image)
@@ -497,16 +548,16 @@ class CampaignRun(CampaignEvent, ShopStatus):
                     self.config.task_delay(server_update=True)
                     break
 
-            # 结束条件
+            # Условия завершения.
             if self.triggered_stop_condition(oil_check=not self.campaign.is_in_auto_search_menu()):
                 break
 
-            # 更新配置
+            # Сохранение изменённой конфигурации.
             if len(self.config.modified):
                 logger.info('[Кампания — запуск] Конфигурация панели управления обновлена')
                 self.config.update()
 
-            # 运行
+            # Запуск карты.
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             try:
@@ -514,35 +565,35 @@ class CampaignRun(CampaignEvent, ShopStatus):
             except ScriptEnd as e:
                 logger.hr('Сценарий завершён')
                 logger.info(str(e))
-                # 撤退后关闭任务：禁用当前任务，调度器将运行后续任务
+                # После отступления останавливаем задачу и передаём управление планировщику.
                 if str(e) == 'DefeatWithdraw=withdraw_stop':
                     self.config.Scheduler_Enable = False
                 break
 
-            # 更新配置
+            # Сохранение изменений конфигурации карты.
             if len(self.campaign.config.modified):
                 logger.info('[Кампания — запуск] Конфигурация панели управления обновлена')
                 self.campaign.config.update()
-            # 运行后处理
+            # Постобработка завершённого запуска.
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
             self.after_campaign_run()
-            # 结束条件
+            # Условия завершения после запуска.
             if self.triggered_stop_condition(oil_check=False):
                 break
-            # 一次性关卡限制
+            # Ограничение одноразового этапа.
             if self.campaign.config.MAP_IS_ONE_TIME_STAGE:
                 if self.run_count >= 1:
                     logger.hr('Сработало ограничение одноразового этапа')
                     self.campaign.handle_map_stop()
                     break
-            # 关卡循环
+            # Цикл этапов.
             if self.is_stage_loop:
                 if self.run_count >= 1:
                     logger.hr('Сработало переключение этапа в цикле')
                     break
-            # 调度器
+            # Планировщик.
             if self.config.task_switched():
                 self.campaign.ensure_auto_search_exit()
                 self.config.task_stop()

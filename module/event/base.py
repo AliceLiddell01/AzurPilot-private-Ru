@@ -1,30 +1,37 @@
-"""活动战役基础模块。
+"""Базовые инструменты для этапов событий.
 
-提供活动关卡的基类和通用工具，供 CampaignABCD、CampaignSP 等子类继承。
+Модуль предоставляет общий слой для CampaignABCD и CampaignSP:
+- EventStage представляет имя этапа;
+- EventBase загружает карты и приводит имена этапов к текущему источнику;
+- STAGE_FILTER применяет пользовательский фильтр этапов.
 
-主要功能：
-- EventStage: 从活动目录中的 .py 文件名提取关卡名称
-- EventBase: 活动战役基类，提供关卡名称转换和过滤功能
-- STAGE_FILTER: 基于正则的关卡过滤器，用于用户自定义关卡选择
-
-活动地图文件存放在 campaign/{event_name}/ 目录下，
-每个 .py 文件对应一个关卡（如 a1.py, b1.py, sp.py）。
+Для generated-события список этапов берётся из verified-каталога Event artifact.
+Физический каталог campaign/{event_name}/ остаётся fallback только для
+исторических legacy-событий.
 """
 
+import os
 import re
 
 from module.base.filter import Filter
 from module.campaign.run import CampaignRun
+from module.event_datamine.campaign_selector import (
+    EventCampaignSelectorError,
+    generated_stage_target,
+    resolve_generated_campaign_modules,
+)
+from module.exception import RequestHumanTakeover
+from module.handler.fast_forward import to_map_file_name
+from module.logger import logger
 
 STAGE_FILTER = Filter(regex=re.compile('^(.*?)$'), attr=('stage',))
 
 
 class EventStage:
-    """活动关卡文件的封装，从文件名提取关卡名称。"""
+    """Представление этапа события, полученного из имени campaign-модуля."""
 
     def __init__(self, filename):
         self.filename = filename
-        # 从文件名中去掉 .py 后缀作为关卡名
         self.stage = 'unknown'
         if filename[-3:] == '.py':
             self.stage = filename[:-3]
@@ -37,33 +44,71 @@ class EventStage:
 
 
 class EventBase(CampaignRun):
-    """活动战役基类，继承自 CampaignRun。
-
-    提供活动关卡加载、关卡名称转换和关卡过滤等基础功能。
-    """
+    """Базовый исполнитель событий с единым выбором источника этапов."""
 
     def load_campaign(self, *args, **kwargs):
-        """加载战役地图，并强制关闭一次性关卡标记。"""
+        """Загрузить карту и отключить ограничение одноразового этапа для daily-задач."""
         super().load_campaign(*args, **kwargs)
         self.campaign.config.temporary(
             MAP_IS_ONE_TIME_STAGE=False
         )
 
-    def convert_stages(self, stages):
-        """将各种格式的输入转换为正确的关卡名称。
+    def _resolve_generated_stage_catalog(self, selector):
+        """Разрешить generated-каталог или безопасно остановить задачу."""
 
-        支持字符串、EventStage 列表和 Filter 对象三种输入格式，
-        统一调用 handle_stage_name 进行名称规范化。
+        try:
+            return resolve_generated_campaign_modules(selector)
+        except EventCampaignSelectorError as error:
+            logger.error_context(
+                title='Не удалось безопасно разрешить каталог generated-события',
+                reason=str(error),
+                impact=(
+                    'Маршрутизация этапов события остановлена; переход на случайный '
+                    'legacy-каталог запрещён.'
+                ),
+                action=(
+                    'Проверьте Campaign.Event и перегенерируйте Event registry/artifact '
+                    'из актуального source snapshot перед повторным запуском.'
+                ),
+                level=50,
+            )
+            raise RequestHumanTakeover from error
 
-        Args:
-            stages: 待转换的关卡输入，可以是 str、list[EventStage | str] 或 Filter。
+    def available_stages(self):
+        """Вернуть доступные этапы текущего события из безопасного источника.
 
-        Returns:
-            转换后的关卡数据，类型与输入一致。
+        Для generated-события источником является verified-каталог artifact.
+        Физический legacy-каталог используется только как fallback, когда
+        selector не закреплён за generated-событием на текущем сервере.
         """
 
+        selector = self.config.Campaign_Event
+        modules = self._resolve_generated_stage_catalog(selector)
+        if modules is not None:
+            return [EventStage(f'{stage}.py') for stage in modules]
+        return [
+            EventStage(file)
+            for file in os.listdir(f'./campaign/{selector}')
+        ]
+
+    def convert_stages(self, stages):
+        """Привести этапы к именам, соответствующим текущему источнику карт.
+
+        Generated-событие сохраняет канонические имена из verified artifact и
+        не пропускает фильтры через legacy T/HT aliases. Для исторических
+        событий сохраняется прежняя нормализация handle_stage_name().
+        """
+
+        selector = self.config.Campaign_Event
+        modules = self._resolve_generated_stage_catalog(selector)
+
         def convert(n):
-            return self.handle_stage_name(n, folder=self.config.Campaign_Event)[0]
+            if modules is not None:
+                target = generated_stage_target(modules, n)
+                if target is not None:
+                    return target.rsplit('.', 1)[-1]
+                return to_map_file_name(n)
+            return self.handle_stage_name(n, folder=selector)[0]
 
         if isinstance(stages, str):
             return convert(stages)

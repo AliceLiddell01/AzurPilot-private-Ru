@@ -33,12 +33,10 @@ from module.webui.app_event_layout import EventLayoutMixin
 import module.webui.app_event_layout as event_layout
 from tests.event_fixture_helpers import (
     ROOT,
-    artifact_active_time,
     current_fixture_identity,
     production_artifact,
 )
 
-ARGS_PATH = ROOT / "module" / "config" / "argument" / "args.json"
 EVENT_GENERAL_CSS = ROOT / "assets" / "gui" / "css" / "event-general-v2-alas.css"
 
 
@@ -81,13 +79,19 @@ def test_supplemental_validation_rejects_non_integer_map_fields():
 
 
 def _current_selector() -> str:
-    _, server, *_ = current_fixture_identity()
-    args_data = json.loads(ARGS_PATH.read_text(encoding="utf-8"))
-    event_arg = args_data["Event"]["Campaign"]["Event"]
-    options = event_arg.get(f"option_{server.lower()}", [])
-    selectors = [str(item) for item in options if str(item).startswith("event_")]
-    assert selectors
-    return selectors[-1]
+    event_id, server, *_ = current_fixture_identity()
+    registry = json.loads(
+        (ROOT / "module" / "event_datamine" / "data" / "index.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    selectors = [
+        str(item["selector"])
+        for item in registry["campaign_selectors"]
+        if item.get("server") == server and item.get("event_id") == event_id
+    ]
+    assert len(selectors) == 1
+    return selectors[0]
 
 
 def test_generated_campaign_modules_are_derived_from_artifact_metadata():
@@ -110,12 +114,13 @@ def test_generated_campaign_modules_are_derived_from_artifact_metadata():
 def test_legacy_selector_resolves_to_generated_module_from_current_artifact():
     artifact = production_artifact()
     selector = _current_selector()
+    _, server, *_ = current_fixture_identity()
     compatibility_stage = "t1"
     expected = generated_stage_module(artifact, compatibility_stage)
     target = resolve_generated_campaign_module(
         selector,
         compatibility_stage,
-        now=artifact_active_time(artifact),
+        server=server,
     )
 
     assert target == "campaign.generated_event." + ".".join(
@@ -147,7 +152,7 @@ def test_alias_loader_delegates_each_create_module_to_importlib(monkeypatch):
 def test_alias_finder_is_lazy_and_does_not_resolve_unrelated_imports(monkeypatch):
     calls: list[tuple[str, str]] = []
 
-    def fake_resolve(selector, stage, *, now):
+    def fake_resolve(selector, stage):
         calls.append((selector, stage))
         return "campaign.generated_event.fixture.stage"
 
@@ -156,7 +161,7 @@ def test_alias_finder_is_lazy_and_does_not_resolve_unrelated_imports(monkeypatch
         "resolve_generated_campaign_module",
         fake_resolve,
     )
-    finder = _GeneratedEventAliasFinder(now_factory=lambda: artifact_active_time())
+    finder = _GeneratedEventAliasFinder()
 
     assert finder.find_spec("campaign.generated_event.fixture") is None
     assert calls == []

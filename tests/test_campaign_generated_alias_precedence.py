@@ -18,7 +18,7 @@ def test_generated_alias_never_overrides_real_legacy_module(monkeypatch):
         lambda *args, **kwargs: resolve_calls.append((args, kwargs)),
     )
 
-    finder = campaign._GeneratedEventAliasFinder(now_factory=lambda: object())
+    finder = campaign._GeneratedEventAliasFinder()
     result = finder.find_spec(
         "campaign.event_stale.b1",
         path=["/legacy/campaign/event_stale"],
@@ -45,7 +45,7 @@ def test_generated_alias_resolves_only_when_legacy_module_is_absent(monkeypatch)
         lambda resolved: "legacy",
     )
 
-    finder = campaign._GeneratedEventAliasFinder(now_factory=lambda: object())
+    finder = campaign._GeneratedEventAliasFinder()
     result = finder.find_spec(
         "campaign.event_stale.b1",
         path=["/missing/campaign/event_stale"],
@@ -68,7 +68,7 @@ def test_generated_alias_creates_missing_intermediate_selector_package(monkeypat
         lambda *args, **kwargs: resolve_calls.append((args, kwargs)),
     )
 
-    finder = campaign._GeneratedEventAliasFinder(now_factory=lambda: object())
+    finder = campaign._GeneratedEventAliasFinder()
     result = finder.find_spec("campaign.event_stale", path=["/campaign"])
 
     assert result is not None
@@ -85,6 +85,6 @@ def test_generated_alias_never_overrides_real_legacy_selector_package(monkeypatc
         lambda fullname, path=None: real_spec,
     )
 
-    finder = campaign._GeneratedEventAliasFinder(now_factory=lambda: object())
+    finder = campaign._GeneratedEventAliasFinder()
 
     assert finder.find_spec("campaign.event_stale", path=["/campaign"]) is None
