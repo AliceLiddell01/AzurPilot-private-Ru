@@ -9,7 +9,10 @@ from pathlib import Path
 from dev_tools.runtime_russianization_audit import audit_source
 
 ROOT = Path(__file__).resolve().parents[1]
-CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+CJK_RE = re.compile(
+    r"[\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff"
+    r"\U00020000-\U0002a6df]"
+)
 CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 LATIN_WORD_RE = re.compile(r"\b[A-Za-z]{2,}\b")
 URL_RE = re.compile(r"https?://\S+")
