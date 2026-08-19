@@ -9,8 +9,6 @@ SP 关卡通常需要完成所有前置关卡后才可解锁，难度较高但�
 配置路径: Campaign.Name (战役名称)
 """
 
-import os
-
 from module.config.config import TaskEnd
 from module.event.base import EventBase
 from module.exception import RequestHumanTakeover
@@ -28,36 +26,32 @@ class CampaignSP(EventBase):
     """
 
     def run(self, *args, **kwargs):
-        """执行活动 SP 关卡流程。
+        """Выполнить ежедневный SP текущего события один раз."""
 
-        流程：检查 SP 地图文件是否存在 → 执行 SP 关卡 → 延迟到次日。
-        """
-        # 检查当前活动是否包含 SP 关卡
-        if not os.path.exists(f'./campaign/{self.config.Campaign_Event}/sp.py'):
-            logger.info(f'[Событие — SP] Файл ./campaign/{self.config.Campaign_Event}/sp.py не существует')
-            logger.info('В этом событии нет SP; пропуск')
+        stages = self.convert_stages(self.available_stages())
+        if 'sp' not in {str(stage) for stage in stages}:
+            logger.info('[Событие — SP] Проверенный этап SP отсутствует в текущем событии')
+            logger.info('В этом событии нет доступного SP; пропуск')
             self.config.Scheduler_Enable = False
             self.config.task_stop()
 
         try:
             super().run(name=self.config.Campaign_Name, folder=self.config.Campaign_Event, total=1)
         except TaskEnd:
-            # 捕获任务切换，正常中断
+            # Переключение задачи считается штатным завершением.
             pass
         except RequestHumanTakeover:
-            # 每日 SP 已完成或无法进入，延迟到次日
+            # Ежедневный SP уже завершён или недоступен; ждём следующий серверный день.
             logger.info('Ежедневный SP уже завершён или недоступен')
             logger.info('Задача отложена до завтра')
             self.config.task_delay(server_update=True)
             return
 
-        # 根据执行结果决定后续调度
+        # Выбираем дальнейшее расписание по факту завершения запуска.
         if self.run_count > 0:
-            # SP 执行成功，延迟到次日服务器刷新
             logger.info(f'Завершено, run_count={self.run_count}')
             self.config.task_delay(server_update=True)
         else:
-            # SP 未成功执行（可能今日已完成），延迟到次日而非停止
             logger.info('Выполнение не удалось; возможно, SP уже завершён сегодня')
             logger.info('Задача отложена до завтра')
             self.config.task_delay(server_update=True)
