@@ -6,7 +6,7 @@ from threading import Barrier
 import module.webui.event_observation as observation_store
 import module.webui.event_observation_update as observation_update_store
 from module.webui.event_observation import (
-    _current_pt_candidate_is_newer,
+    current_pt_candidate_is_newer,
     event_observation_path,
     load_event_observation,
 )
@@ -103,7 +103,7 @@ def test_equal_pt_timestamp_keeps_existing_evidence(tmp_path):
 
 def test_pt_timestamp_comparison_fails_closed_on_invalid_candidate():
     existing = {"current_pt_observed_at": "2026-08-13T17:02:29+00:00"}
-    assert not _current_pt_candidate_is_newer("invalid", existing)
+    assert not current_pt_candidate_is_newer("invalid", existing)
 
 
 def test_revision_cleanup_removes_only_expired_sibling_snapshots(tmp_path):

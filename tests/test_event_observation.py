@@ -6,6 +6,7 @@ import pytest
 from module.event_datamine.artifact import load_builtin_artifact
 from module.webui import event_source
 from module.webui.event_observation import (
+    current_pt_candidate_is_newer,
     dashboard_pt_observation,
     empty_event_observation,
     event_observation_path,
@@ -15,7 +16,6 @@ from module.webui.event_observation import (
 )
 from module.webui.event_observation_update import persist_current_pt_observation
 from module.webui.event_source import (
-    _current_pt_evidence_is_newer,
     empty_event_user_state,
     event_plan_from_source,
 )
@@ -230,8 +230,12 @@ def test_older_dashboard_evidence_cannot_replace_fresh_event_shop_ocr():
         "current_pt": 42,
     }
 
-    assert not _current_pt_evidence_is_newer(dashboard, stored)
-    assert _current_pt_evidence_is_newer(stored, dashboard)
+    assert not current_pt_candidate_is_newer(
+        dashboard["current_pt_observed_at"], stored
+    )
+    assert current_pt_candidate_is_newer(
+        stored["current_pt_observed_at"], dashboard
+    )
 
 
 def test_matching_runtime_identity_with_older_evidence_has_distinct_finding(monkeypatch):
