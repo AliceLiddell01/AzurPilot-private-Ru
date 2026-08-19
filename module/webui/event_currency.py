@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from module.event_datamine.registry import load_event_artifact_registry
-from module.logger import logger
 from module.webui.event_observation import (
     EVENT_OBSERVATION_ROOT,
     CurrencyEvidenceSource,
@@ -16,7 +15,7 @@ from module.webui.event_observation import (
 from module.webui.event_observation_update import persist_current_pt_transition
 from module.webui.event_shop_priority import (
     EVENT_SHOP_PRIORITY_ROOT,
-    load_event_shop_priority,
+    wake_event_shop_after_currency_increase,
 )
 
 
@@ -29,7 +28,7 @@ def persist_event_currency_update(
     observation_root: Path | str = EVENT_OBSERVATION_ROOT,
     priority_root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> dict[str, Any] | None:
-    """Сохранить PT и разбудить EventShop только после доказанного роста.
+    """Сохранить PT и передать доказанный переход единому wake-контракту EventShop.
 
     Точное предыдущее PT читается под той же блокировкой, под которой
     принимаются новые данные наблюдения. Поэтому конкурентная запись не может
@@ -71,36 +70,14 @@ def persist_event_currency_update(
         return observation
     if str(observation.get("current_pt_status") or "") != "observed":
         return observation
-    if source == "event_shop_ocr":
-        return observation
 
     current_value = normalize_current_pt_value(observation.get("current_pt"))
-    if (
-        previous_value is None
-        or current_value is None
-        or current_value <= previous_value
-    ):
-        return observation
-
-    priority_state = load_event_shop_priority(
-        instance,
-        event_id,
+    wake_event_shop_after_currency_increase(
+        config=config,
+        event_id=event_id,
+        previous_value=previous_value,
+        current_value=current_value,
+        source=source,
         root=priority_root,
     )
-    active = (
-        set(priority_state.get("priorities", {}))
-        - set(priority_state.get("purchased", []))
-        - set(priority_state.get("blocked", {}))
-    )
-    if not active:
-        return observation
-    if not config.is_task_enabled("EventShop"):
-        return observation
-
-    if config.task_call("EventShop", force_call=False):
-        logger.info(
-            "[Магазин события — приоритеты] "
-            f"Баланс PT вырос {previous_value} -> {current_value}; "
-            "EventShop поставлен на ближайший запуск"
-        )
     return observation
