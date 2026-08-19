@@ -342,41 +342,76 @@ def _configured_servers(
     return servers
 
 
-def resolve_generated_campaign_module(
-    selector: str,
+def _load_args_data(args_data: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    if args_data is not None:
+        return args_data
+    try:
+        loaded = json.loads(
+            _DEFAULT_ARGS_PATH.read_text(encoding="utf-8")
+        )
+    except (
+        OSError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        return None
+    return loaded if isinstance(loaded, Mapping) else None
+
+
+def generated_stage_target(
+    modules: Mapping[str, str],
     stage: str,
+) -> str | None:
+    """Сопоставить stage с target из уже проверенного generated-каталога."""
+
+    requested = str(stage or "").strip().lower()
+    if not requested:
+        return None
+    target = modules.get(requested)
+    if target is not None:
+        return target
+
+    canonical = _STAGE_COMPATIBILITY.get(requested)
+    if canonical is not None:
+        target = modules.get(canonical)
+        if target is not None:
+            return target
+
+    reverse = {
+        value: key
+        for key, value in _STAGE_COMPATIBILITY.items()
+    }
+    alternate = reverse.get(requested)
+    if alternate is None:
+        return None
+    return modules.get(alternate)
+
+
+def resolve_generated_campaign_modules(
+    selector: str,
     *,
     now: datetime,
     args_data: Mapping[str, Any] | None = None,
     registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
-) -> str | None:
-    """Разрешить legacy selector в канонический generated-модуль текущего события.
+) -> dict[str, str] | None:
+    """Вернуть verified stage-каталог current generated-события для selector.
 
-    `None` означает, что selector не относится к текущему Event-каталогу либо
-    разрешение неоднозначно. В таком случае стандартный импорт остаётся без
-    изменений.
+    `None` означает, что selector не относится к current generated-событию.
+    Повреждённый или неоднозначный current artifact считается ошибкой: в таком
+    состоянии переход на legacy-карты небезопасен.
     """
 
     selector = str(selector or "").strip()
-    stage = str(stage or "").strip().lower()
-    if not selector.startswith("event_") or not stage:
+    if not selector.startswith("event_"):
         return None
 
-    if args_data is None:
-        try:
-            args_data = json.loads(
-                _DEFAULT_ARGS_PATH.read_text(encoding="utf-8")
-            )
-        except (
-            OSError,
-            TypeError,
-            ValueError,
-            json.JSONDecodeError,
-        ):
-            return None
+    loaded_args = _load_args_data(args_data)
+    if loaded_args is None:
+        return None
     servers = _configured_servers(
         selector,
-        args_data=args_data,
+        args_data=loaded_args,
     )
     if not servers:
         return None
@@ -384,10 +419,10 @@ def resolve_generated_campaign_module(
     # Тяжёлые зависимости registry загружаются только при реальном разрешении
     # campaign stage, а не во время обычного `import campaign`.
     from module.event_datamine.discovery import EventDiscoveryError
-    from module.event_datamine.registry import EventArtifactRegistry
+    from module.event_datamine.registry import load_event_artifact_registry
 
-    registry = EventArtifactRegistry(registry_root)
-    targets: set[str] = set()
+    registry = load_event_artifact_registry(registry_root)
+    catalogs: list[dict[str, str]] = []
     for server in servers:
         try:
             artifact = registry.resolve_current(
@@ -400,23 +435,67 @@ def resolve_generated_campaign_module(
             OSError,
             TypeError,
             ValueError,
-        ):
-            continue
+        ) as exc:
+            raise EventCampaignSelectorError(
+                f"Не удалось безопасно разрешить current Event artifact для {server}"
+            ) from exc
         if artifact is None:
             continue
-        try:
-            module = generated_stage_module(
-                artifact,
-                stage,
-            )
-        except EventCampaignSelectorError:
-            continue
-        path = PurePosixPath(module)
-        targets.add(
-            "campaign.generated_event."
-            + ".".join(path.with_suffix("").parts)
-        )
 
-    if len(targets) != 1:
+        modules = _verified_generated_modules(artifact)
+        catalogs.append({
+            stage: (
+                "campaign.generated_event."
+                + ".".join(PurePosixPath(module).with_suffix("").parts)
+            )
+            for stage, module in modules.items()
+        })
+
+    if not catalogs:
         return None
-    return next(iter(targets))
+
+    first = catalogs[0]
+    if any(catalog != first for catalog in catalogs[1:]):
+        raise EventCampaignSelectorError(
+            "Legacy selector неоднозначно соответствует нескольким current generated событиям"
+        )
+    return first
+
+
+def resolve_generated_campaign_module(
+    selector: str,
+    stage: str,
+    *,
+    now: datetime,
+    args_data: Mapping[str, Any] | None = None,
+    registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
+    strict: bool = True,
+) -> str | None:
+    """Разрешить selector и stage в канонический generated-модуль current event.
+
+    `None` возвращается, когда selector не относится к current generated-событию.
+    Для распознанного current selector неизвестный stage по умолчанию является
+    ошибкой, чтобы runtime не проваливался в одноимённую legacy-карту. Для
+    фильтров и каталогов можно явно передать `strict=False`.
+    """
+
+    stage = str(stage or "").strip().lower()
+    if not stage:
+        return None
+    modules = resolve_generated_campaign_modules(
+        selector,
+        now=now,
+        args_data=args_data,
+        registry_root=registry_root,
+    )
+    if modules is None:
+        return None
+
+    target = generated_stage_target(modules, stage)
+    if target is not None:
+        return target
+    if strict:
+        raise EventCampaignSelectorError(
+            f"Current generated event не содержит проверенный этап {stage!r}"
+        )
+    return None
