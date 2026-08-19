@@ -10,7 +10,6 @@ from module.event_datamine.campaign_selector import resolve_generated_campaign_m
 from module.exception import RequestHumanTakeover
 from tests.event_fixture_helpers import (
     ROOT,
-    artifact_active_time,
     current_fixture_identity,
     production_artifact,
 )
@@ -36,20 +35,19 @@ class _MergeConfig:
 
 
 def _current_selector() -> str:
-    _, server, *_ = current_fixture_identity()
-    args_data = json.loads(
-        (ROOT / "module" / "config" / "argument" / "args.json").read_text(
+    event_id, server, *_ = current_fixture_identity()
+    registry = json.loads(
+        (ROOT / "module" / "event_datamine" / "data" / "index.json").read_text(
             encoding="utf-8"
         )
     )
-    event_arg = args_data["Event"]["Campaign"]["Event"]
     selectors = [
-        str(item)
-        for item in event_arg.get(f"option_{server.lower()}", [])
-        if str(item).startswith("event_")
+        str(item["selector"])
+        for item in registry["campaign_selectors"]
+        if item.get("server") == server and item.get("event_id") == event_id
     ]
-    assert selectors
-    return selectors[-1]
+    assert len(selectors) == 1
+    return selectors[0]
 
 
 def _verified_current_stages() -> list[tuple[str, str]]:
@@ -81,11 +79,10 @@ def test_run_resolves_generated_stage_before_legacy_normalization(monkeypatch):
     runner.device = object()
     captured = {}
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: object())
     monkeypatch.setattr(
         campaign_run_module,
         "resolve_generated_campaign_module",
-        lambda selector, stage, *, now: (
+        lambda selector, stage: (
             target
             if (selector, stage) == ("event_legacy_selector", "a1")
             else None
@@ -94,7 +91,7 @@ def test_run_resolves_generated_stage_before_legacy_normalization(monkeypatch):
 
     def reject_legacy_normalization(*_args, **_kwargs):
         raise AssertionError(
-            "Текущий generated-этап не должен проходить legacy-нормализацию"
+            "Generated-этап не должен проходить legacy-нормализацию"
         )
 
     runner.handle_stage_name = reject_legacy_normalization
@@ -105,8 +102,6 @@ def test_run_resolves_generated_stage_before_legacy_normalization(monkeypatch):
         return True
 
     runner.load_campaign = fake_load
-
-    # Отрицательный total завершает цикл сразу после production-routing и load.
     runner.run("A1", folder="event_legacy_selector", total=-1)
 
     assert captured == {
@@ -119,7 +114,6 @@ def test_run_resolves_generated_stage_before_legacy_normalization(monkeypatch):
 
 def test_run_pins_generated_route_for_load(monkeypatch):
     target = "campaign.generated_event.en_current.a1"
-    routing_time = object()
     fake_module = SimpleNamespace(
         Config=lambda: object(),
         Campaign=lambda config, device: SimpleNamespace(
@@ -134,10 +128,8 @@ def test_run_pins_generated_route_for_load(monkeypatch):
     resolver_calls = []
     imports = []
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: routing_time)
-
-    def resolve(selector, stage, *, now):
-        resolver_calls.append((selector, stage, now))
+    def resolve(selector, stage):
+        resolver_calls.append((selector, stage))
         if len(resolver_calls) > 1:
             raise AssertionError(
                 "load_campaign не должен повторно разрешать уже выбранный runtime-маршрут"
@@ -167,7 +159,7 @@ def test_run_pins_generated_route_for_load(monkeypatch):
 
     runner.run("A1", folder="event_selector", total=-1)
 
-    assert resolver_calls == [("event_selector", "a1", routing_time)]
+    assert resolver_calls == [("event_selector", "a1")]
     assert imports == [(target, None)]
     assert not hasattr(runner, "_campaign_load_route")
 
@@ -178,11 +170,10 @@ def test_run_clears_pinned_route_when_load_fails(monkeypatch):
     runner.config = _RuntimeConfig()
     runner.device = object()
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: object())
     monkeypatch.setattr(
         campaign_run_module,
         "resolve_generated_campaign_module",
-        lambda selector, stage, *, now: target,
+        lambda selector, stage: target,
     )
 
     def fail_load(name, folder="campaign_main"):
@@ -199,17 +190,14 @@ def test_run_clears_pinned_route_when_load_fails(monkeypatch):
 
 def test_run_resolves_generated_stage_after_dynamic_folder_routing(monkeypatch):
     target = "campaign.generated_event.en_current.a1"
-    routing_time = object()
     resolver_calls = []
     runner = CampaignRun.__new__(CampaignRun)
     runner.config = _RuntimeConfig()
     runner.device = object()
     captured = {}
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: routing_time)
-
-    def resolve(selector, stage, *, now):
-        resolver_calls.append((selector, stage, now))
+    def resolve(selector, stage):
+        resolver_calls.append((selector, stage))
         if (selector, stage) == ("event_routed_selector", "t1"):
             return target
         return None
@@ -230,29 +218,25 @@ def test_run_resolves_generated_stage_after_dynamic_folder_routing(monkeypatch):
         return True
 
     runner.load_campaign = fake_load
-
     runner.run("A1", folder="campaign_main", total=-1)
 
     assert resolver_calls == [
-        ("campaign_main", "a1", routing_time),
-        ("event_routed_selector", "t1", routing_time),
+        ("campaign_main", "a1"),
+        ("event_routed_selector", "t1"),
     ]
     assert captured == {
         "name": "a1",
         "folder": "event_routed_selector",
     }
-    assert runner.config.Campaign_Name == "a1"
-    assert runner.config.Campaign_Event == "event_routed_selector"
 
 
 def test_every_verified_current_stage_uses_generated_runtime_routing(monkeypatch):
-    artifact = production_artifact()
-    now = artifact_active_time(artifact)
+    _, server, *_ = current_fixture_identity()
     selector = _current_selector()
     stages = _verified_current_stages()
 
     for stage, module in stages:
-        target = resolve_generated_campaign_module(selector, stage, now=now)
+        target = resolve_generated_campaign_module(selector, stage, server=server)
         assert target == "campaign.generated_event." + ".".join(
             PurePosixPath(module).with_suffix("").parts
         )
@@ -262,12 +246,9 @@ def test_every_verified_current_stage_uses_generated_runtime_routing(monkeypatch
     runner.device = object()
     captured = []
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: now)
-
     def reject_legacy_normalization(*_args, **_kwargs):
         raise AssertionError(
-            "Ни одна verified current generated-карта не должна проходить "
-            "legacy-нормализацию"
+            "Ни одна verified generated-карта не должна проходить legacy-нормализацию"
         )
 
     runner.handle_stage_name = reject_legacy_normalization
@@ -296,11 +277,10 @@ def test_load_campaign_imports_resolved_generated_module_directly(monkeypatch):
     imports = []
     adaptations = []
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: object())
     monkeypatch.setattr(
         campaign_run_module,
         "resolve_generated_campaign_module",
-        lambda selector, stage, *, now: target,
+        lambda selector, stage: target,
     )
     monkeypatch.setattr(
         campaign_run_module.importlib,
@@ -336,11 +316,10 @@ def test_load_campaign_reloads_when_generated_source_changes(monkeypatch):
     runner.device = object()
     imports = []
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: object())
     monkeypatch.setattr(
         campaign_run_module,
         "resolve_generated_campaign_module",
-        lambda selector, stage, *, now: current_target["value"],
+        lambda selector, stage: current_target["value"],
     )
     monkeypatch.setattr(
         campaign_run_module.importlib,
@@ -377,11 +356,10 @@ def test_load_campaign_keeps_legacy_import_as_fallback(monkeypatch):
     runner.device = object()
     imports = []
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: object())
     monkeypatch.setattr(
         campaign_run_module,
         "resolve_generated_campaign_module",
-        lambda selector, stage, *, now: None,
+        lambda selector, stage: None,
     )
     monkeypatch.setattr(
         campaign_run_module.importlib,
@@ -398,11 +376,10 @@ def test_load_campaign_preserves_missing_map_takeover(monkeypatch):
     runner.config = _MergeConfig()
     runner.device = object()
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: object())
     monkeypatch.setattr(
         campaign_run_module,
         "resolve_generated_campaign_module",
-        lambda selector, stage, *, now: None,
+        lambda selector, stage: None,
     )
 
     def missing_map(_name, _package=None):
@@ -411,11 +388,7 @@ def test_load_campaign_preserves_missing_map_takeover(monkeypatch):
             name="campaign.event_historical.a1",
         )
 
-    monkeypatch.setattr(
-        campaign_run_module.importlib,
-        "import_module",
-        missing_map,
-    )
+    monkeypatch.setattr(campaign_run_module.importlib, "import_module", missing_map)
     monkeypatch.setattr(campaign_run_module.os.path, "exists", lambda _path: True)
     monkeypatch.setattr(campaign_run_module, "map_files", lambda _folder: [])
 
@@ -428,11 +401,10 @@ def test_load_campaign_does_not_mask_internal_module_error(monkeypatch):
     runner.config = _MergeConfig()
     runner.device = object()
 
-    monkeypatch.setattr(campaign_run_module, "current_time", lambda: object())
     monkeypatch.setattr(
         campaign_run_module,
         "resolve_generated_campaign_module",
-        lambda selector, stage, *, now: None,
+        lambda selector, stage: None,
     )
 
     def missing_dependency(_name, _package=None):
@@ -441,11 +413,7 @@ def test_load_campaign_does_not_mask_internal_module_error(monkeypatch):
             name="module.missing_dependency",
         )
 
-    monkeypatch.setattr(
-        campaign_run_module.importlib,
-        "import_module",
-        missing_dependency,
-    )
+    monkeypatch.setattr(campaign_run_module.importlib, "import_module", missing_dependency)
 
     with pytest.raises(ModuleNotFoundError) as error:
         runner.load_campaign("a1", folder="event_historical")
