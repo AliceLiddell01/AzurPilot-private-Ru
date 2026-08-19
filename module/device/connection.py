@@ -675,8 +675,8 @@ class Connection(ConnectionAttr):
         else:
             # 创建新的 reverse 转发
             port = random_port(self.config.FORWARD_PORT_RANGE)
-            reverse = ReverseItem(self.serial, f'tcp:{port}', remote)
-            logger.info(f'[Устройство — соединение] Создание обратного перенаправления порта: {reverse}')
+            reverse = ReverseItem(remote, f'tcp:{port}')
+            logger.info(f'[Устройство — соединение] Создание обратного перенаправления: {reverse}')
             self._adb_reverse_transport(reverse.remote, reverse.local)
             return port
 
@@ -721,7 +721,7 @@ class Connection(ConnectionAttr):
                 c.send_command(list_cmd)
                 c.check_okay()
         except AdbError as e:
-            # 移除不存在的 reverse 时不会抛出异常
+            # 移除不存在的转发时不会抛出异常
             # adbutils.errors.AdbError: listener 'tcp:8888' not found
             msg = str(e)
             if re.search(r'listener .*? not found', msg):
