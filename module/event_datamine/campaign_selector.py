@@ -1,15 +1,13 @@
-"""Проверка и разрешение generated-карт текущего события.
+"""Проверка и разрешение generated-карт события по registry binding.
 
 Модуль не читает registry и не импортирует campaign-файлы при собственном
-импорте. Разрешение текущего события выполняется только по явному вызову.
+импорте. Разрешение события выполняется только по явному вызову.
 """
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Mapping
-from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -22,9 +20,6 @@ from module.event_datamine.runtime_policy import (
 
 
 _SAFE_PACKAGE_PART = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_DEFAULT_ARGS_PATH = (
-    Path(__file__).resolve().parents[1] / "config" / "argument" / "args.json"
-)
 _STAGE_COMPATIBILITY = {
     "t1": "a1",
     "t2": "a2",
@@ -308,57 +303,6 @@ def generated_campaign_ui_layout(
     return layout or None
 
 
-def _configured_servers(
-    selector: str,
-    *,
-    args_data: Mapping[str, Any],
-) -> set[str]:
-    node: Any = args_data
-    for key in ("Event", "Campaign", "Event"):
-        if not isinstance(node, Mapping):
-            return set()
-        node = node.get(key, {})
-    if not isinstance(node, Mapping):
-        return set()
-    event_arg = node
-
-    servers: set[str] = set()
-    for key, raw_options in event_arg.items():
-        if (
-            not str(key).startswith("option_")
-            or key == "option_bold"
-        ):
-            continue
-        server = (
-            str(key)
-            .removeprefix("option_")
-            .strip()
-            .upper()
-        )
-        if not server or not isinstance(raw_options, list):
-            continue
-        if selector in {str(item) for item in raw_options}:
-            servers.add(server)
-    return servers
-
-
-def _load_args_data(args_data: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
-    if args_data is not None:
-        return args_data
-    try:
-        loaded = json.loads(
-            _DEFAULT_ARGS_PATH.read_text(encoding="utf-8")
-        )
-    except (
-        OSError,
-        TypeError,
-        ValueError,
-        json.JSONDecodeError,
-    ):
-        return None
-    return loaded if isinstance(loaded, Mapping) else None
-
-
 def generated_stage_target(
     modules: Mapping[str, str],
     stage: str,
@@ -388,95 +332,78 @@ def generated_stage_target(
     return modules.get(alternate)
 
 
+def _runtime_server() -> str:
+    import module.config.server as server_config
+
+    return str(server_config.server or "").strip().upper()
+
+
 def resolve_generated_campaign_modules(
     selector: str,
     *,
-    now: datetime,
-    args_data: Mapping[str, Any] | None = None,
+    server: str | None = None,
     registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
 ) -> dict[str, str] | None:
-    """Вернуть verified stage-каталог current generated-события для selector.
+    """Вернуть verified stage-каталог generated-события для selector.
 
-    `None` означает, что selector не относится к current generated-событию.
-    Повреждённый или неоднозначный current artifact считается ошибкой: в таком
-    состоянии переход на legacy-карты небезопасен.
+    Связь ``(server, selector) -> event_id`` берётся только из Event registry и
+    не зависит от текущей фазы lifecycle. ``None`` означает, что для этого
+    сервера selector не закреплён за generated artifact. Повреждённый binding
+    считается ошибкой: в таком состоянии переход на legacy-карты небезопасен.
     """
 
     selector = str(selector or "").strip()
     if not selector.startswith("event_"):
         return None
 
-    loaded_args = _load_args_data(args_data)
-    if loaded_args is None:
-        return None
-    servers = _configured_servers(
-        selector,
-        args_data=loaded_args,
-    )
-    if not servers:
-        return None
+    normalized_server = str(server or _runtime_server()).strip().upper()
+    if not normalized_server:
+        raise EventCampaignSelectorError(
+            "Не удалось определить сервер для разрешения generated Event selector"
+        )
 
     # Тяжёлые зависимости registry загружаются только при реальном разрешении
     # campaign stage, а не во время обычного `import campaign`.
-    from module.event_datamine.discovery import EventDiscoveryError
     from module.event_datamine.registry import load_event_artifact_registry
 
-    registry = load_event_artifact_registry(registry_root)
-    catalogs: list[dict[str, str]] = []
-    for server in servers:
-        try:
-            artifact = registry.resolve_current(
-                server,
-                now,
-                supplemental=False,
-            )
-        except (
-            EventDiscoveryError,
-            OSError,
-            TypeError,
-            ValueError,
-        ) as exc:
-            raise EventCampaignSelectorError(
-                f"Не удалось безопасно разрешить current Event artifact для {server}"
-            ) from exc
-        if artifact is None:
-            continue
-
-        modules = _verified_generated_modules(artifact)
-        catalogs.append({
-            stage: (
-                "campaign.generated_event."
-                + ".".join(PurePosixPath(module).with_suffix("").parts)
-            )
-            for stage, module in modules.items()
-        })
-
-    if not catalogs:
+    try:
+        registry = load_event_artifact_registry(registry_root)
+        artifact = registry.resolve_campaign_selector(
+            normalized_server,
+            selector,
+        )
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        raise EventCampaignSelectorError(
+            f"Не удалось безопасно разрешить Event selector "
+            f"{normalized_server}:{selector}"
+        ) from exc
+    if artifact is None:
         return None
 
-    first = catalogs[0]
-    if any(catalog != first for catalog in catalogs[1:]):
-        raise EventCampaignSelectorError(
-            "Legacy selector неоднозначно соответствует нескольким current generated событиям"
+    modules = _verified_generated_modules(artifact)
+    return {
+        stage: (
+            "campaign.generated_event."
+            + ".".join(PurePosixPath(module).with_suffix("").parts)
         )
-    return first
+        for stage, module in modules.items()
+    }
 
 
 def resolve_generated_campaign_module(
     selector: str,
     stage: str,
     *,
-    now: datetime,
-    args_data: Mapping[str, Any] | None = None,
+    server: str | None = None,
     registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
     strict: bool = True,
 ) -> str | None:
-    """Разрешить selector и stage в канонический generated-модуль current event.
+    """Разрешить selector и stage в канонический generated-модуль события.
 
-    `None` возвращается, когда selector не относится к current generated-событию.
-    Для распознанного current selector неизвестный stage по умолчанию является
-    ошибкой, чтобы runtime не проваливался в одноимённую legacy-карту. Для
-    фильтров и каталогов можно явно передать `strict=False`.
+    `None` возвращается, когда selector не закреплён за generated-событием для
+    текущего сервера. Для распознанного selector неизвестный stage по умолчанию
+    является ошибкой, чтобы runtime не проваливался в одноимённую legacy-карту.
+    Для фильтров и каталогов можно явно передать `strict=False`.
     """
 
     stage = str(stage or "").strip().lower()
@@ -484,8 +411,7 @@ def resolve_generated_campaign_module(
         return None
     modules = resolve_generated_campaign_modules(
         selector,
-        now=now,
-        args_data=args_data,
+        server=server,
         registry_root=registry_root,
     )
     if modules is None:
