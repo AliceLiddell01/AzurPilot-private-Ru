@@ -427,7 +427,7 @@ WEB_THEME = Theme({
     "web.brace": Style(bold=True),
     "web.bool_true": Style(color="bright_green", italic=True),
     "web.bool_false": Style(color="bright_red", italic=True),
-    "web.none": Style(color="magenta"),
+    "web.none": Style(color="magenta", italic=True),
     "web.path": Style(color="magenta"),
     "web.filename": Style(color="bright_magenta"),
     "web.str": Style(color="green", italic=False, bold=False),
