@@ -70,8 +70,13 @@ def event_spec():
 
 
 def _disable_event_artifact_context(monkeypatch):
-    """Изолировать runtime-flow тесты от production EventArtifactRegistry."""
+    """Изолировать runtime-flow тесты от production-реестра артефактов."""
 
+    monkeypatch.setattr(
+        EventShop,
+        "_current_event_artifact",
+        lambda self: None,
+    )
     monkeypatch.setattr(
         EventShop,
         "_begin_event_shop_pass_context",
@@ -215,6 +220,56 @@ def test_event_shop_pt_updates_dashboard_log(monkeypatch):
 
     assert shop.pt == 5210
     assert recorded == [5210]
+
+
+def test_event_shop_pt_observation_persists_only_changed_value(monkeypatch):
+    values = iter((100, 100, 120))
+    persisted = []
+    spec = {
+        "id": "event-test",
+        "server": "EN",
+        "provenance": {"revision": "d" * 40},
+    }
+    artifact = {"event_spec": spec}
+
+    class FakeLogRes:
+        def __init__(self, config):
+            object.__setattr__(self, "config", config)
+
+        def __setattr__(self, key, value):
+            object.__setattr__(self, key, value)
+
+    class ProbeEventShop(EventShop):
+        def __init__(self):
+            self.config = SimpleNamespace(config_name="probe")
+            self.__dict__["event_shop_has_urpt"] = False
+            self._event_shop_last_persisted_pt = None
+
+        @staticmethod
+        def event_shop_get_pt():
+            return next(values)
+
+        @staticmethod
+        def _current_event_artifact():
+            return artifact
+
+    def persist(**kwargs):
+        persisted.append(kwargs["value"])
+        return {}
+
+    monkeypatch.setattr("module.log_res.log_res.LogRes", FakeLogRes)
+    monkeypatch.setattr(
+        "module.webui.event_observation_update.persist_current_pt_observation",
+        persist,
+    )
+
+    shop = ProbeEventShop()
+    shop.get_current_pts()
+    shop.get_current_pts()
+    shop.get_current_pts()
+
+    assert persisted == [100, 120]
+    assert shop.pt == 120
 
 
 def test_verified_partial_goal_clears_goal_and_priority(monkeypatch, tmp_path):
