@@ -8,6 +8,7 @@ from module.webui.app_event_planner import EventPlannerMixin
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "module" / "webui" / "app.py"
 LAYOUT = ROOT / "module" / "webui" / "app_event_layout.py"
+SHOP_V2 = ROOT / "module" / "webui" / "app_event_shop_v2.py"
 CRITICAL_CSS = ROOT / "assets" / "gui" / "css" / "event-shop-stability-alas.css"
 
 
@@ -84,23 +85,24 @@ def test_event_shop_styles_are_loaded_before_gui_content():
     assert source.index(stability_css) < source.index(gui_start)
 
 
-def test_event_shop_scope_ids_have_critical_layout_without_post_render_js():
+def test_event_shop_scope_ids_have_critical_v2_layout_without_post_render_js():
     css = CRITICAL_CSS.read_text(encoding="utf-8")
 
-    assert "#pywebio-scope-event_shop_grid" in css
+    assert "#pywebio-scope-event_shop_v2_grid" in css
     assert '[id^="pywebio-scope-event_shop_card_"]' in css
-    assert "grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))" in css
+    assert "grid-template-columns: repeat(auto-fit, minmax(205px, 1fr))" in css
     assert "display: flex" in css
+    assert "#pywebio-scope-event_shop_grid" not in css
 
 
-def test_event_shop_icon_box_keeps_square_geometry_when_card_width_changes():
+def test_event_shop_v2_icon_box_has_one_canonical_square_geometry():
     css = CRITICAL_CSS.read_text(encoding="utf-8")
-    marker = ".event-shop-card-visual > img {"
+    marker = ".event-shop-v2-image {"
     block = css.split(marker, 1)[1].split("}", 1)[0]
 
-    assert "height: auto" in block
-    assert "aspect-ratio: 1 / 1" in block
-    assert "height: 112px" not in block
+    assert "width: 88px" in block
+    assert "height: 88px" in block
+    assert "object-fit: contain" in block
 
 
 def test_event_shop_live_values_have_animation_contract():
@@ -127,13 +129,15 @@ def test_event_shop_settings_are_prepared_before_heavy_catalog_render():
     assert method.index(scheduler_render) < method.index(catalog_render)
 
 
-def test_event_shop_layout_exposes_live_value_nodes():
-    source = LAYOUT.read_text(encoding="utf-8")
+def test_event_shop_v2_renderer_exposes_live_value_nodes():
+    source = SHOP_V2.read_text(encoding="utf-8")
 
-    assert 'id="event-shop-plan-total"' in source
-    assert 'id="event-shop-plan-count"' in source
+    assert 'id="event-shop-v2-plan-count"' in source
+    assert 'id="event-shop-v2-plan-cost"' in source
     assert 'id="event-shop-selected-{live_key}"' in source
     assert 'id="event-shop-cost-{live_key}"' in source
+    assert 'id="event-shop-plan-total"' not in source
+    assert 'id="event-shop-plan-count"' not in source
 
 
 def test_shop_item_dom_key_is_stable_and_identity_derived():
