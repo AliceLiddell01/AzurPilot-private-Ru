@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,7 @@ from module.event_datamine.discovery import EventDiscoveryError
 from module.event_datamine.registry import EventArtifactRegistry
 from module.logger import logger
 from module.webui.event_observation import (
+    current_pt_candidate_is_newer,
     load_event_observation,
     observation_is_fresh,
 )
@@ -417,6 +418,11 @@ def load_event_plan_from_artifact(
         and str(runtime_observation.get("source_revision") or "") == revision
     )
     if isinstance(runtime_observation, Mapping):
+        current_pt_observed_at = str(
+            runtime_observation.get("current_pt_observed_at")
+            or runtime_observation.get("observed_at")
+            or ""
+        )
         if not runtime_matches:
             observation.setdefault("findings", []).append(
                 {
@@ -425,11 +431,11 @@ def load_event_plan_from_artifact(
                     "path": "runtime_observation",
                 }
             )
-        elif _current_pt_evidence_is_newer(runtime_observation, observation):
+        elif current_pt_candidate_is_newer(current_pt_observed_at, observation):
             current_pt = runtime_observation.get("current_pt")
-            current_pt_observed_at = str(
-                runtime_observation.get("current_pt_observed_at")
-                or runtime_observation.get("observed_at")
+            current_pt_source = str(
+                runtime_observation.get("current_pt_source")
+                or runtime_observation.get("source")
                 or ""
             )
             current_pt_status = str(
@@ -443,14 +449,16 @@ def load_event_plan_from_artifact(
                     if observation_is_fresh({"observed_at": current_pt_observed_at})
                     else "stale"
                 )
+            if current_pt_candidate_is_newer(
+                current_pt_observed_at,
+                {"current_pt_observed_at": observation.get("observed_at")},
+            ):
+                observation["observed_at"] = current_pt_observed_at
+                observation["source"] = current_pt_source
             observation.update(
                 {
                     "current_pt": current_pt,
-                    "current_pt_source": str(
-                        runtime_observation.get("current_pt_source")
-                        or runtime_observation.get("source")
-                        or ""
-                    ),
+                    "current_pt_source": current_pt_source,
                     "current_pt_observed_at": current_pt_observed_at,
                     "current_pt_status": current_pt_status,
                 }
@@ -464,31 +472,6 @@ def load_event_plan_from_artifact(
                 }
             )
     return event_plan_from_source(spec, load_event_user_state(instance), observation)
-
-
-def _current_pt_evidence_is_newer(
-    candidate: Mapping[str, Any], existing: Mapping[str, Any]
-) -> bool:
-    """Не позволить более старым или равным данным OCR затереть свежую запись."""
-
-    def timestamp(value: Any) -> float | None:
-        try:
-            observed = datetime.fromisoformat(str(value or ""))
-        except ValueError:
-            return None
-        if observed.tzinfo is None:
-            observed = observed.replace(tzinfo=timezone.utc)
-        return observed.timestamp()
-
-    candidate_at = timestamp(
-        candidate.get("current_pt_observed_at") or candidate.get("observed_at")
-    )
-    existing_at = timestamp(
-        existing.get("current_pt_observed_at") or existing.get("observed_at")
-    )
-    return candidate_at is not None and (
-        existing_at is None or candidate_at > existing_at
-    )
 
 
 def load_builtin_event_plan(

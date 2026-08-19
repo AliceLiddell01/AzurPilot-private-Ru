@@ -3,7 +3,11 @@ from datetime import datetime, timedelta, timezone
 from threading import Event
 
 import module.webui.event_observation_update as observation_update_store
-from module.webui.event_observation import load_event_observation
+from module.webui.event_observation import (
+    apply_current_pt_evidence,
+    empty_event_observation,
+    load_event_observation,
+)
 from module.webui.event_observation_update import (
     persist_current_pt_observation,
     persist_current_pt_transition,
@@ -51,6 +55,69 @@ def test_transition_returns_exact_previous_value_from_locked_state(tmp_path):
     assert accepted is True
     assert previous_value == 200
     assert observation["current_pt"] == 150
+
+
+def test_newer_pt_advances_global_observation_clock():
+    base_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    candidate_at = base_at + timedelta(minutes=5)
+    observation = empty_event_observation(
+        "event-test", "EN", "test-instance", "d" * 40
+    )
+    observation.update(
+        {
+            "observed_at": base_at.isoformat(),
+            "source": "event_shop_scanner",
+            "current_pt": 100,
+            "current_pt_source": "dashboard_ocr",
+            "current_pt_observed_at": base_at.isoformat(),
+            "current_pt_status": "observed",
+        }
+    )
+
+    accepted = apply_current_pt_evidence(
+        observation,
+        value=150,
+        timestamp=candidate_at.isoformat(),
+        source="dashboard_ocr",
+    )
+
+    assert accepted is True
+    assert observation["current_pt"] == 150
+    assert observation["current_pt_observed_at"] == candidate_at.isoformat()
+    assert observation["observed_at"] == candidate_at.isoformat()
+    assert observation["source"] == "dashboard_ocr"
+
+
+def test_newer_pt_does_not_roll_back_newer_global_shop_clock():
+    pt_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    candidate_at = pt_at + timedelta(minutes=3)
+    shop_at = pt_at + timedelta(minutes=6)
+    observation = empty_event_observation(
+        "event-test", "EN", "test-instance", "d" * 40
+    )
+    observation.update(
+        {
+            "observed_at": shop_at.isoformat(),
+            "source": "event_shop_scanner",
+            "current_pt": 100,
+            "current_pt_source": "dashboard_ocr",
+            "current_pt_observed_at": pt_at.isoformat(),
+            "current_pt_status": "observed",
+        }
+    )
+
+    accepted = apply_current_pt_evidence(
+        observation,
+        value=150,
+        timestamp=candidate_at.isoformat(),
+        source="dashboard_ocr",
+    )
+
+    assert accepted is True
+    assert observation["current_pt"] == 150
+    assert observation["current_pt_observed_at"] == candidate_at.isoformat()
+    assert observation["observed_at"] == shop_at.isoformat()
+    assert observation["source"] == "event_shop_scanner"
 
 
 def test_pt_and_shop_writers_share_one_read_modify_write_lock(monkeypatch, tmp_path):

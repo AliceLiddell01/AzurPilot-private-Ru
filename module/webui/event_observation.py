@@ -230,7 +230,7 @@ def _pt_evidence_timestamp(value: Any) -> datetime | None:
     return observed.astimezone(timezone.utc)
 
 
-def _current_pt_candidate_is_newer(
+def current_pt_candidate_is_newer(
     candidate_timestamp: Any, existing: Mapping[str, Any]
 ) -> bool:
     """Принимать только доказанно более свежие данные PT; равное время не заменяет запись."""
@@ -253,11 +253,13 @@ def apply_current_pt_evidence(
 ) -> bool:
     """Применить единый контракт выбора и записи свежих данных PT."""
 
-    if not _current_pt_candidate_is_newer(timestamp, observation):
+    if not current_pt_candidate_is_newer(timestamp, observation):
         return False
-    if not observation.get("source"):
+    if current_pt_candidate_is_newer(
+        timestamp,
+        {"current_pt_observed_at": observation.get("observed_at")},
+    ):
         observation["source"] = source
-    if not observation.get("observed_at"):
         observation["observed_at"] = timestamp
     observation["current_pt_source"] = source
     observation["current_pt_observed_at"] = timestamp
