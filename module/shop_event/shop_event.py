@@ -9,7 +9,7 @@ from typing import List, Tuple
 from module.base.decorator import del_cached_property
 from module.base.timer import Timer
 from module.config.time_source import now as current_time
-from module.event_datamine.registry import EventArtifactRegistry
+from module.event_datamine.registry import load_event_artifact_registry
 from module.logger import logger
 from module.shop.assets import NAV_EVENT, NAV_GENERAL
 from module.shop_event.assets import NO_NAV_EVENT_CHECK
@@ -45,23 +45,31 @@ class EventShop(EventShopClerk):
     pt_preserved = 0
     _event_shop_current_artifact = None
     _event_shop_current_artifact_resolved = False
+    _event_shop_last_persisted_pt = None
 
     def _begin_event_shop_pass_context(self):
-        """Разрешить current Event artifact один раз для текущего полного прохода."""
+        """Разрешить текущий артефакт события один раз для полного прохода."""
         self._event_shop_current_artifact_resolved = True
+        self._event_shop_last_persisted_pt = None
         try:
-            self._event_shop_current_artifact = EventArtifactRegistry().resolve_current(
+            self._event_shop_current_artifact = load_event_artifact_registry().resolve_current(
                 "EN", current_time()
             )
         except (OSError, TypeError, ValueError) as exc:
             self._event_shop_current_artifact = None
             logger.warning(
-                f"[Магазин события — контекст] Не удалось разрешить current Event artifact: {exc}"
+                f"[Магазин события — контекст] Не удалось разрешить текущий артефакт события: {exc}"
             )
+        else:
+            if self._event_shop_current_artifact is None:
+                logger.warning(
+                    "[Магазин события — контекст] Текущий артефакт события не разрешён; "
+                    "сохранение и инвалидация наблюдений недоступны"
+                )
         return self._event_shop_current_artifact
 
     def _current_event_artifact(self):
-        """Вернуть artifact текущего прохода, лениво создав контекст вне _run()."""
+        """Вернуть артефакт текущего прохода, лениво создав контекст вне _run()."""
         if not getattr(self, "_event_shop_current_artifact_resolved", False):
             return self._begin_event_shop_pass_context()
         return self._event_shop_current_artifact
@@ -86,7 +94,9 @@ class EventShop(EventShopClerk):
                     ),
                 )
         except (OSError, TypeError, ValueError) as exc:
-            logger.warning(f"[Магазин события — наблюдение] Не удалось инвалидировать snapshot: {exc}")
+            logger.warning(
+                f"[Магазин события — наблюдение] Не удалось инвалидировать снимок: {exc}"
+            )
         return super().event_shop_buy_item(item_to_buy, amount=amount)
 
     def get_current_pts(self):
@@ -109,7 +119,8 @@ class EventShop(EventShopClerk):
             )
 
             artifact = self._current_event_artifact()
-            if artifact is not None:
+            last_persisted = getattr(self, "_event_shop_last_persisted_pt", None)
+            if artifact is not None and last_persisted != self.pt:
                 spec = artifact["event_spec"]
                 persist_current_pt_observation(
                     instance=self.config.config_name,
@@ -121,6 +132,7 @@ class EventShop(EventShopClerk):
                     value=self.pt,
                     source="event_shop_ocr",
                 )
+                self._event_shop_last_persisted_pt = self.pt
         except (OSError, TypeError, ValueError) as exc:
             logger.warning(
                 f"[Магазин события — наблюдение] Не удалось сохранить OCR PT: {exc}"
@@ -289,8 +301,8 @@ class EventShop(EventShopClerk):
 
     def _run(self):
         """Выполнить один полный проход текущей вкладки магазина события."""
-        # Все чтения EventSpec в одном проходе используют один и тот же artifact.
-        # Это исключает повторное чтение registry и расхождение identity внутри прохода.
+        # Все чтения EventSpec в одном проходе используют один и тот же артефакт.
+        # Это исключает повторное чтение реестра и расхождение identity внутри прохода.
         self._begin_event_shop_pass_context()
         self.event_shop_load_ensure()
         # PT — полноценное наблюдение каждого прохода EventShop, включая
@@ -310,9 +322,9 @@ class EventShop(EventShopClerk):
                     runtime_items=items,
                 )
         except (OSError, TypeError, ValueError) as exc:
-            # Наблюдение является дополнительным evidence: сбой его хранилища не
+            # Наблюдение является дополнительным доказательством: сбой его хранилища не
             # должен незаметно менять уже установленную политику покупок EventShop.
-            logger.warning(f"[Магазин события — наблюдение] Не удалось сохранить snapshot: {exc}")
+            logger.warning(f"[Магазин события — наблюдение] Не удалось сохранить снимок: {exc}")
         if not len(items):
             observation_items = getattr(items, "observation_items", items)
             if observation_items:
