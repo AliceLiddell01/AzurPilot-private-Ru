@@ -2,6 +2,7 @@ import json
 from pathlib import Path, PurePosixPath
 
 from dev_tools.event_datamine_build import build_current_event
+from module.event_datamine.artifact import BUILTIN_ARTIFACT_ROOT
 from module.event_datamine.runtime_policy import (
     RUNTIME_POLICY_SCHEMA_VERSION,
     load_generated_runtime_policy,
@@ -22,11 +23,26 @@ from tests.event_fixture_helpers import (
 FIXTURE = CURRENT_FIXTURE_ROOT
 
 
+def _current_selector() -> str:
+    event_id, server, *_ = current_fixture_identity()
+    registry = json.loads(
+        (BUILTIN_ARTIFACT_ROOT / "index.json").read_text(encoding="utf-8")
+    )
+    selectors = [
+        str(item["selector"])
+        for item in registry["campaign_selectors"]
+        if item.get("server") == server and item.get("event_id") == event_id
+    ]
+    assert len(selectors) == 1
+    return selectors[0]
+
+
 def _build(tmp_path: Path, **kwargs):
     _, server, repository, revision, _ = current_fixture_identity()
     return build_current_event(
         source_root=FIXTURE,
         server=server,
+        campaign_selector=_current_selector(),
         repository=repository,
         revision=revision,
         output_root=tmp_path / "data",
