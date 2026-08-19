@@ -12,6 +12,9 @@
   <a href="https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki">
     <img src="https://img.shields.io/badge/Wiki-документация-2f81f7?style=flat-square" alt="Русская Wiki">
   </a>
+  <a href="https://deepwiki.com/AliceLiddell01/AzurPilot-private-Ru">
+    <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
+  </a>
   <img src="https://img.shields.io/badge/телеметрия-удалена-2ea44f?style=flat-square" alt="Телеметрия удалена">
   <img src="https://img.shields.io/badge/Python-3.14.6-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.14.6">
   <img src="https://img.shields.io/badge/PowerShell-7.6-5391FE?style=flat-square&logo=powershell&logoColor=white" alt="PowerShell 7.6">
