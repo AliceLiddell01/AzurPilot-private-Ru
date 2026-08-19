@@ -14,6 +14,7 @@ _CONSOLE_PARENT_NAMES = frozenset(
     {
         "cmd.exe",
         "conhost.exe",
+        "openconsole.exe",
         "powershell.exe",
         "pwsh.exe",
         "windowsterminal.exe",
@@ -115,16 +116,25 @@ def _create_process_tree_job() -> int:
     return int(handle)
 
 
-def _console_parent_process():
-    try:
-        import psutil
+def _console_parent_processes():
+    """Вернуть непрерывную цепочку консольных родителей текущего процесса."""
+    import psutil
 
-        parent = psutil.Process(os.getppid())
-        if parent.name().casefold() not in _CONSOLE_PARENT_NAMES:
-            return None
-        return parent
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        return None
+    try:
+        parent = psutil.Process(os.getpid()).parent()
+    except psutil.Error:
+        return ()
+
+    parents = []
+    while parent is not None:
+        try:
+            if parent.name().casefold() not in _CONSOLE_PARENT_NAMES:
+                break
+            parents.append(parent)
+            parent = parent.parent()
+        except psutil.Error:
+            break
+    return tuple(parents)
 
 
 def _wait_for_console_parent_exit(parent) -> None:
@@ -144,10 +154,10 @@ def install_windows_process_lifetime_guards() -> int | None:
     В Windows корневой ``gui.py`` помещается в Job Object с
     ``KILL_ON_JOB_CLOSE``. Дескриптор намеренно живёт до завершения процесса:
     если сам ``gui.py`` будет убит, Windows закроет дескриптор и завершит всё
-    его дерево. Если непосредственным родителем является консольная оболочка,
-    отдельный поток ждёт её завершения и немедленно завершает ``gui.py``.
+    его дерево. Для непрерывной цепочки консольных родителей запускаются
+    наблюдатели: смерть любого из них немедленно завершает ``gui.py``.
 
-    Возвращает PID отслеживаемой консольной оболочки либо ``None``.
+    Возвращает PID ближайшей отслеживаемой консольной оболочки либо ``None``.
     На других платформах функция ничего не делает.
     """
     global _parent_watch_started
@@ -163,16 +173,16 @@ def install_windows_process_lifetime_guards() -> int | None:
         if _parent_watch_started:
             return None
 
-        parent = _console_parent_process()
-        if parent is None:
+        parents = _console_parent_processes()
+        if not parents:
             return None
 
-        parent_pid = parent.pid
-        threading.Thread(
-            target=_wait_for_console_parent_exit,
-            args=(parent,),
-            daemon=True,
-            name="webui-console-parent-watcher",
-        ).start()
+        for parent in parents:
+            threading.Thread(
+                target=_wait_for_console_parent_exit,
+                args=(parent,),
+                daemon=True,
+                name=f"webui-console-parent-watcher-{parent.pid}",
+            ).start()
         _parent_watch_started = True
-        return parent_pid
+        return parents[0].pid
