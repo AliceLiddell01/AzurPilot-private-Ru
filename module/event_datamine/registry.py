@@ -132,7 +132,13 @@ def write_registry(
     root: Path | str = BUILTIN_ARTIFACT_ROOT,
     *,
     campaign_selector: Mapping[str, Any] | None = None,
+    retired_event_id: str | None = None,
 ) -> Path:
+    if campaign_selector is not None and retired_event_id is not None:
+        raise ValueError(
+            "Нельзя одновременно добавлять selector binding и выводить Event из эксплуатации"
+        )
+
     base = Path(root)
     target = base / EVENT_REGISTRY_NAME
     campaign_selectors: list[dict[str, Any]] = []
@@ -142,6 +148,16 @@ def write_registry(
         )
         campaign_selectors = [
             dict(item) for item in existing["campaign_selectors"]
+        ]
+
+    if retired_event_id is not None:
+        normalized_event_id = str(retired_event_id or "").strip()
+        if not normalized_event_id:
+            raise ValueError("Event identity для retirement не задана")
+        campaign_selectors = [
+            item
+            for item in campaign_selectors
+            if str(item.get("event_id") or "").strip() != normalized_event_id
         ]
 
     if campaign_selector is not None:
@@ -182,11 +198,16 @@ def validate_registry(data: Any) -> dict[str, Any]:
         raise ValueError("Event registry должен быть JSON object")
     result = dict(data)
     if int(result.get("registry_schema_version", 0) or 0) != EVENT_REGISTRY_SCHEMA_VERSION:
-        raise ValueError("Неподдерживаемая версия Event registry")
+        raise ValueError(
+            "Неподдерживаемая версия Event registry. Удалите только generated index.json "
+            "и повторите штатную Event-сборку; artifacts и static assets удалять не нужно."
+        )
     if str(result.get("digest") or "") != registry_digest(result):
         raise ValueError("Digest Event registry не совпадает")
     if not isinstance(result.get("artifacts"), list):
         raise ValueError("Event registry не содержит artifacts")
+    if any(not isinstance(item, Mapping) for item in result["artifacts"]):
+        raise ValueError("Event registry содержит некорректную запись artifacts")
     if not isinstance(result.get("campaign_selectors"), list):
         raise ValueError("Event registry не содержит campaign_selectors")
     result["campaign_selectors"] = _normalize_campaign_selectors(

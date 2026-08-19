@@ -314,6 +314,7 @@ def build_current_event(
                 "campaign_activity_ids": current.campaign_activity_ids,
                 "candidate_count": len(candidates),
             },
+            "generated_package": package,
             "generated_maps": map_records,
         },
     )

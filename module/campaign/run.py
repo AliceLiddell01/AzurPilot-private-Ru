@@ -23,6 +23,7 @@ from module.shop.shop_status import ShopStatus
 from module.campaign.campaign_ui import MODE_SWITCH_1
 from module.config.config import AzurLaneConfig
 from module.event_datamine.campaign_selector import (
+    EventCampaignSelectorError,
     generated_campaign_ui_layout,
     resolve_generated_campaign_module,
 )
@@ -64,6 +65,27 @@ class CampaignRun(CampaignEvent, ShopStatus):
     run_limit: int
     is_stage_loop = False
 
+    def _resolve_generated_campaign_module(self, folder, name):
+        """Разрешить generated route и остановить задачу при невалидном binding."""
+
+        try:
+            return resolve_generated_campaign_module(folder, name)
+        except EventCampaignSelectorError as error:
+            logger.error_context(
+                title='Не удалось безопасно разрешить карту generated-события',
+                reason=str(error),
+                impact=(
+                    'Маршрутизация кампании остановлена; переход на случайную '
+                    'legacy-карту запрещён.'
+                ),
+                action=(
+                    'Проверьте Campaign.Event и перегенерируйте Event registry/artifact '
+                    'из актуального source snapshot перед повторным запуском.'
+                ),
+                level=50,
+            )
+            raise RequestHumanTakeover from error
+
     def load_campaign(self, name, folder='campaign_main'):
         """Загрузить модуль карты кампании.
 
@@ -75,7 +97,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
         if route is not None and route[:2] == (folder, name):
             generated_module = route[2]
         else:
-            generated_module = resolve_generated_campaign_module(folder, name)
+            generated_module = self._resolve_generated_campaign_module(folder, name)
         if generated_module is not None:
             name = generated_module.rsplit('.', 1)[-1]
 
@@ -300,7 +322,6 @@ class CampaignRun(CampaignEvent, ShopStatus):
             'event_20250814_cn',
             'event_20251023_cn',
             'event_20260326_cn',
-            'event_20260625_cn',
             'war_archives_20230525_cn',
             'war_archives_20231026_cn',
             'war_archives_20240725_cn',
@@ -339,7 +360,6 @@ class CampaignRun(CampaignEvent, ShopStatus):
             'event_20250814_cn',
             'event_20251023_cn',
             'event_20260326_cn',
-            'event_20260625_cn',
             'war_archives_20230525_cn',
             'war_archives_20231026_cn',
             'war_archives_20240725_cn',
@@ -422,16 +442,16 @@ class CampaignRun(CampaignEvent, ShopStatus):
         return name, folder
 
     def can_use_auto_search_continue(self):
-        """检查是否可以继续使用自动搜索。
+        """Проверить, можно ли продолжить текущий автоматический поиск.
 
-        当已在自动搜索菜单中、已完成至少一次运行、且未设置地图成就条件时，
-        可以跳过 ensure_campaign_ui 直接继续自动搜索。
+        Если меню автоматического поиска уже открыто, выполнен хотя бы один запуск
+        и не задано условие достижения карты, повторный ensure_campaign_ui не нужен.
 
         Returns:
-            bool: 是否可以继续使用自动搜索。
+            bool: Можно ли продолжить автоматический поиск.
         """
-        # 自动搜索菜单中无法更新地图信息
-        # 如果设置了地图成就则关闭
+        # В меню автоматического поиска нельзя обновить информацию о карте.
+        # При заданном условии достижения карты продолжение запрещено.
         if self.config.StopCondition_MapAchievement != 'non_stop':
             return False
 
@@ -459,10 +479,13 @@ class CampaignRun(CampaignEvent, ShopStatus):
     def run(self, name, folder='campaign_main', mode='normal', total=0):
         """Запустить задачу кампании для выбранной карты."""
         requested_name = to_map_file_name(name)
-        generated_module = resolve_generated_campaign_module(folder, requested_name)
+        generated_module = self._resolve_generated_campaign_module(
+            folder,
+            requested_name,
+        )
         if generated_module is None:
             name, folder = self.handle_stage_name(requested_name, folder, mode=mode)
-            generated_module = resolve_generated_campaign_module(folder, name)
+            generated_module = self._resolve_generated_campaign_module(folder, name)
         if generated_module is not None:
             name = generated_module.rsplit('.', 1)[-1]
 

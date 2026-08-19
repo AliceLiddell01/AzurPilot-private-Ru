@@ -173,6 +173,10 @@ def test_campaign_abcd_runs_generated_stages_from_catalog(monkeypatch):
     runner = CampaignABCD.__new__(CampaignABCD)
     calls = []
     delays = []
+    catalog = {
+        "b1": "campaign.generated_event.en_current.b1",
+        "d1": "campaign.generated_event.en_current.d1",
+    }
 
     class _Filter:
         filter = []
@@ -190,6 +194,18 @@ def test_campaign_abcd_runs_generated_stages_from_catalog(monkeypatch):
         "get_server_last_update",
         lambda _value: datetime(2026, 8, 19, 0, 0, 0),
     )
+    monkeypatch.setattr(
+        event_base_module,
+        "resolve_generated_campaign_modules",
+        lambda selector: catalog if selector == "event_current" else None,
+    )
+
+    def reject_legacy_directory(_path):
+        raise AssertionError(
+            "Generated EventDaily не должен читать физический legacy-каталог"
+        )
+
+    monkeypatch.setattr(event_base_module.os, "listdir", reject_legacy_directory)
 
     runner.config = SimpleNamespace(
         Campaign_Event="event_current",
@@ -203,10 +219,6 @@ def test_campaign_abcd_runs_generated_stages_from_catalog(monkeypatch):
         task_stop=lambda *_args, **_kwargs: None,
         task_switched=lambda: False,
     )
-    runner.available_stages = lambda: [
-        EventStage("b1.py"),
-        EventStage("d1.py"),
-    ]
     runner.convert_stages = lambda value: value
 
     def fake_run(self, *, name, folder, total):
@@ -228,6 +240,22 @@ def test_campaign_sp_uses_generated_catalog_without_physical_sp_file(monkeypatch
     runner = CampaignSP.__new__(CampaignSP)
     calls = []
     delays = []
+    catalog = {
+        "sp": "campaign.generated_event.en_current.sp",
+    }
+
+    monkeypatch.setattr(
+        event_base_module,
+        "resolve_generated_campaign_modules",
+        lambda selector: catalog if selector == "event_current" else None,
+    )
+
+    def reject_legacy_directory(_path):
+        raise AssertionError(
+            "Generated EventSP не должен читать физический legacy-каталог"
+        )
+
+    monkeypatch.setattr(event_base_module.os, "listdir", reject_legacy_directory)
 
     runner.config = SimpleNamespace(
         Campaign_Event="event_current",
@@ -236,7 +264,6 @@ def test_campaign_sp_uses_generated_catalog_without_physical_sp_file(monkeypatch
         task_delay=lambda **kwargs: delays.append(kwargs),
         task_stop=lambda *_args, **_kwargs: None,
     )
-    runner.available_stages = lambda: [EventStage("sp.py")]
     runner.convert_stages = lambda value: value
 
     def fake_run(self, *, name, folder, total):

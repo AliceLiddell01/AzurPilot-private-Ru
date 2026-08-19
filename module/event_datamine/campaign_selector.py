@@ -34,6 +34,9 @@ _STAGE_COMPATIBILITY = {
     "ht5": "d2",
     "ht6": "d3",
 }
+_STAGE_COMPATIBILITY_REVERSE = {
+    value: key for key, value in _STAGE_COMPATIBILITY.items()
+}
 
 
 class EventCampaignSelectorError(ValueError):
@@ -242,27 +245,35 @@ def generated_campaign_package_parts(
     return next(iter(parents))
 
 
+def _stage_target(
+    modules: Mapping[str, str],
+    stage: str,
+) -> str | None:
+    requested = str(stage or "").strip().lower()
+    if not requested:
+        return None
+    for candidate in (
+        requested,
+        _STAGE_COMPATIBILITY.get(requested),
+        _STAGE_COMPATIBILITY_REVERSE.get(requested),
+    ):
+        if candidate is None:
+            continue
+        target = modules.get(candidate)
+        if target is not None:
+            return target
+    return None
+
+
 def generated_stage_module(
     artifact: Mapping[str, Any],
     stage: str,
 ) -> str:
     """Сопоставить имя этапа с каноническим generated module без хардкода события."""
 
-    modules = _verified_generated_modules(artifact)
-    requested = str(stage or "").strip().lower()
-    if requested in modules:
-        return modules[requested]
-
-    canonical = _STAGE_COMPATIBILITY.get(requested)
-    if canonical in modules:
-        return modules[canonical]
-    reverse = {
-        value: key
-        for key, value in _STAGE_COMPATIBILITY.items()
-    }
-    alternate = reverse.get(requested)
-    if alternate in modules:
-        return modules[alternate]
+    target = _stage_target(_verified_generated_modules(artifact), stage)
+    if target is not None:
+        return target
     raise EventCampaignSelectorError(
         f"Generated maps не содержат этап {stage!r}"
     )
@@ -309,27 +320,7 @@ def generated_stage_target(
 ) -> str | None:
     """Сопоставить stage с target из уже проверенного generated-каталога."""
 
-    requested = str(stage or "").strip().lower()
-    if not requested:
-        return None
-    target = modules.get(requested)
-    if target is not None:
-        return target
-
-    canonical = _STAGE_COMPATIBILITY.get(requested)
-    if canonical is not None:
-        target = modules.get(canonical)
-        if target is not None:
-            return target
-
-    reverse = {
-        value: key
-        for key, value in _STAGE_COMPATIBILITY.items()
-    }
-    alternate = reverse.get(requested)
-    if alternate is None:
-        return None
-    return modules.get(alternate)
+    return _stage_target(modules, stage)
 
 
 def _runtime_server() -> str:
@@ -422,6 +413,6 @@ def resolve_generated_campaign_module(
         return target
     if strict:
         raise EventCampaignSelectorError(
-            f"Current generated event не содержит проверенный этап {stage!r}"
+            f"Текущее generated-событие не содержит проверенный этап {stage!r}"
         )
     return None

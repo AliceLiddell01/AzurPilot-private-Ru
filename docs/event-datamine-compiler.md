@@ -61,7 +61,7 @@ Event-specific CV-шаблоны не регистрируются вручну�
 
 ## Raw artifact и runtime composite
 
-Production registry читает generated [`index.json`](../module/event_datamine/data/index.json), выбирает единственный active или redemption artifact по server-local lifecycle и исключает роль `demo`. Несколько подходящих событий дают fail-closed ambiguity. Raw EN artifact хранится в [`data/production/`](../module/event_datamine/data/production/) и не выбирается по имени, activity ID или view class.
+Production registry читает generated [`index.json`](../module/event_datamine/data/index.json). Runtime identity для configured Event берётся из declarative binding `(server, selector) -> event_id`, а lifecycle используется отдельно для current-event задач и decommission. Несколько active/redemption production events без явного selector-контракта дают fail-closed ambiguity. Raw EN artifact хранится в [`data/production/`](../module/event_datamine/data/production/) и не выбирается по имени, activity ID или view class.
 
 Raw artifact остаётся неизменяемым результатом компиляции ShareCfg: его digest, `provenance.revision` и `source_status` описывают только этот source snapshot. В частности, supplemental-данные не переписывают committed `production/*.json` и не маскируют ограничения самого datamine.
 
@@ -70,6 +70,31 @@ Raw artifact остаётся неизменяемым результатом к
 Это разделение важно для наблюдений: WebUI, EventShop scanner и OCR используют одну composite revision. Наблюдение, полученное для старого raw/supplemental набора, не может незаметно попасть в новый набор данных как будто источник не изменился. `EventArtifactRegistry.get()` и `resolve_current(..., supplemental=False)` по-прежнему дают raw artifact для сборки, аудита и regression tests.
 
 Встроенный [`rose_tower.json`](../module/event_datamine/data/rose_tower.json) остаётся детерминированным historical golden/demo, а не production default и не live-сетевым cache.
+
+## Event platform, overlay и controlled retirement
+
+Event-система разделена по ownership:
+
+- **platform** — generic registry/resolver/compiler/runtime routing, `EventBase`, generic campaign orchestration и validators; этот слой не знает identity текущего event;
+- **overlay** — production artifact, selector binding, supplemental/compatibility data и generated campaign package конкретного события;
+- **assets** — reusable static files в `assets/...`; они не принадлежат lifecycle события только потому, что впервые понадобились в нём.
+
+Нормальная смена события не требует правки `CampaignRun`, resolver или generic Event classes: новый artifact и selector binding подключаются через тот же registry contract. Builder сохраняет `generated_package` в metadata artifact, чтобы overlay можно было вывести из эксплуатации без угадывания package по event identity.
+
+Lifecycle retirement выполняется только после `shop_end`, когда `artifact_lifecycle(...) == "expired"`. `farm_end` завершает farming, но не redemption/shop период. Обычный runtime никогда не удаляет repository data и не меняет Git checkout по времени.
+
+Явная repository/build операция `module.event_datamine.retirement.retire_event_overlay(...)`:
+
+1. требует однозначный production `event_id` и явно переданный `now`;
+2. fail-closed отклоняет `upcoming`, `active` и `redemption`;
+3. удаляет только artifact, его selector bindings, supplemental/compatibility data и доказанно принадлежащий ему generated package;
+4. пересобирает `index.json` и `assets.json`;
+5. проверяет, что другой event не использует тот же generated package;
+6. **не удаляет static assets** и не обходит неизвестные source files рекурсивной очисткой.
+
+Повторный retirement уже отсутствующего event намеренно fail-closed. Это не runtime recovery и не compatibility shim.
+
+`index.json` — generated metadata. Legacy schema v1 не мигрируется постоянным converter-слоем: при несовместимой версии нужно удалить только устаревший generated `index.json` и повторить штатную Event-сборку. Production artifacts и static assets для этого удалять не требуется.
 
 ## Проверяемый supplemental-слой
 
@@ -126,13 +151,14 @@ Runtime не обращается к Wiki или другим внешним с�
 
 ```powershell
 uv run python -m dev_tools.event_datamine_build `
-  --source-root C:\path\to\AzurLaneLuaScripts `
+  --source-root C:\\path\\to\\AzurLaneLuaScripts `
   --server EN `
+  --campaign-selector <event-selector> `
   --revision <full-sha> `
   --current `
   --now <server-local-iso-datetime> `
-  --output-root .\module\event_datamine\data `
-  --maps-output .\campaign\generated_event `
+  --output-root .\\module\\event_datamine\\data `
+  --maps-output .\\campaign\\generated_event `
   --overwrite
 ```
 
@@ -140,12 +166,12 @@ uv run python -m dev_tools.event_datamine_build `
 
 ```powershell
 uv run python -m dev_tools.event_datamine_fixture `
-  --source-root C:\path\to\AzurLaneLuaScripts `
+  --source-root C:\\path\\to\\AzurLaneLuaScripts `
   --server EN `
   --repository AzurLaneTools/AzurLaneLuaScripts `
   --revision <full-sha> `
   --now <server-local-iso-datetime> `
-  --output .\tests\fixtures\event_datamine\current_en
+  --output .\\tests\\fixtures\\event_datamine\\current_en
 ```
 
 Исторический extractor с явным activity ID остаётся инструментом golden/regression. `--maps-output` включается отдельно. Map modules не генерируются, если structural artifact содержит blocking findings или если обязательная runtime-policy карты не подтверждена.
