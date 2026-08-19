@@ -277,10 +277,10 @@ class GuildLogistics(GuildBase):
         if np.max(color) > np.mean(color) + 25:
             # For members, click to receive supply
             # For leaders, click to buy supply and receive supply
-            logger.info('[Гильдия — логистика] Кнопка снабжения гильдии активна')
+            logger.debug('[Гильдия — логистика] Кнопка снабжения гильдии активна')
             return True
         else:
-            logger.info('[Гильдия — логистика] Кнопка снабжения гильдии неактивна')
+            logger.debug('[Гильдия — логистика] Кнопка снабжения гильдии неактивна')
             return False
 
     def _handle_guild_fleet_mission_start(self):

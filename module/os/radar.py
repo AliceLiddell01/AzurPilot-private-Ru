@@ -246,7 +246,7 @@ class Radar:
     def show(self):
         for y in range(*self.shape[1]):
             text = ' '.join([self[(x, y)].str if (x, y) in self else '  ' for x in range(*self.shape[0])])
-            logger.info(text)
+            logger.debug(text)
 
     def predict(self, image):
         """

@@ -66,6 +66,18 @@ class Homography:
         self.config = config
         self.homo_loaded = False
 
+    def _log_detection(self, message):
+        if self.config.Scheduler_Command.startswith('Opsi'):
+            logger.debug(message)
+        else:
+            logger.info(message)
+
+    def _log_detection_attr(self, name, text):
+        if self.config.Scheduler_Command.startswith('Opsi'):
+            logger.debug(f'[Карта — гомография] {name}: {text}')
+        else:
+            logger.attr_align(name, text)
+
     @cached_property
     def ui_mask_homo_stroke(self):
         if self.config.Scheduler_Command.startswith('Opsi'):
@@ -211,11 +223,11 @@ class Homography:
 
         # 日志输出
         time_cost = round(time.time() - start_time, 3)
-        logger.info('[Карта — гомография] %s с  %s   Линии краёв: %s горизонтальных, %s вертикальных' % (
+        self._log_detection('[Карта — гомография] %s с  %s   Линии краёв: %s горизонтальных, %s вертикальных' % (
             float2str(time_cost), '_' if self.lower_edge else ' ',
             self._map_edge_count[1], self._map_edge_count[0])
                     )
-        logger.info('[Карта — гомография] Края: %s%s%s   Позиция гомографии: %s' % (
+        self._log_detection('[Карта — гомография] Края: %s%s%s   Позиция гомографии: %s' % (
             '/' if self.left_edge else ' ', '_' if self.upper_edge else ' ', '\\' if self.right_edge else ' ',
             point2str(*self.homo_loca, length=3))
                     )
@@ -252,7 +264,7 @@ class Homography:
             message = 'bad match'
 
         # print(self.homo_loca % self.config.HOMO_TILE)
-        logger.attr_align('Центры клеток', f'{float2str(similarity)} ({message})')
+        self._log_detection_attr('Центры клеток', f'{float2str(similarity)} ({message})')
         return message != 'bad match'
 
     def search_tile_corner(self, image, threshold=0.8, encourage=1.0):
@@ -287,7 +299,7 @@ class Homography:
             message = 'bad match'
 
         # print(self.homo_loca % self.config.HOMO_TILE)
-        logger.attr_align('Углы клеток', f'{float2str(similarity)} ({message})')
+        self._log_detection_attr('Углы клеток', f'{float2str(similarity)} ({message})')
         return message != 'bad match'
 
     def search_tile_rectangle(self, image, threshold=10, encourage=5.1, close_kernel=(5, 10, 15, 20, 25)):
@@ -331,7 +343,7 @@ class Homography:
             message = 'bad match'
 
         # print(self.homo_loca % self.config.HOMO_TILE)
-        logger.attr_align('Прямоугольники клеток', f'{len(location)} прямоугольников ({message})')
+        self._log_detection_attr('Прямоугольники клеток', f'{len(location)} прямоугольников ({message})')
         return message != 'bad match'
 
     def detect_edges(self, image, hough_th=120, theta_th=0.005, edge_th=9):

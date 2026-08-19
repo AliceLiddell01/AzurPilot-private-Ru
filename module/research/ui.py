@@ -169,7 +169,7 @@ class ResearchUI(UI):
             else:
                 out.append('unknown')
 
-        logger.info(f'[Исследование — состояние] Состояние исследования: {out}')
+        logger.debug(f'[Исследование — состояние] Состояние исследования: {out}')
         return out
 
     def is_research_stabled(self):
