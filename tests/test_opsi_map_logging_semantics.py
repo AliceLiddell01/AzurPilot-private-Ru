@@ -71,6 +71,7 @@ class TestOpsiViewLoggingSemantics(unittest.TestCase):
 
         with (
             patch('module.map_detection.view.logger.debug') as debug,
+            patch('module.map_detection.view.logger.info') as info,
             patch('module.map_detection.view.logger.attr_align') as attr_align,
         ):
             result = view.predict()
@@ -79,6 +80,7 @@ class TestOpsiViewLoggingSemantics(unittest.TestCase):
         grid.predict.assert_called_once_with()
         debug.assert_called_once()
         self.assertIn('Распознано клеток: 1', debug.call_args.args[0])
+        info.assert_not_called()
         attr_align.assert_not_called()
 
 
