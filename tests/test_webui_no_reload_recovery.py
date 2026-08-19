@@ -129,7 +129,9 @@ parent_pid = install_windows_process_lifetime_guards()
 grandchild = subprocess.Popen(
     [sys.executable, "-c", "import time; time.sleep(60)"],
 )
-Path(sys.argv[1]).write_text(
+state_path = Path(sys.argv[1])
+temp_state_path = state_path.with_suffix(".tmp")
+temp_state_path.write_text(
     json.dumps(
         {
             "root_pid": os.getpid(),
@@ -140,6 +142,7 @@ Path(sys.argv[1]).write_text(
     ),
     encoding="utf-8",
 )
+os.replace(temp_state_path, state_path)
 while True:
     time.sleep(1)
 """.lstrip(),
