@@ -6,7 +6,7 @@
 核心功能：
 - 地图滑动：通过滑动向量控制相机在地图上移动
 - 视图更新：通过透视检测（Perspective Detection）解析当前视野中的网格信息
-- 坐标转换：全局坐标（map 坐标）与局部坐标（view 坐标）之间的转换
+- 坐标转换：全局坐标（map 坐标）与局部坐标（view 坐标）的相互转换
 - 全图扫描：系统性地扫描整个地图，发现所有敌人和事件
 - 错误恢复：处理各种检测错误（信息栏遮挡、弹窗、剧情等）
 
@@ -291,7 +291,7 @@ class Camera(MapOperation):
 
         Args:
             camera (bool): 为 True 时更新相机位置和透视数据。
-            wait_swipe (bool): 为 True时等待相机到达格子中心。
+            wait_swipe (bool): 为 True 时等待相机到达格子中心。
             allow_error (bool): 为 True 时遇到检测错误则退出。
         """
         error_confirm = Timer(5, count=10).start()
