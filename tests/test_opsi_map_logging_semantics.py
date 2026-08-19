@@ -111,6 +111,35 @@ class TestGlobeDetectionLoggingSemantics(unittest.TestCase):
         self.assertEqual(2, debug.call_count)
         warning.assert_not_called()
 
+    def test_low_similarity_keeps_warning(self):
+        detector = GlobeDetection.__new__(GlobeDetection)
+        detector.config = SimpleNamespace(
+            OS_LOCAL_FIND_PEAKS_PARAMETERS={},
+            OS_GLOBE_IMAGE_RESIZE=1,
+            OS_GLOBE_IMAGE_PAD=0,
+        )
+        detector.globe = np.zeros((2, 2), dtype=np.uint8)
+        detector.homo_center = np.array([0, 0])
+        detector.load_globe_map = Mock(return_value=False)
+        detector.find_peaks = Mock(return_value=np.zeros((2, 2), dtype=np.uint8))
+        detector.perspective_transform = Mock(return_value=np.zeros((2, 2), dtype=np.uint8))
+
+        with (
+            patch('module.os.globe_detection.cv2.resize', side_effect=lambda image, *_args, **_kwargs: image),
+            patch('module.os.globe_detection.cv2.matchTemplate', return_value=np.zeros((1, 1), dtype=np.float32)),
+            patch('module.os.globe_detection.cv2.minMaxLoc', return_value=(0.0, 0.05, (0, 0), (1, 2))),
+            patch('module.os.globe_detection.logger.debug') as debug,
+            patch('module.os.globe_detection.logger.warning') as warning,
+        ):
+            result = detector.load(np.zeros((2, 2), dtype=np.uint8))
+
+        self.assertIsNone(result)
+        self.assertEqual((1.0, 2.0), detector.center_loca)
+        self.assertEqual(2, debug.call_count)
+        warning.assert_called_once_with(
+            '[Операция «Сирена» — распознавание] Слишком низкое сходство при сопоставлении с картой глобуса'
+        )
+
 
 class _SingleZoneCollection:
     def __init__(self, zone):
