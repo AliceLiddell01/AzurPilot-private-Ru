@@ -151,14 +151,14 @@ Runtime не обращается к Wiki или другим внешним с�
 
 ```powershell
 uv run python -m dev_tools.event_datamine_build `
-  --source-root C:\\path\\to\\AzurLaneLuaScripts `
+  --source-root C:\path\to\AzurLaneLuaScripts `
   --server EN `
   --campaign-selector <event-selector> `
   --revision <full-sha> `
   --current `
   --now <server-local-iso-datetime> `
-  --output-root .\\module\\event_datamine\\data `
-  --maps-output .\\campaign\\generated_event `
+  --output-root .\module\event_datamine\data `
+  --maps-output .\campaign\generated_event `
   --overwrite
 ```
 
@@ -166,12 +166,12 @@ uv run python -m dev_tools.event_datamine_build `
 
 ```powershell
 uv run python -m dev_tools.event_datamine_fixture `
-  --source-root C:\\path\\to\\AzurLaneLuaScripts `
+  --source-root C:\path\to\AzurLaneLuaScripts `
   --server EN `
   --repository AzurLaneTools/AzurLaneLuaScripts `
   --revision <full-sha> `
   --now <server-local-iso-datetime> `
-  --output .\\tests\\fixtures\\event_datamine\\current_en
+  --output .\tests\fixtures\event_datamine\current_en
 ```
 
 Исторический extractor с явным activity ID остаётся инструментом golden/regression. `--maps-output` включается отдельно. Map modules не генерируются, если structural artifact содержит blocking findings или если обязательная runtime-policy карты не подтверждена.
