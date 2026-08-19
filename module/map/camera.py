@@ -17,6 +17,7 @@
 """
 
 import copy
+import logging
 
 import numpy as np
 
@@ -37,6 +38,8 @@ from module.os.assets import GLOBE_GOTO_MAP
 from module.os_handler.assets import AUTO_SEARCH_REWARD, GET_ADAPTABILITY, MISSION_CHECK as OPSI_MISSION_CHECK
 from module.os_shop.assets import PORT_SUPPLY_CHECK
 from module.ui.assets import BACK_ARROW
+
+_MAP_OUTSIDE_WARNING_KEY = ('map-camera', 'outside-map')
 
 
 class Camera(MapOperation):
@@ -107,7 +110,7 @@ class Camera(MapOperation):
         Returns:
             bool: 相机是否移动了。
         """
-        logger.info('[Карта — камера] Сдвиг карты: %s' % str(vector))
+        logger.debug('[Карта — камера] Сдвиг карты: %s' % str(vector))
         self._prev_view = copy.copy(self.view)
         self._prev_swipe = vector
         vector = np.array(vector)
@@ -144,8 +147,15 @@ class Camera(MapOperation):
                     and not self.is_in_strategy_submarine_move() \
                     and not self.is_in_strategy_mob_move() \
                     and not self.is_in_strategy_air_strike():
-                logger.warning('[Карта — камера] Проверяемое изображение не относится к карте')
+                message = '[Карта — камера] Проверяемое изображение не относится к карте'
+                logger.log_suppressed(
+                    logging.WARNING,
+                    message,
+                    key=_MAP_OUTSIDE_WARNING_KEY,
+                    payload=message,
+                )
                 raise MapDetectionError('Проверяемое изображение не находится в состоянии in_map')
+            logger.finish_suppressed(_MAP_OUTSIDE_WARNING_KEY)
             self.view.load(self.device.image)
         except MapDetectionError as e:
             if self.info_bar_count():

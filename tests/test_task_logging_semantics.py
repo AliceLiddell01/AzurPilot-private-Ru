@@ -282,7 +282,7 @@ class TestOpsiMapLoggingSemantics(unittest.TestCase):
         self.assertEqual(["A B", "C D"], [call.args[0] for call in debug.call_args_list])
         info.assert_not_called()
 
-    def test_campaign_ascii_snapshot_keeps_existing_info_contract(self):
+    def test_campaign_ascii_snapshot_moves_to_debug(self):
         view = self._view("main")
         with (
             patch("module.map_detection.view.logger.debug") as debug,
@@ -290,8 +290,8 @@ class TestOpsiMapLoggingSemantics(unittest.TestCase):
         ):
             view.show()
 
-        debug.assert_not_called()
-        self.assertEqual(["A B", "C D"], [call.args[0] for call in info.call_args_list])
+        self.assertEqual(["A B", "C D"], [call.args[0] for call in debug.call_args_list])
+        info.assert_not_called()
 
 
 if __name__ == "__main__":

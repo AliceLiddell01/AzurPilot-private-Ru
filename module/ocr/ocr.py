@@ -1,5 +1,6 @@
 """OCR-распознаватели текста, чисел, счётчиков и длительности。"""
 
+import logging
 import re
 import time
 from datetime import timedelta
@@ -235,15 +236,26 @@ class DigitCounter(Ocr):
     def ocr(self, image, direct_ocr=False):
         result_list = super().ocr(image, direct_ocr=direct_ocr)
         result = result_list[0] if isinstance(result_list, list) else result_list
+        suppression_key = (
+            "ocr-counter-invalid",
+            type(self).__name__,
+            self.name or repr(self.buttons),
+        )
 
         result = re.search(r"(\d+)/(\d+)", result)
         if result:
+            logger.finish_suppressed(suppression_key)
             result = [int(s) for s in result.groups()]
             current, total = int(result[0]), int(result[1])
             current = min(current, total)
             return current, total - current, total
         else:
-            logger.warning(f"[OCR] Неожиданный результат счётчика: {result_list}")
+            logger.log_suppressed(
+                logging.WARNING,
+                f"[OCR] Неожиданный результат счётчика: {result_list}",
+                key=suppression_key,
+                payload=result_list,
+            )
             return 0, 0, 0
 
 

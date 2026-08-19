@@ -42,10 +42,7 @@ class View(MapDetector):
         return tuple(item) in self.grids
 
     def _log_detection(self, message):
-        if self.mode == 'os':
-            logger.debug(message)
-        else:
-            logger.info(message)
+        logger.debug(message)
 
     def show(self):
         for y in range(self.shape[1] + 1):
@@ -81,10 +78,7 @@ class View(MapDetector):
             raise MapDetectionError('Клетки карты не найдены')
         offset = np.min(offset, axis=0)
         if np.sum(np.abs(offset)) > 0:
-            if self.mode == 'os':
-                self._log_detection(f'[Распознавание карты — обзор] Смещение сетки: {tuple(offset.tolist())}')
-            else:
-                logger.attr_align('grids_offset', tuple(offset.tolist()))
+            self._log_detection(f'[Распознавание карты — обзор] Смещение сетки: {tuple(offset.tolist())}')
             self.grids = {}
             for loca, grid in grids.items():
                 x, y = np.subtract(loca, offset)
@@ -100,10 +94,7 @@ class View(MapDetector):
             points = grid.grid2screen(np.add([[0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]], offset))
             self.swipe_base = np.array([np.linalg.norm(points[0] - points[1]), np.linalg.norm(points[2] - points[3])])
             self.center_loca = tuple(np.add(loca, offset).tolist())
-            if self.mode == 'os':
-                self._log_detection(f'[Распознавание карты — обзор] Центр обзора: {self.center_loca}')
-            else:
-                logger.attr_align('center_loca', self.center_loca)
+            self._log_detection(f'[Распознавание карты — обзор] Центр обзора: {self.center_loca}')
             if self.center_loca in self:
                 self.center_offset = self.grids[self.center_loca].screen2grid([self.config.SCREEN_CENTER])[0]
             else:
@@ -119,12 +110,9 @@ class View(MapDetector):
         for grid in self:
             grid.predict()
         time_cost = float2str(time.time() - start_time)
-        if self.mode == 'os':
-            self._log_detection(
-                f'[Распознавание карты — обзор] Распознано клеток: {len(self.grids.keys())} (время {time_cost} с)'
-            )
-        else:
-            logger.attr_align('predict', len(self.grids.keys()), front=time_cost + 's')
+        self._log_detection(
+            f'[Распознавание карты — обзор] Распознано клеток: {len(self.grids.keys())} (время {time_cost} с)'
+        )
 
     def update(self, image):
         """更新所有网格的图像。

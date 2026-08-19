@@ -59,7 +59,7 @@ class AppControl(Adb, WSA, Uiautomator2):
             bool: 应用在前台运行返回 True。
         """
         package = self.app_current()
-        logger.attr('Пакет приложения', package)
+        logger.debug(f'[Пакет приложения] {package}')
         return package == self.package
 
     def app_start(self):
