@@ -163,6 +163,26 @@ def test_retirement_get_items_falls_back_to_template(monkeypatch):
     assert len(clear_calls) == 2
 
 
+def test_retirement_get_items_clears_offset_after_failed_detection(monkeypatch):
+    retirement = _retirement_without_runtime()
+    appear_calls = []
+    clear_calls = []
+
+    def appear(button, **kwargs):
+        appear_calls.append((button, kwargs))
+        return False
+
+    monkeypatch.setattr(retirement, 'appear', appear)
+    monkeypatch.setattr(GET_ITEMS_1, 'clear_offset', lambda: clear_calls.append(True))
+
+    assert retirement._retirement_get_items_appear() is False
+    assert appear_calls == [
+        (GET_ITEMS_1, {'interval': 2, 'threshold': 20}),
+        (GET_ITEMS_1, {'offset': (30, 30), 'interval': 2}),
+    ]
+    assert len(clear_calls) == 3
+
+
 def test_retirement_confirm_finishes_no_equipment_without_global_timeout(monkeypatch):
     _FakeTimer.instances = []
     retirement = _retirement_without_runtime()
