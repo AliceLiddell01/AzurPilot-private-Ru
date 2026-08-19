@@ -131,7 +131,7 @@ class View(MapDetector):
             **kwargs: 网格属性键值对。
 
         Returns:
-            SelectedGrids: 满足条件的格子集合。
+            SelectedGrids: 满足条件的网格集合。
         """
         result = []
         for grid in self:
