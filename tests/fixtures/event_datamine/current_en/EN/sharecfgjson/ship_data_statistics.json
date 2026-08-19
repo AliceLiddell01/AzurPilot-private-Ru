@@ -1,0 +1,259 @@
+{
+  "101561": {
+    "aim_offset": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "ammo": 0,
+    "armor_type": 1,
+    "attack_duration": 0,
+    "attrs": {
+      "0": 387,
+      "1": 27,
+      "10": 85,
+      "11": 55,
+      "2": 70,
+      "3": 45,
+      "4": 0,
+      "5": 84,
+      "6": 0,
+      "7": 76,
+      "8": 59,
+      "9": 40.8
+    },
+    "attrs_growth": {
+      "0": 11021,
+      "1": 370,
+      "10": 0,
+      "11": 614,
+      "2": 894,
+      "3": 978,
+      "4": 0,
+      "5": 585,
+      "6": 0,
+      "7": 1175,
+      "8": 1095,
+      "9": 0
+    },
+    "attrs_growth_extra": {
+      "0": 0,
+      "1": 0,
+      "10": 0,
+      "11": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0,
+      "6": 0,
+      "7": 0,
+      "8": 0,
+      "9": 0
+    },
+    "backyard_speed": "0.2",
+    "base_list": {
+      "0": 1,
+      "1": 1,
+      "2": 1
+    },
+    "cld_box": {
+      "0": 4,
+      "1": 5,
+      "2": 5
+    },
+    "cld_offset": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "default_equip_list": {
+      "0": 100,
+      "1": 108,
+      "2": 104
+    },
+    "depth_charge_list": {
+      "0": 141
+    },
+    "english_name": "USS Collett",
+    "equipment_proficiency": {
+      "0": 1.25,
+      "1": 1.25,
+      "2": 1.5
+    },
+    "fix_equip_list": {},
+    "gift_dislike": {
+      "0": 180004,
+      "1": 180008
+    },
+    "hunting_range": {
+      "0": {}
+    },
+    "huntingrange_level": 0,
+    "id": 101561,
+    "lock": {
+      "0": "air"
+    },
+    "name": "Collett",
+    "nationality": 1,
+    "oxy_cost": 0,
+    "oxy_max": 0,
+    "oxy_recovery": 0,
+    "oxy_recovery_bench": 0,
+    "oxy_recovery_surface": 0,
+    "parallel_max": {
+      "0": 1,
+      "1": 1,
+      "2": 1
+    },
+    "position_offset": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "preload_count": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "raid_distance": 0,
+    "rarity": 5,
+    "scale": 100,
+    "skin_id": 101560,
+    "star": 3,
+    "strategy_list": {},
+    "summon_offset": 0,
+    "tag_list": {
+      "0": "Allen M. Sumner-class",
+      "1": "Collett"
+    },
+    "type": 1
+  },
+  "101581": {
+    "aim_offset": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "ammo": 0,
+    "armor_type": 1,
+    "attack_duration": 0,
+    "attrs": {
+      "0": 361,
+      "1": 19,
+      "10": 86,
+      "11": 56,
+      "2": 69,
+      "3": 45,
+      "4": 0,
+      "5": 81,
+      "6": 0,
+      "7": 73,
+      "8": 59,
+      "9": 42
+    },
+    "attrs_growth": {
+      "0": 10295,
+      "1": 258,
+      "10": 0,
+      "11": 629,
+      "2": 886,
+      "3": 990,
+      "4": 0,
+      "5": 562,
+      "6": 0,
+      "7": 1125,
+      "8": 1095,
+      "9": 0
+    },
+    "attrs_growth_extra": {
+      "0": 0,
+      "1": 0,
+      "10": 0,
+      "11": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0,
+      "6": 0,
+      "7": 0,
+      "8": 0,
+      "9": 0
+    },
+    "backyard_speed": "0.2",
+    "base_list": {
+      "0": 1,
+      "1": 1,
+      "2": 1
+    },
+    "cld_box": {
+      "0": 4,
+      "1": 5,
+      "2": 5
+    },
+    "cld_offset": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "default_equip_list": {
+      "0": 100,
+      "1": 108,
+      "2": 104
+    },
+    "depth_charge_list": {
+      "0": 141
+    },
+    "english_name": "USS John Rodgers",
+    "equipment_proficiency": {
+      "0": 1.15,
+      "1": 1.2,
+      "2": 1.2
+    },
+    "fix_equip_list": {},
+    "gift_dislike": {
+      "0": 180006,
+      "1": 180004
+    },
+    "hunting_range": {
+      "0": {}
+    },
+    "huntingrange_level": 0,
+    "id": 101581,
+    "lock": {
+      "0": "air"
+    },
+    "name": "John Rodgers",
+    "nationality": 1,
+    "oxy_cost": 0,
+    "oxy_max": 0,
+    "oxy_recovery": 0,
+    "oxy_recovery_bench": 0,
+    "oxy_recovery_surface": 0,
+    "parallel_max": {
+      "0": 1,
+      "1": 1,
+      "2": 1
+    },
+    "position_offset": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "preload_count": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "raid_distance": 0,
+    "rarity": 4,
+    "scale": 100,
+    "skin_id": 101580,
+    "star": 2,
+    "strategy_list": {},
+    "summon_offset": 0,
+    "tag_list": {
+      "0": "Fletcher-Class"
+    },
+    "type": 1
+  }
+}

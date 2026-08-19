@@ -20,7 +20,7 @@ def test_pt_taxonomy_comes_from_structured_task_config_relation():
 
 
 def test_builtin_artifact_exposes_complete_stage4_taxonomy_and_runtime_currency_relation():
-    spec = load_builtin_artifact()["event_spec"]
+    spec = load_builtin_artifact("rose_tower.json")["event_spec"]
     kinds = {item["kind"] for item in spec["pt_sources"]}
     tokens = {item["id"]: item.get("runtime_token") for item in spec["currencies"]}
 

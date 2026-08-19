@@ -1,17 +1,11 @@
-"""地图操作与战斗准备。
+"""Операции на карте и подготовка к бою.
 
-本模块提供战役地图中的基础操作，包括：
-- 舰队切换与准备（fleet_set、fleet_preparation）
-- 进入战役关卡的完整流程（enter_map）
-- 地图难度模式切换（handle_map_mode_switch）
-- 地图准备阶段处理（handle_map_preparation）
-- 撤退操作（withdraw）
-- 猫猫攻击跳过（handle_map_cat_attack）
-- 舰队顺序反转处理（handle_fleet_reverse）
+Модуль предоставляет базовые действия кампании: переключение и подготовку
+флотов, вход на этап, смену режима сложности, обработку подготовки карты,
+отступление, пропуск атаки Мяуфицера и учёт обратного порядка флотов.
 
-``MapOperation`` 继承了 ``MysteryHandler``（神秘格子处理）、
-``FleetPreparation``（舰队准备）、``Retirement``（退役处理）
-和 ``FastForwardHandler``（快进处理），组合了进入地图所需的全部子流程。
+``MapOperation`` объединяет обработчики тайников, подготовки флота, списания и
+ускорения, необходимые для полного цикла входа на карту.
 """
 
 import cv2
@@ -28,38 +22,37 @@ from module.ui.assets import BACK_ARROW, DAILY_CHECK
 
 
 class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHandler):
-    """地图操作处理器。
+    """Обработчик основных операций на карте кампании.
 
-    封装战役地图中的所有基础操作，包括进入关卡、舰队切换、
-    撤退、模式切换等。组合了神秘格子、舰队准备、退役和快进处理。
+    Объединяет вход на этап, переключение флотов, отступление, смену режима и
+    связанные обработчики подготовки.
 
-    Attributes:
-        map_cat_attack_timer (Timer): 猫猫攻击检测的节流计时器。
-        map_clear_percentage_prev (float): 上一次记录的地图通关百分比。
-        map_clear_percentage_timer (Timer): 通关百分比变化检测计时器。
-        fleet_show_index (int): 屏幕上显示的舰队编号（1 或 2）。
-        fleet_current_index (int): 当前逻辑舰队编号（考虑舰队顺序反转）。
+    Атрибуты:
+        map_cat_attack_timer: таймер проверки атаки Мяуфицера.
+        map_clear_percentage_prev: последнее значение процента прохождения.
+        map_clear_percentage_timer: таймер стабилизации процента прохождения.
+        fleet_show_index: номер флота, отображаемого на экране.
+        fleet_current_index: логический номер текущего флота с учётом разворота.
     """
 
     map_cat_attack_timer = Timer(2)
     map_clear_percentage_prev = -1
     map_clear_percentage_timer = Timer(0.3, count=1)
 
-    # 屏幕上显示的舰队编号。
+    # Номер флота, отображаемого на экране.
     fleet_show_index = 1
-    # 注意：这与 get_fleet_current_index() 不同。
-    # 在 fleet_current_index 中，1 表示道中队，2 表示 Boss 队。
+    # Это не то же самое, что ``get_fleet_current_index()``:
+    # логический индекс 1 означает флот для обычных врагов, 2 — флот босса.
     fleet_current_index = 1
 
     def get_fleet_show_index(self):
-        """
-        获取屏幕上当前显示的舰队编号。
+        """Получить номер флота, который сейчас отображается на экране.
 
-        Returns:
-            int: 1 或 2
+        Возвращает:
+            int: 1 или 2.
 
-        Pages:
-            in: in_map
+        Страница:
+            in_map.
         """
         if self.appear(FLEET_NUM_1, offset=(20, 20)):
             self.fleet_show_index = 1
@@ -73,12 +66,7 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
             return 1
 
     def get_fleet_current_index(self):
-        """
-        获取当前逻辑舰队编号（考虑舰队顺序反转）。
-
-        Returns:
-            int: 1 或 2
-        """
+        """Получить логический номер текущего флота с учётом разворота порядка."""
         if self.fleets_reversed:
             self.fleet_current_index = 3 - self.fleet_show_index
             return self.fleet_current_index
@@ -87,15 +75,14 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
             return self.fleet_current_index
 
     def fleet_set(self, index=None, skip_first_screenshot=True):
-        """
-        切换到目标舰队。
+        """Переключиться на целевой логический флот.
 
-        Args:
-            index (int): 目标 fleet_current_index。
-            skip_first_screenshot (bool): 是否跳过第一次截图。
+        Аргументы:
+            index (int): целевой ``fleet_current_index``.
+            skip_first_screenshot (bool): пропустить ли первый снимок экрана.
 
-        Returns:
-            bool: 是否进行了切换。
+        Возвращает:
+            bool: выполнялось ли переключение.
         """
         logger.info(f'[Карта — операция] Выбран флот {index}')
         timeout = Timer(5, count=10).start()
@@ -134,13 +121,12 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
         return count > 0
 
     def enter_map(self, button, mode='normal', skip_first_screenshot=True):
-        """
-        进入战役关卡。
+        """Войти на этап кампании.
 
-        Args:
-            button: 要进入的战役按钮。
-            mode (str): 'normal' 或 'hard'。
-            skip_first_screenshot (bool): 是否跳过第一次截图。
+        Аргументы:
+            button: кнопка этапа.
+            mode (str): ``normal`` или ``hard``.
+            skip_first_screenshot (bool): пропустить ли первый снимок экрана.
         """
         logger.hr('Вход на карту')
         campaign_timer = Timer(5)
@@ -163,7 +149,7 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
                 else:
                     self.device.screenshot()
 
-                # 检查错误
+                # Проверяем ошибочные циклы нажатий.
                 if campaign_click > 5:
                     logger.critical(f"[Карта] Не удалось открыть {button}: выполнено слишком много нажатий на {button}.")
                     logger.critical("[Карта] Возможная причина #1: уровень командира ещё недостаточен для открытия этого этапа.")
@@ -177,20 +163,20 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
                                     "а это уже вторая попытка входа")
                     raise RequestHumanTakeover
 
-                # 已在地图中
+                # Если уже на карте, повторный вход не нужен.
                 if not checked_in_map and self.is_in_map():
                     logger.info('[Карта — операция] Уже на карте; вход пропущен')
                     return False
                 else:
                     checked_in_map = True
 
-                # 意外点击处理
+                # Обрабатываем случайный переход на ежедневную проверку.
                 if self.appear(DAILY_CHECK, offset=(20, 20), interval=3):
                     logger.info(f'{DAILY_CHECK} -> {BACK_ARROW}')
                     self.device.click(BACK_ARROW)
                     continue
 
-                # 地图准备
+                # Подготовка карты.
                 if map_timer.reached() and self.handle_map_mode_switch(mode) and self.handle_map_preparation():
                     self.map_get_info()
                     self.handle_map_walk_speedup()
@@ -206,7 +192,7 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
                     campaign_timer.reset()
                     continue
 
-                # 舰队准备
+                # Подготовка флота.
                 if fleet_timer.reached() and self.appear(FLEET_PREPARATION, offset=(20, 50)):
                     if mode == 'normal' or mode == 'hard':
                         self.handle_2x_book_setting(mode='prep')
@@ -220,50 +206,50 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
                     campaign_timer.reset()
                     continue
 
-                # 自动搜索继续
+                # Продолжение автопоиска.
                 if self.handle_auto_search_continue(drop=drop):
                     campaign_timer.reset()
                     continue
 
-                # 退役
+                # Списание кораблей.
                 if self.handle_retirement():
                     continue
 
-                # 使用数据密钥
+                # Использование ключа данных.
                 if self.handle_use_data_key():
                     continue
 
-                # 16-1/16-2 submarine support popup
+                # Всплывающее окно поддержки подлодок на 16-1/16-2.
                 if self.handle_submarine_support_popup():
                     continue
 
-                # 情绪处理
+                # Обработка низкого настроения.
                 if self.handle_combat_low_emotion():
                     continue
 
-                # 紧急委托
+                # Срочная комиссия.
                 if self.handle_urgent_commission(drop=drop):
                     continue
 
-                # 2倍经验书弹窗
+                # Окно удвоения опыта.
                 if self.handle_2x_book_popup():
                     continue
 
                 if self.handle_submarine_cost_popup():
                     continue
 
-                # 剧情跳过
+                # Пропуск сюжета.
                 if self.handle_story_skip():
                     campaign_timer.reset()
                     continue
 
-                # 进入战役
+                # Нажатие кнопки входа на этап.
                 if campaign_timer.reached() and self.appear_then_click(button):
                     campaign_click += 1
                     campaign_timer.reset()
                     continue
 
-                # 结束判断
+                # Проверяем завершение входа.
                 if self.map_is_auto_search:
                     if self.is_auto_search_running():
                         logger.info('[Карта — операция] Обнаружен выполняющийся автопоиск')
@@ -276,19 +262,18 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
                         logger.warning('[Карта — операция] При входе на карту появился экран загрузки боя')
                         break
                     if self.handle_in_map_with_enemy_searching():
-                        # self.handle_map_after_combat_story()
                         break
 
         return True
 
     def enter_map_cancel(self, skip_first_screenshot=True):
-        """取消进入地图，从地图准备界面退回关卡选择界面。
+        """Отменить вход на карту и вернуться из окна подготовки к выбору этапа.
 
-        Args:
-            skip_first_screenshot (bool): 是否跳过第一次截图。
+        Аргументы:
+            skip_first_screenshot (bool): пропустить ли первый снимок экрана.
 
-        Returns:
-            bool: 始终返回 True。
+        Возвращает:
+            bool: всегда ``True``.
         """
         logger.hr('Отмена входа на карту')
         while 1:
@@ -297,11 +282,11 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
             else:
                 self.device.screenshot()
 
-            # 结束判断
+            # Проверка завершения.
             if self.is_in_stage():
                 break
 
-            if self.appear(MAP_PREPARATION, offset=(20, 20), interval=2):
+            if self._map_preparation_appear(interval=2):
                 self.device.click(MAP_PREPARATION_CANCEL)
                 continue
             if self.appear(FLEET_PREPARATION, offset=(20, 50), interval=2):
@@ -311,14 +296,14 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
         return True
 
     def handle_map_mode_switch(self, mode):
-        """
-        处理地图难度模式切换。
+        """Переключить режим сложности карты.
 
-        Args:
-            mode (str): 'normal' 或 'hard'。
+        Аргументы:
+            mode (str): ``normal`` или ``hard``.
 
-        Returns:
-            bool: 地图模式是否满足要求。如果地图没有模式切换，则始终返回 True。
+        Возвращает:
+            bool: соответствует ли текущий режим требуемому. Для карты без
+            переключателя режима всегда возвращается ``True``.
         """
         if not self.config.MAP_HAS_MODE_SWITCH:
             return True
@@ -348,16 +333,16 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
             return False
 
     def _is_mod_switch_hard_appear(self, active=True, interval=0):
-        """检测困难模式切换按钮是否出现。
+        """Проверить наличие кнопки переключения сложного режима.
 
-        遍历多个可能的困难模式按钮模板进行匹配。
+        Перебираются все поддерживаемые шаблоны кнопки.
 
-        Args:
-            active (bool): 是否需要检查按钮处于激活状态。
-            interval (int): 操作间隔时间（秒）。
+        Аргументы:
+            active (bool): требуется ли подтверждение активного состояния.
+            interval (int): интервал проверки в секундах.
 
-        Returns:
-            bool: 困难模式按钮是否出现（且如果需要检查，是否处于激活状态）。
+        Возвращает:
+            bool: найдена ли подходящая кнопка и, при необходимости, активна ли она.
         """
         if interval:
             interval = self.get_interval_timer(MAP_MODE_SWITCH_HARD, interval=interval)
@@ -380,35 +365,49 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
         return False
 
     def _is_mod_switch_hard_active(self, button):
-        """通过颜色检测判断困难模式按钮是否处于激活状态。
+        """Определить по цвету, активна ли кнопка сложного режима.
 
-        激活状态的按钮包含白色图标（RGB 最大值 > 235 的像素占比 > 50%）。
-
-        Args:
-            button (Button): 困难模式切换按钮。
-
-        Returns:
-            bool: 按钮是否处于激活状态。
+        У активной кнопки более половины пикселей значка имеют максимальный
+        RGB-канал выше 235.
         """
         image = self.image_crop(button.button)
-        # 取 RGB 三通道最大值
+        # Берём максимум трёх RGB-каналов.
         r, g, b = cv2.split(image)
         cv2.max(r, g, dst=r)
         cv2.max(r, b, dst=r)
-        # 活跃按钮有白色图标，检查是否有颜色 > 235 的像素
+        # У активной кнопки белый значок; считаем пиксели ярче 235.
         cv2.inRange(r, 235, 255, dst=r)
         sum_ = cv2.countNonZero(r)
         total = r.shape[0] * r.shape[1]
         return sum_ / total > 0.5
 
-    def handle_map_preparation(self):
-        """
-        处理地图准备阶段，等待地图信息动画完成。
+    def _map_preparation_appear(self, interval=0):
+        """Проверить наличие кнопки подготовки карты.
 
-        Returns:
-            bool: MAP_PREPARATION 按钮是否出现且地图信息动画是否已完成。
+        Для одноразовых этапов допускается цветовая проверка штатной области
+        ``MAP_PREPARATION``, если строгий шаблон не совпал. Это сохраняет строгую
+        проверку для обычных карт и покрывает вариант кнопки GO с тем же
+        устойчивым цветовым контрактом.
         """
-        if not self.appear(MAP_PREPARATION, offset=(20, 20)):
+        if self.appear(MAP_PREPARATION, offset=(20, 20), interval=interval):
+            return True
+        if self.config.MAP_IS_ONE_TIME_STAGE and self.appear(
+            MAP_PREPARATION, interval=interval
+        ):
+            logger.info(
+                '[Карта — операция] Кнопка подготовки одноразового этапа '
+                'распознана по цвету'
+            )
+            return True
+        return False
+
+    def handle_map_preparation(self):
+        """Обработать подготовку карты и дождаться завершения анимации информации.
+
+        Возвращает:
+            bool: кнопка ``MAP_PREPARATION`` обнаружена и информация карты готова.
+        """
+        if not self._map_preparation_appear():
             self.map_clear_percentage_prev = -1
             self.map_clear_percentage_timer.reset()
             return False
@@ -418,16 +417,16 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
         if self.config.MAP_IS_ONE_TIME_STAGE:
             logger.attr('Карта является одноразовым этапом', self.config.MAP_IS_ONE_TIME_STAGE)
             return True
-        # 信息栏会遮挡进度条和 MAP_GREEN
+        # Информационная панель перекрывает шкалу прогресса и MAP_GREEN.
         if self.info_bar_count():
             return False
 
         percent = self.get_map_clear_percentage()
         logger.attr('Процент прохождения карты', f'{int(percent * 100)}%')
-        # 注意：进度条从 100% 开始，然后从 0% 增加到实际值。
-        # 2022.08.21 当 `percent` 从 0 上升时仍然启用此逻辑。
+        # Шкала сначала отображает 100%, затем растёт от 0% до фактического значения.
+        # Логика остаётся активной и когда ``percent`` начинает расти от нуля.
         if percent > 0.95 and 0 <= self.map_clear_percentage_prev < 0.95:
-            # 地图通关进度达到 100%，直接退出
+            # При достижении 100% можно сразу завершить ожидание.
             return True
         if abs(percent - self.map_clear_percentage_prev) < 0.02:
             self.map_clear_percentage_prev = percent
@@ -441,9 +440,7 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
             return False
 
     def withdraw(self, skip_first_screenshot=True):
-        """
-        撤退战役。
-        """
+        """Отступить с текущей карты."""
         logger.hr('Отступление с карты')
         while 1:
             if skip_first_screenshot:
@@ -459,20 +456,18 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
                 continue
             if self.handle_auto_search_exit():
                 continue
-            # 意外点击处理
+            # Обрабатываем случайный переход на ежедневную проверку.
             if self.appear(DAILY_CHECK, offset=(20, 20), interval=3):
                 logger.info(f'{DAILY_CHECK} -> {BACK_ARROW}')
                 self.device.click(BACK_ARROW)
                 continue
 
-            # 结束判断
+            # Завершение подтверждается возвратом на экран выбора этапа.
             if self.handle_in_stage():
                 raise CampaignEnd('Отступление')
 
     def handle_map_cat_attack(self):
-        """
-        处理猫猫攻击动画，点击跳过。
-        """
+        """Пропустить анимацию атаки Мяуфицера или вражеской атаки."""
         if not self.map_cat_attack_timer.reached():
             return False
         if self.image_color_count(MAP_CAT_ATTACK, color=(255, 231, 123), threshold=221, count=100):
@@ -481,7 +476,8 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
             self.map_cat_attack_timer.reset()
             return True
         if not self.map_is_clear_mode:
-            # 威胁检测：Medium 模式有 106 像素计数，MAP_CAT_ATTACK_MIRROR 有 290。
+            # Для средней угрозы наблюдается около 106 пикселей, а у
+            # ``MAP_CAT_ATTACK_MIRROR`` — около 290, поэтому порог оставляем 200.
             if self.image_color_count(MAP_CAT_ATTACK_MIRROR, color=(255, 231, 123), threshold=221, count=200):
                 logger.info('[Карта — операция] Вражеская атака на карте пропущена')
                 self.device.click(MAP_CAT_ATTACK)
@@ -497,21 +493,20 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
         return self.config.Fleet_FleetOrder in ['fleet1_boss_fleet2_mob', 'fleet1_standby_fleet2_all']
 
     def handle_fleet_reverse(self):
-        """
-        处理舰队顺序反转。
+        """Обработать обратный порядок флотов.
 
-        游戏会选择编号较小的舰队作为第一舰队，无论我们在舰队准备中如何选择。
-        自动搜索更新后，游戏不再忽略用户设置。
+        Игра обычно выбирает флот с меньшим номером первым независимо от выбора
+        на экране подготовки. После обновления автопоиска пользовательский
+        порядок учитывается корректнее.
 
-        Returns:
-            bool: 舰队是否发生了变更。
+        Возвращает:
+            bool: изменился ли выбранный флот.
         """
         if not self.map_is_hard_mode \
                 and self.config.Fleet_FleetOrder in ['fleet1_boss_fleet2_mob', 'fleet1_standby_fleet2_all']:
             logger.warning(f"[Карта] В обычном режиме нельзя использовать обратный порядок флотов ({self.config.Fleet_FleetOrder}).")
             logger.warning('[Карта] Поменяйте местами настройки флота 1 и флота 2; '
                            'используйте "fleet1_mob_fleet2_boss" или "fleet1_all_fleet2_standby"')
-            # raise RequestHumanTakeover
 
         if not self.fleets_reversed:
             return False

@@ -81,6 +81,43 @@ class TestLoggingRouting(unittest.TestCase):
             logger_module.logger.log_file = log_file_before
             logger_module.diagnostic_hdlr.configure_failure_target(failure_target_before)
 
+    def test_archive_failure_keeps_all_source_logs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            files = [root / "2026-08-16_alas.txt", root / "2026-08-17_alas.txt"]
+            for path in files:
+                path.write_text("log", encoding="utf-8")
+
+            handler = object.__new__(logger_module.RichTimedRotatingHandler)
+            handler.baseFilename = str(root / "alas.txt")
+            handler.bak = "zip"
+            handler.compression = "zip"
+            writes = []
+
+            class FailingZip:
+                def __init__(self, *_args, **_kwargs):
+                    pass
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+                def write(self, path, *, arcname):
+                    writes.append((Path(path).name, arcname))
+                    if len(writes) == 2:
+                        raise OSError("искусственный сбой архивации")
+
+            with (
+                patch.object(logger_module.zipfile, "ZipFile", FailingZip),
+                patch.object(logger_module.logger, "exception"),
+            ):
+                handler.expire(files)
+
+            self.assertEqual(2, len(writes))
+            self.assertTrue(all(path.exists() for path in files))
+
     def test_hr_level_one_and_two_do_not_emit_duplicate_info_record(self):
         for level in (1, 2):
             with (

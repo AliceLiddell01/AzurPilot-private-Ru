@@ -1,7 +1,7 @@
 {
-  "artifact_schema_version": 1,
+  "artifact_schema_version": 2,
   "compiler_version": "2",
-  "digest": "4d38386507600f717bb02136ea7850b0948edf50b5b2853b8b1c70e9636cad68",
+  "digest": "8378cc0c0536d4080c033c89fc5899197f6894ea50dfc71c7c2d0abc2747bd3f",
   "event_spec": {
     "currencies": [
       {
@@ -198,7 +198,7 @@
         "name": "Landmark Moment",
         "portals": [],
         "shape": "I8",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz2"
         ],
         "spawn_data": [
@@ -351,7 +351,7 @@
         "name": "The Train and the Barque",
         "portals": [],
         "shape": "I8",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz2"
         ],
         "spawn_data": [
@@ -515,7 +515,7 @@
         "name": "Transcendental Insight",
         "portals": [],
         "shape": "I9",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz3"
         ],
         "spawn_data": [
@@ -685,7 +685,7 @@
         "name": "Compiler the Reliable",
         "portals": [],
         "shape": "K8",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz2",
           "unknownV_zl2"
         ],
@@ -860,7 +860,7 @@
         "name": "Class II Mimic Entity",
         "portals": [],
         "shape": "K8",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz3",
           "unknownV_zl3"
         ],
@@ -1042,7 +1042,7 @@
         "name": "Glorious's Choice",
         "portals": [],
         "shape": "I10",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz3",
           "unknownV_zl3"
         ],
@@ -1199,7 +1199,7 @@
         "name": "Landmark Moment",
         "portals": [],
         "shape": "I8",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz2",
           "unknownV_zl2"
         ],
@@ -1353,7 +1353,7 @@
         "name": "The Train and the Barque",
         "portals": [],
         "shape": "I8",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz2",
           "unknownV_zl2"
         ],
@@ -1518,7 +1518,7 @@
         "name": "Transcendental Insight",
         "portals": [],
         "shape": "I9",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_qz3",
           "unknownV_zl3"
         ],
@@ -1692,7 +1692,7 @@
         "name": "Compiler the Reliable",
         "portals": [],
         "shape": "K8",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_zl2",
           "unknownV_hm2"
         ],
@@ -1867,7 +1867,7 @@
         "name": "Class II Mimic Entity",
         "portals": [],
         "shape": "K8",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_zl3",
           "unknownV_hm3"
         ],
@@ -2053,7 +2053,7 @@
         "name": "Glorious's Choice",
         "portals": [],
         "shape": "I10",
-        "siren_templates": [
+        "siren_source_icons": [
           "unknownV_zl3",
           "unknownV_hm3"
         ],
@@ -2234,7 +2234,7 @@
         "name": "The Prisoner of the Tower",
         "portals": [],
         "shape": "I10",
-        "siren_templates": [
+        "siren_source_icons": [
           "RoyalOak",
           "Victorious"
         ],
@@ -2348,7 +2348,7 @@
         "name": "The Usherer of a New Age",
         "portals": [],
         "shape": "E7",
-        "siren_templates": [],
+        "siren_source_icons": [],
         "spawn_data": [
           {
             "battle": 0,
@@ -2436,7 +2436,7 @@
         "name": "The Usherer of a New Age",
         "portals": [],
         "shape": "E7",
-        "siren_templates": [],
+        "siren_source_icons": [],
         "spawn_data": [
           {
             "battle": 0,
@@ -4278,5 +4278,13 @@
       }
     ],
     "source_status": "partial"
-  }
+  },
+  "metadata": {
+    "classification": [
+      "historical",
+      "golden",
+      "regression"
+    ]
+  },
+  "role": "demo"
 }

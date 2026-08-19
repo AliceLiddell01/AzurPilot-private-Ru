@@ -115,7 +115,7 @@ class MapSpec:
     camera_data: tuple[str, ...]
     camera_spawn_points: tuple[str, ...]
     boss_refresh: int
-    siren_templates: tuple[str, ...]
+    siren_source_icons: tuple[str, ...]
     movable_enemy_turns: tuple[int, ...]
     land_based: tuple[tuple[str, str], ...]
     portals: tuple[PortalSpec, ...]
@@ -127,6 +127,7 @@ class MapSpec:
     unknown_grid_types: tuple[int, ...] = ()
     unknown_effects: tuple[str, ...] = ()
     compatibility_patch_ids: tuple[str, ...] = ()
+    source_status: SourceStatus = "verified"
 
 
 @dataclass(frozen=True)

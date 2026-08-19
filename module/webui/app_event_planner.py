@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from functools import partial
+from hashlib import sha256
 from threading import RLock
 from typing import Any
 
@@ -16,6 +17,7 @@ from module.webui.app_dependencies import (
     put_input,
     put_row,
     toast,
+    use_scope,
 )
 from module.webui.app_helpers import is_demo_mode
 from module.webui.app_types import WebUIMixinBase
@@ -26,19 +28,21 @@ from module.webui.event_plan import (
     selected_shop_items_missing_filter,
     shop_plan_total,
 )
+from module.webui.event_shop_priority import update_event_shop_target_state
 from module.webui.event_source import (
-    load_event_user_state,
-    save_event_user_state,
+    event_user_state_write_lock,
+    mutate_event_user_state,
     user_state_from_plan,
 )
 
 _SHOP_SELECTED_PIN = "event_plan_shop_selected"
 _EVENT_PLAN_MUTATION_LOCK = RLock()
 _STALE_EVENT_PLAN = object()
+_UNCHANGED_EVENT_PLAN = object()
 
 
 class EventPlannerMixin(WebUIMixinBase):
-    """Сохраняет progress/selection, не изменяя datamine facts."""
+    """Сохраняет прогресс и выбранные значения, не изменяя факты datamine."""
 
     def _event_plan(self) -> dict[str, Any]:
         return load_event_plan(self.alas_name)
@@ -52,10 +56,9 @@ class EventPlannerMixin(WebUIMixinBase):
             return False
         try:
             with _EVENT_PLAN_MUTATION_LOCK:
-                previous = load_event_user_state(self.alas_name)
-                save_event_user_state(
+                mutate_event_user_state(
                     self.alas_name,
-                    user_state_from_plan(plan, previous),
+                    lambda previous: user_state_from_plan(plan, previous),
                 )
         except Exception as exc:
             logger.exception(exc)
@@ -67,11 +70,17 @@ class EventPlannerMixin(WebUIMixinBase):
 
     def _event_plan_mutate(self, mutation, message: str) -> bool:
         with _EVENT_PLAN_MUTATION_LOCK:
-            plan = self._event_plan()
-            if mutation(plan) is _STALE_EVENT_PLAN:
-                self._stale_plan_message()
-                return False
-            return self._event_plan_write(plan, message)
+            # Блокировка охватывает чтение плана и запись user-state, чтобы runtime
+            # не мог вклиниться между ними и быть затёртым устаревшим снимком WebUI.
+            with event_user_state_write_lock(self.alas_name):
+                plan = self._event_plan()
+                result = mutation(plan)
+                if result is _STALE_EVENT_PLAN:
+                    self._stale_plan_message()
+                    return False
+                if result is _UNCHANGED_EVENT_PLAN:
+                    return False
+                return self._event_plan_write(plan, message)
 
     def _event_config_update(self, updates: Mapping[str, Any]) -> None:
         update_event_config(self.alas_config, self.alas_name, updates)
@@ -79,6 +88,11 @@ class EventPlannerMixin(WebUIMixinBase):
 
     def _refresh_event_plan_page(self) -> None:
         task = getattr(self, "_event_plan_active_task", "")
+        if task == "EventShop":
+            config = self.alas_config.read_file(self.alas_name)
+            with use_scope("group_EventShopPlan", clear=True):
+                self._render_event_shop_plan(config)
+            return
         if task:
             self.alas_set_group(task)
 
@@ -92,12 +106,69 @@ class EventPlannerMixin(WebUIMixinBase):
             int(item.get("stock", 0) or 0),
         )
 
+    @staticmethod
+    def _shop_item_dom_key(identity: tuple[str, str, str, int, int]) -> str:
+        """Построить стабильный DOM-ключ из исходной идентичности товара."""
+        payload = "\x1f".join(
+            (identity[0], identity[1], identity[2], str(identity[3]), str(identity[4]))
+        )
+        return sha256(payload.encode("utf-8")).hexdigest()[:16]
+
     @classmethod
     def _find_shop_item(cls, items, identity) -> int | None:
         for index, item in enumerate(items):
             if cls._shop_item_identity(item) == identity:
                 return index
         return None
+
+    @staticmethod
+    def _shop_live_snapshot(
+        plan: Mapping[str, Any], item: Mapping[str, Any]
+    ) -> dict[str, int]:
+        selected = int(item.get("selected", 0) or 0)
+        return {
+            "selected": selected,
+            "cost": int(item.get("price", 0) or 0) * selected,
+            "total": shop_plan_total(plan),
+            "selected_count": sum(
+                1
+                for candidate in plan.get("shop_items", [])
+                if int(candidate.get("selected", 0) or 0) > 0
+            ),
+        }
+
+    def _sync_event_shop_target_state(self, snapshot: Mapping[str, Any]) -> bool:
+        event_id = str(snapshot.get("event_id") or "")
+        row_id = str(snapshot.get("row_id") or "")
+        if not event_id or not row_id:
+            logger.warning(
+                "[WebUI — магазин события] Цель сохранена без полной идентичности события или товара; синхронизация точки отсчёта пропущена"
+            )
+            toast(
+                "Цель сохранена, но автоматизация магазина не синхронизирована: неполная идентичность события или товара",
+                color="warning",
+            )
+            self._refresh_event_plan_page()
+            return False
+        try:
+            update_event_shop_target_state(
+                self.alas_name,
+                event_id,
+                row_id,
+                int(snapshot.get("previous_selected", 0) or 0),
+                int(snapshot.get("selected", 0) or 0),
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning(
+                f"[WebUI — магазин события] Цель сохранена, но не удалось синхронизировать состояние автоматизации: {exc}"
+            )
+            toast(
+                "Цель сохранена, но состояние автоматизации магазина не синхронизировано",
+                color="warning",
+            )
+            self._refresh_event_plan_page()
+            return False
+        return True
 
     @staticmethod
     def _stale_plan_message() -> None:
@@ -148,15 +219,79 @@ class EventPlannerMixin(WebUIMixinBase):
             toast(f"Количество должно быть от 0 до {identity[4]}", color="warning")
             return
 
+        live_snapshot: dict[str, int] = {}
+        target_snapshot: dict[str, Any] = {}
+
         def mutation(plan):
             index = self._find_shop_item(plan["shop_items"], identity)
             if index is None:
                 return _STALE_EVENT_PLAN
-            plan["shop_items"][index]["selected"] = selected
+            item = plan["shop_items"][index]
+            current = int(item.get("selected", 0) or 0)
+            event = plan.get("event", {})
+            event_id = str(event.get("id") or "") if isinstance(event, Mapping) else ""
+            target_snapshot.update(
+                {
+                    "event_id": event_id,
+                    "row_id": str(item.get("id") or identity[0]),
+                    "previous_selected": current,
+                    "selected": selected,
+                }
+            )
+            item["selected"] = selected
+            live_snapshot.update(self._shop_live_snapshot(plan, item))
 
         if self._event_plan_mutate(mutation, "Количество в плане обновлено"):
             close_popup()
-            self._refresh_event_plan_page()
+            if not self._sync_event_shop_target_state(target_snapshot):
+                return
+            self._patch_event_shop_plan_values(identity, live_snapshot)
+
+    def _change_shop_quantity(
+        self,
+        identity: tuple[str, str, str, int, int],
+        operation: str,
+    ) -> None:
+        live_snapshot: dict[str, int] = {}
+        target_snapshot: dict[str, Any] = {}
+
+        def mutation(plan):
+            index = self._find_shop_item(plan["shop_items"], identity)
+            if index is None:
+                return _STALE_EVENT_PLAN
+            item = plan["shop_items"][index]
+            current = int(item.get("selected", 0) or 0)
+            stock = int(item.get("stock", 0) or 0)
+            if operation == "decrement":
+                value = current - 1
+            elif operation == "increment":
+                value = current + 1
+            elif operation == "maximum":
+                value = stock
+            elif operation == "clear":
+                value = 0
+            else:
+                raise ValueError(f"Неизвестная операция количества: {operation}")
+            selected = min(max(value, 0), stock)
+            if selected == current:
+                return _UNCHANGED_EVENT_PLAN
+            event = plan.get("event", {})
+            event_id = str(event.get("id") or "") if isinstance(event, Mapping) else ""
+            target_snapshot.update(
+                {
+                    "event_id": event_id,
+                    "row_id": str(item.get("id") or identity[0]),
+                    "previous_selected": current,
+                    "selected": selected,
+                }
+            )
+            item["selected"] = selected
+            live_snapshot.update(self._shop_live_snapshot(plan, item))
+
+        if self._event_plan_mutate(mutation, ""):
+            if not self._sync_event_shop_target_state(target_snapshot):
+                return
+            self._patch_event_shop_plan_values(identity, live_snapshot)
 
     def _use_shop_total_as_target(self) -> None:
         total = shop_plan_total(self._event_plan())

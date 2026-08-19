@@ -1,0 +1,1521 @@
+{
+  "1": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 1,
+    "ai_mov": 0,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {},
+    "bgm": "battle-1",
+    "bufficon": {},
+    "difficulty": 1,
+    "dungeon_id": 101110,
+    "effect_prefab": "",
+    "exp": 80,
+    "exp_commander": 0,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "kaxin",
+    "icon_type": 2,
+    "id": 1,
+    "level": 1,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 10001,
+        "1": 1
+      }
+    },
+    "name": "Test AI Ship",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 100,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 1
+  },
+  "2050301": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200825
+      },
+      "2": {
+        "0": 2,
+        "1": 54022
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-wanderingcity-future",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2050301,
+    "effect_prefab": "",
+    "exp": 162,
+    "exp_commander": 0,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "emotion_qz",
+    "icon_type": 1,
+    "id": 2050301,
+    "level": 24,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50227,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 100,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 95
+  },
+  "2050302": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200826
+      },
+      "2": {
+        "0": 2,
+        "1": 54022
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-wanderingcity-future",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2050302,
+    "effect_prefab": "",
+    "exp": 196,
+    "exp_commander": 0,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "emotion_qz",
+    "icon_type": 1,
+    "id": 2050302,
+    "level": 29,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50227,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 100,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 95
+  },
+  "2050303": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200827
+      },
+      "2": {
+        "0": 2,
+        "1": 54022
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-wanderingcity-future",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2050303,
+    "effect_prefab": "",
+    "exp": 229,
+    "exp_commander": 0,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "emotion_qz",
+    "icon_type": 1,
+    "id": 2050303,
+    "level": 34,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50227,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 100,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 95
+  },
+  "2051301": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200828
+      },
+      "2": {
+        "0": 2,
+        "1": 54023
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2051301,
+    "effect_prefab": "",
+    "exp": 297,
+    "exp_commander": 0,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_zhanlie",
+    "icon_type": 2,
+    "id": 2051301,
+    "level": 44,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2051302": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200828
+      },
+      "2": {
+        "0": 2,
+        "1": 54023
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2051302,
+    "effect_prefab": "",
+    "exp": 297,
+    "exp_commander": 0,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_hangmu",
+    "icon_type": 2,
+    "id": 2051302,
+    "level": 44,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2051303": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200829
+      },
+      "2": {
+        "0": 2,
+        "1": 54023
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2051303,
+    "effect_prefab": "",
+    "exp": 364,
+    "exp_commander": 0,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_zhanlie",
+    "icon_type": 2,
+    "id": 2051303,
+    "level": 54,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2051304": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200829
+      },
+      "2": {
+        "0": 2,
+        "1": 54023
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2051304,
+    "effect_prefab": "",
+    "exp": 364,
+    "exp_commander": 0,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_hangmu",
+    "icon_type": 2,
+    "id": 2051304,
+    "level": 54,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2051305": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200830
+      },
+      "2": {
+        "0": 2,
+        "1": 54023
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2051305,
+    "effect_prefab": "",
+    "exp": 398,
+    "exp_commander": 1,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_zhanlie",
+    "icon_type": 2,
+    "id": 2051305,
+    "level": 59,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2051306": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200830
+      },
+      "2": {
+        "0": 2,
+        "1": 54023
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54015
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2051306,
+    "effect_prefab": "",
+    "exp": 398,
+    "exp_commander": 1,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_hangmu",
+    "icon_type": 2,
+    "id": 2051306,
+    "level": 59,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2052301": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200831
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-wanderingcity-future",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2052301,
+    "effect_prefab": "",
+    "exp": 499,
+    "exp_commander": 1,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "emotion_qz",
+    "icon_type": 1,
+    "id": 2052301,
+    "level": 74,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50227,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 100,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 95
+  },
+  "2052302": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200832
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-wanderingcity-future",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2052302,
+    "effect_prefab": "",
+    "exp": 533,
+    "exp_commander": 1,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "emotion_qz",
+    "icon_type": 1,
+    "id": 2052302,
+    "level": 79,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50227,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 100,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 95
+  },
+  "2052303": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200833
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-wanderingcity-future",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2052303,
+    "effect_prefab": "",
+    "exp": 567,
+    "exp_commander": 1,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "emotion_qz",
+    "icon_type": 1,
+    "id": 2052303,
+    "level": 84,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50227,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 100,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 95
+  },
+  "2053301": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200834
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2053301,
+    "effect_prefab": "",
+    "exp": 634,
+    "exp_commander": 2,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_zhanlie",
+    "icon_type": 2,
+    "id": 2053301,
+    "level": 94,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2053302": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200834
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2053302,
+    "effect_prefab": "",
+    "exp": 634,
+    "exp_commander": 2,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_hangmu",
+    "icon_type": 2,
+    "id": 2053302,
+    "level": 94,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2053303": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200835
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2053303,
+    "effect_prefab": "",
+    "exp": 668,
+    "exp_commander": 2,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_zhanlie",
+    "icon_type": 2,
+    "id": 2053303,
+    "level": 99,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2053304": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200835
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2053304,
+    "effect_prefab": "",
+    "exp": 668,
+    "exp_commander": 2,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_hangmu",
+    "icon_type": 2,
+    "id": 2053304,
+    "level": 99,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2053305": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200836
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2053305,
+    "effect_prefab": "",
+    "exp": 702,
+    "exp_commander": 3,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_zhanlie",
+    "icon_type": 2,
+    "id": 2053305,
+    "level": 104,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2053306": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200836
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "story-whiterichard-chasing",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2053306,
+    "effect_prefab": "",
+    "exp": 702,
+    "exp_commander": 3,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_hangmu",
+    "icon_type": 2,
+    "id": 2053306,
+    "level": 104,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50228,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  },
+  "2054301": {
+    "SLG_destroy_FX": "",
+    "add_icon": "",
+    "ai": 3,
+    "ai_mov": 2,
+    "aircraft_expose": {
+      "0": 15,
+      "1": 10
+    },
+    "award_display": {
+      "0": {
+        "0": 2,
+        "1": 56500
+      },
+      "1": {
+        "0": 2,
+        "1": 200837
+      },
+      "2": {
+        "0": 2,
+        "1": 54024
+      },
+      "3": {
+        "0": 2,
+        "1": 59001
+      },
+      "4": {
+        "0": 2,
+        "1": 54016
+      }
+    },
+    "bgm": "battle-starcity-rhythm",
+    "bufficon": {},
+    "difficulty": 2,
+    "dungeon_id": 2054301,
+    "effect_prefab": "",
+    "exp": 742,
+    "exp_commander": 4,
+    "exp_commander_ratio": 30,
+    "expose_line": {},
+    "expose_speed": 15,
+    "guide_desc": "",
+    "horizon_line": {
+      "1.0": -50
+    },
+    "icon": "haorenlichade_m_qianting",
+    "icon_type": 2,
+    "id": 2054301,
+    "level": 110,
+    "limit_type": 1,
+    "map_id": {
+      "0": {
+        "0": 50227,
+        "1": 1
+      }
+    },
+    "name": "Elite Fleet",
+    "objective_1": {
+      "0": 1
+    },
+    "objective_2": {
+      "0": 2
+    },
+    "objective_3": {
+      "0": 5,
+      "1": 120
+    },
+    "plot_type": 0,
+    "scale": 80,
+    "ship_expose": {
+      "0": 30,
+      "1": 10
+    },
+    "sink_limit": 1,
+    "time_limit": 120,
+    "type": 98
+  }
+}
