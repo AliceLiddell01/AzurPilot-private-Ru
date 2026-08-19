@@ -42,10 +42,7 @@ class View(MapDetector):
         return tuple(item) in self.grids
 
     def _log_detection(self, message):
-        if self.mode == 'os':
-            logger.debug(message)
-        else:
-            logger.info(message)
+        logger.debug(message)
 
     def show(self):
         for y in range(self.shape[1] + 1):
@@ -81,10 +78,7 @@ class View(MapDetector):
             raise MapDetectionError('Клетки карты не найдены')
         offset = np.min(offset, axis=0)
         if np.sum(np.abs(offset)) > 0:
-            if self.mode == 'os':
-                self._log_detection(f'[Распознавание карты — обзор] Смещение сетки: {tuple(offset.tolist())}')
-            else:
-                logger.attr_align('grids_offset', tuple(offset.tolist()))
+            self._log_detection(f'[Распознавание карты — обзор] Смещение сетки: {tuple(offset.tolist())}')
             self.grids = {}
             for loca, grid in grids.items():
                 x, y = np.subtract(loca, offset)
@@ -100,10 +94,7 @@ class View(MapDetector):
             points = grid.grid2screen(np.add([[0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]], offset))
             self.swipe_base = np.array([np.linalg.norm(points[0] - points[1]), np.linalg.norm(points[2] - points[3])])
             self.center_loca = tuple(np.add(loca, offset).tolist())
-            if self.mode == 'os':
-                self._log_detection(f'[Распознавание карты — обзор] Центр обзора: {self.center_loca}')
-            else:
-                logger.attr_align('center_loca', self.center_loca)
+            self._log_detection(f'[Распознавание карты — обзор] Центр обзора: {self.center_loca}')
             if self.center_loca in self:
                 self.center_offset = self.grids[self.center_loca].screen2grid([self.config.SCREEN_CENTER])[0]
             else:
@@ -119,12 +110,9 @@ class View(MapDetector):
         for grid in self:
             grid.predict()
         time_cost = float2str(time.time() - start_time)
-        if self.mode == 'os':
-            self._log_detection(
-                f'[Распознавание карты — обзор] Распознано клеток: {len(self.grids.keys())} (время {time_cost} с)'
-            )
-        else:
-            logger.attr_align('predict', len(self.grids.keys()), front=time_cost + 's')
+        self._log_detection(
+            f'[Распознавание карты — обзор] Распознано клеток: {len(self.grids.keys())} (время {time_cost} с)'
+        )
 
     def update(self, image):
         """更新所有网格的图像。
@@ -182,12 +170,9 @@ class View(MapDetector):
                 grid.is_fleet = grid.predict_fleet()
                 grid.is_current_fleet = grid.predict_current_fleet()
 
-            # 如果能找到当前舰队，用它来预测滑动
-            current_fleet = self.select(is_fleet=True, is_current_fleet=True)
-            previous_fleet = prev.select(is_fleet=True, is_current_fleet=True)
-            if len(current_fleet) == 1 and len(previous_fleet) == 1:
+            if len(current_fleet := self.select(is_fleet=True, is_current_fleet=True)) == 1 \
+                    and len(previous_fleet := prev.select(is_fleet=True, is_current_fleet=True)) == 1:
                 diff = np.subtract(current_fleet[0].location, previous_fleet[0].location) - offset
-                # print(current_fleet[0].location, previous_fleet[0].location, offset, diff)
                 diff = tuple(diff.tolist())
                 self._log_detection(
                     f'[Распознавание карты — обзор] Прогноз сдвига карты: {diff} '
@@ -196,18 +181,15 @@ class View(MapDetector):
                 return diff
 
         if with_sea_grids:
-            # 暴力搜索滑动偏移
             swipes = []
             for current_loca, current_piece in self.grids.items():
                 for previous_loca, previous_piece in prev.grids.items():
                     if current_piece.is_similar_to(previous_piece):
                         diff = np.subtract(current_loca, previous_loca) - offset
                         swipes.append(tuple(diff.tolist()))
-                        # print(current_loca, previous_loca, offset, diff)
 
             counter = collections.Counter(swipes)
             diff = counter.most_common()
-            # print(diff)
             if len(diff) == 1 \
                     or len(diff) >= 2 and diff[0][1] > diff[1][1]:
                 self._log_detection(
@@ -216,7 +198,6 @@ class View(MapDetector):
                 )
                 return diff[0][0]
 
-        # 无法预测
         self._log_detection(
             f'[Распознавание карты — обзор] Прогноз сдвига карты отсутствует '
             f'({float2str(time.time() - start_time) + "s"}, совпадений нет)'
