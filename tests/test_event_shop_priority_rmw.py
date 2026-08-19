@@ -45,10 +45,11 @@ def test_priority_writers_share_one_read_modify_write_lock(monkeypatch, tmp_path
             root=tmp_path,
         )
         try:
-            assert not second_load_entered.wait(timeout=0.1)
+            assert not second_load_entered.wait(timeout=1.0)
         finally:
             release_first_load.set()
 
+        assert second_load_entered.wait(timeout=5)
         first.result(timeout=5)
         second.result(timeout=5)
 
