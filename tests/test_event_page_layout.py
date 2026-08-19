@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import yaml
@@ -19,8 +20,10 @@ LAYOUT = ROOT / "module" / "webui" / "app_event_layout.py"
 PRESENTATION = ROOT / "module" / "webui" / "app_event_general_presentation.py"
 PLANNER = ROOT / "module" / "webui" / "app_event_planner.py"
 SHOP_SAFETY = ROOT / "module" / "webui" / "app_event_shop_safety.py"
+SHOP_V2 = ROOT / "module" / "webui" / "app_event_shop_v2.py"
 TASKS = ROOT / "module" / "config" / "argument" / "task.yaml"
 EVENT_CSS = ROOT / "assets" / "gui" / "css" / "event-profiles-alas.css"
+EVENT_SHOP_CSS = ROOT / "assets" / "gui" / "css" / "event-shop-stability-alas.css"
 
 
 def test_event_layout_is_inserted_before_generic_task_renderer():
@@ -76,9 +79,12 @@ def test_event_map_progressive_disclosure_contract():
 
 def test_advanced_groups_render_directly_without_legacy_dom_reparent():
     source = LAYOUT.read_text(encoding="utf-8")
-    assert '*[put_scope(f"group_{name}") for name in existing]' not in source
-    assert "body.appendChild(node)" not in source
-    assert "document.createElement(\"details\")" not in source
+    assert re.search(
+        r"\*\s*\[\s*put_scope\s*\(\s*f?['\"]group_\{name\}['\"]\s*\)",
+        source,
+    ) is None
+    assert re.search(r"\.appendChild\s*\(", source) is None
+    assert re.search(r"createElement\s*\(\s*['\"]details['\"]\s*\)", source) is None
     assert "with use_scope(body_scope, clear=True):" in source
     assert "self._render_named_group(task, name, group_map, config, False)" in source
 
@@ -87,7 +93,10 @@ def test_event_general_uses_one_explicit_target_action():
     layout = LAYOUT.read_text(encoding="utf-8")
     presentation = PRESENTATION.read_text(encoding="utf-8")
     combined = layout + presentation
-    assert 'put_scope("group_EventStop")' not in combined
+    assert re.search(
+        r"put_scope\s*\(\s*['\"]group_EventStop['\"]\s*\)",
+        combined,
+    ) is None
     assert '"Настроить цель фарма"' in combined
 
     obsolete_actions = (
@@ -129,13 +138,14 @@ def test_event_general_dashboard_uses_canonical_local_plan_projection():
     assert '"manual"' not in planner
 
 
-def test_event_shop_has_one_primary_action_and_auto_syncs_fail_closed():
+def test_event_shop_has_one_primary_v2_action_and_auto_syncs_fail_closed():
     layout = LAYOUT.read_text(encoding="utf-8")
+    shop_v2 = SHOP_V2.read_text(encoding="utf-8")
     safety = SHOP_SAFETY.read_text(encoding="utf-8")
 
     assert 'put_scope("group_EventShopPlan")' in layout
-    assert "event-shop-hero" in layout
-    assert '"Добавить товар"' not in layout
+    assert "event-shop-v2-hero" in shop_v2
+    assert '"Добавить товар"' not in layout + shop_v2
     assert 'title="Расширенные настройки — автоматизация магазина"' in layout
     assert layout.index('put_scope("group_EventShopPlan")') < layout.index(
         'self._render_named_group(task, "Scheduler", group_map, config)'
@@ -147,7 +157,7 @@ def test_event_shop_has_one_primary_action_and_auto_syncs_fail_closed():
         "Только записать целевой PT",
         "Синхронизировать с EventShop",
     ):
-        assert label not in layout
+        assert label not in layout + shop_v2
 
     assert "def _event_plan_write" in safety
     assert "self._sync_shop_plan_fail_closed(plan, announce=False)" in safety
@@ -173,18 +183,22 @@ def test_event_shop_invalid_or_empty_plan_pauses_scheduler():
 
 def test_event_css_defines_modern_responsive_visual_system():
     css = EVENT_CSS.read_text(encoding="utf-8")
+    shop_css = EVENT_SHOP_CSS.read_text(encoding="utf-8")
+    combined = css + shop_css
     for selector in (
         ".event-dashboard-hero",
         ".event-metrics-grid",
         ".event-metric-card",
         ".event-progress-track",
-        ".event-shop-hero",
-        ".event-shop-grid",
-        ".event-shop-card",
+        ".event-shop-v2-hero",
+        "#pywebio-scope-event_shop_v2_grid",
+        ".event-shop-v2-card",
         ".event-automation-status",
         'details[style*="--event-advanced-details--"]',
     ):
-        assert selector in css
+        assert selector in combined
+    assert ".event-shop-hero" not in combined
+    assert "#pywebio-scope-event_shop_grid" not in combined
     assert ".event-advanced-details" not in css
     assert ".event-advanced-body" not in css
     assert ".event-details-chevron" not in css
@@ -192,15 +206,15 @@ def test_event_css_defines_modern_responsive_visual_system():
     assert "var(--alas-entry-surface" in css
     assert "var(--alas-entry-accent" in css
     assert "var(--alas-apple-card-bg" in css
-    assert "border-radius" in css
+    assert "border-radius" in combined
     assert ".event-dashboard-hero::after" not in css
     assert "radial-gradient" not in css
-    assert "width: min(100%, 1120px)" not in css
+    assert "width: min(100%, 1120px)" not in combined
     assert "grid-template-columns: repeat(auto-fit, minmax(250px, 1fr))" in css
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css
-    assert "grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))" in css
-    assert "@media (max-width: 760px)" in css
-    assert "@media (prefers-reduced-motion: reduce)" in css
+    assert "grid-template-columns: repeat(auto-fit, minmax(205px, 1fr))" in shop_css
+    assert "@media (max-width: 760px)" in combined
+    assert "@media (prefers-reduced-motion: reduce)" in combined
 
 
 def test_stage_two_does_not_remove_runtime_event_groups():
