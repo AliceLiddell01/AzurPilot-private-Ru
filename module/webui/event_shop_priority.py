@@ -325,6 +325,20 @@ def _catalog_rows(spec: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     ]
 
 
+def _catalog_currency_token(
+    spec: Mapping[str, Any], source: Mapping[str, Any]
+) -> str:
+    """Вернуть runtime-токен валюты строки каталога без предположений об ID."""
+    currency_id = source.get("currency_id")
+    for currency in spec.get("currencies", []):
+        if not isinstance(currency, Mapping):
+            continue
+        if str(currency.get("id")) != str(currency_id):
+            continue
+        return str(currency.get("runtime_token") or "").lower()
+    return ""
+
+
 def _selected_targets(config: Any, event_id: str) -> dict[str, int]:
     """Прочитать пользовательские цели количества для указанного события."""
     state = load_event_user_state(config.config_name)
@@ -522,7 +536,7 @@ def prepare_event_shop_runtime_items(
     *,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> PriorityRuntimeItems:
-    """Сформировать один безопасный шаг покупки из полного снимка сканера."""
+    """Сформировать безопасную активную группу покупок из полного снимка сканера."""
     full_scan = list(runtime_items)
     spec = _current_spec(config)
     if spec is None:
@@ -592,6 +606,7 @@ def prepare_event_shop_runtime_items(
     candidates: list[
         tuple[int, int, str, Mapping[str, Any], Any, int]
     ] = []
+    active_priorities: list[int] = []
     blocked: dict[str, str] = {}
     catalog_order = {
         str(item.get("row_id")): index for index, item in enumerate(catalog)
@@ -609,15 +624,18 @@ def prepare_event_shop_runtime_items(
                 changed = True
             continue
 
+        priority_value = int(priority)
         runtime = runtime_by_row.get(row_id)
         source_filter = str(source.get("event_shop_filter") or "")
         if runtime is None:
+            active_priorities.append(priority_value)
             if source_filter.lower() in ambiguous_filters:
                 blocked[row_id] = "Не удаётся безопасно отличить от похожего товара"
             else:
                 blocked[row_id] = "Товар сейчас не найден в магазине"
             continue
         if str(getattr(runtime, "cost", "") or "").lower() == "urpt":
+            active_priorities.append(priority_value)
             blocked[row_id] = (
                 "Покупка за UR-очки пока недоступна в режиме приоритетов"
             )
@@ -644,9 +662,10 @@ def prepare_event_shop_runtime_items(
         if remaining_goal <= 0:
             continue
 
+        active_priorities.append(priority_value)
         candidates.append(
             (
-                int(priority),
+                priority_value,
                 catalog_order.get(row_id, 10**9),
                 row_id,
                 source,
@@ -655,7 +674,13 @@ def prepare_event_shop_runtime_items(
             )
         )
 
+    active_priority = min(active_priorities) if active_priorities else None
+    if active_priority is None:
+        candidates = []
+    else:
+        candidates = [item for item in candidates if item[0] == active_priority]
     candidates.sort(key=lambda item: (item[0], item[1]))
+
     safe_candidates = []
     for candidate in candidates:
         _, _, row_id, source, runtime, _ = candidate
@@ -671,11 +696,11 @@ def prepare_event_shop_runtime_items(
     state["blocked"] = blocked
     save_event_shop_priority(config.config_name, state, root=root)
 
-    # Один снимок сканера разрешает не более одной логической покупки. Количество
-    # берётся из пользовательской цели и ограничивается покупками с момента её создания.
-    next_candidate = safe_candidates[:1]
+    # В runtime передаётся только верхняя незавершённая группа приоритета.
+    # Фактическую доступность по балансу проверяет EventShop; после первого клика
+    # confirm_event_shop_purchase останавливает проход и требует полный перескан.
     filter_tokens = []
-    for _, _, _, source, runtime, remaining_goal in next_candidate:
+    for _, _, _, source, runtime, remaining_goal in safe_candidates:
         token = str(source.get("event_shop_filter") or "")
         runtime_remaining = max(int(getattr(runtime, "count", 0) or 0), 0)
         if remaining_goal < runtime_remaining:
@@ -689,7 +714,7 @@ def prepare_event_shop_runtime_items(
         EventShop_BuyURShip=0,
         EventShop_UnlockSSRShip=False,
     )
-    selected = [runtime for _, _, _, _, runtime, _ in next_candidate]
+    selected = [runtime for _, _, _, _, runtime, _ in safe_candidates]
     return PriorityRuntimeItems(selected, observation_items=full_scan)
 
 
@@ -750,7 +775,7 @@ def wake_event_shop_after_currency_increase(
     source: str,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> bool:
-    """Разбудить EventShop только при наличии ещё не выполненной цели количества."""
+    """Разбудить EventShop при пересечении PT-порога верхней активной группы."""
     if str(source or "") == "event_shop_ocr":
         return False
     if previous_value is None or current_value is None or current_value <= previous_value:
@@ -758,9 +783,7 @@ def wake_event_shop_after_currency_increase(
 
     instance = str(config.config_name)
     state = load_event_shop_priority(instance, event_id, root=root)
-    possible = (
-        set(state["priorities"]) - set(state["purchased"]) - set(state["blocked"])
-    )
+    possible = set(state["priorities"]) - set(state["purchased"])
     if not possible:
         return False
 
@@ -776,7 +799,7 @@ def wake_event_shop_after_currency_increase(
             str(item.get("row_id")): item for item in _catalog_rows(spec)
         }
 
-        active = False
+        active_rows: list[tuple[int, str, Mapping[str, Any]]] = []
         for row_id in possible:
             source_row = catalog_by_id.get(row_id)
             if source_row is None:
@@ -794,10 +817,28 @@ def wake_event_shop_after_currency_increase(
                 baseline = max(baseline, observed_remaining)
             selected = min(max(int(targets.get(row_id, 0)), 0), baseline)
             bought_for_goal = max(baseline - observed_remaining, 0)
-            if selected > bought_for_goal:
-                active = True
-                break
-        if not active:
+            if selected <= bought_for_goal:
+                continue
+            active_rows.append((int(state["priorities"][row_id]), row_id, source_row))
+        if not active_rows:
+            return False
+
+        active_priority = min(item[0] for item in active_rows)
+        blocked = set(state["blocked"])
+        thresholds = []
+        for priority_value, row_id, source_row in active_rows:
+            if priority_value != active_priority or row_id in blocked:
+                continue
+            if _catalog_currency_token(spec, source_row) != "pt":
+                continue
+            price = int(source_row.get("price", 0) or 0)
+            if price > 0:
+                thresholds.append(price)
+        if not thresholds:
+            return False
+
+        threshold = min(thresholds)
+        if not previous_value < threshold <= current_value:
             return False
 
         called = bool(config.task_call("EventShop", force_call=False))
@@ -809,6 +850,8 @@ def wake_event_shop_after_currency_increase(
 
     if called:
         logger.info(
-            f"[Магазин события — приоритеты] Баланс PT вырос {previous_value} -> {current_value}; EventShop поставлен на ближайший запуск"
+            "[Магазин события — приоритеты] "
+            f"Баланс PT пересёк порог {threshold}: {previous_value} -> {current_value}; "
+            "EventShop поставлен на ближайший запуск"
         )
     return called
