@@ -10,11 +10,9 @@
 配置路径: EventDaily.StageFilter (关卡过滤器)
 """
 
-import os
-
 from module.config.config import TaskEnd
 from module.config.utils import get_server_last_update
-from module.event.base import STAGE_FILTER, EventBase, EventStage
+from module.event.base import STAGE_FILTER, EventBase
 from module.exception import ScriptEnd, RequestHumanTakeover
 from module.logger import logger
 
@@ -31,12 +29,9 @@ class CampaignABCD(EventBase):
     """
 
     def run(self, *args, **kwargs):
-        """执行活动日常关卡流程。
+        """Выполнить ежедневные этапы события по настроенному фильтру."""
 
-        流程：扫描活动目录 → 过滤关卡 → 从上次进度继续 → 依次执行 → 延迟到次日。
-        """
-        # 扫描活动目录下的所有地图文件
-        stages = [EventStage(file) for file in os.listdir(f'./campaign/{self.config.Campaign_Event}')]
+        stages = self.available_stages()
         stages = self.convert_stages(stages)
         logger.attr('Этапы', [str(stage) for stage in stages])
         logger.attr('Фильтр этапов', self.config.EventDaily_StageFilter)
@@ -45,13 +40,13 @@ class CampaignABCD(EventBase):
         stages = [str(stage) for stage in STAGE_FILTER.apply(stages)]
         logger.attr('Порядок фильтрации', ' > '.join(stages))
 
-        # 过滤后无可用关卡，禁用调度器并停止任务
+        # После фильтрации нет доступных этапов: отключаем задачу.
         if not stages:
             logger.warning('Нет этапов, соответствующих текущему фильтру')
             self.config.Scheduler_Enable = False
             self.config.task_stop()
 
-        # 从上次执行到的关卡继续，避免重复刷已完成的关卡
+        # Продолжаем после последнего успешно выполненного этапа.
         logger.info(f'[Событие — этап] Предыдущий этап {self.config.EventDaily_LastStage}, записан в {self.config.Scheduler_NextRun}')
         if get_server_last_update(self.config.Scheduler_ServerUpdate) >= self.config.Scheduler_NextRun:
             logger.info('[Событие — этап] Запись предыдущего этапа устарела; сброс')
@@ -60,22 +55,21 @@ class CampaignABCD(EventBase):
             last = str(self.config.EventDaily_LastStage).lower()
             last = self.convert_stages(last)
             if last in stages:
-                # 跳到上次关卡之后的下一个关卡
                 stages = stages[stages.index(last) + 1:]
                 logger.attr('Порядок фильтрации', ' > '.join(stages))
             else:
                 logger.info('Начинаем с начала')
 
-        # 依次执行每个关卡
+        # Выполняем каждый выбранный этап по одному разу.
         for stage in stages:
             stage = str(stage)
             try:
                 super().run(name=stage, folder=self.config.Campaign_Event, total=1)
             except TaskEnd:
-                # 捕获任务切换，正常中断
+                # Переключение задачи считается штатным завершением текущего этапа.
                 pass
             except ScriptEnd as e:
-                # 来自 CampaignUI.ensure_campaign_ui() 的关卡名错误
+                # Ошибка имени этапа из CampaignUI.ensure_campaign_ui().
                 if str(e) == 'Campaign name error':
                     task = self.config.task.command
                     logger.critical(
@@ -86,7 +80,7 @@ class CampaignABCD(EventBase):
                 else:
                     raise
 
-            # 关卡执行成功，记录进度并延迟到下一个关卡
+            # После успешного этапа сохраняем позицию для продолжения.
             if self.run_count > 0:
                 with self.config.multi_set():
                     self.config.EventDaily_LastStage = stage
@@ -96,5 +90,5 @@ class CampaignABCD(EventBase):
             if self.config.task_switched():
                 self.config.task_stop()
 
-        # 所有关卡执行完毕，延迟到次日服务器刷新
+        # Все выбранные этапы завершены; ждём следующего серверного дня.
         self.config.task_delay(server_update=True)
