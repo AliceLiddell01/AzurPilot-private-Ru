@@ -18,31 +18,18 @@ from module.event_datamine.campaign_selector import (
 )
 
 
-def _args(selector: str):
-    return {
-        "Event": {
-            "Campaign": {
-                "Event": {
-                    "option_en": [selector],
-                }
-            }
-        }
-    }
-
-
 class _Registry:
     def __init__(self, artifact):
         self.artifact = artifact
         self.calls = []
 
-    def resolve_current(self, server, now, *, supplemental=True):
-        self.calls.append((server, now, supplemental))
+    def resolve_campaign_selector(self, server, selector):
+        self.calls.append((server, selector))
         return self.artifact
 
 
-def test_current_generated_catalog_blocks_legacy_fallback_for_unknown_stage(monkeypatch):
+def test_generated_catalog_blocks_legacy_fallback_for_unknown_stage(monkeypatch):
     selector = "event_current"
-    now = datetime(2026, 8, 19, 12, 0, 0)
     artifact = object()
     registry = _Registry(artifact)
 
@@ -51,6 +38,7 @@ def test_current_generated_catalog_blocks_legacy_fallback_for_unknown_stage(monk
         "load_event_artifact_registry",
         lambda _root: registry,
     )
+    monkeypatch.setattr(selector_module, "_runtime_server", lambda: "EN")
     monkeypatch.setattr(
         selector_module,
         "_verified_generated_modules",
@@ -62,11 +50,7 @@ def test_current_generated_catalog_blocks_legacy_fallback_for_unknown_stage(monk
         else {},
     )
 
-    catalog = resolve_generated_campaign_modules(
-        selector,
-        now=now,
-        args_data=_args(selector),
-    )
+    catalog = resolve_generated_campaign_modules(selector)
 
     assert catalog == {
         "a1": "campaign.generated_event.en_current.a1",
@@ -75,31 +59,52 @@ def test_current_generated_catalog_blocks_legacy_fallback_for_unknown_stage(monk
     assert resolve_generated_campaign_module(
         selector,
         "T1",
-        now=now,
-        args_data=_args(selector),
     ) == "campaign.generated_event.en_current.a1"
 
     with pytest.raises(
         EventCampaignSelectorError,
         match="не содержит проверенный этап",
     ):
-        resolve_generated_campaign_module(
-            selector,
-            "C1",
-            now=now,
-            args_data=_args(selector),
-        )
+        resolve_generated_campaign_module(selector, "C1")
 
     assert resolve_generated_campaign_module(
         selector,
         "C1",
-        now=now,
-        args_data=_args(selector),
         strict=False,
     ) is None
     assert registry.calls
-    assert all(call[0] == "EN" for call in registry.calls)
-    assert all(call[2] is False for call in registry.calls)
+    assert all(call == ("EN", selector) for call in registry.calls)
+
+
+def test_generated_catalog_uses_explicit_server_without_runtime_lookup(monkeypatch):
+    selector = "event_current"
+    artifact = object()
+    registry = _Registry(artifact)
+
+    monkeypatch.setattr(
+        registry_module,
+        "load_event_artifact_registry",
+        lambda _root: registry,
+    )
+    monkeypatch.setattr(
+        selector_module,
+        "_runtime_server",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("Явный server не должен читать runtime server")
+        ),
+    )
+    monkeypatch.setattr(
+        selector_module,
+        "_verified_generated_modules",
+        lambda current: {"a1": "en_current/a1.py"},
+    )
+
+    assert resolve_generated_campaign_module(
+        selector,
+        "a1",
+        server="en",
+    ) == "campaign.generated_event.en_current.a1"
+    assert registry.calls == [("EN", selector)]
 
 
 def test_event_base_prefers_generated_catalog_over_legacy_directory(monkeypatch):
@@ -111,16 +116,15 @@ def test_event_base_prefers_generated_catalog_over_legacy_directory(monkeypatch)
         "sp": "campaign.generated_event.en_current.sp",
     }
 
-    monkeypatch.setattr(event_base_module, "current_time", lambda: object())
     monkeypatch.setattr(
         event_base_module,
         "resolve_generated_campaign_modules",
-        lambda selector, *, now: catalog if selector == "event_current" else None,
+        lambda selector: catalog if selector == "event_current" else None,
     )
 
     def reject_legacy_directory(_path):
         raise AssertionError(
-            "Current generated event не должен сканировать legacy-directory"
+            "Generated event не должен сканировать legacy-directory"
         )
 
     monkeypatch.setattr(event_base_module.os, "listdir", reject_legacy_directory)
@@ -130,7 +134,7 @@ def test_event_base_prefers_generated_catalog_over_legacy_directory(monkeypatch)
 
     def reject_legacy_normalization(*_args, **_kwargs):
         raise AssertionError(
-            "Current generated stages не должны проходить legacy-нормализацию"
+            "Generated stages не должны проходить legacy-нормализацию"
         )
 
     runner.handle_stage_name = reject_legacy_normalization
@@ -142,11 +146,10 @@ def test_event_base_keeps_legacy_directory_fallback(monkeypatch):
     runner = EventBase.__new__(EventBase)
     runner.config = SimpleNamespace(Campaign_Event="event_historical")
 
-    monkeypatch.setattr(event_base_module, "current_time", lambda: object())
     monkeypatch.setattr(
         event_base_module,
         "resolve_generated_campaign_modules",
-        lambda selector, *, now: None,
+        lambda selector: None,
     )
     monkeypatch.setattr(
         event_base_module.os,
