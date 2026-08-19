@@ -65,23 +65,24 @@ class CampaignRun(CampaignEvent, ShopStatus):
     run_limit: int
     is_stage_loop = False
 
-    def load_campaign(self, name, folder='campaign_main', generated_module=None):
+    def load_campaign(self, name, folder='campaign_main'):
         """Загрузить модуль карты кампании.
 
         Для текущего generated-события канонический модуль разрешается через
         event registry до legacy-импорта. Исторический импорт остаётся fallback,
         если selector не относится к текущему generated-событию.
         """
-        if generated_module is None:
-            generated_module = resolve_generated_campaign_module(
-                folder,
-                name,
-                now=current_time(),
-            )
+        generated_module = resolve_generated_campaign_module(
+            folder,
+            name,
+            now=current_time(),
+        )
         if generated_module is not None:
             name = generated_module.rsplit('.', 1)[-1]
 
-        if hasattr(self, 'name') and name == self.name:
+        module_name = generated_module or f'campaign.{folder}.{name}'
+        source_identity = (folder, module_name)
+        if getattr(self, '_campaign_source_identity', None) == source_identity:
             return False
 
         self.name = name
@@ -101,8 +102,11 @@ class CampaignRun(CampaignEvent, ShopStatus):
                     self.module,
                     generated_campaign_ui_layout(generated_module),
                 )
-        except ModuleNotFoundError:
-            module_name = generated_module or f'campaign.{folder}.{name}'
+        except ModuleNotFoundError as error:
+            missing_name = error.name or ''
+            if missing_name != module_name and not module_name.startswith(f'{missing_name}.'):
+                raise
+
             logger.warning(f'Файл карты не найден: {module_name}')
             logger.warning('[Кампания] Файл карты не найден. Обычно это означает, что выбранная пользователем карта не поддерживается или рабочий каталог задан неверно.')
             if generated_module is None and not os.path.exists(f'./campaign/{folder}'):
@@ -118,6 +122,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
         config = copy.deepcopy(self.config).merge(self.module.Config())
         device = self.device
         self.campaign = self.module.Campaign(config=config, device=device)
+        self._campaign_source_identity = source_identity
 
         return True
 
@@ -455,22 +460,24 @@ class CampaignRun(CampaignEvent, ShopStatus):
     def run(self, name, folder='campaign_main', mode='normal', total=0):
         """Запустить задачу кампании для выбранной карты."""
         requested_name = to_map_file_name(name)
+        routing_time = current_time()
         generated_module = resolve_generated_campaign_module(
             folder,
             requested_name,
-            now=current_time(),
+            now=routing_time,
         )
         if generated_module is None:
-            name, folder = self.handle_stage_name(name, folder, mode=mode)
-        else:
+            name, folder = self.handle_stage_name(requested_name, folder, mode=mode)
+            generated_module = resolve_generated_campaign_module(
+                folder,
+                name,
+                now=routing_time,
+            )
+        if generated_module is not None:
             name = generated_module.rsplit('.', 1)[-1]
 
         self.config.override(Campaign_Name=name, Campaign_Event=folder)
-        self.load_campaign(
-            name,
-            folder=folder,
-            generated_module=generated_module,
-        )
+        self.load_campaign(name, folder=folder)
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
