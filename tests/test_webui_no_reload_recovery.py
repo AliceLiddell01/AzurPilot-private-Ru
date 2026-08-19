@@ -113,8 +113,17 @@ import sys
 import time
 from pathlib import Path
 
+import psutil
+
 sys.path.insert(0, sys.argv[2])
 from module.webui.windows_process_lifetime import install_windows_process_lifetime_guards
+
+lineage = []
+for process in psutil.Process(os.getpid()).parents():
+    try:
+        lineage.append({"pid": process.pid, "name": process.name()})
+    except psutil.Error as exc:
+        lineage.append({"pid": process.pid, "name": f"<{type(exc).__name__}>"})
 
 parent_pid = install_windows_process_lifetime_guards()
 grandchild = subprocess.Popen(
@@ -126,6 +135,7 @@ Path(sys.argv[1]).write_text(
             "root_pid": os.getpid(),
             "grandchild_pid": grandchild.pid,
             "parent_pid": parent_pid,
+            "lineage": lineage,
         }
     ),
     encoding="utf-8",
@@ -201,7 +211,11 @@ exit $pythonExitCode
                 self.assertTrue(state_path.exists(), "Probe-процесс не сообщил о готовности")
 
                 state = json.loads(state_path.read_text(encoding="utf-8"))
-                self.assertEqual(controller.pid, state["parent_pid"])
+                self.assertEqual(
+                    controller.pid,
+                    state["parent_pid"],
+                    f"Фактическая цепочка родителей: {state['lineage']}",
+                )
                 root_process = psutil.Process(state["root_pid"])
                 grandchild_process = psutil.Process(state["grandchild_pid"])
                 self.assertTrue(root_process.is_running())
@@ -237,6 +251,8 @@ exit $pythonExitCode
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                     )
+                if controller is not None and controller.stdout is not None:
+                    controller.stdout.close()
 
 
 if __name__ == "__main__":
