@@ -101,7 +101,7 @@ class cached_class_property(Generic[T]):
     class AliasConflict(ValueError):
         pass
 
-    def __init__(self, func: Callable[[], T]):
+    def __init__(self, func: Callable[..., T]):
         self.__func__ = func
         self.__cache_name__ = '_{}_'.format(func.__name__.strip('_'))
         if self.__cache_name__ == func.__name__:
