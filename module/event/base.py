@@ -79,12 +79,13 @@ class EventBase(CampaignRun):
         исторических событий сохраняется прежняя нормализация handle_stage_name().
         """
 
+        selector = self.config.Campaign_Event
+        modules = resolve_generated_campaign_modules(
+            selector,
+            now=current_time(),
+        )
+
         def convert(n):
-            selector = self.config.Campaign_Event
-            modules = resolve_generated_campaign_modules(
-                selector,
-                now=current_time(),
-            )
             if modules is not None:
                 target = generated_stage_target(modules, n)
                 if target is not None:
