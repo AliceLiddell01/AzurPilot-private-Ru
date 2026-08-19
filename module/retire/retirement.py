@@ -127,18 +127,35 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 break
         return selected
 
+    def _retirement_get_items_appear(self):
+        """Распознать экран наград по цвету, сохранив шаблонный путь как резервный."""
+        GET_ITEMS_1.clear_offset()
+        if self.appear(GET_ITEMS_1, interval=2, threshold=20):
+            return True
+
+        GET_ITEMS_1.clear_offset()
+        if self.appear(GET_ITEMS_1, offset=(30, 30), interval=2):
+            return True
+
+        GET_ITEMS_1.clear_offset()
+        return False
+
     def _retirement_confirm(self, skip_first_screenshot=True):
         """Подтвердить списание и обработать последовательность всплывающих окон.
 
         Проверяются подтверждение кораблей, разбор снаряжения, получение предметов
-        и подтверждение SR/SSR. Тайм-аут предотвращает бесконечное ожидание на
-        конфигурациях, где отдельные окна не появляются.
+        и подтверждение SR/SSR. Короткое ожидание после награды отличает сценарий
+        без снаряжения от запаздывающего окна разбора, а общий тайм-аут остаётся
+        последней защитой от бесконечного цикла.
         """
         logger.info('[Списание — подтверждение] Подтверждение списания')
-        executed = False
+        reward_handled = False
+        equipment_confirm_seen = False
+        equipment_reward_handled = False
         for button in [SHIP_CONFIRM, SHIP_CONFIRM_2, EQUIP_CONFIRM, EQUIP_CONFIRM_2, GET_ITEMS_1, SR_SSR_CONFIRM]:
             self.interval_clear(button)
         self.popup_interval_clear()
+        completion_wait = Timer.from_seconds(3)
         timeout = Timer(10, count=10).start()
         while 1:
             if skip_first_screenshot:
@@ -150,11 +167,23 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             if timeout.reached():
                 logger.warning('[Списание — подтверждение] Тайм-аут ожидания подтверждения; считаем списание завершённым')
                 break
-            # EQUIP_CONFIRM иногда появляется без затемнённого фона одновременно с IN_RETIREMENT_CHECK.
-            if self.appear(IN_RETIREMENT_CHECK, offset=(20, 20)) and not self.appear(EQUIP_CONFIRM, offset=(30, 30)):
-                if executed:
+
+            in_retirement = self.appear(IN_RETIREMENT_CHECK, offset=(20, 20))
+            equip_confirm_visible = self.appear(EQUIP_CONFIRM, offset=(30, 30)) \
+                                    or self.appear(EQUIP_CONFIRM_2, offset=(30, 30))
+            if in_retirement and not equip_confirm_visible:
+                if equipment_reward_handled:
+                    logger.info('[Списание — подтверждение] Подтверждение завершено после награды за разбор снаряжения')
                     break
+                if reward_handled and not equipment_confirm_seen:
+                    completion_wait.start()
+                    if completion_wait.reached():
+                        logger.info('[Списание — подтверждение] Дополнительного разбора снаряжения нет; подтверждение завершено')
+                        break
+                else:
+                    completion_wait.clear()
             else:
+                completion_wait.clear()
                 timeout.reset()
 
             # Обрабатываем окна в порядке визуальных слоёв.
@@ -163,6 +192,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     or self.config.OldRetire_SSR \
                     or self.config.Retirement_RetireMode == 'one_click_retire':
                 if self.handle_popup_confirm(name='RETIRE_SR_SSR', offset=(20, 50)):
+                    completion_wait.clear()
                     # Не допускаем повторного нажатия нижележащего SHIP_CONFIRM.
                     self.interval_reset([SHIP_CONFIRM, SHIP_CONFIRM_2])
                     # EQUIP_CONFIRM_2 может ошибочно совпасть с общим popup confirm.
@@ -170,6 +200,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                     continue
                 if self.config.SERVER in ['cn', 'jp', 'tw'] and \
                         self.appear_then_click(SR_SSR_CONFIRM, offset=(20, 50), interval=2):
+                    completion_wait.clear()
                     self.interval_reset([SHIP_CONFIRM, SHIP_CONFIRM_2])
                     self.interval_reset([EQUIP_CONFIRM, EQUIP_CONFIRM_2])
                     continue
@@ -177,6 +208,7 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
             if self.match_template_color(SHIP_CONFIRM_2, offset=(30, 30), interval=2):
                 if self.retire_keep_common_cv and not self._have_kept_cv:
                     self.keep_one_common_cv()
+                completion_wait.clear()
                 self.device.click(SHIP_CONFIRM_2)
                 # Следующим ожидается GET_ITEMS_1; очищаем его интервал.
                 self.interval_clear(GET_ITEMS_1)
@@ -184,18 +216,28 @@ class Retirement(Enhancement, QuickRetireSettingHandler):
                 continue
             # Подтверждение кораблей в старом режиме.
             if self.match_template_color(SHIP_CONFIRM, offset=(30, 30), interval=2):
+                completion_wait.clear()
                 self.device.click(SHIP_CONFIRM)
                 continue
             # Подтверждение разбора снаряжения.
             if self.appear_then_click(EQUIP_CONFIRM, offset=(30, 30), interval=2):
+                completion_wait.clear()
+                equipment_confirm_seen = True
+                self.interval_clear(GET_ITEMS_1)
                 continue
             if self.appear_then_click(EQUIP_CONFIRM_2, offset=(30, 30), interval=2):
+                completion_wait.clear()
+                equipment_confirm_seen = True
                 self.interval_clear(GET_ITEMS_1)
-                executed = True
                 continue
             # Экран полученных предметов.
-            if self.appear(GET_ITEMS_1, offset=(30, 30), interval=2):
+            if self._retirement_get_items_appear():
+                completion_wait.clear()
                 self.device.click(GET_ITEMS_1_RETIREMENT_SAVE)
+                reward_handled = True
+                if equipment_confirm_seen:
+                    equipment_reward_handled = True
+                logger.info('[Списание — подтверждение] Экран наград обработан')
                 self.interval_reset(SHIP_CONFIRM)
                 # Следующим ожидается подтверждение разбора снаряжения.
                 self.interval_clear([EQUIP_CONFIRM, EQUIP_CONFIRM_2])
