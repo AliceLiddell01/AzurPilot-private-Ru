@@ -6,6 +6,12 @@ import re
 
 from module.base.timer import Timer
 from module.base.utils import color_bar_percentage
+from module.event_datamine.campaign_selector import (
+    EventCampaignSelectorError,
+    generated_stage_target,
+    resolve_generated_campaign_modules,
+)
+from module.exception import RequestHumanTakeover
 from module.handler.assets import *
 from module.handler.auto_search import AutoSearchHandler
 from module.logger import logger
@@ -274,7 +280,7 @@ class FastForwardHandler(AutoSearchHandler):
         处理自动搜索开关。
 
         Returns:
-            bool: 是否进行了切换操作。
+            bool: 是否进行了更改。
 
         Pages:
             in: MAP_PREPARATION
@@ -436,22 +442,50 @@ class FastForwardHandler(AutoSearchHandler):
             percent *= 1.4
         return percent
 
+    def _campaign_stage_exists(self, stage):
+        """Проверить наличие следующего этапа в каноническом источнике карт."""
+        selector = self.config.Campaign_Event
+        try:
+            generated = resolve_generated_campaign_modules(selector)
+        except EventCampaignSelectorError as error:
+            logger.error_context(
+                title='Не удалось безопасно разрешить следующий этап generated-события',
+                reason=str(error),
+                impact=(
+                    'Автоматическое продвижение этапа остановлено; переход в '
+                    'legacy-каталог запрещён.'
+                ),
+                action=(
+                    'Проверьте Campaign.Event и перегенерируйте Event registry/artifact '
+                    'из актуального source snapshot перед повторным запуском.'
+                ),
+                level=50,
+            )
+            raise RequestHumanTakeover from error
+
+        if generated is not None:
+            return generated_stage_target(generated, stage) is not None
+
+        existing = map_files(selector)
+        logger.info(f'Существующие файлы: {existing}')
+        return str(stage).lower() in existing
+
     def campaign_name_increase(self, name):
-        """
-        将关卡名称推进到下一关。
+        """Продвинуть имя кампании к следующему доступному этапу.
 
-        Args:
-            name (str): 关卡名称，如 `6-1`、`a1`、`campaign_6_1`。
+        Аргументы:
+            name (str): имя этапа, например ``6-1``, ``a1`` или ``campaign_6_1``.
 
-        Returns:
-            str: 下一关的大写名称，无法推进时返回原名称。
+        Возвращает:
+            str: имя следующего этапа в верхнем регистре либо исходное имя,
+            если продвижение невозможно.
         """
-        # 复制 STAGE_INCREASE 以避免潜在的重复插入
+        # Копируем последовательности, чтобы не менять общий список класса.
         stage_increase = [r for r in self.STAGE_INCREASE]
-        # 插入自定义推进逻辑
+        # Для событий с непрерывными главами A/B добавляем общую последовательность.
         if self.config.STAGE_INCREASE_AB:
             stage_increase = [
-                'A1 > A2 > A3 > B1 > B2 > B3',                
+                'A1 > A2 > A3 > B1 > B2 > B3',
             ] + stage_increase
         custom = self.config.STAGE_INCREASE_CUSTOM
         if custom:
@@ -459,7 +493,6 @@ class FastForwardHandler(AutoSearchHandler):
                 custom = [custom]
             stage_increase = custom + stage_increase
 
-        # 推进关卡
         name = to_map_input_name(name)
         for increase in stage_increase:
             increase = [i.strip(' \t\r\n') for i in increase.split('>')]
@@ -467,18 +500,16 @@ class FastForwardHandler(AutoSearchHandler):
                 index = increase.index(name) + 1
                 if index < len(increase):
                     new = increase[index]
-                    # 主线关卡不做检查，假设全部存在
-                    # 主线关卡文件名为 campaign_7_2，但用户输入 7-2
+                    # Для основной кампании все этапы считаются доступными.
                     if self.config.Campaign_Event == 'campaign_main':
                         return new
-                    # 检查地图文件是否存在
-                    existing = map_files(self.config.Campaign_Event)
-                    logger.info(f'Существующие файлы: {existing}')
-                    if new.lower() in existing:
+                    if self._campaign_stage_exists(new):
                         return new
-                    else:
-                        logger.info(f'Достигнут конец последовательности этапов: новая карта {new} не существует')
-                        return name
+                    logger.info(
+                        f'Достигнут конец последовательности этапов: '
+                        f'новая карта {new} не существует'
+                    )
+                    return name
                 else:
                     logger.info('Достигнут конец последовательности этапов')
                     return name
@@ -512,9 +543,7 @@ class FastForwardHandler(AutoSearchHandler):
         return False
 
     def handle_map_stop(self):
-        """
-        达到停止条件后修改配置，禁用当前任务或推进关卡。
-        """
+        """Обработать достижение условия карты: продвинуть этап или отключить задачу."""
         if self.config.StopCondition_StageIncrease:
             prev_stage = to_map_input_name(self.config.Campaign_Name)
             next_stage = self.campaign_name_increase(prev_stage)
