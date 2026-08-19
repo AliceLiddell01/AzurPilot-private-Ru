@@ -6,7 +6,7 @@
 核心功能：
 - 地图滑动：通过滑动向量控制相机在地图上移动
 - 视图更新：通过透视检测（Perspective Detection）解析当前视野中的网格信息
-- 坐标转换：全局坐标（map 坐标）与局部坐标（view 坐标）的相互转换
+- 坐标转换：全局坐标（map 坐标）与局部坐标（view 坐标）之间转换
 - 全图扫描：系统性地扫描整个地图，发现所有敌人和事件
 - 错误恢复：处理各种检测错误（信息栏遮挡、弹窗、剧情等）
 
@@ -17,6 +17,7 @@
 """
 
 import copy
+import logging
 
 import numpy as np
 
@@ -37,6 +38,8 @@ from module.os.assets import GLOBE_GOTO_MAP
 from module.os_handler.assets import AUTO_SEARCH_REWARD, GET_ADAPTABILITY, MISSION_CHECK as OPSI_MISSION_CHECK
 from module.os_shop.assets import PORT_SUPPLY_CHECK
 from module.ui.assets import BACK_ARROW
+
+_MAP_OUTSIDE_WARNING_KEY = ('map-camera', 'outside-map')
 
 
 class Camera(MapOperation):
@@ -107,7 +110,7 @@ class Camera(MapOperation):
         Returns:
             bool: 相机是否移动了。
         """
-        logger.info('[Карта — камера] Сдвиг карты: %s' % str(vector))
+        logger.debug('[Карта — камера] Сдвиг карты: %s' % str(vector))
         self._prev_view = copy.copy(self.view)
         self._prev_swipe = vector
         vector = np.array(vector)
@@ -144,8 +147,15 @@ class Camera(MapOperation):
                     and not self.is_in_strategy_submarine_move() \
                     and not self.is_in_strategy_mob_move() \
                     and not self.is_in_strategy_air_strike():
-                logger.warning('[Карта — камера] Проверяемое изображение не относится к карте')
+                message = '[Карта — камера] Проверяемое изображение не относится к карте'
+                logger.log_suppressed(
+                    logging.WARNING,
+                    message,
+                    key=_MAP_OUTSIDE_WARNING_KEY,
+                    payload=message,
+                )
                 raise MapDetectionError('Проверяемое изображение не находится в состоянии in_map')
+            logger.finish_suppressed(_MAP_OUTSIDE_WARNING_KEY)
             self.view.load(self.device.image)
         except MapDetectionError as e:
             if self.info_bar_count():
@@ -475,7 +485,7 @@ class Camera(MapOperation):
         """确保目标位置在相机视野内。
 
         Args:
-            location: 目标位置坐标。
+            location: 目标位置。
             sight (tuple): 视野范围，如 (-3, -1, 3, 2)。
         """
         location = location_ensure(location)
