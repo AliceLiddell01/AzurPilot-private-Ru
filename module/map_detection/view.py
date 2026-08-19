@@ -131,7 +131,7 @@ class View(MapDetector):
             **kwargs: 网格属性键值对。
 
         Returns:
-            SelectedGrids: 满足条件的网格集合。
+            SelectedGrids: 满足条件的格子集合。
         """
         result = []
         for grid in self:
@@ -170,9 +170,12 @@ class View(MapDetector):
                 grid.is_fleet = grid.predict_fleet()
                 grid.is_current_fleet = grid.predict_current_fleet()
 
-            if len(current_fleet := self.select(is_fleet=True, is_current_fleet=True)) == 1 \
-                    and len(previous_fleet := prev.select(is_fleet=True, is_current_fleet=True)) == 1:
+            # 如果能找到当前舰队，用它来预测滑动
+            current_fleet = self.select(is_fleet=True, is_current_fleet=True)
+            previous_fleet = prev.select(is_fleet=True, is_current_fleet=True)
+            if len(current_fleet) == 1 and len(previous_fleet) == 1:
                 diff = np.subtract(current_fleet[0].location, previous_fleet[0].location) - offset
+                # print(current_fleet[0].location, previous_fleet[0].location, offset, diff)
                 diff = tuple(diff.tolist())
                 self._log_detection(
                     f'[Распознавание карты — обзор] Прогноз сдвига карты: {diff} '
@@ -181,15 +184,18 @@ class View(MapDetector):
                 return diff
 
         if with_sea_grids:
+            # 暴力搜索滑动偏移
             swipes = []
             for current_loca, current_piece in self.grids.items():
                 for previous_loca, previous_piece in prev.grids.items():
                     if current_piece.is_similar_to(previous_piece):
                         diff = np.subtract(current_loca, previous_loca) - offset
                         swipes.append(tuple(diff.tolist()))
+                        # print(current_loca, previous_loca, offset, diff)
 
             counter = collections.Counter(swipes)
             diff = counter.most_common()
+            # print(diff)
             if len(diff) == 1 \
                     or len(diff) >= 2 and diff[0][1] > diff[1][1]:
                 self._log_detection(
@@ -198,6 +204,7 @@ class View(MapDetector):
                 )
                 return diff[0][0]
 
+        # 无法预测
         self._log_detection(
             f'[Распознавание карты — обзор] Прогноз сдвига карты отсутствует '
             f'({float2str(time.time() - start_time) + "s"}, совпадений нет)'
