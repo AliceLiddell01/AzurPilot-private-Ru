@@ -151,6 +151,7 @@ def build_current_event(
     *,
     source_root: Path,
     server: str,
+    campaign_selector: str,
     repository: str,
     revision: str,
     output_root: Path,
@@ -161,6 +162,11 @@ def build_current_event(
     verify_git: bool = True,
     runtime_policy_root: Path | str = GENERATED_EVENT_ROOT,
 ) -> dict:
+    campaign_selector = str(campaign_selector or "").strip()
+    if not campaign_selector.startswith("event_"):
+        raise ValueError(
+            f"Некорректный campaign selector: {campaign_selector!r}"
+        )
     if verify_git:
         verify_git_revision(source_root, revision)
     snapshot = SourceSnapshot(source_root, server, repository, revision)
@@ -312,13 +318,21 @@ def build_current_event(
         },
     )
     write_artifact(artifact_path, artifact)
-    write_registry(output_root)
+    write_registry(
+        output_root,
+        campaign_selector={
+            "server": server,
+            "selector": campaign_selector,
+            "event_id": spec.id,
+        },
+    )
     write_asset_catalog(output_root, asset_root=asset_root)
     return {
         "artifact": str(artifact_path),
         "digest": artifact["digest"],
         "event_id": spec.id,
         "event_name": spec.name,
+        "campaign_selector": campaign_selector,
         "source_status": spec.source_status,
         "revision": revision,
         "candidate_count": len(candidates),
@@ -345,6 +359,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--server",
         choices=("CN", "EN", "JP", "TW", "KR"),
         required=True,
+    )
+    parser.add_argument(
+        "--campaign-selector",
+        required=True,
+        help="Campaign.Event selector, который должен указывать на generated artifact",
     )
     parser.add_argument("--revision", required=True)
     parser.add_argument(
@@ -382,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
     result = build_current_event(
         source_root=args.source_root,
         server=args.server,
+        campaign_selector=args.campaign_selector,
         repository=args.repository,
         revision=args.revision,
         output_root=args.output_root,
