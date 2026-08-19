@@ -284,7 +284,8 @@ class PlanMutationProbe(EventPlannerMixin):
         self.refreshes += 1
 
 
-def test_event_plan_mutations_are_serialized_across_sessions():
+def test_event_plan_mutations_are_serialized_across_sessions(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     probe = PlanMutationProbe()
     start = Barrier(3)
 
@@ -297,16 +298,12 @@ def test_event_plan_mutations_are_serialized_across_sessions():
 
         assert probe._event_plan_mutate(mutation, "") is True
 
-    with patch(
-        "module.webui.app_event_planner.event_user_state_write_lock",
-        side_effect=lambda _instance: nullcontext(),
-    ):
-        threads = [Thread(target=worker, args=(name,)) for name in ("A", "B")]
-        for thread in threads:
-            thread.start()
-        start.wait()
-        for thread in threads:
-            thread.join()
+    threads = [Thread(target=worker, args=(name,)) for name in ("A", "B")]
+    for thread in threads:
+        thread.start()
+    start.wait()
+    for thread in threads:
+        thread.join()
 
     assert {item["name"] for item in probe.store["stages"]} == {"A", "B"}
 
