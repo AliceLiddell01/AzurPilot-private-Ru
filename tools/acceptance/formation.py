@@ -116,6 +116,10 @@ def _confirm_snapshot(snapshot: FormationFleetSnapshot, args: argparse.Namespace
     return "MATCH"
 
 
+def _exception_text(error: BaseException) -> str:
+    return _safe_text(str(error) or type(error).__name__)
+
+
 def _close_info_without_masking(
     runner: FormationFleetController,
     primary: BaseException | None,
@@ -124,16 +128,18 @@ def _close_info_without_masking(
         runner.device.screenshot()
         if runner.formation_state.info_opened(runner.device.image):
             runner._close_info()
-    except Exception as close_error:  # noqa: BLE001 - не маскируем исходную ошибку.
+    except BaseException as close_error:  # noqa: BLE001 - не маскируем исходную ошибку.
         if primary is not None:
             primary.add_note(
                 "Дополнительно не удалось закрыть Formation Info: "
-                + _safe_text(str(close_error))
+                + _exception_text(close_error)
             )
             return
+        if not isinstance(close_error, Exception):
+            raise
         raise AcceptanceFailure(
             "Не удалось восстановить Formation после приёмки: "
-            + _safe_text(str(close_error))
+            + _exception_text(close_error)
         ) from close_error
 
 
@@ -146,21 +152,24 @@ def _finalize_acceptance(
 ) -> None:
     """Безусловно восстановить UI и доказать неизменность profile config."""
 
-    cleanup_error: Exception | None = None
+    cleanup_error: BaseException | None = None
     if runner is not None:
         try:
             _close_info_without_masking(runner, primary)
-        except Exception as error:  # noqa: BLE001 - проверка config всё равно обязательна.
+        except BaseException as error:  # noqa: BLE001 - проверка config всё равно обязательна.
             cleanup_error = error
 
-    config_error: AcceptanceFailure | None = None
+    config_error: BaseException | None = None
     try:
         config_after = _sha256(config_path)
-    except Exception as error:  # noqa: BLE001 - ошибка проверки не должна маскировать primary.
-        config_error = AcceptanceFailure(
-            "Не удалось проверить неизменность постоянного config профиля: "
-            + _safe_text(str(error))
-        )
+    except BaseException as error:  # noqa: BLE001 - финализация не должна маскировать primary.
+        if isinstance(error, Exception):
+            config_error = AcceptanceFailure(
+                "Не удалось проверить неизменность постоянного config профиля: "
+                + _exception_text(error)
+            )
+        else:
+            config_error = error
     else:
         if config_before != config_after:
             config_error = AcceptanceFailure(
@@ -171,15 +180,21 @@ def _finalize_acceptance(
         if cleanup_error is not None:
             primary.add_note(
                 "Дополнительно не удалось восстановить Formation: "
-                + _safe_text(str(cleanup_error))
+                + _exception_text(cleanup_error)
             )
         if config_error is not None:
-            primary.add_note(str(config_error))
+            primary.add_note(
+                "Дополнительно не завершена проверка config: "
+                + _exception_text(config_error)
+            )
         return
 
     if cleanup_error is not None:
         if config_error is not None:
-            cleanup_error.add_note(str(config_error))
+            cleanup_error.add_note(
+                "Дополнительно не завершена проверка config: "
+                + _exception_text(config_error)
+            )
         raise cleanup_error
 
     if config_error is not None:
