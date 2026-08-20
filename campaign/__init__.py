@@ -17,8 +17,11 @@ from types import ModuleType
 
 from module.event_datamine.campaign_selector import (
     generated_campaign_ui_layout,
+    generated_stage_navigation_for_module,
     resolve_generated_campaign_module,
 )
+from module.exception import CampaignNameError
+from module.logger import logger
 
 
 def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) -> None:
@@ -51,6 +54,89 @@ def _apply_generated_campaign_ui_policy(module: ModuleType, layout: str | None) 
     raise ValueError(f"Неподдерживаемая раскладка интерфейса сгенерированного события: {layout!r}")
 
 
+def _apply_generated_stage_navigation_policy(module: ModuleType) -> None:
+    """Перенести проверенную семантику этапа в Config канонического модуля."""
+
+    config_class = getattr(module, "Config", None)
+    if config_class is None:
+        return
+    navigation = generated_stage_navigation_for_module(module.__name__)
+    config_class.GENERATED_EVENT_STAGE_NAVIGATION = True
+    config_class.GENERATED_EVENT_AUTO_NEXT = navigation.auto_next or ""
+    config_class.GENERATED_EVENT_DIFFICULTY = navigation.difficulty or ""
+    config_class.GENERATED_EVENT_UI_PAGE = navigation.ui_page or ""
+    config_class.GENERATED_EVENT_UI_MODE = navigation.ui_mode or ""
+    config_class.GENERATED_EVENT_UI_ASIDE = navigation.ui_aside or ""
+    config_class.GENERATED_EVENT_UI_CHAPTER_INDEX = navigation.ui_chapter_index or 0
+    config_class.GENERATED_EVENT_ENTRANCE_NAMES = list(navigation.entrance_names)
+
+
+def _generated_campaign_set_chapter(self, name, mode="normal"):
+    """Перейти к generated-этапу по явному UI-маршруту runtime-policy."""
+
+    page = self.config.GENERATED_EVENT_UI_PAGE
+    ui_mode = self.config.GENERATED_EVENT_UI_MODE
+    aside = self.config.GENERATED_EVENT_UI_ASIDE
+    chapter_index = self.config.GENERATED_EVENT_UI_CHAPTER_INDEX
+    difficulty = self.config.GENERATED_EVENT_DIFFICULTY
+
+    if difficulty:
+        self.config.override(Campaign_Mode=difficulty)
+
+    if page == "event":
+        self.ui_goto_event()
+    elif page == "sp":
+        self.ui_goto_sp()
+    elif page == "campaign":
+        self.ui_goto_campaign()
+    else:
+        logger.warning(f'[Кампания — UI] Неизвестная страница generated-этапа: {page!r}')
+        raise CampaignNameError
+
+    if self.config.MAP_CHAPTER_SWITCH_20260326:
+        if ui_mode:
+            self.campaign_ensure_mode_20241219(ui_mode)
+        if aside:
+            self.campaign_ensure_aside_20260326(aside)
+    elif self.config.MAP_CHAPTER_SWITCH_20241219:
+        if ui_mode:
+            self.campaign_ensure_mode_20241219(ui_mode)
+        if aside:
+            self.campaign_ensure_aside_20241219(aside)
+    elif ui_mode:
+        self.campaign_ensure_mode(ui_mode)
+
+    if chapter_index:
+        self.campaign_ensure_chapter(chapter_index)
+
+
+def _generated_campaign_get_entrance(self, name):
+    """Найти вход generated-этапа по явным именам runtime-policy."""
+
+    entrance_name = str(name)
+    candidates = list(self.config.GENERATED_EVENT_ENTRANCE_NAMES)
+    if not candidates:
+        candidates = [str(getattr(self.MAP, "name", name) or name)]
+
+    available = {
+        str(stage_name).casefold(): stage_name
+        for stage_name in self.stage_entrance
+    }
+    for candidate in candidates:
+        key = available.get(str(candidate).casefold())
+        if key is None:
+            continue
+        entrance = self.stage_entrance[key]
+        entrance.name = entrance_name
+        return entrance
+
+    logger.warning(
+        f'[Кампания — UI] Вход generated-этапа не найден: '
+        f'{", ".join(str(item) for item in candidates)}'
+    )
+    raise CampaignNameError
+
+
 def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = None) -> None:
     """Настроить канонический ``MAP`` под проверенную политику интерфейса события.
 
@@ -59,6 +145,7 @@ def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = Non
     """
 
     _apply_generated_campaign_ui_policy(module, ui_layout)
+    _apply_generated_stage_navigation_policy(module)
     campaign_class = getattr(module, "Campaign", None)
     map_object = getattr(module, "MAP", None)
     if campaign_class is None or map_object is None:
@@ -79,6 +166,8 @@ def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = Non
             skip_first_screenshot=skip_first_screenshot,
         )
 
+    campaign_class.campaign_set_chapter = _generated_campaign_set_chapter
+    campaign_class.campaign_get_entrance = _generated_campaign_get_entrance
     campaign_class.ensure_campaign_ui = ensure_campaign_ui
     campaign_class._generated_event_ui_adapted = True
 
