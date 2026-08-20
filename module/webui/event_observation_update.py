@@ -92,9 +92,12 @@ def update_event_observation(
 
 
 def _evidence_timestamp(observed_at: datetime | None) -> tuple[datetime, str]:
-    evidence_at = observed_at or datetime.now(timezone.utc)
-    if evidence_at.tzinfo is None:
-        evidence_at = evidence_at.replace(tzinfo=timezone.utc)
+    if observed_at is None:
+        evidence_at = datetime.now(timezone.utc)
+    else:
+        evidence_at = observed_at
+        if evidence_at.tzinfo is None or evidence_at.utcoffset() is None:
+            raise ValueError("Метка времени доказательства должна содержать часовой пояс")
     evidence_at = evidence_at.astimezone(timezone.utc)
     return evidence_at, evidence_at.isoformat()
 
