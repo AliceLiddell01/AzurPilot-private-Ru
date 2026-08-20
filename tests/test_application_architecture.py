@@ -23,7 +23,9 @@ def _import_roots(path: Path) -> set[str]:
 
 
 def test_application_layer_has_no_transport_framework_imports():
-    for path in APPLICATION_ROOT.glob("*.py"):
+    paths = tuple(APPLICATION_ROOT.rglob("*.py"))
+    assert paths, APPLICATION_ROOT
+    for path in paths:
         assert _import_roots(path).isdisjoint(FORBIDDEN_IMPORT_ROOTS), path
 
 

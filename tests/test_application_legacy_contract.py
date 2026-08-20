@@ -7,7 +7,7 @@ from module.application.legacy_adapters import (
 )
 from module.application.models import TaskMetadata
 from module.config.mcp_helper import McpConfigHelper
-from module.config.utils import alas_instance
+from module.config import utils as config_utils
 
 
 def _legacy_task_dict(task: TaskMetadata) -> dict[str, object]:
@@ -58,10 +58,12 @@ def test_generated_task_catalog_matches_current_mcp_projection_for_every_task():
         )
 
 
-def test_legacy_instance_adapter_preserves_current_instance_order():
+def test_legacy_instance_adapter_preserves_current_instance_order(monkeypatch):
+    names = ["secondary", "ap", "third"]
+    monkeypatch.setattr(config_utils, "alas_instance", lambda: list(names))
     adapter = LegacyInstanceRuntimeAdapter()
 
-    assert adapter.list_instance_names() == tuple(alas_instance())
+    assert adapter.list_instance_names() == tuple(names)
 
 
 def test_legacy_runtime_adapter_reads_alive_before_state_without_leaking_manager():
