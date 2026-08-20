@@ -136,4 +136,4 @@ def test_dashboard_current_balance_loader_failure_is_fail_closed_and_cached(monk
     assert second == first
     assert calls == [gui.alas_config]
     assert len(warnings) == 1
-    assert "Не удалось получить текущий баланс валюты события" in warnings[0]
+    assert "Не удалось получить текущий баланс валюты ивента" in warnings[0]

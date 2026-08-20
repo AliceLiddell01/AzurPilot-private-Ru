@@ -34,7 +34,7 @@ _EVENT_CURRENCY_BALANCE_CACHE_TTL_SECONDS = 5.0
 
 
 def _empty_event_currency_balance_group():
-    """Вернуть безопасное неизвестное значение текущего баланса события."""
+    """Вернуть безопасное неизвестное значение текущего баланса ивента."""
 
     return {"Value": None, "Record": None, "Color": "^00BFFF"}
 
@@ -88,7 +88,7 @@ class DashboardMixin(WebUIMixinBase):
     """Обновлять задачи и ресурсы на обзорной панели WebUI."""
 
     def _event_currency_balance_group_cached(self):
-        """Получить баланс события без чтения состояния на каждом тике Dashboard."""
+        """Получить баланс ивента без чтения состояния на каждом тике Dashboard."""
 
         config = self.alas_config
         cache_key = (
@@ -113,7 +113,7 @@ class DashboardMixin(WebUIMixinBase):
             group = _event_currency_balance_group(config)
         except Exception as exc:
             logger.warning(
-                f"[Dashboard] Не удалось получить текущий баланс валюты события: {exc}"
+                f"[Dashboard] Не удалось получить текущий баланс валюты ивента: {exc}"
             )
             group = _empty_event_currency_balance_group()
 

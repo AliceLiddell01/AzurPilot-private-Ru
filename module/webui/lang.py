@@ -81,8 +81,8 @@ _RECOVERY_STAGE3_TRANSLATIONS = {
 # Это сохраняет контракт загрузчика: dic_lang содержит только реально загруженные
 # каталоги, а небольшие расширения форка разрешаются как явный локальный fallback.
 _PERSONAL_RUNTIME_TRANSLATIONS = {
-    "Gui.Dashboard.EventPtTotal": "Всего валюты события заработано",
-    "Gui.Dashboard.EventCurrencyBalance": "Текущий баланс валюты события",
+    "Gui.Dashboard.EventPtTotal": "Всего валюты ивента заработано",
+    "Gui.Dashboard.EventCurrencyBalance": "Текущий баланс валюты ивента",
 }
 
 dic_lang: Dict[str, str] = {}

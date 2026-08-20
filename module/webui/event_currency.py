@@ -1,4 +1,4 @@
-"""Мост доказанных изменений валюты события в планировщик EventShop."""
+"""Мост доказанных изменений валюты ивента в планировщик EventShop."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def persist_event_currency_update(
 ) -> dict[str, Any] | None:
     """Сохранить доказательство PT, не смешивая накопительный счётчик и баланс.
 
-    `dashboard_ocr` содержит накопительный PT за событие. Он используется только
+    `dashboard_ocr` содержит накопительный PT за ивент. Он используется только
     как дельта относительно предыдущего счётчика и только после того, как магазин
     уже дал абсолютный текущий баланс. `event_shop_ocr` остаётся единственным
     абсолютным источником доступного к покупке PT и сам EventShop не пробуждает.
@@ -63,7 +63,7 @@ def persist_event_currency_update(
 
     instance = str(getattr(config, "config_name", "") or "")
     if not instance:
-        raise ValueError("Для наблюдения валюты события требуется имя профиля")
+        raise ValueError("Для наблюдения валюты ивента требуется имя профиля")
 
     server = str(getattr(config, "SERVER", "EN") or "EN").upper()
     artifact = load_event_artifact_registry().resolve_current(server, datetime.now())
