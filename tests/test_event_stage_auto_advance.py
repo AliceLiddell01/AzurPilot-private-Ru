@@ -74,8 +74,11 @@ def test_generated_event_advances_by_verified_catalog_order(monkeypatch):
     assert runner.config.Scheduler_Enable is True
 
     assert calls == [
+        ("event_current", False),
         ("event_current", True),
+        ("event_current", False),
         ("event_current", True),
+        ("event_current", False),
         ("event_current", True),
     ]
 
@@ -104,16 +107,18 @@ def test_generated_event_progression_does_not_depend_on_legacy_stage_names(
     assert runner.config.Scheduler_Enable is True
 
 
-def test_generated_event_stops_before_stage_excluded_from_auto_advance_catalog(
+def test_generated_event_does_not_skip_special_stage_between_regular_stages(
     monkeypatch,
 ):
-    runner = _runner(stage="D3")
+    runner = _runner(stage="ALPHA")
     full_catalog = {
-        "d3": "campaign.generated_event.synthetic.d3",
-        "sp": "campaign.generated_event.synthetic.sp",
+        "alpha": "campaign.generated_event.synthetic.alpha",
+        "special": "campaign.generated_event.synthetic.special",
+        "omega": "campaign.generated_event.synthetic.omega",
     }
     auto_advance_catalog = {
-        "d3": "campaign.generated_event.synthetic.d3",
+        "alpha": "campaign.generated_event.synthetic.alpha",
+        "omega": "campaign.generated_event.synthetic.omega",
     }
     calls = []
 
@@ -132,9 +137,39 @@ def test_generated_event_stops_before_stage_excluded_from_auto_advance_catalog(
 
     runner.handle_map_stop()
 
+    assert runner.config.Campaign_Name == "ALPHA"
+    assert runner.config.Scheduler_Enable is False
+    assert calls == [
+        ("event_current", False),
+        ("event_current", True),
+    ]
+
+
+def test_generated_event_stops_before_stage_excluded_at_end_of_catalog(monkeypatch):
+    runner = _runner(stage="D3")
+    full_catalog = {
+        "d3": "campaign.generated_event.synthetic.d3",
+        "sp": "campaign.generated_event.synthetic.sp",
+    }
+    auto_advance_catalog = {
+        "d3": "campaign.generated_event.synthetic.d3",
+    }
+
+    monkeypatch.setattr(
+        fast_forward_module,
+        "resolve_generated_campaign_modules",
+        lambda selector, *, auto_advance_only=False: (
+            auto_advance_catalog
+            if selector == "event_current" and auto_advance_only
+            else full_catalog if selector == "event_current" else None
+        ),
+    )
+    _forbid_legacy_catalog(monkeypatch)
+
+    runner.handle_map_stop()
+
     assert runner.config.Campaign_Name == "D3"
     assert runner.config.Scheduler_Enable is False
-    assert calls == [("event_current", True)]
 
 
 def test_generated_event_custom_sequence_keeps_explicit_user_priority(monkeypatch):
