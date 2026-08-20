@@ -186,8 +186,15 @@ def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = Non
     if campaign_class is None or map_object is None:
         return
 
-    navigation = generated_stage_navigation_for_module(module.__name__)
-    campaign_class._generated_event_stage_navigation = navigation
+    module_name = str(getattr(module, "__name__", "") or "")
+    is_generated_module = module_name.startswith("campaign.generated_event.")
+    navigation = (
+        generated_stage_navigation_for_module(module_name)
+        if is_generated_module
+        else None
+    )
+    if is_generated_module:
+        campaign_class._generated_event_stage_navigation = navigation
     if getattr(campaign_class, "_generated_event_ui_adapted", False):
         return
 
@@ -205,12 +212,13 @@ def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = Non
             skip_first_screenshot=skip_first_screenshot,
         )
 
-    # Для generated-карт отсутствие navigation-policy означает безопасную остановку
-    # автопродвижения вместо возврата к статическим legacy-последовательностям.
-    campaign_class.campaign_name_increase = _generated_campaign_name_increase
-    if navigation is not None and navigation.has_ui_route:
-        campaign_class.campaign_set_chapter = _generated_campaign_set_chapter
-        campaign_class.campaign_get_entrance = _generated_campaign_get_entrance
+    if is_generated_module:
+        # Для generated-карт отсутствие navigation-policy означает безопасную остановку
+        # автопродвижения вместо возврата к статическим legacy-последовательностям.
+        campaign_class.campaign_name_increase = _generated_campaign_name_increase
+        if navigation is not None and navigation.has_ui_route:
+            campaign_class.campaign_set_chapter = _generated_campaign_set_chapter
+            campaign_class.campaign_get_entrance = _generated_campaign_get_entrance
     campaign_class.ensure_campaign_ui = ensure_campaign_ui
     campaign_class._generated_event_ui_adapted = True
 
