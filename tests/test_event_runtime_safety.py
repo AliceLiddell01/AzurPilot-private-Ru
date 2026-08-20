@@ -259,7 +259,8 @@ def test_timezone_aware_dashboard_record_is_accepted_without_mixed_datetime_erro
         now=datetime(2026, 8, 13, 11, 0, 0),
     )
 
-    assert result["current_pt"] == 4567
+    assert result["event_pt_total"] == 4567
+    assert result["current_pt"] is None
     assert not any(item["code"] == "observation_stale" for item in result["findings"])
 
 
