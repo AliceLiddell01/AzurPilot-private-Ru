@@ -134,6 +134,48 @@ def _close_info_without_masking(runner: FormationFleetController, primary: Excep
         ) from close_error
 
 
+def _finalize_acceptance(
+    *,
+    runner: FormationFleetController | None,
+    config_path: Path,
+    config_before: str,
+    primary: Exception | None,
+) -> None:
+    """Безусловно восстановить UI и доказать неизменность profile config."""
+
+    cleanup_error: Exception | None = None
+    if runner is not None:
+        try:
+            _close_info_without_masking(runner, primary)
+        except Exception as error:  # noqa: BLE001 - проверка config всё равно обязательна.
+            cleanup_error = error
+
+    config_after = _sha256(config_path)
+    config_error: AcceptanceFailure | None = None
+    if config_before != config_after:
+        config_error = AcceptanceFailure(
+            "Приёмка Formation изменила постоянный config профиля."
+        )
+
+    if primary is not None:
+        if cleanup_error is not None:
+            primary.add_note(
+                "Дополнительно не удалось восстановить Formation: "
+                + _safe_text(str(cleanup_error))
+            )
+        if config_error is not None:
+            primary.add_note(str(config_error))
+        return
+
+    if cleanup_error is not None:
+        if config_error is not None:
+            cleanup_error.add_note(str(config_error))
+        raise cleanup_error
+
+    if config_error is not None:
+        raise config_error
+
+
 def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     _validate_profile_name(args.profile)
     head = _git_head_sha()
@@ -160,26 +202,29 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         if input("Введите START для начала: ").strip() != "START":
             raise AcceptanceFailure("Приёмка отменена: не получено точное START.")
 
-    runner = FormationFleetController(args.profile, device=serial)
-    if runner.config.SERVER != "en":
-        raise AcceptanceFailure("Приёмка Formation поддерживает только EN/Global.")
-
+    runner: FormationFleetController | None = None
     primary: Exception | None = None
     snapshot: FormationFleetSnapshot | None = None
     confirmation: str | None = None
     try:
+        runner = FormationFleetController(args.profile, device=serial)
+        if runner.config.SERVER != "en":
+            raise AcceptanceFailure("Приёмка Formation поддерживает только EN/Global.")
+
         snapshot = runner.scan_surface_fleet(args.fleet, close_info=False)
         confirmation = _confirm_snapshot(snapshot, args)
-    except Exception as error:  # noqa: BLE001 - очистка должна сохранить исходную ошибку.
+    except Exception as error:  # noqa: BLE001 - cleanup должен сохранить исходную ошибку.
         primary = error
         raise
     finally:
-        _close_info_without_masking(runner, primary)
+        _finalize_acceptance(
+            runner=runner,
+            config_path=config_path,
+            config_before=config_before,
+            primary=primary,
+        )
 
-    config_after = _sha256(config_path)
-    if config_before != config_after:
-        raise AcceptanceFailure("Приёмка Formation изменила постоянный config профиля.")
-    if snapshot is None:
+    if snapshot is None or runner is None:
         raise AcceptanceFailure("Приёмка Formation завершилась без снимка состава флота.")
 
     return {
