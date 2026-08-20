@@ -184,7 +184,7 @@ class EventPlannerMixin(WebUIMixinBase):
             if not saved and priority_changed and priority_before is not None:
                 try:
                     save_event_shop_priority(self.alas_name, priority_before)
-                except OSError as exc:
+                except (OSError, TypeError, ValueError) as exc:
                     logger.exception(exc)
                     toast(
                         "Не удалось восстановить состояние автоматизации после ошибки сохранения цели",
@@ -279,7 +279,7 @@ class EventPlannerMixin(WebUIMixinBase):
     ) -> None:
         try:
             selected = int(pin[_SHOP_SELECTED_PIN] or 0)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             selected = -1
         if selected < 0:
             toast("Количество не может быть отрицательным", color="warning")

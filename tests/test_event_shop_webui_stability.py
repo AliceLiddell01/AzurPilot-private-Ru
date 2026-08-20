@@ -351,6 +351,50 @@ def test_quantity_popup_restores_priority_when_plan_write_fails(monkeypatch):
     assert planner.patches == []
 
 
+def test_quantity_change_reports_failed_priority_restore(monkeypatch):
+    planner = _FailedPlanWritePlanner()
+    identity = planner._shop_item_identity(planner.plan["shop_items"][0])
+    warnings = []
+
+    @contextmanager
+    def unlocked(*_args, **_kwargs):
+        yield
+
+    def fail_restore(*_args, **_kwargs):
+        raise ValueError("bad state")
+
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.event_shop_priority_write_lock",
+        unlocked,
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.load_event_shop_priority",
+        lambda *_args, **_kwargs: {"event_id": "event-test"},
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.save_event_shop_priority",
+        fail_restore,
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.toast",
+        lambda message, **kwargs: warnings.append((message, kwargs)),
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.logger.exception", lambda *_: None
+    )
+
+    planner._change_shop_quantity(identity, "increment")
+
+    assert planner.plan["shop_items"][0]["selected"] == 0
+    assert warnings == [
+        (
+            "Не удалось восстановить состояние автоматизации после ошибки сохранения цели",
+            {"color": "error"},
+        )
+    ]
+    assert planner.patches == []
+
+
 def test_live_patch_reloads_capacity_after_active_target_is_cleared(monkeypatch):
     planner = _LiveV2Planner()
     planner.plan["shop_items"][0]["selected"] = 5

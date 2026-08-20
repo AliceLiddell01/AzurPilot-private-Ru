@@ -63,7 +63,25 @@ class EventShopV2Mixin(WebUIMixinBase):
         return _shop_presentation_names().get(source, source)
 
     @staticmethod
+    def _event_shop_available(
+        item: Mapping[str, Any],
+        priority_state: Mapping[str, Any],
+    ) -> int:
+        """Вернуть доказанный остаток товара по приоритетному состоянию."""
+        row_id = str(item.get("id") or "")
+        stock = max(int(item.get("stock", 0) or 0), 0)
+        if row_id in set(priority_state.get("purchased") or []):
+            return 0
+        if isinstance(item.get("remaining"), int):
+            return min(max(int(item["remaining"]), 0), stock)
+        remembered_remaining = dict(priority_state.get("remaining") or {})
+        if row_id in remembered_remaining:
+            return min(max(int(remembered_remaining[row_id]), 0), stock)
+        return stock
+
+    @classmethod
     def _event_shop_target_remaining(
+        cls,
         item: Mapping[str, Any],
         priority_state: Mapping[str, Any],
     ) -> int:
@@ -72,17 +90,8 @@ class EventShopV2Mixin(WebUIMixinBase):
         stock = max(int(item.get("stock", 0) or 0), 0)
         priorities = set(priority_state.get("priorities") or {})
         purchased = set(priority_state.get("purchased") or [])
-        remembered_remaining = dict(priority_state.get("remaining") or {})
         target_baselines = dict(priority_state.get("target_baselines") or {})
-
-        if row_id in purchased:
-            available = 0
-        elif isinstance(item.get("remaining"), int):
-            available = min(max(int(item["remaining"]), 0), stock)
-        elif row_id in remembered_remaining:
-            available = min(max(int(remembered_remaining[row_id]), 0), stock)
-        else:
-            available = stock
+        available = cls._event_shop_available(item, priority_state)
 
         selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
         if row_id not in priorities and row_id not in purchased:
@@ -97,26 +106,17 @@ class EventShopV2Mixin(WebUIMixinBase):
         bought_for_goal = max(baseline - available, 0)
         return max(selected - bought_for_goal, 0)
 
-    @staticmethod
+    @classmethod
     def _event_shop_target_bought(
+        cls,
         item: Mapping[str, Any],
         priority_state: Mapping[str, Any],
     ) -> int:
         """Вернуть доказанное число покупок в текущем эпизоде цели."""
         row_id = str(item.get("id") or "")
         stock = max(int(item.get("stock", 0) or 0), 0)
-        purchased = set(priority_state.get("purchased") or [])
-        remembered_remaining = dict(priority_state.get("remaining") or {})
         target_baselines = dict(priority_state.get("target_baselines") or {})
-
-        if row_id in purchased:
-            available = 0
-        elif isinstance(item.get("remaining"), int):
-            available = min(max(int(item["remaining"]), 0), stock)
-        elif row_id in remembered_remaining:
-            available = min(max(int(remembered_remaining[row_id]), 0), stock)
-        else:
-            available = stock
+        available = cls._event_shop_available(item, priority_state)
 
         if row_id in target_baselines:
             baseline = min(max(int(target_baselines[row_id]), 0), stock)
@@ -124,9 +124,7 @@ class EventShopV2Mixin(WebUIMixinBase):
             return max(baseline - available, 0)
 
         selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
-        remaining = EventShopV2Mixin._event_shop_target_remaining(
-            item, priority_state
-        )
+        remaining = cls._event_shop_target_remaining(item, priority_state)
         return max(selected - remaining, 0)
 
     @classmethod
@@ -460,7 +458,6 @@ class EventShopV2Mixin(WebUIMixinBase):
         priorities = dict(priority_state.get("priorities") or {})
         purchased = set(priority_state.get("purchased") or [])
         completed = set(priority_state.get("completed") or [])
-        remembered_remaining = dict(priority_state.get("remaining") or {})
         target_baselines = dict(priority_state.get("target_baselines") or {})
         blocked = dict(priority_state.get("blocked") or {})
         shop_items = [
@@ -517,17 +514,7 @@ class EventShopV2Mixin(WebUIMixinBase):
                 is_purchased = row_id in purchased
 
                 stock = max(int(item.get("stock", 0) or 0), 0)
-                remaining = item.get("remaining")
-                if is_purchased:
-                    available = 0
-                elif isinstance(remaining, int):
-                    available = min(max(remaining, 0), stock)
-                elif row_id in remembered_remaining:
-                    available = min(
-                        max(int(remembered_remaining[row_id]), 0), stock
-                    )
-                else:
-                    available = stock
+                available = self._event_shop_available(item, priority_state)
 
                 selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
                 capacity = event_shop_target_capacity(item, priority_state)
