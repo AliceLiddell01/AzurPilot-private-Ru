@@ -166,3 +166,77 @@ def test_profile_load_failure_still_reports_profile_config_mutation(monkeypatch)
         "изменила постоянный config профиля" in note
         for note in error_info.value.__notes__
     )
+
+
+def test_keyboard_interrupt_stays_primary_when_config_changes(monkeypatch) -> None:
+    hashes = iter(("before", "after"))
+    args = argparse.Namespace(
+        profile="test",
+        fleet=6,
+        serial="fixture",
+        serial_from_config=False,
+        expected_head=None,
+        non_interactive=True,
+        confirmed_match="MATCH",
+    )
+
+    monkeypatch.setattr(formation_acceptance, "_validate_profile_name", lambda profile: None)
+    monkeypatch.setattr(formation_acceptance, "_git_head_sha", lambda: "1" * 40)
+    monkeypatch.setattr(formation_acceptance, "_sha256", lambda path: next(hashes))
+
+    def interrupt_profile_load(profile):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(formation_acceptance, "_load_profile", interrupt_profile_load)
+
+    with pytest.raises(KeyboardInterrupt) as error_info:
+        formation_acceptance.run_acceptance(args)
+
+    assert any(
+        "изменила постоянный config профиля" in note
+        for note in error_info.value.__notes__
+    )
+
+
+def test_config_hash_read_failure_does_not_mask_scan_error(monkeypatch) -> None:
+    args = argparse.Namespace(
+        profile="test",
+        fleet=6,
+        serial="fixture",
+        serial_from_config=False,
+        expected_head=None,
+        non_interactive=True,
+        confirmed_match="MATCH",
+    )
+    hash_calls = 0
+
+    def hash_with_final_read_failure(path):
+        nonlocal hash_calls
+        hash_calls += 1
+        if hash_calls == 1:
+            return "before"
+        raise OSError("ошибка чтения config")
+
+    monkeypatch.setattr(formation_acceptance, "_validate_profile_name", lambda profile: None)
+    monkeypatch.setattr(formation_acceptance, "_git_head_sha", lambda: "1" * 40)
+    monkeypatch.setattr(formation_acceptance, "_sha256", hash_with_final_read_failure)
+    monkeypatch.setattr(formation_acceptance, "_load_profile", lambda profile: {})
+    monkeypatch.setattr(formation_acceptance, "_resolve_serial", lambda args, profile: "fixture")
+    monkeypatch.setattr(
+        formation_acceptance,
+        "FormationFleetController",
+        _FailingAcceptanceController,
+    )
+    monkeypatch.setattr(
+        formation_acceptance,
+        "_close_info_without_masking",
+        lambda runner, primary: None,
+    )
+
+    with pytest.raises(FormationFleetOcrError, match="ошибка сканирования") as error_info:
+        formation_acceptance.run_acceptance(args)
+
+    assert any(
+        "Не удалось проверить неизменность постоянного config профиля" in note
+        for note in error_info.value.__notes__
+    )
