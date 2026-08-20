@@ -485,8 +485,9 @@ class Camera(MapOperation):
             if not success:
                 location = target.location
                 failed_attempts[location] = failed_attempts.get(location, 0) + 1
-                recovery = self.ensure_edge_insight(skip_first_update=False)
-                camera_moved = any(x != 0 or y != 0 for x, y in recovery)
+                camera_before_recovery = self.camera
+                self.ensure_edge_insight(skip_first_update=False)
+                camera_moved = self.camera != camera_before_recovery
                 if camera_moved and failed_attempts[location] <= self.FULL_SCAN_RETRY_LIMIT:
                     logger.warning(
                         f'[Карта — камера] Повторяю сканирование точки {target} после изменения положения камеры'
