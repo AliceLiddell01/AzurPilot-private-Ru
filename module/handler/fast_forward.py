@@ -630,7 +630,7 @@ class FastForwardHandler(AutoSearchHandler):
             if clicked_threshold > 3:
                 break
 
-            if self.appear(check_button, offset=(20, 20)):
+            if self.appear(check_button, offset=self._auto_search_menu_offset):
                 box_button.load_offset(check_button)
                 enabled = self.image_color_count(box_button.button, color=(156, 255, 82), threshold=221, count=20)
                 if (status == 'on' and enabled) or (status == 'off' and not enabled):
