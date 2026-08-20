@@ -71,6 +71,44 @@ def _apply_generated_stage_navigation_policy(module: ModuleType) -> None:
     config_class.GENERATED_EVENT_ENTRANCE_NAMES = list(navigation.entrance_names)
 
 
+def _generated_campaign_name_increase(self, name):
+    """Продвинуть generated-этап только по явному ребру runtime-policy."""
+
+    current = str(name or "").strip().upper()
+    custom = self.config.STAGE_INCREASE_CUSTOM
+    if custom:
+        sequences = [custom] if isinstance(custom, str) else custom
+        for sequence in sequences:
+            stages = [item.strip().upper() for item in sequence.split('>')]
+            if current not in stages:
+                continue
+            index = stages.index(current) + 1
+            if index >= len(stages):
+                logger.info('Достигнут конец пользовательской последовательности этапов')
+                return current
+            target = stages[index]
+            if self._campaign_stage_exists(target):
+                return target
+            logger.info(
+                f'Пользовательская последовательность указывает на недоступный этап {target}'
+            )
+            return current
+
+    target = str(self.config.GENERATED_EVENT_AUTO_NEXT or "").strip().upper()
+    if not target:
+        logger.info('Для generated-этапа не задан следующий автоматический переход')
+        return current
+    if self._campaign_stage_exists(target):
+        logger.info(
+            f'Следующий generated-этап по runtime-policy: {current} -> {target}'
+        )
+        return target
+    logger.info(
+        f'Runtime-policy указывает на недоступный generated-этап {target}; переход остановлен'
+    )
+    return current
+
+
 def _generated_campaign_set_chapter(self, name, mode="normal"):
     """Перейти к generated-этапу по явному UI-маршруту runtime-policy."""
 
@@ -166,6 +204,7 @@ def _adapt_generated_campaign_ui(module: ModuleType, ui_layout: str | None = Non
             skip_first_screenshot=skip_first_screenshot,
         )
 
+    campaign_class.campaign_name_increase = _generated_campaign_name_increase
     campaign_class.campaign_set_chapter = _generated_campaign_set_chapter
     campaign_class.campaign_get_entrance = _generated_campaign_get_entrance
     campaign_class.ensure_campaign_ui = ensure_campaign_ui
