@@ -5,6 +5,7 @@ from module.formation.model import (
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
 )
+from module.formation.navigation import FormationFleetController
 from module.formation.scanner import (
     FormationFleetInfoScanner,
     FormationFleetInputError,
@@ -13,6 +14,7 @@ from module.formation.scanner import (
 )
 
 __all__ = [
+    "FormationFleetController",
     "FormationFleetInfoScanner",
     "FormationFleetInputError",
     "FormationFleetOcrError",
