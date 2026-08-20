@@ -40,25 +40,32 @@ class _MapStub:
         pass
 
 
-def _camera(camera_points, update_results, recovery_records):
+def _camera(camera_points, update_results, recovery_steps):
     instance = Camera.__new__(Camera)
     instance.camera = camera_points[0].location
     instance.map = _MapStub(camera_points, update_results)
     instance.view = object()
     instance.focus_to = lambda grid: setattr(instance, "camera", grid.location)
     instance.focus_to_grid_center = lambda _tolerance: False
-    records = iter(recovery_records)
-    instance.ensure_edge_insight = lambda **_kwargs: next(records)
+    steps = iter(recovery_steps)
+
+    def ensure_edge_insight(**_kwargs):
+        record, new_camera = next(steps)
+        if new_camera is not None:
+            instance.camera = new_camera
+        return record
+
+    instance.ensure_edge_insight = ensure_edge_insight
     return instance
 
 
-def test_full_scan_defers_view_when_edge_recovery_cannot_move():
+def test_full_scan_defers_view_when_recovery_does_not_change_camera():
     first = _Grid((0, 0))
     second = _Grid((5, 0))
     camera = _camera(
         [first, second],
         update_results=[False, True, True],
-        recovery_records=[[(0, 0)]],
+        recovery_steps=[([(1, 0)], None)],
     )
 
     camera.full_scan()
@@ -72,7 +79,10 @@ def test_full_scan_raises_after_repeated_stationary_failure():
     camera = _camera(
         [point],
         update_results=[False, False],
-        recovery_records=[[(0, 0)], [(0, 0)]],
+        recovery_steps=[
+            ([(1, 0)], None),
+            ([(1, 0)], None),
+        ],
     )
 
     with pytest.raises(
@@ -84,12 +94,12 @@ def test_full_scan_raises_after_repeated_stationary_failure():
     assert camera.map.update_cameras == [(0, 0), (0, 0)]
 
 
-def test_full_scan_retries_same_view_after_real_camera_movement():
+def test_full_scan_retries_same_view_after_confirmed_camera_movement():
     point = _Grid((0, 0))
     camera = _camera(
         [point],
         update_results=[False, True],
-        recovery_records=[[(1, 0), (0, 0)]],
+        recovery_steps=[([(0, 0)], (1, 0))],
     )
 
     camera.full_scan()
