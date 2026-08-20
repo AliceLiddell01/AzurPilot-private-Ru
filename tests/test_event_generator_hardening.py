@@ -159,7 +159,6 @@ def test_builder_rejects_derived_duplicate_module_name_before_any_write(
             revision="revision",
             output_root=output_root,
             asset_root=tmp_path,
-            now=SimpleNamespace(),
             maps_output=maps_output,
             overwrite=True,
             verify_git=False,
@@ -250,8 +249,9 @@ def test_generator_does_not_infer_normal_movable_enemy_from_me_grid():
         runtime_policy=_runtime_policy(),
     )
 
-    assert "MAP_HAS_MOVABLE_NORMAL_ENEMY = True" not in generated
+    assert "MAP_HAS_MOVABLE_NORMAL_ENEMY" not in generated
     assert "MOVABLE_NORMAL_ENEMY_TURN" not in generated
+    assert "MAP_HAS_MOVABLE_ENEMY = False" in generated
 
 
 def test_generator_rejects_siren_map_without_runtime_recognition_policy():
