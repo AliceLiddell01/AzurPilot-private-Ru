@@ -43,7 +43,7 @@ def test_generated_catalog_blocks_legacy_fallback_for_unknown_stage(monkeypatch)
     monkeypatch.setattr(
         selector_module,
         "_verified_generated_modules",
-        lambda current: {
+        lambda current, *, auto_advance_only=False: {
             "a1": "en_current/a1.py",
             "sp": "en_current/sp.py",
         }
@@ -97,7 +97,7 @@ def test_generated_catalog_uses_explicit_server_without_runtime_lookup(monkeypat
     monkeypatch.setattr(
         selector_module,
         "_verified_generated_modules",
-        lambda current: {"a1": "en_current/a1.py"},
+        lambda current, *, auto_advance_only=False: {"a1": "en_current/a1.py"},
     )
 
     assert resolve_generated_campaign_module(
