@@ -97,6 +97,38 @@ class EventShopV2Mixin(WebUIMixinBase):
         bought_for_goal = max(baseline - available, 0)
         return max(selected - bought_for_goal, 0)
 
+    @staticmethod
+    def _event_shop_target_bought(
+        item: Mapping[str, Any],
+        priority_state: Mapping[str, Any],
+    ) -> int:
+        """Вернуть доказанное число покупок в текущем эпизоде цели."""
+        row_id = str(item.get("id") or "")
+        stock = max(int(item.get("stock", 0) or 0), 0)
+        purchased = set(priority_state.get("purchased") or [])
+        remembered_remaining = dict(priority_state.get("remaining") or {})
+        target_baselines = dict(priority_state.get("target_baselines") or {})
+
+        if row_id in purchased:
+            available = 0
+        elif isinstance(item.get("remaining"), int):
+            available = min(max(int(item["remaining"]), 0), stock)
+        elif row_id in remembered_remaining:
+            available = min(max(int(remembered_remaining[row_id]), 0), stock)
+        else:
+            available = stock
+
+        if row_id in target_baselines:
+            baseline = min(max(int(target_baselines[row_id]), 0), stock)
+            baseline = max(baseline, available)
+            return max(baseline - available, 0)
+
+        selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
+        remaining = EventShopV2Mixin._event_shop_target_remaining(
+            item, priority_state
+        )
+        return max(selected - remaining, 0)
+
     @classmethod
     def _event_shop_priority_metrics(
         cls,
@@ -231,7 +263,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         target_label = (
             "Цель эпизода" if active_target_episode else "Цель покупки"
         )
-        bought_for_target = max(selected - remaining_target, 0)
+        bought_for_target = self._event_shop_target_bought(item, state)
         self._run_event_shop_dom_patch(
             {
                 "values": [
@@ -506,7 +538,9 @@ class EventShopV2Mixin(WebUIMixinBase):
                 target_label = (
                     "Цель эпизода" if active_target_episode else "Цель покупки"
                 )
-                bought_for_target = max(selected - target_remaining, 0)
+                bought_for_target = self._event_shop_target_bought(
+                    item, priority_state
+                )
                 target_done = (
                     not is_purchased
                     and (

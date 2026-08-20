@@ -32,6 +32,7 @@ from module.webui.event_shop_priority import (
     event_shop_priority_write_lock,
     event_shop_target_capacity,
     load_event_shop_priority,
+    save_event_shop_priority,
     update_event_shop_target_state,
 )
 from module.webui.event_source import (
@@ -155,11 +156,45 @@ class EventPlannerMixin(WebUIMixinBase):
         state = load_event_shop_priority(self.alas_name, event_id)
         return event_shop_target_capacity(item, state)
 
-    def _mutate_event_shop_target(self, mutation, message: str) -> bool:
+    def _mutate_event_shop_target(
+        self,
+        mutation,
+        message: str,
+        target_snapshot: Mapping[str, Any],
+    ) -> bool:
         """Согласованно изменить состояние приоритетов и пользовательский план."""
         # Контур выполнения берёт блокировки в том же порядке при завершении покупки.
         with event_shop_priority_write_lock(self.alas_name):
-            return self._event_plan_mutate(mutation, message)
+            priority_before: dict[str, Any] | None = None
+            priority_changed = False
+
+            def coordinated_mutation(plan):
+                nonlocal priority_before, priority_changed
+                result = mutation(plan)
+                if result is _STALE_EVENT_PLAN or result is _UNCHANGED_EVENT_PLAN:
+                    return result
+                event_id = str(target_snapshot.get("event_id") or "")
+                priority_before = load_event_shop_priority(self.alas_name, event_id)
+                if not self._sync_event_shop_target_state(target_snapshot):
+                    return _UNCHANGED_EVENT_PLAN
+                priority_changed = True
+                return result
+
+            saved = self._event_plan_mutate(coordinated_mutation, message)
+            if not saved and priority_changed and priority_before is not None:
+                try:
+                    save_event_shop_priority(self.alas_name, priority_before)
+                except OSError as exc:
+                    logger.exception(exc)
+                    toast(
+                        "Не удалось восстановить состояние автоматизации после ошибки сохранения цели",
+                        color="error",
+                    )
+                else:
+                    logger.warning(
+                        "[WebUI — магазин события] Состояние автоматизации восстановлено после ошибки сохранения цели"
+                    )
+            return saved
 
     def _sync_event_shop_target_state(self, snapshot: Mapping[str, Any]) -> bool:
         event_id = str(snapshot.get("event_id") or "")
@@ -281,12 +316,14 @@ class EventPlannerMixin(WebUIMixinBase):
                     "selected": selected,
                 }
             )
-            if not self._sync_event_shop_target_state(target_snapshot):
-                return _UNCHANGED_EVENT_PLAN
             item["selected"] = selected
             live_snapshot.update(self._shop_live_snapshot(plan, item))
 
-        if self._mutate_event_shop_target(mutation, "Количество в плане обновлено"):
+        if self._mutate_event_shop_target(
+            mutation,
+            "Количество в плане обновлено",
+            target_snapshot,
+        ):
             close_popup()
             self._patch_event_shop_plan_values(identity, live_snapshot)
         elif validation_problem:
@@ -341,12 +378,10 @@ class EventPlannerMixin(WebUIMixinBase):
                     "selected": selected,
                 }
             )
-            if not self._sync_event_shop_target_state(target_snapshot):
-                return _UNCHANGED_EVENT_PLAN
             item["selected"] = selected
             live_snapshot.update(self._shop_live_snapshot(plan, item))
 
-        if self._mutate_event_shop_target(mutation, ""):
+        if self._mutate_event_shop_target(mutation, "", target_snapshot):
             self._patch_event_shop_plan_values(identity, live_snapshot)
         elif validation_problem:
             toast(validation_problem[-1], color="warning")

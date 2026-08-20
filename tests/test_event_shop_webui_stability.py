@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -65,8 +66,16 @@ class _LivePlanner(EventPlannerMixin):
         result = mutation(self.plan)
         return result is None
 
-    def _mutate_event_shop_target(self, mutation, message):
-        return self._event_plan_mutate(mutation, message)
+    def _mutate_event_shop_target(self, mutation, message, target_snapshot):
+        self.messages.append(message)
+        candidate = deepcopy(self.plan)
+        result = mutation(candidate)
+        if result is not None:
+            return False
+        if not self._sync_event_shop_target_state(target_snapshot):
+            return False
+        self.plan = candidate
+        return True
 
     def _event_shop_quantity_capacity(self, plan, item):
         return self.capacity
@@ -86,6 +95,22 @@ class _LiveV2Planner(EventShopV2Mixin, _LivePlanner):
     @staticmethod
     def _fmt(value):
         return str(value)
+
+
+class _FailedPlanWritePlanner(_LivePlanner):
+    def _mutate_event_shop_target(self, mutation, message, target_snapshot):
+        return EventPlannerMixin._mutate_event_shop_target(
+            self,
+            mutation,
+            message,
+            target_snapshot,
+        )
+
+    def _event_plan_mutate(self, mutation, message):
+        self.messages.append(message)
+        candidate = deepcopy(self.plan)
+        mutation(candidate)
+        return False
 
 
 def test_event_shop_styles_are_loaded_before_gui_content():
@@ -254,6 +279,78 @@ def test_quantity_change_keeps_previous_plan_when_priority_sync_fails():
     assert planner.patches == []
 
 
+def test_quantity_change_restores_priority_when_plan_write_fails(monkeypatch):
+    planner = _FailedPlanWritePlanner()
+    identity = planner._shop_item_identity(planner.plan["shop_items"][0])
+    priority_before = {"event_id": "event-test", "target_baselines": {}}
+    restored = []
+
+    @contextmanager
+    def unlocked(*_args, **_kwargs):
+        yield
+
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.event_shop_priority_write_lock",
+        unlocked,
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.load_event_shop_priority",
+        lambda *_args, **_kwargs: deepcopy(priority_before),
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.save_event_shop_priority",
+        lambda instance, state: restored.append((instance, deepcopy(state))),
+    )
+
+    planner._change_shop_quantity(identity, "increment")
+
+    assert planner.plan["shop_items"][0]["selected"] == 0
+    assert planner.synced_targets[-1]["selected"] == 1
+    assert restored == [("alas", priority_before)]
+    assert planner.patches == []
+
+
+def test_quantity_popup_restores_priority_when_plan_write_fails(monkeypatch):
+    planner = _FailedPlanWritePlanner()
+    identity = planner._shop_item_identity(planner.plan["shop_items"][0])
+    priority_before = {"event_id": "event-test", "target_baselines": {}}
+    restored = []
+    closed = []
+
+    @contextmanager
+    def unlocked(*_args, **_kwargs):
+        yield
+
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.event_shop_priority_write_lock",
+        unlocked,
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.load_event_shop_priority",
+        lambda *_args, **_kwargs: deepcopy(priority_before),
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.save_event_shop_priority",
+        lambda instance, state: restored.append((instance, deepcopy(state))),
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.pin",
+        {"event_plan_shop_selected": 1},
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.close_popup",
+        lambda: closed.append(True),
+    )
+
+    planner._save_shop_quantity_popup(identity)
+
+    assert planner.plan["shop_items"][0]["selected"] == 0
+    assert planner.synced_targets[-1]["selected"] == 1
+    assert restored == [("alas", priority_before)]
+    assert closed == []
+    assert planner.patches == []
+
+
 def test_live_patch_reloads_capacity_after_active_target_is_cleared(monkeypatch):
     planner = _LiveV2Planner()
     planner.plan["shop_items"][0]["selected"] = 5
@@ -308,6 +405,19 @@ def test_live_patch_reloads_capacity_after_active_target_is_cleared(monkeypatch)
     assert active_values[f"event-shop-target-label-{live_key}"] == "Цель эпизода"
     assert active_values[f"event-shop-target-bought-{live_key}"] == "8"
     assert active_values[f"event-shop-target-left-{live_key}"] == "2"
+
+    planner.plan["shop_items"][0]["selected"] = 5
+    planner._patch_event_shop_plan_values(
+        identity,
+        {"selected": 5, "cost": 10000, "total": 10000, "selected_count": 1},
+    )
+
+    reduced_values = {
+        entry["id"]: entry["value"] for entry in payloads[2]["values"]
+    }
+    assert reduced_values[f"event-shop-capacity-{live_key}"] == "10"
+    assert reduced_values[f"event-shop-target-bought-{live_key}"] == "8"
+    assert reduced_values[f"event-shop-target-left-{live_key}"] == "0"
 
 
 def test_event_shop_refresh_updates_only_plan_scope():
