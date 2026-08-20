@@ -68,6 +68,7 @@ def test_legacy_instance_adapter_preserves_current_instance_order(monkeypatch):
 
 def test_legacy_runtime_adapter_reads_alive_before_state_without_leaking_manager():
     events: list[str] = []
+    received_names: list[str] = []
 
     class Manager:
         @property
@@ -80,12 +81,18 @@ def test_legacy_runtime_adapter_reads_alive_before_state_without_leaking_manager
             events.append("state")
             return 1
 
+    def manager_factory(name: str) -> Manager:
+        received_names.append(name)
+        return Manager()
+
     adapter = LegacyInstanceRuntimeAdapter(
         list_instances=lambda: ("ap",),
-        manager_factory=lambda _name: Manager(),
+        manager_factory=manager_factory,
     )
     status = InstanceQueryService(adapter).get_status("ap")
 
+    assert received_names == ["ap"]
     assert events == ["alive", "state"]
+    assert status.name == "ap"
     assert status.running is True
     assert status.state is RuntimeState.RUNNING
