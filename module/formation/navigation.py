@@ -320,6 +320,7 @@ class FormationFleetController(UI):
         self.ensure_surface_fleet(fleet_index)
         self._open_info()
 
+        primary_error: Exception | None = None
         try:
             self.device.screenshot()
             frame = self._current_frame()
@@ -337,6 +338,17 @@ class FormationFleetController(UI):
                 f"полное сопоставление: {result.complete}"
             )
             return result
+        except Exception as error:
+            primary_error = error
+            raise
         finally:
             if close_info:
-                self._close_info()
+                try:
+                    self._close_info()
+                except Exception as close_error:
+                    if primary_error is None:
+                        raise
+                    primary_error.add_note(
+                        "Дополнительно не удалось закрыть Formation Info: "
+                        f"{close_error}"
+                    )
