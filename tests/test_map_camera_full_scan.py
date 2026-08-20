@@ -94,15 +94,38 @@ def test_full_scan_raises_after_repeated_stationary_failure():
     assert camera.map.update_cameras == [(0, 0), (0, 0)]
 
 
-def test_full_scan_retries_same_view_after_confirmed_camera_movement():
-    point = _Grid((0, 0))
+def test_full_scan_retries_same_view_immediately_after_confirmed_camera_movement():
+    first = _Grid((0, 0))
+    second = _Grid((5, 0))
     camera = _camera(
-        [point],
-        update_results=[False, True],
+        [first, second],
+        update_results=[False, True, True],
         recovery_steps=[([(0, 0)], (1, 0))],
     )
 
     camera.full_scan()
 
-    assert camera.map.update_cameras == [(0, 0), (0, 0)]
+    assert camera.map.update_cameras == [(0, 0), (0, 0), (5, 0)]
     assert camera.map.missing_predict_called is True
+
+
+def test_full_scan_exhausts_camera_movement_retry_limit():
+    point = _Grid((0, 0))
+    attempts = Camera.FULL_SCAN_RETRY_LIMIT + 2
+    camera = _camera(
+        [point],
+        update_results=[False] * attempts,
+        recovery_steps=[
+            ([(1, 0)], (index + 1, 0))
+            for index in range(attempts)
+        ],
+    )
+
+    with pytest.raises(
+        MapDetectionError,
+        match="Повторное сканирование точки",
+    ):
+        camera.full_scan()
+
+    assert camera.map.update_cameras == [(0, 0)] * attempts
+    assert camera.map.missing_predict_called is False
