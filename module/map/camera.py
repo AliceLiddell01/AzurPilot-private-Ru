@@ -531,7 +531,7 @@ class Camera(MapOperation):
         self.map.show()
 
     def in_sight(self, location, sight=None):
-        """确保目标位置在相机视野内.
+        """确保目标位置在相机视野内。
 
         Args:
             location: 目标位置坐标。
