@@ -1,4 +1,5 @@
 import argparse
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +9,8 @@ from module.formation.model import (
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
 )
+from module.formation.scanner import FormationFleetOcrError
+from tools.acceptance import formation as formation_acceptance
 from tools.acceptance.device import AcceptanceFailure
 from tools.acceptance.formation import _confirm_snapshot, _print_snapshot, _snapshot_payload
 
@@ -87,3 +90,49 @@ def test_incomplete_snapshot_fails_before_manual_confirmation() -> None:
 
     with pytest.raises(AcceptanceFailure, match="нераспознанные"):
         _confirm_snapshot(_snapshot(matched=False), args)
+
+
+class _FailingAcceptanceController:
+    def __init__(self, config_name, device=None) -> None:
+        self.config = SimpleNamespace(SERVER="en")
+        self.device = SimpleNamespace()
+
+    def scan_surface_fleet(self, fleet_index, *, close_info=True):
+        raise FormationFleetOcrError("ошибка сканирования")
+
+
+def test_scan_failure_still_reports_profile_config_mutation(monkeypatch) -> None:
+    hashes = iter(("before", "after"))
+    args = argparse.Namespace(
+        profile="test",
+        fleet=6,
+        serial="fixture",
+        serial_from_config=False,
+        expected_head=None,
+        non_interactive=True,
+        confirmed_match="MATCH",
+    )
+
+    monkeypatch.setattr(formation_acceptance, "_validate_profile_name", lambda profile: None)
+    monkeypatch.setattr(formation_acceptance, "_git_head_sha", lambda: "1" * 40)
+    monkeypatch.setattr(formation_acceptance, "_sha256", lambda path: next(hashes))
+    monkeypatch.setattr(formation_acceptance, "_load_profile", lambda profile: {})
+    monkeypatch.setattr(formation_acceptance, "_resolve_serial", lambda args, profile: "fixture")
+    monkeypatch.setattr(
+        formation_acceptance,
+        "FormationFleetController",
+        _FailingAcceptanceController,
+    )
+    monkeypatch.setattr(
+        formation_acceptance,
+        "_close_info_without_masking",
+        lambda runner, primary: None,
+    )
+
+    with pytest.raises(FormationFleetOcrError, match="ошибка сканирования") as error_info:
+        formation_acceptance.run_acceptance(args)
+
+    assert any(
+        "изменила постоянный config профиля" in note
+        for note in error_info.value.__notes__
+    )
