@@ -26,18 +26,21 @@ from module.webui.state_lock import (
     state_write_lock,
 )
 
-EVENT_OBSERVATION_SCHEMA_VERSION = 2
+EVENT_OBSERVATION_SCHEMA_VERSION = 3
 EVENT_OBSERVATION_ROOT = Path("./config/state/event_observation")
 EVENT_OBSERVATION_MAX_AGE = timedelta(hours=48)
 ObservationSource = Literal[
     "dashboard_ocr",
     "event_shop_ocr",
+    "event_pt_delta",
     "event_shop_scanner",
     "mission_scanner",
     "fixture",
     "replay",
 ]
 CurrencyEvidenceSource = Literal["dashboard_ocr", "event_shop_ocr"]
+CurrentPtEvidenceSource = Literal["event_shop_ocr", "event_pt_delta"]
+EventPtTotalEvidenceSource = Literal["dashboard_ocr"]
 
 
 class ObservationFinding(TypedDict):
@@ -95,6 +98,10 @@ def empty_event_observation(
         "current_pt_source": "",
         "current_pt_observed_at": "",
         "current_pt_status": "unavailable",
+        "event_pt_total": None,
+        "event_pt_total_source": "",
+        "event_pt_total_observed_at": "",
+        "event_pt_total_status": "unavailable",
         "shop_source": "",
         "shop_observed_at": "",
         "shop_items": [],
@@ -179,10 +186,14 @@ def normalize_event_observation(
     result["observed_at"] = str(raw.get("observed_at") or "")
     result["source"] = str(raw.get("source") or "")
     result["current_pt"] = normalize_current_pt_value(raw.get("current_pt"))
+    result["event_pt_total"] = normalize_current_pt_value(raw.get("event_pt_total"))
     for field in (
         "current_pt_source",
         "current_pt_observed_at",
         "current_pt_status",
+        "event_pt_total_source",
+        "event_pt_total_observed_at",
+        "event_pt_total_status",
         "shop_source",
         "shop_observed_at",
     ):
@@ -244,15 +255,31 @@ def current_pt_candidate_is_newer(
     )
 
 
+def event_pt_total_candidate_is_newer(
+    candidate_timestamp: Any, existing: Mapping[str, Any]
+) -> bool:
+    """Принимать только доказанно более свежий накопительный счётчик PT."""
+
+    candidate_at = _pt_evidence_timestamp(candidate_timestamp)
+    existing_at = _pt_evidence_timestamp(
+        existing.get("event_pt_total_observed_at") or existing.get("observed_at")
+    )
+    return candidate_at is not None and (
+        existing_at is None or candidate_at > existing_at
+    )
+
+
 def apply_current_pt_evidence(
     observation: dict[str, Any],
     *,
     value: Any,
     timestamp: str,
-    source: CurrencyEvidenceSource,
+    source: CurrentPtEvidenceSource,
 ) -> bool:
-    """Применить единый контракт выбора и записи свежих данных PT."""
+    """Применить доказательство текущего доступного баланса PT."""
 
+    if source not in {"event_shop_ocr", "event_pt_delta"}:
+        raise ValueError("Текущий баланс PT нельзя обновлять накопительным счётчиком")
     if not current_pt_candidate_is_newer(timestamp, observation):
         return False
     if current_pt_candidate_is_newer(
@@ -282,11 +309,74 @@ def apply_current_pt_evidence(
         observation["findings"].append(
             _finding(
                 "current_pt_unavailable",
-                "OCR не предоставил валидный баланс PT",
+                "OCR не предоставил валидный текущий баланс PT",
                 "current_pt",
             )
         )
     return True
+
+
+def apply_event_pt_total_evidence(
+    observation: dict[str, Any],
+    *,
+    value: Any,
+    timestamp: str,
+    source: EventPtTotalEvidenceSource,
+) -> bool:
+    """Применить свежий накопительный счётчик заработанных PT без подмены баланса."""
+
+    if source != "dashboard_ocr":
+        raise ValueError("Накопительный счётчик PT принимается только из Dashboard OCR")
+    normalized = normalize_current_pt_value(value)
+    if normalized is None:
+        return False
+    if not event_pt_total_candidate_is_newer(timestamp, observation):
+        return False
+    previous = normalize_current_pt_value(observation.get("event_pt_total"))
+    if previous is not None and normalized < previous:
+        return False
+    if event_pt_total_candidate_is_newer(
+        timestamp,
+        {"event_pt_total_observed_at": observation.get("observed_at")},
+    ):
+        observation["source"] = source
+        observation["observed_at"] = timestamp
+    observation["event_pt_total_source"] = source
+    observation["event_pt_total_observed_at"] = timestamp
+    observation["event_pt_total"] = normalized
+    total_evidence = {"observed_at": timestamp}
+    observation["event_pt_total_status"] = (
+        "observed" if observation_is_fresh(total_evidence) else "stale"
+    )
+    observation["findings"] = [
+        item
+        for item in observation.get("findings", [])
+        if item.get("path") != "event_pt_total"
+    ]
+    return True
+
+
+def reset_event_pt_total_anchor(observation: dict[str, Any]) -> bool:
+    """Сбросить дельта-якорь после абсолютного OCR-баланса магазина."""
+
+    changed = any(
+        (
+            observation.get("event_pt_total") is not None,
+            bool(observation.get("event_pt_total_source")),
+            bool(observation.get("event_pt_total_observed_at")),
+            str(observation.get("event_pt_total_status") or "") != "unavailable",
+        )
+    )
+    observation["event_pt_total"] = None
+    observation["event_pt_total_source"] = ""
+    observation["event_pt_total_observed_at"] = ""
+    observation["event_pt_total_status"] = "unavailable"
+    observation["findings"] = [
+        item
+        for item in observation.get("findings", [])
+        if item.get("path") != "event_pt_total"
+    ]
+    return changed
 
 
 def event_observation_write_lock(
@@ -470,33 +560,35 @@ def dashboard_pt_observation(
     source_revision: str = "",
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    """Сформировать наблюдение накопительного PT, не подменяя им баланс магазина."""
+
     result = empty_event_observation(event_id, server, instance, source_revision)
     result["source"] = "dashboard_ocr"
     result["observed_at"] = str(recorded_at or "")
-    result["current_pt_source"] = "dashboard_ocr"
-    result["current_pt_observed_at"] = str(recorded_at or "")
-    result["current_pt"] = normalize_current_pt_value(value)
-    if result["current_pt"] is None:
+    result["event_pt_total_source"] = "dashboard_ocr"
+    result["event_pt_total_observed_at"] = str(recorded_at or "")
+    result["event_pt_total"] = normalize_current_pt_value(value)
+    if result["event_pt_total"] is None:
         result["findings"].append(
             _finding(
-                "current_pt_unavailable",
-                "OCR не предоставил валидный баланс PT",
-                "current_pt",
+                "event_pt_total_unavailable",
+                "OCR не предоставил валидный накопительный счётчик PT",
+                "event_pt_total",
             )
         )
     fresh = observation_is_fresh(result, now=now)
-    result["current_pt_status"] = (
+    result["event_pt_total_status"] = (
         "observed"
-        if fresh and result["current_pt"] is not None
+        if fresh and result["event_pt_total"] is not None
         else "stale"
-        if result["current_pt"] is not None
+        if result["event_pt_total"] is not None
         else "unavailable"
     )
     if not fresh:
         result["findings"].append(
             _finding(
                 "observation_stale",
-                "OCR-наблюдение PT отсутствует или устарело",
+                "OCR-наблюдение накопительного PT отсутствует или устарело",
                 "observed_at",
             )
         )

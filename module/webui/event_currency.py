@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,11 +13,33 @@ from module.webui.event_observation import (
     CurrencyEvidenceSource,
     normalize_current_pt_value,
 )
-from module.webui.event_observation_update import persist_current_pt_transition
+from module.webui.event_observation_update import (
+    persist_current_pt_transition,
+    persist_event_pt_total_transition,
+)
 from module.webui.event_shop_priority import (
     EVENT_SHOP_PRIORITY_ROOT,
     wake_event_shop_after_currency_increase,
 )
+
+
+def _shop_uses_runtime_currency(spec: Mapping[str, Any], runtime_token: str) -> bool:
+    """Проверить связь каталога магазина с runtime-валютой декларативно через EventSpec."""
+
+    currency_ids = {
+        str(currency.get("id"))
+        for currency in spec.get("currencies", [])
+        if isinstance(currency, Mapping)
+        and str(currency.get("runtime_token") or "").lower()
+        == str(runtime_token or "").lower()
+    }
+    if not currency_ids:
+        return False
+    return any(
+        isinstance(item, Mapping)
+        and str(item.get("currency_id")) in currency_ids
+        for item in spec.get("shop_items", [])
+    )
 
 
 def persist_event_currency_update(
@@ -28,11 +51,12 @@ def persist_event_currency_update(
     observation_root: Path | str = EVENT_OBSERVATION_ROOT,
     priority_root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ) -> dict[str, Any] | None:
-    """Сохранить PT и передать доказанный переход единому wake-контракту EventShop.
+    """Сохранить доказательство PT, не смешивая накопительный счётчик и баланс.
 
-    Точное предыдущее PT читается под той же блокировкой, под которой
-    принимаются новые данные наблюдения. Поэтому конкурентная запись не может
-    превратить фактическое снижение в ложный сигнал роста.
+    `dashboard_ocr` содержит накопительный PT за событие. Он используется только
+    как дельта относительно предыдущего счётчика и только после того, как магазин
+    уже дал абсолютный текущий баланс. `event_shop_ocr` остаётся единственным
+    абсолютным источником доступного к покупке PT и сам EventShop не пробуждает.
     """
 
     instance = str(getattr(config, "config_name", "") or "")
@@ -53,31 +77,51 @@ def persist_event_currency_update(
         return None
 
     evidence_at = observed_at or datetime.now(timezone.utc)
-    observation, previous_value, accepted = persist_current_pt_transition(
-        instance=instance,
-        event_id=event_id,
-        server=server,
-        source_revision=source_revision,
-        value=value,
-        observed_at=evidence_at,
-        source=source,
-        root=observation_root,
+
+    if source == "event_shop_ocr":
+        observation, _, _ = persist_current_pt_transition(
+            instance=instance,
+            event_id=event_id,
+            server=server,
+            source_revision=source_revision,
+            value=value,
+            observed_at=evidence_at,
+            source="event_shop_ocr",
+            root=observation_root,
+        )
+        return observation
+
+    if source != "dashboard_ocr":
+        raise ValueError(f"Неподдерживаемый источник PT: {source}")
+
+    observation, previous_value, current_value, derived = (
+        persist_event_pt_total_transition(
+            instance=instance,
+            event_id=event_id,
+            server=server,
+            source_revision=source_revision,
+            value=value,
+            observed_at=evidence_at,
+            source="dashboard_ocr",
+            derive_current_pt=_shop_uses_runtime_currency(spec, "pt"),
+            root=observation_root,
+        )
     )
 
-    if not accepted:
+    if not derived:
         return observation
-    if str(observation.get("current_pt_source") or "") != source:
+    if str(observation.get("current_pt_source") or "") != "event_pt_delta":
         return observation
     if str(observation.get("current_pt_status") or "") != "observed":
         return observation
 
-    current_value = normalize_current_pt_value(observation.get("current_pt"))
+    current_value = normalize_current_pt_value(current_value)
     wake_event_shop_after_currency_increase(
         config=config,
         event_id=event_id,
         previous_value=previous_value,
         current_value=current_value,
-        source=source,
+        source="event_pt_delta",
         root=priority_root,
     )
     return observation
