@@ -415,7 +415,7 @@ def test_schema_v2_polluted_dashboard_balance_is_invalidated(monkeypatch, tmp_pa
     result = _record_total(
         config,
         7250,
-        datetime.now(timezone.utc) + timedelta(seconds=1),
+        datetime.now(timezone.utc),
         observation_root,
         priority_root,
     )

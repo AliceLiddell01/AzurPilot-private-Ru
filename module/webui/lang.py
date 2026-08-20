@@ -77,6 +77,13 @@ _RECOVERY_STAGE3_TRANSLATIONS = {
     ),
 }
 
+# Эти ключи принадлежат персональному WebUI и не должны попадать в большие
+# генерируемые каталоги локализации. Runtime интерфейса поддерживает только ru-RU.
+_EVENT_DASHBOARD_TRANSLATIONS = {
+    "Gui.Dashboard.EventPtTotal": "Всего валюты события заработано",
+    "Gui.Dashboard.EventCurrencyBalance": "Текущий баланс валюты события",
+}
+
 dic_lang: Dict[str, str] = {}
 
 
@@ -127,6 +134,8 @@ def reload() -> None:
         for key, value in overrides.items():
             if key in loaded:
                 loaded[key] = value
+
+    loaded.update(_EVENT_DASHBOARD_TRANSLATIONS)
 
     dic_lang.clear()
     dic_lang.update(loaded)

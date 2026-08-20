@@ -28,8 +28,9 @@ def _shop_uses_runtime_currency(spec: Mapping[str, Any], runtime_token: str) -> 
 
     currency_ids = {
         str(currency.get("id"))
-        for currency in spec.get("currencies", [])
+        for currency in spec.get("currencies") or []
         if isinstance(currency, Mapping)
+        and currency.get("id") is not None
         and str(currency.get("runtime_token") or "").lower()
         == str(runtime_token or "").lower()
     }
@@ -37,8 +38,9 @@ def _shop_uses_runtime_currency(spec: Mapping[str, Any], runtime_token: str) -> 
         return False
     return any(
         isinstance(item, Mapping)
+        and item.get("currency_id") is not None
         and str(item.get("currency_id")) in currency_ids
-        for item in spec.get("shop_items", [])
+        for item in spec.get("shop_items") or []
     )
 
 
@@ -72,7 +74,12 @@ def persist_event_currency_update(
         return None
 
     event_id = str(spec.get("id") or "")
-    source_revision = str(spec.get("provenance", {}).get("revision") or "")
+    provenance = spec.get("provenance")
+    source_revision = (
+        str(provenance.get("revision") or "")
+        if isinstance(provenance, Mapping)
+        else ""
+    )
     if not event_id:
         return None
 

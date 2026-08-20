@@ -1,5 +1,7 @@
 """Обновление обзорной панели WebUI."""
 
+from time import monotonic
+
 from module.webui.app_dependencies import (
     Function,
     LogRes,
@@ -9,6 +11,7 @@ from module.webui.app_dependencies import (
     deep_get,
     get_dashboard_scope_id,
     get_group_scope_id,
+    logger,
     put_button,
     put_column,
     put_html,
@@ -25,8 +28,15 @@ from module.webui.app_types import WebUIMixinBase
 from module.webui.event_source import load_current_event_plan
 
 _EVENT_CURRENCY_BALANCE_GROUP = "EventCurrencyBalance"
-_EVENT_PT_TOTAL_LABEL = "Всего валюты события заработано"
-_EVENT_CURRENCY_BALANCE_LABEL = "Текущий баланс валюты события"
+_EVENT_PT_TOTAL_LABEL_KEY = "Gui.Dashboard.EventPtTotal"
+_EVENT_CURRENCY_BALANCE_LABEL_KEY = "Gui.Dashboard.EventCurrencyBalance"
+_EVENT_CURRENCY_BALANCE_CACHE_TTL_SECONDS = 5.0
+
+
+def _empty_event_currency_balance_group():
+    """Вернуть безопасное неизвестное значение текущего баланса события."""
+
+    return {"Value": None, "Record": None, "Color": "^00BFFF"}
 
 
 def _event_currency_balance_group(config):
@@ -44,7 +54,7 @@ def _event_currency_balance_group(config):
     )
 
     if status != "observed" or not isinstance(value, int) or value < 0:
-        return {"Value": None, "Record": None, "Color": "^00BFFF"}
+        return _empty_event_currency_balance_group()
 
     try:
         record = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
@@ -57,9 +67,9 @@ def _dashboard_group_label(group_name):
     """Вернуть подпись строки без смешения накопительного PT и текущего баланса."""
 
     if group_name == "Pt":
-        return _EVENT_PT_TOTAL_LABEL
+        return t(_EVENT_PT_TOTAL_LABEL_KEY)
     if group_name == _EVENT_CURRENCY_BALANCE_GROUP:
-        return _EVENT_CURRENCY_BALANCE_LABEL
+        return t(_EVENT_CURRENCY_BALANCE_LABEL_KEY)
     return t(f"Gui.Dashboard.{group_name}")
 
 
@@ -76,6 +86,43 @@ def _dashboard_groups_with_event_balance(groups):
 
 class DashboardMixin(WebUIMixinBase):
     """Обновлять задачи и ресурсы на обзорной панели WebUI."""
+
+    def _event_currency_balance_group_cached(self):
+        """Получить баланс события без чтения состояния на каждом тике Dashboard."""
+
+        config = self.alas_config
+        cache_key = (
+            str(getattr(config, "config_name", "") or ""),
+            str(getattr(config, "SERVER", "EN") or "EN").upper(),
+        )
+        loaded_at = monotonic()
+        cache = getattr(self, "_event_currency_balance_cache", None)
+        if isinstance(cache, dict):
+            cached_key = cache.get("key")
+            cached_at = cache.get("loaded_at")
+            cached_group = cache.get("group")
+            if (
+                cached_key == cache_key
+                and isinstance(cached_at, (int, float))
+                and loaded_at - cached_at < _EVENT_CURRENCY_BALANCE_CACHE_TTL_SECONDS
+                and isinstance(cached_group, dict)
+            ):
+                return cached_group
+
+        try:
+            group = _event_currency_balance_group(config)
+        except Exception as exc:
+            logger.warning(
+                f"[Dashboard] Не удалось получить текущий баланс валюты события: {exc}"
+            )
+            group = _empty_event_currency_balance_group()
+
+        self._event_currency_balance_cache = {
+            "key": cache_key,
+            "loaded_at": loaded_at,
+            "group": group,
+        }
+        return group
 
     def alas_update_overview_task(self) -> None:
         if not self.visible:
@@ -154,7 +201,7 @@ class DashboardMixin(WebUIMixinBase):
         time_now = current_time().replace(microsecond=0)
         for group_name in _arg_group:
             if group_name == _EVENT_CURRENCY_BALANCE_GROUP:
-                group = _event_currency_balance_group(self.alas_config)
+                group = self._event_currency_balance_group_cached()
             else:
                 group = LogRes(self.alas_config).group(group_name)
             if group is None:
