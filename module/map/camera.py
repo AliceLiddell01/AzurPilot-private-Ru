@@ -440,6 +440,15 @@ class Camera(MapOperation):
             if not has_swiped:
                 break
 
+    @staticmethod
+    def _view_moved_after_recovery(previous_view, current_view):
+        observed_swipe = previous_view.predict_swipe(
+            current_view,
+            with_current_fleet=False,
+            with_sea_grids=True,
+        )
+        return observed_swipe is not None and any(value != 0 for value in observed_swipe)
+
     def full_scan(self, queue=None, must_scan=None, battle_count=0, mystery_count=0, siren_count=0, carrier_count=0,
                   mode='normal'):
         """扫描整个地图。
@@ -485,10 +494,14 @@ class Camera(MapOperation):
             if not success:
                 location = target.location
                 failed_attempts[location] = failed_attempts.get(location, 0) + 1
+                view_before_recovery = copy.copy(self.view)
                 camera_before_recovery = self.camera
                 self.ensure_edge_insight(skip_first_update=False)
-                camera_moved = self.camera != camera_before_recovery
-                if camera_moved and failed_attempts[location] <= self.FULL_SCAN_RETRY_LIMIT:
+                recovery_moved = (
+                    self.camera != camera_before_recovery
+                    and self._view_moved_after_recovery(view_before_recovery, self.view)
+                )
+                if recovery_moved and failed_attempts[location] <= self.FULL_SCAN_RETRY_LIMIT:
                     logger.warning(
                         f'[Карта — камера] Повторяю сканирование точки {target} после изменения положения камеры'
                     )
