@@ -55,7 +55,7 @@ def test_info_detector_requires_selected_state_and_both_headers() -> None:
     orange_hsv[:, :, 0] = 15
     orange_hsv[:, :, 1] = 180
     orange_hsv[:, :, 2] = 235
-    frame[y1:y2, x1:x2] = cv2.cvtColor(orange_hsv, cv2.COLOR_HSV2BGR)
+    frame[y1:y2, x1:x2] = cv2.cvtColor(orange_hsv, cv2.COLOR_HSV2RGB)
 
     assert detector.info_opened(frame) is False
 
