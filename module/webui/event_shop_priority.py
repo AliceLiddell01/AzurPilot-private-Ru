@@ -340,26 +340,32 @@ def update_event_shop_target_state(
 
     if after <= 0:
         state["target_baselines"].pop(key, None)
-    elif before <= 0:
-        if key in state["purchased"]:
-            state["target_baselines"].pop(key, None)
-        elif key in state["remaining"]:
-            baseline = max(int(state["remaining"][key]), 0)
-            if after > baseline:
-                raise ValueError(
-                    f"Цель {after} превышает подтверждённый остаток товара {baseline}"
-                )
-            state["target_baselines"][key] = baseline
-        else:
+    else:
+        known_values = [before, after]
+        for source in (state.get("remaining"), state.get("target_baselines")):
+            if isinstance(source, Mapping) and key in source:
+                try:
+                    known_values.append(max(int(source[key]), 0))
+                except (TypeError, ValueError, OverflowError):
+                    pass
+        capacity = event_shop_target_capacity(
+            {
+                "id": key,
+                "stock": max(known_values),
+                "selected": before,
+            },
+            state,
+        )
+        if capacity is None:
             raise ValueError(
                 "Для новой цели требуется подтверждённый полный скан магазина"
             )
-    elif key in state["target_baselines"]:
-        baseline = max(int(state["target_baselines"][key]), 0)
-        if after > baseline:
+        if after > capacity:
             raise ValueError(
-                f"Цель {after} превышает сохранённую ёмкость текущей цели {baseline}"
+                f"Цель {after} превышает доступную ёмкость товара {capacity}"
             )
+        if before <= 0:
+            state["target_baselines"][key] = capacity
 
     save_event_shop_priority(instance, state, root=root)
     return state
@@ -727,6 +733,11 @@ def prepare_event_shop_runtime_items(
             "[Магазин события — приоритеты] Проверка предыдущей покупки не пройдена; дальнейшие клики заблокированы"
         )
         return PriorityRuntimeItems([], observation_items=full_scan)
+
+    # Проверка pending могла атомарно завершить и очистить пользовательскую цель.
+    # Reconciliation обязан видеть уже новый target-state, иначе прежнее selected
+    # в том же проходе ошибочно снимет только что доказанный completed.
+    selected_targets = _selected_targets(config, event_id)
 
     changed = _reconcile_proven_inventory_state(
         state,

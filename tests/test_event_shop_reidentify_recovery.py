@@ -206,3 +206,51 @@ def test_purchase_fails_closed_on_multiple_reidentified_matches(monkeypatch):
 
     assert scroll.positions == pytest.approx([target.scroll_pos])
     assert calls == []
+
+
+def test_upper_visible_row_survives_top_and_neighbor_reidentification(monkeypatch):
+    scroll = FakeScroll()
+    target = make_target(scroll_pos=0.04, button=(400, 220, 460, 300))
+    target.catalog_row_id = 11
+    live = make_live_target()
+    live.catalog_row_id = 11
+    live.button = (400, 220, 460, 300)
+    invalid_other = SimpleNamespace(
+        name="CatT1",
+        count=0,
+        total_count=0,
+        amount=1,
+        price=250,
+        cost="pt",
+        is_ship=False,
+        button=(230, 430, 290, 490),
+    )
+    calls = []
+
+    class ProbeClerk(EventShopClerk):
+        def __init__(self):
+            self.config = SimpleNamespace(
+                config_name="probe",
+                SHOP_EXTRACT_TEMPLATE=False,
+            )
+
+        @staticmethod
+        def event_shop_get_items():
+            if len(scroll.positions) == 1:
+                return [invalid_other]
+            return [live, invalid_other]
+
+        @staticmethod
+        def event_shop_buy_item_execute(item, amount):
+            calls.append((item, amount))
+
+    monkeypatch.setattr("module.shop_event.clerk.EVENT_SHOP_SCROLL", scroll)
+    monkeypatch.setattr(
+        "module.shop_event.clerk.confirm_event_shop_purchase",
+        lambda config, item, full_purchase, remaining_after: None,
+    )
+
+    ProbeClerk().event_shop_buy_item(target, amount=1)
+
+    assert scroll.positions == pytest.approx([0.04, 0.0])
+    assert calls == [(live, 1)]

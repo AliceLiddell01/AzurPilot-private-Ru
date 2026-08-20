@@ -1,5 +1,8 @@
+import pytest
+
 from module.webui.event_shop_priority import (
     EVENT_SHOP_PRIORITY_SCHEMA_VERSION,
+    event_shop_target_capacity,
     load_event_shop_priority,
     save_event_shop_priority,
     set_event_shop_priority,
@@ -77,7 +80,7 @@ def test_priority_edit_does_not_migrate_active_legacy_goal(tmp_path):
     assert "11" not in state["target_baselines"]
 
 
-def test_purchased_row_is_not_reopened_by_priority_or_new_target(tmp_path):
+def test_purchased_row_rejects_new_target_without_positive_proven_stock(tmp_path):
     event_id = "event-purchased"
     state = _state(event_id)
     state["purchased"] = ["11"]
@@ -85,13 +88,48 @@ def test_purchased_row_is_not_reopened_by_priority_or_new_target(tmp_path):
     save_event_shop_priority("instance", state, root=tmp_path)
 
     set_event_shop_priority("instance", event_id, 11, 0, root=tmp_path)
-    update_event_shop_target_state(
-        "instance", event_id, 11, 0, 1, root=tmp_path
-    )
+    with pytest.raises(ValueError, match="доступную ёмкость товара 0"):
+        update_event_shop_target_state(
+            "instance", event_id, 11, 0, 1, root=tmp_path
+        )
     state = load_event_shop_priority("instance", event_id, root=tmp_path)
 
     assert state["purchased"] == ["11"]
     assert "11" not in state["target_baselines"]
+
+
+def test_new_target_capacity_uses_proven_remaining_and_backend_rechecks(tmp_path):
+    event_id = "event-capacity"
+    state = _state(event_id)
+    state["remaining"] = {"11": 2}
+    save_event_shop_priority("instance", state, root=tmp_path)
+
+    item = {"id": "11", "stock": 5, "selected": 0}
+    assert event_shop_target_capacity(item, state) == 2
+
+    with pytest.raises(ValueError, match="доступную ёмкость товара 2"):
+        update_event_shop_target_state(
+            "instance", event_id, 11, 0, 5, root=tmp_path
+        )
+
+    saved = load_event_shop_priority("instance", event_id, root=tmp_path)
+    assert saved["target_baselines"] == {}
+
+
+def test_active_target_capacity_keeps_baseline_after_partial_purchase(tmp_path):
+    event_id = "event-active-capacity"
+    state = _state(event_id)
+    state["remaining"] = {"11": 2}
+    state["target_baselines"] = {"11": 5}
+    save_event_shop_priority("instance", state, root=tmp_path)
+
+    item = {"id": "11", "stock": 5, "selected": 5, "remaining": 2}
+    assert event_shop_target_capacity(item, state) == 5
+
+    saved = update_event_shop_target_state(
+        "instance", event_id, 11, 5, 5, root=tmp_path
+    )
+    assert saved["target_baselines"]["11"] == 5
 
 
 def test_pending_purchase_preserves_existing_baseline_during_target_edit(tmp_path):

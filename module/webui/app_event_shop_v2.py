@@ -27,6 +27,7 @@ from module.webui.app_dependencies import (
 from module.webui.app_types import WebUIMixinBase
 from module.webui.event_assets import event_asset_url
 from module.webui.event_shop_priority import (
+    event_shop_target_capacity,
     load_event_shop_priority,
     set_event_shop_priority,
 )
@@ -473,6 +474,7 @@ class EventShopV2Mixin(WebUIMixinBase):
                     available = stock
 
                 selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
+                capacity = event_shop_target_capacity(item, priority_state)
                 target_remaining = self._event_shop_target_remaining(
                     item, priority_state
                 )
@@ -530,7 +532,7 @@ class EventShopV2Mixin(WebUIMixinBase):
   <div class="event-shop-v2-price"><img src="{escape(currency_asset)}" alt="{currency_name}"><b>{self._fmt(price)}</b></div>
   <div class="event-shop-v2-target">
     <span>Цель покупки</span>
-    <strong><span id="event-shop-selected-{live_key}" class="event-shop-live-value">{self._fmt(selected)}</span> / {self._fmt(stock)}</strong>
+    <strong><span id="event-shop-selected-{live_key}" class="event-shop-live-value">{self._fmt(selected)}</span> / {self._fmt(capacity) if capacity is not None else "—"}</strong>
     <small>Осталось купить: <span id="event-shop-target-left-{live_key}" class="event-shop-live-value">{self._fmt(target_remaining)}</span></small>
     <small>Стоимость цели: <span id="event-shop-cost-{live_key}" class="event-shop-live-value">{self._fmt(price * selected)}</span></small>
   </div>

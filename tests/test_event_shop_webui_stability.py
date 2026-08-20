@@ -37,6 +37,8 @@ class _Planner(EventPlannerMixin):
 
 class _LivePlanner(EventPlannerMixin):
     def __init__(self):
+        self.alas_name = "alas"
+        self.capacity = 10
         self._event_plan_active_task = "EventShop"
         self.plan = {
             "event": {"id": "event-test"},
@@ -59,8 +61,10 @@ class _LivePlanner(EventPlannerMixin):
     def _event_plan_mutate(self, mutation, message):
         self.messages.append(message)
         result = mutation(self.plan)
-        assert result is None
-        return True
+        return result is None
+
+    def _event_shop_quantity_capacity(self, plan, item):
+        return self.capacity
 
     def _sync_event_shop_target_state(self, snapshot):
         self.synced_targets.append(dict(snapshot))
@@ -181,6 +185,36 @@ def test_quantity_change_patches_live_values_without_plan_rerender():
                 "selected": 1,
                 "cost": 2000,
                 "total": 2000,
+                "selected_count": 1,
+            },
+        )
+    ]
+
+
+def test_quantity_max_and_increment_share_proven_capacity(monkeypatch):
+    planner = _LivePlanner()
+    planner.capacity = 2
+    identity = planner._shop_item_identity(planner.plan["shop_items"][0])
+    warnings = []
+    monkeypatch.setattr(
+        "module.webui.app_event_planner.toast",
+        lambda message, **_kwargs: warnings.append(message),
+    )
+
+    planner._change_shop_quantity(identity, "maximum")
+    assert planner.plan["shop_items"][0]["selected"] == 2
+    assert planner.synced_targets[-1]["selected"] == 2
+
+    planner._change_shop_quantity(identity, "increment")
+    assert planner.plan["shop_items"][0]["selected"] == 2
+    assert warnings == ["Доступная ёмкость цели по подтверждённому остатку: 2"]
+    assert planner.patches == [
+        (
+            identity,
+            {
+                "selected": 2,
+                "cost": 4000,
+                "total": 4000,
                 "selected_count": 1,
             },
         )

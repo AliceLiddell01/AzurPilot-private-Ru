@@ -107,7 +107,7 @@ def test_precise_scroll_requires_visual_settle_even_without_new_drag(monkeypatch
     assert calls == [(0.3007513823848454, (0.0, 0.0), 0.02)]
 
 
-def test_precise_scroll_disables_base_edge_overshoot(monkeypatch):
+def test_precise_scroll_preserves_full_scan_edge_anchor(monkeypatch):
     scroll = make_scroll()
     main = SimpleNamespace()
     original_edge_add = scroll.edge_add
@@ -121,7 +121,7 @@ def test_precise_scroll_disables_base_edge_overshoot(monkeypatch):
     monkeypatch.setattr(scroll, "wait_content_stable", lambda target: True)
 
     assert scroll.set_precise(0.0, main=main) == 0
-    assert calls == [(0.0, (0.0, 0.0), (0.0, 0.0))]
+    assert calls == [(0.0, original_edge_add, (0.0, 0.0))]
     assert scroll.edge_add == original_edge_add
 
 
