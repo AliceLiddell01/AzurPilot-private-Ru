@@ -53,9 +53,9 @@ class FormationNavigationLayout:
 
     def __post_init__(self) -> None:
         if len(self.fleet_rows_top_to_bottom) != 6:
-            raise ValueError("Formation fleet menu должен содержать шесть строк")
+            raise ValueError("Меню флотов Formation должно содержать шесть строк")
         if len(self.fleet_menu_probes) != 6:
-            raise ValueError("Formation fleet menu должен содержать шесть областей проверки")
+            raise ValueError("Меню флотов Formation должно содержать шесть областей проверки")
         if len(self.info_header_probes) != 2:
             raise ValueError("Formation Info должен содержать две области заголовков")
         for area in (
@@ -70,7 +70,7 @@ class FormationNavigationLayout:
         ):
             x1, y1, x2, y2 = area
             if not (0 <= x1 < x2 <= self.frame_width and 0 <= y1 < y2 <= self.frame_height):
-                raise ValueError(f"Formation navigation area выходит за frame: {area!r}")
+                raise ValueError(f"Область навигации Formation выходит за кадр: {area!r}")
 
     def fleet_row(self, fleet_index: int) -> tuple[int, int, int, int]:
         if type(fleet_index) is not int or not 1 <= fleet_index <= 6:
@@ -115,7 +115,7 @@ class FormationUiStateDetector:
             3,
         ):
             raise FormationFleetInputError(
-                "Formation navigation ожидает цветной frame 1280x720."
+                "Навигация Formation ожидает цветной кадр 1280x720."
             )
 
     @staticmethod
@@ -127,7 +127,7 @@ class FormationUiStateDetector:
         self._validate_frame(frame)
         gray_rows = 0
         for area in self.layout.fleet_menu_probes:
-            hsv = cv2.cvtColor(self._crop(frame, area), cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(self._crop(frame, area), cv2.COLOR_RGB2HSV)
             saturation = float(np.mean(hsv[:, :, 1]))
             value = float(np.mean(hsv[:, :, 2]))
             if (
@@ -141,7 +141,7 @@ class FormationUiStateDetector:
         self._validate_frame(frame)
         hsv = cv2.cvtColor(
             self._crop(frame, self.layout.info_state_probe),
-            cv2.COLOR_BGR2HSV,
+            cv2.COLOR_RGB2HSV,
         )
         orange = (
             (hsv[:, :, 0] >= self.policy.info_orange_hue_min)
@@ -153,7 +153,7 @@ class FormationUiStateDetector:
             return False
 
         for area in self.layout.info_header_probes:
-            gray = cv2.cvtColor(self._crop(frame, area), cv2.COLOR_BGR2GRAY)
+            gray = cv2.cvtColor(self._crop(frame, area), cv2.COLOR_RGB2GRAY)
             bright_ratio = float(np.mean(gray >= self.policy.info_header_bright_luma))
             if bright_ratio < self.policy.info_header_bright_ratio_min:
                 return False
@@ -222,7 +222,7 @@ class FormationFleetController(UI):
     def _current_frame(self) -> np.ndarray:
         frame = self.device.image
         if not isinstance(frame, np.ndarray):
-            raise FormationFleetInputError("Device не содержит Formation screenshot.")
+            raise FormationFleetInputError("Device не содержит снимок экрана Formation.")
         return frame
 
     def _close_info(self) -> None:
@@ -332,7 +332,7 @@ class FormationFleetController(UI):
                 fleet_index=fleet_index,
             )
             logger.info(
-                f"[Построение — сканер] Fleet {fleet_index}: "
+                f"[Построение — сканер] Флот {fleet_index}: "
                 f"занято {result.occupied_count}/6, "
                 f"полное сопоставление: {result.complete}"
             )
