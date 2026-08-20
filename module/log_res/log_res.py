@@ -66,7 +66,7 @@ class LogRes:
 
     def __setattr__(self, key, value):
         if self._is_event_shop_pt(key):
-            # EventShop отдельно сохраняет точный spendable-баланс как event_shop_ocr.
+            # EventShop отдельно сохраняет точный доступный баланс как event_shop_ocr.
             # Dashboard.Pt остаётся накопительным счётчиком события и не смешивает семантики.
             return
         if key in self.groups:
