@@ -77,9 +77,10 @@ _RECOVERY_STAGE3_TRANSLATIONS = {
     ),
 }
 
-# Эти ключи принадлежат персональному WebUI и не должны попадать в большие
-# генерируемые каталоги локализации. Runtime интерфейса поддерживает только ru-RU.
-_EVENT_DASHBOARD_TRANSLATIONS = {
+# Персональные runtime-ключи живут отдельно от генерируемого каталога ru-RU.
+# Это сохраняет контракт загрузчика: dic_lang содержит только реально загруженные
+# каталоги, а небольшие расширения форка разрешаются как явный локальный fallback.
+_PERSONAL_RUNTIME_TRANSLATIONS = {
     "Gui.Dashboard.EventPtTotal": "Всего валюты события заработано",
     "Gui.Dashboard.EventCurrencyBalance": "Текущий баланс валюты события",
 }
@@ -112,8 +113,11 @@ def _t(key, lang=None):
     try:
         return dic_lang[key]
     except KeyError:
-        print(f"Отсутствует обязательный ключ русской локализации: {key}")
-        return key
+        try:
+            return _PERSONAL_RUNTIME_TRANSLATIONS[key]
+        except KeyError:
+            print(f"Отсутствует обязательный ключ русской локализации: {key}")
+            return key
 
 
 def reload() -> None:
@@ -134,8 +138,6 @@ def reload() -> None:
         for key, value in overrides.items():
             if key in loaded:
                 loaded[key] = value
-
-    loaded.update(_EVENT_DASHBOARD_TRANSLATIONS)
 
     dic_lang.clear()
     dic_lang.update(loaded)
