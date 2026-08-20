@@ -324,9 +324,10 @@ def test_shop_quantity_noop_skips_write_and_refresh():
     with patch(
         "module.webui.app_event_planner.event_user_state_write_lock",
         side_effect=lambda _instance: nullcontext(),
-    ):
+    ), patch("module.webui.app_event_planner.toast") as toast:
         probe._change_shop_quantity(probe._shop_item_identity(item), "decrement")
 
+    toast.assert_not_called()
     assert probe.writes == 0
     assert probe.refreshes == 0
     assert probe.store["shop_items"][0]["selected"] == 0

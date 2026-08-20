@@ -344,6 +344,10 @@ class EventPlannerMixin(WebUIMixinBase):
                 return _STALE_EVENT_PLAN
             item = plan["shop_items"][index]
             current = int(item.get("selected", 0) or 0)
+            if operation == "decrement" and current <= 0:
+                return _UNCHANGED_EVENT_PLAN
+            if operation == "clear" and current == 0:
+                return _UNCHANGED_EVENT_PLAN
             capacity = self._event_shop_quantity_capacity(plan, item)
             if capacity is None:
                 validation_problem.append(
