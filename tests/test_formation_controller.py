@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+from module.exception import GameStuckError
 from module.formation.navigation import (
     FormationFleetController,
     FormationNavigationLayout,
@@ -113,6 +116,21 @@ class _FailingScanner:
         raise FormationFleetOcrError("fixture")
 
 
+class _SuccessfulScanner:
+    def scan(self, frame, *, fleet_index):
+        return SimpleNamespace(occupied_count=2, complete=True)
+
+
+def _prepare_scan_controller(monkeypatch, scanner):
+    controller = _Controller(iterations=1)
+    controller.__dict__["formation_state"] = _AlwaysInfo()
+    controller.__dict__["formation_fleet_scanner"] = scanner
+    monkeypatch.setattr(controller, "ensure_formation_page", lambda: None)
+    monkeypatch.setattr(controller, "ensure_surface_fleet", lambda fleet_index: None)
+    monkeypatch.setattr(controller, "_open_info", lambda: None)
+    return controller
+
+
 def test_scan_restores_info_state_when_scanner_fails(monkeypatch) -> None:
     controller = _Controller(iterations=1)
     controller.__dict__["formation_state"] = _AlwaysInfo()
@@ -141,3 +159,29 @@ def test_scan_restores_info_state_when_scanner_fails(monkeypatch) -> None:
         "open_info",
         "close_info",
     ]
+
+
+def test_cleanup_failure_does_not_mask_scanner_error(monkeypatch) -> None:
+    controller = _prepare_scan_controller(monkeypatch, _FailingScanner())
+
+    def fail_cleanup():
+        raise GameStuckError("cleanup")
+
+    monkeypatch.setattr(controller, "_close_info", fail_cleanup)
+
+    with pytest.raises(FormationFleetOcrError, match="fixture") as error_info:
+        controller.scan_surface_fleet(4)
+
+    assert any("cleanup" in note for note in error_info.value.__notes__)
+
+
+def test_cleanup_failure_propagates_without_primary_error(monkeypatch) -> None:
+    controller = _prepare_scan_controller(monkeypatch, _SuccessfulScanner())
+
+    def fail_cleanup():
+        raise GameStuckError("cleanup")
+
+    monkeypatch.setattr(controller, "_close_info", fail_cleanup)
+
+    with pytest.raises(GameStuckError, match="cleanup"):
+        controller.scan_surface_fleet(4)
