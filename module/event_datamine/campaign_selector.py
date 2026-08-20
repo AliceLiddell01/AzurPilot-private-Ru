@@ -14,10 +14,8 @@ from typing import Any
 from module.event_datamine.artifact import BUILTIN_ARTIFACT_ROOT
 from module.event_datamine.runtime_policy import (
     EventRuntimePolicyError,
-    StageNavigationPolicy,
     load_generated_runtime_policy,
     map_runtime_policy,
-    runtime_map_policies,
 )
 
 
@@ -281,40 +279,30 @@ def generated_stage_module(
     )
 
 
-def _generated_module_parts(module_name: str) -> tuple[tuple[str, ...], str]:
+def generated_campaign_ui_layout(
+    module_name: str,
+) -> str | None:
+    """Прочитать проверенную UI-policy рядом с уже разрешённым generated package."""
+
     parts = str(module_name or "").split(".")
     if (
         len(parts) < 4
         or parts[:2] != ["campaign", "generated_event"]
     ):
         raise EventCampaignSelectorError(
-            f"Некорректный generated campaign module: {module_name!r}"
+            f"Некорректный generated campaign module: "
+            f"{module_name!r}"
         )
     package_parts = tuple(parts[2:-1])
-    stage = parts[-1]
-    if (
-        not package_parts
-        or any(not _SAFE_PACKAGE_PART.fullmatch(part) for part in package_parts)
-        or not _SAFE_PACKAGE_PART.fullmatch(stage)
+    if not package_parts or any(
+        not _SAFE_PACKAGE_PART.fullmatch(part)
+        for part in package_parts
     ):
         raise EventCampaignSelectorError(
-            f"Некорректный generated campaign module: {module_name!r}"
+            f"Некорректный generated campaign package: "
+            f"{module_name!r}"
         )
-    return package_parts, stage
-
-
-def generated_campaign_ui_layout(
-    module_name: str,
-) -> str | None:
-    """Прочитать проверенную UI-policy рядом с уже разрешённым generated package."""
-
-    package_parts, _ = _generated_module_parts(module_name)
-    try:
-        policy = load_generated_runtime_policy(package_parts)
-    except EventRuntimePolicyError as exc:
-        raise EventCampaignSelectorError(
-            "Runtime-policy generated package повреждена"
-        ) from exc
+    policy = load_generated_runtime_policy(package_parts)
     if policy is None:
         return None
     campaign_ui = policy.get("campaign_ui")
@@ -324,39 +312,6 @@ def generated_campaign_ui_layout(
         )
     layout = str(campaign_ui.get("layout") or "").strip()
     return layout or None
-
-
-def generated_stage_navigation_for_module(
-    module_name: str,
-) -> StageNavigationPolicy:
-    """Вернуть явную навигационную policy конкретного generated-модуля."""
-
-    package_parts, stage = _generated_module_parts(module_name)
-    try:
-        policy = load_generated_runtime_policy(package_parts)
-        if policy is None:
-            raise EventCampaignSelectorError(
-                "Generated package не содержит runtime-policy"
-            )
-        matches = [
-            runtime
-            for runtime in runtime_map_policies(policy).values()
-            if runtime.chapter_name.casefold() == stage.casefold()
-        ]
-    except EventRuntimePolicyError as exc:
-        raise EventCampaignSelectorError(
-            "Runtime-policy generated package повреждена"
-        ) from exc
-    if len(matches) != 1:
-        raise EventCampaignSelectorError(
-            f"Runtime-policy не может однозначно разрешить generated-этап {stage!r}"
-        )
-    navigation = matches[0].stage_navigation
-    if navigation is None:
-        raise EventCampaignSelectorError(
-            f"Generated-этап {stage!r} не содержит stage_navigation"
-        )
-    return navigation
 
 
 def generated_stage_target(
