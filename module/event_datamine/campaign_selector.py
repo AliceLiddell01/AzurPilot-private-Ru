@@ -92,8 +92,17 @@ def _map_has_siren(raw_map: Mapping[str, Any]) -> bool:
     return False
 
 
+def _map_allows_auto_advance(map_policy: Any) -> bool:
+    """Разрешить автопереход только при явном runtime-факте обычного этапа."""
+
+    stage_entry = map_policy.stage_entry
+    return stage_entry is not None and stage_entry.one_time is False
+
+
 def _verified_generated_modules(
     artifact: Mapping[str, Any],
+    *,
+    auto_advance_only: bool = False,
 ) -> dict[str, str]:
     metadata = artifact.get("metadata")
     if not isinstance(metadata, Mapping):
@@ -212,6 +221,8 @@ def _verified_generated_modules(
             or map_policy.battle_plan is None
         ):
             continue
+        if auto_advance_only and not _map_allows_auto_advance(map_policy):
+            continue
 
         stem = path.stem.lower()
         if stem in modules and modules[stem] != module:
@@ -220,7 +231,7 @@ def _verified_generated_modules(
                 f"{stem!r}"
             )
         modules[stem] = module
-    if not modules:
+    if not modules and not auto_advance_only:
         raise EventCampaignSelectorError(
             "Event artifact не содержит проверенных "
             "generated maps для runtime"
@@ -245,23 +256,62 @@ def generated_campaign_package_parts(
     return next(iter(parents))
 
 
+def _stage_candidates(stage: str) -> tuple[str, ...]:
+    requested = str(stage or "").strip().lower()
+    if not requested:
+        return ()
+    candidates = (
+        requested,
+        _STAGE_COMPATIBILITY.get(requested),
+        _STAGE_COMPATIBILITY_REVERSE.get(requested),
+    )
+    return tuple(dict.fromkeys(
+        candidate for candidate in candidates if candidate is not None
+    ))
+
+
 def _stage_target(
     modules: Mapping[str, str],
     stage: str,
 ) -> str | None:
-    requested = str(stage or "").strip().lower()
-    if not requested:
-        return None
-    for candidate in (
-        requested,
-        _STAGE_COMPATIBILITY.get(requested),
-        _STAGE_COMPATIBILITY_REVERSE.get(requested),
-    ):
-        if candidate is None:
-            continue
+    for candidate in _stage_candidates(stage):
         target = modules.get(candidate)
         if target is not None:
             return target
+    return None
+
+
+def generated_next_stage(
+    modules: Mapping[str, str],
+    stage: str,
+) -> str | None:
+    """Вернуть следующий этап из порядка verified generated-каталога.
+
+    Порядок задаётся artifact, а не буквенными группами в backend. При
+    использовании старого совместимого имени сохраняется та же система имён.
+    """
+
+    requested = str(stage or "").strip().lower()
+    if not requested:
+        return None
+    candidates = (
+        (requested, "direct"),
+        (_STAGE_COMPATIBILITY.get(requested), "compat_forward"),
+        (_STAGE_COMPATIBILITY_REVERSE.get(requested), "compat_reverse"),
+    )
+    ordered = tuple(modules)
+    for candidate, mode in candidates:
+        if candidate is None or candidate not in modules:
+            continue
+        index = ordered.index(candidate) + 1
+        if index >= len(ordered):
+            return None
+        next_stage = ordered[index]
+        if mode == "compat_forward":
+            return _STAGE_COMPATIBILITY_REVERSE.get(next_stage, next_stage)
+        if mode == "compat_reverse":
+            return _STAGE_COMPATIBILITY.get(next_stage, next_stage)
+        return next_stage
     return None
 
 
@@ -334,6 +384,7 @@ def resolve_generated_campaign_modules(
     *,
     server: str | None = None,
     registry_root: Path | str = BUILTIN_ARTIFACT_ROOT,
+    auto_advance_only: bool = False,
 ) -> dict[str, str] | None:
     """Вернуть verified stage-каталог generated-события для selector.
 
@@ -341,6 +392,10 @@ def resolve_generated_campaign_modules(
     не зависит от текущей фазы lifecycle. ``None`` означает, что для этого
     сервера selector не закреплён за generated artifact. Повреждённый binding
     считается ошибкой: в таком состоянии переход на legacy-карты небезопасен.
+
+    При ``auto_advance_only=True`` сохраняются только этапы, для которых
+    runtime-policy явно подтверждает ``one_time=False``. Порядок элементов
+    остаётся порядком ``metadata.generated_maps`` artifact.
     """
 
     selector = str(selector or "").strip()
@@ -371,7 +426,10 @@ def resolve_generated_campaign_modules(
     if artifact is None:
         return None
 
-    modules = _verified_generated_modules(artifact)
+    modules = _verified_generated_modules(
+        artifact,
+        auto_advance_only=auto_advance_only,
+    )
     return {
         stage: (
             "campaign.generated_event."
