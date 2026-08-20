@@ -26,8 +26,8 @@ MAP.weight_data = """
     50 50 50 50 50 50 50 50 50 50
 """
 MAP.spawn_data = [{'battle': 0, 'enemy': 2, 'siren': 2}, {'battle': 1, 'enemy': 1}, {'battle': 2, 'enemy': 2, 'siren': 1}, {'battle': 3, 'enemy': 1}, {'battle': 4, 'enemy': 2}, {'battle': 5, 'enemy': 1}, {'battle': 6, 'boss': 1}]
-MAP.ignore_prediction('D5', enemy_genre='Enemy', enemy_scale=1)
-MAP.ignore_prediction('F7', enemy_genre='Enemy', enemy_scale=1)
+MAP.ignore_prediction('D5', **{'enemy_genre': 'Enemy', 'enemy_scale': 1})
+MAP.ignore_prediction('F7', **{'enemy_genre': 'Enemy', 'enemy_scale': 1})
 
 class Config:
     # Только структурные факты карты из ShareCfg.
