@@ -2,29 +2,32 @@ import argparse
 
 import pytest
 
-from module.dock_inventory.model import IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
 from module.formation.model import (
     FormationFleetSide,
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
 )
 from tools.acceptance.device import AcceptanceFailure
-from tools.acceptance.formation import _confirm_snapshot, _snapshot_payload
+from tools.acceptance.formation import _confirm_snapshot, _print_snapshot, _snapshot_payload
 
 
-def _snapshot(*, matched: bool) -> FormationFleetSnapshot:
+def _snapshot(
+    *,
+    matched: bool,
+    displayed_name: str = "Alabama",
+    canonical_name: str = "Alabama",
+) -> FormationFleetSnapshot:
     if matched:
-        from module.dock_inventory.model import CanonicalShipIdentity
-
         first = FormationFleetSlotObservation(
             side=FormationFleetSide.MAIN,
             position=1,
             occupied=True,
             identity_status=IdentityStatus.MATCHED,
-            raw_name_ocr="Alabama",
-            displayed_name="Alabama",
+            raw_name_ocr=displayed_name,
+            displayed_name=displayed_name,
             canonical_identity=CanonicalShipIdentity("azur_lane_ship_group:1"),
-            canonical_name="Alabama",
+            canonical_name=canonical_name,
         )
     else:
         first = FormationFleetSlotObservation(
@@ -57,6 +60,20 @@ def test_snapshot_payload_preserves_slot_identity_and_empty_slots() -> None:
     assert payload["complete"] is True
     assert payload["slots"][0]["canonical_id"] == "azur_lane_ship_group:1"
     assert payload["slots"][1]["occupied"] is False
+
+
+def test_print_snapshot_keeps_exact_displayed_retrofit_name(capsys) -> None:
+    snapshot = _snapshot(
+        matched=True,
+        displayed_name="Belfast (Retrofit)",
+        canonical_name="Belfast",
+    )
+
+    _print_snapshot(snapshot)
+
+    output = capsys.readouterr().out
+    assert "Belfast (Retrofit) -> Belfast" in output
+    assert "[сопоставлен]" in output
 
 
 def test_non_interactive_confirmation_requires_exact_match() -> None:
