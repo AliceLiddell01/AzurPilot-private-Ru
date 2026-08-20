@@ -151,6 +151,8 @@ def test_event_shop_v2_renderer_exposes_live_value_nodes():
     assert 'id="event-shop-v2-plan-cost"' in source
     assert 'id="event-shop-selected-{live_key}"' in source
     assert 'id="event-shop-capacity-{live_key}"' in source
+    assert 'id="event-shop-target-label-{live_key}"' in source
+    assert 'id="event-shop-target-bought-{live_key}"' in source
     assert 'id="event-shop-cost-{live_key}"' in source
     assert 'id="event-shop-plan-total"' not in source
     assert 'id="event-shop-plan-count"' not in source
@@ -258,6 +260,7 @@ def test_live_patch_reloads_capacity_after_active_target_is_cleared(monkeypatch)
     identity = planner._shop_item_identity(planner.plan["shop_items"][0])
     live_key = planner._shop_item_dom_key(identity)
     payloads = []
+    live_state = {"remaining": {"item-a": 2}}
 
     monkeypatch.setattr(
         planner,
@@ -266,17 +269,12 @@ def test_live_patch_reloads_capacity_after_active_target_is_cleared(monkeypatch)
     )
     monkeypatch.setattr(
         "module.webui.app_event_shop_v2.load_event_shop_priority",
-        lambda *_args, **_kwargs: {"remaining": {"item-a": 2}},
+        lambda *_args, **_kwargs: live_state,
     )
     monkeypatch.setattr(
         planner,
         "_event_shop_priority_metrics",
         lambda *_args, **_kwargs: {"count": 0, "cost": 0},
-    )
-    monkeypatch.setattr(
-        planner,
-        "_event_shop_target_remaining",
-        lambda *_args, **_kwargs: 0,
     )
     monkeypatch.setattr(planner, "_run_event_shop_dom_patch", payloads.append)
 
@@ -288,6 +286,28 @@ def test_live_patch_reloads_capacity_after_active_target_is_cleared(monkeypatch)
 
     values = {entry["id"]: entry["value"] for entry in payloads[0]["values"]}
     assert values[f"event-shop-capacity-{live_key}"] == "2"
+    assert values[f"event-shop-target-label-{live_key}"] == "Цель покупки"
+    assert values[f"event-shop-target-bought-{live_key}"] == "0"
+
+    live_state.update(
+        {
+            "priorities": {"item-a": 0},
+            "target_baselines": {"item-a": 10},
+        }
+    )
+    planner.plan["shop_items"][0]["selected"] = 10
+    planner._patch_event_shop_plan_values(
+        identity,
+        {"selected": 10, "cost": 20000, "total": 20000, "selected_count": 1},
+    )
+
+    active_values = {
+        entry["id"]: entry["value"] for entry in payloads[1]["values"]
+    }
+    assert active_values[f"event-shop-capacity-{live_key}"] == "10"
+    assert active_values[f"event-shop-target-label-{live_key}"] == "Цель эпизода"
+    assert active_values[f"event-shop-target-bought-{live_key}"] == "8"
+    assert active_values[f"event-shop-target-left-{live_key}"] == "2"
 
 
 def test_event_shop_refresh_updates_only_plan_scope():
