@@ -532,12 +532,19 @@ class FastForwardHandler(AutoSearchHandler):
                 return custom_result
 
         if self.config.Campaign_Event != 'campaign_main':
-            generated = self._generated_stage_catalog(auto_advance_only=True)
+            generated = self._generated_stage_catalog()
             if generated is not None:
-                next_stage = generated_next_stage(generated, name)
+                auto_advance = self._generated_stage_catalog(
+                    auto_advance_only=True,
+                )
+                next_stage = generated_next_stage(
+                    generated,
+                    name,
+                    auto_advance_modules=auto_advance or {},
+                )
                 if next_stage is None:
                     logger.info(
-                        'Достигнут конец порядка автопродвижения generated-этапов'
+                        'Достигнута граница порядка автопродвижения generated-этапов'
                     )
                     return name
                 new = to_map_input_name(next_stage)
@@ -623,7 +630,7 @@ class FastForwardHandler(AutoSearchHandler):
             if clicked_threshold > 3:
                 break
 
-            if self.appear(check_button, offset=self._auto_search_menu_offset, interval=3):
+            if self.appear(check_button, offset=(20, 20)):
                 box_button.load_offset(check_button)
                 enabled = self.image_color_count(box_button.button, color=(156, 255, 82), threshold=221, count=20)
                 if (status == 'on' and enabled) or (status == 'off' and not enabled):
