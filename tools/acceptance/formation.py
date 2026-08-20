@@ -71,14 +71,24 @@ def _snapshot_payload(snapshot: FormationFleetSnapshot) -> dict[str, Any]:
 
 
 def _print_snapshot(snapshot: FormationFleetSnapshot) -> None:
+    status_labels = {
+        "matched": "сопоставлен",
+        "ambiguous": "неоднозначно",
+        "unresolved": "не распознано",
+    }
     print(f"\nFormation Fleet {snapshot.fleet_index} — результат сканирования:")
     for slot in snapshot.slots:
         label = f"{slot.side.value}:{slot.position}"
         if not slot.occupied:
-            print(f"  {label:<12} EMPTY")
+            print(f"  {label:<12} ПУСТО")
             continue
-        status = slot.identity_status.value if slot.identity_status is not None else "unknown"
-        name = slot.canonical_name or slot.displayed_name or "<не распознано>"
+        status_value = slot.identity_status.value if slot.identity_status is not None else "unresolved"
+        status = status_labels.get(status_value, "неизвестно")
+        displayed_name = slot.displayed_name or "<не распознано>"
+        if slot.canonical_name and slot.canonical_name != displayed_name:
+            name = f"{displayed_name} -> {slot.canonical_name}"
+        else:
+            name = slot.canonical_name or displayed_name
         print(f"  {label:<12} {name} [{status}]")
 
 
@@ -90,7 +100,7 @@ def _confirm_snapshot(snapshot: FormationFleetSnapshot, args: argparse.Namespace
             if slot.occupied and slot.canonical_identity is None
         ]
         raise AcceptanceFailure(
-            "Formation scan содержит неоднозначные или нераспознанные занятые слоты: "
+            "Скан Formation содержит неоднозначные или нераспознанные занятые слоты: "
             + ", ".join(unresolved)
         )
 
@@ -119,7 +129,7 @@ def _close_info_without_masking(runner: FormationFleetController, primary: Excep
             )
             return
         raise AcceptanceFailure(
-            "Не удалось восстановить Formation после acceptance: "
+            "Не удалось восстановить Formation после приёмки: "
             + _safe_text(str(close_error))
         ) from close_error
 
@@ -129,7 +139,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     head = _git_head_sha()
     if args.expected_head and head != args.expected_head:
         raise AcceptanceFailure(
-            f"Formation acceptance: ожидался head {args.expected_head}, получен {head}."
+            f"Приёмка Formation: ожидался head {args.expected_head}, получен {head}."
         )
 
     config_path = Path("config") / f"{args.profile}.json"
@@ -140,19 +150,19 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     profile = _load_profile(args.profile)
     serial = _resolve_serial(args, profile)
 
-    print("Formation Fleet Scanner acceptance")
-    print(f"Exact head: {head}")
-    print(f"Profile: {args.profile}")
-    print(f"Fleet: {args.fleet}")
+    print("Приёмка Formation Fleet Scanner")
+    print(f"Точный head: {head}")
+    print(f"Профиль: {args.profile}")
+    print(f"Флот: {args.fleet}")
     print("Действия: открыть Formation, выбрать флот, открыть Info и прочитать шесть слотов.")
     print("Состав флота не изменяется.")
     if not args.non_interactive:
         if input("Введите START для начала: ").strip() != "START":
-            raise AcceptanceFailure("Acceptance отменён: не получено точное START.")
+            raise AcceptanceFailure("Приёмка отменена: не получено точное START.")
 
     runner = FormationFleetController(args.profile, device=serial)
     if runner.config.SERVER != "en":
-        raise AcceptanceFailure("Formation acceptance поддерживает только EN/Global.")
+        raise AcceptanceFailure("Приёмка Formation поддерживает только EN/Global.")
 
     primary: Exception | None = None
     snapshot: FormationFleetSnapshot | None = None
@@ -160,7 +170,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     try:
         snapshot = runner.scan_surface_fleet(args.fleet, close_info=False)
         confirmation = _confirm_snapshot(snapshot, args)
-    except Exception as error:  # noqa: BLE001 - cleanup должен сохранить исходную ошибку.
+    except Exception as error:  # noqa: BLE001 - очистка должна сохранить исходную ошибку.
         primary = error
         raise
     finally:
@@ -168,13 +178,13 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
     config_after = _sha256(config_path)
     if config_before != config_after:
-        raise AcceptanceFailure("Formation acceptance изменил постоянный profile config.")
+        raise AcceptanceFailure("Приёмка Formation изменила постоянный config профиля.")
     if snapshot is None:
-        raise AcceptanceFailure("Formation acceptance завершился без снимка состава флота.")
+        raise AcceptanceFailure("Приёмка Formation завершилась без снимка состава флота.")
 
     return {
         "status": "PASS",
-        "title": "Formation Fleet Scanner acceptance: PASS",
+        "title": "Приёмка Formation Fleet Scanner: PASS",
         "head_sha": head,
         "profile": args.profile,
         "server": runner.config.SERVER,
@@ -205,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = run_acceptance(args)
         _write_json_report(args.report, report)
-    except Exception as exc:  # noqa: BLE001 - acceptance всегда пишет итоговый отчёт.
+    except Exception as exc:  # noqa: BLE001 - приёмка всегда пишет итоговый отчёт.
         failure = {
             "status": "FAIL",
             "error": _safe_text(str(exc)),
@@ -215,14 +225,14 @@ def main(argv: list[str] | None = None) -> int:
             _write_json_report(args.report, failure)
         except Exception as report_exc:  # noqa: BLE001
             print(
-                "Formation acceptance: FAIL — не удалось записать отчёт: "
+                "Приёмка Formation: FAIL — не удалось записать отчёт: "
                 f"{_safe_text(str(report_exc))}",
                 file=sys.stderr,
             )
-        print(f"Formation acceptance: FAIL — {failure['error']}", file=sys.stderr)
+        print(f"Приёмка Formation: FAIL — {failure['error']}", file=sys.stderr)
         return 1
 
-    print("Formation Fleet Scanner acceptance: PASS")
+    print("Приёмка Formation Fleet Scanner: PASS")
     print(f"Отчёт: {args.report}")
     return 0
 
