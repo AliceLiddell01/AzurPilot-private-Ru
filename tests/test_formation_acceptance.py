@@ -101,6 +101,23 @@ class _FailingAcceptanceController:
         raise FormationFleetOcrError("ошибка сканирования")
 
 
+class _InterruptingCleanupDevice:
+    image = None
+
+    def screenshot(self) -> None:
+        raise KeyboardInterrupt
+
+
+class _ScanFailureCleanupInterruptController:
+    def __init__(self, config_name, device=None) -> None:
+        self.config = SimpleNamespace(SERVER="en")
+        self.device = _InterruptingCleanupDevice()
+        self.formation_state = SimpleNamespace(info_opened=lambda image: True)
+
+    def scan_surface_fleet(self, fleet_index, *, close_info=True):
+        raise FormationFleetOcrError("ошибка сканирования")
+
+
 def test_scan_failure_still_reports_profile_config_mutation(monkeypatch) -> None:
     hashes = iter(("before", "after"))
     args = argparse.Namespace(
@@ -238,5 +255,54 @@ def test_config_hash_read_failure_does_not_mask_scan_error(monkeypatch) -> None:
 
     assert any(
         "Не удалось проверить неизменность постоянного config профиля" in note
+        for note in error_info.value.__notes__
+    )
+
+
+def test_cleanup_interrupt_does_not_mask_scan_failure(monkeypatch) -> None:
+    args = argparse.Namespace(
+        profile="test",
+        fleet=6,
+        serial="fixture",
+        serial_from_config=False,
+        expected_head=None,
+        non_interactive=True,
+        confirmed_match="MATCH",
+    )
+
+    monkeypatch.setattr(formation_acceptance, "_validate_profile_name", lambda profile: None)
+    monkeypatch.setattr(formation_acceptance, "_git_head_sha", lambda: "1" * 40)
+    monkeypatch.setattr(formation_acceptance, "_sha256", lambda path: "same")
+    monkeypatch.setattr(formation_acceptance, "_load_profile", lambda profile: {})
+    monkeypatch.setattr(formation_acceptance, "_resolve_serial", lambda args, profile: "fixture")
+    monkeypatch.setattr(
+        formation_acceptance,
+        "FormationFleetController",
+        _ScanFailureCleanupInterruptController,
+    )
+
+    with pytest.raises(FormationFleetOcrError, match="ошибка сканирования") as error_info:
+        formation_acceptance.run_acceptance(args)
+
+    assert any(
+        "не удалось закрыть Formation Info: KeyboardInterrupt" in note
+        for note in error_info.value.__notes__
+    )
+
+
+def test_cleanup_interrupt_without_primary_still_checks_config(monkeypatch, tmp_path) -> None:
+    runner = SimpleNamespace(device=_InterruptingCleanupDevice())
+    monkeypatch.setattr(formation_acceptance, "_sha256", lambda path: "after")
+
+    with pytest.raises(KeyboardInterrupt) as error_info:
+        formation_acceptance._finalize_acceptance(
+            runner=runner,
+            config_path=tmp_path / "profile.json",
+            config_before="before",
+            primary=None,
+        )
+
+    assert any(
+        "изменила постоянный config профиля" in note
         for note in error_info.value.__notes__
     )
