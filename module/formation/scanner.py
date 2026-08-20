@@ -107,6 +107,10 @@ class FormationPresencePolicy:
         for field_name, value in (
             ("stats_green_hue_min", self.stats_green_hue_min),
             ("stats_green_hue_max", self.stats_green_hue_max),
+        ):
+            if type(value) is not int or not 0 <= value <= 179:
+                raise ValueError(f"{field_name} должен быть int в диапазоне 0..179")
+        for field_name, value in (
             ("stats_green_saturation_min", self.stats_green_saturation_min),
             ("stats_green_value_min", self.stats_green_value_min),
         ):
