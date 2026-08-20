@@ -25,10 +25,14 @@ from module.event_datamine.runtime_semantics import (
     parse_detector_calibration,
 )
 
-RUNTIME_POLICY_SCHEMA_VERSION = 4
+RUNTIME_POLICY_SCHEMA_VERSION = 5
 GENERATED_EVENT_ROOT = Path(__file__).resolve().parents[2] / "campaign" / "generated_event"
 _ALLOWED_UI_LAYOUTS = frozenset({"legacy", "20241219", "20260326"})
 _ALLOWED_BOSS_CLEAR_STRATEGIES = frozenset({"campaign", "boss_fleet", "fleet_1"})
+_ALLOWED_STAGE_DIFFICULTIES = frozenset({"normal", "hard"})
+_ALLOWED_STAGE_UI_PAGES = frozenset({"campaign", "event", "sp"})
+_ALLOWED_STAGE_UI_MODES = frozenset({"normal", "hard", "ex", "combat", "story"})
+_ALLOWED_STAGE_UI_ASIDES = frozenset({"part1", "part2", "sp", "ex"})
 _SAFE_PART = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SAFE_TEMPLATE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -52,6 +56,7 @@ _ALLOWED_MAP = {
     "source_path",
     "siren_recognition",
     "stage_entry",
+    "stage_navigation",
     "boss_clear",
     "camera_calibration",
     "detector_calibration",
@@ -59,6 +64,15 @@ _ALLOWED_MAP = {
 }
 _ALLOWED_SIREN = {"templates", "boss_icon_small"}
 _ALLOWED_STAGE_ENTRY = {"one_time", "has_mode_switch"}
+_ALLOWED_STAGE_NAVIGATION = {
+    "auto_next",
+    "difficulty",
+    "ui_page",
+    "ui_mode",
+    "ui_aside",
+    "ui_chapter_index",
+    "entrance_names",
+}
 _ALLOWED_BOSS_CLEAR = {"strategy"}
 
 
@@ -79,6 +93,19 @@ class StageEntryPolicy:
 
 
 @dataclass(frozen=True)
+class StageNavigationPolicy:
+    """Явная семантика перехода и расположения этапа в интерфейсе события."""
+
+    auto_next: str | None = None
+    difficulty: str | None = None
+    ui_page: str | None = None
+    ui_mode: str | None = None
+    ui_aside: str | None = None
+    ui_chapter_index: int | None = None
+    entrance_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class BossClearPolicy:
     strategy: str
 
@@ -90,6 +117,7 @@ class MapRuntimePolicy:
     source_path: str
     siren_recognition: SirenRecognitionPolicy | None = None
     stage_entry: StageEntryPolicy | None = None
+    stage_navigation: StageNavigationPolicy | None = None
     boss_clear: BossClearPolicy | None = None
     camera_calibration: CameraCalibrationPolicy | None = None
     detector_calibration: DetectorCalibrationPolicy | None = None
@@ -140,6 +168,24 @@ def _reject_unknown(mapping: Mapping[str, Any], allowed: set[str], label: str) -
 def _strict_bool(value: Any, label: str) -> bool:
     if not isinstance(value, bool):
         raise EventRuntimePolicyError(f"{label} должен быть bool")
+    return value
+
+
+def _optional_choice(
+    raw: Mapping[str, Any],
+    key: str,
+    allowed: frozenset[str],
+    *,
+    map_id: int,
+) -> str | None:
+    if key not in raw:
+        return None
+    value = str(raw[key] or "").strip()
+    if value not in allowed:
+        raise EventRuntimePolicyError(
+            f"stage_navigation.{key} карты {map_id} содержит "
+            f"неподдерживаемое значение: {value!r}"
+        )
     return value
 
 
@@ -218,6 +264,90 @@ def _parse_stage_entry(raw: Any, *, map_id: int) -> StageEntryPolicy:
     return StageEntryPolicy(one_time=one_time, has_mode_switch=has_mode_switch)
 
 
+def _parse_stage_navigation(raw: Any, *, map_id: int) -> StageNavigationPolicy:
+    if not isinstance(raw, Mapping):
+        raise EventRuntimePolicyError(
+            f"stage_navigation карты {map_id} должна быть JSON object"
+        )
+    _reject_unknown(raw, _ALLOWED_STAGE_NAVIGATION, f"stage_navigation карты {map_id}")
+    if not raw:
+        raise EventRuntimePolicyError(
+            f"stage_navigation карты {map_id} не должна быть пустой"
+        )
+
+    auto_next = None
+    if "auto_next" in raw:
+        auto_next = str(raw["auto_next"] or "").strip()
+        if not auto_next:
+            raise EventRuntimePolicyError(
+                f"stage_navigation.auto_next карты {map_id} не должен быть пустым"
+            )
+
+    chapter_index = None
+    if "ui_chapter_index" in raw:
+        chapter_index = raw["ui_chapter_index"]
+        if (
+            isinstance(chapter_index, bool)
+            or not isinstance(chapter_index, int)
+            or chapter_index <= 0
+        ):
+            raise EventRuntimePolicyError(
+                f"stage_navigation.ui_chapter_index карты {map_id} должен быть положительным int"
+            )
+
+    entrance_names: tuple[str, ...] = ()
+    if "entrance_names" in raw:
+        values = raw["entrance_names"]
+        if not isinstance(values, list) or not values:
+            raise EventRuntimePolicyError(
+                f"stage_navigation.entrance_names карты {map_id} должен быть непустым списком"
+            )
+        normalized: list[str] = []
+        for value in values:
+            name = str(value or "").strip()
+            if not name:
+                raise EventRuntimePolicyError(
+                    f"stage_navigation.entrance_names карты {map_id} содержит пустое имя"
+                )
+            folded = name.casefold()
+            if folded in {item.casefold() for item in normalized}:
+                raise EventRuntimePolicyError(
+                    f"stage_navigation.entrance_names карты {map_id} содержит дубликат {name!r}"
+                )
+            normalized.append(name)
+        entrance_names = tuple(normalized)
+
+    return StageNavigationPolicy(
+        auto_next=auto_next,
+        difficulty=_optional_choice(
+            raw,
+            "difficulty",
+            _ALLOWED_STAGE_DIFFICULTIES,
+            map_id=map_id,
+        ),
+        ui_page=_optional_choice(
+            raw,
+            "ui_page",
+            _ALLOWED_STAGE_UI_PAGES,
+            map_id=map_id,
+        ),
+        ui_mode=_optional_choice(
+            raw,
+            "ui_mode",
+            _ALLOWED_STAGE_UI_MODES,
+            map_id=map_id,
+        ),
+        ui_aside=_optional_choice(
+            raw,
+            "ui_aside",
+            _ALLOWED_STAGE_UI_ASIDES,
+            map_id=map_id,
+        ),
+        ui_chapter_index=chapter_index,
+        entrance_names=entrance_names,
+    )
+
+
 def _parse_boss_clear(raw: Any, *, map_id: int) -> BossClearPolicy:
     if not isinstance(raw, Mapping):
         raise EventRuntimePolicyError(
@@ -267,6 +397,11 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             if "stage_entry" in raw
             else None
         )
+        stage_navigation = (
+            _parse_stage_navigation(raw["stage_navigation"], map_id=map_id)
+            if "stage_navigation" in raw
+            else None
+        )
         boss_clear = (
             _parse_boss_clear(raw["boss_clear"], map_id=map_id)
             if "boss_clear" in raw
@@ -303,6 +438,7 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             (
                 siren,
                 stage_entry,
+                stage_navigation,
                 boss_clear,
                 camera_calibration,
                 detector_calibration,
@@ -318,12 +454,53 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             source_path=_safe_source_path(raw.get("source_path")),
             siren_recognition=siren,
             stage_entry=stage_entry,
+            stage_navigation=stage_navigation,
             boss_clear=boss_clear,
             camera_calibration=camera_calibration,
             detector_calibration=detector_calibration,
             battle_plan=battle_plan,
         )
     return result
+
+
+def _validate_stage_navigation_graph(runtime_maps: Mapping[int, MapRuntimePolicy]) -> None:
+    by_name: dict[str, MapRuntimePolicy] = {}
+    for runtime in runtime_maps.values():
+        folded = runtime.chapter_name.casefold()
+        if folded in by_name:
+            raise EventRuntimePolicyError(
+                f"Runtime-policy содержит неоднозначное имя этапа {runtime.chapter_name!r}"
+            )
+        by_name[folded] = runtime
+
+    edges: dict[str, str] = {}
+    for runtime in runtime_maps.values():
+        navigation = runtime.stage_navigation
+        if navigation is None or navigation.auto_next is None:
+            continue
+        source = runtime.chapter_name.casefold()
+        target = navigation.auto_next.casefold()
+        if target not in by_name:
+            raise EventRuntimePolicyError(
+                f"stage_navigation карты {runtime.map_id} ссылается на неизвестный "
+                f"этап {navigation.auto_next!r}"
+            )
+        if target == source:
+            raise EventRuntimePolicyError(
+                f"stage_navigation карты {runtime.map_id} не может ссылаться на себя"
+            )
+        edges[source] = target
+
+    for start in edges:
+        seen: set[str] = set()
+        current = start
+        while current in edges:
+            if current in seen:
+                raise EventRuntimePolicyError(
+                    "stage_navigation содержит цикл автопродвижения"
+                )
+            seen.add(current)
+            current = edges[current]
 
 
 def validate_runtime_policy(data: Any, *, package: str) -> dict[str, Any]:
@@ -375,6 +552,7 @@ def validate_runtime_policy(data: Any, *, package: str) -> dict[str, Any]:
         )
 
     runtime_maps = runtime_map_policies(result)
+    _validate_stage_navigation_graph(runtime_maps)
     map_evidence = result.get("map_evidence")
     if runtime_maps:
         if not isinstance(map_evidence, Mapping):
