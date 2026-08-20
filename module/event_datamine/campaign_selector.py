@@ -436,10 +436,13 @@ def resolve_generated_campaign_modules(
     if artifact is None:
         return None
 
-    modules = _verified_generated_modules(
-        artifact,
-        auto_advance_only=auto_advance_only,
-    )
+    if auto_advance_only:
+        modules = _verified_generated_modules(
+            artifact,
+            auto_advance_only=True,
+        )
+    else:
+        modules = _verified_generated_modules(artifact)
     return {
         stage: (
             "campaign.generated_event."
