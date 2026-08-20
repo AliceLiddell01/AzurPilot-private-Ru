@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from module.webui.app_event_planner import EventPlannerMixin
+from module.webui.app_event_shop_v2 import EventShopV2Mixin
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,24 +58,34 @@ class _LivePlanner(EventPlannerMixin):
         self.patches = []
         self.refreshes = 0
         self.synced_targets = []
+        self.sync_result = True
 
     def _event_plan_mutate(self, mutation, message):
         self.messages.append(message)
         result = mutation(self.plan)
         return result is None
 
+    def _mutate_event_shop_target(self, mutation, message):
+        return self._event_plan_mutate(mutation, message)
+
     def _event_shop_quantity_capacity(self, plan, item):
         return self.capacity
 
     def _sync_event_shop_target_state(self, snapshot):
         self.synced_targets.append(dict(snapshot))
-        return True
+        return self.sync_result
 
     def _patch_event_shop_plan_values(self, identity, snapshot):
         self.patches.append((identity, dict(snapshot)))
 
     def _refresh_event_plan_page(self):
         self.refreshes += 1
+
+
+class _LiveV2Planner(EventShopV2Mixin, _LivePlanner):
+    @staticmethod
+    def _fmt(value):
+        return str(value)
 
 
 def test_event_shop_styles_are_loaded_before_gui_content():
@@ -139,6 +150,7 @@ def test_event_shop_v2_renderer_exposes_live_value_nodes():
     assert 'id="event-shop-v2-plan-count"' in source
     assert 'id="event-shop-v2-plan-cost"' in source
     assert 'id="event-shop-selected-{live_key}"' in source
+    assert 'id="event-shop-capacity-{live_key}"' in source
     assert 'id="event-shop-cost-{live_key}"' in source
     assert 'id="event-shop-plan-total"' not in source
     assert 'id="event-shop-plan-count"' not in source
@@ -219,6 +231,63 @@ def test_quantity_max_and_increment_share_proven_capacity(monkeypatch):
             },
         )
     ]
+
+
+def test_quantity_change_keeps_previous_plan_when_priority_sync_fails():
+    planner = _LivePlanner()
+    planner.sync_result = False
+    identity = planner._shop_item_identity(planner.plan["shop_items"][0])
+
+    planner._change_shop_quantity(identity, "increment")
+
+    assert planner.plan["shop_items"][0]["selected"] == 0
+    assert planner.synced_targets == [
+        {
+            "event_id": "event-test",
+            "row_id": "item-a",
+            "previous_selected": 0,
+            "selected": 1,
+        }
+    ]
+    assert planner.patches == []
+
+
+def test_live_patch_reloads_capacity_after_active_target_is_cleared(monkeypatch):
+    planner = _LiveV2Planner()
+    planner.plan["shop_items"][0]["selected"] = 5
+    identity = planner._shop_item_identity(planner.plan["shop_items"][0])
+    live_key = planner._shop_item_dom_key(identity)
+    payloads = []
+
+    monkeypatch.setattr(
+        planner,
+        "_event_plan",
+        lambda: planner.plan,
+    )
+    monkeypatch.setattr(
+        "module.webui.app_event_shop_v2.load_event_shop_priority",
+        lambda *_args, **_kwargs: {"remaining": {"item-a": 2}},
+    )
+    monkeypatch.setattr(
+        planner,
+        "_event_shop_priority_metrics",
+        lambda *_args, **_kwargs: {"count": 0, "cost": 0},
+    )
+    monkeypatch.setattr(
+        planner,
+        "_event_shop_target_remaining",
+        lambda *_args, **_kwargs: 0,
+    )
+    monkeypatch.setattr(planner, "_run_event_shop_dom_patch", payloads.append)
+
+    planner.plan["shop_items"][0]["selected"] = 0
+    planner._patch_event_shop_plan_values(
+        identity,
+        {"selected": 0, "cost": 0, "total": 0, "selected_count": 0},
+    )
+
+    values = {entry["id"]: entry["value"] for entry in payloads[0]["values"]}
+    assert values[f"event-shop-capacity-{live_key}"] == "2"
 
 
 def test_event_shop_refresh_updates_only_plan_scope():

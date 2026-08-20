@@ -53,7 +53,7 @@ def event_shop_priority_path(
 
 
 @contextmanager
-def _event_shop_priority_write_lock(
+def event_shop_priority_write_lock(
     instance: str,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ):
@@ -80,7 +80,7 @@ def _priority_writer_locked(func):
             raise TypeError("Не удалось определить профиль для блокировки приоритетов")
         instance = first if isinstance(first, str) else first.config_name
         root = kwargs.get("root", EVENT_SHOP_PRIORITY_ROOT)
-        with _event_shop_priority_write_lock(str(instance), root):
+        with event_shop_priority_write_lock(str(instance), root):
             return func(*args, **kwargs)
 
     return wrapper
@@ -734,9 +734,9 @@ def prepare_event_shop_runtime_items(
         )
         return PriorityRuntimeItems([], observation_items=full_scan)
 
-    # Проверка pending могла атомарно завершить и очистить пользовательскую цель.
-    # Reconciliation обязан видеть уже новый target-state, иначе прежнее selected
-    # в том же проходе ошибочно снимет только что доказанный completed.
+    # Проверка ожидающей покупки могла атомарно завершить и очистить цель.
+    # Согласование обязано видеть уже новое состояние цели, иначе прежнее выбранное
+    # количество в том же проходе ошибочно снимет только что доказанное завершение.
     selected_targets = _selected_targets(config, event_id)
 
     changed = _reconcile_proven_inventory_state(

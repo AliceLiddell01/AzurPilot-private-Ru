@@ -220,6 +220,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         state = load_event_shop_priority(self.alas_name, event_id)
         metrics = self._event_shop_priority_metrics(plan, state)
         live_key = self._shop_item_dom_key(identity)
+        capacity = event_shop_target_capacity(item, state)
         remaining_target = self._event_shop_target_remaining(item, state)
         self._run_event_shop_dom_patch(
             {
@@ -231,6 +232,10 @@ class EventShopV2Mixin(WebUIMixinBase):
                     {
                         "id": f"event-shop-cost-{live_key}",
                         "value": self._fmt(snapshot["cost"]),
+                    },
+                    {
+                        "id": f"event-shop-capacity-{live_key}",
+                        "value": self._fmt(capacity) if capacity is not None else "—",
                     },
                     {
                         "id": f"event-shop-target-left-{live_key}",
@@ -532,7 +537,7 @@ class EventShopV2Mixin(WebUIMixinBase):
   <div class="event-shop-v2-price"><img src="{escape(currency_asset)}" alt="{currency_name}"><b>{self._fmt(price)}</b></div>
   <div class="event-shop-v2-target">
     <span>Цель покупки</span>
-    <strong><span id="event-shop-selected-{live_key}" class="event-shop-live-value">{self._fmt(selected)}</span> / {self._fmt(capacity) if capacity is not None else "—"}</strong>
+    <strong><span id="event-shop-selected-{live_key}" class="event-shop-live-value">{self._fmt(selected)}</span> / <span id="event-shop-capacity-{live_key}" class="event-shop-live-value">{self._fmt(capacity) if capacity is not None else "—"}</span></strong>
     <small>Осталось купить: <span id="event-shop-target-left-{live_key}" class="event-shop-live-value">{self._fmt(target_remaining)}</span></small>
     <small>Стоимость цели: <span id="event-shop-cost-{live_key}" class="event-shop-live-value">{self._fmt(price * selected)}</span></small>
   </div>

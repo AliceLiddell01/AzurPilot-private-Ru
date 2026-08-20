@@ -29,6 +29,7 @@ from module.webui.event_plan import (
     shop_plan_total,
 )
 from module.webui.event_shop_priority import (
+    event_shop_priority_write_lock,
     event_shop_target_capacity,
     load_event_shop_priority,
     update_event_shop_target_state,
@@ -154,15 +155,21 @@ class EventPlannerMixin(WebUIMixinBase):
         state = load_event_shop_priority(self.alas_name, event_id)
         return event_shop_target_capacity(item, state)
 
+    def _mutate_event_shop_target(self, mutation, message: str) -> bool:
+        """Согласованно изменить состояние приоритетов и пользовательский план."""
+        # Контур выполнения берёт блокировки в том же порядке при завершении покупки.
+        with event_shop_priority_write_lock(self.alas_name):
+            return self._event_plan_mutate(mutation, message)
+
     def _sync_event_shop_target_state(self, snapshot: Mapping[str, Any]) -> bool:
         event_id = str(snapshot.get("event_id") or "")
         row_id = str(snapshot.get("row_id") or "")
         if not event_id or not row_id:
             logger.warning(
-                "[WebUI — магазин события] Цель сохранена без полной идентичности события или товара; синхронизация точки отсчёта пропущена"
+                "[WebUI — магазин события] Цель не сохранена: отсутствует полная идентичность события или товара"
             )
             toast(
-                "Цель сохранена, но автоматизация магазина не синхронизирована: неполная идентичность события или товара",
+                "Цель не сохранена: неполная идентичность события или товара",
                 color="warning",
             )
             self._refresh_event_plan_page()
@@ -177,10 +184,10 @@ class EventPlannerMixin(WebUIMixinBase):
             )
         except (OSError, TypeError, ValueError) as exc:
             logger.warning(
-                f"[WebUI — магазин события] Цель сохранена, но не удалось синхронизировать состояние автоматизации: {exc}"
+                f"[WebUI — магазин события] Цель не сохранена: не удалось синхронизировать состояние автоматизации: {exc}"
             )
             toast(
-                "Цель сохранена, но состояние автоматизации магазина не синхронизировано",
+                "Цель не сохранена: состояние автоматизации магазина не синхронизировано",
                 color="warning",
             )
             self._refresh_event_plan_page()
@@ -274,13 +281,13 @@ class EventPlannerMixin(WebUIMixinBase):
                     "selected": selected,
                 }
             )
+            if not self._sync_event_shop_target_state(target_snapshot):
+                return _UNCHANGED_EVENT_PLAN
             item["selected"] = selected
             live_snapshot.update(self._shop_live_snapshot(plan, item))
 
-        if self._event_plan_mutate(mutation, "Количество в плане обновлено"):
+        if self._mutate_event_shop_target(mutation, "Количество в плане обновлено"):
             close_popup()
-            if not self._sync_event_shop_target_state(target_snapshot):
-                return
             self._patch_event_shop_plan_values(identity, live_snapshot)
         elif validation_problem:
             toast(validation_problem[-1], color="warning")
@@ -334,12 +341,12 @@ class EventPlannerMixin(WebUIMixinBase):
                     "selected": selected,
                 }
             )
+            if not self._sync_event_shop_target_state(target_snapshot):
+                return _UNCHANGED_EVENT_PLAN
             item["selected"] = selected
             live_snapshot.update(self._shop_live_snapshot(plan, item))
 
-        if self._event_plan_mutate(mutation, ""):
-            if not self._sync_event_shop_target_state(target_snapshot):
-                return
+        if self._mutate_event_shop_target(mutation, ""):
             self._patch_event_shop_plan_values(identity, live_snapshot)
         elif validation_problem:
             toast(validation_problem[-1], color="warning")
