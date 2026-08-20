@@ -54,13 +54,9 @@ class _FakeOcr:
 def _frame_with_slots(*indices: int) -> np.ndarray:
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     for index in indices:
-        area = GLOBAL_FORMATION_INFO_LAYOUT_1280_720.slots[index].portrait_area
+        area = GLOBAL_FORMATION_INFO_LAYOUT_1280_720.slots[index].presence_area
         x1, y1, x2, y2 = area
-        yy, xx = np.indices((y2 - y1, x2 - x1))
-        checker = ((xx + yy) % 2 * 255).astype(np.uint8)
-        frame[y1:y2, x1:x2, 0] = checker
-        frame[y1:y2, x1:x2, 1] = checker
-        frame[y1:y2, x1:x2, 2] = checker
+        frame[y1:y2, x1:x2] = (80, 220, 80)
     return frame
 
 
@@ -99,6 +95,19 @@ def test_blank_name_on_occupied_slot_is_unresolved_not_empty() -> None:
     assert result.slots[0].identity_status is IdentityStatus.UNRESOLVED
     assert result.slots[0].raw_name_ocr == ""
     assert result.complete is False
+
+
+def test_presence_uses_total_stats_green_evidence_not_ship_art() -> None:
+    scanner = FormationFleetInfoScanner(_catalog(), name_ocr=_FakeOcr(("Alabama",)))
+    frame = _frame_with_slots(0)
+
+    evidence = scanner.presence_evidence(
+        frame,
+        GLOBAL_FORMATION_INFO_LAYOUT_1280_720.slots[0],
+    )
+
+    assert evidence.occupied is True
+    assert evidence.stats_green_ratio >= scanner.presence_policy.stats_green_ratio_min
 
 
 def test_presence_is_independent_from_name_ocr() -> None:

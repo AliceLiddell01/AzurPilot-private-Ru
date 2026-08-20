@@ -20,7 +20,7 @@ from module.ocr.ocr import Ocr
 
 
 class FormationFleetScanError(RuntimeError):
-    """Базовая ошибка Formation Fleet Scanner."""
+    """Базовая ошибка сканера состава Formation."""
 
 
 class FormationFleetInputError(FormationFleetScanError):
@@ -37,13 +37,13 @@ class FormationSlotGeometry:
 
     side: FormationFleetSide
     position: int
-    portrait_area: tuple[int, int, int, int]
+    presence_area: tuple[int, int, int, int]
     name_area: tuple[int, int, int, int]
 
 
 @dataclass(frozen=True, slots=True)
 class FormationInfoLayout:
-    """Инъецируемый layout-контракт Formation Info."""
+    """Инъецируемый контракт геометрии Formation Info."""
 
     frame_width: int
     frame_height: int
@@ -55,7 +55,7 @@ class FormationInfoLayout:
         if type(self.frame_height) is not int or self.frame_height <= 0:
             raise ValueError("frame_height должен быть положительным int")
         if not isinstance(self.slots, tuple) or len(self.slots) != 6:
-            raise ValueError("Formation Info layout должен содержать шесть слотов")
+            raise ValueError("Formation Info должен содержать шесть слотов")
         expected = (
             (FormationFleetSide.MAIN, 1),
             (FormationFleetSide.MAIN, 2),
@@ -65,9 +65,9 @@ class FormationInfoLayout:
             (FormationFleetSide.VANGUARD, 3),
         )
         if tuple((slot.side, slot.position) for slot in self.slots) != expected:
-            raise ValueError("Formation Info layout содержит неверный порядок слотов")
+            raise ValueError("Formation Info содержит неверный порядок слотов")
         for slot in self.slots:
-            for area in (slot.portrait_area, slot.name_area):
+            for area in (slot.presence_area, slot.name_area):
                 if (
                     not isinstance(area, tuple)
                     or len(area) != 4
@@ -76,44 +76,53 @@ class FormationInfoLayout:
                     raise TypeError("Область Formation Info должна быть tuple из четырёх int")
                 x1, y1, x2, y2 = area
                 if not (0 <= x1 < x2 <= self.frame_width and 0 <= y1 < y2 <= self.frame_height):
-                    raise ValueError(f"Область Formation Info выходит за frame: {area!r}")
+                    raise ValueError(f"Область Formation Info выходит за кадр: {area!r}")
 
 
 GLOBAL_FORMATION_INFO_LAYOUT_1280_720 = FormationInfoLayout(
     frame_width=1280,
     frame_height=720,
     slots=(
-        FormationSlotGeometry(FormationFleetSide.MAIN, 1, (66, 153, 215, 448), (67, 458, 215, 486)),
-        FormationSlotGeometry(FormationFleetSide.MAIN, 2, (248, 153, 405, 448), (248, 458, 405, 486)),
-        FormationSlotGeometry(FormationFleetSide.MAIN, 3, (435, 153, 591, 448), (435, 458, 591, 486)),
-        FormationSlotGeometry(FormationFleetSide.VANGUARD, 1, (690, 153, 841, 448), (689, 458, 843, 486)),
-        FormationSlotGeometry(FormationFleetSide.VANGUARD, 2, (873, 153, 1029, 448), (873, 458, 1029, 486)),
-        FormationSlotGeometry(FormationFleetSide.VANGUARD, 3, (1059, 153, 1216, 448), (1059, 458, 1216, 486)),
+        FormationSlotGeometry(FormationFleetSide.MAIN, 1, (67, 548, 213, 568), (67, 458, 215, 486)),
+        FormationSlotGeometry(FormationFleetSide.MAIN, 2, (249, 548, 403, 568), (248, 458, 405, 486)),
+        FormationSlotGeometry(FormationFleetSide.MAIN, 3, (435, 548, 589, 568), (435, 458, 591, 486)),
+        FormationSlotGeometry(FormationFleetSide.VANGUARD, 1, (691, 548, 839, 568), (689, 458, 843, 486)),
+        FormationSlotGeometry(FormationFleetSide.VANGUARD, 2, (875, 548, 1028, 568), (873, 458, 1029, 486)),
+        FormationSlotGeometry(FormationFleetSide.VANGUARD, 3, (1060, 548, 1214, 568), (1059, 458, 1216, 486)),
     ),
 )
 
 
 @dataclass(frozen=True, slots=True)
 class FormationPresencePolicy:
-    """Пороговая политика независимого occupied/empty evidence."""
+    """Пороговая политика структурного признака занятого слота."""
 
-    bright_luma: int = 150
-    bright_ratio_min: float = 0.08
-    luma_std_min: float = 43.0
+    stats_green_hue_min: int = 35
+    stats_green_hue_max: int = 85
+    stats_green_saturation_min: int = 90
+    stats_green_value_min: int = 120
+    stats_green_ratio_min: float = 0.03
 
     def __post_init__(self) -> None:
-        if type(self.bright_luma) is not int or not 0 <= self.bright_luma <= 255:
-            raise ValueError("bright_luma должен быть int в диапазоне 0..255")
-        if not 0.0 <= self.bright_ratio_min <= 1.0:
-            raise ValueError("bright_ratio_min должен быть в диапазоне 0..1")
-        if not 0.0 <= self.luma_std_min <= 255.0:
-            raise ValueError("luma_std_min должен быть в диапазоне 0..255")
+        for field_name, value in (
+            ("stats_green_hue_min", self.stats_green_hue_min),
+            ("stats_green_hue_max", self.stats_green_hue_max),
+            ("stats_green_saturation_min", self.stats_green_saturation_min),
+            ("stats_green_value_min", self.stats_green_value_min),
+        ):
+            if type(value) is not int or not 0 <= value <= 255:
+                raise ValueError(f"{field_name} должен быть int в диапазоне 0..255")
+        if self.stats_green_hue_min > self.stats_green_hue_max:
+            raise ValueError("stats_green_hue_min не должен превышать stats_green_hue_max")
+        if not 0.0 <= self.stats_green_ratio_min <= 1.0:
+            raise ValueError("stats_green_ratio_min должен быть в диапазоне 0..1")
 
 
 @dataclass(frozen=True, slots=True)
 class FormationPresenceEvidence:
-    luma_std: float
-    bright_ratio: float
+    """Наблюдаемый зелёный признак строки Total Stats."""
+
+    stats_green_ratio: float
     occupied: bool
 
 
@@ -137,7 +146,7 @@ class _FormationNameOcrModel(Ocr):
 
 
 class FormationShipNameOcr:
-    """Адаптер общего EN OCR для фиксированных name ROI Formation Info."""
+    """Адаптер общего EN OCR для фиксированных областей имён Formation Info."""
 
     def read_names(
         self,
@@ -157,7 +166,7 @@ class FormationShipNameOcr:
         values = result if isinstance(result, list) else [result]
         if len(values) != len(areas) or any(not isinstance(value, str) for value in values):
             raise FormationFleetOcrError(
-                "OCR вернул результат, не соответствующий числу занятых Formation slots."
+                "OCR вернул результат, не соответствующий числу занятых слотов Formation."
             )
         return tuple(values)
 
@@ -188,10 +197,10 @@ class FormationFleetInfoScanner:
 
     def _validate_frame(self, frame: np.ndarray) -> None:
         if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
-            raise FormationFleetInputError("Formation frame должен быть цветным np.ndarray.")
+            raise FormationFleetInputError("Кадр Formation должен быть цветным np.ndarray.")
         if frame.shape[:2] != (self.layout.frame_height, self.layout.frame_width):
             raise FormationFleetInputError(
-                "Formation frame имеет неподдерживаемую геометрию: "
+                "Кадр Formation имеет неподдерживаемую геометрию: "
                 f"{frame.shape[:2]}, ожидается "
                 f"{(self.layout.frame_height, self.layout.frame_width)}."
             )
@@ -201,19 +210,19 @@ class FormationFleetInfoScanner:
         frame: np.ndarray,
         geometry: FormationSlotGeometry,
     ) -> FormationPresenceEvidence:
-        x1, y1, x2, y2 = geometry.portrait_area
+        x1, y1, x2, y2 = geometry.presence_area
         image = frame[y1:y2, x1:x2]
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        luma_std = float(np.std(gray))
-        bright_ratio = float(np.mean(gray >= self.presence_policy.bright_luma))
-        occupied = (
-            luma_std >= self.presence_policy.luma_std_min
-            and bright_ratio >= self.presence_policy.bright_ratio_min
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        green = (
+            (hsv[:, :, 0] >= self.presence_policy.stats_green_hue_min)
+            & (hsv[:, :, 0] <= self.presence_policy.stats_green_hue_max)
+            & (hsv[:, :, 1] >= self.presence_policy.stats_green_saturation_min)
+            & (hsv[:, :, 2] >= self.presence_policy.stats_green_value_min)
         )
+        stats_green_ratio = float(np.mean(green))
         return FormationPresenceEvidence(
-            luma_std=luma_std,
-            bright_ratio=bright_ratio,
-            occupied=occupied,
+            stats_green_ratio=stats_green_ratio,
+            occupied=stats_green_ratio >= self.presence_policy.stats_green_ratio_min,
         )
 
     def scan(self, frame: np.ndarray, *, fleet_index: int) -> FormationFleetSnapshot:
@@ -240,11 +249,11 @@ class FormationFleetInfoScanner:
             raise
         except Exception as error:
             raise FormationFleetOcrError(
-                f"Не удалось распознать имена Formation slots: {error}"
+                f"Не удалось распознать имена занятых слотов Formation: {error}"
             ) from error
         if len(raw_names) != len(occupied_geometries):
             raise FormationFleetOcrError(
-                "OCR вернул неверное число имён для занятых Formation slots."
+                "OCR вернул неверное число имён для занятых слотов Formation."
             )
 
         name_iter = iter(raw_names)
