@@ -244,19 +244,15 @@ def _runtime_policy(
     return _full_runtime_policy(strategy=strategy, siren=siren)
 
 
-def test_generator_derives_normal_movable_enemy_from_me_grid():
-    policy = _runtime_policy()
-    movable = generate_map_module(
+def test_generator_does_not_infer_normal_movable_enemy_from_me_grid():
+    generated = generate_map_module(
         _map_with("Me"),
-        runtime_policy=policy,
-    )
-    static = generate_map_module(
-        _map_with("--"),
-        runtime_policy=policy,
+        runtime_policy=_runtime_policy(),
     )
 
-    assert "MAP_HAS_MOVABLE_NORMAL_ENEMY = True" in movable
-    assert "MAP_HAS_MOVABLE_NORMAL_ENEMY = True" not in static
+    assert "MAP_HAS_MOVABLE_NORMAL_ENEMY" not in generated
+    assert "MOVABLE_NORMAL_ENEMY_TURN" not in generated
+    assert "MAP_HAS_MOVABLE_ENEMY = False" in generated
 
 
 def test_generator_rejects_siren_map_without_runtime_recognition_policy():
