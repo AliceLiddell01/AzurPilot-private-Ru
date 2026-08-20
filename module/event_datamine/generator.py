@@ -133,6 +133,14 @@ def _validate_runtime_contract(spec: MapSpec, policy: MapRuntimePolicy) -> None:
                 f"Runtime camera node {node!r} карты {spec.id} находится вне shape {spec.shape}"
             )
 
+    for prediction_ignore in policy.prediction_ignores:
+        x, y = node2location(prediction_ignore.node)
+        if not (0 <= x <= max_x and 0 <= y <= max_y):
+            raise ValueError(
+                f"Runtime prediction_ignore node {prediction_ignore.node!r} карты {spec.id} "
+                f"находится вне shape {spec.shape}"
+            )
+
     battle_plan = policy.battle_plan
     assert battle_plan is not None
     seen_battles: set[int] = set()
@@ -243,6 +251,11 @@ def generate_map_module(
     if spec.spawn_data_loop:
         lines.append(
             f"MAP.spawn_data_loop = {list(spec.spawn_data_loop)!r}"
+        )
+    for prediction_ignore in runtime_policy.prediction_ignores:
+        lines.append(
+            f"MAP.ignore_prediction({prediction_ignore.node!r}, "
+            f"**{prediction_ignore.match_dict()!r})"
         )
     lines.extend(
         [

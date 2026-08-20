@@ -25,12 +25,13 @@ from module.event_datamine.runtime_semantics import (
     parse_detector_calibration,
 )
 
-RUNTIME_POLICY_SCHEMA_VERSION = 4
+RUNTIME_POLICY_SCHEMA_VERSION = 5
 GENERATED_EVENT_ROOT = Path(__file__).resolve().parents[2] / "campaign" / "generated_event"
 _ALLOWED_UI_LAYOUTS = frozenset({"legacy", "20241219", "20260326"})
 _ALLOWED_BOSS_CLEAR_STRATEGIES = frozenset({"campaign", "boss_fleet", "fleet_1"})
 _SAFE_PART = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SAFE_TEMPLATE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_SAFE_NODE = re.compile(r"[A-Z]+[1-9][0-9]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SHA40 = re.compile(r"[0-9a-f]{40}")
 _ALLOWED_TOP_LEVEL = {
@@ -56,10 +57,19 @@ _ALLOWED_MAP = {
     "camera_calibration",
     "detector_calibration",
     "battle_plan",
+    "prediction_ignores",
 }
 _ALLOWED_SIREN = {"templates", "boss_icon_small"}
 _ALLOWED_STAGE_ENTRY = {"one_time", "has_mode_switch"}
 _ALLOWED_BOSS_CLEAR = {"strategy"}
+_ALLOWED_PREDICTION_IGNORE = {"node", "match", "evidence_sha256"}
+_ALLOWED_PREDICTION_MATCH = {
+    "enemy_scale",
+    "enemy_genre",
+    "is_enemy",
+    "is_boss",
+    "is_siren",
+}
 
 
 class EventRuntimePolicyError(ValueError):
@@ -84,6 +94,18 @@ class BossClearPolicy:
 
 
 @dataclass(frozen=True)
+class PredictionIgnorePolicy:
+    """Доказанное ложное распознавание конкретной клетки карты."""
+
+    node: str
+    match: tuple[tuple[str, Any], ...]
+    evidence_sha256: str
+
+    def match_dict(self) -> dict[str, Any]:
+        return dict(self.match)
+
+
+@dataclass(frozen=True)
 class MapRuntimePolicy:
     map_id: int
     chapter_name: str
@@ -94,6 +116,7 @@ class MapRuntimePolicy:
     camera_calibration: CameraCalibrationPolicy | None = None
     detector_calibration: DetectorCalibrationPolicy | None = None
     battle_plan: BattlePlanPolicy | None = None
+    prediction_ignores: tuple[PredictionIgnorePolicy, ...] = ()
 
     def config_items(self) -> tuple[tuple[str, Any], ...]:
         """Преобразовать семантическую policy в ограниченный набор runtime-настроек."""
@@ -232,6 +255,68 @@ def _parse_boss_clear(raw: Any, *, map_id: int) -> BossClearPolicy:
     return BossClearPolicy(strategy=strategy)
 
 
+def _parse_prediction_ignores(raw: Any, *, map_id: int) -> tuple[PredictionIgnorePolicy, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise EventRuntimePolicyError(
+            f"prediction_ignores карты {map_id} должен быть непустым списком"
+        )
+    result: list[PredictionIgnorePolicy] = []
+    seen: set[tuple[str, tuple[tuple[str, Any], ...]]] = set()
+    for item in raw:
+        if not isinstance(item, Mapping):
+            raise EventRuntimePolicyError(
+                f"prediction_ignores карты {map_id} содержит не JSON object"
+            )
+        _reject_unknown(item, _ALLOWED_PREDICTION_IGNORE, f"prediction_ignore карты {map_id}")
+        node = str(item.get("node") or "").strip().upper()
+        if not _SAFE_NODE.fullmatch(node):
+            raise EventRuntimePolicyError(
+                f"Карта {map_id} содержит некорректную клетку prediction_ignore: {node!r}"
+            )
+        evidence_sha256 = str(item.get("evidence_sha256") or "").lower()
+        if not _SHA256.fullmatch(evidence_sha256):
+            raise EventRuntimePolicyError(
+                f"Карта {map_id} содержит некорректный evidence SHA-256 prediction_ignore"
+            )
+        match = item.get("match")
+        if not isinstance(match, Mapping) or not match:
+            raise EventRuntimePolicyError(
+                f"prediction_ignore карты {map_id} требует непустой match"
+            )
+        _reject_unknown(match, _ALLOWED_PREDICTION_MATCH, f"prediction_ignore.match карты {map_id}")
+        normalized: list[tuple[str, Any]] = []
+        for key in sorted(match):
+            value = match[key]
+            if key == "enemy_scale":
+                if isinstance(value, bool) or not isinstance(value, int) or value not in {1, 2, 3}:
+                    raise EventRuntimePolicyError(
+                        f"prediction_ignore.enemy_scale карты {map_id} должен быть 1..3"
+                    )
+            elif key == "enemy_genre":
+                value = str(value or "").strip()
+                if not value or not _SAFE_TEMPLATE.fullmatch(value):
+                    raise EventRuntimePolicyError(
+                        f"prediction_ignore.enemy_genre карты {map_id} некорректен"
+                    )
+            else:
+                value = _strict_bool(value, f"prediction_ignore.{key} карты {map_id}")
+            normalized.append((key, value))
+        signature = (node, tuple(normalized))
+        if signature in seen:
+            raise EventRuntimePolicyError(
+                f"Карта {map_id} дублирует prediction_ignore для {node}"
+            )
+        seen.add(signature)
+        result.append(
+            PredictionIgnorePolicy(
+                node=node,
+                match=tuple(normalized),
+                evidence_sha256=evidence_sha256,
+            )
+        )
+    return tuple(result)
+
+
 def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]:
     raw_maps = data.get("runtime_maps", [])
     if not isinstance(raw_maps, list):
@@ -299,6 +384,11 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             if "battle_plan" in raw
             else None
         )
+        prediction_ignores = (
+            _parse_prediction_ignores(raw["prediction_ignores"], map_id=map_id)
+            if "prediction_ignores" in raw
+            else ()
+        )
         if not any(
             (
                 siren,
@@ -307,6 +397,7 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
                 camera_calibration,
                 detector_calibration,
                 battle_plan,
+                prediction_ignores,
             )
         ):
             raise EventRuntimePolicyError(
@@ -322,6 +413,7 @@ def runtime_map_policies(data: Mapping[str, Any]) -> dict[int, MapRuntimePolicy]
             camera_calibration=camera_calibration,
             detector_calibration=detector_calibration,
             battle_plan=battle_plan,
+            prediction_ignores=prediction_ignores,
         )
     return result
 

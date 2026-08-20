@@ -75,7 +75,7 @@ def test_navigation_schema_accepts_arbitrary_stage_names(monkeypatch):
     monkeypatch.setattr(
         stage_navigation_module,
         "load_generated_runtime_policy",
-        lambda _package_parts: _synthetic_runtime(),
+        lambda _package_parts, **_kwargs: _synthetic_runtime(),
     )
 
     stages = validate_stage_navigation_policy(
@@ -105,7 +105,7 @@ def test_navigation_schema_rejects_invalid_graph(monkeypatch, mutate, message):
     monkeypatch.setattr(
         stage_navigation_module,
         "load_generated_runtime_policy",
-        lambda _package_parts: _synthetic_runtime(),
+        lambda _package_parts, **_kwargs: _synthetic_runtime(),
     )
     data = _synthetic_navigation()
     mutate(data)
@@ -122,7 +122,7 @@ def test_navigation_schema_rejects_runtime_policy_drift(monkeypatch):
     monkeypatch.setattr(
         stage_navigation_module,
         "load_generated_runtime_policy",
-        lambda _package_parts: _synthetic_runtime(digest="2" * 64),
+        lambda _package_parts, **_kwargs: _synthetic_runtime(digest="2" * 64),
     )
 
     with pytest.raises(
@@ -133,6 +133,28 @@ def test_navigation_schema_rejects_runtime_policy_drift(monkeypatch):
             _synthetic_navigation(),
             package_parts=("synthetic",),
         )
+
+
+def test_navigation_schema_propagates_custom_root(monkeypatch, tmp_path):
+    seen = []
+
+    def load_runtime(_package_parts, *, root):
+        seen.append(root)
+        return _synthetic_runtime()
+
+    monkeypatch.setattr(
+        stage_navigation_module,
+        "load_generated_runtime_policy",
+        load_runtime,
+    )
+
+    validate_stage_navigation_policy(
+        _synthetic_navigation(),
+        package_parts=("synthetic",),
+        root=tmp_path,
+    )
+
+    assert seen == [tmp_path]
 
 
 def test_current_event_navigation_is_complete_and_crosses_partitions():
@@ -284,7 +306,12 @@ def test_generated_ui_route_uses_navigation_policy(
         def campaign_ensure_chapter(self, index):
             calls.append(("chapter", index))
 
-    campaign_package._generated_campaign_set_chapter(Runner(), module)
+    conflicting_legacy_mode = "hard" if difficulty == "normal" else "normal"
+    campaign_package._generated_campaign_set_chapter(
+        Runner(),
+        module,
+        mode=conflicting_legacy_mode,
+    )
 
     assert calls == [
         ("override", {"Campaign_Mode": difficulty}),
@@ -295,21 +322,61 @@ def test_generated_ui_route_uses_navigation_policy(
     ]
 
 
+def test_generated_ui_route_uses_legacy_mode_only_as_fallback():
+    navigation = StageNavigationPolicy(
+        module="alpha",
+        map_id=1,
+        chapter_name="序章",
+        ui_page="event",
+        entrance_names=("序章",),
+    )
+    calls = []
+
+    class Config:
+        MAP_CHAPTER_SWITCH_20260326 = False
+        MAP_CHAPTER_SWITCH_20241219 = False
+
+        def override(self, **kwargs):
+            calls.append(("override", kwargs))
+
+    class Runner:
+        _generated_event_stage_navigation = navigation
+        config = Config()
+
+        def ui_goto_event(self):
+            calls.append(("page", "event"))
+
+        def ui_goto_sp(self):
+            raise AssertionError
+
+        def ui_goto_campaign(self):
+            raise AssertionError
+
+    campaign_package._generated_campaign_set_chapter(Runner(), "alpha", mode="hard")
+
+    assert calls == [
+        ("override", {"Campaign_Mode": "hard"}),
+        ("page", "event"),
+    ]
+
+
 def test_generated_entrance_uses_policy_aliases_case_insensitively():
     navigation = generated_stage_navigation_for_module(
         "campaign.generated_event.en_51101.c1"
     )
     assert navigation is not None
-    button = SimpleNamespace(name="старое имя")
+    normal_button = SimpleNamespace(name="normal")
+    hard_button = SimpleNamespace(name="hard")
 
     class Runner:
         _generated_event_stage_navigation = navigation
-        stage_entrance = {"c1": button}
+        stage_entrance = {"a1": normal_button, "c1": hard_button}
 
     entrance = campaign_package._generated_campaign_get_entrance(Runner(), "C1")
 
-    assert entrance is button
+    assert entrance is hard_button
     assert entrance.name == "C1"
+    assert normal_button.name == "normal"
 
 
 def test_generated_adapter_binds_real_policy_and_canonical_map_name():

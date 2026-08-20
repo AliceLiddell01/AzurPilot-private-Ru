@@ -98,15 +98,21 @@ def _generated_campaign_name_increase(self, name):
 
 
 def _generated_campaign_set_chapter(self, name, mode="normal"):
-    """Перейти к generated-этапу по явному UI-маршруту navigation-policy."""
+    """Перейти к generated-этапу по явному UI-маршруту navigation-policy.
+
+    Для generated-карты её ``difficulty`` является частью проверенного маршрута
+    и имеет приоритет над legacy-аргументом ``mode``. Аргумент используется как
+    fallback только если navigation-policy не задаёт сложность явно.
+    """
 
     navigation = getattr(type(self), '_generated_event_stage_navigation', None)
     if navigation is None or not navigation.has_ui_route:
         logger.warning('[Кампания — UI] Для generated-этапа отсутствует проверенный UI-маршрут')
         raise CampaignNameError
 
-    if navigation.difficulty:
-        self.config.override(Campaign_Mode=navigation.difficulty)
+    effective_difficulty = navigation.difficulty or str(mode or "").strip()
+    if effective_difficulty:
+        self.config.override(Campaign_Mode=effective_difficulty)
 
     if navigation.ui_page == "event":
         self.ui_goto_event()

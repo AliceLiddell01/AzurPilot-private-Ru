@@ -267,9 +267,10 @@ def _validate_runtime_binding(
     stages: Mapping[str, StageNavigationPolicy],
     *,
     package_parts: tuple[str, ...],
+    root: Path | str = GENERATED_EVENT_ROOT,
 ) -> None:
     try:
-        runtime = load_generated_runtime_policy(package_parts)
+        runtime = load_generated_runtime_policy(package_parts, root=root)
     except EventRuntimePolicyError as exc:
         raise EventStageNavigationError(
             "Связанная runtime-policy generated package повреждена"
@@ -318,6 +319,7 @@ def validate_stage_navigation_policy(
     data: Any,
     *,
     package_parts: tuple[str, ...],
+    root: Path | str = GENERATED_EVENT_ROOT,
 ) -> dict[str, StageNavigationPolicy]:
     if not isinstance(data, Mapping):
         raise EventStageNavigationError("Navigation-policy должна быть JSON object")
@@ -386,6 +388,7 @@ def validate_stage_navigation_policy(
         result,
         stages,
         package_parts=package_parts,
+        root=root,
     )
 
     expected = str(result.get("digest") or "").lower()
@@ -412,7 +415,11 @@ def load_generated_stage_navigation(
         raise EventStageNavigationError(
             f"Не удалось прочитать navigation-policy {target}"
         ) from exc
-    return validate_stage_navigation_policy(data, package_parts=package_parts)
+    return validate_stage_navigation_policy(
+        data,
+        package_parts=package_parts,
+        root=root,
+    )
 
 
 def generated_stage_navigation_for_module(
