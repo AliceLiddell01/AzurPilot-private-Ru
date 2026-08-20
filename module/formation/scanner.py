@@ -212,7 +212,7 @@ class FormationFleetInfoScanner:
     ) -> FormationPresenceEvidence:
         x1, y1, x2, y2 = geometry.presence_area
         image = frame[y1:y2, x1:x2]
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
         green = (
             (hsv[:, :, 0] >= self.presence_policy.stats_green_hue_min)
             & (hsv[:, :, 0] <= self.presence_policy.stats_green_hue_max)
