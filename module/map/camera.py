@@ -437,6 +437,7 @@ class Camera(MapOperation):
             vector = np.array(location) - self.camera
             swipe = tuple(np.min([np.abs(vector), swipe_limit], axis=0) * np.sign(vector))
             has_swiped = self.map_swipe(swipe)
+
             if not has_swiped:
                 break
 
@@ -530,7 +531,7 @@ class Camera(MapOperation):
         self.map.show()
 
     def in_sight(self, location, sight=None):
-        """确保目标位置在相机视野内。
+        """确保目标位置在相机视野内.
 
         Args:
             location: 目标位置坐标。
