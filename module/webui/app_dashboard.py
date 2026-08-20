@@ -1,4 +1,4 @@
-"""WebUI仪表盘刷新逻辑"""
+"""Обновление обзорной панели WebUI."""
 
 from module.webui.app_dependencies import (
     Function,
@@ -20,17 +20,62 @@ from module.webui.app_dependencies import (
     time_delta,
     use_scope,
 )
-
-from module.webui.app_helpers import (
-    timedelta_to_text,
-)
-
-
+from module.webui.app_helpers import timedelta_to_text
 from module.webui.app_types import WebUIMixinBase
+from module.webui.event_source import load_current_event_plan
+
+_EVENT_CURRENCY_BALANCE_GROUP = "EventCurrencyBalance"
+_EVENT_PT_TOTAL_LABEL = "Всего валюты события заработано"
+_EVENT_CURRENCY_BALANCE_LABEL = "Текущий баланс валюты события"
+
+
+def _event_currency_balance_group(config):
+    """Сформировать строку Dashboard из текущего доказанного баланса EventShop."""
+
+    plan = load_current_event_plan(
+        str(getattr(config, "config_name", "") or ""),
+        server=str(getattr(config, "SERVER", "EN") or "EN").upper(),
+    )
+    progress = plan.get("progress", {}) if isinstance(plan, dict) else {}
+    value = progress.get("current_pt") if isinstance(progress, dict) else None
+    status = str(progress.get("status") or "") if isinstance(progress, dict) else ""
+    observed_at = (
+        str(progress.get("observed_at") or "") if isinstance(progress, dict) else ""
+    )
+
+    if status != "observed" or not isinstance(value, int) or value < 0:
+        return {"Value": None, "Record": None, "Color": "^00BFFF"}
+
+    try:
+        record = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        record = None
+    return {"Value": value, "Record": record, "Color": "^00BFFF"}
+
+
+def _dashboard_group_label(group_name):
+    """Вернуть подпись строки без смешения накопительного PT и текущего баланса."""
+
+    if group_name == "Pt":
+        return _EVENT_PT_TOTAL_LABEL
+    if group_name == _EVENT_CURRENCY_BALANCE_GROUP:
+        return _EVENT_CURRENCY_BALANCE_LABEL
+    return t(f"Gui.Dashboard.{group_name}")
+
+
+def _dashboard_groups_with_event_balance(groups):
+    """Вставить текущий баланс сразу после накопительного PT."""
+
+    result = []
+    for group_name in groups:
+        result.append(group_name)
+        if group_name == "Pt":
+            result.append(_EVENT_CURRENCY_BALANCE_GROUP)
+    return result
 
 
 class DashboardMixin(WebUIMixinBase):
-    """WebUI仪表盘刷新逻辑"""
+    """Обновлять задачи и ресурсы на обзорной панели WebUI."""
 
     def alas_update_overview_task(self) -> None:
         if not self.visible:
@@ -105,9 +150,13 @@ class DashboardMixin(WebUIMixinBase):
             if groups_to_display is None
             else groups_to_display
         )
+        _arg_group = _dashboard_groups_with_event_balance(_arg_group)
         time_now = current_time().replace(microsecond=0)
         for group_name in _arg_group:
-            group = LogRes(self.alas_config).group(group_name)
+            if group_name == _EVENT_CURRENCY_BALANCE_GROUP:
+                group = _event_currency_balance_group(self.alas_config)
+            else:
+                group = LogRes(self.alas_config).group(group_name)
             if group is None:
                 continue
 
@@ -138,7 +187,16 @@ class DashboardMixin(WebUIMixinBase):
             if value_time is None or value_time == datetime(2020, 1, 1, 0, 0, 0):
                 value_time = datetime(2023, 1, 1, 0, 0, 0)
 
-            # Handle time delta
+            # Нормализуем временную зону синтетического наблюдения к часам Dashboard.
+            if value_time != datetime(2023, 1, 1, 0, 0, 0):
+                if value_time.tzinfo is not None and time_now.tzinfo is None:
+                    value_time = value_time.astimezone().replace(tzinfo=None)
+                elif value_time.tzinfo is None and time_now.tzinfo is not None:
+                    value_time = value_time.replace(tzinfo=time_now.tzinfo)
+                elif value_time.tzinfo is not None and time_now.tzinfo is not None:
+                    value_time = value_time.astimezone(time_now.tzinfo)
+
+            # Формируем давность данных; неизвестное значение явно показываем как отсутствие данных.
             if value_time == datetime(2023, 1, 1, 0, 0, 0):
                 value = t("Gui.Dashboard.NoData")
                 delta = timedelta_to_text()
@@ -154,24 +212,17 @@ class DashboardMixin(WebUIMixinBase):
                 continue
             self._log.last_display_time[group_name] = delta
 
-            # if self._log.first_display:
-            # Handle width
-            # value_width = len(value) * 0.7 + 0.6 if value != t("Gui.Dashboard.NoData") else 4.5
-            # value_width = str(value_width/1.12) + 'rem' if self.is_mobile else str(value_width) + 'rem'
             value_limit = "" if value == t("Gui.Dashboard.NoData") else value_limit
-            # limit_width = len(value_limit) * 0.7
-            # limit_width = str(limit_width) + 'rem'
             value_total = "" if value == t("Gui.Dashboard.NoData") else value_total
             limit_style = (
                 "--dashboard-limit--" if value_limit else "--dashboard-total--"
             )
             value_limit = value_limit if value_limit else value_total
-            # Handle dot color
-            # 旧配置可能缺少颜色字段，仍渲染条目而不是中断整个仪表盘刷新。
+
+            # Старые профили могут не содержать цвет; это не должно прерывать Dashboard.
             color_value = deep_get(group, "Color") or ""
             _color = f"background-color:{color_value.replace('^', '#')}"
             color = f'<div class="status-point" style={_color}>'
-            # 使用集中管理的辅助函数生成 scope_id，确保命名一致性和安全性
             scope_id = get_dashboard_scope_id(group_name)
             with use_scope(scope_id, clear=True):
                 put_row(
@@ -185,7 +236,7 @@ class DashboardMixin(WebUIMixinBase):
                                         put_row(
                                             [
                                                 put_text(value).style(
-                                                    f"--dashboard-value--"
+                                                    "--dashboard-value--"
                                                 ),
                                                 put_text(value_limit).style(
                                                     limit_style
@@ -195,7 +246,7 @@ class DashboardMixin(WebUIMixinBase):
                                             "grid-template-columns:min-content auto;align-items: baseline;"
                                         ),
                                         put_text(
-                                            t(f"Gui.Dashboard.{group_name}")
+                                            _dashboard_group_label(group_name)
                                             + " - "
                                             + delta
                                         ).style("---dashboard-help--"),
@@ -219,7 +270,7 @@ class DashboardMixin(WebUIMixinBase):
         with use_scope("dashboard", clear=_clear):
             if not self._log.display_dashboard:
                 self._update_dashboard(
-                    num=4, groups_to_display=["Oil", "Coin", "Gem", "Pt"]
+                    num=5, groups_to_display=["Oil", "Coin", "Gem", "Pt"]
                 )
             elif self._log.display_dashboard:
                 self._update_dashboard()
