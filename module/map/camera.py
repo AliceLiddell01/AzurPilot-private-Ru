@@ -378,21 +378,55 @@ class Camera(MapOperation):
         logger.attr_align('Камера', location2node(self.camera))
 
     def ensure_edge_insight(self, reverse=False, preset=None, swipe_limit=(3, 2), skip_first_update=True):
-        """滑动到左下角直到两条边缘可见。
-        边缘用于定位相机。
+        """Сдвигать камеру к границам карты, пока две из них не станут видимыми.
 
         Args:
-            reverse (bool): 是否反向滑动。
-            preset (tuple(int)): 手动设置的地图滑动预设。
-            swipe_limit (tuple): (x, y)。滑动限制在 (-x, -y, x, y) 范围内。
-            skip_first_update (bool): 通常为 True。手动调用 ensure_edge_insight 时使用 False。
+            reverse (bool): Вернуть камеру обратными сдвигами после определения границ.
+            preset (tuple[int, int] | None): Предварительный сдвиг карты.
+            swipe_limit (tuple[int, int]): Максимальный сдвиг по осям X и Y.
+            skip_first_update (bool): Пропустить первое обновление изображения.
 
         Returns:
-            list[tuple]: 滑动记录。
+            list[tuple]: История рассчитанных сдвигов.
         """
         logger.info(f'[Карта — камера] Проверка видимости края карты')
         record = []
-        x_swipe, y_swipe = np.multiply(swipe_limit, random_direction(self.config.MAP_ENSURE_EDGE_INSIGHT_CORNER))
+        corner = str(self.config.MAP_ENSURE_EDGE_INSIGHT_CORNER or '').lower()
+        swipe = list(np.multiply(swipe_limit, random_direction(corner)))
+        fixed_axis = [
+            'left' in corner or 'right' in corner,
+            'upper' in corner or 'bottom' in corner,
+        ]
+        attempts = [0, 0]
+        reversed_random_axis = [False, False]
+
+        def prepare_axis_swipe(value, axis):
+            value = int(value)
+            if value == 0:
+                return 0
+
+            step = abs(value)
+            axis_length = int(self.map.shape[axis]) + 1
+            attempt_limit = max(1, (axis_length + step - 1) // step)
+            if attempts[axis] < attempt_limit:
+                attempts[axis] += 1
+                return value
+
+            axis_name = 'X' if axis == 0 else 'Y'
+            if fixed_axis[axis] or reversed_random_axis[axis]:
+                raise MapDetectionError(
+                    f'Не удалось определить край карты по оси {axis_name}: '
+                    f'граница не распознана после {attempt_limit} сдвигов'
+                )
+
+            swipe[axis] = -value
+            reversed_random_axis[axis] = True
+            attempts[axis] = 1
+            logger.warning(
+                f'[Карта — камера] Край по оси {axis_name} не распознан после прохода карты; '
+                'один раз меняю случайное направление'
+            )
+            return swipe[axis]
 
         while 1:
             if len(record) == 0:
@@ -402,11 +436,14 @@ class Camera(MapOperation):
                     self.map_swipe(preset)
                     record.append(preset)
 
-            x = 0 if self.view.left_edge or self.view.right_edge else x_swipe
-            y = 0 if self.view.lower_edge or self.view.upper_edge else y_swipe
+            x = 0 if self.view.left_edge or self.view.right_edge else swipe[0]
+            y = 0 if self.view.lower_edge or self.view.upper_edge else swipe[1]
 
             if len(record) > 0:
-                # 即使两条边缘可见也要滑动，以避免一些尴尬的相机位置。
+                x = prepare_axis_swipe(x, 0)
+                y = prepare_axis_swipe(y, 1)
+                # Сдвигаем ещё раз даже при уже видимых двух границах, чтобы не
+                # оставлять камеру в нестабильном промежуточном положении.
                 self.map_swipe((x, y))
 
             record.append((x, y))

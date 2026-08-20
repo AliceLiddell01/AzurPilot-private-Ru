@@ -2,7 +2,7 @@
   "campaign_ui": {
     "layout": "20241219"
   },
-  "digest": "9f1b505c710b07ae6a4fb9193f4692eb7245e7efd32d76abd2ee789c5e2b8484",
+  "digest": "6947180953a49b70b1a3de77cd36b0ad7772e98b955c72a490705913b4da9af8",
   "event_id": "en:51101",
   "evidence": {
     "archive_sha256": "556723dc24418191b38ae9568070e4b515fc03e6962c190a69cd5cc91e1e29ce",
@@ -790,6 +790,24 @@
         "walk_use_current_fleet": true
       },
       "map_id": 2050025,
+      "prediction_ignores": [
+        {
+          "evidence_sha256": "4c125df163063f29d6c36d153bf7f94ce32dc2275ee4dcf0b00908aed9b0ac17",
+          "match": {
+            "enemy_genre": "Enemy",
+            "enemy_scale": 1
+          },
+          "node": "D5"
+        },
+        {
+          "evidence_sha256": "4c125df163063f29d6c36d153bf7f94ce32dc2275ee4dcf0b00908aed9b0ac17",
+          "match": {
+            "enemy_genre": "Enemy",
+            "enemy_scale": 1
+          },
+          "node": "F7"
+        }
+      ],
       "siren_recognition": {
         "boss_icon_small": false,
         "templates": [
@@ -958,5 +976,5 @@
       }
     }
   ],
-  "runtime_policy_schema_version": 4
+  "runtime_policy_schema_version": 5
 }

@@ -1,0 +1,201 @@
+{
+  "digest": "2d5d8881204c6e192ad8c7d857c411d1b661b8c95f6b746508079472d7d18ac7",
+  "event_id": "en:51101",
+  "generated_package": "en_51101",
+  "runtime_policy_digest": "6947180953a49b70b1a3de77cd36b0ad7772e98b955c72a490705913b4da9af8",
+  "stage_navigation_schema_version": 1,
+  "stages": [
+    {
+      "auto_next": "a2",
+      "chapter_name": "A1",
+      "difficulty": "normal",
+      "entrance_names": [
+        "A1",
+        "C1"
+      ],
+      "map_id": 2050001,
+      "module": "a1",
+      "ui_aside": "part1",
+      "ui_chapter_index": 1,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "a3",
+      "chapter_name": "A2",
+      "difficulty": "normal",
+      "entrance_names": [
+        "A2",
+        "C2"
+      ],
+      "map_id": 2050002,
+      "module": "a2",
+      "ui_aside": "part1",
+      "ui_chapter_index": 1,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "b1",
+      "chapter_name": "A3",
+      "difficulty": "normal",
+      "entrance_names": [
+        "A3",
+        "C3"
+      ],
+      "map_id": 2050003,
+      "module": "a3",
+      "ui_aside": "part1",
+      "ui_chapter_index": 1,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "b2",
+      "chapter_name": "B1",
+      "difficulty": "normal",
+      "entrance_names": [
+        "B1",
+        "D1"
+      ],
+      "map_id": 2050004,
+      "module": "b1",
+      "ui_aside": "part2",
+      "ui_chapter_index": 2,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "b3",
+      "chapter_name": "B2",
+      "difficulty": "normal",
+      "entrance_names": [
+        "B2",
+        "D2"
+      ],
+      "map_id": 2050005,
+      "module": "b2",
+      "ui_aside": "part2",
+      "ui_chapter_index": 2,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "c1",
+      "chapter_name": "B3",
+      "difficulty": "normal",
+      "entrance_names": [
+        "B3",
+        "D3"
+      ],
+      "map_id": 2050006,
+      "module": "b3",
+      "ui_aside": "part2",
+      "ui_chapter_index": 2,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "c2",
+      "chapter_name": "C1",
+      "difficulty": "hard",
+      "entrance_names": [
+        "C1",
+        "A1"
+      ],
+      "map_id": 2050021,
+      "module": "c1",
+      "ui_aside": "part1",
+      "ui_chapter_index": 1,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "c3",
+      "chapter_name": "C2",
+      "difficulty": "hard",
+      "entrance_names": [
+        "C2",
+        "A2"
+      ],
+      "map_id": 2050022,
+      "module": "c2",
+      "ui_aside": "part1",
+      "ui_chapter_index": 1,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "d1",
+      "chapter_name": "C3",
+      "difficulty": "hard",
+      "entrance_names": [
+        "C3",
+        "A3"
+      ],
+      "map_id": 2050023,
+      "module": "c3",
+      "ui_aside": "part1",
+      "ui_chapter_index": 1,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "d2",
+      "chapter_name": "D1",
+      "difficulty": "hard",
+      "entrance_names": [
+        "D1",
+        "B1"
+      ],
+      "map_id": 2050024,
+      "module": "d1",
+      "ui_aside": "part2",
+      "ui_chapter_index": 2,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "auto_next": "d3",
+      "chapter_name": "D2",
+      "difficulty": "hard",
+      "entrance_names": [
+        "D2",
+        "B2"
+      ],
+      "map_id": 2050025,
+      "module": "d2",
+      "ui_aside": "part2",
+      "ui_chapter_index": 2,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "chapter_name": "D3",
+      "difficulty": "hard",
+      "entrance_names": [
+        "D3",
+        "B3"
+      ],
+      "map_id": 2050026,
+      "module": "d3",
+      "ui_aside": "part2",
+      "ui_chapter_index": 2,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    },
+    {
+      "chapter_name": "SP",
+      "difficulty": "normal",
+      "entrance_names": [
+        "SP"
+      ],
+      "map_id": 2050041,
+      "module": "sp",
+      "ui_aside": "sp",
+      "ui_chapter_index": 1,
+      "ui_mode": "combat",
+      "ui_page": "event"
+    }
+  ]
+}
