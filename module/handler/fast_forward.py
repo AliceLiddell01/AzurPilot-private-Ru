@@ -8,7 +8,6 @@ from module.base.timer import Timer
 from module.base.utils import color_bar_percentage
 from module.event_datamine.campaign_selector import (
     EventCampaignSelectorError,
-    generated_next_stage,
     generated_stage_target,
     resolve_generated_campaign_modules,
 )
@@ -443,15 +442,11 @@ class FastForwardHandler(AutoSearchHandler):
             percent *= 1.4
         return percent
 
-    def _generated_stage_catalog(self, *, auto_advance_only=False):
-        """Разрешить generated-каталог этапов с fail-closed обработкой ошибок."""
-
+    def _campaign_stage_exists(self, stage):
+        """Проверить наличие следующего этапа в каноническом источнике карт."""
         selector = self.config.Campaign_Event
         try:
-            return resolve_generated_campaign_modules(
-                selector,
-                auto_advance_only=auto_advance_only,
-            )
+            generated = resolve_generated_campaign_modules(selector)
         except EventCampaignSelectorError as error:
             logger.error_context(
                 title='Не удалось безопасно разрешить следующий этап generated-события',
@@ -468,11 +463,6 @@ class FastForwardHandler(AutoSearchHandler):
             )
             raise RequestHumanTakeover from error
 
-    def _campaign_stage_exists(self, stage):
-        """Проверить наличие следующего этапа в каноническом источнике карт."""
-
-        selector = self.config.Campaign_Event
-        generated = self._generated_stage_catalog()
         if generated is not None:
             return generated_stage_target(generated, stage) is not None
 
@@ -480,36 +470,8 @@ class FastForwardHandler(AutoSearchHandler):
         logger.info(f'Существующие файлы: {existing}')
         return str(stage).lower() in existing
 
-    def _campaign_name_increase_from_sequences(self, name, sequences):
-        """Применить явные пользовательские или legacy-последовательности."""
-
-        for increase in sequences:
-            increase = [i.strip(' \t\r\n') for i in increase.split('>')]
-            if name not in increase:
-                continue
-            index = increase.index(name) + 1
-            if index >= len(increase):
-                logger.info('Достигнут конец последовательности этапов')
-                return name
-
-            new = increase[index]
-            if self.config.Campaign_Event == 'campaign_main':
-                return new
-            if self._campaign_stage_exists(new):
-                return new
-            logger.info(
-                f'Достигнут конец последовательности этапов: '
-                f'новая карта {new} не существует'
-            )
-            return name
-        return None
-
     def campaign_name_increase(self, name):
         """Продвинуть имя кампании к следующему доступному этапу.
-
-        Для generated-события порядок берётся из проверенного artifact. Явная
-        пользовательская последовательность имеет приоритет. Статические
-        последовательности используются только для основной кампании и legacy.
 
         Аргументы:
             name (str): имя этапа, например ``6-1``, ``a1`` или ``campaign_6_1``.
@@ -518,51 +480,41 @@ class FastForwardHandler(AutoSearchHandler):
             str: имя следующего этапа в верхнем регистре либо исходное имя,
             если продвижение невозможно.
         """
-
-        name = to_map_input_name(name)
-        custom = self.config.STAGE_INCREASE_CUSTOM
-        if custom:
-            if isinstance(custom, str):
-                custom = [custom]
-            custom_result = self._campaign_name_increase_from_sequences(
-                name,
-                custom,
-            )
-            if custom_result is not None:
-                return custom_result
-
-        if self.config.Campaign_Event != 'campaign_main':
-            generated = self._generated_stage_catalog()
-            if generated is not None:
-                auto_advance = self._generated_stage_catalog(
-                    auto_advance_only=True,
-                )
-                next_stage = generated_next_stage(
-                    generated,
-                    name,
-                    auto_advance_modules=auto_advance or {},
-                )
-                if next_stage is None:
-                    logger.info(
-                        'Достигнута граница порядка автопродвижения generated-этапов'
-                    )
-                    return name
-                new = to_map_input_name(next_stage)
-                logger.info(
-                    f'Следующий generated-этап по порядку artifact: {name} -> {new}'
-                )
-                return new
-
+        # Копируем последовательности, чтобы не менять общий список класса.
         stage_increase = [r for r in self.STAGE_INCREASE]
+        # Для событий с непрерывными главами A/B добавляем общую последовательность.
         if self.config.STAGE_INCREASE_AB:
             stage_increase = [
                 'A1 > A2 > A3 > B1 > B2 > B3',
             ] + stage_increase
-        legacy_result = self._campaign_name_increase_from_sequences(
-            name,
-            stage_increase,
-        )
-        return name if legacy_result is None else legacy_result
+        custom = self.config.STAGE_INCREASE_CUSTOM
+        if custom:
+            if isinstance(custom, str):
+                custom = [custom]
+            stage_increase = custom + stage_increase
+
+        name = to_map_input_name(name)
+        for increase in stage_increase:
+            increase = [i.strip(' \t\r\n') for i in increase.split('>')]
+            if name in increase:
+                index = increase.index(name) + 1
+                if index < len(increase):
+                    new = increase[index]
+                    # Для основной кампании все этапы считаются доступными.
+                    if self.config.Campaign_Event == 'campaign_main':
+                        return new
+                    if self._campaign_stage_exists(new):
+                        return new
+                    logger.info(
+                        f'Достигнут конец последовательности этапов: '
+                        f'новая карта {new} не существует'
+                    )
+                    return name
+                else:
+                    logger.info('Достигнут конец последовательности этапов')
+                    return name
+
+        return name
 
     def triggered_map_stop(self):
         """
