@@ -136,3 +136,33 @@ def test_scan_failure_still_reports_profile_config_mutation(monkeypatch) -> None
         "изменила постоянный config профиля" in note
         for note in error_info.value.__notes__
     )
+
+
+def test_profile_load_failure_still_reports_profile_config_mutation(monkeypatch) -> None:
+    hashes = iter(("before", "after"))
+    args = argparse.Namespace(
+        profile="test",
+        fleet=6,
+        serial="fixture",
+        serial_from_config=False,
+        expected_head=None,
+        non_interactive=True,
+        confirmed_match="MATCH",
+    )
+
+    monkeypatch.setattr(formation_acceptance, "_validate_profile_name", lambda profile: None)
+    monkeypatch.setattr(formation_acceptance, "_git_head_sha", lambda: "1" * 40)
+    monkeypatch.setattr(formation_acceptance, "_sha256", lambda path: next(hashes))
+
+    def fail_profile_load(profile):
+        raise AcceptanceFailure("ошибка загрузки профиля")
+
+    monkeypatch.setattr(formation_acceptance, "_load_profile", fail_profile_load)
+
+    with pytest.raises(AcceptanceFailure, match="ошибка загрузки профиля") as error_info:
+        formation_acceptance.run_acceptance(args)
+
+    assert any(
+        "изменила постоянный config профиля" in note
+        for note in error_info.value.__notes__
+    )
