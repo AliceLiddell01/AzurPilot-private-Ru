@@ -19,210 +19,961 @@
     {
       "battle_plan": {
         "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
-        "siren_filter_steps": [{"battle": 0, "preserve": 0}]
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
       },
-      "boss_clear": {"strategy": "campaign"},
-      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["D2"]},
+      "boss_clear": {
+        "strategy": "campaign"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D2",
+          "D5",
+          "F2",
+          "F5"
+        ],
+        "spawn_points": [
+          "D2"
+        ]
+      },
       "chapter_name": "A1",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.207, 1.229], "maatouch": [1.133, 1.153], "minitouch": [1.167, 1.189]}
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.207,
+            1.229
+          ],
+          "maatouch": [
+            1.133,
+            1.153
+          ],
+          "minitouch": [
+            1.167,
+            1.189
+          ]
+        }
       },
       "map_id": 2050001,
-      "siren_recognition": {"boss_icon_small": true, "templates": []},
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
       "source_path": "campaign/event_20260813_cn/a1.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "campaign"},
-      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["F5"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "campaign"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D2",
+          "D5",
+          "F2",
+          "F5"
+        ],
+        "spawn_points": [
+          "F5"
+        ]
+      },
       "chapter_name": "A2",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.207, 1.229], "maatouch": [1.133, 1.153], "minitouch": [1.167, 1.189]}
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.207,
+            1.229
+          ],
+          "maatouch": [
+            1.133,
+            1.153
+          ],
+          "minitouch": [
+            1.167,
+            1.189
+          ]
+        }
       },
       "map_id": 2050002,
-      "siren_recognition": {"boss_icon_small": true, "templates": []},
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
       "source_path": "campaign/event_20260813_cn/a2.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "campaign"},
-      "camera_calibration": {"camera_data": ["D2", "D4", "D7"], "spawn_points": ["D7"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "campaign"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D2",
+          "D4",
+          "D7"
+        ],
+        "spawn_points": [
+          "D7"
+        ]
+      },
       "chapter_name": "A3",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.007, 1.026], "maatouch": [0.946, 0.963], "minitouch": [0.974, 0.992]}
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.007,
+            1.026
+          ],
+          "maatouch": [
+            0.946,
+            0.963
+          ],
+          "minitouch": [
+            0.974,
+            0.992
+          ]
+        }
       },
       "map_id": 2050003,
-      "siren_recognition": {"boss_icon_small": true, "templates": []},
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
       "source_path": "campaign/event_20260813_cn/a3.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "campaign"},
-      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["F2", "D2"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "campaign"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D2",
+          "D5",
+          "F2",
+          "F5"
+        ],
+        "spawn_points": [
+          "F2",
+          "D2"
+        ]
+      },
       "chapter_name": "B1",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.136, 1.158], "maatouch": [1.067, 1.086], "minitouch": [1.099, 1.119]},
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.136,
+            1.158
+          ],
+          "maatouch": [
+            1.067,
+            1.086
+          ],
+          "minitouch": [
+            1.099,
+            1.119
+          ]
+        },
         "walk_use_current_fleet": true
       },
       "map_id": 2050004,
-      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_BB", "BonhommeRichard_CV"]},
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
       "source_path": "campaign/event_20260813_cn/b1.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "boss_fleet"},
-      "camera_calibration": {"camera_data": ["D3", "D6", "G2", "G5"], "spawn_points": ["D3"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D3",
+          "D6",
+          "G2",
+          "G5"
+        ],
+        "spawn_points": [
+          "D3"
+        ]
+      },
       "chapter_name": "B2",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.136, 1.158], "maatouch": [1.067, 1.086], "minitouch": [1.099, 1.119]},
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.136,
+            1.158
+          ],
+          "maatouch": [
+            1.067,
+            1.086
+          ],
+          "minitouch": [
+            1.099,
+            1.119
+          ]
+        },
         "walk_use_current_fleet": true
       },
       "map_id": 2050005,
-      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_BB", "BonhommeRichard_CV"]},
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
       "source_path": "campaign/event_20260813_cn/b2.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "boss_fleet"},
-      "camera_calibration": {"camera_data": ["D4", "D6", "F4", "F6"], "spawn_points": ["D4"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D4",
+          "D6",
+          "F4",
+          "F6"
+        ],
+        "spawn_points": [
+          "D4"
+        ]
+      },
       "chapter_name": "B3",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.136, 1.158], "maatouch": [1.067, 1.086], "minitouch": [1.099, 1.119]},
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.136,
+            1.158
+          ],
+          "maatouch": [
+            1.067,
+            1.086
+          ],
+          "minitouch": [
+            1.099,
+            1.119
+          ]
+        },
         "walk_use_current_fleet": true
       },
       "map_id": 2050006,
-      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_BB", "BonhommeRichard_CV"]},
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
       "source_path": "campaign/event_20260813_cn/b3.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "campaign"},
-      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["D2"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "campaign"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D2",
+          "D5",
+          "F2",
+          "F5"
+        ],
+        "spawn_points": [
+          "D2"
+        ]
+      },
       "chapter_name": "C1",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.207, 1.229], "maatouch": [1.133, 1.153], "minitouch": [1.167, 1.189]}
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.207,
+            1.229
+          ],
+          "maatouch": [
+            1.133,
+            1.153
+          ],
+          "minitouch": [
+            1.167,
+            1.189
+          ]
+        }
       },
       "map_id": 2050021,
-      "siren_recognition": {"boss_icon_small": true, "templates": []},
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
       "source_path": "campaign/event_20260813_cn/c1.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "campaign"},
-      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["F5"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "campaign"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D2",
+          "D5",
+          "F2",
+          "F5"
+        ],
+        "spawn_points": [
+          "F5"
+        ]
+      },
       "chapter_name": "C2",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.207, 1.229], "maatouch": [1.133, 1.153], "minitouch": [1.167, 1.189]}
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.207,
+            1.229
+          ],
+          "maatouch": [
+            1.133,
+            1.153
+          ],
+          "minitouch": [
+            1.167,
+            1.189
+          ]
+        }
       },
       "map_id": 2050022,
-      "siren_recognition": {"boss_icon_small": true, "templates": []},
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
       "source_path": "campaign/event_20260813_cn/c2.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "boss_fleet"},
-      "camera_calibration": {"camera_data": ["D2", "D4", "D7"], "spawn_points": ["D7"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D2",
+          "D4",
+          "D7"
+        ],
+        "spawn_points": [
+          "D7"
+        ]
+      },
       "chapter_name": "C3",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.007, 1.026], "maatouch": [0.946, 0.963], "minitouch": [0.974, 0.992]}
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.007,
+            1.026
+          ],
+          "maatouch": [
+            0.946,
+            0.963
+          ],
+          "minitouch": [
+            0.974,
+            0.992
+          ]
+        }
       },
       "map_id": 2050023,
-      "siren_recognition": {"boss_icon_small": true, "templates": []},
+      "siren_recognition": {
+        "boss_icon_small": true,
+        "templates": []
+      },
       "source_path": "campaign/event_20260813_cn/c3.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 0}]},
-      "boss_clear": {"strategy": "boss_fleet"},
-      "camera_calibration": {"camera_data": ["D2", "D5", "F2", "F5"], "spawn_points": ["F2", "D2"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D2",
+          "D5",
+          "F2",
+          "F5"
+        ],
+        "spawn_points": [
+          "F2",
+          "D2"
+        ]
+      },
       "chapter_name": "D1",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.136, 1.158], "maatouch": [1.067, 1.086], "minitouch": [1.099, 1.119]},
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.136,
+            1.158
+          ],
+          "maatouch": [
+            1.067,
+            1.086
+          ],
+          "minitouch": [
+            1.099,
+            1.119
+          ]
+        },
         "walk_use_current_fleet": true
       },
       "map_id": 2050024,
-      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_BB", "BonhommeRichard_CV"]},
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
       "source_path": "campaign/event_20260813_cn/d1.py"
     },
     {
       "battle_plan": {
         "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
-        "siren_filter_steps": [{"battle": 0, "preserve": 1}, {"battle": 5, "preserve": 0}]
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 1
+          },
+          {
+            "battle": 5,
+            "preserve": 0
+          }
+        ]
       },
-      "boss_clear": {"strategy": "boss_fleet"},
-      "camera_calibration": {"camera_data": ["D3", "D6", "G2", "G5"], "spawn_points": ["D3"]},
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D3",
+          "D6",
+          "G2",
+          "G5"
+        ],
+        "spawn_points": [
+          "D3"
+        ]
+      },
       "chapter_name": "D2",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.136, 1.158], "maatouch": [1.067, 1.086], "minitouch": [1.099, 1.119]},
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.136,
+            1.158
+          ],
+          "maatouch": [
+            1.067,
+            1.086
+          ],
+          "minitouch": [
+            1.099,
+            1.119
+          ]
+        },
         "walk_use_current_fleet": true
       },
       "map_id": 2050025,
       "prediction_ignores": [
         {
           "evidence_sha256": "4c125df163063f29d6c36d153bf7f94ce32dc2275ee4dcf0b00908aed9b0ac17",
-          "match": {"enemy_genre": "Enemy", "enemy_scale": 1},
+          "match": {
+            "enemy_genre": "Enemy",
+            "enemy_scale": 1
+          },
           "node": "D5"
         },
         {
           "evidence_sha256": "4c125df163063f29d6c36d153bf7f94ce32dc2275ee4dcf0b00908aed9b0ac17",
-          "match": {"enemy_genre": "Enemy", "enemy_scale": 1},
+          "match": {
+            "enemy_genre": "Enemy",
+            "enemy_scale": 1
+          },
           "node": "F7"
         }
       ],
-      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_BB", "BonhommeRichard_CV"]},
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
       "source_path": "campaign/event_20260813_cn/d2.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 1}, {"battle": 5, "preserve": 0}]},
-      "boss_clear": {"strategy": "boss_fleet"},
-      "camera_calibration": {"camera_data": ["D4", "D6", "F4", "F6"], "spawn_points": ["D4"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 1
+          },
+          {
+            "battle": 5,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D4",
+          "D6",
+          "F4",
+          "F6"
+        ],
+        "spawn_points": [
+          "D4"
+        ]
+      },
       "chapter_name": "D3",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.136, 1.158], "maatouch": [1.067, 1.086], "minitouch": [1.099, 1.119]},
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.136,
+            1.158
+          ],
+          "maatouch": [
+            1.067,
+            1.086
+          ],
+          "minitouch": [
+            1.099,
+            1.119
+          ]
+        },
         "walk_use_current_fleet": true
       },
       "map_id": 2050026,
-      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_BB", "BonhommeRichard_CV"]},
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_BB",
+          "BonhommeRichard_CV"
+        ]
+      },
       "source_path": "campaign/event_20260813_cn/d3.py"
     },
     {
-      "battle_plan": {"enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C", "siren_filter_steps": [{"battle": 0, "preserve": 2}, {"battle": 5, "preserve": 0}]},
-      "boss_clear": {"strategy": "boss_fleet"},
-      "camera_calibration": {"camera_data": ["D4", "D6", "F4", "F6"], "spawn_points": ["D4", "F4"]},
+      "battle_plan": {
+        "enemy_filter": "1L > 1M > 1E > 1C > 2L > 2M > 2E > 2C > 3L > 3M > 3E > 3C",
+        "siren_filter_steps": [
+          {
+            "battle": 0,
+            "preserve": 2
+          },
+          {
+            "battle": 5,
+            "preserve": 0
+          }
+        ]
+      },
+      "boss_clear": {
+        "strategy": "boss_fleet"
+      },
+      "camera_calibration": {
+        "camera_data": [
+          "D4",
+          "D6",
+          "F4",
+          "F6"
+        ],
+        "spawn_points": [
+          "D4",
+          "F4"
+        ]
+      },
       "chapter_name": "SP",
       "detector_calibration": {
-        "edge_lines": {"distance": 50, "height": [238, 255], "prominence": 10, "wlen": 1000},
+        "edge_lines": {
+          "distance": 50,
+          "height": [
+            238,
+            255
+          ],
+          "prominence": 10,
+          "wlen": 1000
+        },
         "ensure_edge_insight_corner": "bottom",
-        "internal_lines": {"distance": 35, "height": [80, 238], "prominence": 10, "width": [0.9, 10]},
-        "swipe": {"adb": [1.149, 1.17], "maatouch": [1.079, 1.098], "minitouch": [1.111, 1.132]}
+        "internal_lines": {
+          "distance": 35,
+          "height": [
+            80,
+            238
+          ],
+          "prominence": 10,
+          "width": [
+            0.9,
+            10
+          ]
+        },
+        "swipe": {
+          "adb": [
+            1.149,
+            1.17
+          ],
+          "maatouch": [
+            1.079,
+            1.098
+          ],
+          "minitouch": [
+            1.111,
+            1.132
+          ]
+        }
       },
       "map_id": 2050041,
-      "siren_recognition": {"boss_icon_small": false, "templates": ["BonhommeRichard_SS"]},
+      "siren_recognition": {
+        "boss_icon_small": false,
+        "templates": [
+          "BonhommeRichard_SS"
+        ]
+      },
       "source_path": "campaign/event_20260813_cn/sp.py",
-      "stage_entry": {"has_mode_switch": false, "one_time": true}
+      "stage_entry": {
+        "has_mode_switch": false,
+        "one_time": true
+      }
     }
   ],
   "runtime_policy_schema_version": 5
