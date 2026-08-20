@@ -284,16 +284,22 @@ def _stage_target(
 def generated_next_stage(
     modules: Mapping[str, str],
     stage: str,
+    *,
+    auto_advance_modules: Mapping[str, str] | None = None,
 ) -> str | None:
-    """Вернуть следующий этап из порядка verified generated-каталога.
+    """Вернуть непосредственный следующий generated-этап, если переход разрешён.
 
-    Порядок задаётся artifact, а не буквенными группами в backend. При
-    использовании старого совместимого имени сохраняется та же система имён.
+    Порядок задаётся полным verified-каталогом artifact. Отдельный каталог
+    ``auto_advance_modules`` определяет допустимые обычные этапы и не меняет
+    порядок: специальная карта между двумя обычными является границей, а не
+    элементом, который можно молча пропустить. При старом совместимом имени
+    сохраняется та же система имён.
     """
 
     requested = str(stage or "").strip().lower()
     if not requested:
         return None
+    eligible = modules if auto_advance_modules is None else auto_advance_modules
     candidates = (
         (requested, "direct"),
         (_STAGE_COMPATIBILITY.get(requested), "compat_forward"),
@@ -303,10 +309,14 @@ def generated_next_stage(
     for candidate, mode in candidates:
         if candidate is None or candidate not in modules:
             continue
+        if candidate not in eligible:
+            return None
         index = ordered.index(candidate) + 1
         if index >= len(ordered):
             return None
         next_stage = ordered[index]
+        if next_stage not in eligible:
+            return None
         if mode == "compat_forward":
             return _STAGE_COMPATIBILITY_REVERSE.get(next_stage, next_stage)
         if mode == "compat_reverse":
