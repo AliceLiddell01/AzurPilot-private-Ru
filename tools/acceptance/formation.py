@@ -189,24 +189,24 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     if config_before is None:
         raise AcceptanceFailure(f"Файл профиля не найден: {config_path}")
 
-    profile = _load_profile(args.profile)
-    serial = _resolve_serial(args, profile)
-
-    print("Приёмка Formation Fleet Scanner")
-    print(f"Точный head: {head}")
-    print(f"Профиль: {args.profile}")
-    print(f"Флот: {args.fleet}")
-    print("Действия: открыть Formation, выбрать флот, открыть Info и прочитать шесть слотов.")
-    print("Состав флота не изменяется.")
-    if not args.non_interactive:
-        if input("Введите START для начала: ").strip() != "START":
-            raise AcceptanceFailure("Приёмка отменена: не получено точное START.")
-
     runner: FormationFleetController | None = None
     primary: Exception | None = None
     snapshot: FormationFleetSnapshot | None = None
     confirmation: str | None = None
     try:
+        profile = _load_profile(args.profile)
+        serial = _resolve_serial(args, profile)
+
+        print("Приёмка Formation Fleet Scanner")
+        print(f"Точный head: {head}")
+        print(f"Профиль: {args.profile}")
+        print(f"Флот: {args.fleet}")
+        print("Действия: открыть Formation, выбрать флот, открыть Info и прочитать шесть слотов.")
+        print("Состав флота не изменяется.")
+        if not args.non_interactive:
+            if input("Введите START для начала: ").strip() != "START":
+                raise AcceptanceFailure("Приёмка отменена: не получено точное START.")
+
         runner = FormationFleetController(args.profile, device=serial)
         if runner.config.SERVER != "en":
             raise AcceptanceFailure("Приёмка Formation поддерживает только EN/Global.")
