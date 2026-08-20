@@ -116,7 +116,10 @@ def _confirm_snapshot(snapshot: FormationFleetSnapshot, args: argparse.Namespace
     return "MATCH"
 
 
-def _close_info_without_masking(runner: FormationFleetController, primary: Exception | None) -> None:
+def _close_info_without_masking(
+    runner: FormationFleetController,
+    primary: BaseException | None,
+) -> None:
     try:
         runner.device.screenshot()
         if runner.formation_state.info_opened(runner.device.image):
@@ -139,7 +142,7 @@ def _finalize_acceptance(
     runner: FormationFleetController | None,
     config_path: Path,
     config_before: str,
-    primary: Exception | None,
+    primary: BaseException | None,
 ) -> None:
     """Безусловно восстановить UI и доказать неизменность profile config."""
 
@@ -150,12 +153,19 @@ def _finalize_acceptance(
         except Exception as error:  # noqa: BLE001 - проверка config всё равно обязательна.
             cleanup_error = error
 
-    config_after = _sha256(config_path)
     config_error: AcceptanceFailure | None = None
-    if config_before != config_after:
+    try:
+        config_after = _sha256(config_path)
+    except Exception as error:  # noqa: BLE001 - ошибка проверки не должна маскировать primary.
         config_error = AcceptanceFailure(
-            "Приёмка Formation изменила постоянный config профиля."
+            "Не удалось проверить неизменность постоянного config профиля: "
+            + _safe_text(str(error))
         )
+    else:
+        if config_before != config_after:
+            config_error = AcceptanceFailure(
+                "Приёмка Formation изменила постоянный config профиля."
+            )
 
     if primary is not None:
         if cleanup_error is not None:
@@ -190,7 +200,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
         raise AcceptanceFailure(f"Файл профиля не найден: {config_path}")
 
     runner: FormationFleetController | None = None
-    primary: Exception | None = None
+    primary: BaseException | None = None
     snapshot: FormationFleetSnapshot | None = None
     confirmation: str | None = None
     try:
@@ -213,7 +223,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
         snapshot = runner.scan_surface_fleet(args.fleet, close_info=False)
         confirmation = _confirm_snapshot(snapshot, args)
-    except Exception as error:  # noqa: BLE001 - cleanup должен сохранить исходную ошибку.
+    except BaseException as error:  # noqa: BLE001 - cleanup должен сохранить исходную ошибку.
         primary = error
         raise
     finally:
