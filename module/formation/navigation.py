@@ -45,13 +45,19 @@ class FormationNavigationLayout:
     fleet_index_area: tuple[int, int, int, int] = (950, 115, 990, 165)
     info_button: tuple[int, int, int, int] = (896, 639, 1015, 708)
     info_state_probe: tuple[int, int, int, int] = (920, 650, 980, 690)
+    info_header_probes: tuple[tuple[int, int, int, int], ...] = (
+        (390, 96, 630, 118),
+        (1015, 96, 1255, 118),
+    )
     formation_button: tuple[int, int, int, int] = (1036, 639, 1245, 708)
 
     def __post_init__(self) -> None:
         if len(self.fleet_rows_top_to_bottom) != 6:
             raise ValueError("Formation fleet menu должен содержать шесть строк")
         if len(self.fleet_menu_probes) != 6:
-            raise ValueError("Formation fleet menu должен содержать шесть probe-областей")
+            raise ValueError("Formation fleet menu должен содержать шесть областей проверки")
+        if len(self.info_header_probes) != 2:
+            raise ValueError("Formation Info должен содержать две области заголовков")
         for area in (
             self.surface_fleet_select,
             *self.fleet_rows_top_to_bottom,
@@ -59,6 +65,7 @@ class FormationNavigationLayout:
             self.fleet_index_area,
             self.info_button,
             self.info_state_probe,
+            *self.info_header_probes,
             self.formation_button,
         ):
             x1, y1, x2, y2 = area
@@ -76,7 +83,7 @@ GLOBAL_FORMATION_NAVIGATION_LAYOUT_1280_720 = FormationNavigationLayout()
 
 @dataclass(frozen=True, slots=True)
 class FormationStatePolicy:
-    """Пороговые правила распознавания menu/info без template assets."""
+    """Пороговые правила распознавания меню флотов и Formation Info."""
 
     menu_gray_saturation_max: float = 55.0
     menu_gray_value_min: float = 175.0
@@ -86,6 +93,8 @@ class FormationStatePolicy:
     info_orange_saturation_min: int = 70
     info_orange_value_min: int = 170
     info_orange_ratio_min: float = 0.50
+    info_header_bright_luma: int = 230
+    info_header_bright_ratio_min: float = 0.05
 
 
 class FormationUiStateDetector:
@@ -140,7 +149,15 @@ class FormationUiStateDetector:
             & (hsv[:, :, 1] >= self.policy.info_orange_saturation_min)
             & (hsv[:, :, 2] >= self.policy.info_orange_value_min)
         )
-        return float(np.mean(orange)) >= self.policy.info_orange_ratio_min
+        if float(np.mean(orange)) < self.policy.info_orange_ratio_min:
+            return False
+
+        for area in self.layout.info_header_probes:
+            gray = cv2.cvtColor(self._crop(frame, area), cv2.COLOR_BGR2GRAY)
+            bright_ratio = float(np.mean(gray >= self.policy.info_header_bright_luma))
+            if bright_ratio < self.policy.info_header_bright_ratio_min:
+                return False
+        return True
 
 
 class _FleetIndexModel(Protocol):
@@ -148,7 +165,7 @@ class _FleetIndexModel(Protocol):
 
 
 class FormationFleetIndexOcr:
-    """OCR синего номера текущего Surface Fleet с domain validation 1..6."""
+    """OCR синего номера Surface Fleet с проверкой допустимого диапазона 1..6."""
 
     def __init__(
         self,
@@ -177,7 +194,7 @@ class FormationFleetIndexOcr:
 
 
 class FormationFleetController(UI):
-    """State-machine `Main -> Formation -> Fleet N -> Info -> snapshot`."""
+    """Управляет переходом `Main -> Formation -> Fleet N -> Info -> snapshot`."""
 
     @cached_property
     def formation_navigation_layout(self) -> FormationNavigationLayout:
