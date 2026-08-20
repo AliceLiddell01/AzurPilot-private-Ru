@@ -437,7 +437,6 @@ class Camera(MapOperation):
             vector = np.array(location) - self.camera
             swipe = tuple(np.min([np.abs(vector), swipe_limit], axis=0) * np.sign(vector))
             has_swiped = self.map_swipe(swipe)
-
             if not has_swiped:
                 break
 
@@ -501,7 +500,7 @@ class Camera(MapOperation):
                 logger.warning(
                     f'[Карта — камера] Откладываю проблемную точку сканирования {target} и проверяю другие ракурсы'
                 )
-                deferred = deferred.add(queue[:1])
+                deferred.grids.append(target)
                 queue = queue[1:]
             else:
                 failed_attempts.pop(target.location, None)
