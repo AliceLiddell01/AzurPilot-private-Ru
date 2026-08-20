@@ -14,6 +14,7 @@ from module.formation.model import (
 from module.formation.scanner import (
     FormationFleetInfoScanner,
     FormationFleetInputError,
+    FormationPresencePolicy,
     GLOBAL_FORMATION_INFO_LAYOUT_1280_720,
 )
 
@@ -118,6 +119,28 @@ def test_presence_is_independent_from_name_ocr() -> None:
 
     assert result.occupied_count == 0
     assert result.complete is True
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    (
+        ("stats_green_hue_min", 180),
+        ("stats_green_hue_min", 255),
+        ("stats_green_hue_max", 180),
+        ("stats_green_hue_max", 255),
+    ),
+)
+def test_presence_policy_rejects_hue_outside_opencv_uint8_range(
+    field_name: str,
+    value: int,
+) -> None:
+    with pytest.raises(ValueError, match="0..179"):
+        FormationPresencePolicy(**{field_name: value})
+
+
+def test_presence_policy_keeps_hue_order_validation() -> None:
+    with pytest.raises(ValueError, match="не должен превышать"):
+        FormationPresencePolicy(stats_green_hue_min=90, stats_green_hue_max=80)
 
 
 @pytest.mark.parametrize("fleet_index", [0, 7, True, 1.0])
