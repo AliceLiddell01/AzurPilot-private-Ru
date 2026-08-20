@@ -159,6 +159,7 @@ def test_builder_rejects_derived_duplicate_module_name_before_any_write(
             revision="revision",
             output_root=output_root,
             asset_root=tmp_path,
+            now=SimpleNamespace(),
             maps_output=maps_output,
             overwrite=True,
             verify_git=False,
