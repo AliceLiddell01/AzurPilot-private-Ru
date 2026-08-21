@@ -10,6 +10,7 @@ from module.webui.event_shop_priority import (
     confirm_event_shop_purchase,
     load_event_shop_priority,
     prepare_event_shop_runtime_items,
+    save_event_shop_priority,
     set_event_shop_priority,
 )
 
@@ -191,6 +192,71 @@ def test_quantity_target_stops_after_verified_goal_without_buying_rest(
     assert state["remaining"]["11"] == 7
     assert state["pending"] == {}
     assert config.overrides["EventShop_CustomFilter"] == ""
+
+
+def test_full_scan_reconciles_remaining_and_repairs_stale_purchased_state(
+    monkeypatch, tmp_path
+):
+    spec = base_spec()
+    config = FakeConfig()
+    patch_runtime_context(monkeypatch, spec, {})
+    state = priority.empty_event_shop_priority(spec["id"])
+    state["remaining"] = {"11": 0}
+    state["purchased"] = ["11"]
+    save_event_shop_priority(config.config_name, state, root=tmp_path)
+
+    prepare_event_shop_runtime_items(
+        config,
+        [runtime_item(group="Chip", price=300, stock=10, remaining=2)],
+        root=tmp_path,
+    )
+    state = load_event_shop_priority(config.config_name, spec["id"], root=tmp_path)
+
+    assert state["remaining"]["11"] == 2
+    assert state["purchased"] == []
+
+
+def test_unproven_scan_keeps_inventory_and_produces_safety_block(
+    monkeypatch, tmp_path
+):
+    spec = base_spec()
+    config = FakeConfig()
+    patch_runtime_context(monkeypatch, spec, {11: 2})
+    state = priority.empty_event_shop_priority(spec["id"])
+    state["remaining"] = {"11": 4}
+    state["priorities"] = {"11": 0}
+    state["blocked"] = {"11": "Предыдущий OCR недостоверен"}
+    save_event_shop_priority(config.config_name, state, root=tmp_path)
+
+    invalid = runtime_item(group="Chip", price=300, stock=9, remaining=0)
+    prepared = prepare_event_shop_runtime_items(config, [invalid], root=tmp_path)
+    state = load_event_shop_priority(config.config_name, spec["id"], root=tmp_path)
+
+    assert list(prepared) == []
+    assert state["remaining"]["11"] == 4
+    assert state["blocked"]["11"]
+
+
+def test_manual_purchase_between_full_scans_updates_proven_remaining(
+    monkeypatch, tmp_path
+):
+    spec = base_spec()
+    config = FakeConfig()
+    patch_runtime_context(monkeypatch, spec, {})
+
+    prepare_event_shop_runtime_items(
+        config,
+        [runtime_item(group="Chip", price=300, stock=10, remaining=5)],
+        root=tmp_path,
+    )
+    prepare_event_shop_runtime_items(
+        config,
+        [runtime_item(group="Chip", price=300, stock=10, remaining=3)],
+        root=tmp_path,
+    )
+    state = load_event_shop_priority(config.config_name, spec["id"], root=tmp_path)
+
+    assert state["remaining"]["11"] == 3
 
 
 def test_duplicate_runtime_token_uses_proven_source_row_identity(monkeypatch, tmp_path):

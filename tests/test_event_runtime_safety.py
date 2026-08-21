@@ -259,7 +259,8 @@ def test_timezone_aware_dashboard_record_is_accepted_without_mixed_datetime_erro
         now=datetime(2026, 8, 13, 11, 0, 0),
     )
 
-    assert result["current_pt"] == 4567
+    assert result["event_pt_total"] == 4567
+    assert result["current_pt"] is None
     assert not any(item["code"] == "observation_stale" for item in result["findings"])
 
 
@@ -323,9 +324,10 @@ def test_shop_quantity_noop_skips_write_and_refresh():
     with patch(
         "module.webui.app_event_planner.event_user_state_write_lock",
         side_effect=lambda _instance: nullcontext(),
-    ):
+    ), patch("module.webui.app_event_planner.toast") as toast:
         probe._change_shop_quantity(probe._shop_item_identity(item), "decrement")
 
+    toast.assert_not_called()
     assert probe.writes == 0
     assert probe.refreshes == 0
     assert probe.store["shop_items"][0]["selected"] == 0

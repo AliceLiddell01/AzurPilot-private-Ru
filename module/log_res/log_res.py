@@ -2,7 +2,8 @@
 
 При изменении значений нефти, монет, алмазов, кубов и других ресурсов модуль
 обновляет соответствующие поля ``Dashboard`` в конфигурации и время последней
-записи.
+записи. Для PT строка Dashboard хранит накопительный счётчик ивента; текущий
+доступный баланс EventShop хранится отдельно в EventObservation.
 
 Пример:
     >>> log_res = LogRes(config)
@@ -11,7 +12,7 @@
 
 Структура данных панели:
     Dashboard.<имя ресурса> = {
-        'Value': int,       # Текущее значение.
+        'Value': int,       # Текущее значение либо накопительный PT ивента.
         'Record': datetime, # Время последнего обновления.
         'Limit': int,       # Необязательный верхний предел.
     }
@@ -37,15 +38,17 @@ class LogRes:
     def __init__(self, config):
         self.__dict__['config'] = config
 
-    def _record_event_pt(self, value):
-        """Сохранить PT не из EventShop и безопасно разбудить магазин события."""
+    def _is_event_shop_pt(self, key):
+        """Не позволять текущему балансу магазина перезаписывать накопительный PT."""
+        if key != 'Pt':
+            return False
         task_name = str(
             getattr(getattr(self.config, 'task', None), 'command', '') or ''
         )
-        if task_name == 'EventShop':
-            # EventShop самостоятельно сохраняет прямое OCR-наблюдение с источником
-            # ``event_shop_ocr`` и не должен будить себя через Dashboard.
-            return
+        return task_name == 'EventShop'
+
+    def _record_event_pt(self, value):
+        """Сохранить накопительный PT и безопасно разбудить магазин ивента."""
         try:
             from module.webui.event_currency import persist_event_currency_update
 
@@ -58,10 +61,14 @@ class LogRes:
             # Запись ресурса является основной операцией. Планирование EventShop —
             # дополнительная операция и не должно ломать корректное обновление Dashboard.
             logger.exception(
-                '[Ресурсы журнала] Не удалось сохранить PT события или разбудить EventShop'
+                '[Ресурсы журнала] Не удалось сохранить PT ивента или разбудить EventShop'
             )
 
     def __setattr__(self, key, value):
+        if self._is_event_shop_pt(key):
+            # EventShop отдельно сохраняет точный доступный баланс как event_shop_ocr.
+            # Dashboard.Pt остаётся накопительным счётчиком ивента и не смешивает семантики.
+            return
         if key in self.groups:
             _key_group = f'Dashboard.{key}'
             _mod = False

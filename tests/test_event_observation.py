@@ -28,7 +28,7 @@ def test_observation_round_trip_is_event_server_and_profile_scoped(tmp_path: Pat
     observation.update(
         {
             "observed_at": "2026-08-13T10:00:00+00:00",
-            "source": "dashboard_ocr",
+            "source": "event_shop_ocr",
             "current_pt": 1234,
         }
     )
@@ -133,7 +133,7 @@ def test_save_rejects_cross_revision_before_write(tmp_path: Path):
     assert list(tmp_path.rglob("*.json")) == []
 
 
-def test_missing_or_stale_dashboard_pt_stays_unknown_not_zero():
+def test_missing_or_stale_dashboard_pt_stays_separate_from_current_balance():
     now = datetime(2026, 8, 13, 12, tzinfo=timezone.utc)
     missing = dashboard_pt_observation(
         instance="ap",
@@ -152,9 +152,12 @@ def test_missing_or_stale_dashboard_pt_stays_unknown_not_zero():
         now=now,
     )
 
+    assert missing["event_pt_total"] is None
     assert missing["current_pt"] is None
     assert not observation_is_fresh(missing, now=now)
-    assert stale["current_pt"] == 42
+    assert stale["event_pt_total"] == 42
+    assert stale["current_pt"] is None
+    assert stale["event_pt_total_status"] == "stale"
     assert not observation_is_fresh(stale, now=now)
 
     plan = event_plan_from_source(
@@ -163,7 +166,7 @@ def test_missing_or_stale_dashboard_pt_stays_unknown_not_zero():
         stale,
     )
     assert plan["progress"]["current_pt"] is None
-    assert plan["progress"]["status"] == "stale"
+    assert plan["progress"]["status"] == "unavailable"
 
 
 def test_corrupt_observation_is_backed_up_before_fail_closed_fallback(tmp_path: Path):
@@ -220,21 +223,21 @@ def test_old_event_shop_pt_ocr_is_persisted_as_stale(tmp_path: Path):
     assert result["current_pt_status"] == "stale"
 
 
-def test_older_dashboard_evidence_cannot_replace_fresh_event_shop_ocr():
+def test_older_current_evidence_cannot_replace_fresh_event_shop_ocr():
     stored = {
         "current_pt_observed_at": "2026-08-13T17:02:29+00:00",
         "current_pt": 0,
     }
-    dashboard = {
+    older = {
         "current_pt_observed_at": "2026-08-11T10:00:00+00:00",
         "current_pt": 42,
     }
 
     assert not current_pt_candidate_is_newer(
-        dashboard["current_pt_observed_at"], stored
+        older["current_pt_observed_at"], stored
     )
     assert current_pt_candidate_is_newer(
-        stored["current_pt_observed_at"], dashboard
+        stored["current_pt_observed_at"], older
     )
 
 
@@ -258,7 +261,7 @@ def test_matching_runtime_identity_with_older_evidence_has_distinct_finding(monk
         "server": server,
         "source_revision": revision,
         "current_pt": 90,
-        "current_pt_source": "dashboard_ocr",
+        "current_pt_source": "event_shop_ocr",
         "current_pt_observed_at": "2026-08-13T16:00:00+00:00",
         "current_pt_status": "observed",
     }
@@ -294,7 +297,7 @@ def test_newer_runtime_pt_without_status_does_not_inherit_stored_status(monkeypa
         "server": server,
         "source_revision": revision,
         "current_pt": 120,
-        "current_pt_source": "dashboard_ocr",
+        "current_pt_source": "event_shop_ocr",
         "current_pt_observed_at": runtime_observed_at,
     }
     monkeypatch.setattr(
@@ -312,5 +315,5 @@ def test_newer_runtime_pt_without_status_does_not_inherit_stored_status(monkeypa
 
     assert plan["progress"]["current_pt"] == 120
     assert plan["progress"]["status"] == "observed"
-    assert plan["progress"]["source"] == "dashboard_ocr"
+    assert plan["progress"]["source"] == "event_shop_ocr"
     assert plan["progress"]["observed_at"] == runtime_observed_at
