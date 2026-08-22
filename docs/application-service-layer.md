@@ -1,8 +1,9 @@
 # Application/Service Layer foundation
 
-Stage 3 вводит нейтральную прикладную границу для будущего AzurPilot Web. Она
-пока не подключена к production WebUI или MCP и обслуживает только read-only
-сценарии:
+Нейтральная прикладная граница первоначально была разработана в PR #120 для
+ветки Web modernization, а затем семантически перенесена в stable как часть
+PostgreSQL Storage Foundation. Она не подключена к production WebUI, MCP или
+игровым consumers. Read-only services пока обслуживают сценарии:
 
 - список экземпляров, один статус и статусы всех экземпляров;
 - список задач и metadata/help выбранной задачи.
@@ -51,3 +52,9 @@ tasks = TaskCatalogService(GeneratedTaskCatalogAdapter.from_generated_sources())
 
 Создание generated-адаптера является явной I/O-операцией. Транспорт должен
 создавать его в своей composition root, а не на уровне импорта модуля.
+
+Storage DTO, repository Protocol, ошибки и Unit of Work contract принадлежат
+этому же package. Их PostgreSQL-реализации находятся в `module/persistence/`;
+SQLAlchemy types и DBAPI exceptions не проходят через application boundary.
+Production wiring нового storage слоя намеренно отсутствует до отдельного
+этапа cutover.

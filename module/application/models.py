@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import TypeAlias
 
-
-MetadataScalar: TypeAlias = str | int | float | bool | None
-MetadataValue: TypeAlias = MetadataScalar | tuple[MetadataScalar, ...]
+type MetadataScalar = str | int | float | bool | None
+type MetadataValue = MetadataScalar | tuple[MetadataScalar, ...]
 
 
 class RuntimeState(IntEnum):

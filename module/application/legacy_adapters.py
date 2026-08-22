@@ -14,7 +14,6 @@ from types import MappingProxyType
 from typing import Any, Protocol
 
 from module.application.models import (
-    MetadataScalar,
     MetadataValue,
     TaskArgumentMetadata,
     TaskGroupMetadata,
