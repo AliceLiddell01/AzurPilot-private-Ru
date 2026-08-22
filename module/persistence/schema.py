@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from sqlalchemy import (
-    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -459,7 +458,3 @@ resource_current_state = Table(
     CheckConstraint("value >= 0", name="value_nonnegative"),
     CheckConstraint("version >= 1", name="version_positive"),
 )
-
-# JSONB намеренно ограничен quarantine metadata. Этот alias делает unit-тест
-# переносимым при компиляции metadata без подключения к PostgreSQL.
-assert isinstance(import_record.c.quarantine_metadata.type, (JSONB, JSON))

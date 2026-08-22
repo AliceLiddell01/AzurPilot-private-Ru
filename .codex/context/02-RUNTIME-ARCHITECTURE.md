@@ -93,13 +93,13 @@ MCP не должен становиться обходом конфигурац
 
 Не фиксировать в документации точное количество инструментов: оно меняется. Источник истины — регистрация tools в текущем коде.
 
-## Storage foundation
+## Основа хранения
 
-Нейтральные storage DTO/ports принадлежат `module.application`, PostgreSQL
-adapters — `module.persistence`. SQLAlchemy/Psycopg types не выходят из
-infrastructure boundary. Engine создаётся лениво отдельно в каждом PID после
-process start; import package не подключается к БД и не выполняет DDL.
+Нейтральные DTO и порты хранения принадлежат `module.application`,
+PostgreSQL-адаптеры — `module.persistence`. Типы SQLAlchemy/Psycopg не выходят
+за инфраструктурную границу. Engine создаётся лениво отдельно в каждом PID
+после запуска процесса; импорт пакета не подключается к БД и не выполняет DDL.
 
-Schema изменяется только явной Alembic-командой. До отдельного cutover Stage
+Schema изменяется только явной Alembic-командой. До отдельного этапа cutover
 игровые, WebUI и MCP consumers продолжают использовать legacy SQLite/JSON и не
-импортируют `module.persistence`; silent fallback и dual-write запрещены.
+импортируют `module.persistence`; тихий fallback и dual-write запрещены.

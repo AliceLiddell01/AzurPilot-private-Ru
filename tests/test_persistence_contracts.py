@@ -8,7 +8,7 @@ import sys
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from sqlalchemy.exc import OperationalError
 
@@ -99,6 +99,19 @@ class DatabaseConfigurationTests(unittest.TestCase):
         self.assertNotIn("synthetic-value", repr(settings))
         self.assertNotIn("synthetic-value", str(settings.sqlalchemy_url()))
         self.assertIn("***", str(settings.sqlalchemy_url()))
+
+    def test_empty_optional_environment_values_use_defaults(self):
+        values = {
+            "AZURPILOT_POSTGRES_HOST": "127.0.0.1",
+            "AZURPILOT_POSTGRES_DATABASE": "stage2",
+            "AZURPILOT_POSTGRES_USER": "stage2",
+            "AZURPILOT_POSTGRES_PASSWORD": "",
+            "AZURPILOT_POSTGRES_SSLMODE": "",
+        }
+        with patch.dict(os.environ, values, clear=True):
+            settings = DatabaseSettings.from_environment()
+        self.assertIsNone(settings.password)
+        self.assertIsNone(settings.sslmode)
 
     def test_pool_limits_fail_closed(self):
         with self.assertRaises(StorageConfigurationError):

@@ -33,7 +33,7 @@ def _include_name(
 def run_migrations_offline() -> None:
     settings = _settings()
     context.configure(
-        url=settings.sqlalchemy_url().render_as_string(hide_password=False),
+        url=settings.sqlalchemy_url().render_as_string(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

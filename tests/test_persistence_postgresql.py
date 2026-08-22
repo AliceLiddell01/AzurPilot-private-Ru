@@ -22,6 +22,7 @@ from module.application import (
     StorageConflictError,
     StorageHealthState,
     StorageInvalidDataError,
+    StorageUnavailableError,
 )
 from module.persistence import DatabaseSettings, LazyEngine, PostgresUnitOfWork
 from module.persistence.config import PoolSettings
@@ -154,6 +155,8 @@ def test_repository_boundary_rejects_untyped_or_unbounded_data(database: LazyEng
                     started_at=datetime.now(UTC),
                 )
             )
+
+
 def test_health_authentication_and_unavailable_are_distinct():
     settings = DatabaseSettings.from_environment()
     wrong_password = DatabaseSettings(
@@ -182,6 +185,29 @@ def test_health_authentication_and_unavailable_are_distinct():
     assert StorageHealthChecker(LazyEngine(unavailable)).check().state is (
         StorageHealthState.UNAVAILABLE
     )
+
+
+def test_pool_exhaustion_is_mapped_to_storage_unavailable():
+    settings = DatabaseSettings.from_environment()
+    constrained = LazyEngine(
+        DatabaseSettings(
+            host=settings.host,
+            port=settings.port,
+            database=settings.database,
+            user=settings.user,
+            password=settings.password,
+            connect_timeout_seconds=settings.connect_timeout_seconds,
+            sslmode=settings.sslmode,
+            pool=PoolSettings(size=1, max_overflow=0, timeout_seconds=0.1),
+        )
+    )
+    held = constrained.get().connect()
+    try:
+        with pytest.raises(StorageUnavailableError), PostgresUnitOfWork(constrained):
+            pass
+    finally:
+        held.close()
+        constrained.dispose()
 
 
 def test_atomic_counter_across_spawned_processes(database: LazyEngine):
@@ -232,6 +258,21 @@ def test_idempotent_snapshot_conflict_and_deterministic_timeline(database: LazyE
         "snapshot-1",
         "snapshot-2",
     )
+
+
+def test_unit_of_work_tracks_transactions_after_commit(database: LazyEngine):
+    instance_id = _instance(database)
+    with PostgresUnitOfWork(database) as uow:
+        assert uow.statistics.append_resource_snapshot(
+            _snapshot(instance_id, "multi-commit-1")
+        )
+        uow.commit()
+        assert uow.statistics.append_resource_snapshot(
+            _snapshot(instance_id, "multi-commit-2")
+        )
+        uow.commit()
+    with PostgresUnitOfWork(database) as uow:
+        assert len(uow.statistics.resource_timeline(instance_id, limit=10)) == 2
 
 
 def test_versioned_state_and_commission_rollback(database: LazyEngine):

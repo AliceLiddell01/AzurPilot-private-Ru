@@ -47,12 +47,13 @@ AzurPilot автоматизирует Azur Lane через цикл распо�
 
 ### Инфраструктура
 
-- `module/application/` — transport-neutral immutable DTO, ошибки, repository
-  ports, services и Unit of Work contracts. Пакет не зависит от WebUI/MCP и
-  persistence frameworks.
-- `module/persistence/` — PostgreSQL infrastructure adapters, Core metadata,
-  lazy per-process engine и health boundary. Production consumers пока не
-  подключены; versioned DDL принадлежит только `migrations/` и Alembic.
+- `module/application/` — неизменяемые транспортно-нейтральные DTO, ошибки,
+  порты репозиториев, сервисы и контракты Unit of Work. Пакет не зависит от
+  WebUI/MCP и persistence-фреймворков.
+- `module/persistence/` — инфраструктурные PostgreSQL-адаптеры, Core metadata,
+  ленивый engine на каждый процесс и граница health-check. Production consumers
+  пока не подключены; версионируемый DDL принадлежит только `migrations/` и
+  Alembic.
 - `module/webui/` — UI-сервер, процессы и настройки.
 - `module/event_datamine/` — безопасная загрузка ShareCfg, структурное обнаружение текущего события, нормализованный `EventSpec`, реестр жизненного цикла, канонический локальный каталог ассетов, компилятор и генератор карт, происхождение данных и атомарные локальные артефакты. Исторические артефакты с ролью `demo` не участвуют в разрешении production-события.
 - `module/webui/event_source.py` — проекция immutable event facts и отдельно сохраняемой пользовательской политики; runtime Event UI не загружает базовые факты из сети.

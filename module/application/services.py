@@ -54,6 +54,10 @@ class InstanceQueryService:
                 raise TypeError("reader должен вернуть tuple")
             if any(not isinstance(name, str) or not name for name in names):
                 raise TypeError("reader вернул некорректное имя")
+            if any(
+                _validated_name(name, resource="экземпляра") != name for name in names
+            ):
+                raise TypeError("reader вернул неканоническое имя")
             if len(set(names)) != len(names):
                 raise TypeError("reader вернул повторяющиеся имена")
             return names

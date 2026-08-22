@@ -2,7 +2,8 @@
 
 ## Граница владения
 
-Stage 2 добавляет неиспользуемую production runtime, но исполняемую foundation:
+Stage 2 добавляет пока не подключённую к production runtime, но исполняемую
+основу:
 
 ```text
 game / WebUI / MCP / future migration tooling

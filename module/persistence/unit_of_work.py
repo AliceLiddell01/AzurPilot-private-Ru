@@ -6,8 +6,8 @@ from types import TracebackType
 from typing import Self
 
 from sqlalchemy import Connection
-from sqlalchemy.engine import Transaction
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from module.application.errors import StorageError
 from module.persistence.database import LazyEngine, translate_database_error
@@ -22,7 +22,6 @@ class PostgresUnitOfWork:
     def __init__(self, engine: LazyEngine):
         self._engine = engine
         self._connection: Connection | None = None
-        self._transaction: Transaction | None = None
         self.instances: PostgresInstanceIdentityRepository
         self.statistics: PostgresStatisticsRepository
         self.imports: PostgresImportLedgerRepository
@@ -33,8 +32,8 @@ class PostgresUnitOfWork:
         connection: Connection | None = None
         try:
             connection = self._engine.get().connect()
-            transaction = connection.begin()
-        except DBAPIError as exc:
+            connection.begin()
+        except (DBAPIError, SQLAlchemyTimeoutError) as exc:
             if connection is not None:
                 try:
                     connection.close()
@@ -42,29 +41,27 @@ class PostgresUnitOfWork:
                     pass
             raise translate_database_error(exc) from None
         self._connection = connection
-        self._transaction = transaction
         self.instances = PostgresInstanceIdentityRepository(self._connection)
         self.statistics = PostgresStatisticsRepository(self._connection)
         self.imports = PostgresImportLedgerRepository(self._connection)
         return self
 
     def commit(self) -> None:
-        if self._transaction is None:
-            raise RuntimeError("Unit of Work не открыт.")
+        connection = self._connection
+        if connection is None or not connection.in_transaction():
+            raise RuntimeError("Unit of Work не содержит активной транзакции.")
         try:
-            self._transaction.commit()
+            connection.commit()
         except DBAPIError as exc:
             raise translate_database_error(exc) from None
-        self._transaction = None
 
     def rollback(self) -> None:
-        if self._transaction is not None:
+        connection = self._connection
+        if connection is not None and connection.in_transaction():
             try:
-                self._transaction.rollback()
+                connection.rollback()
             except DBAPIError as exc:
                 raise translate_database_error(exc) from None
-            finally:
-                self._transaction = None
 
     def __exit__(
         self,
@@ -74,7 +71,7 @@ class PostgresUnitOfWork:
     ) -> None:
         cleanup_error: StorageError | None = None
         try:
-            if self._transaction is not None:
+            if self._connection is not None and self._connection.in_transaction():
                 try:
                     self.rollback()
                 except StorageError as error:

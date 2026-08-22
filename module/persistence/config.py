@@ -95,6 +95,6 @@ class DatabaseSettings:
             port=port,
             database=required("DATABASE"),
             user=required("USER"),
-            password=environ.get(prefix + "PASSWORD"),
-            sslmode=environ.get(prefix + "SSLMODE"),
+            password=environ.get(prefix + "PASSWORD") or None,
+            sslmode=environ.get(prefix + "SSLMODE") or None,
         )
