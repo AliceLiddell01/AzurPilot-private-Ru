@@ -220,7 +220,7 @@ class DatabaseConfigurationTests(unittest.TestCase):
         lazy._lock.release()
         self.assertIsNone(lazy._engine)
         self.assertIsNone(lazy.owner_pid)
-        parent_engine.dispose.assert_not_called()
+        parent_engine.dispose.assert_called_once_with(close=False)
         inherited_lock.release()
 
     def test_spawned_python_imports_driver_and_boundary(self):
@@ -310,7 +310,7 @@ class DatabaseConfigurationTests(unittest.TestCase):
         unit_of_work = PostgresUnitOfWork(engine)
         unit_of_work.__enter__()
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(StorageUnavailableError):
             unit_of_work.__exit__(None, None, None)
 
         self.assertIsNone(unit_of_work._connection)

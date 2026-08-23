@@ -72,6 +72,9 @@ class LazyEngine:
         """Сбрасывает унаследованное runtime-состояние, не трогая pool родителя."""
 
         self._lock = threading.Lock()
+        if self._engine is not None:
+            # Отделяем pool дочернего процесса, не закрывая соединения родителя.
+            self._engine.dispose(close=False)
         self._engine = None
         self._pid = None
 

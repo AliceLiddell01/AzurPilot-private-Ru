@@ -11,7 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import Connection, select, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 
 from module.application.errors import StorageConflictError, StorageInvalidDataError
 from module.application.storage_models import (
@@ -123,6 +123,10 @@ class PostgresInstanceIdentityRepository:
             ).scalar_one()
         except StorageConflictError:
             raise
+        except NoResultFound:
+            raise StorageConflictError(
+                "Конфликт identity не удалось разрешить после вставки."
+            ) from None
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if mapped == identity.id:
@@ -227,6 +231,10 @@ class PostgresStatisticsRepository:
                     resource_snapshot.c.idempotency_key == snapshot.idempotency_key
                 )
             ).scalar_one()
+        except NoResultFound:
+            raise StorageConflictError(
+                "Idempotency key снимка обрабатывается конкурирующей транзакцией."
+            ) from None
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if existing == digest:
@@ -335,6 +343,10 @@ class PostgresStatisticsRepository:
             return True
         except StorageConflictError:
             raise
+        except NoResultFound:
+            raise StorageConflictError(
+                "Idempotency key комиссии обрабатывается конкурирующей транзакцией."
+            ) from None
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
@@ -412,6 +424,10 @@ class PostgresStatisticsRepository:
                     table.c.idempotency_key == idempotency_key
                 )
             ).scalar_one()
+        except NoResultFound:
+            raise StorageConflictError(
+                "Idempotency key обрабатывается конкурирующей транзакцией."
+            ) from None
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if existing == digest:
@@ -447,6 +463,10 @@ class PostgresImportLedgerRepository:
                     import_batch.c.idempotency_key == batch.idempotency_key
                 )
             ).scalar_one()
+        except NoResultFound:
+            raise StorageConflictError(
+                "Import key обрабатывается конкурирующей транзакцией."
+            ) from None
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if existing == batch.source_digest:

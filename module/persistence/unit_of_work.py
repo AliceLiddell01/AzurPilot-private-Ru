@@ -97,6 +97,9 @@ class PostgresUnitOfWork:
                 except SQLAlchemyError as error:
                     if cleanup_error is None:
                         cleanup_error = translate_database_error(error)
+                except Exception as error:  # noqa: BLE001 - storage boundary sanitizes cleanup.
+                    if cleanup_error is None:
+                        cleanup_error = translate_database_error(error)
                 finally:
                     self._connection = None
                     for attribute in ("instances", "statistics", "imports"):
