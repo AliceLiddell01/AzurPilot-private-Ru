@@ -155,6 +155,9 @@ class StorageHealthChecker:
             return StorageHealth(state)
         except _SCHEMA_VALUE_ERRORS:
             return StorageHealth(StorageHealthState.INCOMPATIBLE_SCHEMA)
+        except Exception:  # noqa: BLE001 - health boundary must fail closed.
+            # Health boundary не выпускает наружу ошибки загрузки/инициализации драйвера.
+            return StorageHealth(StorageHealthState.UNAVAILABLE)
         if heads != (self._expected_head,):
             return StorageHealth(
                 StorageHealthState.INCOMPATIBLE_SCHEMA,

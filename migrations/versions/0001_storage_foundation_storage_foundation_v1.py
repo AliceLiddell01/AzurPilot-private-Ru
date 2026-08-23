@@ -309,6 +309,13 @@ def upgrade() -> None:
         ),
         schema="azurpilot",
     )
+    op.create_index(
+        "ix_legacy_instance_alias_instance_id",
+        "legacy_instance_alias",
+        ["instance_id"],
+        unique=False,
+        schema="azurpilot",
+    )
     op.create_table(
         "meow_hazard_aggregate",
         sa.Column("instance_id", sa.Uuid(), nullable=False),
@@ -320,7 +327,7 @@ def upgrade() -> None:
         ),
         sa.Column("source", sa.String(length=64), nullable=False),
         sa.CheckConstraint(
-            "month = date_trunc('month', month)::date",
+            "EXTRACT(DAY FROM month) = 1",
             name=op.f("ck_meow_hazard_aggregate_month_first_day"),
         ),
         sa.CheckConstraint(
@@ -362,7 +369,7 @@ def upgrade() -> None:
         sa.Column("hazard_level", sa.Integer(), nullable=True),
         sa.Column("source", sa.String(length=64), nullable=False),
         sa.CheckConstraint(
-            "month = date_trunc('month', month)::date",
+            "EXTRACT(DAY FROM month) = 1",
             name=op.f("ck_meow_timing_sample_month_first_day"),
         ),
         sa.CheckConstraint(
@@ -414,7 +421,7 @@ def upgrade() -> None:
             name=op.f("ck_monthly_aggregate_metric_allowed"),
         ),
         sa.CheckConstraint(
-            "month = date_trunc('month', month)::date",
+            "EXTRACT(DAY FROM month) = 1",
             name=op.f("ck_monthly_aggregate_month_first_day"),
         ),
         sa.CheckConstraint(
@@ -670,7 +677,7 @@ def upgrade() -> None:
             name=op.f("ck_siren_research_device_stat_source_hazard_consistent"),
         ),
         sa.CheckConstraint(
-            "month = date_trunc('month', month)::date",
+            "EXTRACT(DAY FROM month) = 1",
             name=op.f("ck_siren_research_device_stat_month_first_day"),
         ),
         sa.CheckConstraint(

@@ -77,6 +77,8 @@ def test_instance_service_hides_internal_reader_failure():
     assert failure.value.code == "service_unavailable"
     assert "private" not in str(failure.value)
     assert "secret" not in str(failure.value)
+    assert failure.value.__cause__ is None
+    assert failure.value.__suppress_context__ is True
 
 
 def test_instance_service_rejects_noncanonical_reader_name():

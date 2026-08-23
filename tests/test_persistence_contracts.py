@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import NoResultFound, OperationalError
 
 from module.application import (
     StorageAuthenticationError,
@@ -20,7 +20,12 @@ from module.application import (
     StorageUnavailableError,
 )
 from module.persistence.config import DatabaseSettings, PoolSettings
-from module.persistence.database import LazyEngine, translate_database_error
+from module.persistence.database import (
+    LazyEngine,
+    StorageHealthChecker,
+    translate_database_error,
+)
+from module.persistence.repositories import PostgresInstanceIdentityRepository
 from module.persistence.schema import SCHEMA_NAME, metadata
 from module.persistence.unit_of_work import PostgresUnitOfWork
 
@@ -35,21 +40,25 @@ def _import_roots(path: Path) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             roots.update(alias.name.split(".", 1)[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             roots.add(node.module.split(".", 1)[0])
     return roots
 
 
 class PersistenceArchitectureTests(unittest.TestCase):
     def test_application_boundary_has_no_persistence_imports(self):
-        for path in APPLICATION_ROOT.rglob("*.py"):
+        paths = tuple(APPLICATION_ROOT.rglob("*.py"))
+        self.assertTrue(paths, APPLICATION_ROOT)
+        for path in paths:
             self.assertTrue(
                 _import_roots(path).isdisjoint({"sqlalchemy", "psycopg", "alembic"}),
                 path,
             )
 
     def test_persistence_boundary_never_imports_sqlite(self):
-        for path in PERSISTENCE_ROOT.rglob("*.py"):
+        paths = tuple(PERSISTENCE_ROOT.rglob("*.py"))
+        self.assertTrue(paths, PERSISTENCE_ROOT)
+        for path in paths:
             source = path.read_text(encoding="utf-8")
             self.assertNotIn("sqlite3", _import_roots(path), path)
             self.assertNotIn("create_all(", source, path)
@@ -89,9 +98,13 @@ assert 'sqlite3' not in sys.modules
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_destructive_migration_requires_disposable_opt_in(self):
-        migration = next((ROOT / "migrations" / "versions").glob("0001_*.py"))
+        migration = next(
+            (ROOT / "migrations" / "versions").glob("0001_*.py"), None
+        )
+        self.assertIsNotNone(migration, "миграция 0001_* не найдена")
         source = migration.read_text(encoding="utf-8")
         self.assertIn('AZURPILOT_POSTGRES_DISPOSABLE") != "1"', source)
+        self.assertIn("op.drop_table", source)
         self.assertLess(
             source.index("AZURPILOT_POSTGRES_DISPOSABLE"), source.index("op.drop_table")
         )
@@ -163,7 +176,9 @@ class DatabaseConfigurationTests(unittest.TestCase):
         self.assertTrue(created[0].options["pool_pre_ping"])
 
         pid[0] = 101
-        self.assertIs(lazy.get(), created[1])
+        rebuilt = lazy.get()
+        self.assertEqual(len(created), 2)
+        self.assertIs(rebuilt, created[1])
         created[0].dispose.assert_called_once_with(close=False)
         lazy.dispose()
         created[1].dispose.assert_called_once_with()
@@ -217,6 +232,23 @@ class DatabaseConfigurationTests(unittest.TestCase):
         unavailable = translate_database_error(RuntimeError("postgresql://secret"))
         self.assertIsInstance(unavailable, StorageUnavailableError)
         self.assertNotIn("secret", str(unavailable))
+
+    def test_repository_maps_non_dbapi_sqlalchemy_errors(self):
+        connection = Mock()
+        connection.execute.side_effect = NoResultFound("synthetic missing row")
+        repository = PostgresInstanceIdentityRepository(connection)
+
+        with self.assertRaises(StorageUnavailableError):
+            repository.resolve(alias_kind="filepath", alias_digest="a" * 64)
+
+    def test_health_fails_closed_when_engine_initialization_fails(self):
+        def broken_factory(*args, **kwargs):
+            raise RuntimeError("driver initialization exposed a private path")
+
+        database = LazyEngine(self._settings(), engine_factory=broken_factory)
+        health = StorageHealthChecker(database).check()
+
+        self.assertEqual(health.state.value, "unavailable")
 
     def test_unit_of_work_closes_connection_when_begin_fails(self):
         connection = Mock()
@@ -292,7 +324,8 @@ class SchemaMetadataTests(unittest.TestCase):
                 ].constraints
                 if hasattr(constraint, "sqltext")
             }
-            self.assertIn("date_trunc", constraints[f"ck_{table_name}_month_first_day"])
+            expression = constraints[f"ck_{table_name}_month_first_day"]
+            self.assertIn("EXTRACT(DAY FROM month)", expression)
 
         import_record_constraints = {
             str(constraint.sqltext)

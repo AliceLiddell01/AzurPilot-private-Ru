@@ -11,7 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import Connection, select, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageConflictError, StorageInvalidDataError
 from module.application.storage_models import (
@@ -123,7 +123,7 @@ class PostgresInstanceIdentityRepository:
             ).scalar_one()
         except StorageConflictError:
             raise
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if mapped == identity.id:
             return False
@@ -146,7 +146,7 @@ class PostgresInstanceIdentityRepository:
                     legacy_instance_alias.c.alias_digest == alias_digest,
                 )
             ).one_or_none()
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         return InstanceIdentity(*row) if row is not None else None
 
@@ -190,7 +190,7 @@ class PostgresStatisticsRepository:
         )
         try:
             row = self._connection.execute(statement).one()
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         return MonthlyAggregate(
             row.instance_id,
@@ -227,7 +227,7 @@ class PostgresStatisticsRepository:
                     resource_snapshot.c.idempotency_key == snapshot.idempotency_key
                 )
             ).scalar_one()
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if existing == digest:
             return False
@@ -260,7 +260,7 @@ class PostgresStatisticsRepository:
                 )
                 .limit(limit)
             ).all()
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         return tuple(reversed(tuple(ResourceSnapshot(*row) for row in rows)))
 
@@ -335,7 +335,7 @@ class PostgresStatisticsRepository:
             return True
         except StorageConflictError:
             raise
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
     def update_current_resource(
@@ -392,7 +392,7 @@ class PostgresStatisticsRepository:
             return next_version
         except StorageConflictError:
             raise
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
     def _append_with_digest(
@@ -412,7 +412,7 @@ class PostgresStatisticsRepository:
                     table.c.idempotency_key == idempotency_key
                 )
             ).scalar_one()
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if existing == digest:
             return False
@@ -447,7 +447,7 @@ class PostgresImportLedgerRepository:
                     import_batch.c.idempotency_key == batch.idempotency_key
                 )
             ).scalar_one()
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if existing == batch.source_digest:
             return False
@@ -496,7 +496,7 @@ class PostgresImportLedgerRepository:
                 )
                 .values(**values)
             )
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
         if result.rowcount != 1:
             raise StorageConflictError("Import batch transition недопустим.")

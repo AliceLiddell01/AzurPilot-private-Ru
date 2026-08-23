@@ -72,6 +72,8 @@ uv run --locked alembic current --check-heads
 uv run --locked alembic check
 uv run --locked alembic downgrade base
 uv run --locked alembic upgrade head
+uv run --locked alembic current --check-heads
+uv run --locked alembic check
 ```
 
 Integration-тесты дополнительно требуют явный test-only opt-in

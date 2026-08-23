@@ -290,9 +290,9 @@ def test_unit_of_work_tracks_transactions_after_commit(database: LazyEngine):
             _snapshot(instance_id, "multi-commit-2")
         )
         uow.commit()
-    with PostgresUnitOfWork(database) as uow:
-        assert len(uow.statistics.resource_timeline(instance_id, limit=10)) == 2
-    assert not hasattr(uow, "statistics")
+    with PostgresUnitOfWork(database) as read_uow:
+        assert len(read_uow.statistics.resource_timeline(instance_id, limit=10)) == 2
+    assert not hasattr(read_uow, "statistics")
 
 
 def test_versioned_state_and_commission_rollback(database: LazyEngine):
@@ -409,10 +409,11 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
             .all()
         )
         assert original_heads, "alembic_version пуста: миграции не применены"
-        connection.execute(
-            text("UPDATE alembic_version SET version_num = 'wrong_head'")
-        )
     try:
+        with database.get().begin() as connection:
+            connection.execute(
+                text("UPDATE alembic_version SET version_num = 'wrong_head'")
+            )
         assert (
             StorageHealthChecker(database).check().state
             is StorageHealthState.INCOMPATIBLE_SCHEMA

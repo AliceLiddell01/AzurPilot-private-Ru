@@ -63,10 +63,10 @@ class InstanceQueryService:
             return names
         except ApplicationError:
             raise
-        except Exception as exc:
+        except Exception:  # noqa: BLE001 - application boundary sanitizes reader failures.
             raise ServiceUnavailableError(
                 "Не удалось получить список экземпляров."
-            ) from exc
+            ) from None
 
     def _read_status(self, name: str) -> InstanceStatus:
         try:
@@ -81,10 +81,10 @@ class InstanceQueryService:
             return InstanceStatus(name=name, running=snapshot.running, state=state)
         except ApplicationError:
             raise
-        except Exception as exc:
+        except Exception:  # noqa: BLE001 - application boundary sanitizes reader failures.
             raise ServiceUnavailableError(
                 f"Не удалось получить статус экземпляра {name!r}."
-            ) from exc
+            ) from None
 
 
 class TaskCatalogService:
@@ -105,8 +105,8 @@ class TaskCatalogService:
             return tasks
         except ApplicationError:
             raise
-        except Exception as exc:
-            raise ServiceUnavailableError("Не удалось получить список задач.") from exc
+        except Exception:  # noqa: BLE001 - application boundary sanitizes reader failures.
+            raise ServiceUnavailableError("Не удалось получить список задач.") from None
 
     def get_task_metadata(self, name: str) -> TaskMetadata:
         validated = _validated_name(name, resource="задачи")
@@ -119,7 +119,7 @@ class TaskCatalogService:
             return task
         except ApplicationError:
             raise
-        except Exception as exc:
+        except Exception:  # noqa: BLE001 - application boundary sanitizes reader failures.
             raise ServiceUnavailableError(
                 f"Не удалось получить metadata задачи {validated!r}."
-            ) from exc
+            ) from None

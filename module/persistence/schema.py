@@ -62,6 +62,7 @@ legacy_instance_alias = Table(
     UniqueConstraint("alias_kind", "alias_digest"),
     CheckConstraint("alias_digest ~ '^[0-9a-f]{64}$'", name="alias_digest_sha256"),
 )
+Index("ix_legacy_instance_alias_instance_id", legacy_instance_alias.c.instance_id)
 
 import_batch = Table(
     "import_batch",
@@ -133,7 +134,7 @@ monthly_aggregate = Table(
         name="metric_allowed",
     ),
     CheckConstraint("value >= 0", name="value_nonnegative"),
-    CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
+    CheckConstraint("EXTRACT(DAY FROM month) = 1", name="month_first_day"),
     CheckConstraint("version >= 1", name="version_positive"),
     CheckConstraint(
         "source_digest IS NULL OR source_digest ~ '^[0-9a-f]{64}$'",
@@ -360,7 +361,7 @@ meow_timing_sample = Table(
     CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="payload_digest_sha256"),
     CheckConstraint("sample_kind IN ('battle', 'round')", name="sample_kind_allowed"),
     CheckConstraint("duration_seconds >= 0", name="duration_nonnegative"),
-    CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
+    CheckConstraint("EXTRACT(DAY FROM month) = 1", name="month_first_day"),
     CheckConstraint(
         "hazard_level IS NULL OR hazard_level BETWEEN 1 AND 6",
         name="hazard_level_range",
@@ -384,7 +385,7 @@ meow_hazard_aggregate = Table(
     Column("source", String(64), nullable=False),
     PrimaryKeyConstraint("instance_id", "month", "hazard_level"),
     CheckConstraint("hazard_level BETWEEN 1 AND 6", name="hazard_level_range"),
-    CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
+    CheckConstraint("EXTRACT(DAY FROM month) = 1", name="month_first_day"),
     CheckConstraint(
         "raw_battle_count >= 0 AND effective_rounds >= 0",
         name="counts_nonnegative",
@@ -401,7 +402,7 @@ siren_research_device_stat = Table(
     Column("device_count", BigInteger, nullable=False),
     PrimaryKeyConstraint("instance_id", "month", "source", "hazard_level"),
     CheckConstraint("source IN ('cl1', 'meow')", name="source_allowed"),
-    CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
+    CheckConstraint("EXTRACT(DAY FROM month) = 1", name="month_first_day"),
     CheckConstraint("hazard_level BETWEEN 0 AND 6", name="hazard_level_range"),
     CheckConstraint("device_count >= 0", name="device_count_nonnegative"),
     # Агрегированные CL1-записи используют 0 как явный sentinel всех hazards.
