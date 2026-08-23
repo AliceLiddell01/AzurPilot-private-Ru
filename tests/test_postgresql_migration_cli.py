@@ -156,23 +156,29 @@ def test_pg_timeout_returns_bounded_storage_error(monkeypatch):
         user="azurpilot_migrator",
         sslmode="disable",
     )
-    monkeypatch.setattr(
-        postgresql_migration.subprocess,
-        "run",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            subprocess.TimeoutExpired(
-                ["pg_restore", "private-path", "password=secret"],
-                180,
-            )
-        ),
-    )
+    observed: dict[str, object] = {}
 
-    with pytest.raises(LegacySourceError, match="POSTGRES_BACKUP_COMMAND_FAILED"):
+    def raise_timeout(*_args, **kwargs):
+        observed.update(kwargs)
+        raise subprocess.TimeoutExpired(
+            ["pg_restore", "private-path", "password=secret"],
+            180,
+        )
+
+    monkeypatch.setattr(postgresql_migration.subprocess, "run", raise_timeout)
+
+    with pytest.raises(
+        LegacySourceError, match="POSTGRES_BACKUP_COMMAND_FAILED"
+    ) as exc_info:
         postgresql_migration._run_pg(
             "pg_restore",
             ["--dbname", "azurpilot_restore_stage4"],
             settings,
         )
+
+    assert observed["timeout"] == 180
+    assert "private-path" not in str(exc_info.value)
+    assert "password=secret" not in str(exc_info.value)
 
 
 def test_help_explains_diagnostic_and_readiness_commands():
