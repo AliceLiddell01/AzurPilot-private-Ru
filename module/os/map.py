@@ -31,6 +31,7 @@ from sys import maxsize
 
 import inflection
 
+from module.application.errors import StorageError
 from module.base.timer import Timer
 from module.config.config import TaskEnd
 from module.config.utils import get_os_reset_remain
@@ -883,6 +884,8 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     self._cl1_auto_search_battle_count,
                     self._auto_search_round_timer,
                 )
+            except StorageError:
+                raise
             except Exception:
                 logger.debug("Не удалось обновить счётчик боёв CL1", exc_info=True)
 
@@ -899,6 +902,8 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     self,
                     getattr(self, "_meow_battle_timer", None),
                 )
+            except StorageError:
+                raise
             except Exception:
                 logger.debug("Не удалось обновить счётчик боёв фарма мяуфицеров", exc_info=True)
 
@@ -970,17 +975,19 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         return int(getattr(self, "_cl1_auto_search_battle_count", 0))
 
     def get_monthly_cl1_battle_count(self, year: int = None, month: int = None):
-        from module.statistics.cl1_database import db as cl1_db
+        from module.statistics.postgresql_stats import get_monthly_stats
 
         instance_name = getattr(self.config, "config_name", "default")
         if year is None or month is None:
             from datetime import datetime
 
-            month_key = datetime.now().strftime("%Y-%m")
-        else:
-            month_key = f"{year:04d}-{month:02d}"
+            now = datetime.now()
+            if year is None:
+                year = now.year
+            if month is None:
+                month = now.month
 
-        data = cl1_db.get_stats(instance_name, month_key)
+        data = get_monthly_stats(instance_name, year, month)
         return int(data.get("battle_count", 0))
 
     def os_auto_search_daemon(

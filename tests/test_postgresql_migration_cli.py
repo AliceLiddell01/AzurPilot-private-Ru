@@ -6,8 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from dev_tools import postgresql_migration
 from module.persistence import DatabaseSettings
+from module.persistence.legacy.reader import LegacySourceError
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -161,5 +164,23 @@ def test_help_explains_diagnostic_and_readiness_commands():
 
     assert help_result.returncode == 0
     assert "всегда NOT_READY" in help_result.stdout
-    assert "единственный режим" in help_result.stdout
-    assert "readiness verdict" in help_result.stdout
+    assert "итогом готовности" in help_result.stdout
+    assert "full-cutover" in help_result.stdout
+
+
+def test_production_cutover_requires_exact_environment_guard(monkeypatch):
+    settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        database="azurpilot",
+        user="azurpilot_migrator",
+        sslmode="disable",
+    )
+    monkeypatch.delenv("AZURPILOT_POSTGRES_CUTOVER", raising=False)
+
+    with pytest.raises(
+        LegacySourceError, match="PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED"
+    ):
+        postgresql_migration._require_production_cutover(
+            settings, "azurpilot_restore", "FINAL-PRODUCTION-CUTOVER"
+        )

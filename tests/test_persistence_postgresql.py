@@ -10,9 +10,11 @@ from decimal import Decimal
 from multiprocessing import get_context
 from pathlib import Path
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import delete, func, insert, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from module.application import (
     CommissionIncome,
@@ -38,6 +40,7 @@ from module.persistence.schema import (
     metadata,
     monthly_aggregate,
 )
+from module.application.runtime_storage import ApSnapshot, RuntimeStorageService
 
 REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_HOST",
@@ -106,6 +109,192 @@ def _snapshot(instance_id: UUID, key: str, *, oil: int = 10) -> ResourceSnapshot
 
 def test_health_and_migration_head_are_ready(database: LazyEngine):
     assert StorageHealthChecker(database).check().state is StorageHealthState.READY
+
+
+def test_production_runtime_round_trip_uses_typed_atomic_commands(database: LazyEngine):
+    service = RuntimeStorageService(
+        lambda: PostgresUnitOfWork(database),
+        runtime_timezone=ZoneInfo("Asia/Novosibirsk"),
+    )
+    instance = f"runtime-{uuid4()}"
+
+    service.increment_monthly_counter(instance, MonthlyMetric.BATTLE_COUNT)
+    service.record_ap_purchase(instance, 20, 20, 1, "akashi")
+    assert service.record_coins_snapshot(
+        instance,
+        300,
+        purple_coins=40,
+        source="runtime",
+    )
+    assert service.record_ap_snapshot(instance, 100, source="runtime", ap_total=120)
+    service.record_meow_battle(instance, 3)
+    service.record_meow_timing(instance, "round", Decimal("12.5"), 3)
+    service.record_siren_research_device(instance, source="meow", hazard_level=3)
+    service.record_commission_income(instance, {"Gem": 2, "Cube": 1})
+    service.record_resource_snapshot(instance, {"oil": 123, "coin": 456})
+    service.record_opsi_items(
+        instance,
+        (
+            {
+                "imgid": "synthetic-image",
+                "genre": "opsi_meowfficer_farming",
+                "item": "OperationCoin",
+                "amount": 10,
+                "hazard_level": 3,
+                "combat_count": 2,
+            },
+        ),
+    )
+
+    now = service.current_datetime()
+    projection = service.monthly_statistics(instance, now.year, now.month)
+
+    assert projection.metric(MonthlyMetric.BATTLE_COUNT) == Decimal(1)
+    assert projection.metric(MonthlyMetric.AKASHI_AP) == Decimal(20)
+    currencies = {
+        item.currency_code: item.amount for item in projection.currency_snapshots[-2:]
+    }
+    assert currencies == {"yellow_coin": 300, "purple_coin": 40}
+    assert projection.ap_snapshots[-1].ap_total == 120
+    assert projection.meow_hazards[0].siren_research_devices == 1
+    assert service.resource_timeline(instance)[0].oil == 123
+    assert service.opsi_items(
+        instance, genre="opsi_meowfficer_farming"
+    )[0].amount == 10
+
+
+def test_runtime_retry_and_empty_commission_event_are_preserved(
+    database: LazyEngine, monkeypatch: pytest.MonkeyPatch
+):
+    observed_at = datetime(2026, 8, 23, 12, 30, 15, tzinfo=UTC)
+    monkeypatch.setattr(
+        RuntimeStorageService,
+        "_observation_instant",
+        staticmethod(lambda: observed_at),
+    )
+    service = RuntimeStorageService(lambda: PostgresUnitOfWork(database))
+    instance = f"runtime-{uuid4()}"
+
+    assert service.record_commission_income(instance, {"Cube": 2})
+    assert not service.record_commission_income(instance, {"Cube": 2})
+    assert service.record_commission_income(instance, {"Cube": 0}, commission_count=2)
+
+    entries = service.commission_entries(
+        instance,
+        start=observed_at - timedelta(seconds=1),
+        end=observed_at + timedelta(seconds=1),
+    )
+    assert len(entries) == 2
+    assert any(entry.commission_count == 2 and not entry.items for entry in entries)
+
+
+def test_commission_query_rejects_naive_boundaries(database: LazyEngine):
+    service = RuntimeStorageService(lambda: PostgresUnitOfWork(database))
+
+    with pytest.raises(StorageInvalidDataError, match="Границы запроса комиссий"):
+        service.commission_entries(
+            f"commission-boundary-{uuid4()}",
+            start=datetime(2026, 8, 1),
+            end=datetime(2026, 9, 1),
+        )
+
+
+def test_monthly_projection_limit_keeps_newest_rows_in_chronological_order(
+    database: LazyEngine,
+):
+    instance_id = _instance(database)
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    end = datetime(2026, 9, 1, tzinfo=UTC)
+    with PostgresUnitOfWork(database) as uow:
+        for index in range(1001):
+            assert uow.runtime.append_ap_snapshot(
+                instance_id,
+                idempotency_key=f"limited-ap-{index}",
+                snapshot=ApSnapshot(
+                    observed_at=start + timedelta(seconds=index),
+                    ap=index,
+                    ap_total=index,
+                    asset=Decimal(index),
+                    yellow_coin=index,
+                    distance=index,
+                    source="synthetic_fixture",
+                ),
+            )
+        uow.commit()
+
+    with PostgresUnitOfWork(database) as uow:
+        projection = uow.runtime.monthly_statistics(
+            instance_id,
+            date(2026, 8, 1),
+            start=start,
+            end=end,
+        )
+
+    assert len(projection.ap_snapshots) == 1000
+    assert projection.ap_snapshots[0].ap == 1
+    assert projection.ap_snapshots[-1].ap == 1000
+
+
+def test_opsi_limit_keeps_newest_rows_in_chronological_order(
+    database: LazyEngine, monkeypatch: pytest.MonkeyPatch
+):
+    observed = iter(
+        datetime(2026, 8, 23, 1, minute, tzinfo=UTC) for minute in range(3)
+    )
+    monkeypatch.setattr(
+        RuntimeStorageService,
+        "_observation_instant",
+        staticmethod(lambda: next(observed)),
+    )
+    service = RuntimeStorageService(lambda: PostgresUnitOfWork(database))
+    instance = f"opsi-limit-{uuid4()}"
+
+    for amount in range(1, 4):
+        service.record_opsi_items(
+            instance,
+            (
+                {
+                    "imgid": f"image-{amount}",
+                    "genre": "synthetic",
+                    "item": "OperationCoin",
+                    "amount": amount,
+                },
+            ),
+        )
+
+    assert [row.amount for row in service.opsi_items(
+        instance, genre="synthetic", limit=2
+    )] == [2, 3]
+
+
+def test_runtime_role_can_use_data_but_cannot_change_schema_or_roles(database: LazyEngine):
+    with database.get().begin() as connection:
+        assert connection.execute(select(func.count()).select_from(app_instance)).scalar_one() >= 0
+        attributes = connection.execute(
+            text(
+                "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls "
+                "FROM pg_roles WHERE rolname = current_user"
+            )
+        ).one()
+        assert attributes == (False, False, False, False, False)
+
+    with pytest.raises(SQLAlchemyError):
+        with database.get().begin() as connection:
+            connection.execute(text("CREATE TABLE azurpilot.forbidden_runtime_ddl(id integer)"))
+
+    with pytest.raises(SQLAlchemyError):
+        with database.get().begin() as connection:
+            connection.execute(text("CREATE ROLE forbidden_runtime_role"))
+
+    with pytest.raises(SQLAlchemyError):
+        with database.get().begin() as connection:
+            connection.execute(text("SELECT rolpassword FROM pg_authid"))
+
+    with pytest.raises(SQLAlchemyError):
+        with database.get().connect().execution_options(
+            isolation_level="AUTOCOMMIT"
+        ) as connection:
+            connection.execute(text("CREATE DATABASE forbidden_runtime_database"))
 
 
 def test_alembic_downgrade_rejects_mismatched_confirmed_target(
@@ -474,7 +663,12 @@ def test_opsi_event_and_import_ledger_semantics(database: LazyEngine):
 
 
 def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
-    with database.get().begin() as connection:
+    if not os.environ.get("AZURPILOT_POSTGRES_MIGRATOR_USER"):
+        pytest.skip("требуется отдельная disposable migrator role")
+    maintenance = LazyEngine(
+        DatabaseSettings.from_environment(prefix="AZURPILOT_POSTGRES_MIGRATOR_")
+    )
+    with maintenance.get().begin() as connection:
         original_heads = tuple(
             connection.execute(text("SELECT version_num FROM alembic_version"))
             .scalars()
@@ -482,7 +676,7 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
         )
         assert original_heads, "alembic_version пуста: миграции не применены"
     try:
-        with database.get().begin() as connection:
+        with maintenance.get().begin() as connection:
             connection.execute(
                 text("UPDATE alembic_version SET version_num = 'wrong_head'")
             )
@@ -490,7 +684,7 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
             StorageHealthChecker(database).check().state
             is StorageHealthState.INCOMPATIBLE_SCHEMA
         )
-        with database.get().begin() as connection:
+        with maintenance.get().begin() as connection:
             connection.execute(
                 text("INSERT INTO alembic_version(version_num) VALUES ('second_head')")
             )
@@ -499,10 +693,11 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
             is StorageHealthState.INCOMPATIBLE_SCHEMA
         )
     finally:
-        with database.get().begin() as connection:
+        with maintenance.get().begin() as connection:
             connection.execute(text("DELETE FROM alembic_version"))
             for head in original_heads:
                 connection.execute(
                     text("INSERT INTO alembic_version(version_num) VALUES (:head)"),
                     {"head": head},
                 )
+        maintenance.dispose()

@@ -313,8 +313,10 @@ class PostgresStatisticsRepository:
     def record_commission_income(self, income: CommissionIncome) -> bool:
         _bounded(income.idempotency_key, label="idempotency_key", maximum=128)
         _bounded(income.source, label="source", maximum=64)
-        if income.commission_count < 1 or not income.items:
-            raise StorageInvalidDataError("Commission income должен содержать items.")
+        if income.commission_count < 1:
+            raise StorageInvalidDataError(
+                "Количество комиссий должно быть положительным."
+            )
         if len({item.item_code for item in income.items}) != len(income.items):
             raise StorageInvalidDataError("Commission items должны быть уникальны.")
         for item in income.items:
@@ -347,17 +349,18 @@ class PostgresStatisticsRepository:
                 raise StorageConflictError(
                     "Idempotency key комиссии уже связан с другими данными."
                 )
-            self._connection.execute(
-                insert(commission_income_item),
-                [
-                    {
-                        "event_id": income.id,
-                        "item_code": item.item_code,
-                        "amount": item.amount,
-                    }
-                    for item in income.items
-                ],
-            )
+            if income.items:
+                self._connection.execute(
+                    insert(commission_income_item),
+                    [
+                        {
+                            "event_id": income.id,
+                            "item_code": item.item_code,
+                            "amount": item.amount,
+                        }
+                        for item in income.items
+                    ],
+                )
             return True
         except StorageConflictError:
             raise

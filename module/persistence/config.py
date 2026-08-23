@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from os import environ
+from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import URL
 
 from module.application.errors import StorageConfigurationError
+from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +40,7 @@ class DatabaseSettings:
     password: str | None = field(default=None, repr=False)
     connect_timeout_seconds: int = 5
     sslmode: str = "verify-full"
+    runtime_timezone: str = "UTC"
     pool: PoolSettings = field(default_factory=PoolSettings)
 
     def __post_init__(self) -> None:
@@ -58,6 +63,12 @@ class DatabaseSettings:
             "verify-full",
         }:
             raise StorageConfigurationError("sslmode не поддерживается.")
+        try:
+            ZoneInfo(self.runtime_timezone)
+        except (TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+            raise StorageConfigurationError(
+                "Часовой пояс production runtime некорректен."
+            ) from exc
 
     def sqlalchemy_url(self) -> URL:
         return URL.create(
@@ -95,4 +106,85 @@ class DatabaseSettings:
             user=required("USER"),
             password=environ.get(prefix + "PASSWORD") or None,
             sslmode=environ.get(prefix + "SSLMODE") or "verify-full",
+            runtime_timezone=environ.get(prefix + "RUNTIME_TIMEZONE") or "UTC",
+        )
+
+    @classmethod
+    def from_backend_marker(
+        cls, marker_path: str | Path = "config/storage_backend.json"
+    ) -> DatabaseSettings:
+        """Загрузить единственный production-маркер без секретных значений."""
+
+        path = Path(marker_path)
+        try:
+            if path.is_symlink() or not path.is_file():
+                raise StorageConfigurationError(
+                    "Production backend marker отсутствует или небезопасен."
+                )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except StorageConfigurationError:
+            raise
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise StorageConfigurationError(
+                "Production backend marker повреждён."
+            ) from exc
+        if not isinstance(payload, dict):
+            raise StorageConfigurationError("Production backend marker некорректен.")
+        if payload.get("backend") != "postgresql" or payload.get("version") != 1:
+            raise StorageConfigurationError(
+                "Production backend marker не разрешает PostgreSQL runtime."
+            )
+        if payload.get("alembic_head") != EXPECTED_ALEMBIC_HEAD:
+            raise StorageConfigurationError(
+                "Production backend marker содержит несовместимый schema head."
+            )
+        reconciliation_report = payload.get("reconciliation_report_sha256")
+        if (
+            not isinstance(reconciliation_report, str)
+            or len(reconciliation_report) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in reconciliation_report
+            )
+        ):
+            raise StorageConfigurationError(
+                "Маркер боевого хранилища не содержит происхождение отчёта сверки."
+            )
+        for field_name in ("reviewed_head", "merge_commit"):
+            revision = payload.get(field_name)
+            if (
+                not isinstance(revision, str)
+                or len(revision) != 40
+                or any(character not in "0123456789abcdef" for character in revision)
+            ):
+                raise StorageConfigurationError(
+                    "Production backend marker не содержит проверенный Git provenance."
+                )
+        try:
+            port = int(payload["port"])
+            host = str(payload["host"])
+            database = str(payload["database"])
+            user = str(payload["user"])
+            sslmode = str(payload["sslmode"])
+            runtime_timezone = str(payload["runtime_timezone"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise StorageConfigurationError(
+                "Production backend marker неполон."
+            ) from exc
+        if host not in {"localhost", "127.0.0.1", "::1"}:
+            raise StorageConfigurationError(
+                "Production PostgreSQL должен использовать loopback listener."
+            )
+        if user != "azurpilot_app":
+            raise StorageConfigurationError(
+                "Production runtime должен использовать только app-роль PostgreSQL."
+            )
+        return cls(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=None,
+            sslmode=sslmode,
+            runtime_timezone=runtime_timezone,
         )

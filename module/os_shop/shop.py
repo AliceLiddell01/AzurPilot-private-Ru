@@ -12,6 +12,7 @@
 本模块整合了 PortShop 和 AkashiShop 两个子模块的功能，
 通过统一的购买执行接口处理大世界中的所有商店交互。
 """
+from module.application.errors import StorageError
 from module.base.decorator import cached_property
 from module.base.timer import Timer
 from module.combat.assets import GET_ITEMS_1
@@ -159,18 +160,18 @@ class OSShop(PortShop, AkashiShop):
                             bought_ap = base * amount
 
                             instance_name = getattr(self.config, 'config_name', 'default')
-                            try:
-                                from module.statistics.cl1_database import db as cl1_db
-                                cl1_db.add_akashi_ap_entry(
-                                    instance=instance_name,
-                                    amount=int(bought_ap),
-                                    base=int(base),
-                                    count=int(amount),
-                                    source='akashi'
-                                )
-                                logger.info('[Магазин Операции «Сирена»] Данные о покупке очков действия у Акаши записаны в базу данных')
-                            except Exception:
-                                logger.exception('[Магазин Операции «Сирена»] Не удалось сохранить данные о покупке очков действия у Акаши')
+                            from module.application.runtime_storage import get_runtime_storage
+
+                            get_runtime_storage().record_ap_purchase(
+                                instance_name,
+                                amount=int(bought_ap),
+                                base_amount=int(base),
+                                purchase_count=int(amount),
+                                source='akashi'
+                            )
+                            logger.info('[Магазин Операции «Сирена»] Данные о покупке очков действия у Акаши записаны в PostgreSQL')
+                except StorageError:
+                    raise
                 except Exception:
                     logger.exception('[Магазин Операции «Сирена»] Ошибка при записи данных о покупке у Акаши')
 

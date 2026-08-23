@@ -99,6 +99,15 @@ function Invoke-GitChecked {
     $Arguments = [string[]]$Request.Arguments
     $Operation = [string]$Request.Operation
 
+    if ([string]::IsNullOrWhiteSpace($RepositoryPath)) {
+        throw 'Путь репозитория для Git не задан.'
+    }
+    foreach ($argument in $Arguments) {
+        if ([string]::IsNullOrWhiteSpace($argument)) {
+            throw 'Аргумент Git не может быть пустым или состоять из пробелов.'
+        }
+    }
+
     $AllowedExitCodes = if ($Request.ContainsKey('AllowedExitCodes')) {
         [int[]]$Request.AllowedExitCodes
     } else {
@@ -313,8 +322,20 @@ function Initialize-TestFixture {
 
     Set-Content -LiteralPath (Join-Path -Path $producerPath -ChildPath 'gui.py') -Value 'print("fixture")' -Encoding utf8
     Set-Content -LiteralPath (Join-Path -Path $producerPath -ChildPath 'app.txt') -Value 'initial' -Encoding utf8
+    $runtimeToolDirectory = Join-Path -Path $producerPath -ChildPath 'dev_tools'
+    New-Item -ItemType Directory -Path $runtimeToolDirectory -Force -ErrorAction Stop | Out-Null
+    Set-Content -LiteralPath (Join-Path -Path $runtimeToolDirectory -ChildPath 'postgresql_runtime.py') -Value @(
+        'from pathlib import Path'
+        'import sys'
+        'if "backup" in sys.argv:'
+        '    output = Path(sys.argv[sys.argv.index("--output") + 1])'
+        '    output.parent.mkdir(parents=True, exist_ok=True)'
+        '    output.write_bytes(b"x" * 2048)'
+        'print("Тестовая операция PostgreSQL завершена")'
+    ) -Encoding utf8
     Set-Content -LiteralPath (Join-Path -Path $producerPath -ChildPath '.gitignore') -Value @(
         '.venv/'
+        '__pycache__/'
     ) -Encoding utf8
     Write-FixturePyproject -RepositoryPath $producerPath -Version '0.0.0'
     Write-FixtureLock -RepositoryPath $producerPath
@@ -349,6 +370,7 @@ function Initialize-TestFixture {
             'pyproject.toml'
             'uv.lock'
             'app.txt'
+            'dev_tools/postgresql_runtime.py'
         )
         Operation = "добавление начальных файлов для $Name"
     } | Out-Null
@@ -721,6 +743,8 @@ function Invoke-Updater {
         $script:PythonExecutable
         '-DependencyWorkRoot'
         $Fixture.DependencyWork
+        '-PostgreSqlBackupRoot'
+        (Join-Path -Path $Fixture.Root -ChildPath 'postgresql-backups')
         '-RobocopyExecutablePath'
         $script:RobocopyExecutable
         '-TarExecutablePath'
@@ -771,15 +795,9 @@ if (-not (Test-Path -LiteralPath $UpdaterPath -PathType Leaf)) {
 $UpdaterPath = (Resolve-Path -LiteralPath $UpdaterPath -ErrorAction Stop).Path
 $updaterRepositoryPath = Split-Path -Parent (Split-Path -Parent $UpdaterPath)
 
-$gitCommands = @(
-    Get-Command -Name 'git' -CommandType Application -ErrorAction Stop
-)
-
-if ($gitCommands.Count -eq 0) {
-    throw 'Git не найден в PATH.'
-}
-
-$script:GitExecutable = $gitCommands[0].Source
+$gitCommand = Get-Command -Name 'git' -CommandType Application -ErrorAction Stop |
+    Select-Object -First 1
+$script:GitExecutable = $gitCommand.Path
 $script:PwshExecutable = Join-Path -Path $PSHOME -ChildPath 'pwsh.exe'
 
 if ([string]::IsNullOrWhiteSpace($UvExecutablePath)) {

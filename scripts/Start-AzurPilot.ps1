@@ -606,6 +606,111 @@ function Invoke-PythonHealthCheck {
     }
 }
 
+function Invoke-PostgreSqlStartPreflight {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$PythonPath,
+
+        [Parameter(Mandatory)]
+        [string]$WorkingDirectory
+    )
+
+    $wslCommand = Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction SilentlyContinue
+
+    if ($null -eq $wslCommand) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'WSL недоступен; PostgreSQL нельзя запустить.'
+    }
+
+    $operations = @(
+        [pscustomobject]@{
+            Executable = $wslCommand.Path
+            Arguments = @('--distribution', 'Archlinux', '--exec', 'systemctl', 'start', 'postgresql')
+            TimeoutMilliseconds = 30000
+            Failure = 'Не удалось запустить PostgreSQL 18 в WSL Archlinux.'
+        }
+        [pscustomobject]@{
+            Executable = $wslCommand.Path
+            Arguments = @('--distribution', 'Archlinux', '--exec', 'pg_isready', '--host', '127.0.0.1', '--port', '5432', '--timeout', '5')
+            TimeoutMilliseconds = 10000
+            Failure = 'PostgreSQL 18 в WSL Archlinux не принимает loopback-подключения.'
+        }
+        [pscustomobject]@{
+            Executable = $PythonPath
+            Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'health')
+            TimeoutMilliseconds = 15000
+            Failure = 'Production PostgreSQL не прошёл проверку marker, доступа или schema head.'
+        }
+    )
+
+    foreach ($operation in $operations) {
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+        $startInfo.FileName = $operation.Executable
+        $startInfo.WorkingDirectory = $WorkingDirectory
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.StandardOutputEncoding = $utf8Encoding
+        $startInfo.StandardErrorEncoding = $utf8Encoding
+        foreach ($variableName in @('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', '__PYVENV_LAUNCHER__')) {
+            [void]$startInfo.Environment.Remove($variableName)
+        }
+        $startInfo.Environment['PYTHONUTF8'] = '1'
+
+        foreach ($argument in $operation.Arguments) {
+            [void]$startInfo.ArgumentList.Add($argument)
+        }
+
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+
+        try {
+            if (-not $process.Start()) {
+                Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
+            }
+
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+
+            if (-not $process.WaitForExit($operation.TimeoutMilliseconds)) {
+                try {
+                    $process.Kill($true)
+                }
+                catch {
+                    Write-StartLog -Level 'WARN' -Message 'Не удалось остановить зависшую проверку PostgreSQL.'
+                }
+
+                Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
+            }
+
+            $standardOutput = $stdoutTask.GetAwaiter().GetResult()
+            $standardError = $stderrTask.GetAwaiter().GetResult()
+
+            if ($process.ExitCode -ne 0) {
+                if (-not [string]::IsNullOrWhiteSpace($standardOutput)) {
+                    Write-StartLog -Level 'WARN' -Message ('Диагностика PostgreSQL: {0}' -f $standardOutput.Trim())
+                }
+                if (-not [string]::IsNullOrWhiteSpace($standardError)) {
+                    Write-StartLog -Level 'WARN' -Message ('Ошибка диагностики PostgreSQL: {0}' -f $standardError.Trim())
+                }
+                Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
+            }
+        }
+        catch {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message (
+                '{0} Ошибка запуска процесса: {1}' -f $operation.Failure, $_.Exception.Message
+            )
+        }
+        finally {
+            $process.Dispose()
+        }
+    }
+
+    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 запущен; marker, app-доступ и schema head проверены.'
+}
+
 function Enter-RepositoryMutex {
     [CmdletBinding()]
     param(
@@ -1468,6 +1573,8 @@ function Invoke-AzurPilotStart {
         Invoke-PythonHealthCheck @pythonHealthParameters
 
         Write-StartLog -Level 'INFO' -Message "Python проекта исправен: $projectPythonPath"
+
+        Invoke-PostgreSqlStartPreflight -PythonPath $projectPythonPath -WorkingDirectory $resolvedRepositoryPath
 
         $webUiConfiguration = Get-WebUiConfiguration -DeployConfigPath $deployConfigPath
         $browserUri = $webUiConfiguration.BrowserUri

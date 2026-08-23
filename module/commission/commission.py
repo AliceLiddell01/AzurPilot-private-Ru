@@ -25,6 +25,7 @@ from datetime import timedelta
 
 from scipy import signal
 
+from module.application.errors import StorageError
 from module.base.timer import Timer
 import time
 from module.base.utils import *
@@ -613,7 +614,8 @@ class RewardCommission(UI, InfoHandler):
                 ITEM_GRIDS_2, ITEM_GRIDS_3
             )
             from module.statistics.item import ItemGrid, Item
-            from module.statistics.cl1_database import db as cl1_db
+            from module.application.runtime_storage import get_runtime_storage
+            from module.statistics.postgresql_stats import get_commission_reward_stats
             from module.combat.assets import GET_ITEMS_1, GET_ITEMS_2, GET_ITEMS_3
             from module.handler.assets import INFO_BAR_1
             import os
@@ -689,13 +691,15 @@ class RewardCommission(UI, InfoHandler):
 
             if merged_items:
                 instance = self.config.config_name
-                cl1_db.add_commission_income(instance, merged_items, commission_count=1)
+                get_runtime_storage().record_commission_income(
+                    instance, merged_items, commission_count=1
+                )
                 item_str = ', '.join([f'{k}x{v}' for k, v in merged_items.items()])
                 logger.info(f'[Комиссия — награды] Запись дохода комиссии: {item_str} (экземпляр={instance})')
                 if self.config.Commission_CommissionNotifyReward:
                     reward_stats = None
                     if self.config.Commission_CommissionNotifyRewardStatistics:
-                        reward_stats = cl1_db.get_commission_reward_stats(instance)
+                        reward_stats = get_commission_reward_stats(instance)
                     gem_count = merged_items.get("Gem", 0)
                     tracked = []
                     if gem_count > 0:
@@ -735,6 +739,8 @@ class RewardCommission(UI, InfoHandler):
             else:
                 logger.info('[Комиссия — награды] Ни на одном снимке не распознаны известные предметы')
 
+        except StorageError:
+            raise
         except Exception as e:
             logger.warning(f'[Комиссия — награды] Не удалось записать доход комиссии: {e}')
 

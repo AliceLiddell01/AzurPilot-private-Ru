@@ -22,6 +22,8 @@ from datetime import datetime
 
 from cached_property import cached_property
 
+from module.application.resource_fields import RESOURCE_NAME_MAP
+from module.application.runtime_storage import get_runtime_storage
 from module.config.deep import deep_get
 from module.logger import logger
 
@@ -81,12 +83,13 @@ class LogRes:
                     _key_time = _key_group + f'.Record'
                     self.config.modified[_key_time] = _time
                     if key == 'YellowCoin':
-                        try:
-                            from module.statistics.cl1_database import db as cl1_db
-                            instance_name = getattr(self.config, 'config_name', 'default')
-                            cl1_db.async_add_yellow_coin_snapshot(instance_name, int(value), source='dashboard')
-                        except Exception:
-                            logger.exception('[Ресурсы журнала] Не удалось сохранить снимок монет')
+                        instance_name = getattr(self.config, 'config_name', 'default')
+                        get_runtime_storage().record_currency_snapshot(
+                            instance_name,
+                            'yellow_coin',
+                            int(value),
+                            source='dashboard',
+                        )
                     if key == 'Pt':
                         self._record_event_pt(value)
                     # Сохраняем полный снимок ресурсов после изменения значения.
@@ -106,21 +109,19 @@ class LogRes:
                     if value_name == 'Value':
                         value_changed = True
                 if _mod:
-                    if key == 'ActionPoint':
-                        try:
-                            from module.statistics.opsi_runtime import record_ap_snapshot
-                            source = 'dashboard'
-                            task = getattr(getattr(self.config, 'task', None), 'command', None)
-                            if task:
-                                source = task
-                            record_ap_snapshot(
-                                self.config,
-                                ap_current=value.get('Value'),
-                                ap_total=value.get('Total'),
-                                source=source,
-                            )
-                        except Exception:
-                            logger.exception('[Ресурсы журнала] Не удалось сохранить снимок очков действия')
+                    if key == 'ActionPoint' and value.get('Value') is not None:
+                        from module.statistics.opsi_runtime import record_ap_snapshot
+
+                        source = 'dashboard'
+                        task = getattr(getattr(self.config, 'task', None), 'command', None)
+                        if task:
+                            source = task
+                        record_ap_snapshot(
+                            self.config,
+                            ap_current=value.get('Value'),
+                            ap_total=value.get('Total'),
+                            source=source,
+                        )
                     if key == 'Pt' and value_changed:
                         self._record_event_pt(value.get('Value'))
                     # Сохраняем полный снимок ресурсов после изменения словаря.
@@ -135,29 +136,33 @@ class LogRes:
 
     def _record_all_resource_snapshot(self, overrides=None):
         """Собрать текущие значения ``Dashboard`` и записать снимок ресурсов."""
-        try:
-            from module.statistics.resource_stats import record_resource_snapshot
-            instance_name = getattr(self.config, 'config_name', 'default')
-            overrides = overrides or {}
-            resources = {}
-            for group_name in self.groups:
-                if group_name in overrides:
-                    value = overrides[group_name]
-                elif f'Dashboard.{group_name}.Value' in self.config.modified:
-                    value = self.config.modified[f'Dashboard.{group_name}.Value']
-                else:
-                    group_data = deep_get(self.config.data, f'Dashboard.{group_name}')
-                    if not isinstance(group_data, dict):
-                        continue
-                    value = group_data.get('Value')
-                if value is not None:
-                    try:
-                        resources[group_name] = int(value)
-                    except (TypeError, ValueError):
-                        pass
-            record_resource_snapshot(instance_name, resources)
-        except Exception:
-            logger.exception('[Ресурсы журнала] Не удалось записать снимок ресурсов')
+        instance_name = getattr(self.config, 'config_name', 'default')
+        overrides = overrides or {}
+        resources = {}
+        for group_name in self.groups:
+            if group_name not in RESOURCE_NAME_MAP:
+                logger.warning(
+                    f'[Ресурсы журнала] Для группы Dashboard.{group_name} '
+                    'нет поля в реестре снимка ресурсов'
+                )
+                continue
+            if group_name in overrides:
+                value = overrides[group_name]
+            elif f'Dashboard.{group_name}.Value' in self.config.modified:
+                value = self.config.modified[f'Dashboard.{group_name}.Value']
+            else:
+                group_data = deep_get(self.config.data, f'Dashboard.{group_name}')
+                if not isinstance(group_data, dict):
+                    continue
+                value = group_data.get('Value')
+            if value is not None:
+                try:
+                    resources[RESOURCE_NAME_MAP[group_name]] = int(value)
+                except (TypeError, ValueError):
+                    continue
+        if not resources:
+            return
+        get_runtime_storage().record_resource_snapshot(instance_name, resources)
 
     def group(self, name):
         return deep_get(self.config.data, f'Dashboard.{name}')

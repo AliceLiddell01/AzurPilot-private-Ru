@@ -120,6 +120,16 @@
 - автоматизированная DOM/security-проверка через browser runner;
 - visual acceptance только если она обязательна для конкретного изменения и доступна безопасная среда.
 
+### Production PostgreSQL
+
+- PostgreSQL 18, exact Alembic head и authenticated app health;
+- application service/repository integration и atomic concurrency;
+- marker absent/corrupt/sqlite и outage fail-closed без fallback;
+- app DML положительно, DDL/role/database отрицательно;
+- Start/Update/Repair/Build ownership и PowerShell gates;
+- final import, repeat zero-delta, dump/list, scratch restore и reconciliation;
+- после canary legacy `.db` и canonical CSV не создаются повторно.
+
 ## Secret scan
 
 Перед commit и PR:

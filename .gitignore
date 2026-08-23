@@ -2,6 +2,7 @@
 log
 cache/
 config/backup/*
+config/storage_backend.json
 config/*.ini
 !config/template.ini
 config/*.yaml

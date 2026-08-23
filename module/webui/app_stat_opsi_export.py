@@ -1,4 +1,6 @@
-"""WebUI 短猫收益刷新和大世界统计导出。"""
+"""Обновление наград Meow и экспорт статистики Operation Siren в WebUI."""
+
+from module.application.errors import StorageError
 
 from module.webui.app_dependencies import (
     AzurStats,
@@ -24,15 +26,19 @@ from module.webui.app_types import WebUIMixinBase
 
 
 class OpsiExportMixin(WebUIMixinBase):
-    """WebUI 短猫收益刷新和大世界统计导出。"""
+    """Показывать данные Meow и создавать явный CSV-экспорт."""
 
     def _refresh_meowofficer_farming(self):
-        AzurStats.get_meowofficer_farming()
+        instance_name = getattr(self, "alas_name", None) or "default"
+        data = AzurStats.get_meowofficer_farming(instance_name)
+        AzurStats._write_meowofficer_farming(data)
+        logger.info('[Статистика] CSV-экспорт данных фарма мяуфицеров обновлён')
         self._render_meowofficer_farming()
 
     def _render_meowofficer_farming(self):
         with use_scope("meow_loot_scope", clear=True):
-            all_data = AzurStats.load_meowofficer_farming()
+            instance_name = getattr(self, "alas_name", None) or "default"
+            all_data = AzurStats.get_meowofficer_farming(instance_name)
             meow_rows = []
             for row in all_data:
                 if row[2] > 0:
@@ -79,6 +85,8 @@ class OpsiExportMixin(WebUIMixinBase):
         instance_name_local: str | None = getattr(self, "alas_name", None)
         try:
             s_local = get_opsi_stats(instance_name=instance_name_local).summary() or {}
+        except StorageError:
+            raise
         except Exception:
             s_local = {}
 
@@ -106,6 +114,8 @@ class OpsiExportMixin(WebUIMixinBase):
             purchased_local = (
                 compute_monthly_cl1_akashi_ap(instance_name=instance_name_local) or 0
             )
+        except StorageError:
+            raise
         except Exception:
             purchased_local = 0
 

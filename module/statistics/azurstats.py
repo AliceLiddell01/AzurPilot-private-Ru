@@ -1,17 +1,11 @@
-"""AzurStats 本地统计与掉落截图管理模块。
+"""Сбор снимков наград и локальный разбор данных AzurStats.
 
-提供掉落记录（Drop Record）的截图保存、本地解析和数据存储功能。
-支持将战斗掉落截图保存到本地文件系统，并通过 OCR 解析截图中的物品信息
-存入 SQLite 数据库，用于大世界指挥喵 farming 等场景的统计分析。
-
-主要组件：
-    - DropImage: 掉落截图的上下文管理器，用于收集截图并在退出时提交。
-    - AzurStats: 统计管理核心类，负责截图保存、本地数据解析和数据库操作。
+Распознанные предметы сохраняются через production application-layer сервис
+в PostgreSQL. CSV создаётся только явной командой экспорта WebUI.
 """
 
 import threading
 import os
-import sqlite3
 import time
 import uuid
 from datetime import datetime
@@ -19,42 +13,18 @@ from dataclasses import asdict
 
 import numpy as np
 
+from module.application.errors import StorageError
+from module.application.runtime_storage import get_runtime_storage
 from module.base.utils import save_image
 from module.logger import logger
 from module.statistics.utils import pack
-from module.base.device_id import get_device_id
 
 
 class DropImage:
-    """掉落截图上下文管理器，用于收集截图并在退出时统一提交。
-
-    作为上下文管理器使用（with 语句），在退出时自动调用 AzurStats.commit()
-    将收集到的截图进行保存和/或本地解析。
-
-    Attributes:
-        stat (AzurStats): 关联的 AzurStats 实例。
-        genre (str): 掉落记录的分类标识（如 'opsi_meowfficer_farming'）。
-        save (bool): 是否保存截图到本地文件系统。
-        local (bool): 是否解析截图并存入本地数据库。
-        info (str): 附加信息，会追加到保存的文件名中。
-        images (list[np.ndarray]): 已收集的截图列表。
-        combat_count (int): 战斗记录轮数，用于统计计算。
-
-    Examples:
-        >>> with azur_stats.new('opsi_meowfficer_farming') as drop:
-        ...     drop.add(screenshot)
-        # 退出 with 块时自动提交截图
-    """
+    """Собрать снимки наград и зафиксировать их при выходе из контекста."""
 
     def __init__(self, stat, genre, save, local, info=''):
-        """
-        Args:
-            stat (AzurStats): 关联的 AzurStats 实例。
-            genre (str): 掉落记录的分类标识。
-            save (bool): 是否保存截图到本地文件系统。
-            local (bool): 是否解析截图并存入本地数据库。
-            info (str): 附加信息，追加到文件名。
-        """
+        """Сохранить параметры обработки набора снимков."""
         self.stat = stat
         self.genre = str(genre)
         self.save = bool(save)
@@ -64,10 +34,7 @@ class DropImage:
         self.combat_count = 0
 
     def add(self, image):
-        """
-        Args:
-            image (np.ndarray):
-        """
+        """Добавить снимок к текущему набору."""
         if self:
             self.images.append(image)
             logger.info(
@@ -77,13 +44,7 @@ class DropImage:
         self.combat_count = count
 
     def handle_add(self, main, before=None):
-        """
-        Handle wait before and after adding screenshot.
-
-        Args:
-            main (ModuleBase):
-            before (int, float, tuple): Sleep before adding.
-        """
+        """Дождаться стабильного кадра и добавить новый снимок."""
         if before is None:
             before = main.config.WAIT_BEFORE_SAVING_SCREEN_SHOT
 
@@ -113,45 +74,26 @@ class DropImage:
 
 
 class AzurStats:
-    """AzurStats 统计管理核心类，负责掉落截图的保存、解析和数据存储。
-
-    提供两种数据处理路径：
-        - 远程上传（已废弃）：将截图提交到远程 AzurStats 服务。
-        - 本地处理：将截图中的物品信息解析后存入 SQLite 数据库，
-          并生成统计汇总 CSV 文件（如指挥喵 farming 统计）。
-
-    线程安全：
-        使用 _local_lock 和 _record_lock 两个线程锁保护数据库写入操作，
-        支持多线程并发调用。
-
-    类属性:
-        TIMEOUT (int): 请求超时时间（秒）。
-        LOCAL_DB (str): 本地 SQLite 数据库路径。
-        LOCAL_MEOW_CSV (str): 指挥喵 farming 统计 CSV 路径。
-        LOCAL_GENRES (set): 需要本地处理的记录分类集合。
-
-    Examples:
-        >>> stats = AzurStats(config)
-        >>> with stats.new('opsi_meowfficer_farming') as drop:
-        ...     drop.handle_add(main)
-        # 退出 with 块时自动提交并解析
-    """
+    """Сохранять снимки и фиксировать распознанные награды в PostgreSQL."""
 
     TIMEOUT = 20
-    LOCAL_DB = './config/azurstats_local.db'
     LOCAL_MEOW_CSV = './log/azurstat_meowofficer_farming.csv'
     LOCAL_GENRES = {'opsi_meowfficer_farming'}
-    _local_lock = threading.Lock()
     _record_lock = threading.Lock()
 
     def __init__(self, config):
-        """
-        Args:
-            config:
-        """
+        """Связать сборщик с конфигурацией экземпляра."""
         self.config = config
 
-    meowofficer_farming_labels = ['侵蚀等级', '上次记录时间', '有效战斗轮数', '平均黄币/轮', '平均金菜/轮', '平均深渊/轮', '平均隐秘/轮']
+    meowofficer_farming_labels = [
+        'Уровень коррозии',
+        'Время последней записи',
+        'Эффективные циклы',
+        'Средние жёлтые монеты за цикл',
+        'Средние золотые детали за цикл',
+        'Средние координаты Бездны за цикл',
+        'Средние скрытые координаты за цикл',
+    ]
     meowofficer_farming_map = [
         'OperationCoin',
         'Plate',
@@ -168,87 +110,32 @@ class AzurStats:
     }
 
     @staticmethod
-    def load_meowofficer_farming():
-        """
-        Returns:
-            np.ndarray: Stats.
-        """
-        try:
-            data = np.loadtxt(AzurStats.LOCAL_MEOW_CSV, delimiter=',', dtype=float, skiprows=1, encoding='utf-8')
-            if data.shape[0] != 6:
-                raise IndexError
-        except Exception:
-            data = np.zeros((6, len(AzurStats.meowofficer_farming_labels)))
-            data[:, 0] = np.arange(1, 7)
-            header = ','.join(AzurStats.meowofficer_farming_labels)
-            os.makedirs(os.path.dirname(AzurStats.LOCAL_MEOW_CSV), exist_ok=True)
-            np.savetxt(AzurStats.LOCAL_MEOW_CSV, data, delimiter=',', header=header, comments='', fmt='%f', encoding='utf-8')
-            data = np.loadtxt(AzurStats.LOCAL_MEOW_CSV, delimiter=',', dtype=float, skiprows=1, encoding='utf-8')
-        return data
-
-    @staticmethod
-    def _ensure_local_db():
-        os.makedirs(os.path.dirname(AzurStats.LOCAL_DB), exist_ok=True)
-        with sqlite3.connect(AzurStats.LOCAL_DB) as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS opsi_items (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    imgid TEXT NOT NULL,
-                    server TEXT,
-                    zone TEXT,
-                    zone_type TEXT,
-                    zone_id INTEGER,
-                    hazard_level INTEGER,
-                    item TEXT,
-                    amount INTEGER,
-                    tag TEXT,
-                    device_id TEXT,
-                    genre TEXT,
-                    combat_count INTEGER,
-                    created_at INTEGER
-                )
-            ''')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_opsi_items_device_genre ON opsi_items(device_id, genre)')
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_opsi_items_imgid ON opsi_items(imgid)')
-            conn.commit()
-
-    @staticmethod
-    def _insert_local_opsi_items(rows):
+    def _insert_local_opsi_items(instance, rows):
         if not rows:
             return 0
-
-        AzurStats._ensure_local_db()
-        with AzurStats._local_lock:
-            with sqlite3.connect(AzurStats.LOCAL_DB) as conn:
-                conn.executemany('''
-                    INSERT INTO opsi_items (
-                        imgid, server, zone, zone_type, zone_id, hazard_level,
-                        item, amount, tag, device_id, genre, combat_count, created_at
-                    ) VALUES (
-                        :imgid, :server, :zone, :zone_type, :zone_id, :hazard_level,
-                        :item, :amount, :tag, :device_id, :genre, :combat_count, :created_at
-                    )
-                ''', rows)
-                conn.commit()
-        return len(rows)
+        return get_runtime_storage().record_opsi_items(instance, tuple(rows))
 
     @staticmethod
-    def _load_local_opsi_items(device_id=None, genre='opsi_meowfficer_farming'):
-        AzurStats._ensure_local_db()
-        query = 'SELECT * FROM opsi_items WHERE 1=1'
-        params = []
-        if device_id:
-            query += ' AND device_id = ?'
-            params.append(device_id)
-        if genre:
-            query += ' AND genre = ?'
-            params.append(genre)
-        query += ' ORDER BY id ASC'
-
-        with sqlite3.connect(AzurStats.LOCAL_DB) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(query, params).fetchall()
-            return [dict(row) for row in rows]
+    def _load_local_opsi_items(instance='default', genre='opsi_meowfficer_farming'):
+        rows = get_runtime_storage().opsi_items(instance, genre=genre)
+        return [
+            {
+                'created_at': int(row.observed_at.timestamp()),
+                'imgid': row.imgid,
+                'server': row.server,
+                'zone': row.zone,
+                'zone_type': row.zone_type,
+                'zone_id': row.zone_id,
+                'hazard_level': row.hazard_level,
+                'item': row.item_code,
+                'amount': row.amount,
+                'tag': row.tag,
+                'genre': row.genre,
+                'combat_count': row.combat_count,
+            }
+            for row in rows
+            if row.observed_at is not None
+        ]
 
     @staticmethod
     def _write_meowofficer_farming(data):
@@ -265,9 +152,9 @@ class AzurStats:
         )
 
     @staticmethod
-    def get_meowofficer_farming():
+    def get_meowofficer_farming(instance='default'):
         all_data = AzurStats._load_local_opsi_items(
-            device_id=get_device_id(),
+            instance=instance,
             genre='opsi_meowfficer_farming',
         )
         out_data = np.zeros((6, len(AzurStats.meowofficer_farming_labels)))
@@ -303,8 +190,7 @@ class AzurStats:
                 for j in range(3, len(AzurStats.meowofficer_farming_labels)):
                     out_data[i, j] /= out_data[i, 2]
 
-        AzurStats._write_meowofficer_farming(out_data)
-        logger.info('[Статистика] Локальные данные успешно обновлены: azurstat_meowofficer_farming.csv')
+        return out_data
 
     @staticmethod
     def _ensure_local_parser():
@@ -319,12 +205,10 @@ class AzurStats:
         scene.__dict__['imgid'] = imgid
         rows = []
         created_at = int(time.time())
-        device_id = get_device_id()
 
         for item in scene.parse_scene():
             row = asdict(item)
             row['imgid'] = imgid
-            row['device_id'] = device_id
             row['genre'] = genre
             row['combat_count'] = int(combat_count or 0)
             row['created_at'] = created_at
@@ -342,24 +226,18 @@ class AzurStats:
             if not rows:
                 logger.warning('Локальный разбор AzurStats пропущен: строки предметов Operation Siren не извлечены')
                 return False
-            inserted = self._insert_local_opsi_items(rows)
-            self.get_meowofficer_farming()
+            instance = getattr(self.config, 'config_name', None) or 'default'
+            inserted = self._insert_local_opsi_items(instance, rows)
             logger.info(f'Локальный разбор AzurStats завершён, строк: {inserted}')
             return True
+        except StorageError:
+            raise
         except Exception as e:
             logger.warning(f'Не удалось выполнить локальный разбор AzurStats: {e}')
             return False
 
     def _save(self, image, genre, filename):
-        """
-        Args:
-            image: Image to save.
-            genre (str): Name of sub folder.
-            filename (str): 'xxx.png'
-
-        Returns:
-            bool: If success
-        """
+        """Сохранить изображение в выбранную подпапку."""
         try:
             folder = os.path.join(
                 str(self.config.DropRecord_SaveFolder), genre)
@@ -374,17 +252,7 @@ class AzurStats:
         return False
 
     def commit(self, images, genre, save=False, local=False, info='', combat_count=0):
-        """
-        Args:
-            images (list): List of images in numpy array.
-            genre (str):
-            save (bool): If save image to local file system.
-            local (bool): If parse image into local AzurStats storage.
-            info (str): Extra info append to filename.
-
-        Returns:
-            bool: If commit.
-        """
+        """Объединить снимки, сохранить их и при необходимости распознать."""
         if len(images) == 0:
             return False
 
@@ -412,17 +280,7 @@ class AzurStats:
         return True
 
     def new(self, genre, method=None, save=False, local=None, info=''):
-        """
-        Args:
-            genre (str):
-            method (str): The method about save and upload image.
-            save (bool): Whether to save the image.
-            local (bool): Whether to use local processing. If None, determined by genre.
-            info (str): Extra info append to filename.
-
-        Returns:
-            DropImage:
-        """
+        """Создать контекст сбора снимков для указанной категории."""
         method_value = None
         if isinstance(method, bool):
             save = save or method

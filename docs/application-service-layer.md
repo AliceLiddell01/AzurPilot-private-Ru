@@ -2,8 +2,7 @@
 
 Нейтральная прикладная граница первоначально была разработана в PR #120 для
 ветки Web modernization, а затем семантически перенесена в stable как часть
-PostgreSQL Storage Foundation. Она не подключена к production WebUI, MCP или
-игровым consumers. Read-only services пока обслуживают сценарии:
+PostgreSQL Storage Foundation. Read-only services обслуживают сценарии:
 
 - список экземпляров, один статус и статусы всех экземпляров;
 - список задач и metadata/help выбранной задачи.
@@ -31,11 +30,13 @@ ownership debt. На этой стадии менеджер не перенос�
 status properties могут очищать устаревшие записи process registry, поэтому
 чтение runtime status намеренно не объявляется pure operation.
 
-## Замороженное production wiring
+## Production storage wiring
 
-`module/webui/app.py`, `mcp_server_sse.py`, текущие route/tool catalogs и runtime
-entrypoints не используют новый слой. Их переключение, write-команды, auth,
-transport schemas и перенос process ownership относятся к последующим стадиям.
+Storage-команды production consumers проходят через
+`module.application.runtime_storage`. Composition roots игрового процесса,
+WebUI и MCP явно устанавливают PostgreSQL provider и выполняют health до
+приёма работы. Transport catalogs и file-owned status/config services остаются
+без изменений.
 
 ## Пример будущей composition root
 
@@ -56,5 +57,5 @@ tasks = TaskCatalogService(GeneratedTaskCatalogAdapter.from_generated_sources())
 Storage DTO, repository Protocol, ошибки и Unit of Work contract принадлежат
 этому же package. Их PostgreSQL-реализации находятся в `module/persistence/`;
 SQLAlchemy types и DBAPI exceptions не проходят через application boundary.
-Production wiring нового storage слоя намеренно отсутствует до отдельного
-этапа cutover.
+Production wiring, no-fallback marker и lifecycle описаны в
+`postgresql-production-cutover.md`.

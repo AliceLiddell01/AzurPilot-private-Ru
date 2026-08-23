@@ -36,6 +36,7 @@ from module.persistence.repositories import (
 )
 from module.persistence.schema import SCHEMA_NAME, metadata
 from module.persistence.unit_of_work import PostgresUnitOfWork
+from tests.import_inspection import imports_for_path
 
 ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_ROOT = ROOT / "module" / "application"
@@ -43,19 +44,7 @@ PERSISTENCE_ROOT = ROOT / "module" / "persistence"
 
 
 def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    imports: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imports.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            imports.add(node.module)
-            imports.update(
-                f"{node.module}.{alias.name}"
-                for alias in node.names
-                if alias.name != "*"
-            )
-    return imports
+    return imports_for_path(ROOT, path)
 
 
 def _imports_prefix(path: Path, prefix: str) -> bool:
@@ -89,13 +78,33 @@ class PersistenceArchitectureTests(unittest.TestCase):
             if path.name == "repositories.py":
                 self.assertNotIn(".commit(", source, path)
 
-    def test_production_consumers_do_not_use_new_adapters(self):
+    def test_production_consumers_use_persistence_only_at_composition_roots(self):
+        composition_roots = {
+            ROOT / "alas.py",
+            ROOT / "mcp_server_sse.py",
+            ROOT / "module" / "webui" / "app_lifecycle.py",
+        }
         checked = [ROOT / "alas.py", ROOT / "gui.py", ROOT / "mcp_server_sse.py"]
         checked.extend((ROOT / "module" / "webui").rglob("*.py"))
         checked.extend((ROOT / "module" / "statistics").rglob("*.py"))
         for path in checked:
             self.assertTrue(path.is_file(), path)
-            self.assertFalse(_imports_prefix(path, "module.persistence"), path)
+            persistence_imports = {
+                name
+                for name in _imports(path)
+                if name == "module.persistence" or name.startswith("module.persistence.")
+            }
+            if path in composition_roots:
+                self.assertTrue(
+                    all(
+                        name == "module.persistence.runtime"
+                        or name.startswith("module.persistence.runtime.")
+                        for name in persistence_imports
+                    ),
+                    path,
+                )
+            else:
+                self.assertFalse(persistence_imports, path)
 
     def test_import_has_no_network_or_ddl_side_effect(self):
         script = f"""
