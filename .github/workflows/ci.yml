@@ -24,6 +24,34 @@ jobs:
     name: Python
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    env:
+      CI_POSTGRES_ADMIN_USER: stage2_admin
+      CI_POSTGRES_ADMIN_PASSWORD: stage2-admin-${{ github.run_id }}-${{ github.run_attempt }}
+      AZURPILOT_POSTGRES_HOST: 127.0.0.1
+      AZURPILOT_POSTGRES_PORT: "5432"
+      AZURPILOT_POSTGRES_DATABASE: azurpilot_ci
+      AZURPILOT_POSTGRES_USER: azurpilot_ci
+      AZURPILOT_POSTGRES_PASSWORD: stage2-app-${{ github.run_id }}-${{ github.run_attempt }}
+      AZURPILOT_POSTGRES_SSLMODE: disable
+      AZURPILOT_POSTGRES_DISPOSABLE: "1"
+      AZURPILOT_POSTGRES_DISPOSABLE_HOST: 127.0.0.1
+      AZURPILOT_POSTGRES_DISPOSABLE_PORT: "5432"
+      AZURPILOT_POSTGRES_DISPOSABLE_DATABASE: azurpilot_ci
+      AZURPILOT_POSTGRES_DISPOSABLE_USER: azurpilot_ci
+    services:
+      postgres:
+        image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
+        env:
+          POSTGRES_USER: stage2_admin
+          POSTGRES_PASSWORD: stage2-admin-${{ github.run_id }}-${{ github.run_attempt }}
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stage2_admin -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Получить exact head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -95,6 +123,60 @@ jobs:
             --heartbeat-seconds 60 \
             --log-file "${RUNNER_TEMP}/azurpilot-ci-python/uv-sync.log" \
             -- uv sync --locked --group ci
+
+      - name: Проверить PostgreSQL 18 и Alembic cycle
+        id: python_postgresql
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python - <<'PY'
+          import os
+          import psycopg
+          from psycopg import sql
+
+          with psycopg.connect(
+              host=os.environ["AZURPILOT_POSTGRES_HOST"],
+              port=os.environ["AZURPILOT_POSTGRES_PORT"],
+              dbname="postgres",
+              user=os.environ["CI_POSTGRES_ADMIN_USER"],
+              password=os.environ["CI_POSTGRES_ADMIN_PASSWORD"],
+              autocommit=True,
+          ) as connection:
+              with connection.cursor() as cursor:
+                  cursor.execute(
+                      sql.SQL(
+                          "CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER "
+                          "NOCREATEDB NOCREATEROLE NOREPLICATION"
+                      ).format(
+                          sql.Identifier(os.environ["AZURPILOT_POSTGRES_USER"]),
+                          sql.Literal(os.environ["AZURPILOT_POSTGRES_PASSWORD"]),
+                      )
+                  )
+                  cursor.execute(
+                      sql.SQL("CREATE DATABASE {} OWNER {}").format(
+                          sql.Identifier(os.environ["AZURPILOT_POSTGRES_DATABASE"]),
+                          sql.Identifier(os.environ["AZURPILOT_POSTGRES_USER"]),
+                      )
+                  )
+          PY
+          mkdir -p "${RUNNER_TEMP}/azurpilot-ci-python"
+          cycle_script="${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.sh"
+          cat > "$cycle_script" <<'SH'
+          set -euo pipefail
+          uv run --locked alembic upgrade head
+          uv run --locked alembic current --check-heads
+          uv run --locked alembic check
+          uv run --locked alembic downgrade base
+          uv run --locked alembic upgrade head
+          uv run --locked alembic current --check-heads
+          uv run --locked alembic check
+          SH
+          python tools/ci_heartbeat.py \
+            --label "Полный Alembic cycle" \
+            --heartbeat-seconds 0 \
+            --log-file "${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.log" \
+            -- bash "$cycle_script"
 
       - name: Проверить Ruff
         id: python_ruff
@@ -559,6 +641,7 @@ jobs:
               'tests.test_powershell_contracts'
               'tests.test_deploy_set'
               'tests.test_webui_deploy_settings'
+              'tests.test_persistence_contracts'
           )
           & $pythonExecutable @runnerArguments
           $runnerExitCode = $LASTEXITCODE
@@ -933,7 +1016,8 @@ jobs:
               tests.test_ocr_rpc_security \
               tests.test_ocr_rpc_runtime \
               tests.test_ocr_acceptance \
-              tests.test_opsi_zone_ocr_acceptance
+              tests.test_opsi_zone_ocr_acceptance \
+              tests.test_persistence_contracts
 
       - name: Установить закреплённый browser runner
         id: security_browser_install

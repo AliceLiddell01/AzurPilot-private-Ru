@@ -20,6 +20,11 @@ Workflow публикует три стабильных status contexts:
 
 Job выполняется на `ubuntu-24.04` с Python `3.14.6` и проверяет:
 
+- disposable PostgreSQL 18 service container: создание synthetic
+  least-privilege owner, Alembic `base → head → base → head`, single-head и
+  autogenerate check;
+- PostgreSQL repository integration, multiprocessing counters, transactions,
+  idempotency, conflict, health и redaction contracts;
 - для PR из веток `codex/translate-*` — fail-closed structural parity фактического
   `base→head` через `dev_tools/translation_structural_gate.py`, загруженный из
   точного PR base;
@@ -38,6 +43,9 @@ uv lock --check
 uv sync --locked --group ci
 uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 ```
+
+Локальный эквивалент PostgreSQL/Alembic-цикла описан в
+[`postgresql-storage-foundation.md`](postgresql-storage-foundation.md#alembic).
 
 Job `Python` не содержит ручного реестра модулей: `pytest` автоматически собирает весь каталог `tests/`. Тесты, которым требуется реальное устройство, эмулятор или игровой аккаунт, должны проверять только локальный контракт либо оставаться в `tools/acceptance/`.
 
@@ -119,6 +127,8 @@ Job выполняется на `windows-latest` с PowerShell и Python `3.14.6
 - парсит каждый tracked `.ps1` и `.psm1` через PowerShell Parser;
 - запускает PSScriptAnalyzer `1.25.0` с уровнями `Error` и `Warning`;
 - выполняет Windows-регрессии WebUI, device acceptance contract и эксплуатационных PowerShell-скриптов;
+- импортирует SQLAlchemy/Psycopg/Alembic wheels на Python 3.14 и проверяет
+  lazy engine, PID/spawn, pool, config и redaction без сетевого подключения;
 - требует чистое рабочее дерево.
 
 Локальные проверки должны выполняться через `pwsh`, а не через Windows PowerShell 5.1. Правила написания Git-команд находятся в `.codex/context/POWERSHELL-GIT-RULES.md`.
@@ -129,6 +139,8 @@ Job выполняется на `ubuntu-24.04` и проверяет:
 
 - текущие исходники и диапазон коммитов PR через Gitleaks `8.30.1` с проверкой SHA256 загружаемого архива;
 - новые файлы, архивы, бинарные данные и repository hygiene;
+- storage architecture, отсутствие SQLite fallback/production wiring,
+  bounded schema metadata и безопасное преобразование DB errors;
 - security/privacy regressions устройства, OCR RPC, debug output и traceback rendering, включая loopback-only RPC, безопасный wire format без pickle, bounded payload, model/batch/candidate limits, debug opt-in, retention, cleanup и symlink/reparse protection;
 - DOM-безопасность WebUI через закреплённый browser runner;
 - отсутствие изменений рабочего дерева после проверок.

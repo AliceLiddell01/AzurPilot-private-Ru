@@ -1,0 +1,78 @@
+"""Транспортно-независимый прикладной слой AzurPilot.
+
+Импорт пакета намеренно не создаёт runtime-объекты и не читает конфигурацию.
+Legacy-адаптеры подключаются вызывающей стороной явно.
+"""
+
+from module.application.errors import (
+    ApplicationError,
+    IncompatibleSchemaError,
+    InvalidRequestError,
+    ResourceNotFoundError,
+    ServiceUnavailableError,
+    StorageAuthenticationError,
+    StorageConfigurationError,
+    StorageConflictError,
+    StorageError,
+    StorageInvalidDataError,
+    StorageUnavailableError,
+)
+from module.application.models import (
+    InstanceReference,
+    InstanceStatus,
+    RuntimeState,
+    TaskArgumentMetadata,
+    TaskGroupMetadata,
+    TaskMetadata,
+    TaskOption,
+    TaskSummary,
+)
+from module.application.services import InstanceQueryService, TaskCatalogService
+from module.application.storage_models import (
+    CommissionIncome,
+    CommissionItem,
+    ImportBatch,
+    ImportBatchStatus,
+    InstanceIdentity,
+    MonthlyAggregate,
+    MonthlyMetric,
+    OpsiItemEvent,
+    ResourceSnapshot,
+    StorageHealth,
+    StorageHealthState,
+)
+
+__all__ = (
+    "ApplicationError",
+    "CommissionIncome",
+    "CommissionItem",
+    "ImportBatch",
+    "ImportBatchStatus",
+    "IncompatibleSchemaError",
+    "InstanceIdentity",
+    "InstanceQueryService",
+    "InstanceReference",
+    "InstanceStatus",
+    "InvalidRequestError",
+    "MonthlyAggregate",
+    "MonthlyMetric",
+    "OpsiItemEvent",
+    "ResourceNotFoundError",
+    "ResourceSnapshot",
+    "RuntimeState",
+    "ServiceUnavailableError",
+    "StorageAuthenticationError",
+    "StorageConfigurationError",
+    "StorageConflictError",
+    "StorageError",
+    "StorageHealth",
+    "StorageHealthState",
+    "StorageInvalidDataError",
+    "StorageUnavailableError",
+    "TaskArgumentMetadata",
+    "TaskCatalogService",
+    "TaskGroupMetadata",
+    "TaskMetadata",
+    "TaskOption",
+    "TaskSummary",
+)
