@@ -103,3 +103,9 @@ PostgreSQL-адаптеры — `module.persistence`. Типы SQLAlchemy/Psycop
 Schema изменяется только явной Alembic-командой. До отдельного этапа cutover
 игровые, WebUI и MCP consumers продолжают использовать legacy SQLite/JSON и не
 импортируют `module.persistence`; тихий fallback и dual-write запрещены.
+
+Offline migration pipeline проходит через application-owned порты. Legacy
+SQLite/JSON adapters живут только в `module.persistence.legacy`, открывают
+source read-only и path-bounded; PostgreSQL target пишет bounded chunks и затем
+проверяет import ledger вместе с фактическими domain rows. Этот pipeline не
+является runtime backend и не запускается из production entry points.

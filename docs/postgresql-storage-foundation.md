@@ -16,8 +16,10 @@ SQLAlchemy Core → Psycopg sync driver → PostgreSQL
 ```
 
 `module/application/` не импортирует SQLAlchemy, Psycopg или Alembic.
-`module/persistence/` не импортирует SQLite и не открывает соединение при
-импорте. Существующие `module/statistics/` и WebUI/MCP consumers продолжают
+Основные `module/persistence/` adapters не импортируют SQLite и не открывают
+соединение при импорте. Узкое исключение — `module.persistence.legacy`: это
+strictly read-only offline adapter Stage 3, который не импортируется production
+consumers. Существующие `module/statistics/` и WebUI/MCP consumers продолжают
 использовать прежние SQLite/JSON пути. Silent fallback между backend запрещён.
 
 ## Schema v1
@@ -117,7 +119,8 @@ typed ошибки без DSN, SQL и внутренних DBAPI сообщен�
 
 ## Границы следующих этапов
 
-Stage 3 реализует read-only legacy parsers, importer и reconciliation. Stage 4
-владеет provisioning, backup, maintenance cutover и переключением production
-consumers. До Stage 4 новая foundation не читает пользовательские SQLite/JSON,
-не создаёт role/database на startup, не делает dual-write и не меняет WSL HBA.
+Stage 3 реализует только явно запускаемые read-only legacy parsers, importer и
+reconciliation, описанные в `postgresql-migration-tooling.md`. Stage 4 владеет
+provisioning, backup, maintenance cutover и переключением production consumers.
+До Stage 4 runtime не читает SQLite/JSON через новую foundation, не создаёт
+role/database на startup, не делает dual-write и не меняет WSL HBA.

@@ -26,6 +26,7 @@ class ImportBatchStatus(StrEnum):
 class MonthlyMetric(StrEnum):
     BATTLE_COUNT = "battle_count"
     AKASHI_ENCOUNTERS = "akashi_encounters"
+    AKASHI_AP = "akashi_ap"
     MEOW_BATTLE_RAW_COUNT = "meow_battle_raw_count"
     MEOW_BATTLE_COUNT = "meow_battle_count"
 

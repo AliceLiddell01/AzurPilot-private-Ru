@@ -23,6 +23,9 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
 - disposable PostgreSQL 18 service container: создание synthetic
   least-privilege owner, Alembic `base → head → base → head`, single-head и
   autogenerate check;
+- offline migration importer на sanitized legacy fixtures, semantic
+  reconciliation реальных domain rows, repeat zero-delta и custom-format
+  `pg_dump`/`pg_restore` в отдельную disposable scratch database;
 - PostgreSQL repository integration, multiprocessing counters, transactions,
   idempotency, conflict, health и redaction contracts;
 - для PR из веток `codex/translate-*` — fail-closed structural parity фактического
@@ -46,6 +49,8 @@ uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 
 Локальный эквивалент PostgreSQL/Alembic-цикла описан в
 [`postgresql-storage-foundation.md`](postgresql-storage-foundation.md#alembic).
+Контракт Stage 3 importer и rehearsal описан в
+[`postgresql-migration-tooling.md`](postgresql-migration-tooling.md).
 
 Job `Python` не содержит ручного реестра модулей: `pytest` автоматически собирает весь каталог `tests/`. Тесты, которым требуется реальное устройство, эмулятор или игровой аккаунт, должны проверять только локальный контракт либо оставаться в `tools/acceptance/`.
 

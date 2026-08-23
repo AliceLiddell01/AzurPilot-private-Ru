@@ -78,12 +78,13 @@ class PersistenceArchitectureTests(unittest.TestCase):
             )
             self.assertFalse(_imports_prefix(path, "module.persistence"), path)
 
-    def test_persistence_boundary_never_imports_sqlite(self):
+    def test_persistence_boundary_uses_sqlite_only_in_offline_legacy_adapter(self):
         paths = tuple(PERSISTENCE_ROOT.rglob("*.py"))
         self.assertTrue(paths, PERSISTENCE_ROOT)
         for path in paths:
             source = path.read_text(encoding="utf-8")
-            self.assertFalse(_imports_prefix(path, "sqlite3"), path)
+            if not path.is_relative_to(PERSISTENCE_ROOT / "legacy"):
+                self.assertFalse(_imports_prefix(path, "sqlite3"), path)
             self.assertNotIn("create_all(", source, path)
             if path.name == "repositories.py":
                 self.assertNotIn(".commit(", source, path)
@@ -119,9 +120,7 @@ assert 'sqlite3' not in sys.modules
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_destructive_migration_requires_disposable_opt_in(self):
-        migration = next(
-            (ROOT / "migrations" / "versions").glob("0001_*.py"), None
-        )
+        migration = next((ROOT / "migrations" / "versions").glob("0001_*.py"), None)
         self.assertIsNotNone(migration, "миграция 0001_* не найдена")
         spec = importlib.util.spec_from_file_location(
             "storage_foundation_migration", migration
@@ -418,10 +417,7 @@ class SchemaMetadataTests(unittest.TestCase):
             all(table.schema == SCHEMA_NAME for table in metadata.tables.values())
         )
         self.assertFalse(
-            any(
-                "event_observation" in table.name
-                for table in metadata.tables.values()
-            )
+            any("event_observation" in table.name for table in metadata.tables.values())
         )
 
     def test_import_counters_cannot_exceed_record_count(self):
@@ -456,23 +452,30 @@ class SchemaMetadataTests(unittest.TestCase):
         expected = {metric.value for metric in MonthlyMetric}
         constraint = next(
             item
-            for item in metadata.tables[
-                f"{SCHEMA_NAME}.monthly_aggregate"
-            ].constraints
+            for item in metadata.tables[f"{SCHEMA_NAME}.monthly_aggregate"].constraints
             if item.name == "ck_monthly_aggregate_metric_allowed"
         )
         self.assertEqual(
             set(re.findall(r"'([^']+)'", str(constraint.sqltext))), expected
         )
 
-        migration = next((ROOT / "migrations" / "versions").glob("0001_*.py"))
-        source = migration.read_text(encoding="utf-8")
-        expression = re.search(r'"metric IN \(([^"]+)\)"', source)
-        self.assertIsNotNone(expression)
-        assert expression is not None
-        self.assertEqual(
-            set(re.findall(r"'([^']+)'", expression.group(1))), expected
+        migrations = sorted((ROOT / "migrations" / "versions").glob("[0-9]*.py"))
+        migration = migrations[-1]
+        tree = ast.parse(migration.read_text(encoding="utf-8"))
+        upgrade = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
         )
+        expressions = [
+            node.value
+            for node in ast.walk(upgrade)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith("metric IN (")
+        ]
+        self.assertTrue(expressions)
+        self.assertEqual(set(re.findall(r"'([^']+)'", expressions[0])), expected)
 
     def test_json_is_limited_to_quarantine_metadata(self):
         json_columns = {
