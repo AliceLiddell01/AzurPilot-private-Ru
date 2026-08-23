@@ -163,6 +163,31 @@ def test_production_runtime_round_trip_uses_typed_atomic_commands(database: Lazy
     )[0].amount == 10
 
 
+def test_runtime_retry_and_empty_commission_event_are_preserved(
+    database: LazyEngine, monkeypatch: pytest.MonkeyPatch
+):
+    observed_at = datetime(2026, 8, 23, 12, 30, 15, tzinfo=UTC)
+    monkeypatch.setattr(
+        RuntimeStorageService,
+        "_observation_instant",
+        staticmethod(lambda: observed_at),
+    )
+    service = RuntimeStorageService(lambda: PostgresUnitOfWork(database))
+    instance = f"runtime-{uuid4()}"
+
+    assert service.record_commission_income(instance, {"Cube": 2})
+    assert not service.record_commission_income(instance, {"Cube": 2})
+    assert service.record_commission_income(instance, {"Cube": 0}, commission_count=2)
+
+    entries = service.commission_entries(
+        instance,
+        start=observed_at - timedelta(seconds=1),
+        end=observed_at + timedelta(seconds=1),
+    )
+    assert len(entries) == 2
+    assert any(entry.commission_count == 2 and not entry.items for entry in entries)
+
+
 def test_runtime_role_can_use_data_but_cannot_change_schema_or_roles(database: LazyEngine):
     with database.get().begin() as connection:
         assert connection.execute(select(func.count()).select_from(app_instance)).scalar_one() >= 0

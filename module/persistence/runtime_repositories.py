@@ -517,7 +517,7 @@ class PostgresRuntimeStatisticsRepository:
                     commission_income_item.c.amount,
                 )
                 .select_from(
-                    commission_income_event.join(
+                    commission_income_event.outerjoin(
                         commission_income_item,
                         commission_income_event.c.id == commission_income_item.c.event_id,
                     )
@@ -537,7 +537,10 @@ class PostgresRuntimeStatisticsRepository:
         for row in rows:
             if row.id not in grouped:
                 grouped[row.id] = (row.observed_at, row.commission_count, [])
-            grouped[row.id][2].append(CommissionItem(row.item_code, int(row.amount)))
+            if row.item_code is not None and row.amount is not None:
+                grouped[row.id][2].append(
+                    CommissionItem(row.item_code, int(row.amount))
+                )
         entries = tuple(
             CommissionEntry(observed_at, count, tuple(items))
             for observed_at, count, items in grouped.values()

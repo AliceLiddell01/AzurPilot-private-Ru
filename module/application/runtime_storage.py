@@ -223,6 +223,12 @@ class RuntimeStorageService:
 
         return datetime.now(self._timezone)
 
+    @staticmethod
+    def _observation_instant() -> datetime:
+        """Вернуть стабильную границу секунды для payload и idempotency key."""
+
+        return datetime.now(UTC).replace(microsecond=0)
+
     def _month_range(self, year: int, month: int) -> tuple[datetime, datetime]:
         start = datetime(year, month, 1, tzinfo=self._timezone)
         if month == 12:
@@ -309,7 +315,7 @@ class RuntimeStorageService:
     def record_ap_purchase(
         self, instance: str, amount: int, base_amount: int, purchase_count: int, source: str
     ) -> bool:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
 
         def operation(uow: RuntimeStorageUnitOfWork, identity_id: UUID) -> bool:
             inserted = uow.runtime.append_ap_purchase(
@@ -346,7 +352,7 @@ class RuntimeStorageService:
         distance: int | None = None,
         ap_total: int | None = None,
     ) -> bool:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
 
         def operation(uow: RuntimeStorageUnitOfWork, identity_id: UUID) -> bool:
             yellow = uow.runtime.last_currency_amount(identity_id, "yellow_coin") or 0
@@ -376,7 +382,7 @@ class RuntimeStorageService:
     def record_currency_snapshot(
         self, instance: str, currency_code: str, amount: int, *, source: str
     ) -> bool:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
 
         def operation(uow: RuntimeStorageUnitOfWork, identity_id: UUID) -> bool:
             previous = uow.runtime.last_currency_amount(identity_id, currency_code)
@@ -403,7 +409,7 @@ class RuntimeStorageService:
         purple_coins: int | None,
         source: str,
     ) -> bool:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
 
         def operation(uow: RuntimeStorageUnitOfWork, identity_id: UUID) -> bool:
             values = (("yellow_coin", int(yellow_coins)),)
@@ -452,7 +458,7 @@ class RuntimeStorageService:
     def record_meow_timing(
         self, instance: str, sample_kind: str, duration_seconds: Decimal, hazard_level: int | None
     ) -> bool:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
         sample = MeowTimingSample(observed_at, sample_kind, duration_seconds, hazard_level)
         return self._run(
             instance,
@@ -472,7 +478,7 @@ class RuntimeStorageService:
     def record_siren_research_device(
         self, instance: str, *, source: str, hazard_level: int | None
     ) -> bool:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
         return self._run(
             instance,
             lambda uow, identity_id: uow.runtime.record_siren_research_device(
@@ -494,7 +500,7 @@ class RuntimeStorageService:
         return self._run(instance, lambda uow, identity_id: uow.runtime.get_ap_notification(identity_id))
 
     def set_ap_notification(self, instance: str, value: int) -> ApNotification:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
         return self._run(
             instance,
             lambda uow, identity_id: uow.runtime.set_ap_notification(
@@ -505,7 +511,7 @@ class RuntimeStorageService:
     def record_commission_income(
         self, instance: str, items: dict[str, int], commission_count: int = 1
     ) -> bool:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
 
         def operation(uow: RuntimeStorageUnitOfWork, identity_id: UUID) -> bool:
             income = CommissionIncome(
@@ -556,7 +562,7 @@ class RuntimeStorageService:
         return value.astimezone(self._timezone)
 
     def record_resource_snapshot(self, instance: str, resources: dict[str, int | None]) -> bool:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
         snapshot = ResourceSnapshot(
             id=uuid4(),
             instance_id=UUID(int=0),
@@ -585,7 +591,7 @@ class RuntimeStorageService:
         )
 
     def record_opsi_items(self, instance: str, rows: tuple[dict[str, object], ...]) -> int:
-        observed_at = datetime.now(UTC)
+        observed_at = self._observation_instant()
 
         def operation(uow: RuntimeStorageUnitOfWork, identity_id: UUID) -> int:
             inserted = 0
