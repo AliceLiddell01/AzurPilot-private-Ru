@@ -83,5 +83,7 @@ class PostgresUnitOfWork:
                 except DBAPIError as error:
                     cleanup_error = translate_database_error(error)
                 self._connection = None
+                for attribute in ("instances", "statistics", "imports"):
+                    self.__dict__.pop(attribute, None)
         if exc_type is None and cleanup_error is not None:
             raise cleanup_error

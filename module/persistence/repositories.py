@@ -54,6 +54,12 @@ def _digest(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _semantic_values(values: dict[str, object]) -> dict[str, object]:
+    """Исключает surrogate identity из idempotency payload."""
+
+    return {key: value for key, value in values.items() if key != "id"}
+
+
 def _sha256_digest(value: str, *, label: str) -> str:
     if len(value) != 64 or any(
         character not in "0123456789abcdef" for character in value
@@ -196,6 +202,7 @@ class PostgresStatisticsRepository:
 
     def append_resource_snapshot(self, snapshot: ResourceSnapshot) -> bool:
         _bounded(snapshot.idempotency_key, label="idempotency_key", maximum=128)
+        _bounded(snapshot.source, label="source", maximum=64)
         if any(
             value is not None and value < 0
             for value in (getattr(snapshot, name) for name in RESOURCE_COLUMNS)
@@ -204,7 +211,7 @@ class PostgresStatisticsRepository:
                 "Resource values не могут быть отрицательными."
             )
         values = asdict(snapshot)
-        digest = _digest(values)
+        digest = _digest(_semantic_values(values))
         values["payload_digest"] = digest
         try:
             inserted = self._connection.execute(
@@ -271,7 +278,7 @@ class PostgresStatisticsRepository:
                 "Opsi combat count не может быть отрицательным."
             )
         values = asdict(event)
-        digest = _digest(values)
+        digest = _digest(_semantic_values(values))
         values["payload_digest"] = digest
         return self._append_with_digest(
             opsi_item_event, values, event.idempotency_key, digest
@@ -279,6 +286,7 @@ class PostgresStatisticsRepository:
 
     def record_commission_income(self, income: CommissionIncome) -> bool:
         _bounded(income.idempotency_key, label="idempotency_key", maximum=128)
+        _bounded(income.source, label="source", maximum=64)
         if income.commission_count < 1 or not income.items:
             raise StorageInvalidDataError("Commission income должен содержать items.")
         if len({item.item_code for item in income.items}) != len(income.items):
@@ -289,7 +297,7 @@ class PostgresStatisticsRepository:
                 raise StorageInvalidDataError(
                     "Commission amount не может быть отрицательным."
                 )
-        digest = _digest(asdict(income))
+        digest = _digest(_semantic_values(asdict(income)))
         header = {key: value for key, value in asdict(income).items() if key != "items"}
         header["payload_digest"] = digest
         try:

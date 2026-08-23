@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_ROOT = ROOT / "module" / "application"
 FORBIDDEN_IMPORT_ROOTS = {"fastapi", "mcp", "pywebio", "starlette"}
@@ -43,6 +42,7 @@ for name in (
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
+        check=False,
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -79,14 +79,25 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
         and isinstance(node.args[0].value, str)
     }
     handler_assignment = next(
-        node
-        for node in mcp_tree.body
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == "TOOL_HANDLERS"
-            for target in node.targets
-        )
+        (
+            node
+            for node in mcp_tree.body
+            if (
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "TOOL_HANDLERS"
+                    for target in node.targets
+                )
+            )
+            or (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "TOOL_HANDLERS"
+            )
+        ),
+        None,
     )
+    assert handler_assignment is not None, mcp_path
     assert isinstance(handler_assignment.value, ast.Dict)
     handler_names = {
         key.value

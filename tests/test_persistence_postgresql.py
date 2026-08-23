@@ -41,7 +41,8 @@ REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_USER",
 )
 pytestmark = pytest.mark.skipif(
-    any(not os.environ.get(name) for name in REQUIRED_ENV),
+    any(not os.environ.get(name) for name in REQUIRED_ENV)
+    or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
     reason="требуется явно настроенная disposable PostgreSQL Stage 2 DB",
 )
 
@@ -239,7 +240,9 @@ def test_idempotent_snapshot_conflict_and_deterministic_timeline(database: LazyE
         assert uow.statistics.append_resource_snapshot(first) is True
         uow.commit()
     with PostgresUnitOfWork(database) as uow:
-        assert uow.statistics.append_resource_snapshot(first) is False
+        assert (
+            uow.statistics.append_resource_snapshot(replace(first, id=uuid4())) is False
+        )
         uow.commit()
     with PostgresUnitOfWork(database) as uow, pytest.raises(StorageConflictError):
         uow.statistics.append_resource_snapshot(replace(first, id=uuid4(), oil=11))
@@ -273,6 +276,7 @@ def test_unit_of_work_tracks_transactions_after_commit(database: LazyEngine):
         uow.commit()
     with PostgresUnitOfWork(database) as uow:
         assert len(uow.statistics.resource_timeline(instance_id, limit=10)) == 2
+    assert not hasattr(uow, "statistics")
 
 
 def test_versioned_state_and_commission_rollback(database: LazyEngine):
@@ -322,6 +326,9 @@ def test_versioned_state_and_commission_rollback(database: LazyEngine):
     with PostgresUnitOfWork(database) as uow:
         assert uow.statistics.record_commission_income(income)
         uow.commit()
+    with PostgresUnitOfWork(database) as uow:
+        assert not uow.statistics.record_commission_income(replace(income, id=uuid4()))
+        uow.commit()
     with database.get().connect() as connection:
         assert (
             connection.scalar(select(func.count()).select_from(commission_income_event))
@@ -350,7 +357,7 @@ def test_opsi_event_and_import_ledger_semantics(database: LazyEngine):
         assert uow.statistics.append_opsi_item_event(event)
         uow.commit()
     with PostgresUnitOfWork(database) as uow:
-        assert not uow.statistics.append_opsi_item_event(event)
+        assert not uow.statistics.append_opsi_item_event(replace(event, id=uuid4()))
         uow.commit()
 
     batch = ImportBatch(
@@ -378,6 +385,11 @@ def test_opsi_event_and_import_ledger_semantics(database: LazyEngine):
 
 def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
     with database.get().begin() as connection:
+        original_heads = tuple(
+            connection.execute(text("SELECT version_num FROM alembic_version"))
+            .scalars()
+            .all()
+        )
         connection.execute(
             text("UPDATE alembic_version SET version_num = 'wrong_head'")
         )
@@ -397,8 +409,8 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
     finally:
         with database.get().begin() as connection:
             connection.execute(text("DELETE FROM alembic_version"))
-            connection.execute(
-                text(
-                    "INSERT INTO alembic_version(version_num) VALUES ('0001_storage_foundation')"
+            for head in original_heads:
+                connection.execute(
+                    text("INSERT INTO alembic_version(version_num) VALUES (:head)"),
+                    {"head": head},
                 )
-            )

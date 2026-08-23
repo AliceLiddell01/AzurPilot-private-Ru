@@ -20,6 +20,9 @@ Workflow публикует три стабильных status contexts:
 
 Job выполняется на `ubuntu-24.04` с Python `3.14.6` и проверяет:
 
+Локальный эквивалент PostgreSQL/Alembic-цикла описан в
+[`postgresql-storage-foundation.md`](postgresql-storage-foundation.md#alembic).
+
 - disposable PostgreSQL 18 service container: создание synthetic
   least-privilege owner, Alembic `base → head → base → head`, single-head и
   autogenerate check;

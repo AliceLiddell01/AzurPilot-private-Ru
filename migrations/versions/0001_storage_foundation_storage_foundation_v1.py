@@ -2,7 +2,7 @@
 
 Revision ID: 0001_storage_foundation
 Revises:
-Create Date: 2026-08-23 06:18:56.214578
+Create Date: 2026-08-23 07:01:03.961161
 """
 
 from collections.abc import Sequence
@@ -71,7 +71,7 @@ def upgrade() -> None:
         sa.Column("notified_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("legacy_timestamp_text", sa.String(length=64), nullable=True),
         sa.Column("legacy_timezone", sa.String(length=64), nullable=True),
-        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("version", sa.Integer(), server_default="1", nullable=False),
         sa.CheckConstraint(
             "last_ap >= 0", name=op.f("ck_ap_notification_state_last_ap_nonnegative")
         ),
@@ -123,7 +123,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_cl1_ap_purchase_instance_observed",
         "cl1_ap_purchase_event",
-        ["instance_id", sa.literal_column("observed_at DESC")],
+        ["instance_id", sa.literal_column("observed_at DESC NULLS LAST")],
         unique=False,
         schema="azurpilot",
     )
@@ -165,7 +165,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_cl1_ap_snapshot_instance_observed",
         "cl1_ap_snapshot",
-        ["instance_id", sa.literal_column("observed_at DESC")],
+        ["instance_id", sa.literal_column("observed_at DESC NULLS LAST")],
         unique=False,
         schema="azurpilot",
     )
@@ -203,7 +203,11 @@ def upgrade() -> None:
     op.create_index(
         "ix_cl1_currency_instance_code_observed",
         "cl1_currency_snapshot",
-        ["instance_id", "currency_code", sa.literal_column("observed_at DESC")],
+        [
+            "instance_id",
+            "currency_code",
+            sa.literal_column("observed_at DESC NULLS LAST"),
+        ],
         unique=False,
         schema="azurpilot",
     )
@@ -241,7 +245,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_commission_income_instance_observed",
         "commission_income_event",
-        ["instance_id", sa.literal_column("observed_at DESC")],
+        ["instance_id", sa.literal_column("observed_at DESC NULLS LAST")],
         unique=False,
         schema="azurpilot",
     )
@@ -264,7 +268,7 @@ def upgrade() -> None:
             name=op.f("ck_import_record_payload_digest_sha256"),
         ),
         sa.CheckConstraint(
-            "quarantine_metadata IS NULL OR pg_column_size(quarantine_metadata) <= 8192",
+            "quarantine_metadata IS NULL OR octet_length(quarantine_metadata::text) <= 8192",
             name=op.f("ck_import_record_quarantine_metadata_bounded"),
         ),
         sa.ForeignKeyConstraint(
@@ -315,6 +319,10 @@ def upgrade() -> None:
         ),
         sa.Column("source", sa.String(length=64), nullable=False),
         sa.CheckConstraint(
+            "month = date_trunc('month', month)::date",
+            name=op.f("ck_meow_hazard_aggregate_month_first_day"),
+        ),
+        sa.CheckConstraint(
             "hazard_level BETWEEN 1 AND 6",
             name=op.f("ck_meow_hazard_aggregate_hazard_level_range"),
         ),
@@ -352,6 +360,10 @@ def upgrade() -> None:
         ),
         sa.Column("hazard_level", sa.Integer(), nullable=True),
         sa.Column("source", sa.String(length=64), nullable=False),
+        sa.CheckConstraint(
+            "month = date_trunc('month', month)::date",
+            name=op.f("ck_meow_timing_sample_month_first_day"),
+        ),
         sa.CheckConstraint(
             "payload_digest ~ '^[0-9a-f]{64}$'",
             name=op.f("ck_meow_timing_sample_payload_digest_sha256"),
@@ -399,6 +411,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "metric IN ('battle_count', 'akashi_encounters', 'meow_battle_raw_count', 'meow_battle_count')",
             name=op.f("ck_monthly_aggregate_metric_allowed"),
+        ),
+        sa.CheckConstraint(
+            "month = date_trunc('month', month)::date",
+            name=op.f("ck_monthly_aggregate_month_first_day"),
         ),
         sa.CheckConstraint(
             "source_digest IS NULL OR source_digest ~ '^[0-9a-f]{64}$'",
@@ -485,7 +501,7 @@ def upgrade() -> None:
         sa.Column("instance_id", sa.Uuid(), nullable=False),
         sa.Column("resource_code", sa.String(length=32), nullable=False),
         sa.Column("value", sa.BigInteger(), nullable=False),
-        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("version", sa.Integer(), server_default="1", nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
             "value >= 0", name=op.f("ck_resource_current_state_value_nonnegative")
@@ -592,7 +608,7 @@ def upgrade() -> None:
         "resource_snapshot",
         [
             "instance_id",
-            sa.literal_column("observed_at DESC"),
+            sa.literal_column("observed_at DESC NULLS LAST"),
             sa.literal_column("id DESC"),
         ],
         unique=False,
@@ -610,7 +626,7 @@ def upgrade() -> None:
         sa.Column("source", sa.String(length=16), nullable=False),
         sa.Column("hazard_level", sa.Integer(), nullable=True),
         sa.CheckConstraint(
-            "(source = 'cl1' AND hazard_level IS NULL) OR (source = 'meow' AND hazard_level BETWEEN 1 AND 6)",
+            "(source = 'cl1' AND hazard_level IS NULL) OR (source = 'meow' AND hazard_level IS NOT NULL AND hazard_level BETWEEN 1 AND 6)",
             name=op.f("ck_siren_research_device_event_source_hazard_consistent"),
         ),
         sa.CheckConstraint(
@@ -637,7 +653,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_siren_device_event_instance_observed",
         "siren_research_device_event",
-        ["instance_id", sa.literal_column("observed_at DESC")],
+        ["instance_id", sa.literal_column("observed_at DESC NULLS LAST")],
         unique=False,
         schema="azurpilot",
     )
@@ -651,6 +667,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "(source = 'cl1' AND hazard_level = 0) OR (source = 'meow' AND hazard_level BETWEEN 1 AND 6)",
             name=op.f("ck_siren_research_device_stat_source_hazard_consistent"),
+        ),
+        sa.CheckConstraint(
+            "month = date_trunc('month', month)::date",
+            name=op.f("ck_siren_research_device_stat_month_first_day"),
         ),
         sa.CheckConstraint(
             "source IN ('cl1', 'meow')",

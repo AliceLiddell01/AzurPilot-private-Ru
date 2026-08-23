@@ -110,7 +110,8 @@ import_record = Table(
     PrimaryKeyConstraint("batch_id", "source_object", "source_locator"),
     CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="payload_digest_sha256"),
     CheckConstraint(
-        "quarantine_metadata IS NULL OR pg_column_size(quarantine_metadata) <= 8192",
+        "quarantine_metadata IS NULL OR "
+        "octet_length(quarantine_metadata::text) <= 8192",
         name="quarantine_metadata_bounded",
     ),
 )
@@ -132,6 +133,7 @@ monthly_aggregate = Table(
         name="metric_allowed",
     ),
     CheckConstraint("value >= 0", name="value_nonnegative"),
+    CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
     CheckConstraint("version >= 1", name="version_positive"),
     CheckConstraint(
         "source_digest IS NULL OR source_digest ~ '^[0-9a-f]{64}$'",
@@ -176,7 +178,7 @@ resource_snapshot = Table(
 Index(
     "ix_resource_snapshot_instance_observed_id",
     resource_snapshot.c.instance_id,
-    resource_snapshot.c.observed_at.desc(),
+    resource_snapshot.c.observed_at.desc().nulls_last(),
     resource_snapshot.c.id.desc(),
 )
 
@@ -248,7 +250,7 @@ cl1_ap_snapshot = Table(
 Index(
     "ix_cl1_ap_snapshot_instance_observed",
     cl1_ap_snapshot.c.instance_id,
-    cl1_ap_snapshot.c.observed_at.desc(),
+    cl1_ap_snapshot.c.observed_at.desc().nulls_last(),
 )
 
 cl1_ap_purchase_event = Table(
@@ -275,7 +277,7 @@ cl1_ap_purchase_event = Table(
 Index(
     "ix_cl1_ap_purchase_instance_observed",
     cl1_ap_purchase_event.c.instance_id,
-    cl1_ap_purchase_event.c.observed_at.desc(),
+    cl1_ap_purchase_event.c.observed_at.desc().nulls_last(),
 )
 
 cl1_currency_snapshot = Table(
@@ -299,7 +301,7 @@ Index(
     "ix_cl1_currency_instance_code_observed",
     cl1_currency_snapshot.c.instance_id,
     cl1_currency_snapshot.c.currency_code,
-    cl1_currency_snapshot.c.observed_at.desc(),
+    cl1_currency_snapshot.c.observed_at.desc().nulls_last(),
 )
 
 commission_income_event = Table(
@@ -321,7 +323,7 @@ commission_income_event = Table(
 Index(
     "ix_commission_income_instance_observed",
     commission_income_event.c.instance_id,
-    commission_income_event.c.observed_at.desc(),
+    commission_income_event.c.observed_at.desc().nulls_last(),
 )
 
 commission_income_item = Table(
@@ -358,6 +360,7 @@ meow_timing_sample = Table(
     CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="payload_digest_sha256"),
     CheckConstraint("sample_kind IN ('battle', 'round')", name="sample_kind_allowed"),
     CheckConstraint("duration_seconds >= 0", name="duration_nonnegative"),
+    CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
     CheckConstraint(
         "hazard_level IS NULL OR hazard_level BETWEEN 1 AND 6",
         name="hazard_level_range",
@@ -381,6 +384,7 @@ meow_hazard_aggregate = Table(
     Column("source", String(64), nullable=False),
     PrimaryKeyConstraint("instance_id", "month", "hazard_level"),
     CheckConstraint("hazard_level BETWEEN 1 AND 6", name="hazard_level_range"),
+    CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
     CheckConstraint(
         "raw_battle_count >= 0 AND effective_rounds >= 0",
         name="counts_nonnegative",
@@ -397,8 +401,10 @@ siren_research_device_stat = Table(
     Column("device_count", BigInteger, nullable=False),
     PrimaryKeyConstraint("instance_id", "month", "source", "hazard_level"),
     CheckConstraint("source IN ('cl1', 'meow')", name="source_allowed"),
+    CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
     CheckConstraint("hazard_level BETWEEN 0 AND 6", name="hazard_level_range"),
     CheckConstraint("device_count >= 0", name="device_count_nonnegative"),
+    # Aggregate CL1 records use 0 as an explicit all-hazards sentinel.
     CheckConstraint(
         "(source = 'cl1' AND hazard_level = 0) OR "
         "(source = 'meow' AND hazard_level BETWEEN 1 AND 6)",
@@ -421,16 +427,18 @@ siren_research_device_event = Table(
     UniqueConstraint("idempotency_key"),
     CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="payload_digest_sha256"),
     CheckConstraint("source IN ('cl1', 'meow')", name="source_allowed"),
+    # Individual CL1 events have no hazard, while Meow events require 1..6.
     CheckConstraint(
         "(source = 'cl1' AND hazard_level IS NULL) OR "
-        "(source = 'meow' AND hazard_level BETWEEN 1 AND 6)",
+        "(source = 'meow' AND hazard_level IS NOT NULL "
+        "AND hazard_level BETWEEN 1 AND 6)",
         name="source_hazard_consistent",
     ),
 )
 Index(
     "ix_siren_device_event_instance_observed",
     siren_research_device_event.c.instance_id,
-    siren_research_device_event.c.observed_at.desc(),
+    siren_research_device_event.c.observed_at.desc().nulls_last(),
 )
 
 ap_notification_state = Table(
@@ -441,7 +449,7 @@ ap_notification_state = Table(
     Column("notified_at", DateTime(timezone=True), nullable=True),
     Column("legacy_timestamp_text", String(64), nullable=True),
     Column("legacy_timezone", String(64), nullable=True),
-    Column("version", Integer, nullable=False),
+    Column("version", Integer, nullable=False, server_default="1"),
     CheckConstraint("last_ap >= 0", name="last_ap_nonnegative"),
     CheckConstraint("version >= 1", name="version_positive"),
 )
@@ -452,7 +460,7 @@ resource_current_state = Table(
     Column("instance_id", Uuid, _instance_fk(), nullable=False),
     Column("resource_code", String(32), nullable=False),
     Column("value", BigInteger, nullable=False),
-    Column("version", Integer, nullable=False),
+    Column("version", Integer, nullable=False, server_default="1"),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     PrimaryKeyConstraint("instance_id", "resource_code"),
     CheckConstraint("value >= 0", name="value_nonnegative"),

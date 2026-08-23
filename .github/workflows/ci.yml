@@ -33,6 +33,7 @@ jobs:
       AZURPILOT_POSTGRES_USER: azurpilot_ci
       AZURPILOT_POSTGRES_PASSWORD: stage2-app-${{ github.run_id }}-${{ github.run_attempt }}
       AZURPILOT_POSTGRES_SSLMODE: disable
+      AZURPILOT_POSTGRES_DISPOSABLE: "1"
     services:
       postgres:
         image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
@@ -155,17 +156,22 @@ jobs:
                       )
                   )
           PY
-          python tools/ci_heartbeat.py \
-            --label "Alembic base → head" \
-            --heartbeat-seconds 0 \
-            --log-file "${RUNNER_TEMP}/azurpilot-ci-python/alembic-upgrade.log" \
-            -- uv run --locked alembic upgrade head
+          cycle_script="${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.sh"
+          cat > "$cycle_script" <<'SH'
+          set -euo pipefail
+          uv run --locked alembic upgrade head
           uv run --locked alembic current --check-heads
           uv run --locked alembic check
           uv run --locked alembic downgrade base
           uv run --locked alembic upgrade head
           uv run --locked alembic current --check-heads
           uv run --locked alembic check
+          SH
+          python tools/ci_heartbeat.py \
+            --label "Полный Alembic cycle" \
+            --heartbeat-seconds 0 \
+            --log-file "${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.log" \
+            -- bash "$cycle_script"
 
       - name: Проверить Ruff
         id: python_ruff

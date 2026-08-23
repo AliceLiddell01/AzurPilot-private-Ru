@@ -1,4 +1,4 @@
-# PostgreSQL Storage Foundation
+# Основа хранения PostgreSQL
 
 ## Граница владения
 
@@ -65,6 +65,9 @@ Alembic — единственный schema-version mechanism. Приложен�
 ожидаемый head.
 
 Для явно disposable database:
+
+Integration-тесты дополнительно требуют явный test-only opt-in
+`AZURPILOT_POSTGRES_DISPOSABLE=1`; без него destructive fixture пропускается.
 
 ```text
 uv run --locked alembic upgrade head

@@ -67,10 +67,10 @@ class LazyEngine:
 
     def get(self) -> Engine:
         pid = self._pid_reader()
-        engine = self._engine
-        if engine is not None and self._pid == pid:
-            return engine
         with self._lock:
+            engine = self._engine
+            if engine is not None and self._pid == pid:
+                return engine
             if self._engine is not None and self._pid != pid:
                 # В дочернем процессе не закрываем соединения родительского PID.
                 self._engine.dispose(close=False)

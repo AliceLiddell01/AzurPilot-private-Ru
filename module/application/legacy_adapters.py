@@ -75,9 +75,11 @@ class GeneratedTaskCatalogAdapter:
         self,
         args_data: Mapping[str, Any],
         i18n_data: Mapping[str, Any],
+        *,
+        excluded_groups: frozenset[str] = frozenset({"Storage"}),
     ):
         tasks = tuple(
-            _project_task(task_name, task_data, i18n_data)
+            _project_task(task_name, task_data, i18n_data, excluded_groups)
             for task_name, task_data in args_data.items()
         )
         self._tasks = tasks
@@ -109,6 +111,7 @@ def _project_task(
     task_name: str,
     task_data: object,
     i18n_data: Mapping[str, Any],
+    excluded_groups: frozenset[str],
 ) -> TaskMetadata:
     groups_data = _mapping(task_data, f"task {task_name}")
     task_i18n = _mapping(
@@ -119,7 +122,7 @@ def _project_task(
     groups = tuple(
         _project_group(group_name, group_data, spec_i18n)
         for group_name, group_data in groups_data.items()
-        if group_name != "Storage"
+        if group_name not in excluded_groups
     )
     return TaskMetadata(
         name=task_name,

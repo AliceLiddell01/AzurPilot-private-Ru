@@ -184,6 +184,7 @@ class DatabaseConfigurationTests(unittest.TestCase):
         mapped = translate_database_error(auth)
         self.assertIsInstance(mapped, StorageAuthenticationError)
         self.assertNotIn("do-not-show", str(mapped))
+        self.assertNotIn("hidden", str(mapped))
 
         unavailable = translate_database_error(RuntimeError("postgresql://secret"))
         self.assertIsInstance(unavailable, StorageUnavailableError)
@@ -237,6 +238,45 @@ class SchemaMetadataTests(unittest.TestCase):
             if column.type.__class__.__name__ in {"JSON", "JSONB"}
         }
         self.assertEqual(json_columns, {("import_record", "quarantine_metadata")})
+
+    def test_temporal_and_json_constraints_are_semantic(self):
+        for table_name in (
+            "monthly_aggregate",
+            "meow_timing_sample",
+            "meow_hazard_aggregate",
+            "siren_research_device_stat",
+        ):
+            constraints = {
+                constraint.name: str(constraint.sqltext)
+                for constraint in metadata.tables[
+                    f"{SCHEMA_NAME}.{table_name}"
+                ].constraints
+                if hasattr(constraint, "sqltext")
+            }
+            self.assertIn("date_trunc", constraints[f"ck_{table_name}_month_first_day"])
+
+        import_record_constraints = {
+            str(constraint.sqltext)
+            for constraint in metadata.tables[
+                f"{SCHEMA_NAME}.import_record"
+            ].constraints
+            if hasattr(constraint, "sqltext")
+        }
+        self.assertTrue(
+            any(
+                "octet_length" in expression for expression in import_record_constraints
+            )
+        )
+
+        for table in metadata.tables.values():
+            for index in table.indexes:
+                if (
+                    "observed" in str(index.name)
+                    and any(column.name == "observed_at" for column in index.columns)
+                    and table.c.observed_at.nullable
+                ):
+                    expressions = " ".join(str(item) for item in index.expressions)
+                    self.assertIn("NULLS LAST", expressions.upper())
 
 
 if __name__ == "__main__":
