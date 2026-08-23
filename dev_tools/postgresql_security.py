@@ -14,6 +14,7 @@ from dataclasses import dataclass
 class SecurityPosture:
     listener: str
     password_encryption: str
+    hba_is_active: bool
     rules: tuple[dict[str, object], ...]
 
 
@@ -35,6 +36,8 @@ def validate_posture(posture: SecurityPosture) -> None:
         raise SecurityPostureError("LISTENER_NOT_LOOPBACK_ONLY")
     if posture.password_encryption != "scram-sha-256":
         raise SecurityPostureError("PASSWORD_ENCRYPTION_NOT_SCRAM")
+    if posture.hba_is_active is not True:
+        raise SecurityPostureError("HBA_CONFIGURATION_NOT_RELOADED")
 
     local_postgres_peer_index: int | None = None
     local_all_scram_index: int | None = None
@@ -97,6 +100,8 @@ def _read_posture(distro: str) -> SecurityPosture:
 SELECT json_build_object(
   'listener', current_setting('listen_addresses'),
   'password_encryption', current_setting('password_encryption'),
+  'hba_is_active', pg_conf_load_time() >=
+    (pg_stat_file(current_setting('hba_file'))).modification,
   'rules', COALESCE((
     SELECT json_agg(json_build_object(
       'type', type,
@@ -152,6 +157,7 @@ SELECT json_build_object(
         return SecurityPosture(
             listener=str(payload["listener"]),
             password_encryption=str(payload["password_encryption"]),
+            hba_is_active=payload["hba_is_active"],
             rules=tuple(rules),
         )
     except (AttributeError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:

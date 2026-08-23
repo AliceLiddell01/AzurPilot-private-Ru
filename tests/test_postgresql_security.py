@@ -17,6 +17,7 @@ def _posture() -> SecurityPosture:
     return SecurityPosture(
         listener="localhost",
         password_encryption="scram-sha-256",
+        hba_is_active=True,
         rules=(
             {
                 "type": "local",
@@ -69,6 +70,10 @@ def test_security_posture_accepts_loopback_scram_contract():
         (
             replace(_posture(), password_encryption="md5"),
             "PASSWORD_ENCRYPTION_NOT_SCRAM",
+        ),
+        (
+            replace(_posture(), hba_is_active=False),
+            "HBA_CONFIGURATION_NOT_RELOADED",
         ),
         (
             replace(
