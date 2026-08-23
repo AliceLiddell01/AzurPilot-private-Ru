@@ -1725,7 +1725,9 @@ function Backup-ProductionPostgreSql {
         Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Каталог резервных копий PostgreSQL должен находиться вне репозитория.'
     }
 
-    if (Test-Path -LiteralPath $backupDirectory) {
+    $backupDirectoryCreated = -not (Test-Path -LiteralPath $backupDirectory)
+
+    if (-not $backupDirectoryCreated) {
         $backupItem = Get-Item -LiteralPath $backupDirectory -Force -ErrorAction Stop
 
         if ($backupItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
@@ -1734,7 +1736,7 @@ function Backup-ProductionPostgreSql {
     }
 
     New-Item -ItemType Directory -Path $backupDirectory -Force -ErrorAction Stop | Out-Null
-    Protect-PostgreSqlBackupDirectory -Path $backupDirectory
+    Protect-PostgreSqlBackupDirectory -Path $backupDirectory -CreatedByUpdater $backupDirectoryCreated
     $backupName = 'azurpilot-before-update-{0}.dump' -f (Get-Date -Format 'yyyyMMdd-HHmmss')
     $backupPath = Join-Path -Path $backupDirectory -ChildPath $backupName
     Invoke-PostgreSqlOperation -Arguments @(
@@ -1760,7 +1762,10 @@ function Protect-PostgreSqlBackupDirectory {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Path
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [bool]$CreatedByUpdater
     )
 
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -1773,11 +1778,12 @@ function Protect-PostgreSqlBackupDirectory {
         [System.Security.Principal.SecurityIdentifier]
     )
 
-    if ($currentOwner -ne $identity.User) {
+    if ($currentOwner -ne $identity.User -and -not $CreatedByUpdater) {
         Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Текущий пользователь не является владельцем каталога резервных копий PostgreSQL.'
     }
 
     $security = [System.Security.AccessControl.DirectorySecurity]::new()
+    $security.SetOwner($identity.User)
     $security.SetAccessRuleProtection($true, $false)
     $inheritance = (
         [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor

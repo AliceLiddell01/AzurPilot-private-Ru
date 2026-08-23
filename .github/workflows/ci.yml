@@ -206,6 +206,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/azurpilot-ci-python"
           export AZURPILOT_POSTGRES_USER="${CI_POSTGRES_MIGRATOR_USER}"
           export AZURPILOT_POSTGRES_PASSWORD="${CI_POSTGRES_MIGRATOR_PASSWORD}"
+          export AZURPILOT_POSTGRES_DISPOSABLE_USER="${CI_POSTGRES_MIGRATOR_USER}"
           export PGOPTIONS="-c role=${CI_POSTGRES_OWNER_USER}"
           cycle_script="${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.sh"
           cat > "$cycle_script" <<'SH'
@@ -226,6 +227,7 @@ jobs:
           unset PGOPTIONS
           export AZURPILOT_POSTGRES_USER="azurpilot_ci"
           export AZURPILOT_POSTGRES_PASSWORD="stage2-app-${{ github.run_id }}-${{ github.run_attempt }}"
+          export AZURPILOT_POSTGRES_DISPOSABLE_USER="azurpilot_ci"
           uv run --locked python - <<'PY'
           import os
           import psycopg
