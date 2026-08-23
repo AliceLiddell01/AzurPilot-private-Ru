@@ -81,6 +81,9 @@ Integration-тесты дополнительно требуют явный test
 Этот флаг является только подтверждением оператора и сам по себе не доказывает
 изоляцию БД. Destructive Alembic downgrade разрешён лишь для отдельной test-only
 БД с учётными данными, недоступными production deployments.
+Внешний Alembic entry point дополнительно требует точного совпадения фактических
+`HOST`, `PORT`, `DATABASE` и `USER` с отдельными переменными подтверждения
+`AZURPILOT_POSTGRES_DISPOSABLE_HOST`, `_PORT`, `_DATABASE` и `_USER`.
 
 Downgrade запрещено применять к пользовательской БД. Stage 2 CI выполняет цикл
 только в одноразовом PostgreSQL 18 service container.
@@ -96,6 +99,11 @@ AZURPILOT_POSTGRES_DATABASE
 AZURPILOT_POSTGRES_USER
 AZURPILOT_POSTGRES_PASSWORD   # optional при PGPASSFILE/libpq credential source
 AZURPILOT_POSTGRES_SSLMODE
+AZURPILOT_POSTGRES_DISPOSABLE          # только для test-only destructive runs
+AZURPILOT_POSTGRES_DISPOSABLE_HOST     # точное подтверждение target
+AZURPILOT_POSTGRES_DISPOSABLE_PORT
+AZURPILOT_POSTGRES_DISPOSABLE_DATABASE
+AZURPILOT_POSTGRES_DISPOSABLE_USER
 ```
 
 Если `SSLMODE` не задан, foundation проверяет TLS-сертификат и имя сервера

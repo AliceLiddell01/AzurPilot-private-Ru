@@ -34,6 +34,10 @@ jobs:
       AZURPILOT_POSTGRES_PASSWORD: stage2-app-${{ github.run_id }}-${{ github.run_attempt }}
       AZURPILOT_POSTGRES_SSLMODE: disable
       AZURPILOT_POSTGRES_DISPOSABLE: "1"
+      AZURPILOT_POSTGRES_DISPOSABLE_HOST: 127.0.0.1
+      AZURPILOT_POSTGRES_DISPOSABLE_PORT: "5432"
+      AZURPILOT_POSTGRES_DISPOSABLE_DATABASE: azurpilot_ci
+      AZURPILOT_POSTGRES_DISPOSABLE_USER: azurpilot_ci
     services:
       postgres:
         image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941

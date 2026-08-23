@@ -138,6 +138,25 @@ assert 'sqlite3' not in sys.modules
             migration_module.downgrade()
         drop_table.assert_not_called()
 
+        environment = {
+            "AZURPILOT_POSTGRES_DISPOSABLE": "1",
+            "AZURPILOT_POSTGRES_HOST": "127.0.0.1",
+            "AZURPILOT_POSTGRES_PORT": "5432",
+            "AZURPILOT_POSTGRES_DATABASE": "stage2_test",
+            "AZURPILOT_POSTGRES_USER": "stage2_test",
+            "AZURPILOT_POSTGRES_DISPOSABLE_HOST": "127.0.0.1",
+            "AZURPILOT_POSTGRES_DISPOSABLE_PORT": "5432",
+            "AZURPILOT_POSTGRES_DISPOSABLE_DATABASE": "production_like",
+            "AZURPILOT_POSTGRES_DISPOSABLE_USER": "stage2_test",
+        }
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.object(migration_module.op, "drop_table") as drop_table,
+            self.assertRaises(RuntimeError),
+        ):
+            migration_module.downgrade()
+        drop_table.assert_not_called()
+
 
 class DatabaseConfigurationTests(unittest.TestCase):
     def _settings(self) -> DatabaseSettings:
@@ -304,6 +323,18 @@ class DatabaseConfigurationTests(unittest.TestCase):
         engine.get.return_value.connect.return_value = connection
 
         with self.assertRaises(ValueError):
+            PostgresUnitOfWork(engine).__enter__()
+
+        connection.close.assert_called_once_with()
+
+    def test_unit_of_work_preserves_entry_error_when_close_also_fails(self):
+        connection = Mock()
+        connection.begin.side_effect = ValueError("synthetic entry failure")
+        connection.close.side_effect = RuntimeError("private close detail")
+        engine = Mock()
+        engine.get.return_value.connect.return_value = connection
+
+        with self.assertRaisesRegex(ValueError, "synthetic entry failure"):
             PostgresUnitOfWork(engine).__enter__()
 
         connection.close.assert_called_once_with()

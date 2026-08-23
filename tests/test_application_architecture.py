@@ -21,6 +21,17 @@ def _import_roots(path: Path) -> set[str]:
     return roots
 
 
+def _absolute_import_candidates(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+        return (
+            node.module,
+            *(f"{node.module}.{alias.name}" for alias in node.names),
+        )
+    if isinstance(node, ast.Import):
+        return tuple(alias.name for alias in node.names)
+    return ()
+
+
 def test_application_layer_has_no_transport_framework_imports():
     paths = tuple(APPLICATION_ROOT.rglob("*.py"))
     assert paths, APPLICATION_ROOT
@@ -64,12 +75,7 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
     application_imports: set[str] = set()
     for tree in (app_tree, mcp_tree):
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                candidates = (node.module,)
-            elif isinstance(node, ast.Import):
-                candidates = tuple(alias.name for alias in node.names)
-            else:
-                continue
+            candidates = _absolute_import_candidates(node)
             application_imports.update(
                 name
                 for name in candidates
@@ -121,3 +127,8 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
         "list_tasks",
         "get_task_help",
     } <= handler_names
+
+
+def test_application_import_candidates_cover_from_module_form():
+    node = ast.parse("from module import application as app").body[0]
+    assert "module.application" in _absolute_import_candidates(node)

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from multiprocessing import get_context
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -40,6 +43,7 @@ REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_DATABASE",
     "AZURPILOT_POSTGRES_USER",
 )
+ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.skipif(
     any(not os.environ.get(name) for name in REQUIRED_ENV)
     or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
@@ -100,6 +104,41 @@ def _snapshot(instance_id: UUID, key: str, *, oil: int = 10) -> ResourceSnapshot
 
 
 def test_health_and_migration_head_are_ready(database: LazyEngine):
+    assert StorageHealthChecker(database).check().state is StorageHealthState.READY
+
+
+def test_alembic_downgrade_rejects_mismatched_confirmed_target(
+    database: LazyEngine,
+):
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "AZURPILOT_POSTGRES_DISPOSABLE_HOST": environment[
+                "AZURPILOT_POSTGRES_HOST"
+            ],
+            "AZURPILOT_POSTGRES_DISPOSABLE_PORT": environment.get(
+                "AZURPILOT_POSTGRES_PORT", "5432"
+            ),
+            "AZURPILOT_POSTGRES_DISPOSABLE_DATABASE": "production_like",
+            "AZURPILOT_POSTGRES_DISPOSABLE_USER": environment[
+                "AZURPILOT_POSTGRES_USER"
+            ],
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "base"],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "точного подтверждения test-only target" in result.stderr
+    password = environment.get("AZURPILOT_POSTGRES_PASSWORD")
+    assert not password or password not in result.stderr
     assert StorageHealthChecker(database).check().state is StorageHealthState.READY
 
 

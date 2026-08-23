@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -16,8 +17,38 @@ if config.config_file_name is not None:
 target_metadata = metadata
 
 
+def _is_downgrade_command() -> bool:
+    command = getattr(getattr(config, "cmd_opts", None), "cmd", ())
+    return bool(command and getattr(command[0], "__name__", None) == "downgrade")
+
+
+def _require_confirmed_disposable_target(settings: DatabaseSettings) -> None:
+    if os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1":
+        raise RuntimeError("Для разрушительного downgrade требуется disposable opt-in.")
+    expected = {
+        "host": os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE_HOST"),
+        "port": os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE_PORT"),
+        "database": os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE_DATABASE"),
+        "user": os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE_USER"),
+    }
+    actual = {
+        "host": settings.host,
+        "port": str(settings.port),
+        "database": settings.database,
+        "user": settings.user,
+    }
+    if any(not value for value in expected.values()) or expected != actual:
+        raise RuntimeError(
+            "Для разрушительного downgrade требуется точное подтверждение "
+            "test-only target."
+        )
+
+
 def _settings() -> DatabaseSettings:
-    return DatabaseSettings.from_environment()
+    settings = DatabaseSettings.from_environment()
+    if _is_downgrade_command():
+        _require_confirmed_disposable_target(settings)
+    return settings
 
 
 def _include_name(

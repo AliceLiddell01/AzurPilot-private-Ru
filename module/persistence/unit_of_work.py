@@ -61,7 +61,7 @@ class PostgresUnitOfWork:
             return
         try:
             connection.close()
-        except SQLAlchemyError:
+        except Exception:  # noqa: BLE001 - исходная ошибка остаётся главной.
             logger.warning("Не удалось закрыть PostgreSQL connection при очистке.")
 
     def commit(self) -> None:
