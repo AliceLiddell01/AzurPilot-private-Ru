@@ -64,7 +64,7 @@ class DatabaseSettings:
             raise StorageConfigurationError("sslmode не поддерживается.")
         try:
             ZoneInfo(self.runtime_timezone)
-        except (TypeError, ZoneInfoNotFoundError) as exc:
+        except (TypeError, ValueError, ZoneInfoNotFoundError) as exc:
             raise StorageConfigurationError(
                 "Часовой пояс production runtime некорректен."
             ) from exc

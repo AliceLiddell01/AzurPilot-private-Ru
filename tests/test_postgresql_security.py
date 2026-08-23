@@ -94,6 +94,23 @@ def test_security_posture_accepts_loopback_scram_contract():
             ),
             "HBA_NON_LOOPBACK_HOST",
         ),
+        (
+            replace(
+                _posture(),
+                rules=(_posture().rules[2] | {"auth_method": "md5"},)
+                + _posture().rules[1:2]
+                + _posture().rules[3:],
+            ),
+            "HBA_HOST_METHOD_NOT_SCRAM",
+        ),
+        (
+            replace(
+                _posture(),
+                rules=(_posture().rules[1], _posture().rules[0])
+                + _posture().rules[2:],
+            ),
+            "HBA_ADMIN_PEER_SHADOWED",
+        ),
     ),
 )
 def test_security_posture_rejects_unsafe_rules(posture: SecurityPosture, reason: str):

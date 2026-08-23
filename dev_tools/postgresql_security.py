@@ -36,11 +36,11 @@ def validate_posture(posture: SecurityPosture) -> None:
     if posture.password_encryption != "scram-sha-256":
         raise SecurityPostureError("PASSWORD_ENCRYPTION_NOT_SCRAM")
 
-    local_postgres_peer = False
-    local_all_scram = False
+    local_postgres_peer_index: int | None = None
+    local_all_scram_index: int | None = None
     host_v4_scram = False
     host_v6_scram = False
-    for rule in posture.rules:
+    for index, rule in enumerate(posture.rules):
         if rule.get("error") is not None:
             raise SecurityPostureError("HBA_PARSE_ERROR")
         method = rule.get("auth_method")
@@ -52,11 +52,21 @@ def validate_posture(posture: SecurityPosture) -> None:
         address = rule.get("address")
         netmask = rule.get("netmask")
         if rule_type == "local":
-            if method == "peer" and _contains(users, "postgres"):
-                local_postgres_peer = True
-            if method == "scram-sha-256" and _contains(databases, "all") and _contains(users, "all"):
-                local_all_scram = True
-            continue
+            if (
+                method == "peer"
+                and _contains(databases, "all")
+                and _contains(users, "postgres")
+            ):
+                local_postgres_peer_index = index
+                continue
+            if (
+                method == "scram-sha-256"
+                and _contains(databases, "all")
+                and _contains(users, "all")
+            ):
+                local_all_scram_index = index
+                continue
+            raise SecurityPostureError("HBA_LOCAL_RULE_UNSAFE")
         if rule_type not in {"host", "hostssl", "hostnossl"}:
             raise SecurityPostureError("HBA_RULE_TYPE_UNSUPPORTED")
         loopback_v4 = address == "127.0.0.1" and netmask == "255.255.255.255"
@@ -66,14 +76,18 @@ def validate_posture(posture: SecurityPosture) -> None:
         )
         if not loopback_v4 and not loopback_v6:
             raise SecurityPostureError("HBA_NON_LOOPBACK_HOST")
+        if method != "scram-sha-256":
+            raise SecurityPostureError("HBA_HOST_METHOD_NOT_SCRAM")
         if method == "scram-sha-256" and _contains(databases, "all") and _contains(users, "all"):
             host_v4_scram = host_v4_scram or loopback_v4
             host_v6_scram = host_v6_scram or loopback_v6
 
-    if not local_postgres_peer:
+    if local_postgres_peer_index is None:
         raise SecurityPostureError("HBA_ADMIN_PEER_MISSING")
-    if not local_all_scram:
+    if local_all_scram_index is None:
         raise SecurityPostureError("HBA_LOCAL_SCRAM_MISSING")
+    if local_postgres_peer_index > local_all_scram_index:
+        raise SecurityPostureError("HBA_ADMIN_PEER_SHADOWED")
     if not host_v4_scram or not host_v6_scram:
         raise SecurityPostureError("HBA_LOOPBACK_SCRAM_MISSING")
 

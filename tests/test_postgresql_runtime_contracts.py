@@ -4,17 +4,21 @@ import ast
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from module.application.errors import StorageConfigurationError
+from module.application.runtime_storage import RuntimeStorageService
 from module.persistence.config import DatabaseSettings
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ROOTS = (
     ROOT / "alas.py",
     ROOT / "mcp_server_sse.py",
+    ROOT / "module" / "application",
+    ROOT / "module" / "persistence",
     ROOT / "module" / "statistics",
     ROOT / "module" / "webui",
     ROOT / "module" / "commission",
@@ -100,20 +104,71 @@ dispose_runtime_storage()
     assert result.returncode == 0, result.stderr
 
 
+def test_runtime_idempotency_key_is_stable_inside_observation_window():
+    observed_at = datetime(2026, 8, 23, 12, 30, 15, 100, tzinfo=UTC)
+
+    first = RuntimeStorageService._key(
+        "commission", "profile", observed_at, (1, (("Cube", 2),))
+    )
+    retry = RuntimeStorageService._key(
+        "commission",
+        "profile",
+        observed_at.replace(microsecond=900_000),
+        (1, (("Cube", 2),)),
+    )
+
+    assert first == retry
+    assert len(first) <= 128
+    assert first != RuntimeStorageService._key(
+        "commission",
+        "profile",
+        observed_at.replace(second=16),
+        (1, (("Cube", 2),)),
+    )
+    assert first != RuntimeStorageService._key(
+        "commission", "other-profile", observed_at, (1, (("Cube", 2),))
+    )
+    assert first != RuntimeStorageService._key(
+        "commission", "profile", observed_at, (1, (("Cube", 3),))
+    )
+
+
+def test_database_settings_wraps_invalid_timezone_value():
+    with pytest.raises(StorageConfigurationError, match="Часовой пояс"):
+        DatabaseSettings(
+            host="127.0.0.1",
+            port=5432,
+            database="azurpilot",
+            user="azurpilot_app",
+            runtime_timezone="bad\x00timezone",
+        )
+
+
 def test_production_modules_do_not_import_sqlite_or_legacy_database():
     violations: list[str] = []
     for root in PRODUCTION_ROOTS:
         paths = (root,) if root.is_file() else root.rglob("*.py")
         for path in paths:
+            if (ROOT / "module" / "persistence" / "legacy") in path.parents:
+                continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     names = {alias.name for alias in node.names}
                 elif isinstance(node, ast.ImportFrom) and node.module:
-                    names = {node.module}
+                    names = {
+                        f"{node.module}.{alias.name}"
+                        for alias in node.names
+                    }
                 else:
                     continue
-                if "sqlite3" in names or "module.statistics.cl1_database" in names:
+                if any(
+                    name == "sqlite3"
+                    or name.startswith("sqlite3.")
+                    or name == "module.statistics.cl1_database"
+                    or name.startswith("module.statistics.cl1_database.")
+                    for name in names
+                ):
                     violations.append(str(path.relative_to(ROOT)))
     assert not violations, violations
 

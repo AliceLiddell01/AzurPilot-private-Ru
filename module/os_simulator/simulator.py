@@ -259,11 +259,11 @@ class OSSimulator:
             self.meow_time = self.config.cross_get('OpsiSimulator.OpsiSimulatorParameters.Meow3Time')
             if not self.meow_time:
                 # Используем фактическую среднюю длительность цикла для третьего уровня опасности.
-                self.meow_time = get_meow_stats(self.instance_name).get('avg_round_time', 100)
+                self.meow_time = get_meow_stats(self.instance_name).get('avg_round_time') or 100
         else: # hazard level 5
             self.meow_time = self.config.cross_get('OpsiSimulator.OpsiSimulatorParameters.Meow5Time')
             if not self.meow_time:
-                self.meow_time = get_meow_stats(self.instance_name).get('avg_round_time', 200)
+                self.meow_time = get_meow_stats(self.instance_name).get('avg_round_time') or 200
         
         self.logger.info(f'[Симулятор Операции «Сирена»] Время одного цикла фарма мяуфицеров: {self.meow_time}')
 

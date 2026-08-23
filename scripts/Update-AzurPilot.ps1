@@ -1744,6 +1744,16 @@ function Backup-ProductionPostgreSql {
         '--distro'
         'Archlinux'
     ) -Operation 'резервная копия перед обновлением создана и проверена'
+
+    if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Файл резервной копии PostgreSQL не создан.'
+    }
+
+    $backupFile = Get-Item -LiteralPath $backupPath -Force -ErrorAction Stop
+
+    if ($backupFile.Length -le 0) {
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Файл резервной копии PostgreSQL пуст.'
+    }
 }
 
 function Protect-PostgreSqlBackupDirectory {

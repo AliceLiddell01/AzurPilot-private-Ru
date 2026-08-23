@@ -622,7 +622,7 @@ class LiveWsScrcpySession:
                 self.remote_ws = await connect(url, max_size=None, ping_interval=None, close_timeout=1)
                 self.alive = True
                 return
-            except Exception:
+            except Exception as e:
                 last_error = e
                 await asyncio.sleep(0.1)
         raise RuntimeError(f"Не удалось подключиться к серверу ws-scrcpy: {last_error}")
@@ -1109,7 +1109,7 @@ async def _ws_live_scrcpy(websocket, instance, fps, target_width, bitrate_scale)
         return
     except WebSocketDisconnect:
         raise
-    except Exception:
+    except Exception as e:
         logger.warning(f'[WebUI] Предпросмотр ws-scrcpy недоступен; используется исходный scrcpy: {_live_preview_error_message(e)}')
 
     await _ws_live_raw_scrcpy(websocket, instance, fps, target_width, bitrate_scale)

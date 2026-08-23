@@ -18,12 +18,18 @@ from module.persistence.config import DatabaseSettings
 from module.persistence.database import LazyEngine, StorageHealthChecker
 
 
-def _run_hidden(arguments: list[str], *, stdout: object = subprocess.DEVNULL) -> None:
+def _run_hidden(
+    arguments: list[str],
+    *,
+    stdout: object = subprocess.DEVNULL,
+    environment: dict[str, str] | None = None,
+) -> None:
     options: dict[str, object] = {}
     if os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
     result = subprocess.run(
         arguments,
+        env=environment,
         stdin=subprocess.DEVNULL,
         stdout=stdout,
         stderr=subprocess.DEVNULL,
@@ -81,6 +87,9 @@ def _backup(
 ) -> None:
     output = _validate_external_output(output, repository_root)
     native = shutil.which("pg_dump")
+    environment = os.environ.copy()
+    if native and settings.password:
+        environment["PGPASSWORD"] = settings.password
     arguments = (
         [native, *_pg_dump_arguments(settings)]
         if native
@@ -102,7 +111,7 @@ def _backup(
     temporary = Path(temporary_name)
     try:
         with temporary.open("wb") as stream:
-            _run_hidden(arguments, stdout=stream)
+            _run_hidden(arguments, stdout=stream, environment=environment)
         if temporary.stat().st_size < 1024:
             raise RuntimeError("Резервная копия PostgreSQL неожиданно мала.")
         restore = shutil.which("pg_restore")

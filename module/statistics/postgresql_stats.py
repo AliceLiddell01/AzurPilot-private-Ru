@@ -229,7 +229,10 @@ def get_commission_reward_stats(instance: str) -> dict[str, dict[str, int]]:
         "month": defaultdict(int),
     }
     for entry in month_entries:
-        timestamp = storage.to_runtime_timezone(datetime.fromisoformat(entry["ts"]))
+        raw_timestamp = entry["ts"]
+        if not raw_timestamp:
+            continue
+        timestamp = storage.to_runtime_timezone(datetime.fromisoformat(raw_timestamp))
         for item, value in entry["items"].items():
             if timestamp.year == now.year and timestamp.month == now.month:
                 result["month"][item] += int(value)

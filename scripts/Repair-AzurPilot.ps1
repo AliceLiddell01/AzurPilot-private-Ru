@@ -1204,7 +1204,8 @@ function Get-EnvironmentDiagnostic {
     $uvPath = Join-Path -Path $venvPath -ChildPath 'Scripts\uv.exe'
     $adbPath = Join-Path -Path $venvPath -ChildPath 'Scripts\adb.exe'
     $managedPythonRoot = Join-Path -Path $venvPath -ChildPath 'python'
-    $postgresqlHealthy = $false
+    $postgresqlCheckPerformed = $false
+    $postgresqlHealthy = $null
 
     if (-not (Test-Path -LiteralPath $venvPath -PathType Container)) {
         $issues.Add('Каталог .venv отсутствует.')
@@ -1285,6 +1286,7 @@ function Get-EnvironmentDiagnostic {
     }
 
     if ($pythonHealth.Success) {
+        $postgresqlCheckPerformed = $true
         $wslState = Invoke-NativeCommand -Executable 'wsl.exe' -Arguments @(
             '--distribution'
             'Archlinux'
@@ -1348,6 +1350,7 @@ function Get-EnvironmentDiagnostic {
         UvPath = $uvPath
         AdbPath = $adbPath
         Healthy = $issues.Count -eq 0
+        PostgreSqlCheckPerformed = $postgresqlCheckPerformed
         PostgreSqlHealthy = $postgresqlHealthy
     }
 }
@@ -1929,7 +1932,7 @@ function Invoke-AzurPilotRepair {
         $diagnostic = Get-EnvironmentDiagnostic
         Write-DiagnosticResult -Diagnostic $diagnostic
 
-        if (-not $diagnostic.PostgreSqlHealthy) {
+        if ($diagnostic.PostgreSqlCheckPerformed -and -not $diagnostic.PostgreSqlHealthy) {
             Write-RepairLog -Level 'ERROR' -Message 'Диагностика PostgreSQL завершилась ошибкой; автоматическое исправление БД запрещено.'
             return $script:ExitCodeDiagnosticFailure
         }

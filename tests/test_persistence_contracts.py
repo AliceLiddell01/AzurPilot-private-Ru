@@ -107,7 +107,11 @@ class PersistenceArchitectureTests(unittest.TestCase):
             }
             if path in composition_roots:
                 self.assertTrue(
-                    all(name.startswith("module.persistence.runtime") for name in persistence_imports),
+                    all(
+                        name == "module.persistence.runtime"
+                        or name.startswith("module.persistence.runtime.")
+                        for name in persistence_imports
+                    ),
                     path,
                 )
             else:

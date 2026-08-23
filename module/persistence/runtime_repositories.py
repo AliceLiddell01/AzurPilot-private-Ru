@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import asdict
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -45,6 +46,8 @@ from module.persistence.schema import (
     siren_research_device_event,
     siren_research_device_stat,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _bounded(value: str, *, label: str, maximum: int) -> str:
@@ -173,6 +176,17 @@ class PostgresRuntimeStatisticsRepository:
                 .order_by(meow_timing_sample.c.observed_at, meow_timing_sample.c.id)
                 .limit(1000)
             ).all()
+            for row_count, limit, dataset in (
+                (len(ap_rows), 1000, "снимки очков действия"),
+                (len(purchase_rows), 1000, "покупки очков действия"),
+                (len(currency_rows), 2000, "снимки валют"),
+                (len(timing_rows), 1000, "замеры длительности Meow"),
+            ):
+                if row_count == limit:
+                    _LOGGER.warning(
+                        f"[PostgreSQL] Набор «{dataset}» достиг лимита {limit}; "
+                        "результат статистики может быть усечён"
+                    )
             hazard_rows = self._connection.execute(
                 select(
                     meow_hazard_aggregate.c.hazard_level,

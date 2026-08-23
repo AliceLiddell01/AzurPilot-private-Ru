@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
@@ -260,8 +261,28 @@ class RuntimeStorageService:
             return result
 
     @staticmethod
-    def _key(domain: str) -> str:
-        return f"runtime-v1:{domain}:{uuid4().hex}"
+    def _key(
+        domain: str,
+        instance: str,
+        observed_at: datetime,
+        payload: object,
+    ) -> str:
+        observation_window = (
+            observed_at.astimezone(UTC).replace(microsecond=0).isoformat()
+        )
+        canonical = json.dumps(
+            {
+                "domain": domain,
+                "instance": instance,
+                "observation_window": observation_window,
+                "payload": payload,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return f"runtime-v2:{domain}:{sha256(canonical.encode('utf-8')).hexdigest()}"
 
     def increment_monthly_counter(
         self, instance: str, metric: MonthlyMetric, delta: Decimal = Decimal(1)
@@ -293,7 +314,12 @@ class RuntimeStorageService:
         def operation(uow: RuntimeStorageUnitOfWork, identity_id: UUID) -> bool:
             inserted = uow.runtime.append_ap_purchase(
                 identity_id,
-                idempotency_key=self._key("ap-purchase"),
+                idempotency_key=self._key(
+                    "ap-purchase",
+                    instance,
+                    observed_at,
+                    (amount, base_amount, purchase_count, source),
+                ),
                 observed_at=observed_at,
                 amount=amount,
                 base_amount=base_amount,
@@ -336,7 +362,12 @@ class RuntimeStorageService:
             )
             return uow.runtime.append_ap_snapshot(
                 identity_id,
-                idempotency_key=self._key("ap-snapshot"),
+                idempotency_key=self._key(
+                    "ap-snapshot",
+                    instance,
+                    observed_at,
+                    (ap, ap_total, distance, yellow, source),
+                ),
                 snapshot=snapshot,
             )
 
@@ -353,7 +384,12 @@ class RuntimeStorageService:
                 return False
             return uow.runtime.append_currency_snapshot(
                 identity_id,
-                idempotency_key=self._key("currency"),
+                idempotency_key=self._key(
+                    "currency",
+                    instance,
+                    observed_at,
+                    (currency_code, amount, source),
+                ),
                 snapshot=CurrencySnapshot(observed_at, currency_code, int(amount), source),
             )
 
@@ -382,7 +418,12 @@ class RuntimeStorageService:
             for currency_code, amount in values:
                 changed = uow.runtime.append_currency_snapshot(
                     identity_id,
-                    idempotency_key=self._key("currency"),
+                    idempotency_key=self._key(
+                        "currency",
+                        instance,
+                        observed_at,
+                        (currency_code, amount, source),
+                    ),
                     snapshot=CurrencySnapshot(observed_at, currency_code, amount, source),
                 ) or changed
             return changed
@@ -418,7 +459,12 @@ class RuntimeStorageService:
             lambda uow, identity_id: uow.runtime.append_meow_timing(
                 identity_id,
                 self._month(observed_at),
-                idempotency_key=self._key("meow-timing"),
+                idempotency_key=self._key(
+                    "meow-timing",
+                    instance,
+                    observed_at,
+                    (sample_kind, duration_seconds, hazard_level),
+                ),
                 sample=sample,
             ),
         )
@@ -432,7 +478,12 @@ class RuntimeStorageService:
             lambda uow, identity_id: uow.runtime.record_siren_research_device(
                 identity_id,
                 self._month(observed_at),
-                idempotency_key=self._key("siren-device"),
+                idempotency_key=self._key(
+                    "siren-device",
+                    instance,
+                    observed_at,
+                    (source, hazard_level),
+                ),
                 observed_at=observed_at,
                 source=source,
                 hazard_level=hazard_level,
@@ -460,7 +511,12 @@ class RuntimeStorageService:
             income = CommissionIncome(
                 id=uuid4(),
                 instance_id=identity_id,
-                idempotency_key=self._key("commission"),
+                idempotency_key=self._key(
+                    "commission",
+                    instance,
+                    observed_at,
+                    (commission_count, sorted(items.items())),
+                ),
                 observed_at=observed_at,
                 commission_count=int(commission_count),
                 source="runtime",
@@ -504,7 +560,12 @@ class RuntimeStorageService:
         snapshot = ResourceSnapshot(
             id=uuid4(),
             instance_id=UUID(int=0),
-            idempotency_key=self._key("resource"),
+            idempotency_key=self._key(
+                "resource",
+                instance,
+                observed_at,
+                resources,
+            ),
             observed_at=observed_at,
             source="dashboard",
             **resources,
@@ -532,7 +593,12 @@ class RuntimeStorageService:
                 event = OpsiItemEvent(
                     id=uuid4(),
                     instance_id=identity_id,
-                    idempotency_key=f"runtime-v1:opsi:{row['imgid']}:{index}",
+                    idempotency_key=self._key(
+                        "opsi",
+                        instance,
+                        observed_at,
+                        (index, row),
+                    ),
                     observed_at=observed_at,
                     imgid=str(row["imgid"]),
                     genre=str(row["genre"]),
