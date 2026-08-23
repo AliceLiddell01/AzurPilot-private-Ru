@@ -319,6 +319,8 @@ jobs:
       - name: Запустить полный pytest
         id: python_pytest
         timeout-minutes: 25
+        env:
+          AZURPILOT_PYTEST_PARALLEL: "0"
         shell: bash
         run: |
           set -euo pipefail
