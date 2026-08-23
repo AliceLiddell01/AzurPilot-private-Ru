@@ -1,7 +1,6 @@
 """WebUI 大世界统计视图。"""
 
 from module.webui.app_dependencies import (
-    current_time,
     put_button,
     put_html,
     put_row,
@@ -307,9 +306,10 @@ class OpsiStatisticsMixin(WebUIMixinBase):
     def _build_meow_rows(self, instance_name):
         meow_rows = []
         try:
+            from module.application.runtime_storage import get_runtime_storage
             from module.statistics.postgresql_stats import get_meow_stats
 
-            now = current_time()
+            now = get_runtime_storage().current_datetime()
             for hazard_level in (3, 5):
                 meow_data = get_meow_stats(
                     instance_name or "default",

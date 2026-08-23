@@ -624,13 +624,13 @@ function Invoke-PostgreSqlStartPreflight {
 
     $operations = @(
         [pscustomobject]@{
-            Executable = $wslCommand.Source
+            Executable = $wslCommand.Path
             Arguments = @('--distribution', 'Archlinux', '--exec', 'systemctl', 'start', 'postgresql')
             TimeoutMilliseconds = 30000
             Failure = 'Не удалось запустить PostgreSQL 18 в WSL Archlinux.'
         }
         [pscustomobject]@{
-            Executable = $wslCommand.Source
+            Executable = $wslCommand.Path
             Arguments = @('--distribution', 'Archlinux', '--exec', 'pg_isready', '--host', '127.0.0.1', '--port', '5432', '--timeout', '5')
             TimeoutMilliseconds = 10000
             Failure = 'PostgreSQL 18 в WSL Archlinux не принимает loopback-подключения.'
@@ -654,6 +654,9 @@ function Invoke-PostgreSqlStartPreflight {
         $startInfo.RedirectStandardError = $true
         $startInfo.StandardOutputEncoding = $utf8Encoding
         $startInfo.StandardErrorEncoding = $utf8Encoding
+        foreach ($variableName in @('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', '__PYVENV_LAUNCHER__')) {
+            [void]$startInfo.Environment.Remove($variableName)
+        }
         $startInfo.Environment['PYTHONUTF8'] = '1'
 
         foreach ($argument in $operation.Arguments) {
@@ -682,12 +685,23 @@ function Invoke-PostgreSqlStartPreflight {
                 Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
             }
 
-            [void]$stdoutTask.GetAwaiter().GetResult()
-            [void]$stderrTask.GetAwaiter().GetResult()
+            $standardOutput = $stdoutTask.GetAwaiter().GetResult()
+            $standardError = $stderrTask.GetAwaiter().GetResult()
 
             if ($process.ExitCode -ne 0) {
+                if (-not [string]::IsNullOrWhiteSpace($standardOutput)) {
+                    Write-StartLog -Level 'WARN' -Message ('Диагностика PostgreSQL: {0}' -f $standardOutput.Trim())
+                }
+                if (-not [string]::IsNullOrWhiteSpace($standardError)) {
+                    Write-StartLog -Level 'WARN' -Message ('Ошибка диагностики PostgreSQL: {0}' -f $standardError.Trim())
+                }
                 Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
             }
+        }
+        catch {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message (
+                '{0} Ошибка запуска процесса: {1}' -f $operation.Failure, $_.Exception.Message
+            )
         }
         finally {
             $process.Dispose()

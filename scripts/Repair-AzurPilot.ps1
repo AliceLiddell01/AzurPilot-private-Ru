@@ -1287,15 +1287,25 @@ function Get-EnvironmentDiagnostic {
 
     if ($pythonHealth.Success) {
         $postgresqlCheckPerformed = $true
-        $wslState = Invoke-NativeCommand -Executable 'wsl.exe' -Arguments @(
-            '--distribution'
-            'Archlinux'
-            '--exec'
-            'systemctl'
-            'is-active'
-            '--quiet'
-            'postgresql'
-        ) -WorkingDirectory $script:ResolvedRepositoryPath
+        $wslCommand = Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction SilentlyContinue
+
+        if ($null -eq $wslCommand) {
+            $wslState = [pscustomobject]@{
+                ExitCode = 1
+                Output = [string[]]@('WSL недоступен; состояние PostgreSQL не проверено.')
+            }
+        }
+        else {
+            $wslState = Invoke-NativeCommand -Executable $wslCommand.Path -Arguments @(
+                '--distribution'
+                'Archlinux'
+                '--exec'
+                'systemctl'
+                'is-active'
+                '--quiet'
+                'postgresql'
+            ) -WorkingDirectory $script:ResolvedRepositoryPath
+        }
 
         $postgresqlHealth = Invoke-NativeCommand -Executable $pythonPath -Arguments @(
             '-X'
@@ -1319,6 +1329,11 @@ function Get-EnvironmentDiagnostic {
         )
 
         if (-not $postgresqlHealthy) {
+            foreach ($diagnostic in @($wslState, $postgresqlHealth, $postgresqlSecurity)) {
+                if ($diagnostic.ExitCode -ne 0) {
+                    Write-NativeOutput -Result $diagnostic -Level 'WARN' -Prefix '[PostgreSQL]'
+                }
+            }
             $warnings.Add('Production PostgreSQL не прошёл диагностику: проверьте WSL Archlinux, marker, app-доступ, schema head, loopback listener, SCRAM и HBA. Repair не изменяет БД.')
         }
     }

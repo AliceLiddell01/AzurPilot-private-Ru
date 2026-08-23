@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 from unittest.mock import patch
 
 import pytest
@@ -67,3 +68,21 @@ def test_backup_is_verified_and_published_create_only(tmp_path: Path):
         postgresql_runtime._backup(
             _settings(), output, "Archlinux", repository
         )
+
+
+def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypatch):
+    monkeypatch.setenv("AZURPILOT_POSTGRES_PASSWORD", "stale-application-password")
+    settings = _settings(password=None)
+
+    with (
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            return_value=settings,
+        ),
+        patch.object(postgresql_runtime.command, "upgrade") as upgrade,
+    ):
+        postgresql_runtime._upgrade()
+
+    assert "AZURPILOT_POSTGRES_PASSWORD" not in os.environ
+    upgrade.assert_called_once()

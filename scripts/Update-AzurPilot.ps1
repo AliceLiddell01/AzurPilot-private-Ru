@@ -1661,7 +1661,10 @@ function Invoke-PostgreSqlOperation {
         [string[]]$Arguments,
 
         [Parameter(Mandatory)]
-        [string]$Operation
+        [string]$Operation,
+
+        [Parameter()]
+        [string]$FailureGuidance = ''
     )
 
     Push-Location -LiteralPath $RepositoryPath
@@ -1681,9 +1684,11 @@ function Invoke-PostgreSqlOperation {
 
     if ($result.ExitCode -ne 0) {
         Write-NativeOutput -Result $result -Level 'ERROR'
-        Complete-Update -Code $script:ExitCodePreconditionFailure -Message (
-            'Операция PostgreSQL «{0}» завершилась ошибкой.' -f $Operation
-        )
+        $failureMessage = 'Операция PostgreSQL «{0}» завершилась ошибкой.' -f $Operation
+        if (-not [string]::IsNullOrWhiteSpace($FailureGuidance)) {
+            $failureMessage = '{0} {1}' -f $failureMessage, $FailureGuidance
+        }
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message $failureMessage
     }
 
     Write-UpdateLog -Level 'INFO' -Message ('PostgreSQL: {0}.' -f $Operation)
@@ -1756,6 +1761,9 @@ function Backup-ProductionPostgreSql {
     if ($backupFile.Length -le 0) {
         Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Файл резервной копии PostgreSQL пуст.'
     }
+
+    Write-UpdateLog -Level 'INFO' -Message ('Резервная копия PostgreSQL: {0}' -f $backupPath)
+    return $backupPath
 }
 
 function Protect-PostgreSqlBackupDirectory {
@@ -1767,6 +1775,10 @@ function Protect-PostgreSqlBackupDirectory {
         [Parameter(Mandatory)]
         [bool]$CreatedByUpdater
     )
+
+    if (-not $IsWindows) {
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Защита каталога резервных копий PostgreSQL поддерживается только в Windows.'
+    }
 
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $directory = [System.IO.DirectoryInfo]::new($Path)
@@ -1802,10 +1814,18 @@ function Protect-PostgreSqlBackupDirectory {
 
 function Invoke-ProductionPostgreSqlSchemaUpgrade {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)]
+        [string]$BackupPath
+    )
 
-    Invoke-PostgreSqlOperation -Arguments @('upgrade') -Operation 'Alembic upgrade применён от имени migrator'
-    Invoke-PostgreSqlOperation -Arguments @('health') -Operation 'schema head и доступ app-роли проверены'
+    $guidance = (
+        'Остановите AzurPilot. Проверенный дамп: {0}. ' +
+        'Получите WSL-путь через wsl.exe --distribution Archlinux --exec wslpath -a <путь>, ' +
+        'затем выполните pg_restore --clean --if-exists --no-owner --no-acl --dbname azurpilot <WSL-путь>.'
+    ) -f $BackupPath
+    Invoke-PostgreSqlOperation -Arguments @('upgrade') -Operation 'Alembic upgrade применён от имени migrator' -FailureGuidance $guidance
+    Invoke-PostgreSqlOperation -Arguments @('health') -Operation 'schema head и доступ app-роли проверены' -FailureGuidance $guidance
 }
 
 try {
@@ -1815,15 +1835,9 @@ try {
     Write-UpdateLog -Level 'INFO' -Message "Репозиторий: $RepositoryPath"
     Write-UpdateLog -Level 'INFO' -Message "Разрешённый источник: $RemoteName/$RemoteBranch"
 
-    $gitCommands = @(
-        Get-Command -Name 'git' -CommandType Application -ErrorAction Stop
-    )
-
-    if ($gitCommands.Count -eq 0) {
-        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Git не найден в PATH.'
-    }
-
-    $script:GitExecutable = $gitCommands[0].Source
+    $gitCommand = Get-Command -Name 'git' -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1
+    $script:GitExecutable = $gitCommand.Path
 
     if (-not (Test-Path -LiteralPath $RepositoryPath -PathType Container)) {
         Complete-Update -Code $script:ExitCodePreconditionFailure -Message "Каталог репозитория не существует: $RepositoryPath"
@@ -2020,7 +2034,7 @@ try {
     $localIsAncestor = Test-GitAncestor -Ancestor $localSha -Descendant $remoteSha
 
     if ($localIsAncestor) {
-        Backup-ProductionPostgreSql
+        $postgresqlBackupPath = Backup-ProductionPostgreSql
 
         $dependencyDiffResult = Invoke-Git -Arguments @(
             'diff'
@@ -2097,7 +2111,7 @@ try {
             Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message "После обновления fast-forward HEAD не совпадает с $remoteTrackingRef."
         }
 
-        Invoke-ProductionPostgreSqlSchemaUpgrade
+        Invoke-ProductionPostgreSqlSchemaUpgrade -BackupPath $postgresqlBackupPath
 
         $statusAfterResult = Invoke-Git -Arguments @(
             'status'

@@ -99,6 +99,15 @@ function Invoke-GitChecked {
     $Arguments = [string[]]$Request.Arguments
     $Operation = [string]$Request.Operation
 
+    if ([string]::IsNullOrWhiteSpace($RepositoryPath)) {
+        throw 'Путь репозитория для Git не задан.'
+    }
+    foreach ($argument in $Arguments) {
+        if ([string]::IsNullOrWhiteSpace($argument)) {
+            throw 'Аргумент Git не может быть пустым или состоять из пробелов.'
+        }
+    }
+
     $AllowedExitCodes = if ($Request.ContainsKey('AllowedExitCodes')) {
         [int[]]$Request.AllowedExitCodes
     } else {
@@ -786,15 +795,9 @@ if (-not (Test-Path -LiteralPath $UpdaterPath -PathType Leaf)) {
 $UpdaterPath = (Resolve-Path -LiteralPath $UpdaterPath -ErrorAction Stop).Path
 $updaterRepositoryPath = Split-Path -Parent (Split-Path -Parent $UpdaterPath)
 
-$gitCommands = @(
-    Get-Command -Name 'git' -CommandType Application -ErrorAction Stop
-)
-
-if ($gitCommands.Count -eq 0) {
-    throw 'Git не найден в PATH.'
-}
-
-$script:GitExecutable = $gitCommands[0].Source
+$gitCommand = Get-Command -Name 'git' -CommandType Application -ErrorAction Stop |
+    Select-Object -First 1
+$script:GitExecutable = $gitCommand.Path
 $script:PwshExecutable = Join-Path -Path $PSHOME -ChildPath 'pwsh.exe'
 
 if ([string]::IsNullOrWhiteSpace($UvExecutablePath)) {

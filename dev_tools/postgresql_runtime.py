@@ -159,6 +159,8 @@ def _upgrade() -> None:
     )
     if settings.password:
         os.environ["AZURPILOT_POSTGRES_PASSWORD"] = settings.password
+    else:
+        os.environ.pop("AZURPILOT_POSTGRES_PASSWORD", None)
     configuration = Config("alembic.ini")
     command.upgrade(configuration, "head")
 

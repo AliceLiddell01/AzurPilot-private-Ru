@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import URL
 
 from module.application.errors import StorageConfigurationError
+from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +134,7 @@ class DatabaseSettings:
             raise StorageConfigurationError(
                 "Production backend marker не разрешает PostgreSQL runtime."
             )
-        if payload.get("alembic_head") != "0002_migration_shapes":
+        if payload.get("alembic_head") != EXPECTED_ALEMBIC_HEAD:
             raise StorageConfigurationError(
                 "Production backend marker содержит несовместимый schema head."
             )

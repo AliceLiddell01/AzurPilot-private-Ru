@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 from dataclasses import asdict
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -15,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 
 from module.application.errors import StorageConflictError, StorageInvalidDataError
+from module.application.canonical_payload import payload_digest
 from module.application.runtime_storage import (
     ApNotification,
     ApPurchase,
@@ -54,29 +53,6 @@ def _bounded(value: str, *, label: str, maximum: int) -> str:
     if not value or len(value) > maximum:
         raise StorageInvalidDataError(f"Поле {label} некорректно.")
     return value
-
-
-def _normalized(value: object) -> object:
-    if isinstance(value, datetime):
-        if value.tzinfo is not None:
-            value = value.astimezone(UTC)
-        return value.isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    if isinstance(value, Decimal):
-        return str(value.normalize())
-    if isinstance(value, dict):
-        return {key: _normalized(item) for key, item in value.items()}
-    if isinstance(value, (tuple, list)):
-        return [_normalized(item) for item in value]
-    return value
-
-
-def _digest(value: object) -> str:
-    encoded = json.dumps(
-        _normalized(value), sort_keys=True, separators=(",", ":"), default=str
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 class PostgresRuntimeStatisticsRepository:
@@ -610,7 +586,7 @@ class PostgresRuntimeStatisticsRepository:
         if limit < 1 or limit > 10000:
             raise StorageInvalidDataError("Предел запроса Operation Siren некорректен.")
         try:
-            rows = self._connection.execute(
+            rows = list(reversed(self._connection.execute(
                 select(
                     opsi_item_event.c.observed_at,
                     opsi_item_event.c.imgid,
@@ -629,16 +605,24 @@ class PostgresRuntimeStatisticsRepository:
                     opsi_item_event.c.instance_id == instance_id,
                     opsi_item_event.c.genre == genre,
                 )
-                .order_by(opsi_item_event.c.observed_at, opsi_item_event.c.id)
+                .order_by(
+                    opsi_item_event.c.observed_at.desc(),
+                    opsi_item_event.c.id.desc(),
+                )
                 .limit(limit)
-            ).all()
+            ).all()))
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
+        if len(rows) == limit:
+            _LOGGER.warning(
+                f"[PostgreSQL] Набор «предметы Operation Siren» достиг лимита {limit}; "
+                "результат может быть усечён"
+            )
         return tuple(OpsiItemProjection(*row) for row in rows)
 
     def _append(self, table: Table, values: dict[str, object]) -> bool:
         payload = {key: value for key, value in values.items() if key != "id"}
-        digest = _digest(payload)
+        digest = payload_digest(payload)
         values["payload_digest"] = digest
         key = str(values["idempotency_key"])
         try:

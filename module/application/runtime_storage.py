@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
@@ -14,6 +13,7 @@ from uuid import UUID, uuid4, uuid5
 from zoneinfo import ZoneInfo
 
 from module.application.errors import StorageConfigurationError
+from module.application.canonical_payload import payload_digest
 from module.application.storage_models import (
     CommissionIncome,
     CommissionItem,
@@ -276,19 +276,15 @@ class RuntimeStorageService:
         observation_window = (
             observed_at.astimezone(UTC).replace(microsecond=0).isoformat()
         )
-        canonical = json.dumps(
+        digest = payload_digest(
             {
                 "domain": domain,
                 "instance": instance,
                 "observation_window": observation_window,
                 "payload": payload,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
+            }
         )
-        return f"runtime-v2:{domain}:{sha256(canonical.encode('utf-8')).hexdigest()}"
+        return f"runtime-v2:{domain}:{digest}"
 
     def increment_monthly_counter(
         self, instance: str, metric: MonthlyMetric, delta: Decimal = Decimal(1)
@@ -441,16 +437,17 @@ class RuntimeStorageService:
             raise StorageConfigurationError("Уровень коррозии Meow некорректен.")
         battles_per_round = 2 if hazard_level in {2, 3} else 3
         effective = Decimal(1) / Decimal(battles_per_round)
+        month = self._month()
 
         def operation(uow: RuntimeStorageUnitOfWork, identity_id: UUID) -> None:
             uow.statistics.increment_monthly_counter(
-                identity_id, self._month(), MonthlyMetric.MEOW_BATTLE_RAW_COUNT, Decimal(1)
+                identity_id, month, MonthlyMetric.MEOW_BATTLE_RAW_COUNT, Decimal(1)
             )
             uow.statistics.increment_monthly_counter(
-                identity_id, self._month(), MonthlyMetric.MEOW_BATTLE_COUNT, effective
+                identity_id, month, MonthlyMetric.MEOW_BATTLE_COUNT, effective
             )
             uow.runtime.record_meow_battle(
-                identity_id, self._month(), hazard_level, effective
+                identity_id, month, hazard_level, effective
             )
 
         self._run(instance, operation)

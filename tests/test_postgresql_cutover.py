@@ -68,3 +68,17 @@ def test_activation_writes_non_secret_marker_atomically(tmp_path: Path):
         pytest.raises(RuntimeError),
     ):
         postgresql_cutover.activate(arguments)
+
+
+def test_activation_rejects_non_loopback_before_marker_creation(tmp_path: Path):
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+    )
+    arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
+    arguments.host = "192.0.2.10"
+
+    with pytest.raises(RuntimeError, match="loopback"):
+        postgresql_cutover.activate(arguments)
+
+    assert not (tmp_path / "storage_backend.json").exists()

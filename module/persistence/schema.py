@@ -21,6 +21,8 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
 )
+
+from module.application.resource_fields import RESOURCE_FIELDS
 from sqlalchemy.dialects.postgresql import JSONB
 
 from module.application.storage_models import MonthlyMetric
@@ -151,20 +153,7 @@ monthly_aggregate = Table(
     ),
 )
 
-RESOURCE_COLUMNS = (
-    "oil",
-    "coin",
-    "gem",
-    "pt",
-    "cube",
-    "core",
-    "medal",
-    "merit",
-    "guild_coin",
-    "action_point",
-    "yellow_coin",
-    "purple_coin",
-)
+RESOURCE_COLUMNS = RESOURCE_FIELDS
 
 resource_snapshot = Table(
     "resource_snapshot",

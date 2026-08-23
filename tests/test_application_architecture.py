@@ -5,31 +5,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.import_inspection import absolute_import_candidates, imports_for_path
+
 ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_ROOT = ROOT / "module" / "application"
 FORBIDDEN_IMPORT_ROOTS = {"fastapi", "mcp", "pywebio", "starlette"}
 
 
 def _import_roots(path: Path) -> set[str]:
-    roots: set[str] = set()
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            roots.update(alias.name.split(".", 1)[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            roots.add(node.module.split(".", 1)[0])
-    return roots
-
-
-def _absolute_import_candidates(node: ast.AST) -> tuple[str, ...]:
-    if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-        return (
-            node.module,
-            *(f"{node.module}.{alias.name}" for alias in node.names),
-        )
-    if isinstance(node, ast.Import):
-        return tuple(alias.name for alias in node.names)
-    return ()
+    return {name.split(".", 1)[0] for name in imports_for_path(ROOT, path)}
 
 
 def test_application_layer_has_no_transport_framework_imports():
@@ -45,12 +29,24 @@ def test_application_layer_has_no_persistence_adapter_imports():
         candidates = {
             candidate
             for node in ast.walk(tree)
-            for candidate in _absolute_import_candidates(node)
+            for candidate in absolute_import_candidates(ROOT, path, node)
         }
         assert not any(
             name == "module.persistence" or name.startswith("module.persistence.")
             for name in candidates
         ), path
+
+
+def test_relative_imports_are_resolved_before_architecture_checks():
+    application_node = ast.parse("from ..persistence import runtime").body[0]
+    statistics_node = ast.parse("from . import cl1_database").body[0]
+
+    assert "module.persistence" in absolute_import_candidates(
+        ROOT, APPLICATION_ROOT / "probe.py", application_node
+    )
+    assert "module.statistics.cl1_database" in absolute_import_candidates(
+        ROOT, ROOT / "module" / "statistics" / "probe.py", statistics_node
+    )
 
 
 def test_importing_application_package_does_not_load_legacy_runtime(tmp_path: Path):
@@ -87,9 +83,9 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
     mcp_tree = ast.parse(mcp_source)
 
     application_imports: set[str] = set()
-    for tree in (app_tree, mcp_tree):
+    for path, tree in ((app_path, app_tree), (mcp_path, mcp_tree)):
         for node in ast.walk(tree):
-            candidates = _absolute_import_candidates(node)
+            candidates = absolute_import_candidates(ROOT, path, node)
             application_imports.update(
                 name
                 for name in candidates
@@ -145,4 +141,6 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
 
 def test_application_import_candidates_cover_from_module_form():
     node = ast.parse("from module import application as app").body[0]
-    assert "module.application" in _absolute_import_candidates(node)
+    assert "module.application" in absolute_import_candidates(
+        ROOT, ROOT / "probe.py", node
+    )

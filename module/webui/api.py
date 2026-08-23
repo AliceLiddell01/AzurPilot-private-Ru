@@ -1640,6 +1640,7 @@ async def api_import_legacy_upload(request):
             "errors": 0,
         }
 
+        planned = []
         for file in form.getlist('file'):
             if not hasattr(file, 'filename') or not file.filename:
                 continue
@@ -1664,6 +1665,9 @@ async def api_import_legacy_upload(request):
                 result["skipped"] += 1
                 continue
 
+            planned.append((file, resolved))
+
+        for file, resolved in planned:
             target, rel_target = resolved
             filename = target.name
 

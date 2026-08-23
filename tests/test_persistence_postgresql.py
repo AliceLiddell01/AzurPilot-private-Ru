@@ -224,6 +224,38 @@ def test_monthly_projection_limit_keeps_newest_rows_in_chronological_order(
     assert projection.ap_snapshots[-1].ap == 1000
 
 
+def test_opsi_limit_keeps_newest_rows_in_chronological_order(
+    database: LazyEngine, monkeypatch: pytest.MonkeyPatch
+):
+    observed = iter(
+        datetime(2026, 8, 23, 1, minute, tzinfo=UTC) for minute in range(3)
+    )
+    monkeypatch.setattr(
+        RuntimeStorageService,
+        "_observation_instant",
+        staticmethod(lambda: next(observed)),
+    )
+    service = RuntimeStorageService(lambda: PostgresUnitOfWork(database))
+    instance = f"opsi-limit-{uuid4()}"
+
+    for amount in range(1, 4):
+        service.record_opsi_items(
+            instance,
+            (
+                {
+                    "imgid": f"image-{amount}",
+                    "genre": "synthetic",
+                    "item": "OperationCoin",
+                    "amount": amount,
+                },
+            ),
+        )
+
+    assert [row.amount for row in service.opsi_items(
+        instance, genre="synthetic", limit=2
+    )] == [2, 3]
+
+
 def test_runtime_role_can_use_data_but_cannot_change_schema_or_roles(database: LazyEngine):
     with database.get().begin() as connection:
         assert connection.execute(select(func.count()).select_from(app_instance)).scalar_one() >= 0

@@ -36,6 +36,7 @@ from module.persistence.repositories import (
 )
 from module.persistence.schema import SCHEMA_NAME, metadata
 from module.persistence.unit_of_work import PostgresUnitOfWork
+from tests.import_inspection import imports_for_path
 
 ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_ROOT = ROOT / "module" / "application"
@@ -43,19 +44,7 @@ PERSISTENCE_ROOT = ROOT / "module" / "persistence"
 
 
 def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    imports: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imports.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            imports.add(node.module)
-            imports.update(
-                f"{node.module}.{alias.name}"
-                for alias in node.names
-                if alias.name != "*"
-            )
-    return imports
+    return imports_for_path(ROOT, path)
 
 
 def _imports_prefix(path: Path, prefix: str) -> bool:

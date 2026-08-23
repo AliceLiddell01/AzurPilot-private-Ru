@@ -25,6 +25,7 @@ from datetime import timedelta
 
 from scipy import signal
 
+from module.application.errors import StorageError
 from module.base.timer import Timer
 import time
 from module.base.utils import *
@@ -738,6 +739,8 @@ class RewardCommission(UI, InfoHandler):
             else:
                 logger.info('[Комиссия — награды] Ни на одном снимке не распознаны известные предметы')
 
+        except StorageError:
+            raise
         except Exception as e:
             logger.warning(f'[Комиссия — награды] Не удалось записать доход комиссии: {e}')
 

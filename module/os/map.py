@@ -31,6 +31,7 @@ from sys import maxsize
 
 import inflection
 
+from module.application.errors import StorageError
 from module.base.timer import Timer
 from module.config.config import TaskEnd
 from module.config.utils import get_os_reset_remain
@@ -883,6 +884,8 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     self._cl1_auto_search_battle_count,
                     self._auto_search_round_timer,
                 )
+            except StorageError:
+                raise
             except Exception:
                 logger.debug("Не удалось обновить счётчик боёв CL1", exc_info=True)
 
@@ -899,6 +902,8 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
                     self,
                     getattr(self, "_meow_battle_timer", None),
                 )
+            except StorageError:
+                raise
             except Exception:
                 logger.debug("Не удалось обновить счётчик боёв фарма мяуфицеров", exc_info=True)
 
@@ -977,8 +982,10 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
             from datetime import datetime
 
             now = datetime.now()
-            year = now.year
-            month = now.month
+            if year is None:
+                year = now.year
+            if month is None:
+                month = now.month
 
         data = get_monthly_stats(instance_name, year, month)
         return int(data.get("battle_count", 0))

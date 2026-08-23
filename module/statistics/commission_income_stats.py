@@ -75,6 +75,12 @@ def get_commission_income_summary(
         month = now.month
 
     entries = get_commission_entries(instance, year, month)
+    if period == 'week':
+        week_start = now.date() - timedelta(days=now.weekday())
+        if (week_start.year, week_start.month) != (year, month):
+            entries = get_commission_entries(
+                instance, week_start.year, week_start.month
+            ) + entries
     filtered = _filter_entries_by_period(entries, period, now)
 
     totals: Dict[str, int] = {}
@@ -127,15 +133,20 @@ def get_recent_commission_entries(
     """Вернуть последние записи комиссий в обратном порядке времени."""
     now = get_runtime_storage().current_datetime()
     all_entries = []
-    for offset in range(3):
-        dt = now - timedelta(days=offset * 32)
-        entries = get_commission_entries(instance, dt.year, dt.month)
+    year = now.year
+    month = now.month
+    for _ in range(3):
+        entries = get_commission_entries(instance, year, month)
         for entry in entries:
             ts = _parse_ts(entry.get('ts', ''))
             if ts is not None:
                 all_entries.append(entry)
         if len(all_entries) >= limit:
             break
+        month -= 1
+        if month == 0:
+            year -= 1
+            month = 12
 
     all_entries.sort(key=lambda e: e.get('ts', ''), reverse=True)
     return all_entries[:limit]

@@ -45,6 +45,8 @@ def _load_ready_report(path: Path) -> tuple[dict[str, object], str]:
 def activate(arguments: argparse.Namespace) -> None:
     if arguments.confirm != CONFIRMATION:
         raise RuntimeError("Точное подтверждение необратимой активации отсутствует.")
+    if str(arguments.host).strip().lower() not in {"localhost", "127.0.0.1", "::1"}:
+        raise RuntimeError("Production-маркер разрешён только для loopback PostgreSQL.")
     _, manifest_digest = _load_ready_report(Path(arguments.reconciliation_report))
     settings = DatabaseSettings(
         host=arguments.host,

@@ -4,22 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from module.application.resource_fields import RESOURCE_NAME_MAP
 from module.application.runtime_storage import get_runtime_storage
-
-_RESOURCE_NAMES = {
-    "Oil": "oil",
-    "Coin": "coin",
-    "Gem": "gem",
-    "Pt": "pt",
-    "Cube": "cube",
-    "Core": "core",
-    "Medal": "medal",
-    "Merit": "merit",
-    "GuildCoin": "guild_coin",
-    "ActionPoint": "action_point",
-    "YellowCoin": "yellow_coin",
-    "PurpleCoin": "purple_coin",
-}
 
 
 def record_resource_snapshot(instance: str, resources: dict[str, Any]) -> bool:
@@ -27,7 +13,7 @@ def record_resource_snapshot(instance: str, resources: dict[str, Any]) -> bool:
 
     normalized = {
         target: None if resources.get(source) is None else int(resources[source])
-        for source, target in _RESOURCE_NAMES.items()
+        for source, target in RESOURCE_NAME_MAP.items()
         if source in resources
     }
     return get_runtime_storage().record_resource_snapshot(instance, normalized)

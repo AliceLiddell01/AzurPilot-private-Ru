@@ -78,7 +78,7 @@ def validate_posture(posture: SecurityPosture) -> None:
             raise SecurityPostureError("HBA_NON_LOOPBACK_HOST")
         if method != "scram-sha-256":
             raise SecurityPostureError("HBA_HOST_METHOD_NOT_SCRAM")
-        if method == "scram-sha-256" and _contains(databases, "all") and _contains(users, "all"):
+        if _contains(databases, "all") and _contains(users, "all"):
             host_v4_scram = host_v4_scram or loopback_v4
             host_v6_scram = host_v6_scram or loopback_v6
 
@@ -144,12 +144,17 @@ SELECT json_build_object(
         raise SecurityPostureError("POSTURE_QUERY_FAILED")
     try:
         payload = json.loads(result.stdout.strip())
+        rules = payload["rules"]
+        if not isinstance(rules, list) or not all(
+            isinstance(rule, dict) for rule in rules
+        ):
+            raise TypeError("rules должен быть списком JSON-объектов")
         return SecurityPosture(
             listener=str(payload["listener"]),
             password_encryption=str(payload["password_encryption"]),
-            rules=tuple(payload["rules"]),
+            rules=tuple(rules),
         )
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (AttributeError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise SecurityPostureError("POSTURE_RESPONSE_INVALID") from exc
 
 

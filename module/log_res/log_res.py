@@ -22,6 +22,7 @@ from datetime import datetime
 
 from cached_property import cached_property
 
+from module.application.resource_fields import RESOURCE_NAME_MAP
 from module.application.runtime_storage import get_runtime_storage
 from module.config.deep import deep_get
 from module.logger import logger
@@ -108,7 +109,7 @@ class LogRes:
                     if value_name == 'Value':
                         value_changed = True
                 if _mod:
-                    if key == 'ActionPoint':
+                    if key == 'ActionPoint' and value.get('Value') is not None:
                         from module.statistics.opsi_runtime import record_ap_snapshot
 
                         source = 'dashboard'
@@ -138,22 +139,12 @@ class LogRes:
         instance_name = getattr(self.config, 'config_name', 'default')
         overrides = overrides or {}
         resources = {}
-        resource_names = {
-            'Oil': 'oil',
-            'Coin': 'coin',
-            'Gem': 'gem',
-            'Pt': 'pt',
-            'Cube': 'cube',
-            'Core': 'core',
-            'Medal': 'medal',
-            'Merit': 'merit',
-            'GuildCoin': 'guild_coin',
-            'ActionPoint': 'action_point',
-            'YellowCoin': 'yellow_coin',
-            'PurpleCoin': 'purple_coin',
-        }
         for group_name in self.groups:
-            if group_name not in resource_names:
+            if group_name not in RESOURCE_NAME_MAP:
+                logger.warning(
+                    f'[Ресурсы журнала] Для группы Dashboard.{group_name} '
+                    'нет поля в реестре снимка ресурсов'
+                )
                 continue
             if group_name in overrides:
                 value = overrides[group_name]
@@ -166,7 +157,7 @@ class LogRes:
                 value = group_data.get('Value')
             if value is not None:
                 try:
-                    resources[resource_names[group_name]] = int(value)
+                    resources[RESOURCE_NAME_MAP[group_name]] = int(value)
                 except (TypeError, ValueError):
                     continue
         get_runtime_storage().record_resource_snapshot(instance_name, resources)

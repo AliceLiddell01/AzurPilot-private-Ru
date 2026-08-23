@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-import ast
+import asyncio
 import json
 import subprocess
 import sys
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from module.application.errors import StorageConfigurationError
+from module.application.canonical_payload import payload_digest
 from module.application.runtime_storage import RuntimeStorageService
 from module.persistence.config import DatabaseSettings
 from module.statistics import postgresql_stats
+from tests.import_inspection import imports_for_path
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ROOTS = (
@@ -134,6 +137,18 @@ def test_runtime_idempotency_key_is_stable_inside_observation_window():
         "commission", "profile", observed_at, (1, (("Cube", 3),))
     )
 
+    expected = payload_digest(
+        {
+            "domain": "commission",
+            "instance": "profile",
+            "observation_window": observed_at.replace(microsecond=0).isoformat(),
+            "payload": (Decimal("1.0"), (("Cube", 2),)),
+        }
+    )
+    assert RuntimeStorageService._key(
+        "commission", "profile", observed_at, (Decimal("1.0"), (("Cube", 2),))
+    ).endswith(expected)
+
 
 def test_database_settings_wraps_invalid_timezone_value():
     with pytest.raises(StorageConfigurationError, match="Часовой пояс"):
@@ -187,25 +202,15 @@ def test_production_modules_do_not_import_sqlite_or_legacy_database():
         for path in paths:
             if (ROOT / "module" / "persistence" / "legacy") in path.parents:
                 continue
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    names = {alias.name for alias in node.names}
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    names = {
-                        f"{node.module}.{alias.name}"
-                        for alias in node.names
-                    }
-                else:
-                    continue
-                if any(
-                    name == "sqlite3"
-                    or name.startswith("sqlite3.")
-                    or name == "module.statistics.cl1_database"
-                    or name.startswith("module.statistics.cl1_database.")
-                    for name in names
-                ):
-                    violations.append(str(path.relative_to(ROOT)))
+            names = imports_for_path(ROOT, path)
+            if any(
+                name == "sqlite3"
+                or name.startswith("sqlite3.")
+                or name == "module.statistics.cl1_database"
+                or name.startswith("module.statistics.cl1_database.")
+                for name in names
+            ):
+                violations.append(str(path.relative_to(ROOT)))
     assert not violations, violations
 
     azurstats = (ROOT / "module" / "statistics" / "azurstats.py").read_text(
@@ -224,7 +229,7 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     assert "systemctl', 'start', 'postgresql'" in start
     assert "'pg_isready', '--host', '127.0.0.1'" in start
     assert "dev_tools.postgresql_runtime" in start
-    backup_call = update.index("\n        Backup-ProductionPostgreSql\n")
+    backup_call = update.index("\n        $postgresqlBackupPath = Backup-ProductionPostgreSql\n")
     merge_call = update.index("'merge'", backup_call)
     assert backup_call < merge_call
     assert "Invoke-ProductionPostgreSqlSchemaUpgrade" in update
@@ -252,3 +257,43 @@ def test_webui_legacy_upload_path_is_confined_before_read(tmp_path: Path):
         _legacy_upload_target(tmp_path, "old/config/cl1_data.db")
     with pytest.raises(ValueError, match="LEGACY_UPLOAD_PATH_REJECTED"):
         _legacy_upload_target(tmp_path, "old/config/../../outside.json")
+
+
+def test_webui_validates_all_upload_paths_before_first_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from module.webui.api import api_import_legacy_upload
+
+    class Upload:
+        def __init__(self, filename: str):
+            self.filename = filename
+            self.read_count = 0
+
+        async def read(self) -> bytes:
+            self.read_count += 1
+            return b"{}"
+
+    class Form:
+        def __init__(self, files: list[Upload]):
+            self.files = files
+
+        def getlist(self, _name: str) -> list[Upload]:
+            return self.files
+
+    class Request:
+        def __init__(self, files: list[Upload]):
+            self.files = files
+
+        async def form(self) -> Form:
+            return Form(self.files)
+
+    valid = Upload("old/config/profile.json")
+    rejected = Upload("old/config/cl1_data.db")
+    monkeypatch.chdir(tmp_path)
+
+    response = asyncio.run(api_import_legacy_upload(Request([valid, rejected])))
+
+    assert response.status_code == 400
+    assert valid.read_count == 0
+    assert rejected.read_count == 0
+    assert not (tmp_path / "config" / "profile.json").exists()
