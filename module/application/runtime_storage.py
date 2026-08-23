@@ -12,8 +12,9 @@ from typing import Protocol, TypeVar
 from uuid import UUID, uuid4, uuid5
 from zoneinfo import ZoneInfo
 
-from module.application.errors import StorageConfigurationError
 from module.application.canonical_payload import payload_digest
+from module.application.errors import StorageConfigurationError, StorageInvalidDataError
+from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import (
     CommissionIncome,
     CommissionItem,
@@ -559,6 +560,11 @@ class RuntimeStorageService:
         return value.astimezone(self._timezone)
 
     def record_resource_snapshot(self, instance: str, resources: dict[str, int | None]) -> bool:
+        unknown = sorted(set(resources) - set(RESOURCE_FIELDS))
+        if unknown:
+            raise StorageInvalidDataError(
+                f"Неизвестные поля снимка ресурсов: {', '.join(unknown)}."
+            )
         observed_at = self._observation_instant()
         snapshot = ResourceSnapshot(
             id=uuid4(),

@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from module.application.errors import StorageConfigurationError
 from module.application.canonical_payload import payload_digest
+from module.application.errors import StorageConfigurationError, StorageInvalidDataError
 from module.application.runtime_storage import RuntimeStorageService
 from module.persistence.config import DatabaseSettings
 from module.statistics import postgresql_stats
@@ -158,6 +158,18 @@ def test_database_settings_wraps_invalid_timezone_value():
             database="azurpilot",
             user="azurpilot_app",
             runtime_timezone="bad\x00timezone",
+        )
+
+
+def test_resource_snapshot_rejects_unknown_field_before_storage_access():
+    service = RuntimeStorageService(
+        lambda: pytest.fail("При некорректном поле Unit of Work не открывается.")
+    )
+
+    with pytest.raises(StorageInvalidDataError, match="unexpected_resource"):
+        service.record_resource_snapshot(
+            "profile",
+            {"oil": 100, "unexpected_resource": 200},
         )
 
 

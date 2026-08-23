@@ -1731,16 +1731,13 @@ function Backup-ProductionPostgreSql {
     }
 
     $backupDirectoryCreated = -not (Test-Path -LiteralPath $backupDirectory)
+    New-Item -ItemType Directory -Path $backupDirectory -Force -ErrorAction Stop | Out-Null
+    $backupItem = Get-Item -LiteralPath $backupDirectory -Force -ErrorAction Stop
 
-    if (-not $backupDirectoryCreated) {
-        $backupItem = Get-Item -LiteralPath $backupDirectory -Force -ErrorAction Stop
-
-        if ($backupItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-            Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Каталог резервных копий PostgreSQL не может быть ссылкой или точкой повторного анализа.'
-        }
+    if ($backupItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Каталог резервных копий PostgreSQL не может быть ссылкой или точкой повторного анализа.'
     }
 
-    New-Item -ItemType Directory -Path $backupDirectory -Force -ErrorAction Stop | Out-Null
     Protect-PostgreSqlBackupDirectory -Path $backupDirectory -CreatedByUpdater $backupDirectoryCreated
     $backupName = 'azurpilot-before-update-{0}.dump' -f (Get-Date -Format 'yyyyMMdd-HHmmss')
     $backupPath = Join-Path -Path $backupDirectory -ChildPath $backupName
