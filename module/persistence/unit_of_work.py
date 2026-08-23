@@ -7,8 +7,7 @@ from types import TracebackType
 from typing import Self
 
 from sqlalchemy import Connection
-from sqlalchemy.exc import DBAPIError, SQLAlchemyError
-from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
 from module.persistence.database import LazyEngine, translate_database_error
@@ -40,7 +39,7 @@ class PostgresUnitOfWork:
             self.instances = PostgresInstanceIdentityRepository(connection)
             self.statistics = PostgresStatisticsRepository(connection)
             self.imports = PostgresImportLedgerRepository(connection)
-        except (DBAPIError, SQLAlchemyTimeoutError) as exc:
+        except SQLAlchemyError as exc:
             self._connection = None
             self._close_quietly(connection)
             raise translate_database_error(exc) from None
@@ -65,15 +64,16 @@ class PostgresUnitOfWork:
             raise RuntimeError("Unit of Work не содержит активной транзакции.")
         try:
             connection.commit()
-        except DBAPIError as exc:
+        except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
     def rollback(self) -> None:
+        # Вызов без активной транзакции — no-op для безопасного использования из __exit__.
         connection = self._connection
         if connection is not None and connection.in_transaction():
             try:
                 connection.rollback()
-            except DBAPIError as exc:
+            except SQLAlchemyError as exc:
                 raise translate_database_error(exc) from None
 
     def __exit__(
@@ -94,7 +94,7 @@ class PostgresUnitOfWork:
             if self._connection is not None:
                 try:
                     self._connection.close()
-                except DBAPIError as error:
+                except SQLAlchemyError as error:
                     if cleanup_error is None:
                         cleanup_error = translate_database_error(error)
                 self._connection = None

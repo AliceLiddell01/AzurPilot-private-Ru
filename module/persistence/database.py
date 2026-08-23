@@ -8,18 +8,21 @@ from collections.abc import Callable
 from typing import cast
 
 from sqlalchemy import Engine, create_engine, select, text
-from sqlalchemy.exc import DBAPIError, OperationalError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import QueuePool
 
 from module.application.errors import (
     IncompatibleSchemaError,
     StorageAuthenticationError,
     StorageConflictError,
+    StorageInvalidDataError,
     StorageUnavailableError,
 )
 from module.application.storage_models import StorageHealth, StorageHealthState
 from module.persistence.config import DatabaseSettings
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
+
+_SCHEMA_VALUE_ERRORS = (TypeError, ValueError)
 
 
 def translate_database_error(exc: BaseException) -> Exception:
@@ -37,8 +40,10 @@ def translate_database_error(exc: BaseException) -> Exception:
         marker in diagnostic for marker in authentication_markers
     ):
         return StorageAuthenticationError("PostgreSQL отклонил аутентификацию.")
-    if isinstance(sqlstate, str) and sqlstate.startswith("23"):
+    if sqlstate == "23505":
         return StorageConflictError("PostgreSQL отклонил конфликтующую запись.")
+    if isinstance(sqlstate, str) and sqlstate.startswith(("22", "23")):
+        return StorageInvalidDataError("PostgreSQL отклонил некорректные данные.")
     if isinstance(sqlstate, str) and sqlstate.startswith("42"):
         return IncompatibleSchemaError("PostgreSQL schema несовместима.")
     return StorageUnavailableError("PostgreSQL временно недоступен.")
@@ -139,7 +144,7 @@ class StorageHealthChecker:
                         )
                     ).scalars()
                 )
-        except (OperationalError, DBAPIError) as exc:
+        except SQLAlchemyError as exc:
             mapped = translate_database_error(exc)
             if isinstance(mapped, StorageAuthenticationError):
                 state = StorageHealthState.AUTHENTICATION_FAILED
@@ -148,7 +153,7 @@ class StorageHealthChecker:
             else:
                 state = StorageHealthState.UNAVAILABLE
             return StorageHealth(state)
-        except LookupError, TypeError, ValueError:
+        except _SCHEMA_VALUE_ERRORS:
             return StorageHealth(StorageHealthState.INCOMPATIBLE_SCHEMA)
         if heads != (self._expected_head,):
             return StorageHealth(

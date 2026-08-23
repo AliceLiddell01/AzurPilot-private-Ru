@@ -15,6 +15,8 @@ from sqlalchemy.exc import OperationalError
 from module.application import (
     StorageAuthenticationError,
     StorageConfigurationError,
+    StorageConflictError,
+    StorageInvalidDataError,
     StorageUnavailableError,
 )
 from module.persistence.config import DatabaseSettings, PoolSettings
@@ -48,16 +50,18 @@ class PersistenceArchitectureTests(unittest.TestCase):
 
     def test_persistence_boundary_never_imports_sqlite(self):
         for path in PERSISTENCE_ROOT.rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
             self.assertNotIn("sqlite3", _import_roots(path), path)
-            self.assertNotIn("create_all(", path.read_text(encoding="utf-8"), path)
+            self.assertNotIn("create_all(", source, path)
             if path.name == "repositories.py":
-                self.assertNotIn(".commit(", path.read_text(encoding="utf-8"), path)
+                self.assertNotIn(".commit(", source, path)
 
     def test_production_consumers_do_not_use_new_adapters(self):
         checked = [ROOT / "alas.py", ROOT / "gui.py", ROOT / "mcp_server_sse.py"]
         checked.extend((ROOT / "module" / "webui").rglob("*.py"))
         checked.extend((ROOT / "module" / "statistics").rglob("*.py"))
         for path in checked:
+            self.assertTrue(path.is_file(), path)
             self.assertNotIn(
                 "module.persistence", path.read_text(encoding="utf-8"), path
             )
@@ -83,6 +87,14 @@ assert 'sqlite3' not in sys.modules
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_destructive_migration_requires_disposable_opt_in(self):
+        migration = next((ROOT / "migrations" / "versions").glob("0001_*.py"))
+        source = migration.read_text(encoding="utf-8")
+        self.assertIn('AZURPILOT_POSTGRES_DISPOSABLE") != "1"', source)
+        self.assertLess(
+            source.index("AZURPILOT_POSTGRES_DISPOSABLE"), source.index("op.drop_table")
+        )
 
 
 class DatabaseConfigurationTests(unittest.TestCase):
@@ -171,6 +183,7 @@ class DatabaseConfigurationTests(unittest.TestCase):
             env={**os.environ, "PYTHONPATH": str(ROOT)},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.strip(), result.stdout)
 
     def test_lazy_engine_pickle_resets_runtime_state_for_spawn(self):
         lazy = LazyEngine(self._settings())
@@ -186,6 +199,20 @@ class DatabaseConfigurationTests(unittest.TestCase):
         self.assertIsInstance(mapped, StorageAuthenticationError)
         self.assertNotIn("do-not-show", str(mapped))
         self.assertNotIn("hidden", str(mapped))
+
+        conflict_orig = RuntimeError("synthetic unique conflict")
+        conflict_orig.sqlstate = "23505"  # type: ignore[attr-defined]
+        conflict = translate_database_error(
+            OperationalError("statement", {}, conflict_orig)
+        )
+        self.assertIsInstance(conflict, StorageConflictError)
+
+        invalid_orig = RuntimeError("synthetic check failure")
+        invalid_orig.sqlstate = "23514"  # type: ignore[attr-defined]
+        invalid = translate_database_error(
+            OperationalError("statement", {}, invalid_orig)
+        )
+        self.assertIsInstance(invalid, StorageInvalidDataError)
 
         unavailable = translate_database_error(RuntimeError("postgresql://secret"))
         self.assertIsInstance(unavailable, StorageUnavailableError)

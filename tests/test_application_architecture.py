@@ -53,10 +53,11 @@ for name in (
 
 
 def test_existing_webui_and_mcp_production_wiring_remains_independent():
-    app_tree = ast.parse(
-        (ROOT / "module" / "webui" / "app.py").read_text(encoding="utf-8")
-    )
+    app_path = ROOT / "module" / "webui" / "app.py"
     mcp_path = ROOT / "mcp_server_sse.py"
+    assert app_path.is_file(), app_path
+    assert mcp_path.is_file(), mcp_path
+    app_tree = ast.parse(app_path.read_text(encoding="utf-8"))
     mcp_source = mcp_path.read_text(encoding="utf-8")
     mcp_tree = ast.parse(mcp_source)
 
@@ -105,7 +106,7 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
         if isinstance(key, ast.Constant) and isinstance(key.value, str)
     }
 
-    assert not application_imports
+    assert not application_imports, application_imports
     assert "/mcp" in mounted_paths
     assert {
         "list_instances",

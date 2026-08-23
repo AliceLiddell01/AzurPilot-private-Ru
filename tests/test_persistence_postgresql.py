@@ -63,6 +63,10 @@ def _increment_worker(instance_id: str, loops: int) -> None:
 
 @pytest.fixture
 def database():
+    if os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1":
+        pytest.fail(
+            "Фикстура очищает schema и требует AZURPILOT_POSTGRES_DISPOSABLE=1."
+        )
     lazy = LazyEngine(DatabaseSettings.from_environment())
     with lazy.get().begin() as connection:
         for table in reversed(metadata.sorted_tables):
@@ -180,12 +184,18 @@ def test_health_authentication_and_unavailable_are_distinct():
         sslmode=settings.sslmode,
         pool=PoolSettings(timeout_seconds=1),
     )
-    assert StorageHealthChecker(LazyEngine(wrong_password)).check().state is (
-        StorageHealthState.AUTHENTICATION_FAILED
-    )
-    assert StorageHealthChecker(LazyEngine(unavailable)).check().state is (
-        StorageHealthState.UNAVAILABLE
-    )
+    wrong_password_engine = LazyEngine(wrong_password)
+    unavailable_engine = LazyEngine(unavailable)
+    try:
+        assert StorageHealthChecker(wrong_password_engine).check().state is (
+            StorageHealthState.AUTHENTICATION_FAILED
+        )
+        assert StorageHealthChecker(unavailable_engine).check().state is (
+            StorageHealthState.UNAVAILABLE
+        )
+    finally:
+        wrong_password_engine.dispose()
+        unavailable_engine.dispose()
 
 
 def test_pool_exhaustion_is_mapped_to_storage_unavailable():
@@ -398,6 +408,7 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
             .scalars()
             .all()
         )
+        assert original_heads, "alembic_version пуста: миграции не применены"
         connection.execute(
             text("UPDATE alembic_version SET version_num = 'wrong_head'")
         )

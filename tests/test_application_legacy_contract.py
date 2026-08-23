@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from module.application import InstanceQueryService, RuntimeState, TaskCatalogService
 from module.application.legacy_adapters import (
     GeneratedTaskCatalogAdapter,
     LegacyInstanceRuntimeAdapter,
 )
 from module.application.models import TaskMetadata
-from module.config.mcp_helper import McpConfigHelper
+from module.config import locale as config_locale
 from module.config import utils as config_utils
+from module.config.mcp_helper import McpConfigHelper
 
 
 def _legacy_task_dict(task: TaskMetadata) -> dict[str, object]:
@@ -47,6 +50,13 @@ def _legacy_task_dict(task: TaskMetadata) -> dict[str, object]:
 
 
 def test_generated_task_catalog_matches_current_mcp_projection_for_every_task():
+    generated_paths = (
+        Path(config_utils.filepath_args("args")),
+        Path(config_utils.filepath_i18n(config_locale.UI_LOCALE)),
+    )
+    assert all(path.is_file() for path in generated_paths), (
+        f"Сначала требуется генерация config/i18n: {generated_paths}"
+    )
     legacy = McpConfigHelper()
     service = TaskCatalogService(GeneratedTaskCatalogAdapter.from_generated_sources())
 

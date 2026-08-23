@@ -404,7 +404,7 @@ siren_research_device_stat = Table(
     CheckConstraint("month = date_trunc('month', month)::date", name="month_first_day"),
     CheckConstraint("hazard_level BETWEEN 0 AND 6", name="hazard_level_range"),
     CheckConstraint("device_count >= 0", name="device_count_nonnegative"),
-    # Aggregate CL1 records use 0 as an explicit all-hazards sentinel.
+    # Агрегированные CL1-записи используют 0 как явный sentinel всех hazards.
     CheckConstraint(
         "(source = 'cl1' AND hazard_level = 0) OR "
         "(source = 'meow' AND hazard_level BETWEEN 1 AND 6)",
@@ -427,7 +427,7 @@ siren_research_device_event = Table(
     UniqueConstraint("idempotency_key"),
     CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="payload_digest_sha256"),
     CheckConstraint("source IN ('cl1', 'meow')", name="source_allowed"),
-    # Individual CL1 events have no hazard, while Meow events require 1..6.
+    # У отдельных CL1-событий hazard отсутствует, а Meow требует значение 1..6.
     CheckConstraint(
         "(source = 'cl1' AND hazard_level IS NULL) OR "
         "(source = 'meow' AND hazard_level IS NOT NULL "

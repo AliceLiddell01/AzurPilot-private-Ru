@@ -93,6 +93,9 @@ AZURPILOT_POSTGRES_PASSWORD   # optional при PGPASSFILE/libpq credential sour
 AZURPILOT_POSTGRES_SSLMODE
 ```
 
+Если `SSLMODE` не задан, foundation требует TLS (`require`); ослабленные режимы
+доступны только через явную настройку среды.
+
 Реальные значения не хранятся в repository, `config/deploy.yaml` или generated
 application config. Password исключён из repr; SQLAlchemy URL по умолчанию
 маскирует его. Transport/auth/schema diagnostics возвращают только безопасные
