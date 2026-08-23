@@ -56,7 +56,7 @@ legacy_instance_alias = Table(
     Column("id", BigInteger, Identity(), primary_key=True),
     Column("alias_kind", String(32), nullable=False),
     Column("alias_digest", String(64), nullable=False),
-    Column("instance_id", Uuid, _instance_fk(), nullable=True),
+    Column("instance_id", Uuid, _instance_fk(), nullable=False),
     Column("source_provenance", String(128), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint("alias_kind", "alias_digest"),

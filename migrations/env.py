@@ -25,9 +25,7 @@ def _include_name(
 ) -> bool:
     if type_ == "schema":
         return name in {None, SCHEMA_NAME}
-    return not (
-        type_ == "table" and parent_names.get("schema_name") not in {None, SCHEMA_NAME}
-    )
+    return not (type_ == "table" and parent_names.get("schema_name") != SCHEMA_NAME)
 
 
 def run_migrations_offline() -> None:

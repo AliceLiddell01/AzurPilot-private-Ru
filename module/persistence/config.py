@@ -35,7 +35,7 @@ class DatabaseSettings:
     user: str
     password: str | None = field(default=None, repr=False)
     connect_timeout_seconds: int = 5
-    sslmode: str | None = None
+    sslmode: str = "require"
     pool: PoolSettings = field(default_factory=PoolSettings)
 
     def __post_init__(self) -> None:
@@ -51,7 +51,6 @@ class DatabaseSettings:
         if not 1 <= self.connect_timeout_seconds <= 60:
             raise StorageConfigurationError("Connect timeout некорректен.")
         if self.sslmode not in {
-            None,
             "disable",
             "prefer",
             "require",
@@ -72,8 +71,7 @@ class DatabaseSettings:
 
     def connect_args(self) -> dict[str, object]:
         args: dict[str, object] = {"connect_timeout": self.connect_timeout_seconds}
-        if self.sslmode is not None:
-            args["sslmode"] = self.sslmode
+        args["sslmode"] = self.sslmode
         return args
 
     @classmethod
@@ -96,5 +94,5 @@ class DatabaseSettings:
             database=required("DATABASE"),
             user=required("USER"),
             password=environ.get(prefix + "PASSWORD") or None,
-            sslmode=environ.get(prefix + "SSLMODE") or None,
+            sslmode=environ.get(prefix + "SSLMODE") or "require",
         )

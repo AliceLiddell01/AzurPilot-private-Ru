@@ -297,7 +297,9 @@ class PostgresStatisticsRepository:
                 raise StorageInvalidDataError(
                     "Commission amount не может быть отрицательным."
                 )
-        digest = _digest(_semantic_values(asdict(income)))
+        payload = _semantic_values(asdict(income))
+        payload["items"] = sorted(payload["items"], key=lambda item: item["item_code"])
+        digest = _digest(payload)
         header = {key: value for key, value in asdict(income).items() if key != "items"}
         header["payload_digest"] = digest
         try:

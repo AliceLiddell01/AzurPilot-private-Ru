@@ -20,6 +20,7 @@ from module.application import (
 from module.persistence.config import DatabaseSettings, PoolSettings
 from module.persistence.database import LazyEngine, translate_database_error
 from module.persistence.schema import SCHEMA_NAME, metadata
+from module.persistence.unit_of_work import PostgresUnitOfWork
 
 ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_ROOT = ROOT / "module" / "application"
@@ -111,7 +112,7 @@ class DatabaseConfigurationTests(unittest.TestCase):
         with patch.dict(os.environ, values, clear=True):
             settings = DatabaseSettings.from_environment()
         self.assertIsNone(settings.password)
-        self.assertIsNone(settings.sslmode)
+        self.assertEqual(settings.sslmode, "require")
 
     def test_pool_limits_fail_closed(self):
         with self.assertRaises(StorageConfigurationError):
@@ -189,6 +190,17 @@ class DatabaseConfigurationTests(unittest.TestCase):
         unavailable = translate_database_error(RuntimeError("postgresql://secret"))
         self.assertIsInstance(unavailable, StorageUnavailableError)
         self.assertNotIn("secret", str(unavailable))
+
+    def test_unit_of_work_closes_connection_when_begin_fails(self):
+        connection = Mock()
+        connection.begin.side_effect = ValueError("synthetic setup failure")
+        engine = Mock()
+        engine.get.return_value.connect.return_value = connection
+
+        with self.assertRaises(ValueError):
+            PostgresUnitOfWork(engine).__enter__()
+
+        connection.close.assert_called_once_with()
 
 
 class SchemaMetadataTests(unittest.TestCase):
@@ -268,6 +280,7 @@ class SchemaMetadataTests(unittest.TestCase):
             )
         )
 
+        checked_indexes = 0
         for table in metadata.tables.values():
             for index in table.indexes:
                 if (
@@ -277,6 +290,8 @@ class SchemaMetadataTests(unittest.TestCase):
                 ):
                     expressions = " ".join(str(item) for item in index.expressions)
                     self.assertIn("NULLS LAST", expressions.upper())
+                    checked_indexes += 1
+        self.assertGreater(checked_indexes, 0)
 
 
 if __name__ == "__main__":

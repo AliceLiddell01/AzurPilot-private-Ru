@@ -220,9 +220,15 @@ def test_atomic_counter_across_spawned_processes(database: LazyEngine):
     ]
     for process in processes:
         process.start()
-    for process in processes:
-        process.join(60)
-        assert process.exitcode == 0
+    try:
+        for process in processes:
+            process.join(60)
+            assert process.exitcode == 0
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.kill()
+                process.join(5)
     with database.get().connect() as connection:
         row = connection.execute(
             select(monthly_aggregate.c.value, monthly_aggregate.c.version).where(
@@ -327,7 +333,9 @@ def test_versioned_state_and_commission_rollback(database: LazyEngine):
         assert uow.statistics.record_commission_income(income)
         uow.commit()
     with PostgresUnitOfWork(database) as uow:
-        assert not uow.statistics.record_commission_income(replace(income, id=uuid4()))
+        assert not uow.statistics.record_commission_income(
+            replace(income, id=uuid4(), items=tuple(reversed(income.items)))
+        )
         uow.commit()
     with database.get().connect() as connection:
         assert (

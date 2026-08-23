@@ -287,7 +287,7 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), sa.Identity(always=False), nullable=False),
         sa.Column("alias_kind", sa.String(length=32), nullable=False),
         sa.Column("alias_digest", sa.String(length=64), nullable=False),
-        sa.Column("instance_id", sa.Uuid(), nullable=True),
+        sa.Column("instance_id", sa.Uuid(), nullable=False),
         sa.Column("source_provenance", sa.String(length=128), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(

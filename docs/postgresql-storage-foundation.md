@@ -66,9 +66,6 @@ Alembic — единственный schema-version mechanism. Приложен�
 
 Для явно disposable database:
 
-Integration-тесты дополнительно требуют явный test-only opt-in
-`AZURPILOT_POSTGRES_DISPOSABLE=1`; без него destructive fixture пропускается.
-
 ```text
 uv run --locked alembic upgrade head
 uv run --locked alembic current --check-heads
@@ -76,6 +73,9 @@ uv run --locked alembic check
 uv run --locked alembic downgrade base
 uv run --locked alembic upgrade head
 ```
+
+Integration-тесты дополнительно требуют явный test-only opt-in
+`AZURPILOT_POSTGRES_DISPOSABLE=1`; без него destructive fixture пропускается.
 
 Downgrade запрещено применять к пользовательской БД. Stage 2 CI выполняет цикл
 только в одноразовом PostgreSQL 18 service container.

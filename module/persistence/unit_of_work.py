@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from types import TracebackType
 from typing import Self
 
 from sqlalchemy import Connection
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from module.application.errors import StorageError
@@ -16,6 +17,8 @@ from module.persistence.repositories import (
     PostgresInstanceIdentityRepository,
     PostgresStatisticsRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresUnitOfWork:
@@ -33,18 +36,28 @@ class PostgresUnitOfWork:
         try:
             connection = self._engine.get().connect()
             connection.begin()
+            self._connection = connection
+            self.instances = PostgresInstanceIdentityRepository(connection)
+            self.statistics = PostgresStatisticsRepository(connection)
+            self.imports = PostgresImportLedgerRepository(connection)
         except (DBAPIError, SQLAlchemyTimeoutError) as exc:
-            if connection is not None:
-                try:
-                    connection.close()
-                except DBAPIError:
-                    pass
+            self._connection = None
+            self._close_quietly(connection)
             raise translate_database_error(exc) from None
-        self._connection = connection
-        self.instances = PostgresInstanceIdentityRepository(self._connection)
-        self.statistics = PostgresStatisticsRepository(self._connection)
-        self.imports = PostgresImportLedgerRepository(self._connection)
+        except BaseException:
+            self._connection = None
+            self._close_quietly(connection)
+            raise
         return self
+
+    @staticmethod
+    def _close_quietly(connection: Connection | None) -> None:
+        if connection is None:
+            return
+        try:
+            connection.close()
+        except SQLAlchemyError:
+            logger.warning("Не удалось закрыть PostgreSQL connection при очистке.")
 
     def commit(self) -> None:
         connection = self._connection
@@ -75,15 +88,21 @@ class PostgresUnitOfWork:
                 try:
                     self.rollback()
                 except StorageError as error:
-                    cleanup_error = error
+                    if cleanup_error is None:
+                        cleanup_error = error
         finally:
             if self._connection is not None:
                 try:
                     self._connection.close()
                 except DBAPIError as error:
-                    cleanup_error = translate_database_error(error)
+                    if cleanup_error is None:
+                        cleanup_error = translate_database_error(error)
                 self._connection = None
                 for attribute in ("instances", "statistics", "imports"):
                     self.__dict__.pop(attribute, None)
-        if exc_type is None and cleanup_error is not None:
+        if exc_type is not None and cleanup_error is not None:
+            logger.warning(
+                "Ошибка очистки PostgreSQL Unit of Work подавлена исходным исключением."
+            )
+        elif cleanup_error is not None:
             raise cleanup_error

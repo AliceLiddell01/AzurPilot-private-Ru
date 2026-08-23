@@ -52,7 +52,7 @@ class InstanceQueryService:
             names = self._reader.list_instance_names()
             if not isinstance(names, tuple):
                 raise TypeError("reader должен вернуть tuple")
-            if any(not isinstance(name, str) or not name for name in names):
+            if any(not isinstance(name, str) or not name.strip() for name in names):
                 raise TypeError("reader вернул некорректное имя")
             if any(
                 _validated_name(name, resource="экземпляра") != name for name in names

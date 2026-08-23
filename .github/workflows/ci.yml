@@ -156,6 +156,7 @@ jobs:
                       )
                   )
           PY
+          mkdir -p "${RUNNER_TEMP}/azurpilot-ci-python"
           cycle_script="${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.sh"
           cat > "$cycle_script" <<'SH'
           set -euo pipefail

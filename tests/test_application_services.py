@@ -87,6 +87,13 @@ def test_instance_service_rejects_noncanonical_reader_name():
     with pytest.raises(ServiceUnavailableError):
         InstanceQueryService(NoncanonicalReader()).list_instances()
 
+    class WhitespaceReader(_InstanceReader):
+        def list_instance_names(self) -> tuple[str, ...]:
+            return ("   ",)
+
+    with pytest.raises(ServiceUnavailableError):
+        InstanceQueryService(WhitespaceReader()).list_instances()
+
 
 def test_instance_service_rejects_unknown_runtime_state_fail_closed():
     class UnknownStateReader(_InstanceReader):
