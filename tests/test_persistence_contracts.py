@@ -89,13 +89,29 @@ class PersistenceArchitectureTests(unittest.TestCase):
             if path.name == "repositories.py":
                 self.assertNotIn(".commit(", source, path)
 
-    def test_production_consumers_do_not_use_new_adapters(self):
+    def test_production_consumers_use_persistence_only_at_composition_roots(self):
+        composition_roots = {
+            ROOT / "alas.py",
+            ROOT / "mcp_server_sse.py",
+            ROOT / "module" / "webui" / "app_lifecycle.py",
+        }
         checked = [ROOT / "alas.py", ROOT / "gui.py", ROOT / "mcp_server_sse.py"]
         checked.extend((ROOT / "module" / "webui").rglob("*.py"))
         checked.extend((ROOT / "module" / "statistics").rglob("*.py"))
         for path in checked:
             self.assertTrue(path.is_file(), path)
-            self.assertFalse(_imports_prefix(path, "module.persistence"), path)
+            persistence_imports = {
+                name
+                for name in _imports(path)
+                if name == "module.persistence" or name.startswith("module.persistence.")
+            }
+            if path in composition_roots:
+                self.assertTrue(
+                    all(name.startswith("module.persistence.runtime") for name in persistence_imports),
+                    path,
+                )
+            else:
+                self.assertFalse(persistence_imports, path)
 
     def test_import_has_no_network_or_ddl_side_effect(self):
         script = f"""

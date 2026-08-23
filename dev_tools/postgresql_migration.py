@@ -118,15 +118,64 @@ def _require_disposable(settings: DatabaseSettings, scratch: str | None = None) 
             raise LegacySourceError("SCRATCH_TARGET_NOT_CONFIRMED")
 
 
+def _require_production_cutover(
+    settings: DatabaseSettings, scratch: str, confirmation: str
+) -> None:
+    expected = {
+        "host": os.environ.get("AZURPILOT_POSTGRES_CUTOVER_HOST"),
+        "port": os.environ.get("AZURPILOT_POSTGRES_CUTOVER_PORT"),
+        "database": os.environ.get("AZURPILOT_POSTGRES_CUTOVER_DATABASE"),
+        "user": os.environ.get("AZURPILOT_POSTGRES_CUTOVER_USER"),
+        "scratch": os.environ.get("AZURPILOT_POSTGRES_CUTOVER_SCRATCH_DATABASE"),
+    }
+    actual = {
+        "host": settings.host,
+        "port": str(settings.port),
+        "database": settings.database,
+        "user": settings.user,
+        "scratch": scratch,
+    }
+    if (
+        os.environ.get("AZURPILOT_POSTGRES_CUTOVER") != "1"
+        or confirmation != "FINAL-PRODUCTION-CUTOVER"
+        or any(not value for value in expected.values())
+        or expected != actual
+        or scratch in {settings.database, "postgres"}
+    ):
+        raise LegacySourceError("PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED")
+
+
 def _run_pg(executable: str, arguments: list[str], settings: DatabaseSettings) -> None:
     environment = os.environ.copy()
     if settings.password:
         environment["PGPASSWORD"] = settings.password
+    command = [executable, *arguments]
+    if executable.startswith("wsl:"):
+        tool = executable.removeprefix("wsl:")
+        converted: list[str] = []
+        for argument in arguments:
+            path = Path(argument)
+            if path.is_absolute() and path.drive:
+                drive = path.drive.rstrip(":").lower()
+                suffix = path.as_posix().split(":", 1)[1].lstrip("/")
+                converted.append(f"/mnt/{drive}/{suffix}")
+            else:
+                converted.append(argument)
+        command = [
+            "wsl.exe",
+            "--distribution",
+            os.environ.get("AZURPILOT_WSL_DISTRO", "Archlinux"),
+            "--exec",
+            "env",
+            f"PGPASSFILE={os.environ.get('AZURPILOT_WSL_PGPASSFILE', '/etc/azurpilot/pgpass')}",
+            tool,
+            *converted,
+        ]
     run_options: dict[str, object] = {}
     if os.name == "nt":
         run_options["creationflags"] = subprocess.CREATE_NO_WINDOW
     result = subprocess.run(
-        [executable, *arguments],
+        command,
         env=environment,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -145,6 +194,8 @@ def _pg_tool(name: str) -> str:
     configured = os.environ.get(variable)
     executable = configured or shutil.which(name)
     if not executable or not Path(executable).is_file():
+        if os.name == "nt" and shutil.which("wsl.exe"):
+            return f"wsl:{name}"
         raise LegacySourceError("POSTGRES_BACKUP_TOOL_UNAVAILABLE")
     return executable
 
@@ -262,10 +313,17 @@ def build_parser() -> argparse.ArgumentParser:
         child.add_argument("--chunk-size", type=int, default=500)
     full = subparsers.add_parser(
         "full-rehearsal",
-        help="Полная disposable rehearsal; единственный режим readiness verdict.",
+        help="Полная disposable-репетиция с итогом готовности.",
     )
     full.add_argument("--chunk-size", type=int, default=500)
     full.add_argument("--scratch-database", required=True)
+    cutover = subparsers.add_parser(
+        "full-cutover",
+        help="Полный production import/repeat/dump/restore с точным guard-контрактом.",
+    )
+    cutover.add_argument("--chunk-size", type=int, default=500)
+    cutover.add_argument("--scratch-database", required=True)
+    cutover.add_argument("--confirm", required=True)
     return parser
 
 
@@ -282,8 +340,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         settings = DatabaseSettings.from_environment()
-        if arguments.command == "full-rehearsal":
-            _require_disposable(settings, arguments.scratch_database)
+        if arguments.command in {"full-rehearsal", "full-cutover"}:
+            if arguments.command == "full-rehearsal":
+                _require_disposable(settings, arguments.scratch_database)
+            else:
+                _require_production_cutover(
+                    settings, arguments.scratch_database, arguments.confirm
+                )
             with tempfile.TemporaryDirectory(prefix="azurpilot-stage3-") as temporary:
                 temp_root = Path(temporary).resolve(strict=True)
                 snapshot = temp_root / "snapshot"

@@ -1,9 +1,4 @@
-"""
-Web界面 REST API 路由。
-
-提供 Starlette 路由处理函数，包括大世界统计、AP 时间线、通知推送、
-截图获取、配置导入、远程设备控制等 HTTP/WebSocket 接口。
-"""
+"""Маршруты REST API WebUI для статистики, настроек и управления устройством."""
 
 import asyncio
 import json
@@ -15,6 +10,7 @@ import struct
 import subprocess
 import threading
 import time
+from pathlib import Path, PurePosixPath
 from time import sleep
 
 import cv2
@@ -44,6 +40,43 @@ from module.webui.lang import t
 
 def is_demo_mode():
     return os.environ.get("DEMO") == "1"
+
+
+def _legacy_upload_target(
+    current_root: Path, relative_path: str
+) -> tuple[Path, str] | None:
+    """Разрешить безопасный путь legacy-импорта до чтения содержимого."""
+
+    normalized = relative_path.replace("\\", "/")
+    raw_parts = normalized.split("/")
+    if any(part == ".." for part in raw_parts):
+        raise ValueError("LEGACY_UPLOAD_PATH_REJECTED")
+    parts = [part for part in raw_parts if part not in {"", "."}]
+    if not parts:
+        return None
+    filename = parts[-1]
+    if PurePosixPath(filename).suffix.lower() == ".db":
+        raise ValueError("LEGACY_DB_UPLOAD_REJECTED")
+    if parts[0] not in {"config", "log"}:
+        parts = parts[1:]
+    if not parts:
+        return None
+    sub_path = PurePosixPath(*parts)
+    sub_text = sub_path.as_posix()
+    allowed = (
+        sub_text.startswith("config/")
+        and sub_path.suffix.lower() == ".json"
+        and not filename.lower().startswith("template")
+    ) or sub_text.startswith("log/cl1/") or sub_text == "log/azurstat_meowofficer_farming.csv"
+    if not allowed:
+        return None
+    root = current_root.resolve(strict=True)
+    target = (root / Path(*sub_path.parts)).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("LEGACY_UPLOAD_PATH_REJECTED") from exc
+    return target, sub_text
 
 
 def api_cl1_stats(request):
@@ -589,7 +622,7 @@ class LiveWsScrcpySession:
                 self.remote_ws = await connect(url, max_size=None, ping_interval=None, close_timeout=1)
                 self.alive = True
                 return
-            except Exception as e:
+            except Exception:
                 last_error = e
                 await asyncio.sleep(0.1)
         raise RuntimeError(f"Не удалось подключиться к серверу ws-scrcpy: {last_error}")
@@ -1076,7 +1109,7 @@ async def _ws_live_scrcpy(websocket, instance, fps, target_width, bitrate_scale)
         return
     except WebSocketDisconnect:
         raise
-    except Exception as e:
+    except Exception:
         logger.warning(f'[WebUI] Предпросмотр ws-scrcpy недоступен; используется исходный scrcpy: {_live_preview_error_message(e)}')
 
     await _ws_live_raw_scrcpy(websocket, instance, fps, target_width, bitrate_scale)
@@ -1593,12 +1626,7 @@ async def api_deploy_startup_run_save(request):
 
 
 async def api_import_legacy_upload(request):
-    """
-    接收浏览器上传的旧 AzurPilot 文件夹内容，写入本项目对应位置。
-    前端使用 webkitdirectory 选择文件夹后上传。
-    """
-    from pathlib import Path
-
+    """Импортировать разрешённые файлы старой установки без legacy-БД."""
     try:
         form = await request.form()
         current_root = Path(os.getcwd()).resolve()
@@ -1617,38 +1645,27 @@ async def api_import_legacy_upload(request):
                 continue
 
             relative_path = file.filename.replace("\\", "/")
-            filename = Path(relative_path).name
+            try:
+                resolved = _legacy_upload_target(current_root, relative_path)
+            except ValueError as exc:
+                reason = str(exc)
+                if reason == "LEGACY_DB_UPLOAD_REJECTED":
+                    message = (
+                        "Файлы .db нельзя загружать через WebUI. "
+                        "Миграция legacy-БД выполняется только offline-инструментом."
+                    )
+                    logger.warning("[WebUI] Загрузка legacy-БД отклонена до чтения содержимого")
+                else:
+                    message = "Небезопасный путь загрузки отклонён до чтения содержимого."
+                    logger.warning("[WebUI] Небезопасный путь legacy-импорта отклонён")
+                return JSONResponse({"success": False, "error": message}, status_code=400)
 
-            # 提取根级相对路径：跳过前导 / 和可能的文件夹名前缀
-            parts = relative_path.split("/")
-            # parts[0]='' (前导 /), parts[1]可能是文件夹名或 config/log
-            start_idx = 1
-            if len(parts) >= 3 and parts[1] not in ("config", "log"):
-                start_idx = 2  # parts[1] 是文件夹名，跳过
-            sub_path = "/".join(parts[start_idx:])
-
-            # 判断是否需要处理该文件
-            rel_target = None
-
-            # 只匹配 根目录/config/ 下的 .json/.db（排除 template*）
-            if sub_path.startswith("config/"):
-                ext = Path(filename).suffix.lower()
-                if ext in (".json", ".db") and not filename.lower().startswith("template"):
-                    rel_target = sub_path
-
-            # 只匹配 根目录/log/cl1/ 下的所有文件
-            if sub_path.startswith("log/cl1/"):
-                rel_target = sub_path
-
-            # 只匹配 根目录/log/azurstat_meowofficer_farming.csv
-            if sub_path == "log/azurstat_meowofficer_farming.csv":
-                rel_target = sub_path
-
-            if rel_target is None:
+            if resolved is None:
                 result["skipped"] += 1
                 continue
 
-            target = current_root / rel_target
+            target, rel_target = resolved
+            filename = target.name
 
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -1665,15 +1682,18 @@ async def api_import_legacy_upload(request):
                     result["cl1"] += 1
                 elif "azurstat" in rel_target:
                     result["azurstat"] += 1
-            except Exception as e:
-                logger.error(f"[WebUI] Не удалось записать {target}: {e}")
+            except Exception:
+                logger.error("[WebUI] Не удалось записать разрешённый legacy-файл")
                 result["errors"] += 1
 
         logger.info(f"[WebUI] Импорт завершён: {result}")
         return JSONResponse({"success": True, "data": result})
-    except Exception as e:
-        logger.error(f"[WebUI] Ошибка API импорта: {e}")
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+    except Exception:
+        logger.error("[WebUI] Ошибка API legacy-импорта")
+        return JSONResponse(
+            {"success": False, "error": "Legacy-импорт завершился ошибкой."},
+            status_code=500,
+        )
 
 
 def _websocket_client_host(websocket) -> str:

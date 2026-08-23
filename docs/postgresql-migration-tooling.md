@@ -1,12 +1,12 @@
 # Offline migration tooling PostgreSQL
 
-## Граница Stage 3
+## Offline-граница Stage 3 и production-режим Stage 4
 
 Stage 3 добавляет только автономный конвейер чтения legacy-хранилищ,
 транзакционного импорта в заранее подготовленную PostgreSQL schema v1 и
-reconciliation. Production entry points, backend marker, WebUI, MCP, scheduler
-и существующие SQLite/JSON readers и writers не переключаются. Provisioning,
-cutover, canary и rollback production относятся к Stage 4.
+reconciliation. Stage 4 использует тот же importer для final maintenance
+cutover, не превращая его в runtime dependency. Production entry points никогда
+не открывают legacy SQLite.
 
 Конвейер разделён на три слоя:
 
@@ -51,7 +51,7 @@ uv run python -m dev_tools.postgresql_migration \
   --source-root <explicit-root> \
   --legacy-timezone <IANA-zone> \
   --report <new-temporary-json> \
-  inspect|import|reconcile|full-rehearsal
+  inspect|import|reconcile|full-rehearsal|full-cutover
 ```
 
 `--report` обязателен и создаётся только как новый файл; существующий файл не
@@ -65,7 +65,9 @@ port, database, user и scratch database. `pg_dump`/`pg_restore` берутся 
 
 `import` и `reconcile` — диагностические offline-команды: они намеренно не
 подтверждают dump/restore и поэтому завершаются `STATUS:NOT_READY` с кодом `4`.
-Только `full-rehearsal` формирует итоговый readiness verdict. Сырой stderr
+`full-cutover` требует отдельный exact production environment guard, строку
+подтверждения и отдельную scratch database. Он формирует READY только после
+import, repeat zero-delta, dump/list, restore и restored reconciliation. Сырой stderr
 PostgreSQL utilities намеренно подавляется, потому что может содержать DSN,
 локальные пути или значения окружения; наружу возвращается только bounded code.
 

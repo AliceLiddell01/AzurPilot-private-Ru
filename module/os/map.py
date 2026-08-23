@@ -970,17 +970,17 @@ class OSMap(OSFleet, Map, GlobeCamera, StorageHandler, StrategicSearchHandler):
         return int(getattr(self, "_cl1_auto_search_battle_count", 0))
 
     def get_monthly_cl1_battle_count(self, year: int = None, month: int = None):
-        from module.statistics.cl1_database import db as cl1_db
+        from module.statistics.postgresql_stats import get_monthly_stats
 
         instance_name = getattr(self.config, "config_name", "default")
         if year is None or month is None:
             from datetime import datetime
 
-            month_key = datetime.now().strftime("%Y-%m")
-        else:
-            month_key = f"{year:04d}-{month:02d}"
+            now = datetime.now()
+            year = now.year
+            month = now.month
 
-        data = cl1_db.get_stats(instance_name, month_key)
+        data = get_monthly_stats(instance_name, year, month)
         return int(data.get("battle_count", 0))
 
     def os_auto_search_daemon(

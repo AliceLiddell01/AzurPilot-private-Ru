@@ -1,17 +1,12 @@
 # -*- coding: utf-8 -*-
-"""
-委托收益聚合统计模块。
-
-从 Cl1Database 读取原始委托收益条目，
-按日/周/月维度聚合，供统计页面渲染使用。
-"""
+"""Агрегация комиссионных наград из production PostgreSQL."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
-from module.logger import logger
-from module.statistics.cl1_database import db as cl1_db
+from module.application.runtime_storage import get_runtime_storage
+from module.statistics.postgresql_stats import get_commission_entries
 
 COMMISSION_TRACKED_ITEMS = ['Gem', 'Cube', 'Chip', 'Oil', 'Coin']
 
@@ -33,7 +28,7 @@ COMMISSION_ITEM_NAME_MAP = {
 
 def _parse_ts(ts_str: str) -> Optional[datetime]:
     try:
-        return datetime.fromisoformat(ts_str)
+        return get_runtime_storage().to_runtime_timezone(datetime.fromisoformat(ts_str))
     except Exception:
         return None
 
@@ -43,18 +38,9 @@ def _filter_entries_by_period(
     period: str,
     now: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
-    """按时间维度过滤条目。
-
-    Args:
-        entries: 原始条目列表
-        period: 'day' | 'week' | 'month'
-        now: 参考时间，默认当前时间
-
-    Returns:
-        过滤后的条目列表
-    """
+    """Отфильтровать записи по дню, неделе или месяцу."""
     if now is None:
-        now = datetime.now()
+        now = get_runtime_storage().current_datetime()
 
     if period == 'month':
         return entries
@@ -68,9 +54,8 @@ def _filter_entries_by_period(
             if ts.date() == now.date():
                 filtered.append(entry)
         elif period == 'week':
-            week_start = now - timedelta(days=now.weekday())
-            week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-            if ts >= week_start:
+            week_start = now.date() - timedelta(days=now.weekday())
+            if week_start <= ts.date() <= now.date():
                 filtered.append(entry)
 
     return filtered
@@ -82,35 +67,14 @@ def get_commission_income_summary(
     year: int = None,
     month: int = None,
 ) -> Dict[str, Any]:
-    """获取委托收益聚合摘要。
-
-    Args:
-        instance: 实例名称
-        period: 'day' | 'week' | 'month'
-        year: 年份
-        month: 月份
-
-    Returns:
-        {
-            'period': str,
-            'total_commissions': int,
-            'items': {
-                'Gem': {'total': int, 'count': int, 'avg': float},
-                ...
-            },
-            'detail_rows': [
-                {'name': str, 'color': str, 'total': int, 'count': int, 'avg': float},
-                ...
-            ],
-        }
-    """
-    now = datetime.now()
+    """Вернуть агрегированную сводку комиссионных наград."""
+    now = get_runtime_storage().current_datetime()
     if year is None:
         year = now.year
     if month is None:
         month = now.month
 
-    entries = cl1_db.get_commission_income(instance, year, month)
+    entries = get_commission_entries(instance, year, month)
     filtered = _filter_entries_by_period(entries, period, now)
 
     totals: Dict[str, int] = {}
@@ -160,20 +124,12 @@ def get_recent_commission_entries(
     instance: str,
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
-    """获取最近 N 条委托收益记录（按时间降序）。
-
-    Args:
-        instance: 实例名称
-        limit: 返回条数上限，默认 10
-
-    Returns:
-        最近 N 条委托记录，每条包含 ts, items, commission_count
-    """
-    now = datetime.now()
+    """Вернуть последние записи комиссий в обратном порядке времени."""
+    now = get_runtime_storage().current_datetime()
     all_entries = []
     for offset in range(3):
         dt = now - timedelta(days=offset * 32)
-        entries = cl1_db.get_commission_income(instance, dt.year, dt.month)
+        entries = get_commission_entries(instance, dt.year, dt.month)
         for entry in entries:
             ts = _parse_ts(entry.get('ts', ''))
             if ts is not None:

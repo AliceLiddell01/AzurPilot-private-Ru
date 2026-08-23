@@ -39,6 +39,20 @@ def test_application_layer_has_no_transport_framework_imports():
         assert _import_roots(path).isdisjoint(FORBIDDEN_IMPORT_ROOTS), path
 
 
+def test_application_layer_has_no_persistence_adapter_imports():
+    for path in APPLICATION_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        candidates = {
+            candidate
+            for node in ast.walk(tree)
+            for candidate in _absolute_import_candidates(node)
+        }
+        assert not any(
+            name == "module.persistence" or name.startswith("module.persistence.")
+            for name in candidates
+        ), path
+
+
 def test_importing_application_package_does_not_load_legacy_runtime(tmp_path: Path):
     script = f"""
 import sys

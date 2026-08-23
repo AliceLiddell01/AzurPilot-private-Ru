@@ -27,6 +27,7 @@ from module.exception import *
 from module.logger import logger
 from module.logging_context import task_logging_context
 from module.notify import handle_notify, notify_webui
+from module.persistence.runtime import bootstrap_runtime_storage
 
 # 缓存 i18n 任务名查找
 _i18n_task_names = None
@@ -56,6 +57,8 @@ class AzurLaneAutoScript:
 
     def __init__(self, config_name=DEFAULT_CONFIG_NAME):
         logger.hr('Запуск', level=0)
+        bootstrap_runtime_storage(require_ready=True)
+        logger.info('[Хранилище] PostgreSQL готов к работе')
         self.config_name = config_name
         # 跳过启动后的第一次 Restart 任务
         self.is_first_task = True

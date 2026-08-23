@@ -2,8 +2,7 @@
 
 ## Граница владения
 
-Stage 2 добавляет пока не подключённую к production runtime, но исполняемую
-основу:
+Stage 2 создал исполняемую основу, а Stage 4 подключил её к production runtime:
 
 ```text
 game / WebUI / MCP / future migration tooling
@@ -19,8 +18,9 @@ SQLAlchemy Core → Psycopg sync driver → PostgreSQL
 Основные `module/persistence/` adapters не импортируют SQLite и не открывают
 соединение при импорте. Узкое исключение — `module.persistence.legacy`: это
 strictly read-only offline adapter Stage 3, который не импортируется production
-consumers. Существующие `module/statistics/` и WebUI/MCP consumers продолжают
-использовать прежние SQLite/JSON пути. Silent fallback между backend запрещён.
+consumers. Production consumers используют application services. SQLite
+сохранён только в offline legacy importer; silent fallback между backend
+запрещён.
 
 ## Schema v1
 
@@ -117,10 +117,9 @@ application config. Password исключён из repr; SQLAlchemy URL по у�
 маскирует его. Transport/auth/schema diagnostics возвращают только безопасные
 typed ошибки без DSN, SQL и внутренних DBAPI сообщений.
 
-## Границы следующих этапов
+## Production cutover
 
-Stage 3 реализует только явно запускаемые read-only legacy parsers, importer и
-reconciliation, описанные в `postgresql-migration-tooling.md`. Stage 4 владеет
-provisioning, backup, maintenance cutover и переключением production consumers.
-До Stage 4 runtime не читает SQLite/JSON через новую foundation, не создаёт
-role/database на startup, не делает dual-write и не меняет WSL HBA.
+Stage 3 read-only parsers, importer и reconciliation остаются offline-only.
+Production marker, роли, backup/restore, lifecycle и forward-fix policy описаны
+в `postgresql-production-cutover.md`. Runtime не создаёт role/database, не
+выполняет DDL и не меняет HBA.

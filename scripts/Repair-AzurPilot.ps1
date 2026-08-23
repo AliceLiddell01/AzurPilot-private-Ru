@@ -1204,6 +1204,7 @@ function Get-EnvironmentDiagnostic {
     $uvPath = Join-Path -Path $venvPath -ChildPath 'Scripts\uv.exe'
     $adbPath = Join-Path -Path $venvPath -ChildPath 'Scripts\adb.exe'
     $managedPythonRoot = Join-Path -Path $venvPath -ChildPath 'python'
+    $postgresqlHealthy = $false
 
     if (-not (Test-Path -LiteralPath $venvPath -PathType Container)) {
         $issues.Add('Каталог .venv отсутствует.')
@@ -1283,6 +1284,43 @@ function Get-EnvironmentDiagnostic {
         }
     }
 
+    if ($pythonHealth.Success) {
+        $wslState = Invoke-NativeCommand -Executable 'wsl.exe' -Arguments @(
+            '--distribution'
+            'Archlinux'
+            '--exec'
+            'systemctl'
+            'is-active'
+            '--quiet'
+            'postgresql'
+        ) -WorkingDirectory $script:ResolvedRepositoryPath
+
+        $postgresqlHealth = Invoke-NativeCommand -Executable $pythonPath -Arguments @(
+            '-X'
+            'utf8'
+            '-m'
+            'dev_tools.postgresql_runtime'
+            'health'
+        ) -WorkingDirectory $script:ResolvedRepositoryPath
+
+        $postgresqlSecurity = Invoke-NativeCommand -Executable $pythonPath -Arguments @(
+            '-X'
+            'utf8'
+            '-m'
+            'dev_tools.postgresql_security'
+        ) -WorkingDirectory $script:ResolvedRepositoryPath
+
+        $postgresqlHealthy = (
+            $wslState.ExitCode -eq 0 -and
+            $postgresqlHealth.ExitCode -eq 0 -and
+            $postgresqlSecurity.ExitCode -eq 0
+        )
+
+        if (-not $postgresqlHealthy) {
+            $warnings.Add('Production PostgreSQL не прошёл диагностику: проверьте WSL Archlinux, marker, app-доступ, schema head, loopback listener, SCRAM и HBA. Repair не изменяет БД.')
+        }
+    }
+
     $adbHealthy = Test-Executable -Executable $adbPath -Arguments @(
         'version'
     )
@@ -1310,6 +1348,7 @@ function Get-EnvironmentDiagnostic {
         UvPath = $uvPath
         AdbPath = $adbPath
         Healthy = $issues.Count -eq 0
+        PostgreSqlHealthy = $postgresqlHealthy
     }
 }
 
@@ -1889,6 +1928,11 @@ function Invoke-AzurPilotRepair {
 
         $diagnostic = Get-EnvironmentDiagnostic
         Write-DiagnosticResult -Diagnostic $diagnostic
+
+        if (-not $diagnostic.PostgreSqlHealthy) {
+            Write-RepairLog -Level 'ERROR' -Message 'Диагностика PostgreSQL завершилась ошибкой; автоматическое исправление БД запрещено.'
+            return $script:ExitCodeDiagnosticFailure
+        }
 
         if ($diagnostic.Healthy) {
             Write-RepairLog -Level 'INFO' -Message 'Repair не требуется. Изменения .venv не выполнялись.'

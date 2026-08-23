@@ -46,7 +46,10 @@ MCP-инструменты делятся на read-only и меняющие с�
 
 ## Статистика
 
-В проекте могут одновременно существовать несколько хранилищ: SQLite, JSON, CSV или зашифрованная база. Перед объединением или рефакторингом выяснить:
+Статистика schema v1 хранится только в production PostgreSQL через
+`module.application`; SQLite доступен только offline migration adapter. CSV
+является явным export, а не canonical cache. File-owned config/scheduler/event
+state остаётся вне PostgreSQL. При изменении границы выяснить:
 
 - владельца схемы;
 - ключ экземпляра/устройства;
@@ -57,7 +60,9 @@ MCP-инструменты делятся на read-only и меняющие с�
 - кто читает данные в WebUI;
 - можно ли отключить сбор.
 
-Не менять storage format без migration и rollback plan.
+Direct `.db` upload через WebUI запрещён. Storage failure не превращать в
+нулевую или пустую статистику. После первого PostgreSQL write допускается только
+forward-fix, автоматический rollback на SQLite запрещён.
 
 ## Уведомления и внешние API
 

@@ -11,6 +11,7 @@ from module.webui.app_dependencies import (
     time,
     use_scope,
 )
+from module.application.errors import StorageError
 
 from module.webui.app_helpers import (
     build_muted_notice,
@@ -33,7 +34,6 @@ class OpsiStatisticsMixin(WebUIMixinBase):
         (
             instance_name,
             summary,
-            cl1_db,
             compute_monthly_cl1_akashi_ap,
             get_ship_exp_stats,
         ) = dependencies
@@ -55,7 +55,7 @@ class OpsiStatisticsMixin(WebUIMixinBase):
             compute_monthly_cl1_akashi_ap,
             get_ship_exp_stats,
         )
-        meow_rows = self._build_meow_rows(cl1_db, instance_name)
+        meow_rows = self._build_meow_rows(instance_name)
         self._render_opsi_summary(labels, values, ap_bought, meow_rows)
 
     def _load_opsi_stats_dependencies(self):
@@ -64,7 +64,6 @@ class OpsiStatisticsMixin(WebUIMixinBase):
                 get_opsi_stats,
                 compute_monthly_cl1_akashi_ap,
             )
-            from module.statistics.cl1_database import db as cl1_db
             from module.statistics.ship_exp_stats import get_ship_exp_stats
 
             instance_name = getattr(self, "alas_name", None)
@@ -82,7 +81,6 @@ class OpsiStatisticsMixin(WebUIMixinBase):
         return (
             instance_name,
             summary,
-            cl1_db,
             compute_monthly_cl1_akashi_ap,
             get_ship_exp_stats,
         )
@@ -306,12 +304,14 @@ class OpsiStatisticsMixin(WebUIMixinBase):
 
         return labels, values, ap_bought
 
-    def _build_meow_rows(self, cl1_db, instance_name):
+    def _build_meow_rows(self, instance_name):
         meow_rows = []
         try:
+            from module.statistics.postgresql_stats import get_meow_stats
+
             now = current_time()
             for hazard_level in (3, 5):
-                meow_data = cl1_db.get_meow_stats(
+                meow_data = get_meow_stats(
                     instance_name or "default",
                     now.year,
                     now.month,
@@ -357,6 +357,8 @@ class OpsiStatisticsMixin(WebUIMixinBase):
                         siren_rate_str,
                     ]
                 )
+        except StorageError:
+            raise
         except Exception:
             return []
 

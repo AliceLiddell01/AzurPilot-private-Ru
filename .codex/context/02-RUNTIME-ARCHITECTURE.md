@@ -100,12 +100,15 @@ PostgreSQL-адаптеры — `module.persistence`. Типы SQLAlchemy/Psycop
 за инфраструктурную границу. Engine создаётся лениво отдельно в каждом PID
 после запуска процесса; импорт пакета не подключается к БД и не выполняет DDL.
 
-Schema изменяется только явной Alembic-командой. До отдельного этапа cutover
-игровые, WebUI и MCP consumers продолжают использовать legacy SQLite/JSON и не
-импортируют `module.persistence`; тихий fallback и dual-write запрещены.
+Schema изменяется только явной Alembic-командой. Для доменов schema v1 игровые,
+WebUI и MCP consumers используют application storage services; только process
+composition roots импортируют `module.persistence.runtime`. Обязательный
+PostgreSQL marker проверяется fail-closed; SQLite fallback и dual-write
+запрещены.
 
 Offline migration pipeline проходит через application-owned порты. Legacy
 SQLite/JSON adapters живут только в `module.persistence.legacy`, открывают
 source read-only и path-bounded; PostgreSQL target пишет bounded chunks и затем
 проверяет import ledger вместе с фактическими domain rows. Этот pipeline не
-является runtime backend и не запускается из production entry points.
+является runtime backend и не запускается из production entry points. После
+cutover он сохраняется только для offline recovery из restricted archive.

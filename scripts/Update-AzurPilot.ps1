@@ -39,6 +39,9 @@ param(
     [string]$DependencyWorkRoot = '',
 
     [Parameter()]
+    [string]$PostgreSqlBackupRoot = '',
+
+    [Parameter()]
     [string]$RobocopyExecutablePath = '',
 
     [Parameter()]
@@ -80,6 +83,7 @@ $script:ExitCodeDiverged = 22
 $script:ExitCodeDependencyFailure = 23
 $script:ExitCodeUnexpectedFailure = 30
 $script:LogPath = $null
+$script:PostgreSqlBackupRootParameter = $PostgreSqlBackupRoot
 $script:GitExecutable = $null
 $script:UvExecutable = $null
 $script:PythonExecutable = $null
@@ -1650,6 +1654,144 @@ function Clear-DependencyTransaction {
     }
 }
 
+function Invoke-PostgreSqlOperation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory)]
+        [string]$Operation
+    )
+
+    Push-Location -LiteralPath $RepositoryPath
+
+    try {
+        $result = Invoke-NativeCommand -Executable $script:PythonExecutable -Arguments @(
+            '-X'
+            'utf8'
+            '-m'
+            'dev_tools.postgresql_runtime'
+            $Arguments
+        )
+    }
+    finally {
+        Pop-Location
+    }
+
+    if ($result.ExitCode -ne 0) {
+        Write-NativeOutput -Result $result -Level 'ERROR'
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message (
+            'Операция PostgreSQL «{0}» завершилась ошибкой.' -f $Operation
+        )
+    }
+
+    Write-UpdateLog -Level 'INFO' -Message ('PostgreSQL: {0}.' -f $Operation)
+}
+
+function Backup-ProductionPostgreSql {
+    [CmdletBinding()]
+    param()
+
+    $baseDirectory = $env:LOCALAPPDATA
+
+    if ([string]::IsNullOrWhiteSpace($baseDirectory)) {
+        $baseDirectory = $env:TEMP
+    }
+
+    if ([string]::IsNullOrWhiteSpace($baseDirectory)) {
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Не удалось определить внешний каталог резервных копий PostgreSQL.'
+    }
+
+    $backupDirectory = if ([string]::IsNullOrWhiteSpace($script:PostgreSqlBackupRootParameter)) {
+        Join-Path -Path $baseDirectory -ChildPath 'AzurPilot\backups\postgresql'
+    }
+    else {
+        [System.IO.Path]::GetFullPath($script:PostgreSqlBackupRootParameter)
+    }
+
+    $repositoryRoot = [System.IO.Path]::TrimEndingDirectorySeparator(
+        [System.IO.Path]::GetFullPath($RepositoryPath)
+    )
+    $backupRoot = [System.IO.Path]::TrimEndingDirectorySeparator(
+        [System.IO.Path]::GetFullPath($backupDirectory)
+    )
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+
+    if (
+        $backupRoot.Equals($repositoryRoot, $comparison) -or
+        $backupRoot.StartsWith($repositoryRoot + [System.IO.Path]::DirectorySeparatorChar, $comparison)
+    ) {
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Каталог резервных копий PostgreSQL должен находиться вне репозитория.'
+    }
+
+    if (Test-Path -LiteralPath $backupDirectory) {
+        $backupItem = Get-Item -LiteralPath $backupDirectory -Force -ErrorAction Stop
+
+        if ($backupItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Каталог резервных копий PostgreSQL не может быть ссылкой или точкой повторного анализа.'
+        }
+    }
+
+    New-Item -ItemType Directory -Path $backupDirectory -Force -ErrorAction Stop | Out-Null
+    Protect-PostgreSqlBackupDirectory -Path $backupDirectory
+    $backupName = 'azurpilot-before-update-{0}.dump' -f (Get-Date -Format 'yyyyMMdd-HHmmss')
+    $backupPath = Join-Path -Path $backupDirectory -ChildPath $backupName
+    Invoke-PostgreSqlOperation -Arguments @(
+        'backup'
+        '--output'
+        $backupPath
+        '--distro'
+        'Archlinux'
+    ) -Operation 'резервная копия перед обновлением создана и проверена'
+}
+
+function Protect-PostgreSqlBackupDirectory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $directory = [System.IO.DirectoryInfo]::new($Path)
+    $ownershipSecurity = [System.IO.FileSystemAclExtensions]::GetAccessControl(
+        $directory,
+        [System.Security.AccessControl.AccessControlSections]::Owner
+    )
+    $currentOwner = $ownershipSecurity.GetOwner(
+        [System.Security.Principal.SecurityIdentifier]
+    )
+
+    if ($currentOwner -ne $identity.User) {
+        Complete-Update -Code $script:ExitCodePreconditionFailure -Message 'Текущий пользователь не является владельцем каталога резервных копий PostgreSQL.'
+    }
+
+    $security = [System.Security.AccessControl.DirectorySecurity]::new()
+    $security.SetAccessRuleProtection($true, $false)
+    $inheritance = (
+        [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+        [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+    )
+    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $identity.User,
+        [System.Security.AccessControl.FileSystemRights]::FullControl,
+        $inheritance,
+        [System.Security.AccessControl.PropagationFlags]::None,
+        [System.Security.AccessControl.AccessControlType]::Allow
+    )
+    [void]$security.AddAccessRule($rule)
+    [System.IO.FileSystemAclExtensions]::SetAccessControl($directory, $security)
+}
+
+function Invoke-ProductionPostgreSqlSchemaUpgrade {
+    [CmdletBinding()]
+    param()
+
+    Invoke-PostgreSqlOperation -Arguments @('upgrade') -Operation 'Alembic upgrade применён от имени migrator'
+    Invoke-PostgreSqlOperation -Arguments @('health') -Operation 'schema head и доступ app-роли проверены'
+}
+
 try {
     Initialize-UpdateLog
 
@@ -1862,6 +2004,8 @@ try {
     $localIsAncestor = Test-GitAncestor -Ancestor $localSha -Descendant $remoteSha
 
     if ($localIsAncestor) {
+        Backup-ProductionPostgreSql
+
         $dependencyDiffResult = Invoke-Git -Arguments @(
             'diff'
             '--name-only'
@@ -1936,6 +2080,8 @@ try {
         if ($newHead -ne $remoteSha) {
             Complete-Update -Code $script:ExitCodeUnexpectedFailure -Message "После обновления fast-forward HEAD не совпадает с $remoteTrackingRef."
         }
+
+        Invoke-ProductionPostgreSqlSchemaUpgrade
 
         $statusAfterResult = Invoke-Git -Arguments @(
             'status'

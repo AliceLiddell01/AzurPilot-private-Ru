@@ -10,9 +10,11 @@ from decimal import Decimal
 from multiprocessing import get_context
 from pathlib import Path
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import delete, func, insert, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from module.application import (
     CommissionIncome,
@@ -38,6 +40,7 @@ from module.persistence.schema import (
     metadata,
     monthly_aggregate,
 )
+from module.application.runtime_storage import RuntimeStorageService
 
 REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_HOST",
@@ -106,6 +109,88 @@ def _snapshot(instance_id: UUID, key: str, *, oil: int = 10) -> ResourceSnapshot
 
 def test_health_and_migration_head_are_ready(database: LazyEngine):
     assert StorageHealthChecker(database).check().state is StorageHealthState.READY
+
+
+def test_production_runtime_round_trip_uses_typed_atomic_commands(database: LazyEngine):
+    service = RuntimeStorageService(
+        lambda: PostgresUnitOfWork(database),
+        runtime_timezone=ZoneInfo("Asia/Novosibirsk"),
+    )
+    instance = f"runtime-{uuid4()}"
+
+    service.increment_monthly_counter(instance, MonthlyMetric.BATTLE_COUNT)
+    service.record_ap_purchase(instance, 20, 20, 1, "akashi")
+    assert service.record_coins_snapshot(
+        instance,
+        300,
+        purple_coins=40,
+        source="runtime",
+    )
+    assert service.record_ap_snapshot(instance, 100, source="runtime", ap_total=120)
+    service.record_meow_battle(instance, 3)
+    service.record_meow_timing(instance, "round", Decimal("12.5"), 3)
+    service.record_siren_research_device(instance, source="meow", hazard_level=3)
+    service.record_commission_income(instance, {"Gem": 2, "Cube": 1})
+    service.record_resource_snapshot(instance, {"oil": 123, "coin": 456})
+    service.record_opsi_items(
+        instance,
+        (
+            {
+                "imgid": "synthetic-image",
+                "genre": "opsi_meowfficer_farming",
+                "item": "OperationCoin",
+                "amount": 10,
+                "hazard_level": 3,
+                "combat_count": 2,
+            },
+        ),
+    )
+
+    now = service.current_datetime()
+    projection = service.monthly_statistics(instance, now.year, now.month)
+
+    assert projection.metric(MonthlyMetric.BATTLE_COUNT) == Decimal(1)
+    assert projection.metric(MonthlyMetric.AKASHI_AP) == Decimal(20)
+    currencies = {
+        item.currency_code: item.amount for item in projection.currency_snapshots[-2:]
+    }
+    assert currencies == {"yellow_coin": 300, "purple_coin": 40}
+    assert projection.ap_snapshots[-1].ap_total == 120
+    assert projection.meow_hazards[0].siren_research_devices == 1
+    assert service.resource_timeline(instance)[0].oil == 123
+    assert service.opsi_items(
+        instance, genre="opsi_meowfficer_farming"
+    )[0].amount == 10
+
+
+def test_runtime_role_can_use_data_but_cannot_change_schema_or_roles(database: LazyEngine):
+    with database.get().begin() as connection:
+        assert connection.execute(select(func.count()).select_from(app_instance)).scalar_one() >= 0
+        attributes = connection.execute(
+            text(
+                "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls "
+                "FROM pg_roles WHERE rolname = current_user"
+            )
+        ).one()
+        assert attributes == (False, False, False, False, False)
+
+    with pytest.raises(SQLAlchemyError):
+        with database.get().begin() as connection:
+            connection.execute(text("CREATE TABLE azurpilot.forbidden_runtime_ddl(id integer)"))
+
+    with pytest.raises(SQLAlchemyError):
+        with database.get().begin() as connection:
+            connection.execute(text("CREATE ROLE forbidden_runtime_role"))
+
+    with pytest.raises(SQLAlchemyError):
+        with database.get().begin() as connection:
+            connection.execute(text("SELECT rolpassword FROM pg_authid"))
+
+    with pytest.raises(SQLAlchemyError):
+        with database.get().connect().execution_options(
+            isolation_level="AUTOCOMMIT"
+        ) as connection:
+            connection.execute(text("CREATE DATABASE forbidden_runtime_database"))
 
 
 def test_alembic_downgrade_rejects_mismatched_confirmed_target(
@@ -474,7 +559,12 @@ def test_opsi_event_and_import_ledger_semantics(database: LazyEngine):
 
 
 def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
-    with database.get().begin() as connection:
+    if not os.environ.get("AZURPILOT_POSTGRES_MIGRATOR_USER"):
+        pytest.skip("требуется отдельная disposable migrator role")
+    maintenance = LazyEngine(
+        DatabaseSettings.from_environment(prefix="AZURPILOT_POSTGRES_MIGRATOR_")
+    )
+    with maintenance.get().begin() as connection:
         original_heads = tuple(
             connection.execute(text("SELECT version_num FROM alembic_version"))
             .scalars()
@@ -482,7 +572,7 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
         )
         assert original_heads, "alembic_version пуста: миграции не применены"
     try:
-        with database.get().begin() as connection:
+        with maintenance.get().begin() as connection:
             connection.execute(
                 text("UPDATE alembic_version SET version_num = 'wrong_head'")
             )
@@ -490,7 +580,7 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
             StorageHealthChecker(database).check().state
             is StorageHealthState.INCOMPATIBLE_SCHEMA
         )
-        with database.get().begin() as connection:
+        with maintenance.get().begin() as connection:
             connection.execute(
                 text("INSERT INTO alembic_version(version_num) VALUES ('second_head')")
             )
@@ -499,10 +589,11 @@ def test_health_fails_closed_for_wrong_and_multiple_heads(database: LazyEngine):
             is StorageHealthState.INCOMPATIBLE_SCHEMA
         )
     finally:
-        with database.get().begin() as connection:
+        with maintenance.get().begin() as connection:
             connection.execute(text("DELETE FROM alembic_version"))
             for head in original_heads:
                 connection.execute(
                     text("INSERT INTO alembic_version(version_num) VALUES (:head)"),
                     {"head": head},
                 )
+        maintenance.dispose()

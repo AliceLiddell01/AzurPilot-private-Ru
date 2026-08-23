@@ -13,7 +13,7 @@ from datetime import datetime
 
 from module.config.config import AzurLaneConfig
 from module.log_res.log_res import LogRes
-from module.statistics.cl1_database import db
+from module.statistics.postgresql_stats import get_meow_stats
 from module.statistics.ship_exp_stats import get_ship_exp_stats
 
 from module.os_simulator.constants import *
@@ -258,12 +258,12 @@ class OSSimulator:
         if self.meow_hazard_level == 3:
             self.meow_time = self.config.cross_get('OpsiSimulator.OpsiSimulatorParameters.Meow3Time')
             if not self.meow_time:
-                # 尝试从数据库获取耄耋相接统计，如果不区分等级则统一使用平均值
-                self.meow_time = db.get_meow_stats(self.instance_name).get('avg_round_time', 100)
+                # Используем фактическую среднюю длительность цикла для третьего уровня опасности.
+                self.meow_time = get_meow_stats(self.instance_name).get('avg_round_time', 100)
         else: # hazard level 5
             self.meow_time = self.config.cross_get('OpsiSimulator.OpsiSimulatorParameters.Meow5Time')
             if not self.meow_time:
-                self.meow_time = db.get_meow_stats(self.instance_name).get('avg_round_time', 200)
+                self.meow_time = get_meow_stats(self.instance_name).get('avg_round_time', 200)
         
         self.logger.info(f'[Симулятор Операции «Сирена»] Время одного цикла фарма мяуфицеров: {self.meow_time}')
 

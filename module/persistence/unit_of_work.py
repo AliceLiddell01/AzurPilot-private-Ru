@@ -16,6 +16,7 @@ from module.persistence.repositories import (
     PostgresInstanceIdentityRepository,
     PostgresStatisticsRepository,
 )
+from module.persistence.runtime_repositories import PostgresRuntimeStatisticsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class PostgresUnitOfWork:
         self.instances: PostgresInstanceIdentityRepository
         self.statistics: PostgresStatisticsRepository
         self.imports: PostgresImportLedgerRepository
+        self.runtime: PostgresRuntimeStatisticsRepository
 
     def __enter__(self) -> Self:
         if self._connection is not None:
@@ -39,6 +41,7 @@ class PostgresUnitOfWork:
             self.instances = PostgresInstanceIdentityRepository(connection)
             self.statistics = PostgresStatisticsRepository(connection)
             self.imports = PostgresImportLedgerRepository(connection)
+            self.runtime = PostgresRuntimeStatisticsRepository(connection)
         except SQLAlchemyError as exc:
             self._connection = None
             self._clear_repositories()
@@ -52,7 +55,7 @@ class PostgresUnitOfWork:
         return self
 
     def _clear_repositories(self) -> None:
-        for attribute in ("instances", "statistics", "imports"):
+        for attribute in ("instances", "statistics", "imports", "runtime"):
             self.__dict__.pop(attribute, None)
 
     @staticmethod

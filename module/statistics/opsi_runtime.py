@@ -1,19 +1,18 @@
-"""大世界运行期统计入口。
-
-这里集中处理侵蚀1与耄耋相接任务的运行事件，把任务代码里的战斗、地图、
-塞壬研究装置等事件统一落到统计库，避免各个任务到处直接写数据库。
-"""
+"""Единая точка записи runtime-статистики Operation Siren."""
 
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
+from module.application.errors import StorageError
+from module.application.runtime_storage import get_runtime_storage
+from module.application.storage_models import MonthlyMetric
 from module.logger import logger
 
 
-# 任务代码只上报领域事件，具体落库细节集中在本模块里维护。
+# Код задач сообщает только доменные события; детали хранения остаются здесь.
 CL1_TASK = "OpsiHazard1Leveling"
 MEOW_TASK = "OpsiMeowfficerFarming"
 MEOW_HAZARD_LEVELS = {2, 3, 4, 5, 6}
@@ -24,7 +23,7 @@ def instance_name_from_config(config: Any, default: str = "default") -> str:
 
 
 def battle_source_from_config(config: Any) -> str | None:
-    """返回当前任务对应的统计来源。"""
+    """Вернуть источник статистики для текущей задачи."""
     command = getattr(getattr(config, "task", None), "command", None)
     if command == CL1_TASK:
         return "cl1"
@@ -34,7 +33,7 @@ def battle_source_from_config(config: Any) -> str | None:
 
 
 def start_battle_timer(config: Any) -> str | None:
-    """开始记录单场战斗耗时，并返回结束计时需要的来源。"""
+    """Начать замер боя и вернуть источник для завершения замера."""
     source = battle_source_from_config(config)
     if source is None:
         return None
@@ -50,7 +49,7 @@ def start_battle_timer(config: Any) -> str | None:
 
 
 def finish_battle_timer(config: Any, source: str | None) -> float | None:
-    """结束已经开始的单场战斗计时。"""
+    """Завершить ранее начатый замер отдельного боя."""
     if source not in {"cl1", "meow"}:
         return None
 
@@ -66,7 +65,7 @@ def finish_battle_timer(config: Any, source: str | None) -> float | None:
 
 
 def refresh_action_point(main: Any) -> bool:
-    """刷新大世界行动力缓存。"""
+    """Обновить кэш очков действия Operation Siren."""
     if hasattr(main, "get_current_ap"):
         main.get_current_ap()
         return True
@@ -78,19 +77,14 @@ def refresh_action_point(main: Any) -> bool:
 
 
 def record_ap_snapshot(config: Any, ap_current: int, source: str, distance: int = None, ap_total: int = None) -> None:
-    """按来源记录行动力快照。"""
-    try:
-        from module.statistics.cl1_database import db as cl1_db
-
-        cl1_db.async_add_ap_snapshot(
-            instance_name_from_config(config),
-            ap_current,
-            source=source,
-            distance=distance,
-            ap_total=ap_total,
-        )
-    except Exception:
-        logger.exception("Не удалось сохранить снимок очков действия")
+    """Записать снимок очков действия с явным источником."""
+    get_runtime_storage().record_ap_snapshot(
+        instance_name_from_config(config),
+        ap_current,
+        source=source,
+        distance=distance,
+        ap_total=ap_total,
+    )
 
 
 def record_cl1_auto_search_battle(
@@ -98,17 +92,13 @@ def record_cl1_auto_search_battle(
     cl1_battle_count: int,
     round_started_at: float | int | None,
 ) -> float | int | None:
-    """记录一次侵蚀1自律战斗，并维护两战一轮的计时。"""
+    """Записать бой CL1 и поддержать замер цикла из двух боёв."""
     instance_name = instance_name_from_config(config)
-    try:
-        from module.statistics.cl1_database import db as cl1_db
+    get_runtime_storage().increment_monthly_counter(
+        instance_name, MonthlyMetric.BATTLE_COUNT
+    )
 
-        cl1_db.async_increment_battle_count(instance_name)
-    except Exception:
-        logger.debug("[Статистика — Operation Siren] Не удалось сохранить месячное число боёв CL1", exc_info=True)
-
-    # 侵蚀1两场战斗消耗一次出击，奇数场代表新一轮开始。
-    # 下一次奇数场到来时，上一轮的完整耗时就能闭合。
+    # В CL1 два боя образуют один цикл; нечётный бой начинает новый цикл.
     if cl1_battle_count % 2 != 1:
         return round_started_at
 
@@ -126,7 +116,7 @@ def record_cl1_auto_search_battle(
 
 
 def meow_hazard_level_from_runtime(main: Any) -> int | None:
-    """读取耄耋相接当前侵蚀等级，地图对象缺失时回退到配置值。"""
+    """Определить уровень коррозии Meow из карты или конфигурации."""
     hazard_level = None
     try:
         hazard_level = getattr(getattr(main, "zone", None), "hazard_level", None)
@@ -150,7 +140,7 @@ def meow_hazard_level_from_runtime(main: Any) -> int | None:
 
 
 def meow_battles_per_round(hazard_level: int | None) -> int:
-    """返回耄耋相接一个有效轮次包含的战斗场数。"""
+    """Вернуть число боёв в одном эффективном цикле Meow."""
     if hazard_level in {4, 5, 6}:
         return 3
     return 2
@@ -160,28 +150,27 @@ def record_meow_auto_search_battle(
     main: Any,
     battle_started_at: float | int | None,
 ) -> float:
-    """记录一次耄耋相接战斗，并返回下一场战斗的计时起点。"""
+    """Записать бой Meow и вернуть начало следующего замера."""
     hazard_level = meow_hazard_level_from_runtime(main)
     instance_name = instance_name_from_config(main.config)
 
-    try:
-        from module.statistics.cl1_database import db as cl1_db
-
-        cl1_db.async_increment_meow_battle_count(instance_name, hazard_level)
-    except Exception:
-        logger.debug("[Статистика — Operation Siren] Не удалось сохранить месячное число боёв фарма мяуфицеров", exc_info=True)
+    if hazard_level is None:
+        raise RuntimeError(
+            "Уровень коррозии Meow не подтверждён; запись статистики остановлена."
+        )
+    get_runtime_storage().record_meow_battle(instance_name, hazard_level)
 
     now = time.time()
     if battle_started_at:
         battle_duration = round(now - float(battle_started_at), 2)
         if 5 < battle_duration < 600:
             logger.attr("Длительность боя фарма мяуфицеров", f"{battle_duration:.1f}s")
-            try:
-                from module.statistics.cl1_database import db as cl1_db
-
-                cl1_db.async_add_meow_battle_time(instance_name, battle_duration, hazard_level)
-            except Exception:
-                logger.debug("[Статистика — Operation Siren] Не удалось записать длительность боя фарма мяуфицеров", exc_info=True)
+            get_runtime_storage().record_meow_timing(
+                instance_name,
+                "battle",
+                Decimal(str(battle_duration)),
+                hazard_level,
+            )
         else:
             logger.debug(
                 f"[Статистика — Operation Siren] Длительность боя фарма мяуфицеров {battle_duration:.1f} с вне допустимого диапазона; запись пропущена"
@@ -190,7 +179,7 @@ def record_meow_auto_search_battle(
 
 
 def start_meow_search_timer(main: Any) -> tuple[float, int | None]:
-    """记录耄耋相接开始搜索当前海域时的时间与行动力。"""
+    """Зафиксировать начало поиска Meow и текущие очки действия."""
     try:
         refresh_action_point(main)
         start_ap = main._action_point_total
@@ -208,7 +197,7 @@ def finish_meow_search_timer(
     search_started_at: float,
     battle_count: int,
 ) -> float | None:
-    """按完成的海域搜索记录耄耋相接单轮耗时。"""
+    """Записать длительность эффективного цикла завершённого поиска Meow."""
     try:
         refresh_action_point(main)
     except Exception:
@@ -221,6 +210,8 @@ def finish_meow_search_timer(
                 ap_total=main._action_point_total,
                 source="meow",
             )
+        except StorageError:
+            raise
         except Exception:
             logger.debug("Не удалось записать снимок очков действия фарма мяуфицеров", exc_info=True)
 
@@ -229,8 +220,7 @@ def finish_meow_search_timer(
     battles_per_round = meow_battles_per_round(hazard_level)
     logger.debug(f"[Статистика — Operation Siren] Уровень коррозии: {hazard_level}, боёв за раунд: {battles_per_round}")
 
-    # 一次海域搜索可能包含多场战斗，需要折算回单轮耗时。
-    # WebUI 与调度逻辑都使用这个统一后的轮次单位。
+    # Один поиск может содержать несколько боёв; приводим время к одному циклу.
     if battle_count > 0:
         rounds = battle_count / battles_per_round
         duration = duration / rounds
@@ -244,54 +234,42 @@ def finish_meow_search_timer(
         return None
 
     logger.attr("Длительность поиска фарма мяуфицеров", f"{duration:.1f}s")
-    try:
-        from module.statistics.cl1_database import db as cl1_db
-
-        cl1_db.async_add_meow_round_time(
-            instance_name_from_config(main.config),
-            duration,
-            hazard_level,
-        )
-    except Exception:
-        logger.debug("[Статистика — Operation Siren] Не удалось записать длительность поиска фарма мяуфицеров", exc_info=True)
+    get_runtime_storage().record_meow_timing(
+        instance_name_from_config(main.config),
+        "round",
+        Decimal(str(round(duration, 2))),
+        hazard_level,
+    )
 
     return duration
 
 
 def record_cl1_akashi_encounter(config: Any) -> int | None:
-    """记录侵蚀1明石事件，并返回当月累计次数。"""
-    try:
-        from module.statistics.cl1_database import db as cl1_db
-
-        instance_name = instance_name_from_config(config)
-        cl1_db.async_increment_akashi_encounter(instance_name)
-        month_key = datetime.now().strftime("%Y-%m")
-        future = cl1_db.async_get_stats(instance_name, month_key)
-        data = future.result(timeout=5.0)
-        encounters = int(data.get("akashi_encounters", 0))
-        logger.attr("Месячное число встреч с Акаси в зоне коррозии 1", encounters)
-        return encounters
-    except Exception:
-        logger.exception("[Статистика — Operation Siren] Не удалось сохранить месячное число встреч с Акаси в зоне коррозии 1")
-        return None
+    """Записать встречу с Акаси в CL1 и вернуть месячный итог."""
+    instance_name = instance_name_from_config(config)
+    aggregate = get_runtime_storage().increment_monthly_counter(
+        instance_name, MonthlyMetric.AKASHI_ENCOUNTERS
+    )
+    encounters = int(aggregate.value)
+    logger.attr("Месячное число встреч с Акаси в зоне коррозии 1", encounters)
+    return encounters
 
 
 def record_siren_research_device(main: Any) -> None:
-    """记录一次塞壬研究装置（吊机）出现，按侵蚀1或耄耋相接侵蚀等级拆分。"""
+    """Записать устройство Сирен с точным источником и уровнем коррозии."""
     source = battle_source_from_config(main.config)
     if source not in {"cl1", "meow"}:
         return
 
-    hazard_level = meow_hazard_level_from_runtime(main) if source == "meow" else 1
-    try:
-        from module.statistics.cl1_database import db as cl1_db
-
-        cl1_db.async_add_siren_research_device(
-            instance_name_from_config(main.config),
-            source=source,
-            hazard_level=hazard_level,
+    hazard_level = meow_hazard_level_from_runtime(main) if source == "meow" else None
+    if source == "meow" and hazard_level is None:
+        raise RuntimeError(
+            "Уровень коррозии Meow не подтверждён; Siren event не записан."
         )
-        label = "cl1" if source == "cl1" else f"meow-{hazard_level}"
-        logger.attr("Исследовательское устройство Сирен", label)
-    except Exception:
-        logger.debug("[Статистика — Operation Siren] Не удалось записать исследовательское устройство Сирен", exc_info=True)
+    get_runtime_storage().record_siren_research_device(
+        instance_name_from_config(main.config),
+        source=source,
+        hazard_level=hazard_level,
+    )
+    label = "cl1" if source == "cl1" else f"meow-{hazard_level}"
+    logger.attr("Исследовательское устройство Сирен", label)
