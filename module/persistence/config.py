@@ -137,17 +137,24 @@ class DatabaseSettings:
             raise StorageConfigurationError(
                 "Production backend marker содержит несовместимый schema head."
             )
-        manifest = payload.get("migration_manifest_sha256")
-        if not isinstance(manifest, str) or len(manifest) != 64 or any(
-            character not in "0123456789abcdef" for character in manifest
+        reconciliation_report = payload.get("reconciliation_report_sha256")
+        if (
+            not isinstance(reconciliation_report, str)
+            or len(reconciliation_report) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in reconciliation_report
+            )
         ):
             raise StorageConfigurationError(
-                "Production backend marker не содержит migration provenance."
+                "Маркер боевого хранилища не содержит происхождение отчёта сверки."
             )
         for field_name in ("reviewed_head", "merge_commit"):
             revision = payload.get(field_name)
-            if not isinstance(revision, str) or len(revision) != 40 or any(
-                character not in "0123456789abcdef" for character in revision
+            if (
+                not isinstance(revision, str)
+                or len(revision) != 40
+                or any(character not in "0123456789abcdef" for character in revision)
             ):
                 raise StorageConfigurationError(
                     "Production backend marker не содержит проверенный Git provenance."

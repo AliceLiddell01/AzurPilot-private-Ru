@@ -92,7 +92,9 @@ class PostgresRuntimeStatisticsRepository:
         end: datetime,
     ) -> MonthlyStatistics:
         if month.day != 1:
-            raise StorageInvalidDataError("Месяц должен указывать на первый день месяца.")
+            raise StorageInvalidDataError(
+                "Месяц должен указывать на первый день месяца."
+            )
         if start.tzinfo is None or end.tzinfo is None or start >= end:
             raise StorageInvalidDataError("Границы календарного месяца некорректны.")
         try:
@@ -110,72 +112,97 @@ class PostgresRuntimeStatisticsRepository:
                 )
                 .order_by(monthly_aggregate.c.metric)
             ).all()
-            ap_rows = self._connection.execute(
-                select(
-                    cl1_ap_snapshot.c.observed_at,
-                    cl1_ap_snapshot.c.ap,
-                    cl1_ap_snapshot.c.ap_total,
-                    cl1_ap_snapshot.c.asset,
-                    cl1_ap_snapshot.c.yellow_coin,
-                    cl1_ap_snapshot.c.distance,
-                    cl1_ap_snapshot.c.source,
+            ap_rows = list(
+                reversed(
+                    self._connection.execute(
+                        select(
+                            cl1_ap_snapshot.c.observed_at,
+                            cl1_ap_snapshot.c.ap,
+                            cl1_ap_snapshot.c.ap_total,
+                            cl1_ap_snapshot.c.asset,
+                            cl1_ap_snapshot.c.yellow_coin,
+                            cl1_ap_snapshot.c.distance,
+                            cl1_ap_snapshot.c.source,
+                        )
+                        .where(
+                            cl1_ap_snapshot.c.instance_id == instance_id,
+                            cl1_ap_snapshot.c.observed_at >= start,
+                            cl1_ap_snapshot.c.observed_at < end,
+                        )
+                        .order_by(
+                            cl1_ap_snapshot.c.observed_at.desc(),
+                            cl1_ap_snapshot.c.id.desc(),
+                        )
+                        .limit(1000)
+                    ).all()
                 )
-                .where(
-                    cl1_ap_snapshot.c.instance_id == instance_id,
-                    cl1_ap_snapshot.c.observed_at >= start,
-                    cl1_ap_snapshot.c.observed_at < end,
+            )
+            purchase_rows = list(
+                reversed(
+                    self._connection.execute(
+                        select(
+                            cl1_ap_purchase_event.c.observed_at,
+                            cl1_ap_purchase_event.c.amount,
+                            cl1_ap_purchase_event.c.base_amount,
+                            cl1_ap_purchase_event.c.purchase_count,
+                            cl1_ap_purchase_event.c.source,
+                        )
+                        .where(
+                            cl1_ap_purchase_event.c.instance_id == instance_id,
+                            cl1_ap_purchase_event.c.observed_at >= start,
+                            cl1_ap_purchase_event.c.observed_at < end,
+                        )
+                        .order_by(
+                            cl1_ap_purchase_event.c.observed_at.desc(),
+                            cl1_ap_purchase_event.c.id.desc(),
+                        )
+                        .limit(1000)
+                    ).all()
                 )
-                .order_by(cl1_ap_snapshot.c.observed_at, cl1_ap_snapshot.c.id)
-                .limit(1000)
-            ).all()
-            purchase_rows = self._connection.execute(
-                select(
-                    cl1_ap_purchase_event.c.observed_at,
-                    cl1_ap_purchase_event.c.amount,
-                    cl1_ap_purchase_event.c.base_amount,
-                    cl1_ap_purchase_event.c.purchase_count,
-                    cl1_ap_purchase_event.c.source,
+            )
+            currency_rows = list(
+                reversed(
+                    self._connection.execute(
+                        select(
+                            cl1_currency_snapshot.c.observed_at,
+                            cl1_currency_snapshot.c.currency_code,
+                            cl1_currency_snapshot.c.amount,
+                            cl1_currency_snapshot.c.source,
+                        )
+                        .where(
+                            cl1_currency_snapshot.c.instance_id == instance_id,
+                            cl1_currency_snapshot.c.observed_at >= start,
+                            cl1_currency_snapshot.c.observed_at < end,
+                        )
+                        .order_by(
+                            cl1_currency_snapshot.c.observed_at.desc(),
+                            cl1_currency_snapshot.c.id.desc(),
+                        )
+                        .limit(2000)
+                    ).all()
                 )
-                .where(
-                    cl1_ap_purchase_event.c.instance_id == instance_id,
-                    cl1_ap_purchase_event.c.observed_at >= start,
-                    cl1_ap_purchase_event.c.observed_at < end,
+            )
+            timing_rows = list(
+                reversed(
+                    self._connection.execute(
+                        select(
+                            meow_timing_sample.c.observed_at,
+                            meow_timing_sample.c.sample_kind,
+                            meow_timing_sample.c.duration_seconds,
+                            meow_timing_sample.c.hazard_level,
+                        )
+                        .where(
+                            meow_timing_sample.c.instance_id == instance_id,
+                            meow_timing_sample.c.month == month,
+                        )
+                        .order_by(
+                            meow_timing_sample.c.observed_at.desc(),
+                            meow_timing_sample.c.id.desc(),
+                        )
+                        .limit(1000)
+                    ).all()
                 )
-                .order_by(
-                    cl1_ap_purchase_event.c.observed_at,
-                    cl1_ap_purchase_event.c.id,
-                )
-                .limit(1000)
-            ).all()
-            currency_rows = self._connection.execute(
-                select(
-                    cl1_currency_snapshot.c.observed_at,
-                    cl1_currency_snapshot.c.currency_code,
-                    cl1_currency_snapshot.c.amount,
-                    cl1_currency_snapshot.c.source,
-                )
-                .where(
-                    cl1_currency_snapshot.c.instance_id == instance_id,
-                    cl1_currency_snapshot.c.observed_at >= start,
-                    cl1_currency_snapshot.c.observed_at < end,
-                )
-                .order_by(cl1_currency_snapshot.c.observed_at, cl1_currency_snapshot.c.id)
-                .limit(2000)
-            ).all()
-            timing_rows = self._connection.execute(
-                select(
-                    meow_timing_sample.c.observed_at,
-                    meow_timing_sample.c.sample_kind,
-                    meow_timing_sample.c.duration_seconds,
-                    meow_timing_sample.c.hazard_level,
-                )
-                .where(
-                    meow_timing_sample.c.instance_id == instance_id,
-                    meow_timing_sample.c.month == month,
-                )
-                .order_by(meow_timing_sample.c.observed_at, meow_timing_sample.c.id)
-                .limit(1000)
-            ).all()
+            )
             for row_count, limit, dataset in (
                 (len(ap_rows), 1000, "снимки очков действия"),
                 (len(purchase_rows), 1000, "покупки очков действия"),
@@ -272,7 +299,9 @@ class PostgresRuntimeStatisticsRepository:
         values = {
             "id": uuid4(),
             "instance_id": instance_id,
-            "idempotency_key": _bounded(idempotency_key, label="idempotency_key", maximum=128),
+            "idempotency_key": _bounded(
+                idempotency_key, label="idempotency_key", maximum=128
+            ),
             **asdict(snapshot),
         }
         return self._append(cl1_ap_snapshot, values)
@@ -289,11 +318,15 @@ class PostgresRuntimeStatisticsRepository:
         source: str,
     ) -> bool:
         if min(amount, base_amount, purchase_count) < 0:
-            raise StorageInvalidDataError("Поля покупки AP не могут быть отрицательными.")
+            raise StorageInvalidDataError(
+                "Поля покупки AP не могут быть отрицательными."
+            )
         values = {
             "id": uuid4(),
             "instance_id": instance_id,
-            "idempotency_key": _bounded(idempotency_key, label="idempotency_key", maximum=128),
+            "idempotency_key": _bounded(
+                idempotency_key, label="idempotency_key", maximum=128
+            ),
             "observed_at": observed_at,
             "legacy_timestamp_text": None,
             "legacy_timezone": None,
@@ -317,7 +350,9 @@ class PostgresRuntimeStatisticsRepository:
         values = {
             "id": uuid4(),
             "instance_id": instance_id,
-            "idempotency_key": _bounded(idempotency_key, label="idempotency_key", maximum=128),
+            "idempotency_key": _bounded(
+                idempotency_key, label="idempotency_key", maximum=128
+            ),
             **asdict(snapshot),
             "legacy_timestamp_text": None,
             "legacy_timezone": None,
@@ -344,7 +379,11 @@ class PostgresRuntimeStatisticsRepository:
         return None if value is None else int(value)
 
     def record_meow_battle(
-        self, instance_id: UUID, month: date, hazard_level: int, effective_delta: Decimal
+        self,
+        instance_id: UUID,
+        month: date,
+        hazard_level: int,
+        effective_delta: Decimal,
     ) -> None:
         if hazard_level not in {2, 3, 4, 5, 6} or effective_delta <= 0:
             raise StorageInvalidDataError("Команда записи боя Meow некорректна.")
@@ -380,12 +419,20 @@ class PostgresRuntimeStatisticsRepository:
     ) -> bool:
         if sample.sample_kind not in {"battle", "round"} or sample.duration_seconds < 0:
             raise StorageInvalidDataError("Замер времени Meow некорректен.")
-        if sample.hazard_level is not None and sample.hazard_level not in {2, 3, 4, 5, 6}:
+        if sample.hazard_level is not None and sample.hazard_level not in {
+            2,
+            3,
+            4,
+            5,
+            6,
+        }:
             raise StorageInvalidDataError("Уровень коррозии замера Meow некорректен.")
         values = {
             "id": uuid4(),
             "instance_id": instance_id,
-            "idempotency_key": _bounded(idempotency_key, label="idempotency_key", maximum=128),
+            "idempotency_key": _bounded(
+                idempotency_key, label="idempotency_key", maximum=128
+            ),
             "month": month,
             **asdict(sample),
             "source": "runtime",
@@ -406,16 +453,22 @@ class PostgresRuntimeStatisticsRepository:
     ) -> bool:
         if source == "cl1":
             if hazard_level is not None:
-                raise StorageInvalidDataError("Событие Сирен CL1 не содержит уровень коррозии.")
+                raise StorageInvalidDataError(
+                    "Событие Сирен CL1 не содержит уровень коррозии."
+                )
             stat_hazard = 0
         elif source == "meow" and hazard_level in {2, 3, 4, 5, 6}:
             stat_hazard = int(hazard_level)
         else:
-            raise StorageInvalidDataError("Источник или уровень коррозии события Сирен некорректны.")
+            raise StorageInvalidDataError(
+                "Источник или уровень коррозии события Сирен некорректны."
+            )
         values = {
             "id": uuid4(),
             "instance_id": instance_id,
-            "idempotency_key": _bounded(idempotency_key, label="idempotency_key", maximum=128),
+            "idempotency_key": _bounded(
+                idempotency_key, label="idempotency_key", maximum=128
+            ),
             "observed_at": observed_at,
             "legacy_timestamp_text": None,
             "legacy_timezone": None,
@@ -459,7 +512,9 @@ class PostgresRuntimeStatisticsRepository:
         self, instance_id: UUID, *, value: int, notified_at: datetime
     ) -> ApNotification:
         if value < 0:
-            raise StorageInvalidDataError("Значение уведомления об очках действия некорректно.")
+            raise StorageInvalidDataError(
+                "Значение уведомления об очках действия некорректно."
+            )
         statement = insert(ap_notification_state).values(
             instance_id=instance_id,
             last_ap=value,
@@ -519,7 +574,8 @@ class PostgresRuntimeStatisticsRepository:
                 .select_from(
                     commission_income_event.outerjoin(
                         commission_income_item,
-                        commission_income_event.c.id == commission_income_item.c.event_id,
+                        commission_income_event.c.id
+                        == commission_income_item.c.event_id,
                     )
                 )
                 .where(

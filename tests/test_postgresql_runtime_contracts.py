@@ -6,12 +6,14 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from module.application.errors import StorageConfigurationError
 from module.application.runtime_storage import RuntimeStorageService
 from module.persistence.config import DatabaseSettings
+from module.statistics import postgresql_stats
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ROOTS = (
@@ -35,7 +37,7 @@ def _marker_payload() -> dict[str, object]:
         "backend": "postgresql",
         "version": 1,
         "alembic_head": "0002_migration_shapes",
-        "migration_manifest_sha256": "a" * 64,
+        "reconciliation_report_sha256": "a" * 64,
         "reviewed_head": "b" * 40,
         "merge_commit": "c" * 40,
         "host": "127.0.0.1",
@@ -142,6 +144,40 @@ def test_database_settings_wraps_invalid_timezone_value():
             user="azurpilot_app",
             runtime_timezone="bad\x00timezone",
         )
+
+
+def test_meow_projection_keeps_all_observed_hazard_levels(monkeypatch):
+    monkeypatch.setattr(
+        postgresql_stats,
+        "get_runtime_storage",
+        lambda: SimpleNamespace(
+            current_datetime=lambda: datetime(2026, 8, 23, tzinfo=UTC)
+        ),
+    )
+    monkeypatch.setattr(
+        postgresql_stats,
+        "get_monthly_stats",
+        lambda *_args, **_kwargs: {
+            "meow_round_times": [{"duration": 12.0, "hazard_level": 4}],
+            "meow_battle_times": [],
+            "meow_hazard_stats": {
+                "2": {
+                    "battle_raw_count": 1,
+                    "effective_rounds": 0.5,
+                    "battle_times": [],
+                }
+            },
+            "siren_research_devices": {"cl1": 0, "meow": {"6": 1}},
+            "meow_battle_count": 0.5,
+            "meow_battle_raw_count": 1,
+        },
+    )
+
+    result = postgresql_stats.get_meow_stats("profile", 2026, 8)
+
+    assert tuple(result["by_hazard"]) == ("2", "3", "4", "5", "6")
+    assert result["by_hazard"]["4"]["avg_round_time"] == 12.0
+    assert result["by_hazard"]["6"]["siren_research_devices"] == 1
 
 
 def test_production_modules_do_not_import_sqlite_or_legacy_database():

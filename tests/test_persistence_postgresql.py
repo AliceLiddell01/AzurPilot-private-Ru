@@ -40,7 +40,7 @@ from module.persistence.schema import (
     metadata,
     monthly_aggregate,
 )
-from module.application.runtime_storage import RuntimeStorageService
+from module.application.runtime_storage import ApSnapshot, RuntimeStorageService
 
 REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_HOST",
@@ -186,6 +186,42 @@ def test_runtime_retry_and_empty_commission_event_are_preserved(
     )
     assert len(entries) == 2
     assert any(entry.commission_count == 2 and not entry.items for entry in entries)
+
+
+def test_monthly_projection_limit_keeps_newest_rows_in_chronological_order(
+    database: LazyEngine,
+):
+    instance_id = _instance(database)
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    end = datetime(2026, 9, 1, tzinfo=UTC)
+    with PostgresUnitOfWork(database) as uow:
+        for index in range(1001):
+            assert uow.runtime.append_ap_snapshot(
+                instance_id,
+                idempotency_key=f"limited-ap-{index}",
+                snapshot=ApSnapshot(
+                    observed_at=start + timedelta(seconds=index),
+                    ap=index,
+                    ap_total=index,
+                    asset=Decimal(index),
+                    yellow_coin=index,
+                    distance=index,
+                    source="synthetic_fixture",
+                ),
+            )
+        uow.commit()
+
+    with PostgresUnitOfWork(database) as uow:
+        projection = uow.runtime.monthly_statistics(
+            instance_id,
+            date(2026, 8, 1),
+            start=start,
+            end=end,
+        )
+
+    assert len(projection.ap_snapshots) == 1000
+    assert projection.ap_snapshots[0].ap == 1
+    assert projection.ap_snapshots[-1].ap == 1000
 
 
 def test_runtime_role_can_use_data_but_cannot_change_schema_or_roles(database: LazyEngine):

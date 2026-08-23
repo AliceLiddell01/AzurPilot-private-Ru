@@ -57,9 +57,7 @@ def get_monthly_stats(instance: str, year: int, month: int) -> dict[str, Any]:
     }
     return {
         "battle_count": int(projection.metric(MonthlyMetric.BATTLE_COUNT)),
-        "akashi_encounters": int(
-            projection.metric(MonthlyMetric.AKASHI_ENCOUNTERS)
-        ),
+        "akashi_encounters": int(projection.metric(MonthlyMetric.AKASHI_ENCOUNTERS)),
         "akashi_ap": int(projection.metric(MonthlyMetric.AKASHI_AP)),
         "akashi_ap_entries": [
             {
@@ -88,9 +86,7 @@ def get_monthly_stats(instance: str, year: int, month: int) -> dict[str, Any]:
         "meow_battle_raw_count": int(
             projection.metric(MonthlyMetric.MEOW_BATTLE_RAW_COUNT)
         ),
-        "meow_battle_count": float(
-            projection.metric(MonthlyMetric.MEOW_BATTLE_COUNT)
-        ),
+        "meow_battle_count": float(projection.metric(MonthlyMetric.MEOW_BATTLE_COUNT)),
         "meow_round_times": [
             {
                 "duration": float(item.duration_seconds),
@@ -131,7 +127,17 @@ def get_meow_stats(
     hazards = data["meow_hazard_stats"]
     by_hazard = {}
     siren_by_hazard = data["siren_research_devices"]["meow"]
-    for level in (3, 5):
+    levels = (
+        {int(key) for key in hazards}
+        | {int(key) for key in siren_by_hazard}
+        | {
+            int(item["hazard_level"])
+            for item in round_entries
+            if item.get("hazard_level") is not None
+        }
+        | {3, 5}
+    )
+    for level in sorted(levels):
         bucket = hazards.get(str(level), {})
         level_rounds = [
             float(item["duration"])
@@ -197,9 +203,7 @@ def get_commission_entries(
 ) -> list[dict[str, Any]]:
     """Вернуть записи комиссии за настроенный календарный месяц runtime."""
 
-    entries = get_runtime_storage().commission_entries_for_month(
-        instance, year, month
-    )
+    entries = get_runtime_storage().commission_entries_for_month(instance, year, month)
     return [_commission_dict(entry) for entry in entries]
 
 
@@ -220,9 +224,7 @@ def get_commission_reward_stats(instance: str) -> dict[str, dict[str, int]]:
     week_start = now.date() - timedelta(days=now.weekday())
     if week_start.month != now.month or week_start.year != now.year:
         previous = now.replace(day=1) - timedelta(days=1)
-        month_entries += get_commission_entries(
-            instance, previous.year, previous.month
-        )
+        month_entries += get_commission_entries(instance, previous.year, previous.month)
     result = {
         "today": defaultdict(int),
         "week": defaultdict(int),

@@ -225,7 +225,7 @@ class RuntimeStorageService:
 
     @staticmethod
     def _observation_instant() -> datetime:
-        """Вернуть стабильную границу секунды для payload и idempotency key."""
+        """Вернуть границу секунды, общую для данных и ключа идемпотентности."""
 
         return datetime.now(UTC).replace(microsecond=0)
 

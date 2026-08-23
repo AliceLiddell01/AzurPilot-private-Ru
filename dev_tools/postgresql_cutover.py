@@ -70,7 +70,7 @@ def activate(arguments: argparse.Namespace) -> None:
         "backend": "postgresql",
         "version": 1,
         "alembic_head": EXPECTED_ALEMBIC_HEAD,
-        "migration_manifest_sha256": manifest_digest,
+        "reconciliation_report_sha256": manifest_digest,
         "reviewed_head": _git_revision(arguments.reviewed_head),
         "merge_commit": _git_revision(arguments.merge_commit),
         "host": settings.host,
