@@ -531,17 +531,6 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - name: Установить PowerShell 7.6.x
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $toolPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'powershell-7.6'
-          dotnet tool install --tool-path $toolPath PowerShell --version '7.6.5'
-          if ($LASTEXITCODE -ne 0) {
-              throw 'Не удалось установить PowerShell 7.6.5.'
-          }
-          $toolPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
       - name: Проверить PowerShell 7.6.x
         shell: pwsh
         run: |
