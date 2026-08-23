@@ -78,6 +78,9 @@ uv run --locked alembic check
 
 Integration-тесты дополнительно требуют явный test-only opt-in
 `AZURPILOT_POSTGRES_DISPOSABLE=1`; без него destructive fixture пропускается.
+Этот флаг является только подтверждением оператора и сам по себе не доказывает
+изоляцию БД. Destructive Alembic downgrade разрешён лишь для отдельной test-only
+БД с учётными данными, недоступными production deployments.
 
 Downgrade запрещено применять к пользовательской БД. Stage 2 CI выполняет цикл
 только в одноразовом PostgreSQL 18 service container.
@@ -95,8 +98,9 @@ AZURPILOT_POSTGRES_PASSWORD   # optional при PGPASSFILE/libpq credential sour
 AZURPILOT_POSTGRES_SSLMODE
 ```
 
-Если `SSLMODE` не задан, foundation требует TLS (`require`); ослабленные режимы
-доступны только через явную настройку среды.
+Если `SSLMODE` не задан, foundation проверяет TLS-сертификат и имя сервера
+(`verify-full`); режим `require` и более слабые режимы доступны только через
+явную настройку среды.
 
 Реальные значения не хранятся в repository, `config/deploy.yaml` или generated
 application config. Password исключён из repr; SQLAlchemy URL по умолчанию

@@ -41,13 +41,19 @@ class PostgresUnitOfWork:
             self.imports = PostgresImportLedgerRepository(connection)
         except SQLAlchemyError as exc:
             self._connection = None
+            self._clear_repositories()
             self._close_quietly(connection)
             raise translate_database_error(exc) from None
         except BaseException:
             self._connection = None
+            self._clear_repositories()
             self._close_quietly(connection)
             raise
         return self
+
+    def _clear_repositories(self) -> None:
+        for attribute in ("instances", "statistics", "imports"):
+            self.__dict__.pop(attribute, None)
 
     @staticmethod
     def _close_quietly(connection: Connection | None) -> None:
@@ -102,8 +108,7 @@ class PostgresUnitOfWork:
                         cleanup_error = translate_database_error(error)
                 finally:
                     self._connection = None
-                    for attribute in ("instances", "statistics", "imports"):
-                        self.__dict__.pop(attribute, None)
+                    self._clear_repositories()
         if exc_type is not None and cleanup_error is not None:
             logger.warning(
                 "Ошибка очистки PostgreSQL Unit of Work подавлена исходным исключением."

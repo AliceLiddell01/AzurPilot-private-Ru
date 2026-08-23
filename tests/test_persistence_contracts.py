@@ -4,10 +4,13 @@ import ast
 import importlib.util
 import os
 import pickle
+import re
 import subprocess
 import sys
 import threading
 import unittest
+from datetime import UTC, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -20,13 +23,17 @@ from module.application import (
     StorageInvalidDataError,
     StorageUnavailableError,
 )
+from module.application.storage_models import MonthlyMetric
 from module.persistence.config import DatabaseSettings, PoolSettings
 from module.persistence.database import (
     LazyEngine,
     StorageHealthChecker,
     translate_database_error,
 )
-from module.persistence.repositories import PostgresInstanceIdentityRepository
+from module.persistence.repositories import (
+    PostgresInstanceIdentityRepository,
+    _digest,
+)
 from module.persistence.schema import SCHEMA_NAME, metadata
 from module.persistence.unit_of_work import PostgresUnitOfWork
 
@@ -159,7 +166,7 @@ class DatabaseConfigurationTests(unittest.TestCase):
         with patch.dict(os.environ, values, clear=True):
             settings = DatabaseSettings.from_environment()
         self.assertIsNone(settings.password)
-        self.assertEqual(settings.sslmode, "require")
+        self.assertEqual(settings.sslmode, "verify-full")
 
     def test_pool_limits_fail_closed(self):
         with self.assertRaises(StorageConfigurationError):
@@ -301,6 +308,41 @@ class DatabaseConfigurationTests(unittest.TestCase):
 
         connection.close.assert_called_once_with()
 
+    def test_unit_of_work_clears_partial_repository_initialization(self):
+        connection = Mock()
+        engine = Mock()
+        engine.get.return_value.connect.return_value = connection
+        unit_of_work = PostgresUnitOfWork(engine)
+
+        with (
+            patch(
+                "module.persistence.unit_of_work.PostgresStatisticsRepository",
+                side_effect=ValueError("synthetic repository failure"),
+            ),
+            self.assertRaises(ValueError),
+        ):
+            unit_of_work.__enter__()
+
+        self.assertIsNone(unit_of_work._connection)
+        connection.close.assert_called_once_with()
+        for attribute in ("instances", "statistics", "imports"):
+            self.assertFalse(hasattr(unit_of_work, attribute), attribute)
+
+    def test_digest_canonicalizes_equivalent_datetime_and_decimal_values(self):
+        utc_value = datetime(2026, 8, 23, 8, 30, tzinfo=UTC)
+        offset_value = datetime(
+            2026,
+            8,
+            23,
+            15,
+            30,
+            tzinfo=timezone(timedelta(hours=7)),
+        )
+        self.assertEqual(
+            _digest({"observed_at": utc_value, "value": Decimal("1.5")}),
+            _digest({"observed_at": offset_value, "value": Decimal("1.50")}),
+        )
+
     def test_unit_of_work_clears_state_when_close_raises_unexpected_error(self):
         connection = Mock()
         connection.in_transaction.return_value = False
@@ -363,15 +405,43 @@ class SchemaMetadataTests(unittest.TestCase):
         )
 
     def test_constraints_indexes_and_fk_actions_are_explicit(self):
+        checked_foreign_keys = 0
+        checked_indexes = 0
         for table in metadata.tables.values():
             for constraint in table.constraints:
                 self.assertIsNotNone(constraint.name, (table.name, constraint))
                 self.assertLessEqual(len(str(constraint.name)), 63)
             for foreign_key in table.foreign_keys:
                 self.assertIn(foreign_key.ondelete, {"RESTRICT", "CASCADE"})
+                checked_foreign_keys += 1
             for index in table.indexes:
                 self.assertIsNotNone(index.name)
                 self.assertLessEqual(len(str(index.name)), 63)
+                checked_indexes += 1
+        self.assertGreater(checked_foreign_keys, 0)
+        self.assertGreater(checked_indexes, 0)
+
+    def test_monthly_metric_check_matches_enum_in_metadata_and_migration(self):
+        expected = {metric.value for metric in MonthlyMetric}
+        constraint = next(
+            item
+            for item in metadata.tables[
+                f"{SCHEMA_NAME}.monthly_aggregate"
+            ].constraints
+            if item.name == "ck_monthly_aggregate_metric_allowed"
+        )
+        self.assertEqual(
+            set(re.findall(r"'([^']+)'", str(constraint.sqltext))), expected
+        )
+
+        migration = next((ROOT / "migrations" / "versions").glob("0001_*.py"))
+        source = migration.read_text(encoding="utf-8")
+        expression = re.search(r'"metric IN \(([^"]+)\)"', source)
+        self.assertIsNotNone(expression)
+        assert expression is not None
+        self.assertEqual(
+            set(re.findall(r"'([^']+)'", expression.group(1))), expected
+        )
 
     def test_json_is_limited_to_quarantine_metadata(self):
         json_columns = {

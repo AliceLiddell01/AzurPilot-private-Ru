@@ -35,7 +35,7 @@ class DatabaseSettings:
     user: str
     password: str | None = field(default=None, repr=False)
     connect_timeout_seconds: int = 5
-    sslmode: str = "require"
+    sslmode: str = "verify-full"
     pool: PoolSettings = field(default_factory=PoolSettings)
 
     def __post_init__(self) -> None:
@@ -94,5 +94,5 @@ class DatabaseSettings:
             database=required("DATABASE"),
             user=required("USER"),
             password=environ.get(prefix + "PASSWORD") or None,
-            sslmode=environ.get(prefix + "SSLMODE") or "require",
+            sslmode=environ.get(prefix + "SSLMODE") or "verify-full",
         )

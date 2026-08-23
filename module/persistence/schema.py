@@ -23,6 +23,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
+from module.application.storage_models import MonthlyMetric
+
 SCHEMA_NAME = "azurpilot"
 EXPECTED_ALEMBIC_HEAD = "0001_storage_foundation"
 
@@ -34,6 +36,10 @@ NAMING_CONVENTION = {
     "pk": "pk_%(table_name)s",
 }
 metadata = MetaData(schema=SCHEMA_NAME, naming_convention=NAMING_CONVENTION)
+
+
+def _enum_values_sql(enum_type: type[MonthlyMetric]) -> str:
+    return ", ".join(repr(member.value) for member in enum_type)
 
 
 def _instance_fk() -> ForeignKey:
@@ -133,8 +139,7 @@ monthly_aggregate = Table(
     Column("version", Integer, nullable=False, server_default="1"),
     PrimaryKeyConstraint("instance_id", "month", "metric"),
     CheckConstraint(
-        "metric IN ('battle_count', 'akashi_encounters', "
-        "'meow_battle_raw_count', 'meow_battle_count')",
+        f"metric IN ({_enum_values_sql(MonthlyMetric)})",
         name="metric_allowed",
     ),
     CheckConstraint("value >= 0", name="value_nonnegative"),

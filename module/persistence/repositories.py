@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Connection, select, update
+from sqlalchemy import Connection, Table, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import NoResultFound, SQLAlchemyError
 
@@ -44,9 +44,27 @@ def _bounded(value: str, *, label: str, maximum: int) -> str:
     return value
 
 
+def _normalize_digest_value(value: object) -> object:
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(UTC)
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value.normalize())
+    if isinstance(value, dict):
+        return {
+            key: _normalize_digest_value(item) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_digest_value(item) for item in value]
+    return value
+
+
 def _digest(value: object) -> str:
     encoded = json.dumps(
-        value,
+        _normalize_digest_value(value),
         sort_keys=True,
         separators=(",", ":"),
         default=str,
@@ -408,7 +426,11 @@ class PostgresStatisticsRepository:
             raise translate_database_error(exc) from None
 
     def _append_with_digest(
-        self, table, values: dict[str, object], idempotency_key: str, digest: str
+        self,
+        table: Table,
+        values: dict[str, object],
+        idempotency_key: str,
+        digest: str,
     ) -> bool:
         try:
             inserted = self._connection.execute(
