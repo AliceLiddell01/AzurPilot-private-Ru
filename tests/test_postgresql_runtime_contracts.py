@@ -248,6 +248,10 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     assert "Repair не изменяет БД" in repair
     assert "dev_tools.postgresql_security" in repair
     assert "dev_tools.postgresql_runtime" not in build
+    assert "Get-Command -Name 'wsl.exe'" in start
+    assert "Get-Command -Name 'wsl.exe'" in repair
+    assert "Select-Object -First 1" in start
+    assert "Select-Object -First 1" in repair
 
 
 def test_webui_rejects_database_upload_before_read():

@@ -1287,7 +1287,8 @@ function Get-EnvironmentDiagnostic {
 
     if ($pythonHealth.Success) {
         $postgresqlCheckPerformed = $true
-        $wslCommand = Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction SilentlyContinue
+        $wslCommand = Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
 
         if ($null -eq $wslCommand) {
             $wslState = [pscustomobject]@{
