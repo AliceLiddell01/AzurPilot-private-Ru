@@ -238,7 +238,8 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     repair = (ROOT / "scripts" / "Repair-AzurPilot.ps1").read_text(encoding="utf-8")
     build = (ROOT / "scripts" / "Build-AzurPilot.ps1").read_text(encoding="utf-8")
 
-    assert "systemctl', 'start', 'postgresql'" in start
+    assert "'systemctl'\n                'start'\n                'postgresql'" in start
+    assert "'--user'\n                'root'" in start
     assert "'pg_isready', '--host', '127.0.0.1'" in start
     assert "dev_tools.postgresql_runtime" in start
     backup_call = update.index("\n        $postgresqlBackupPath = Backup-ProductionPostgreSql\n")

@@ -626,7 +626,16 @@ function Invoke-PostgreSqlStartPreflight {
     $operations = @(
         [pscustomobject]@{
             Executable = $wslCommand.Path
-            Arguments = @('--distribution', 'Archlinux', '--exec', 'systemctl', 'start', 'postgresql')
+            Arguments = @(
+                '--distribution'
+                'Archlinux'
+                '--user'
+                'root'
+                '--exec'
+                'systemctl'
+                'start'
+                'postgresql'
+            )
             TimeoutMilliseconds = 30000
             Failure = 'Не удалось запустить PostgreSQL 18 в WSL Archlinux.'
         }
