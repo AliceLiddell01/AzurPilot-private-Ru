@@ -61,14 +61,21 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
     mcp_source = mcp_path.read_text(encoding="utf-8")
     mcp_tree = ast.parse(mcp_source)
 
-    application_imports = {
-        node.module
-        for tree in (app_tree, mcp_tree)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        and node.module
-        and node.module.startswith("module.application")
-    }
+    application_imports: set[str] = set()
+    for tree in (app_tree, mcp_tree):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                candidates = (node.module,)
+            elif isinstance(node, ast.Import):
+                candidates = tuple(alias.name for alias in node.names)
+            else:
+                continue
+            application_imports.update(
+                name
+                for name in candidates
+                if name == "module.application"
+                or name.startswith("module.application.")
+            )
     mounted_paths = {
         node.args[0].value
         for node in ast.walk(app_tree)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 from collections.abc import Callable
+from multiprocessing.util import register_after_fork
 from typing import cast
 
 from sqlalchemy import Engine, create_engine, select, text
@@ -65,6 +66,14 @@ class LazyEngine:
         self._lock = threading.Lock()
         self._engine: Engine | None = None
         self._pid: int | None = None
+        register_after_fork(self, LazyEngine._after_fork)
+
+    def _after_fork(self) -> None:
+        """Сбрасывает унаследованное runtime-состояние, не трогая pool родителя."""
+
+        self._lock = threading.Lock()
+        self._engine = None
+        self._pid = None
 
     @property
     def owner_pid(self) -> int | None:
@@ -115,6 +124,7 @@ class LazyEngine:
         self._lock = threading.Lock()
         self._engine = None
         self._pid = None
+        register_after_fork(self, LazyEngine._after_fork)
 
 
 class StorageHealthChecker:

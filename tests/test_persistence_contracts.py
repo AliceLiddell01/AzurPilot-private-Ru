@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import os
 import pickle
 import subprocess
@@ -34,15 +35,26 @@ APPLICATION_ROOT = ROOT / "module" / "application"
 PERSISTENCE_ROOT = ROOT / "module" / "persistence"
 
 
-def _import_roots(path: Path) -> set[str]:
+def _imports(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    roots: set[str] = set()
+    imports: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            roots.update(alias.name.split(".", 1)[0] for alias in node.names)
+            imports.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            roots.add(node.module.split(".", 1)[0])
-    return roots
+            imports.add(node.module)
+            imports.update(
+                f"{node.module}.{alias.name}"
+                for alias in node.names
+                if alias.name != "*"
+            )
+    return imports
+
+
+def _imports_prefix(path: Path, prefix: str) -> bool:
+    return any(
+        name == prefix or name.startswith(f"{prefix}.") for name in _imports(path)
+    )
 
 
 class PersistenceArchitectureTests(unittest.TestCase):
@@ -51,16 +63,20 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertTrue(paths, APPLICATION_ROOT)
         for path in paths:
             self.assertTrue(
-                _import_roots(path).isdisjoint({"sqlalchemy", "psycopg", "alembic"}),
+                all(
+                    not _imports_prefix(path, prefix)
+                    for prefix in ("sqlalchemy", "psycopg", "alembic")
+                ),
                 path,
             )
+            self.assertFalse(_imports_prefix(path, "module.persistence"), path)
 
     def test_persistence_boundary_never_imports_sqlite(self):
         paths = tuple(PERSISTENCE_ROOT.rglob("*.py"))
         self.assertTrue(paths, PERSISTENCE_ROOT)
         for path in paths:
             source = path.read_text(encoding="utf-8")
-            self.assertNotIn("sqlite3", _import_roots(path), path)
+            self.assertFalse(_imports_prefix(path, "sqlite3"), path)
             self.assertNotIn("create_all(", source, path)
             if path.name == "repositories.py":
                 self.assertNotIn(".commit(", source, path)
@@ -71,9 +87,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
         checked.extend((ROOT / "module" / "statistics").rglob("*.py"))
         for path in checked:
             self.assertTrue(path.is_file(), path)
-            self.assertNotIn(
-                "module.persistence", path.read_text(encoding="utf-8"), path
-            )
+            self.assertFalse(_imports_prefix(path, "module.persistence"), path)
 
     def test_import_has_no_network_or_ddl_side_effect(self):
         script = f"""
@@ -102,12 +116,20 @@ assert 'sqlite3' not in sys.modules
             (ROOT / "migrations" / "versions").glob("0001_*.py"), None
         )
         self.assertIsNotNone(migration, "миграция 0001_* не найдена")
-        source = migration.read_text(encoding="utf-8")
-        self.assertIn('AZURPILOT_POSTGRES_DISPOSABLE") != "1"', source)
-        self.assertIn("op.drop_table", source)
-        self.assertLess(
-            source.index("AZURPILOT_POSTGRES_DISPOSABLE"), source.index("op.drop_table")
+        spec = importlib.util.spec_from_file_location(
+            "storage_foundation_migration", migration
         )
+        if spec is None or spec.loader is None:
+            self.fail("не удалось загрузить migration module")
+        migration_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration_module)
+        with (
+            patch.dict(os.environ, {"AZURPILOT_POSTGRES_DISPOSABLE": "0"}),
+            patch.object(migration_module.op, "drop_table") as drop_table,
+            self.assertRaises(RuntimeError),
+        ):
+            migration_module.downgrade()
+        drop_table.assert_not_called()
 
 
 class DatabaseConfigurationTests(unittest.TestCase):
@@ -182,6 +204,24 @@ class DatabaseConfigurationTests(unittest.TestCase):
         created[0].dispose.assert_called_once_with(close=False)
         lazy.dispose()
         created[1].dispose.assert_called_once_with()
+
+    def test_after_fork_replaces_locked_state_without_disposing_parent_engine(self):
+        lazy = LazyEngine(self._settings())
+        parent_engine = Mock()
+        inherited_lock = lazy._lock
+        inherited_lock.acquire()
+        lazy._engine = parent_engine
+        lazy._pid = 100
+
+        lazy._after_fork()
+
+        self.assertIsNot(lazy._lock, inherited_lock)
+        self.assertTrue(lazy._lock.acquire(blocking=False))
+        lazy._lock.release()
+        self.assertIsNone(lazy._engine)
+        self.assertIsNone(lazy.owner_pid)
+        parent_engine.dispose.assert_not_called()
+        inherited_lock.release()
 
     def test_spawned_python_imports_driver_and_boundary(self):
         result = subprocess.run(
