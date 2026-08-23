@@ -81,6 +81,14 @@ class MigrationService:
         if projection.postgres_major != 18:
             reasons.append("POSTGRES_MAJOR_MISMATCH")
         reasons.append("DUMP_RESTORE_NOT_VERIFIED")
+        repeat_zero = (
+            state.already_completed
+            and delta.inserted == 0
+            and delta.quarantined == 0
+            and delta.conflicts == 0
+            and coverage
+            and semantic_parity
+        )
 
         return ReconciliationReport(
             manifest_digest=plan.manifest_digest,
@@ -94,7 +102,7 @@ class MigrationService:
                 for identity in plan.identities
             ),
             run_delta=delta,
-            repeat_import_zero_delta=state.already_completed and delta.inserted == 0,
+            repeat_import_zero_delta=repeat_zero,
             derived_csv_parity=plan.derived_csv_parity,
             postgres_major=projection.postgres_major,
             schema_head=projection.schema_head,

@@ -92,6 +92,29 @@ _CL1_KEYS = {
     "last_ap_notification",
 }
 _MONTH_RE = re.compile(r"^(?P<year>20\d{2})-(?P<month>0[1-9]|1[0-2])$")
+_CL1_PAYLOAD_REASON_CODES = {
+    "CL1_DECRYPTED_JSON_INVALID",
+    "CL1_JSON_TOO_LARGE",
+    "JSON_BOUNDS_EXCEEDED",
+    "JSON_TEXT_TOO_LARGE",
+}
+_MEOW_CSV_ROW_COUNT = 6
+_MEOW_CSV_COLUMN_COUNT = 7
+_MEOW_CSV_HAZARD_COLUMN = 0
+_MEOW_CSV_COMBAT_COLUMN = 2
+_MEOW_CSV_ITEM_START_COLUMN = 3
+_MEOW_CSV_COMBAT_DIVISORS = (2, 2, 2, 3, 3, 3)
+_MEOW_CSV_ITEM_PREFIXES = (
+    "OperationCoin",
+    "Plate",
+    "CoordinateAbyssal",
+    "CoordinateObscure",
+)
+_MEOW_CSV_PARITY_COLUMNS = (
+    _MEOW_CSV_HAZARD_COLUMN,
+    _MEOW_CSV_COMBAT_COLUMN,
+    *range(_MEOW_CSV_ITEM_START_COLUMN, _MEOW_CSV_COLUMN_COUNT),
+)
 
 
 class LegacySourceReader:
@@ -352,8 +375,25 @@ class LegacySourceReader:
             for row in rows:
                 identity = self._identity(row["instance"])
                 identities[identity.alias_digest] = identity
-                data = self._load_cl1_payload(row["data_json"], row["encrypted_blob"])
                 base = f"month:{row['month']}:identity:{identity.alias_digest[:16]}"
+                try:
+                    data = self._load_cl1_payload(
+                        row["data_json"], row["encrypted_blob"]
+                    )
+                except LegacySourceError as exc:
+                    reason = str(exc)
+                    if reason not in _CL1_PAYLOAD_REASON_CODES:
+                        reason = "CL1_PAYLOAD_INVALID"
+                    parsed.append(
+                        self._quarantine(
+                            "cl1_row",
+                            identity.alias_digest,
+                            logical_id,
+                            base,
+                            reason,
+                        )
+                    )
+                    continue
                 if data is None:
                     parsed.append(
                         self._quarantine(
@@ -421,8 +461,8 @@ class LegacySourceReader:
                     raise LegacySourceError("CL1_JSON_TOO_LARGE")
                 try:
                     data = json.loads(plaintext.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
-                    continue
+                except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+                    raise LegacySourceError("CL1_DECRYPTED_JSON_INVALID") from exc
                 self._validate_json(data)
                 if isinstance(data, dict):
                     return data
@@ -1058,18 +1098,19 @@ class LegacySourceReader:
             with path.open("r", encoding="utf-8", newline="") as stream:
                 rows = list(csv.reader(stream))
             if (
-                len(rows) != 7
-                or len(rows[0]) != 7
-                or any(len(row) != 7 for row in rows[1:])
+                len(rows) != _MEOW_CSV_ROW_COUNT + 1
+                or len(rows[0]) != _MEOW_CSV_COLUMN_COUNT
+                or any(len(row) != _MEOW_CSV_COLUMN_COUNT for row in rows[1:])
             ):
                 return False
             actual = [[Decimal(value) for value in row] for row in rows[1:]]
         except (UnicodeDecodeError, csv.Error, InvalidOperation):
             return False
-        derived = [[Decimal(0) for _ in range(7)] for _ in range(6)]
+        derived = [
+            [Decimal(0) for _ in range(_MEOW_CSV_COLUMN_COUNT)]
+            for _ in range(_MEOW_CSV_ROW_COUNT)
+        ]
         seen_images: set[str] = set()
-        unit = (2, 2, 2, 3, 3, 3)
-        prefixes = ("OperationCoin", "Plate", "CoordinateAbyssal", "CoordinateObscure")
         for record in records:
             if (
                 record.dataset != "opsi_item"
@@ -1085,21 +1126,29 @@ class LegacySourceReader:
             image = str(values["imgid"])
             if image not in seen_images:
                 seen_images.add(image)
-                derived[hazard - 1][2] += Decimal(int(values.get("combat_count") or 0))
+                derived[hazard - 1][_MEOW_CSV_COMBAT_COLUMN] += Decimal(
+                    int(values.get("combat_count") or 0)
+                )
             code = str(values["item_code"])
-            for index, prefix in enumerate(prefixes):
+            for index, prefix in enumerate(_MEOW_CSV_ITEM_PREFIXES):
                 if code.startswith(prefix):
-                    derived[hazard - 1][3 + index] += Decimal(int(values["amount"]))
+                    derived[hazard - 1][_MEOW_CSV_ITEM_START_COLUMN + index] += (
+                        Decimal(int(values["amount"]))
+                    )
                     break
         for index, row in enumerate(derived):
-            row[0] = Decimal(index + 1)
-            row[2] /= unit[index]
-            if row[2] > 0:
-                for column in range(3, 7):
-                    row[column] /= row[2]
+            row[_MEOW_CSV_HAZARD_COLUMN] = Decimal(index + 1)
+            row[_MEOW_CSV_COMBAT_COLUMN] /= _MEOW_CSV_COMBAT_DIVISORS[index]
+            if row[_MEOW_CSV_COMBAT_COLUMN] > 0:
+                for column in range(
+                    _MEOW_CSV_ITEM_START_COLUMN, _MEOW_CSV_COLUMN_COUNT
+                ):
+                    row[column] /= row[_MEOW_CSV_COMBAT_COLUMN]
         # Поле времени производное и намеренно не участвует в parity.
         return all(
-            actual[r][c] == derived[r][c] for r in range(6) for c in (0, 2, 3, 4, 5, 6)
+            actual[row][column] == derived[row][column]
+            for row in range(_MEOW_CSV_ROW_COUNT)
+            for column in _MEOW_CSV_PARITY_COLUMNS
         )
 
     def _record(self, dataset, identity, source_object, locator, **values):

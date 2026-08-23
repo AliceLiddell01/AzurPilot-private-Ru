@@ -63,6 +63,12 @@ factual report. `inspect` не требует PostgreSQL и не пишет sour
 port, database, user и scratch database. `pg_dump`/`pg_restore` берутся из PATH
 или `AZURPILOT_PG_DUMP`/`AZURPILOT_PG_RESTORE`.
 
+`import` и `reconcile` — диагностические offline-команды: они намеренно не
+подтверждают dump/restore и поэтому завершаются `STATUS:NOT_READY` с кодом `4`.
+Только `full-rehearsal` формирует итоговый readiness verdict. Сырой stderr
+PostgreSQL utilities намеренно подавляется, потому что может содержать DSN,
+локальные пути или значения окружения; наружу возвращается только bounded code.
+
 Exit codes: `0` — ready, `2` — legacy/source/guard error, `3` — безопасно
 классифицированная storage error, `4` — reconciliation завершён, но not-ready.
 CLI не печатает DSN, credentials, raw payload, raw identity или абсолютные

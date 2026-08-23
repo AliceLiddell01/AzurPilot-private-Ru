@@ -122,15 +122,19 @@ def _run_pg(executable: str, arguments: list[str], settings: DatabaseSettings) -
     environment = os.environ.copy()
     if settings.password:
         environment["PGPASSWORD"] = settings.password
+    run_options: dict[str, object] = {}
+    if os.name == "nt":
+        run_options["creationflags"] = subprocess.CREATE_NO_WINDOW
     result = subprocess.run(
         [executable, *arguments],
         env=environment,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
+        # Raw stderr может содержать DSN, пути или значения окружения.
         stderr=subprocess.DEVNULL,
         check=False,
         timeout=180,
-        creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+        **run_options,
     )
     if result.returncode != 0:
         raise LegacySourceError("POSTGRES_BACKUP_COMMAND_FAILED")
@@ -237,15 +241,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Offline migration legacy SQLite/CL1 в PostgreSQL schema v1."
     )
-    parser.add_argument("--source-root", type=Path, required=True)
-    parser.add_argument("--legacy-timezone", required=True)
-    parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument(
+        "--source-root", type=Path, required=True, help="Корень read-only legacy source."
+    )
+    parser.add_argument(
+        "--legacy-timezone", required=True, help="IANA timezone naive timestamps."
+    )
+    parser.add_argument(
+        "--report", type=Path, required=True, help="Новый create-only JSON report."
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("inspect")
-    for command in ("import", "reconcile"):
-        child = subparsers.add_parser(command)
+    subparsers.add_parser(
+        "inspect", help="Только проинспектировать source без PostgreSQL."
+    )
+    for command, help_text in (
+        ("import", "Offline import; всегда NOT_READY без dump/restore evidence."),
+        ("reconcile", "Offline reconcile; всегда NOT_READY без dump/restore evidence."),
+    ):
+        child = subparsers.add_parser(command, help=help_text, description=help_text)
         child.add_argument("--chunk-size", type=int, default=500)
-    full = subparsers.add_parser("full-rehearsal")
+    full = subparsers.add_parser(
+        "full-rehearsal",
+        help="Полная disposable rehearsal; единственный режим readiness verdict.",
+    )
     full.add_argument("--chunk-size", type=int, default=500)
     full.add_argument("--scratch-database", required=True)
     return parser

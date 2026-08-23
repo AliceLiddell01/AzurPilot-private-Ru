@@ -19,14 +19,18 @@ ROOT = Path(__file__).resolve().parents[1]
 CL1_FIXTURE = ROOT / "tests" / "fixtures" / "postgresql_migration" / "cl1_shapes.json"
 
 
-def _create_cl1(path: Path, payload: dict, *, encrypted: bool = False) -> None:
+def _create_cl1(path: Path, payload: dict | str, *, encrypted: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "CREATE TABLE cl1_data (instance TEXT, month TEXT, data_json TEXT, "
             "encrypted_blob BLOB, PRIMARY KEY (instance, month))"
         )
-        text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        text = (
+            payload
+            if isinstance(payload, str)
+            else json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        )
         if encrypted:
             from Crypto.Hash import SHA256
             from Crypto.Protocol.KDF import PBKDF2
@@ -174,8 +178,19 @@ def test_encrypted_json_boundary_violation_is_not_treated_as_wrong_key(tmp_path)
         payload = {"nested": payload}
     _create_cl1(tmp_path / "config" / "cl1_data.db", payload, encrypted=True)
 
-    with pytest.raises(LegacySourceError, match="JSON_BOUNDS_EXCEEDED"):
-        _reader(tmp_path, decryption_ids=("fixture-device",)).capture()
+    plan = _reader(tmp_path, decryption_ids=("fixture-device",)).capture()
+
+    assert plan.records[0].reason_code == "JSON_BOUNDS_EXCEEDED"
+
+
+def test_authenticated_but_invalid_encrypted_json_keeps_specific_reason(tmp_path):
+    _create_cl1(
+        tmp_path / "config" / "cl1_data.db", "{not-json", encrypted=True
+    )
+
+    plan = _reader(tmp_path, decryption_ids=("fixture-device",)).capture()
+
+    assert plan.records[0].reason_code == "CL1_DECRYPTED_JSON_INVALID"
 
 
 def test_legacy_cl1_json_bak_uses_proven_parent_identity_and_exact_old_shape(

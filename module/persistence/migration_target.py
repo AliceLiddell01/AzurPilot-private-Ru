@@ -611,7 +611,6 @@ class PostgresMigrationTarget:
             return str(existing_event.id)
         if record.dataset == "commission":
             connection.execute(insert(table).values(**payload))
-            assert isinstance(items, tuple)
             if items:
                 connection.execute(
                     insert(commission_income_item),

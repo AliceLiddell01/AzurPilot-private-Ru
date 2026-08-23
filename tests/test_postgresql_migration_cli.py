@@ -143,3 +143,23 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
     assert "--if-exists" in restore_arguments
     assert restore_arguments.index("--clean") < restore_arguments.index("--dbname")
     assert restored.database == "stage3_restore"
+
+
+def test_help_explains_diagnostic_and_readiness_commands():
+    environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
+    help_result = subprocess.run(
+        [sys.executable, "-m", "dev_tools.postgresql_migration", "--help"],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert help_result.returncode == 0
+    assert "всегда NOT_READY" in help_result.stdout
+    assert "единственный режим" in help_result.stdout
+    assert "readiness verdict" in help_result.stdout
