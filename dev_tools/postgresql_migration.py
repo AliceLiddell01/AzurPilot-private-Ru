@@ -174,17 +174,20 @@ def _run_pg(executable: str, arguments: list[str], settings: DatabaseSettings) -
     run_options: dict[str, object] = {}
     if os.name == "nt":
         run_options["creationflags"] = subprocess.CREATE_NO_WINDOW
-    result = subprocess.run(
-        command,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        # Raw stderr может содержать DSN, пути или значения окружения.
-        stderr=subprocess.DEVNULL,
-        check=False,
-        timeout=180,
-        **run_options,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            # Raw stderr может содержать DSN, пути или значения окружения.
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=180,
+            **run_options,
+        )
+    except subprocess.TimeoutExpired:
+        raise LegacySourceError("POSTGRES_BACKUP_COMMAND_FAILED") from None
     if result.returncode != 0:
         raise LegacySourceError("POSTGRES_BACKUP_COMMAND_FAILED")
 

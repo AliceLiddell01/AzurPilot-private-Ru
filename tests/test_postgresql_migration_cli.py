@@ -148,6 +148,39 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
     assert restored.database == "stage3_restore"
 
 
+def test_pg_timeout_returns_bounded_storage_error(monkeypatch):
+    settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        database="azurpilot",
+        user="azurpilot_migrator",
+        sslmode="disable",
+    )
+    observed: dict[str, object] = {}
+
+    def raise_timeout(*_args, **kwargs):
+        observed.update(kwargs)
+        raise subprocess.TimeoutExpired(
+            ["pg_restore", "private-path", "password=secret"],
+            180,
+        )
+
+    monkeypatch.setattr(postgresql_migration.subprocess, "run", raise_timeout)
+
+    with pytest.raises(
+        LegacySourceError, match="POSTGRES_BACKUP_COMMAND_FAILED"
+    ) as exc_info:
+        postgresql_migration._run_pg(
+            "pg_restore",
+            ["--dbname", "azurpilot_restore_stage4"],
+            settings,
+        )
+
+    assert observed["timeout"] == 180
+    assert "private-path" not in str(exc_info.value)
+    assert "password=secret" not in str(exc_info.value)
+
+
 def test_help_explains_diagnostic_and_readiness_commands():
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
