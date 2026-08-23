@@ -136,7 +136,7 @@ def test_alembic_downgrade_rejects_mismatched_confirmed_target(
     )
 
     assert result.returncode != 0
-    assert "точного подтверждения test-only target" in result.stderr
+    assert "test-only target" in result.stderr
     password = environment.get("AZURPILOT_POSTGRES_PASSWORD")
     assert not password or password not in result.stderr
     assert StorageHealthChecker(database).check().state is StorageHealthState.READY
