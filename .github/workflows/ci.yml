@@ -38,6 +38,7 @@ jobs:
       AZURPILOT_POSTGRES_DISPOSABLE_PORT: "5432"
       AZURPILOT_POSTGRES_DISPOSABLE_DATABASE: azurpilot_ci
       AZURPILOT_POSTGRES_DISPOSABLE_USER: azurpilot_ci
+      AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE: azurpilot_ci_restore
     services:
       postgres:
         image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
@@ -159,6 +160,16 @@ jobs:
                           sql.Identifier(os.environ["AZURPILOT_POSTGRES_USER"]),
                       )
                   )
+                  cursor.execute(
+                      sql.SQL("CREATE DATABASE {} OWNER {}").format(
+                          sql.Identifier(
+                              os.environ[
+                                  "AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE"
+                              ]
+                          ),
+                          sql.Identifier(os.environ["AZURPILOT_POSTGRES_USER"]),
+                      )
+                  )
           PY
           mkdir -p "${RUNNER_TEMP}/azurpilot-ci-python"
           cycle_script="${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.sh"
@@ -244,6 +255,96 @@ jobs:
               -q \
               --junitxml="${artifact_dir}/pytest.xml" \
               tests
+
+      - name: Проверить migration importer и dump/restore
+        id: python_migration_rehearsal
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          dump_dir="${RUNNER_TEMP}/azurpilot-stage3-dump"
+          dump_path="${dump_dir}/stage3-migration.dump"
+          mkdir -p "$dump_dir"
+          trap 'rm -f -- "$dump_path"; rmdir -- "$dump_dir" 2>/dev/null || true' EXIT
+          export PGPASSWORD="${AZURPILOT_POSTGRES_PASSWORD}"
+          uv run --locked python -m pytest -q tests/test_postgresql_migration.py
+          docker run --rm --network host \
+            -e PGPASSWORD \
+            -v "${dump_dir}:/evidence" \
+            postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941 \
+            pg_dump \
+              --host 127.0.0.1 \
+              --port 5432 \
+              --username "${AZURPILOT_POSTGRES_USER}" \
+              --format custom \
+              --no-owner \
+              --no-acl \
+              --file /evidence/stage3-migration.dump \
+              "${AZURPILOT_POSTGRES_DATABASE}"
+          docker run --rm \
+            -v "${dump_dir}:/evidence:ro" \
+            postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941 \
+            pg_restore --list /evidence/stage3-migration.dump >/dev/null
+          docker run --rm --network host \
+            -e PGPASSWORD \
+            -v "${dump_dir}:/evidence:ro" \
+            postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941 \
+            pg_restore \
+              --host 127.0.0.1 \
+              --port 5432 \
+              --username "${AZURPILOT_POSTGRES_USER}" \
+              --exit-on-error \
+              --no-owner \
+              --no-acl \
+              --dbname "${AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE}" \
+              /evidence/stage3-migration.dump
+          uv run --locked python - <<'PY'
+          import os
+          from dataclasses import replace
+
+          from sqlalchemy import func, select, text
+
+          from module.persistence import DatabaseSettings, LazyEngine
+          from module.persistence.schema import import_record, metadata
+
+          settings = DatabaseSettings.from_environment()
+          restored_settings = replace(
+              settings,
+              database=os.environ[
+                  "AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE"
+              ],
+          )
+          primary = LazyEngine(settings)
+          restored = LazyEngine(restored_settings)
+          try:
+              def projection(engine):
+                  with engine.get().connect() as connection:
+                      head = connection.execute(
+                          text("SELECT version_num FROM alembic_version")
+                      ).scalar_one()
+                      counts = tuple(
+                          (table.name, connection.execute(
+                              select(func.count()).select_from(table)
+                          ).scalar_one())
+                          for table in metadata.sorted_tables
+                      )
+                      ledger = tuple(connection.execute(
+                          select(
+                              import_record.c.disposition,
+                              import_record.c.payload_digest,
+                          ).order_by(
+                              import_record.c.disposition,
+                              import_record.c.payload_digest,
+                          )
+                      ))
+                  return head, counts, ledger
+
+              if projection(primary) != projection(restored):
+                  raise SystemExit("Dump/restore semantic projection mismatch.")
+          finally:
+              primary.dispose()
+              restored.dispose()
+          PY
 
       - name: Проверить генератор assets
         id: python_assets

@@ -53,7 +53,10 @@ AzurPilot автоматизирует Azur Lane через цикл распо�
 - `module/persistence/` — инфраструктурные PostgreSQL-адаптеры, Core metadata,
   ленивый engine на каждый процесс и граница health-check. Production consumers
   пока не подключены; версионируемый DDL принадлежит только `migrations/` и
-  Alembic.
+  Alembic. Подпакет `module/persistence/legacy/` является отдельным строго
+  read-only offline adapter для migration tooling и не подключён к runtime.
+- `dev_tools/postgresql_migration.py` — единый offline entry point inspection,
+  import, reconciliation и disposable rehearsal без production wiring.
 - `module/webui/` — UI-сервер, процессы и настройки.
 - `module/event_datamine/` — безопасная загрузка ShareCfg, структурное обнаружение текущего события, нормализованный `EventSpec`, реестр жизненного цикла, канонический локальный каталог ассетов, компилятор и генератор карт, происхождение данных и атомарные локальные артефакты. Исторические артефакты с ролью `demo` не участвуют в разрешении production-события.
 - `module/webui/event_source.py` — проекция immutable event facts и отдельно сохраняемой пользовательской политики; runtime Event UI не загружает базовые факты из сети.

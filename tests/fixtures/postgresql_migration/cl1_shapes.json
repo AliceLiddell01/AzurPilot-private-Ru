@@ -1,0 +1,88 @@
+{
+  "akashi_ap": 20,
+  "akashi_ap_entries": [
+    {
+      "amount": 20,
+      "base": 10,
+      "count": 1,
+      "source": "fixture",
+      "ts": "2026-08-01T01:02:03"
+    }
+  ],
+  "akashi_encounters": 2,
+  "ap_snapshots": [
+    {
+      "ap": 123,
+      "ap_total": 456,
+      "asset": 25840.67,
+      "source": "fixture",
+      "ts": "2026-08-01T01:02:04",
+      "yellow_coin": 1
+    }
+  ],
+  "battle_count": 3,
+  "coins_snapshots": [
+    {
+      "purple_coins": 5,
+      "source": "fixture",
+      "ts": "2026-08-01T01:02:05",
+      "yellow_coins": 4
+    }
+  ],
+  "commission_income_entries": [
+    {
+      "commission_count": 2,
+      "items": {
+        "SANITIZED_ITEM_A": 7,
+        "SANITIZED_ITEM_B": 8
+      },
+      "ts": "2026-08-01T01:02:06"
+    }
+  ],
+  "last_ap_notification": {
+    "ap": 120,
+    "ts": "2026-08-01T01:02:07"
+  },
+  "meow_battle_count": 1.5,
+  "meow_battle_raw_count": 3,
+  "meow_battle_times": [12.5],
+  "meow_hazard_stats": {
+    "3": {
+      "battle_raw_count": 3,
+      "battle_times": [12.5],
+      "effective_rounds": 1.5,
+      "round_times": [37.5]
+    }
+  },
+  "meow_round_times": [
+    {
+      "duration": 37.5,
+      "hazard_level": 3
+    }
+  ],
+  "siren_research_device_entries": [
+    {
+      "hazard_level": null,
+      "source": "cl1",
+      "ts": "2026-08-01T01:02:08"
+    },
+    {
+      "hazard_level": 3,
+      "source": "meow",
+      "ts": "2026-08-01T01:02:09"
+    }
+  ],
+  "siren_research_devices": {
+    "cl1": 1,
+    "meow": {
+      "3": 1
+    }
+  },
+  "yellow_coin_snapshots": [
+    {
+      "source": "fixture",
+      "ts": "2026-08-01T01:02:10",
+      "yellow_coin": 6
+    }
+  ]
+}

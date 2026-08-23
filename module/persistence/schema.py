@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0001_storage_foundation"
+EXPECTED_ALEMBIC_HEAD = "0002_migration_shapes"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -243,7 +243,7 @@ cl1_ap_snapshot = Table(
     Column("legacy_timezone", String(64), nullable=True),
     Column("ap", BigInteger, nullable=False),
     Column("ap_total", BigInteger, nullable=True),
-    Column("asset", BigInteger, nullable=True),
+    Column("asset", Numeric(18, 2), nullable=True),
     Column("yellow_coin", BigInteger, nullable=True),
     Column("distance", Integer, nullable=True),
     Column("source", String(64), nullable=False),

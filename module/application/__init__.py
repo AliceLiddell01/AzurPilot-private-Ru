@@ -28,6 +28,7 @@ from module.application.models import (
     TaskSummary,
 )
 from module.application.services import InstanceQueryService, TaskCatalogService
+from module.application.migration_service import MigrationService, finalize_rehearsal
 from module.application.storage_models import (
     CommissionIncome,
     CommissionItem,
@@ -56,6 +57,7 @@ __all__ = (
     "InvalidRequestError",
     "MonthlyAggregate",
     "MonthlyMetric",
+    "MigrationService",
     "OpsiItemEvent",
     "ResourceNotFoundError",
     "ResourceSnapshot",
@@ -75,4 +77,5 @@ __all__ = (
     "TaskMetadata",
     "TaskOption",
     "TaskSummary",
+    "finalize_rehearsal",
 )
