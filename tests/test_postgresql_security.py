@@ -99,8 +99,8 @@ def test_security_posture_accepts_loopback_scram_contract():
         (
             replace(
                 _posture(),
-                rules=(_posture().rules[2] | {"auth_method": "md5"},)
-                + _posture().rules[1:2]
+                rules=_posture().rules[:2]
+                + (_posture().rules[2] | {"auth_method": "md5"},)
                 + _posture().rules[3:],
             ),
             "HBA_HOST_METHOD_NOT_SCRAM",

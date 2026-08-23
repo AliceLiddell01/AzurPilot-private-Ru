@@ -522,7 +522,13 @@ class PostgresRuntimeStatisticsRepository:
     def commission_entries(
         self, instance_id: UUID, *, start: datetime, end: datetime, limit: int
     ) -> tuple[CommissionEntry, ...]:
-        if limit < 1 or limit > 5000 or start >= end:
+        if (
+            limit < 1
+            or limit > 5000
+            or start.tzinfo is None
+            or end.tzinfo is None
+            or start >= end
+        ):
             raise StorageInvalidDataError("Границы запроса комиссий некорректны.")
         try:
             event_ids = (
@@ -606,7 +612,7 @@ class PostgresRuntimeStatisticsRepository:
                     opsi_item_event.c.genre == genre,
                 )
                 .order_by(
-                    opsi_item_event.c.observed_at.desc(),
+                    opsi_item_event.c.observed_at.desc().nulls_last(),
                     opsi_item_event.c.id.desc(),
                 )
                 .limit(limit)

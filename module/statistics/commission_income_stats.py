@@ -26,11 +26,12 @@ COMMISSION_ITEM_NAME_MAP = {
 }
 
 
-def _parse_ts(ts_str: str) -> Optional[datetime]:
+def _parse_ts(ts_str: str, storage=None) -> Optional[datetime]:
     try:
-        return get_runtime_storage().to_runtime_timezone(datetime.fromisoformat(ts_str))
-    except Exception:
+        parsed = datetime.fromisoformat(ts_str)
+    except (TypeError, ValueError):
         return None
+    return (storage or get_runtime_storage()).to_runtime_timezone(parsed)
 
 
 def _filter_entries_by_period(
@@ -45,9 +46,10 @@ def _filter_entries_by_period(
     if period == 'month':
         return entries
 
+    storage = get_runtime_storage()
     filtered = []
     for entry in entries:
-        ts = _parse_ts(entry.get('ts', ''))
+        ts = _parse_ts(entry.get('ts', ''), storage)
         if ts is None:
             continue
         if period == 'day':
@@ -131,14 +133,15 @@ def get_recent_commission_entries(
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
     """Вернуть последние записи комиссий в обратном порядке времени."""
-    now = get_runtime_storage().current_datetime()
+    storage = get_runtime_storage()
+    now = storage.current_datetime()
     all_entries = []
     year = now.year
     month = now.month
     for _ in range(3):
         entries = get_commission_entries(instance, year, month)
         for entry in entries:
-            ts = _parse_ts(entry.get('ts', ''))
+            ts = _parse_ts(entry.get('ts', ''), storage)
             if ts is not None:
                 all_entries.append(entry)
         if len(all_entries) >= limit:

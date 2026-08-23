@@ -160,6 +160,8 @@ class LogRes:
                     resources[RESOURCE_NAME_MAP[group_name]] = int(value)
                 except (TypeError, ValueError):
                     continue
+        if not resources:
+            return
         get_runtime_storage().record_resource_snapshot(instance_name, resources)
 
     def group(self, name):

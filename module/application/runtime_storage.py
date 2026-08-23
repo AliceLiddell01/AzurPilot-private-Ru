@@ -109,7 +109,7 @@ class CommissionEntry:
 
 @dataclass(frozen=True, slots=True)
 class OpsiItemProjection:
-    observed_at: datetime
+    observed_at: datetime | None
     imgid: str
     genre: str
     item_code: str

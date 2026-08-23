@@ -134,6 +134,7 @@ class AzurStats:
                 'combat_count': row.combat_count,
             }
             for row in rows
+            if row.observed_at is not None
         ]
 
     @staticmethod

@@ -24,13 +24,10 @@ def test_application_layer_has_no_transport_framework_imports():
 
 
 def test_application_layer_has_no_persistence_adapter_imports():
-    for path in APPLICATION_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        candidates = {
-            candidate
-            for node in ast.walk(tree)
-            for candidate in absolute_import_candidates(ROOT, path, node)
-        }
+    paths = tuple(APPLICATION_ROOT.rglob("*.py"))
+    assert paths, APPLICATION_ROOT
+    for path in paths:
+        candidates = imports_for_path(ROOT, path)
         assert not any(
             name == "module.persistence" or name.startswith("module.persistence.")
             for name in candidates
