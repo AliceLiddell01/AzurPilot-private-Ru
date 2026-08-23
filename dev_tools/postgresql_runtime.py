@@ -12,6 +12,8 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.util.exc import CommandError
+from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
 from module.persistence.config import DatabaseSettings
@@ -202,6 +204,12 @@ def main(argv: list[str] | None = None) -> int:
             _upgrade()
         else:
             raise RuntimeError("Неизвестная эксплуатационная команда.")
+    except (CommandError, SQLAlchemyError):
+        print(
+            "Ошибка production PostgreSQL: операция с базой данных завершилась ошибкой.",
+            file=sys.stderr,
+        )
+        return 1
     except (OSError, RuntimeError, StorageError, ValueError) as exc:
         print(f"Ошибка production PostgreSQL: {exc}", file=sys.stderr)
         return 1

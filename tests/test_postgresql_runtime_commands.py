@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from dev_tools import postgresql_runtime
 from module.persistence.config import DatabaseSettings
@@ -86,3 +88,27 @@ def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypa
 
     assert "AZURPILOT_POSTGRES_PASSWORD" not in os.environ
     upgrade.assert_called_once()
+
+
+def test_runtime_command_redacts_sqlalchemy_diagnostics(capsys):
+    diagnostic = OperationalError(
+        "SELECT secret_value",
+        {},
+        RuntimeError("password=secret-value"),
+    )
+    parser = SimpleNamespace(
+        parse_args=lambda _argv: SimpleNamespace(command="upgrade")
+    )
+
+    with (
+        patch.object(postgresql_runtime, "_parser", return_value=parser),
+        patch.object(postgresql_runtime, "_upgrade", side_effect=diagnostic),
+    ):
+        assert postgresql_runtime.main([]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "Ошибка production PostgreSQL: операция с базой данных завершилась ошибкой.\n"
+    )
+    assert "secret" not in captured.err
