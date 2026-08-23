@@ -459,23 +459,25 @@ class SchemaMetadataTests(unittest.TestCase):
             set(re.findall(r"'([^']+)'", str(constraint.sqltext))), expected
         )
 
-        migrations = sorted((ROOT / "migrations" / "versions").glob("[0-9]*.py"))
-        migration = migrations[-1]
-        tree = ast.parse(migration.read_text(encoding="utf-8"))
-        upgrade = next(
-            node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
-        )
-        expressions = [
-            node.value
-            for node in ast.walk(upgrade)
-            if isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and node.value.startswith("metric IN (")
-        ]
+        expressions = []
+        for migration in sorted(
+            (ROOT / "migrations" / "versions").glob("[0-9]*.py")
+        ):
+            tree = ast.parse(migration.read_text(encoding="utf-8"))
+            upgrade = next(
+                node
+                for node in tree.body
+                if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
+            )
+            expressions.extend(
+                node.value
+                for node in ast.walk(upgrade)
+                if isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value.startswith("metric IN (")
+            )
         self.assertTrue(expressions)
-        self.assertEqual(set(re.findall(r"'([^']+)'", expressions[0])), expected)
+        self.assertEqual(set(re.findall(r"'([^']+)'", expressions[-1])), expected)
 
     def test_json_is_limited_to_quarantine_metadata(self):
         json_columns = {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -17,6 +18,8 @@ from module.persistence.legacy import LegacySourceReader
 from module.persistence.migration_target import PostgresMigrationTarget
 from module.persistence.schema import (
     cl1_ap_snapshot,
+    commission_income_event,
+    commission_income_item,
     import_batch,
     import_record,
     metadata,
@@ -49,9 +52,9 @@ def database():
 
 def _source(tmp_path: Path) -> LegacySourceReader:
     payload = CL1_FIXTURE.read_text(encoding="utf-8")
-    database = tmp_path / "config" / "cl1_data.db"
-    database.parent.mkdir(parents=True)
-    with sqlite3.connect(database) as connection:
+    legacy_db = tmp_path / "config" / "cl1_data.db"
+    legacy_db.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(legacy_db)) as connection, connection:
         connection.execute(
             "CREATE TABLE cl1_data (instance TEXT, month TEXT, data_json TEXT, "
             "encrypted_blob BLOB, PRIMARY KEY (instance, month))"
@@ -149,6 +152,18 @@ def test_chunk_failure_rolls_back_parent_children_and_ledger(database, tmp_path)
         assert (
             connection.execute(
                 select(func.count()).select_from(import_record)
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                select(func.count()).select_from(commission_income_event)
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                select(func.count()).select_from(commission_income_item)
             ).scalar_one()
             == 0
         )

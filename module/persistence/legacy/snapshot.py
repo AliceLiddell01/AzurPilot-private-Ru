@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 from urllib.parse import quote
 
-from module.persistence.legacy.reader import LegacySourceError
+from module.persistence.legacy.common import (
+    MAX_JSON_SIZE,
+    MAX_LEGACY_ENTRIES,
+    MAX_LEGACY_SOURCES,
+    MAX_SQLITE_SIZE,
+    LegacySourceError,
+    bounded_path,
+    digest_file,
+)
 
 _SQLITE_PATHS = (
     "config/cl1_data.db",
@@ -17,43 +24,17 @@ _SQLITE_PATHS = (
     "log/cl1/cl1_data.db",
 )
 _FILE_PATHS = ("log/device_id.json", "log/azurstat_meowofficer_farming.csv")
-_MAX_SQLITE_SIZE = 64 * 1024 * 1024
-_MAX_JSON_SIZE = 8 * 1024 * 1024
 _MAX_FILE_SIZES = {
     "log/device_id.json": 16_384,
     "log/azurstat_meowofficer_farming.csv": 2 * 1024 * 1024,
 }
-_MAX_LEGACY_ENTRIES = 10_000
-_MAX_LEGACY_SOURCES = 2_048
-
-
-def _digest(path: Path) -> str:
-    result = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            result.update(chunk)
-    return result.hexdigest()
-
-
-def _bounded(root: Path, path: Path) -> Path:
-    resolved = path.resolve(strict=True)
-    if not resolved.is_relative_to(root):
-        raise LegacySourceError("SNAPSHOT_PATH_ESCAPE")
-    current = path
-    while current != root:
-        if current.is_symlink() or current.is_junction():
-            raise LegacySourceError("SNAPSHOT_SYMLINK_FORBIDDEN")
-        current = current.parent
-    return resolved
-
-
 def _copy_stable(source: Path, destination: Path) -> None:
     for _ in range(3):
-        before = _digest(source)
+        before = digest_file(source)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
-        after = _digest(source)
-        if before == after == _digest(destination):
+        after = digest_file(source)
+        if before == after == digest_file(destination):
             return
         destination.unlink(missing_ok=True)
     raise LegacySourceError("SOURCE_CHANGED_DURING_SNAPSHOT")
@@ -73,8 +54,13 @@ def create_consistent_snapshot(source_root: Path, destination_root: Path) -> Non
         source = source_root / relative
         if not source.exists():
             continue
-        source = _bounded(source_root, source)
-        if source.stat().st_size > _MAX_SQLITE_SIZE:
+        source = bounded_path(
+            source_root,
+            source,
+            escape_code="SNAPSHOT_PATH_ESCAPE",
+            link_code="SNAPSHOT_SYMLINK_FORBIDDEN",
+        )
+        if source.stat().st_size > MAX_SQLITE_SIZE:
             raise LegacySourceError("SNAPSHOT_SQLITE_TOO_LARGE")
         destination = destination_root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -94,28 +80,43 @@ def create_consistent_snapshot(source_root: Path, destination_root: Path) -> Non
 
     legacy_root = source_root / "log" / "cl1"
     if legacy_root.exists():
-        legacy_root = _bounded(source_root, legacy_root)
+        legacy_root = bounded_path(
+            source_root,
+            legacy_root,
+            escape_code="SNAPSHOT_PATH_ESCAPE",
+            link_code="SNAPSHOT_SYMLINK_FORBIDDEN",
+        )
         candidates: list[Path] = []
         for index, source in enumerate(legacy_root.rglob("*"), start=1):
-            if index > _MAX_LEGACY_ENTRIES:
+            if index > MAX_LEGACY_ENTRIES:
                 raise LegacySourceError("SNAPSHOT_SOURCE_COUNT_EXCEEDED")
             if source.is_file() and source.name in {
                 "cl1_monthly.json",
                 "cl1_monthly.json.bak",
             }:
                 candidates.append(source)
-                if len(candidates) > _MAX_LEGACY_SOURCES:
+                if len(candidates) > MAX_LEGACY_SOURCES:
                     raise LegacySourceError("SNAPSHOT_SOURCE_COUNT_EXCEEDED")
         for source in sorted(candidates):
-            safe = _bounded(source_root, source)
-            if safe.stat().st_size > _MAX_JSON_SIZE:
+            safe = bounded_path(
+                source_root,
+                source,
+                escape_code="SNAPSHOT_PATH_ESCAPE",
+                link_code="SNAPSHOT_SYMLINK_FORBIDDEN",
+            )
+            if safe.stat().st_size > MAX_JSON_SIZE:
                 raise LegacySourceError("SNAPSHOT_JSON_TOO_LARGE")
             _copy_stable(safe, destination_root / safe.relative_to(source_root))
 
     for relative in _FILE_PATHS:
         source = source_root / relative
         if source.exists():
-            safe = _bounded(source_root, source)
+            safe = bounded_path(
+                source_root,
+                source,
+                escape_code="SNAPSHOT_PATH_ESCAPE",
+                link_code="SNAPSHOT_SYMLINK_FORBIDDEN",
+            )
             if safe.stat().st_size > _MAX_FILE_SIZES[relative]:
                 raise LegacySourceError("SNAPSHOT_FILE_TOO_LARGE")
             _copy_stable(safe, destination_root / relative)

@@ -25,7 +25,10 @@ def _has_link_component(root: Path, path: Path) -> bool:
     while current != root:
         if current.is_symlink() or current.is_junction():
             return True
-        current = current.parent
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
     return False
 
 
@@ -49,7 +52,7 @@ def _profile_names(root: Path) -> tuple[str, ...]:
             raise LegacySourceError("PROFILE_CONFIG_UNSAFE")
         try:
             data = json.loads(resolved.read_text(encoding="utf-8"))
-        except OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
             continue
         if isinstance(data, dict) and isinstance(data.get("Alas"), dict):
             names.append(path.stem)
@@ -69,7 +72,7 @@ def _decryption_ids(root: Path) -> tuple[str, ...]:
         raise LegacySourceError("DECRYPTION_PROVENANCE_UNSAFE")
     try:
         data = json.loads(resolved.read_text(encoding="utf-8"))
-    except OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return ()
     value = data.get("device_id") if isinstance(data, dict) else None
     return (value,) if isinstance(value, str) and value else ()
@@ -176,6 +179,8 @@ def _dump_restore(
         [
             *common,
             "--exit-on-error",
+            "--clean",
+            "--if-exists",
             "--no-owner",
             "--no-acl",
             "--dbname",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
@@ -20,7 +21,7 @@ CL1_FIXTURE = ROOT / "tests" / "fixtures" / "postgresql_migration" / "cl1_shapes
 
 def _create_cl1(path: Path, payload: dict, *, encrypted: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "CREATE TABLE cl1_data (instance TEXT, month TEXT, data_json TEXT, "
             "encrypted_blob BLOB, PRIMARY KEY (instance, month))"
@@ -47,7 +48,7 @@ def _create_cl1(path: Path, payload: dict, *, encrypted: bool = False) -> None:
 
 def _create_azurstats(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "CREATE TABLE resource_snapshots (id INTEGER PRIMARY KEY, instance TEXT "
             "NOT NULL, ts TEXT NOT NULL, oil INTEGER, coin INTEGER, gem INTEGER, "
@@ -253,7 +254,7 @@ def test_missing_sqlite_is_not_created(tmp_path):
 def test_schema_validation_fails_closed(tmp_path):
     path = tmp_path / "config" / "cl1_data.db"
     path.parent.mkdir(parents=True)
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("CREATE TABLE cl1_data (instance TEXT)")
 
     with pytest.raises(LegacySourceError, match="CL1_SCHEMA_UNSUPPORTED"):
@@ -275,7 +276,9 @@ def test_snapshot_uses_sqlite_backup_and_stable_copy_protocol(tmp_path):
 
 def test_empty_opsi_table_stays_empty_and_zero_csv_is_not_fallback(tmp_path):
     root = _fixture_root(tmp_path)
-    with sqlite3.connect(root / "config" / "azurstats_local.db") as connection:
+    with closing(
+        sqlite3.connect(root / "config" / "azurstats_local.db")
+    ) as connection, connection:
         connection.execute("DELETE FROM opsi_items")
     csv_path = root / "log" / "azurstat_meowofficer_farming.csv"
     csv_path.parent.mkdir(parents=True)

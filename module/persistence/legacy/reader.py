@@ -29,6 +29,16 @@ from module.application.migration_models import (
     SourceManifestEntry,
     canonical_digest,
 )
+from module.persistence.legacy.common import (
+    MAX_CSV_SIZE,
+    MAX_JSON_SIZE,
+    MAX_LEGACY_ENTRIES,
+    MAX_LEGACY_SOURCES,
+    MAX_SQLITE_SIZE,
+    LegacySourceError,
+    bounded_path,
+    digest_file,
+)
 
 _IDENTITY_NAMESPACE = UUID("bc6db2da-cb91-4d6e-bc33-bb598d715c13")
 _REQUIRED_CL1_COLUMNS = {"instance", "month", "data_json", "encrypted_blob"}
@@ -84,19 +94,15 @@ _CL1_KEYS = {
 _MONTH_RE = re.compile(r"^(?P<year>20\d{2})-(?P<month>0[1-9]|1[0-2])$")
 
 
-class LegacySourceError(ValueError):
-    """Источник нарушает bounded/read-only migration contract."""
-
-
 class LegacySourceReader:
-    MAX_SQLITE_SIZE = 64 * 1024 * 1024
-    MAX_JSON_SIZE = 8 * 1024 * 1024
-    MAX_CSV_SIZE = 2 * 1024 * 1024
+    MAX_SQLITE_SIZE = MAX_SQLITE_SIZE
+    MAX_JSON_SIZE = MAX_JSON_SIZE
+    MAX_CSV_SIZE = MAX_CSV_SIZE
     MAX_JSON_DEPTH = 12
     MAX_COLLECTION_ITEMS = 200_000
     MAX_TEXT = 4_096
-    MAX_LEGACY_ENTRIES = 10_000
-    MAX_LEGACY_SOURCES = 2_048
+    MAX_LEGACY_ENTRIES = MAX_LEGACY_ENTRIES
+    MAX_LEGACY_SOURCES = MAX_LEGACY_SOURCES
 
     def __init__(
         self,
@@ -234,23 +240,16 @@ class LegacySourceReader:
         return bounded
 
     def _bounded(self, path: Path) -> Path:
-        resolved = path.resolve(strict=True)
-        if not resolved.is_relative_to(self._root):
-            raise LegacySourceError("SOURCE_PATH_ESCAPE")
-        current = path
-        while current != self._root:
-            if current.is_symlink() or current.is_junction():
-                raise LegacySourceError("SOURCE_SYMLINK_FORBIDDEN")
-            current = current.parent
-        return resolved
+        return bounded_path(
+            self._root,
+            path,
+            escape_code="SOURCE_PATH_ESCAPE",
+            link_code="SOURCE_SYMLINK_FORBIDDEN",
+        )
 
     @staticmethod
     def _digest_file(path: Path) -> str:
-        digest = sha256()
-        with path.open("rb") as stream:
-            while chunk := stream.read(1024 * 1024):
-                digest.update(chunk)
-        return digest.hexdigest()
+        return digest_file(path)
 
     @staticmethod
     def _identity_digest(value: str) -> str:
@@ -376,7 +375,7 @@ class LegacySourceReader:
                             base,
                         )
                     )
-                except LegacySourceError, InvalidOperation, TypeError, ValueError:
+                except (LegacySourceError, InvalidOperation, TypeError, ValueError):
                     parsed.append(
                         self._quarantine(
                             "cl1_row",
@@ -404,7 +403,7 @@ class LegacySourceReader:
                 raise LegacySourceError("CL1_JSON_TOO_LARGE")
             try:
                 data = json.loads(text)
-            except json.JSONDecodeError, RecursionError:
+            except (json.JSONDecodeError, RecursionError):
                 return None
             self._validate_json(data)
             return data if isinstance(data, dict) else None
@@ -422,7 +421,7 @@ class LegacySourceReader:
                     raise LegacySourceError("CL1_JSON_TOO_LARGE")
                 try:
                     data = json.loads(plaintext.decode("utf-8"))
-                except UnicodeDecodeError, json.JSONDecodeError, RecursionError:
+                except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
                     continue
                 self._validate_json(data)
                 if isinstance(data, dict):
@@ -491,7 +490,12 @@ class LegacySourceReader:
                                 source_kind="legacy_aggregate",
                             )
                         )
-                    except LegacySourceError, InvalidOperation, TypeError, ValueError:
+                    except (
+                        LegacySourceError,
+                        InvalidOperation,
+                        TypeError,
+                        ValueError,
+                    ):
                         records.append(
                             self._quarantine(
                                 "monthly_aggregate",
@@ -630,7 +634,7 @@ class LegacySourceReader:
             locator = f"{base}/{key}/{ordinal}"
             try:
                 output.extend(parser(entry, identity, source, locator))
-            except LegacySourceError, InvalidOperation, TypeError, ValueError:
+            except (LegacySourceError, InvalidOperation, TypeError, ValueError):
                 output.append(
                     self._quarantine(
                         key, identity, source, locator, "CL1_RECORD_INVALID"
@@ -789,7 +793,7 @@ class LegacySourceReader:
                             **timestamp,
                         )
                     )
-                except LegacySourceError, InvalidOperation, TypeError, ValueError:
+                except (LegacySourceError, InvalidOperation, TypeError, ValueError):
                     output.append(
                         self._quarantine(
                             "meow_timing",
@@ -834,7 +838,7 @@ class LegacySourceReader:
                             source="legacy_aggregate",
                         )
                     )
-                except LegacySourceError, InvalidOperation, TypeError, ValueError:
+                except (LegacySourceError, InvalidOperation, TypeError, ValueError):
                     output.append(
                         self._quarantine(
                             "meow_hazard",
@@ -886,7 +890,7 @@ class LegacySourceReader:
                             device_count=self._nonnegative_int(count, "device_count"),
                         )
                     )
-                except LegacySourceError, TypeError, ValueError:
+                except (LegacySourceError, TypeError, ValueError):
                     output.append(
                         self._quarantine(
                             "siren_stat",
@@ -929,7 +933,7 @@ class LegacySourceReader:
                             hazard_level=hazard,
                         )
                     )
-                except LegacySourceError, TypeError, ValueError:
+                except (LegacySourceError, TypeError, ValueError):
                     output.append(
                         self._quarantine(
                             "siren_event",
@@ -984,7 +988,7 @@ class LegacySourceReader:
                             **values,
                         )
                     )
-                except LegacySourceError, TypeError, ValueError:
+                except (LegacySourceError, TypeError, ValueError):
                     records.append(
                         self._quarantine(
                             "resource_snapshot",
@@ -1027,7 +1031,7 @@ class LegacySourceReader:
                             ),
                         )
                     )
-                except LegacySourceError, TypeError, ValueError:
+                except (LegacySourceError, TypeError, ValueError):
                     records.append(
                         self._quarantine(
                             "opsi_item",
@@ -1060,7 +1064,7 @@ class LegacySourceReader:
             ):
                 return False
             actual = [[Decimal(value) for value in row] for row in rows[1:]]
-        except UnicodeDecodeError, csv.Error, InvalidOperation:
+        except (UnicodeDecodeError, csv.Error, InvalidOperation):
             return False
         derived = [[Decimal(0) for _ in range(7)] for _ in range(6)]
         seen_images: set[str] = set()

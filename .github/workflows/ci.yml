@@ -268,8 +268,6 @@ jobs:
           trap 'rm -f -- "$dump_path"; rmdir -- "$dump_dir" 2>/dev/null || true' EXIT
           export PGPASSWORD="${AZURPILOT_POSTGRES_PASSWORD}"
           uv run --locked python -m pytest -q tests/test_postgresql_migration.py
-          uv run --locked python -m pytest -q \
-            tests/test_postgresql_migration.py::test_full_import_reconciliation_and_repeat_zero_delta
           docker run --rm --network host \
             -e PGPASSWORD \
             -v "${dump_dir}:/evidence" \

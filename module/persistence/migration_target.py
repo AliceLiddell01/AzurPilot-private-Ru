@@ -47,6 +47,13 @@ from module.persistence.schema import (
 )
 
 _TARGET_NAMESPACE = UUID("51686062-fac5-4bb5-89ee-70f34854d195")
+_IDENTITY_NAMESPACE = UUID("bc6db2da-cb91-4d6e-bc33-bb598d715c13")
+_COMPOSITE_KEY_FIELDS = {
+    "monthly_aggregate": ("month", "metric"),
+    "meow_hazard": ("month", "hazard_level"),
+    "siren_stat": ("month", "source", "hazard_level"),
+    "ap_notification": (),
+}
 _EVENT_TABLES = {
     "resource_snapshot": resource_snapshot,
     "opsi_item": opsi_item_event,
@@ -57,6 +64,19 @@ _EVENT_TABLES = {
     "meow_timing": meow_timing_sample,
     "siren_event": siren_research_device_event,
 }
+
+
+def _identity_id(record: MigrationRecord) -> UUID:
+    return uuid5(_IDENTITY_NAMESPACE, record.identity_digest)
+
+
+def _composite_target_key(
+    dataset: str, identity_id: UUID, values: dict[str, object]
+) -> str:
+    fields = _COMPOSITE_KEY_FIELDS.get(dataset)
+    if fields is None:
+        raise StorageConflictError("Dataset не имеет composite target key.")
+    return ":".join(map(str, (identity_id, *(values[field] for field in fields))))
 
 
 class PostgresMigrationTarget:
@@ -352,10 +372,7 @@ class PostgresMigrationTarget:
         ledger_target_key: str | None,
     ) -> bool:
         values = record.as_dict()
-        identity_id = uuid5(
-            UUID("bc6db2da-cb91-4d6e-bc33-bb598d715c13"),
-            record.identity_digest,
-        )
+        identity_id = _identity_id(record)
 
         if record.dataset == "monthly_aggregate":
             expected = {
@@ -372,7 +389,9 @@ class PostgresMigrationTarget:
                 monthly_aggregate.c.metric == values["metric"],
             )
             table = monthly_aggregate
-            expected_target_key = f"{identity_id}:{values['month']}:{values['metric']}"
+            expected_target_key = _composite_target_key(
+                record.dataset, identity_id, values
+            )
         elif record.dataset == "meow_hazard":
             expected = {"instance_id": identity_id, **values}
             conditions = (
@@ -381,8 +400,8 @@ class PostgresMigrationTarget:
                 meow_hazard_aggregate.c.hazard_level == values["hazard_level"],
             )
             table = meow_hazard_aggregate
-            expected_target_key = (
-                f"{identity_id}:{values['month']}:{values['hazard_level']}"
+            expected_target_key = _composite_target_key(
+                record.dataset, identity_id, values
             )
         elif record.dataset == "siren_stat":
             expected = {"instance_id": identity_id, **values}
@@ -393,16 +412,8 @@ class PostgresMigrationTarget:
                 siren_research_device_stat.c.hazard_level == values["hazard_level"],
             )
             table = siren_research_device_stat
-            expected_target_key = ":".join(
-                map(
-                    str,
-                    (
-                        identity_id,
-                        values["month"],
-                        values["source"],
-                        values["hazard_level"],
-                    ),
-                )
+            expected_target_key = _composite_target_key(
+                record.dataset, identity_id, values
             )
         elif record.dataset == "ap_notification":
             expected = {
@@ -414,7 +425,9 @@ class PostgresMigrationTarget:
             }
             conditions = (ap_notification_state.c.instance_id == identity_id,)
             table = ap_notification_state
-            expected_target_key = str(identity_id)
+            expected_target_key = _composite_target_key(
+                record.dataset, identity_id, values
+            )
         else:
             table = _EVENT_TABLES.get(record.dataset)
             if table is None:
@@ -499,10 +512,7 @@ class PostgresMigrationTarget:
         self, connection: Connection, batch_id: UUID, record: MigrationRecord
     ) -> str:
         values = record.as_dict()
-        identity_id = uuid5(
-            UUID("bc6db2da-cb91-4d6e-bc33-bb598d715c13"),
-            record.identity_digest,
-        )
+        identity_id = _identity_id(record)
         target_id = uuid5(
             _TARGET_NAMESPACE,
             f"{batch_id}:{record.source_object}:{record.source_locator}",
@@ -532,7 +542,7 @@ class PostgresMigrationTarget:
                 digest_column="source_digest",
                 digest=record.payload_digest,
             )
-            return f"{identity_id}:{values['month']}:{values['metric']}"
+            return _composite_target_key(record.dataset, identity_id, values)
 
         if record.dataset == "meow_hazard":
             payload = {"instance_id": identity_id, **values}
@@ -542,7 +552,7 @@ class PostgresMigrationTarget:
                 "hazard_level": values["hazard_level"],
             }
             self._insert_composite(connection, meow_hazard_aggregate, keys, payload)
-            return f"{identity_id}:{values['month']}:{values['hazard_level']}"
+            return _composite_target_key(record.dataset, identity_id, values)
 
         if record.dataset == "siren_stat":
             payload = {"instance_id": identity_id, **values}
@@ -555,7 +565,7 @@ class PostgresMigrationTarget:
             self._insert_composite(
                 connection, siren_research_device_stat, keys, payload
             )
-            return ":".join(map(str, keys.values()))
+            return _composite_target_key(record.dataset, identity_id, values)
 
         if record.dataset == "ap_notification":
             payload = {
@@ -571,11 +581,14 @@ class PostgresMigrationTarget:
                 {"instance_id": identity_id},
                 payload,
             )
-            return str(identity_id)
+            return _composite_target_key(record.dataset, identity_id, values)
 
         table = _EVENT_TABLES.get(record.dataset)
         if table is None:
             raise StorageConflictError("Dataset не входит в migration allowlist.")
+        items = values.get("items") if record.dataset == "commission" else None
+        if record.dataset == "commission" and not isinstance(items, tuple):
+            raise StorageConflictError("Commission items имеют неверный тип.")
         payload = {
             key: value
             for key, value in values.items()
@@ -597,11 +610,8 @@ class PostgresMigrationTarget:
                 raise StorageConflictError("Конфликт event idempotency key.")
             return str(existing_event.id)
         if record.dataset == "commission":
-            items = values.get("items")
-            payload.pop("items", None)
             connection.execute(insert(table).values(**payload))
-            if not isinstance(items, tuple):
-                raise StorageConflictError("Commission items имеют неверный тип.")
+            assert isinstance(items, tuple)
             if items:
                 connection.execute(
                     insert(commission_income_item),
