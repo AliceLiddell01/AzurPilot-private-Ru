@@ -90,6 +90,10 @@ import_batch = Table(
         "AND quarantine_count >= 0",
         name="counts_nonnegative",
     ),
+    CheckConstraint(
+        "imported_count + conflict_count + quarantine_count <= record_count",
+        name="counts_within_record_count",
+    ),
 )
 
 import_record = Table(

@@ -59,6 +59,10 @@ def upgrade() -> None:
             "record_count >= 0 AND imported_count >= 0 AND conflict_count >= 0 AND quarantine_count >= 0",
             name=op.f("ck_import_batch_counts_nonnegative"),
         ),
+        sa.CheckConstraint(
+            "imported_count + conflict_count + quarantine_count <= record_count",
+            name=op.f("ck_import_batch_counts_within_record_count"),
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_import_batch")),
         sa.UniqueConstraint(
             "idempotency_key", name=op.f("uq_import_batch_idempotency_key")

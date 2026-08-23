@@ -97,9 +97,10 @@ class PostgresUnitOfWork:
                 except SQLAlchemyError as error:
                     if cleanup_error is None:
                         cleanup_error = translate_database_error(error)
-                self._connection = None
-                for attribute in ("instances", "statistics", "imports"):
-                    self.__dict__.pop(attribute, None)
+                finally:
+                    self._connection = None
+                    for attribute in ("instances", "statistics", "imports"):
+                        self.__dict__.pop(attribute, None)
         if exc_type is not None and cleanup_error is not None:
             logger.warning(
                 "Ошибка очистки PostgreSQL Unit of Work подавлена исходным исключением."

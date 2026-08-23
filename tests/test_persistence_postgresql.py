@@ -332,11 +332,25 @@ def test_versioned_state_and_commission_rollback(database: LazyEngine):
         raise RuntimeError("rollback")
     with database.get().connect() as connection:
         assert (
-            connection.scalar(select(func.count()).select_from(commission_income_event))
+            connection.scalar(
+                select(func.count())
+                .select_from(commission_income_event)
+                .where(commission_income_event.c.instance_id == instance_id)
+            )
             == 0
         )
         assert (
-            connection.scalar(select(func.count()).select_from(commission_income_item))
+            connection.scalar(
+                select(func.count())
+                .select_from(
+                    commission_income_item.join(
+                        commission_income_event,
+                        commission_income_item.c.event_id
+                        == commission_income_event.c.id,
+                    )
+                )
+                .where(commission_income_event.c.instance_id == instance_id)
+            )
             == 0
         )
     with PostgresUnitOfWork(database) as uow:
@@ -349,11 +363,25 @@ def test_versioned_state_and_commission_rollback(database: LazyEngine):
         uow.commit()
     with database.get().connect() as connection:
         assert (
-            connection.scalar(select(func.count()).select_from(commission_income_event))
+            connection.scalar(
+                select(func.count())
+                .select_from(commission_income_event)
+                .where(commission_income_event.c.instance_id == instance_id)
+            )
             == 1
         )
         assert (
-            connection.scalar(select(func.count()).select_from(commission_income_item))
+            connection.scalar(
+                select(func.count())
+                .select_from(
+                    commission_income_item.join(
+                        commission_income_event,
+                        commission_income_item.c.event_id
+                        == commission_income_event.c.id,
+                    )
+                )
+                .where(commission_income_event.c.instance_id == instance_id)
+            )
             == 2
         )
 

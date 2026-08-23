@@ -301,6 +301,22 @@ class DatabaseConfigurationTests(unittest.TestCase):
 
         connection.close.assert_called_once_with()
 
+    def test_unit_of_work_clears_state_when_close_raises_unexpected_error(self):
+        connection = Mock()
+        connection.in_transaction.return_value = False
+        connection.close.side_effect = RuntimeError("synthetic close failure")
+        engine = Mock()
+        engine.get.return_value.connect.return_value = connection
+        unit_of_work = PostgresUnitOfWork(engine)
+        unit_of_work.__enter__()
+
+        with self.assertRaises(RuntimeError):
+            unit_of_work.__exit__(None, None, None)
+
+        self.assertIsNone(unit_of_work._connection)
+        for attribute in ("instances", "statistics", "imports"):
+            self.assertFalse(hasattr(unit_of_work, attribute), attribute)
+
 
 class SchemaMetadataTests(unittest.TestCase):
     def test_schema_v1_is_namespaced_and_bounded(self):
@@ -328,7 +344,23 @@ class SchemaMetadataTests(unittest.TestCase):
         self.assertTrue(
             all(table.schema == SCHEMA_NAME for table in metadata.tables.values())
         )
-        self.assertFalse(any("event_observation" in name for name in expected))
+        self.assertFalse(
+            any(
+                "event_observation" in table.name
+                for table in metadata.tables.values()
+            )
+        )
+
+    def test_import_counters_cannot_exceed_record_count(self):
+        constraints = {
+            str(constraint.sqltext)
+            for constraint in metadata.tables[f"{SCHEMA_NAME}.import_batch"].constraints
+            if hasattr(constraint, "sqltext")
+        }
+        self.assertIn(
+            "imported_count + conflict_count + quarantine_count <= record_count",
+            constraints,
+        )
 
     def test_constraints_indexes_and_fk_actions_are_explicit(self):
         for table in metadata.tables.values():
