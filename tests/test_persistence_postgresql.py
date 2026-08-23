@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from dataclasses import replace
@@ -136,7 +137,11 @@ def test_alembic_downgrade_rejects_mismatched_confirmed_target(
     )
 
     assert result.returncode != 0
-    assert "test-only target" in result.stderr
+    assert re.search(
+        r"точн(?:ое|ого) подтверждени(?:е|я) test-only "
+        r"(?:PostgreSQL )?target",
+        result.stderr,
+    )
     password = environment.get("AZURPILOT_POSTGRES_PASSWORD")
     assert not password or password not in result.stderr
     assert StorageHealthChecker(database).check().state is StorageHealthState.READY
