@@ -9,10 +9,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATHS = (
     Path("scripts/Start-AzurPilot.ps1"),
+    Path("scripts/Stop-AzurPilot.ps1"),
     Path("scripts/Update-AzurPilot.ps1"),
     Path("scripts/Repair-AzurPilot.ps1"),
     Path("scripts/Build-AzurPilot.ps1"),
     Path("scripts/lib/AzurPilot.Shortcut.psm1"),
+    Path("scripts/lib/AzurPilot.Lifecycle.psm1"),
 )
 EXPECTED_EXIT_CODES = {
     "scripts/Start-AzurPilot.ps1": {
@@ -24,6 +26,14 @@ EXPECTED_EXIT_CODES = {
         "ReadinessTimeout": 24,
         "BackendFailure": 25,
         "BrowserFailure": 26,
+        "UnexpectedFailure": 30,
+    },
+    "scripts/Stop-AzurPilot.ps1": {
+        "Success": 0,
+        "PreconditionFailure": 20,
+        "ForeignOwnership": 21,
+        "Timeout": 22,
+        "EnvironmentFailure": 23,
         "UnexpectedFailure": 30,
     },
     "scripts/Update-AzurPilot.ps1": {
@@ -89,6 +99,7 @@ class PowerShellContractTests(unittest.TestCase):
     def test_log_format_and_external_output_contract(self) -> None:
         for relative_path in (
             "scripts/Start-AzurPilot.ps1",
+            "scripts/Stop-AzurPilot.ps1",
             "scripts/Update-AzurPilot.ps1",
             "scripts/Repair-AzurPilot.ps1",
             "scripts/Build-AzurPilot.ps1",
@@ -118,6 +129,24 @@ class PowerShellContractTests(unittest.TestCase):
             "$message = '[gui {0}] {1}' -f $StreamName, $Line",
             self.sources["scripts/Start-AzurPilot.ps1"],
         )
+
+    def test_start_and_stop_share_lifecycle_ownership(self) -> None:
+        start = self.sources["scripts/Start-AzurPilot.ps1"]
+        stop = self.sources["scripts/Stop-AzurPilot.ps1"]
+        lifecycle = self.sources["scripts/lib/AzurPilot.Lifecycle.psm1"]
+
+        self.assertIn("Import-Module -Name $lifecycleModulePath", start)
+        self.assertIn("Import-Module -Name $lifecycleModulePath", stop)
+        self.assertNotIn("function Get-AzurPilotPortOwnershipState", start)
+        self.assertNotIn("function Get-AzurPilotPortOwnershipState", stop)
+        self.assertIn("function Get-AzurPilotPortOwnershipState", lifecycle)
+        self.assertIn("function Get-AzurPilotRepositoryProcessEvidence", lifecycle)
+        self.assertIn("AZURPILOT_LIFECYCLE_STOP_EVENT", start)
+        self.assertIn("Console.CancelKeyPress += handler", start)
+        self.assertIn("args.Cancel = true", start)
+        self.assertIn("Send-AzurPilotStopRequest", stop)
+        self.assertIn("Stop-AzurPilotOwnedProcessTree", stop)
+        self.assertNotRegex(stop, r"Stop-Process\s+.*(?:python|python\.exe)")
 
     def test_start_path_entry_accepts_empty_path_segments(self) -> None:
         source = self.sources["scripts/Start-AzurPilot.ps1"]

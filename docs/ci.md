@@ -132,6 +132,8 @@ Job выполняется на `windows-latest` с PowerShell и Python `3.14.6
 - парсит каждый tracked `.ps1` и `.psm1` через PowerShell Parser;
 - запускает PSScriptAnalyzer `1.25.0` с уровнями `Error` и `Warning`;
 - выполняет Windows-регрессии WebUI, device acceptance contract и эксплуатационных PowerShell-скриптов;
+- выполняет изолированные lifecycle-регрессии repository-scoped mutex/event,
+  exact ownership и защиты foreign process от принудительной остановки;
 - импортирует SQLAlchemy/Psycopg/Alembic wheels на Python 3.14 и проверяет
   lazy engine, PID/spawn, pool, config и redaction без сетевого подключения;
 - требует чистое рабочее дерево.

@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 import gui
 import module.webui.setting as webui_setting
+import module.webui.windows_process_lifetime as process_lifetime
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +87,42 @@ class TestWebUiNoReloadRecovery(unittest.TestCase):
             webui_setting._ensure_gui_process_lifetime_guard()
 
         install_guard.assert_not_called()
+
+    def test_lifecycle_stop_watcher_opens_repository_event(self):
+        kernel32 = Mock()
+        kernel32.OpenEventW.return_value = 123
+
+        with (
+            patch.dict(
+                process_lifetime.os.environ,
+                {"AZURPILOT_LIFECYCLE_STOP_EVENT": "Local\\AzurPilot.StopRequested.test"},
+                clear=False,
+            ),
+            patch.object(process_lifetime, "_kernel32", return_value=kernel32),
+            patch.object(process_lifetime.threading, "Thread") as thread,
+        ):
+            self.assertTrue(process_lifetime._start_lifecycle_stop_watcher())
+
+        kernel32.OpenEventW.assert_called_once_with(
+            process_lifetime._SYNCHRONIZE,
+            False,
+            "Local\\AzurPilot.StopRequested.test",
+        )
+        thread.return_value.start.assert_called_once_with()
+
+    def test_lifecycle_stop_event_interrupts_main_thread(self):
+        kernel32 = Mock()
+        kernel32.WaitForSingleObject.return_value = process_lifetime._WAIT_OBJECT_0
+
+        with patch.object(process_lifetime._thread, "interrupt_main") as interrupt_main:
+            process_lifetime._wait_for_lifecycle_stop_event(
+                kernel32,
+                123,
+                "Local\\AzurPilot.StopRequested.test",
+            )
+
+        kernel32.CloseHandle.assert_called_once_with(123)
+        interrupt_main.assert_called_once_with()
 
     @unittest.skipUnless(os.name == "nt", "Проверка требует Windows Job Object")
     def test_windows_console_death_reaps_gui_process_tree(self):
