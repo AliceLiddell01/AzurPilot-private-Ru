@@ -8,7 +8,10 @@ import pytest
 
 from module.application.errors import StorageConfigurationError
 from module.persistence.config import DatabaseSettings
-from module.persistence.local_environment import load_local_postgres_environment
+from module.persistence.local_environment import (
+    LocalPostgresEnvironment,
+    load_local_postgres_environment,
+)
 
 
 def _document() -> str:
@@ -102,6 +105,10 @@ def test_local_env_rejects_unknown_or_duplicate_contract_key(tmp_path: Path):
     with pytest.raises(StorageConfigurationError, match="Ключ"):
         load_local_postgres_environment(path, environment={})
 
+    _write_env(path, _document().replace("app-secret", "app-secret #comment", 1))
+    with pytest.raises(StorageConfigurationError, match="строке"):
+        load_local_postgres_environment(path, environment={})
+
     _write_env(path, _document() + "AZURPILOT_POSTGRES_HOST=localhost\n")
     with pytest.raises(StorageConfigurationError, match="Ключ"):
         load_local_postgres_environment(path, environment={})
@@ -146,10 +153,10 @@ def test_local_env_runtime_contract_must_match_marker(tmp_path: Path):
         sslmode="disable",
         runtime_timezone="Asia/Novosibirsk",
     )
-    local.require_runtime_match(settings)
+    local.require_app_runtime_match(settings)
 
     with pytest.raises(StorageConfigurationError, match="не совпадает"):
-        local.require_runtime_match(
+        local.require_app_runtime_match(
             DatabaseSettings(
                 host="127.0.0.1",
                 port=5433,
@@ -166,6 +173,11 @@ def test_missing_local_env_is_a_noop(tmp_path: Path):
     assert load_local_postgres_environment(
         tmp_path / ".env", environment=environment
     ) is None
+
+
+def test_direct_local_environment_rejects_incomplete_contract(tmp_path: Path):
+    with pytest.raises(StorageConfigurationError, match="полный"):
+        LocalPostgresEnvironment(path=tmp_path / ".env", values={})
 
 
 def test_local_env_rejects_broad_permissions(tmp_path: Path, monkeypatch):

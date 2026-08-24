@@ -125,13 +125,6 @@ def test_report_rejects_missing_parent_with_bounded_code(tmp_path):
 
 
 def test_pgpassfile_is_not_exported_when_missing(monkeypatch):
-    settings = DatabaseSettings(
-        host="127.0.0.1",
-        port=5432,
-        database="azurpilot",
-        user="azurpilot_migrator",
-        sslmode="disable",
-    )
     observed: dict[str, str] = {}
     monkeypatch.delenv("AZURPILOT_POSTGRES_PGPASSFILE", raising=False)
     monkeypatch.delenv("PGPASSFILE", raising=False)
@@ -142,7 +135,7 @@ def test_pgpassfile_is_not_exported_when_missing(monkeypatch):
 
     monkeypatch.setattr(postgresql_migration.subprocess, "run", capture_run)
 
-    postgresql_migration._run_pg("pg_restore", ["--list", "backup.dump"], settings)
+    postgresql_migration._run_pg("pg_restore", ["--list", "backup.dump"])
 
     assert "PGPASSFILE" not in observed
 
@@ -189,9 +182,7 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
     monkeypatch.setattr(
         postgresql_migration,
         "_run_pg",
-        lambda executable, arguments, _settings: calls.append(
-            (executable, arguments)
-        ),
+        lambda executable, arguments: calls.append((executable, arguments)),
     )
 
     restored = postgresql_migration._dump_restore(
@@ -207,13 +198,6 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
 
 
 def test_pg_timeout_returns_bounded_storage_error(monkeypatch):
-    settings = DatabaseSettings(
-        host="127.0.0.1",
-        port=5432,
-        database="azurpilot",
-        user="azurpilot_migrator",
-        sslmode="disable",
-    )
     observed: dict[str, object] = {}
 
     def raise_timeout(*_args, **kwargs):
@@ -231,7 +215,6 @@ def test_pg_timeout_returns_bounded_storage_error(monkeypatch):
         postgresql_migration._run_pg(
             "pg_restore",
             ["--dbname", "azurpilot_restore_stage4"],
-            settings,
         )
 
     assert observed["timeout"] == 180

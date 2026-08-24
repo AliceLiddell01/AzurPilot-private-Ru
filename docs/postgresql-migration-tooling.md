@@ -70,10 +70,14 @@ port, database, user и scratch database. `pg_dump`/`pg_restore` берутся 
 
 `import` и `reconcile` — диагностические offline-команды: они намеренно не
 подтверждают dump/restore и поэтому завершаются `STATUS:NOT_READY` с кодом `4`.
-`full-cutover` требует `AZURPILOT_POSTGRES_CUTOVER=1`, точных guard-значений
+`full-cutover` сначала загружает локальный `.env` через
+`load_local_postgres_environment(role="migrator")`: migrator-контракт заменяет
+канонические `AZURPILOT_POSTGRES_*` settings для maintenance-подключения.
+Команда требует `AZURPILOT_POSTGRES_CUTOVER=1`, точных guard-значений
 `AZURPILOT_POSTGRES_CUTOVER_HOST`, `AZURPILOT_POSTGRES_CUTOVER_PORT`,
-`AZURPILOT_POSTGRES_CUTOVER_DATABASE`, `AZURPILOT_POSTGRES_CUTOVER_USER` и
-`AZURPILOT_POSTGRES_CUTOVER_SCRATCH_DATABASE`, а также
+`AZURPILOT_POSTGRES_CUTOVER_DATABASE` и
+`AZURPILOT_POSTGRES_CUTOVER_USER=azurpilot_migrator`, а также
+`AZURPILOT_POSTGRES_CUTOVER_SCRATCH_DATABASE` и
 `--confirm FINAL-PRODUCTION-CUTOVER`. Он формирует READY только после
 import, repeat zero-delta, dump/list, restore и restored reconciliation. Сырой stderr
 PostgreSQL utilities намеренно подавляется, потому что может содержать DSN,

@@ -69,36 +69,6 @@ def activate(arguments: argparse.Namespace) -> bool:
     )
     if settings.user != "azurpilot_app":
         raise RuntimeError("Production-маркер разрешён только для app-роли PostgreSQL.")
-    engine = LazyEngine(settings)
-    try:
-        StorageHealthChecker(engine).require_ready()
-    finally:
-        engine.dispose()
-
-    marker = Path(arguments.marker).resolve()
-    if marker.exists() or marker.is_symlink():
-        raise RuntimeError("Production-маркер уже существует.")
-    legacy = Path(arguments.legacy_marker) if arguments.legacy_marker else None
-    if legacy is not None and legacy.is_symlink():
-        raise RuntimeError("Legacy production-маркер отсутствует или небезопасен.")
-    invalid_legacy_digest: str | None = None
-    if legacy is not None and legacy.exists():
-        try:
-            DatabaseSettings.from_backend_marker(legacy)
-        except StorageConfigurationError:
-            if legacy.is_symlink() or not legacy.is_file():
-                raise RuntimeError(
-                    "Legacy production-маркер отсутствует или небезопасен."
-                ) from None
-            invalid_legacy_digest = hashlib.sha256(legacy.read_bytes()).hexdigest()
-            if arguments.retire_invalid_legacy_marker_sha256 != invalid_legacy_digest:
-                raise RuntimeError(
-                    "Повреждённый legacy marker требует exact SHA-256 recovery guard."
-                ) from None
-        else:
-            if migrate_legacy_backend_marker(target=marker, legacy=legacy):
-                return True
-    marker.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "backend": "postgresql",
         "version": 1,
@@ -113,6 +83,44 @@ def activate(arguments: argparse.Namespace) -> bool:
         "sslmode": settings.sslmode,
         "runtime_timezone": settings.runtime_timezone,
     }
+    engine = LazyEngine(settings)
+    try:
+        StorageHealthChecker(engine).require_ready()
+    finally:
+        engine.dispose()
+
+    marker = Path(arguments.marker).resolve()
+    if marker.exists() or marker.is_symlink():
+        raise RuntimeError("Production-маркер уже существует.")
+    legacy = Path(arguments.legacy_marker) if arguments.legacy_marker else None
+    if legacy is not None and legacy.is_symlink():
+        raise RuntimeError("Legacy production-маркер отсутствует или небезопасен.")
+    legacy_digest_to_retire: str | None = None
+    if legacy is not None and legacy.exists():
+        if legacy.is_symlink() or not legacy.is_file():
+            raise RuntimeError("Legacy production-маркер отсутствует или небезопасен.")
+        legacy_raw = legacy.read_bytes()
+        legacy_digest = hashlib.sha256(legacy_raw).hexdigest()
+        try:
+            legacy_payload = json.loads(legacy_raw)
+            if not isinstance(legacy_payload, dict):
+                raise StorageConfigurationError(
+                    "Legacy production-маркер имеет некорректный формат."
+                )
+            DatabaseSettings.from_backend_marker_payload(legacy_payload)
+        except (UnicodeError, json.JSONDecodeError, StorageConfigurationError):
+            if arguments.retire_invalid_legacy_marker_sha256 != legacy_digest:
+                raise RuntimeError(
+                    "Повреждённый legacy marker требует exact SHA-256 recovery guard."
+                ) from None
+            legacy_digest_to_retire = legacy_digest
+        else:
+            if legacy_payload == payload:
+                if migrate_legacy_backend_marker(target=marker, legacy=legacy):
+                    return True
+            else:
+                legacy_digest_to_retire = legacy_digest
+    marker.parent.mkdir(parents=True, exist_ok=True)
     temporary = marker.with_suffix(marker.suffix + f".{os.getpid()}.tmp")
     try:
         with temporary.open("x", encoding="utf-8", newline="\n") as stream:
@@ -120,17 +128,30 @@ def activate(arguments: argparse.Namespace) -> bool:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
+        if (
+            legacy is not None
+            and legacy_digest_to_retire is not None
+            and (
+                legacy.is_symlink()
+                or not legacy.is_file()
+                or hashlib.sha256(legacy.read_bytes()).hexdigest()
+                != legacy_digest_to_retire
+            )
+        ):
+            raise RuntimeError(
+                "Legacy production-маркер изменился до публикации recovery."
+            )
         os.link(temporary, marker)
-        if legacy is not None and invalid_legacy_digest is not None:
+        if legacy is not None and legacy_digest_to_retire is not None:
             if (
                 legacy.is_symlink()
                 or not legacy.is_file()
                 or hashlib.sha256(legacy.read_bytes()).hexdigest()
-                != invalid_legacy_digest
+                != legacy_digest_to_retire
             ):
                 marker.unlink(missing_ok=True)
                 raise RuntimeError(
-                    "Повреждённый legacy marker изменился во время recovery."
+                    "Legacy production-маркер изменился во время recovery."
                 )
             try:
                 legacy.unlink()

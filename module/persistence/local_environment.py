@@ -53,6 +53,12 @@ class LocalPostgresEnvironment:
     path: Path
     values: dict[str, str] = field(repr=False)
 
+    def __post_init__(self) -> None:
+        if _ALLOWED_KEYS.difference(self.values):
+            raise StorageConfigurationError(
+                "Локальный PostgreSQL env не содержит полный production contract."
+            )
+
     def install(
         self,
         *,
@@ -83,7 +89,7 @@ class LocalPostgresEnvironment:
         target.pop(_APP_PREFIX + "PASSWORD", None)
         target.pop(_MIGRATOR_PREFIX + "PASSWORD", None)
 
-    def require_runtime_match(self, settings: DatabaseSettings) -> None:
+    def require_app_runtime_match(self, settings: DatabaseSettings) -> None:
         if (
             settings.host != self.values[_APP_PREFIX + "HOST"]
             or settings.port != int(self.values[_APP_PREFIX + "PORT"])
@@ -102,7 +108,13 @@ def _parse_value(raw: str, line_number: int) -> str:
     value = raw.strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
         value = value[1:-1]
-    if not value or "\x00" in value or "\r" in value or "\n" in value:
+    if (
+        not value
+        or "\x00" in value
+        or "\r" in value
+        or "\n" in value
+        or " #" in value
+    ):
         raise StorageConfigurationError(
             f"Значение PostgreSQL env в строке {line_number} некорректно."
         )

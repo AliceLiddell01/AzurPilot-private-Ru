@@ -222,7 +222,9 @@ def _verify_backup(distro: str, backup: Path) -> None:
         raise RuntimeError("Проверенная резервная копия PostgreSQL отсутствует.")
     drive = resolved.drive.rstrip(":").lower()
     if len(drive) != 1:
-        raise RuntimeError("Путь резервной копии PostgreSQL не содержит букву диска.")
+        raise RuntimeError(
+            "Резервная копия PostgreSQL должна использовать локальный путь с буквой диска."
+        )
     suffix = resolved.as_posix().split(":", 1)[1]
     _run(_wsl(distro, "pg_restore", "--list", f"/mnt/{drive}{suffix}"))
 
@@ -260,6 +262,8 @@ def _env_document(
     app_secret: str,
     migrator_secret: str,
 ) -> bytes:
+    if repository.is_symlink() or not repository.is_dir():
+        raise RuntimeError("Корень репозитория отсутствует или небезопасен.")
     values = {
         "AZURPILOT_POSTGRES_HOST": "127.0.0.1",
         "AZURPILOT_POSTGRES_PORT": "5432",
@@ -280,8 +284,6 @@ def _env_document(
         "AZURPILOT_WSL_DISTRO": distro,
         "AZURPILOT_WSL_PGPASSFILE": wsl_passfile,
     }
-    if repository.is_symlink() or not repository.is_dir():
-        raise RuntimeError("Корень репозитория отсутствует или небезопасен.")
     return ("".join(f"{key}={value}\n" for key, value in values.items())).encode()
 
 

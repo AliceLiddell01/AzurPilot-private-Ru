@@ -209,7 +209,11 @@ def migrate_legacy_backend_marker(
     target: str | Path = DEFAULT_BACKEND_MARKER_PATH,
     legacy: str | Path = LEGACY_BACKEND_MARKER_PATH,
 ) -> bool:
-    """Перенести только валидный legacy marker без перезаписи canonical state."""
+    """Перенести только валидный legacy marker без перезаписи canonical state.
+
+    Конфликтующий валидный target сохраняет оба файла и возвращает ``False``:
+    только guarded production cutover имеет контекст для retirement legacy marker.
+    """
 
     target_path = Path(target)
     legacy_path = Path(legacy)

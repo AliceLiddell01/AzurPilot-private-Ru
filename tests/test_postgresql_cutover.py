@@ -29,6 +29,27 @@ def _arguments(tmp_path: Path, report: Path, confirmation: str) -> argparse.Name
     )
 
 
+def _matching_marker_payload(
+    report: Path, arguments: argparse.Namespace
+) -> dict[str, object]:
+    return {
+        "backend": "postgresql",
+        "version": 1,
+        "alembic_head": "0002_migration_shapes",
+        "reconciliation_report_sha256": postgresql_cutover.hashlib.sha256(
+            report.read_bytes()
+        ).hexdigest(),
+        "reviewed_head": arguments.reviewed_head,
+        "merge_commit": arguments.merge_commit,
+        "host": arguments.host,
+        "port": arguments.port,
+        "database": arguments.database,
+        "user": arguments.user,
+        "sslmode": arguments.sslmode,
+        "runtime_timezone": arguments.runtime_timezone,
+    }
+
+
 def test_activation_requires_ready_report_and_exact_confirmation(tmp_path: Path):
     report = tmp_path / "report.json"
     report.write_text(
@@ -127,29 +148,13 @@ def test_activation_reports_valid_legacy_marker_migration(tmp_path: Path):
     )
     legacy = tmp_path / "config/storage_backend.json"
     legacy.parent.mkdir()
-    legacy.write_text(
-        json.dumps(
-            {
-                "backend": "postgresql",
-                "version": 1,
-                "alembic_head": "0002_migration_shapes",
-                "reconciliation_report_sha256": "a" * 64,
-                "reviewed_head": "b" * 40,
-                "merge_commit": "c" * 40,
-                "host": "127.0.0.1",
-                "port": 5432,
-                "database": "azurpilot",
-                "user": "azurpilot_app",
-                "sslmode": "disable",
-                "runtime_timezone": "Asia/Novosibirsk",
-            }
-        ),
-        encoding="utf-8",
-    )
     marker = tmp_path / "config/state/storage_backend.json"
     arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
     arguments.marker = str(marker)
     arguments.legacy_marker = str(legacy)
+    legacy.write_text(
+        json.dumps(_matching_marker_payload(report, arguments)), encoding="utf-8"
+    )
 
     with patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"):
         assert postgresql_cutover.activate(arguments) is True
@@ -165,27 +170,11 @@ def test_activation_does_not_treat_migration_io_failure_as_corrupt(tmp_path: Pat
     )
     legacy = tmp_path / "config/storage_backend.json"
     legacy.parent.mkdir()
-    legacy.write_text(
-        json.dumps(
-            {
-                "backend": "postgresql",
-                "version": 1,
-                "alembic_head": "0002_migration_shapes",
-                "reconciliation_report_sha256": "a" * 64,
-                "reviewed_head": "b" * 40,
-                "merge_commit": "c" * 40,
-                "host": "127.0.0.1",
-                "port": 5432,
-                "database": "azurpilot",
-                "user": "azurpilot_app",
-                "sslmode": "disable",
-                "runtime_timezone": "Asia/Novosibirsk",
-            }
-        ),
-        encoding="utf-8",
-    )
     arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
     arguments.legacy_marker = str(legacy)
+    legacy.write_text(
+        json.dumps(_matching_marker_payload(report, arguments)), encoding="utf-8"
+    )
 
     with (
         patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"),
@@ -200,6 +189,66 @@ def test_activation_does_not_treat_migration_io_failure_as_corrupt(tmp_path: Pat
 
     assert legacy.is_file()
     assert not Path(arguments.marker).exists()
+
+
+def test_activation_replaces_valid_legacy_with_stale_provenance(tmp_path: Path):
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+    )
+    marker = tmp_path / "config/state/storage_backend.json"
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
+    arguments.marker = str(marker)
+    arguments.legacy_marker = str(legacy)
+    stale = _matching_marker_payload(report, arguments)
+    stale["reviewed_head"] = "d" * 40
+    legacy.write_text(json.dumps(stale), encoding="utf-8")
+
+    with patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"):
+        assert postgresql_cutover.activate(arguments) is False
+
+    assert not legacy.exists()
+    assert json.loads(marker.read_text(encoding="utf-8"))["reviewed_head"] == "b" * 40
+
+
+def test_activation_detects_legacy_change_before_marker_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+    )
+    marker = tmp_path / "config/state/storage_backend.json"
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
+    arguments.marker = str(marker)
+    arguments.legacy_marker = str(legacy)
+    stale = _matching_marker_payload(report, arguments)
+    stale["reviewed_head"] = "d" * 40
+    legacy.write_text(json.dumps(stale), encoding="utf-8")
+    original_read_bytes = Path.read_bytes
+    legacy_reads = 0
+
+    def change_legacy_on_precheck(path: Path):
+        nonlocal legacy_reads
+        if path == legacy:
+            legacy_reads += 1
+            if legacy_reads == 2:
+                legacy.write_text(json.dumps({"changed": True}), encoding="utf-8")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", change_legacy_on_precheck)
+
+    with (
+        patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"),
+        pytest.raises(RuntimeError, match="до публикации"),
+    ):
+        postgresql_cutover.activate(arguments)
+
+    assert not marker.exists()
 
 
 def test_parser_rejects_empty_legacy_marker():

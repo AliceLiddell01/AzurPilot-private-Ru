@@ -116,3 +116,13 @@ def test_runtime_command_redacts_sqlalchemy_diagnostics(capsys):
         "Ошибка production PostgreSQL: операция с базой данных завершилась ошибкой.\n"
     )
     assert "secret" not in captured.err
+
+
+def test_default_marker_resolution_runs_legacy_migration():
+    with patch.object(postgresql_runtime, "migrate_legacy_backend_marker") as migrate:
+        marker = postgresql_runtime._resolve_marker(
+            postgresql_runtime.DEFAULT_BACKEND_MARKER_PATH
+        )
+
+    assert marker == postgresql_runtime.DEFAULT_BACKEND_MARKER_PATH
+    migrate.assert_called_once_with()

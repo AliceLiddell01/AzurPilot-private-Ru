@@ -97,11 +97,11 @@ def _backup(
     environment = os.environ.copy()
     environment.pop("PGPASSWORD", None)
     if native:
-        environment["PGPASSFILE"] = environment.get(
-            "PGPASSFILE"
-        ) or os.environ.get("AZURPILOT_POSTGRES_PGPASSFILE", "")
-        if not environment["PGPASSFILE"]:
-            environment.pop("PGPASSFILE")
+        passfile = environment.get("PGPASSFILE") or environment.get(
+            "AZURPILOT_POSTGRES_PGPASSFILE"
+        )
+        if passfile:
+            environment["PGPASSFILE"] = passfile
     arguments = (
         [native, *_pg_dump_arguments(settings)]
         if native
@@ -146,9 +146,14 @@ def _backup(
         temporary.unlink(missing_ok=True)
 
 
-def _health(marker: Path) -> None:
+def _resolve_marker(value: str | Path) -> Path:
+    marker = Path(value)
     if marker == DEFAULT_BACKEND_MARKER_PATH:
         migrate_legacy_backend_marker()
+    return marker
+
+
+def _health(marker: Path) -> None:
     settings = DatabaseSettings.from_backend_marker(marker)
     engine = LazyEngine(settings)
     try:
@@ -204,11 +209,11 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command in {"health", "backup"}:
             load_local_postgres_environment(role="app")
         if arguments.command == "health":
-            _health(Path(arguments.marker))
+            _health(_resolve_marker(arguments.marker))
         elif arguments.command == "backup":
-            if Path(arguments.marker) == DEFAULT_BACKEND_MARKER_PATH:
-                migrate_legacy_backend_marker()
-            settings = DatabaseSettings.from_backend_marker(arguments.marker)
+            settings = DatabaseSettings.from_backend_marker(
+                _resolve_marker(arguments.marker)
+            )
             _backup(
                 settings,
                 Path(arguments.output),

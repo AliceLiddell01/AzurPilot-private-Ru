@@ -146,10 +146,10 @@ def _require_production_cutover(
         raise LegacySourceError("PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED")
 
 
-def _run_pg(executable: str, arguments: list[str], settings: DatabaseSettings) -> None:
+def _run_pg(executable: str, arguments: list[str]) -> None:
     environment = os.environ.copy()
     environment.pop("PGPASSWORD", None)
-    passfile = environment.get("PGPASSFILE") or os.environ.get(
+    passfile = environment.get("PGPASSFILE") or environment.get(
         "AZURPILOT_POSTGRES_PGPASSFILE"
     )
     if passfile:
@@ -236,9 +236,8 @@ def _dump_restore(
             str(dump_path),
             settings.database,
         ],
-        settings,
     )
-    _run_pg(restore, ["--list", str(dump_path)], settings)
+    _run_pg(restore, ["--list", str(dump_path)])
     _run_pg(
         restore,
         [
@@ -252,7 +251,6 @@ def _dump_restore(
             scratch_database,
             str(dump_path),
         ],
-        settings,
     )
     return replace(settings, database=scratch_database)
 

@@ -70,7 +70,7 @@ def test_verify_backup_rejects_drive_less_path(tmp_path: Path, monkeypatch):
     resolved.drive = ""
     monkeypatch.setattr(Path, "resolve", lambda *_args, **_kwargs: resolved)
 
-    with pytest.raises(RuntimeError, match="букву диска"):
+    with pytest.raises(RuntimeError, match="локальный путь"):
         postgresql_credentials._verify_backup("archlinux", backup)
 
 
