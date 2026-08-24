@@ -11,7 +11,11 @@ import numpy as np
 from module.base.button import Button
 from module.base.decorator import cached_property
 from module.exception import GameStuckError
-from module.formation.model import FormationFleetSnapshot
+from module.formation.model import (
+    SUPPORTED_SURFACE_FLEET_INDICES,
+    FormationFleetSnapshot,
+    validate_surface_fleet_index,
+)
 from module.formation.scanner import FormationFleetInfoScanner, FormationFleetInputError
 from module.logger import logger
 from module.ocr.ocr import Digit
@@ -52,9 +56,9 @@ class FormationNavigationLayout:
     formation_button: tuple[int, int, int, int] = (1036, 639, 1245, 708)
 
     def __post_init__(self) -> None:
-        if len(self.fleet_rows_top_to_bottom) != 6:
+        if len(self.fleet_rows_top_to_bottom) != len(SUPPORTED_SURFACE_FLEET_INDICES):
             raise ValueError("Меню флотов Formation должно содержать шесть строк")
-        if len(self.fleet_menu_probes) != 6:
+        if len(self.fleet_menu_probes) != len(SUPPORTED_SURFACE_FLEET_INDICES):
             raise ValueError("Меню флотов Formation должно содержать шесть областей проверки")
         if len(self.info_header_probes) != 2:
             raise ValueError("Formation Info должен содержать две области заголовков")
@@ -73,9 +77,8 @@ class FormationNavigationLayout:
                 raise ValueError(f"Область навигации Formation выходит за кадр: {area!r}")
 
     def fleet_row(self, fleet_index: int) -> tuple[int, int, int, int]:
-        if type(fleet_index) is not int or not 1 <= fleet_index <= 6:
-            raise ValueError("fleet_index должен быть int в диапазоне 1..6")
-        return self.fleet_rows_top_to_bottom[6 - fleet_index]
+        validated = validate_surface_fleet_index(fleet_index)
+        return self.fleet_rows_top_to_bottom[len(SUPPORTED_SURFACE_FLEET_INDICES) - validated]
 
 
 GLOBAL_FORMATION_NAVIGATION_LAYOUT_1280_720 = FormationNavigationLayout()
@@ -188,7 +191,7 @@ class FormationFleetIndexOcr:
 
     def read(self, frame: np.ndarray) -> int | None:
         value = self.model.ocr(frame)
-        if type(value) is int and 1 <= value <= 6:
+        if type(value) is int and value in SUPPORTED_SURFACE_FLEET_INDICES:
             return value
         return None
 
@@ -248,7 +251,9 @@ class FormationFleetController(UI):
         self.ui_ensure(page_fleet, skip_first_screenshot=True)
 
     def ensure_surface_fleet(self, fleet_index: int) -> None:
-        if type(fleet_index) is not int or not 1 <= fleet_index <= 6:
+        try:
+            fleet_index = validate_surface_fleet_index(fleet_index)
+        except ValueError:
             raise FormationFleetInputError("fleet_index должен быть int в диапазоне 1..6")
 
         for _ in self.loop(skip_first=False, timeout=20):

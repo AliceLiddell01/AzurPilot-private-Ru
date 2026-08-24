@@ -22,7 +22,7 @@ consumers. Production consumers используют application services. SQLit
 сохранён только в offline legacy importer; silent fallback между backend
 запрещён.
 
-## Schema v1
+## Schema v1 и Fleet State
 
 Application tables находятся в PostgreSQL namespace `azurpilot`. Schema
 содержит только доказанные SQLite-owned domains и необходимую foundation:
@@ -58,6 +58,12 @@ Atomic counters используют PostgreSQL UPSERT, append commands — boun
 idempotency keys и payload digest, current state — row lock + optimistic
 version. Same key/same digest является idempotent skip; same key/different
 digest возвращает явный conflict.
+
+Formation Surface Fleet хранится как append-only цепочка scan run → snapshot →
+шесть slot rows. Каждый успешно распознанный флот фиксируется отдельной короткой
+транзакцией; одинаковый состав в другой момент остаётся новым наблюдением.
+Application API `FleetStateService` выбирает latest/history по `app_instance` и
+явной refresh policy, а PostgreSQL adapters не управляют Formation UI.
 
 ## Alembic
 

@@ -14,7 +14,7 @@ from module.application.errors import StorageConfigurationError
 def _ready_report() -> dict[str, object]:
     return {
         "format": "azurpilot-postgresql-migration-report-v1",
-        "schema_head": "0002_migration_shapes",
+        "schema_head": "0003_fleet_state_core",
         "source_record_coverage": True,
         "semantic_shadow_parity": True,
         "repeat_import_zero_delta": True,
@@ -56,7 +56,7 @@ def _matching_marker_payload(
     return {
         "backend": "postgresql",
         "version": 1,
-        "alembic_head": "0002_migration_shapes",
+        "alembic_head": "0003_fleet_state_core",
         "reconciliation_report_sha256": postgresql_cutover.hashlib.sha256(
             report.read_bytes()
         ).hexdigest(),
