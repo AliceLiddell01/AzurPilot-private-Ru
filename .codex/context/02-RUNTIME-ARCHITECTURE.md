@@ -79,6 +79,25 @@ gui.py
 - различие между остановкой WebUI и экземпляра задачи;
 - совместимость со `Start-AzurPilot.ps1`.
 
+Windows lifecycle пользовательской установки симметричен:
+
+```text
+Start-AzurPilot.ps1
+  → repository-scoped owner mutex
+  → repository-scoped kernel stop event
+  → project Python + gui.py
+
+Stop-AzurPilot.ps1
+  → exact checkout/process ownership
+  → stop event владельцу Start
+  → bounded wait и только exact-owned fallback
+```
+
+Foreground Start, который сам создал backend, сохраняет управление через
+`Ctrl+C`. Повторный Start только подтверждает готовность существующего WebUI,
+открывает его и сообщает путь к Stop. Stop не завершает PostgreSQL и не считает
+один лишь занятый порт доказательством ownership.
+
 ## MCP
 
 MCP не должен становиться обходом конфигурационных и безопасностных границ. Для каждого инструмента проверить:

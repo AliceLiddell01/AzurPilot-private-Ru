@@ -905,6 +905,36 @@ jobs:
               throw ('Изолированные регрессии Update-AzurPilot завершились с кодом {0}.' -f $runnerExitCode)
           }
 
+          $lifecycleTest = Join-Path -Path $PWD -ChildPath 'tests/powershell/Test-AzurPilotLifecycle.ps1'
+          $lifecycleModule = Join-Path -Path $PWD -ChildPath 'scripts/lib/AzurPilot.Lifecycle.psm1'
+          $stopScript = Join-Path -Path $PWD -ChildPath 'scripts/Stop-AzurPilot.ps1'
+          $lifecycleLog = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/lifecycle-regressions.log'
+          $runnerArguments = @(
+              $runnerPath
+              '--label'
+              'Изолированные регрессии lifecycle AzurPilot'
+              '--heartbeat-seconds'
+              '60'
+              '--log-file'
+              $lifecycleLog
+              '--'
+              $pwshCommand.Path
+              '-NoLogo'
+              '-NoProfile'
+              '-File'
+              $lifecycleTest
+              '-LifecycleModulePath'
+              $lifecycleModule
+              '-StopScriptPath'
+              $stopScript
+          )
+          & $pythonExecutable @runnerArguments
+          $runnerExitCode = $LASTEXITCODE
+
+          if ($runnerExitCode -ne 0) {
+              throw ('Изолированные регрессии lifecycle AzurPilot завершились с кодом {0}.' -f $runnerExitCode)
+          }
+
       - name: Проверить чистоту рабочего дерева
         id: windows_tree
         timeout-minutes: 5

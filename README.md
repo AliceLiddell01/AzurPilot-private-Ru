@@ -42,6 +42,7 @@ AzurPilot — инструмент автоматизации для мобил�
 ```text
 scripts/
 ├── Start-AzurPilot.ps1
+├── Stop-AzurPilot.ps1
 ├── Update-AzurPilot.ps1
 ├── Repair-AzurPilot.ps1
 └── Build-AzurPilot.ps1
@@ -50,6 +51,7 @@ scripts/
 | Команда | Назначение | Чего она не делает |
 |---|---|---|
 | `Start-AzurPilot.ps1` | Запускает подготовленную установку и контролирует backend | Не обновляет Git и не перестраивает `.venv` |
+| `Stop-AzurPilot.ps1` | Штатно останавливает backend только текущего checkout | Не останавливает PostgreSQL и не завершает посторонние процессы |
 | `Update-AzurPilot.ps1` | Получает безопасное fast-forward обновление | Не выполняет rebase, reset или force push |
 | `Repair-AzurPilot.ps1` | Диагностирует и восстанавливает существующую `.venv` | Не меняет ветки, remotes и пользовательские данные |
 | `Build-AzurPilot.ps1` | Подготавливает уже полученный checkout | Не клонирует репозиторий и не обновляет HEAD |
@@ -168,7 +170,13 @@ pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrow
 ```
 
 > [!NOTE]
-> Закрытие вкладки браузера само по себе не останавливает backend. При ручном запуске используйте `Ctrl+C` в окне Start.
+> Закрытие вкладки браузера само по себе не останавливает backend. `Ctrl+C` останавливает AzurPilot только в том окне Start, которое само запустило backend. Если Start сообщил, что открыл уже работающий WebUI, используйте штатную команду Stop:
+>
+> ```powershell
+> pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Stop-AzurPilot.ps1"
+> ```
+>
+> Повторный Stop безопасен и сообщает, что AzurPilot уже остановлен. Команда проверяет точный checkout, project Python, `gui.py` и дерево процессов; процесс, который лишь занял тот же порт, она не завершает.
 
 ## Обслуживание установки
 

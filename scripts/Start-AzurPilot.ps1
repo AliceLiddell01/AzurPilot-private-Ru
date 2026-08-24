@@ -24,6 +24,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 
+$lifecycleModulePath = Join-Path -Path $PSScriptRoot -ChildPath 'lib\AzurPilot.Lifecycle.psm1'
+Import-Module -Name $lifecycleModulePath -Force -ErrorAction Stop
+
 $script:RepositoryPathParameter = $RepositoryPath
 $script:NoBrowserParameter = $NoBrowser
 $script:FromShortcutParameter = $FromShortcut
@@ -43,6 +46,9 @@ $script:ExitCodeUnexpectedFailure = 30
 $script:LogPath = $null
 $script:StartMutex = $null
 $script:StartMutexOwned = $false
+$script:StopEvent = $null
+$script:ConsoleStopHandlerInstalled = $false
+$script:IntentionalStopRequested = $false
 $script:StartedProcess = $null
 $script:StartedProcessData = $null
 $script:BackendReady = $false
@@ -227,127 +233,6 @@ function Resolve-RequiredPath {
     }
 }
 
-function Get-PathHash {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$Path
-    )
-
-    $trimCharacters = [char[]]@(
-        [System.IO.Path]::DirectorySeparatorChar
-        [System.IO.Path]::AltDirectorySeparatorChar
-    )
-
-    $normalizedPath = $Path.TrimEnd($trimCharacters).ToUpperInvariant()
-
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalizedPath)
-    $sha256 = [System.Security.Cryptography.SHA256]::Create()
-
-    try {
-        $hashBytes = $sha256.ComputeHash($bytes)
-    } finally {
-        $sha256.Dispose()
-    }
-
-    return [Convert]::ToHexString($hashBytes).ToLowerInvariant()
-}
-
-function ConvertFrom-YamlInlineCommentValue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [AllowEmptyString()]
-        [string]$Value
-    )
-
-    $insideSingleQuote = $false
-    $insideDoubleQuote = $false
-
-    if ($Value.Length -eq 0) {
-        return ''
-    }
-
-    foreach ($index in 0..($Value.Length - 1)) {
-        $character = $Value[$index]
-
-        if ($character -eq "'" -and -not $insideDoubleQuote) {
-            $insideSingleQuote = -not $insideSingleQuote
-            continue
-        }
-
-        if ($character -eq '"' -and -not $insideSingleQuote) {
-            $insideDoubleQuote = -not $insideDoubleQuote
-            continue
-        }
-
-        if ($character -ne '#') {
-            continue
-        }
-
-        if ($insideSingleQuote -or $insideDoubleQuote) {
-            continue
-        }
-
-        if ($index -eq 0) {
-            return ''
-        }
-
-        if ([char]::IsWhiteSpace($Value[$index - 1])) {
-            return $Value.Substring(0, $index).TrimEnd()
-        }
-    }
-
-    return $Value.TrimEnd()
-}
-
-function ConvertFrom-SimpleYamlScalar {
-    [CmdletBinding()]
-    param(
-        [Parameter()]
-        [AllowNull()]
-        [string]$Value
-    )
-
-    if ($null -eq $Value) {
-        return $null
-    }
-
-    $valueWithoutComment = ConvertFrom-YamlInlineCommentValue -Value $Value
-    $trimmedValue = $valueWithoutComment.Trim()
-
-    if ([string]::IsNullOrWhiteSpace($trimmedValue)) {
-        return $null
-    }
-
-    if ($trimmedValue -in @(
-        'null',
-        'Null',
-        'NULL',
-        '~'
-    )) {
-        return $null
-    }
-
-    if (
-        $trimmedValue.Length -ge 2 -and
-        $trimmedValue.StartsWith("'") -and
-        $trimmedValue.EndsWith("'")
-    ) {
-        return $trimmedValue.Substring(1, $trimmedValue.Length - 2).Replace("''", "'")
-    }
-
-    if (
-        $trimmedValue.Length -ge 2 -and
-        $trimmedValue.StartsWith('"') -and
-        $trimmedValue.EndsWith('"')
-    ) {
-        return $trimmedValue.Substring(1, $trimmedValue.Length - 2)
-    }
-
-    return $trimmedValue
-}
-
 function ConvertTo-SimpleBoolean {
     [CmdletBinding()]
     param(
@@ -404,40 +289,6 @@ function ConvertTo-SimpleBoolean {
             Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message $message
         }
     }
-}
-
-function Get-YamlScalarValue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$Path,
-
-        [Parameter(Mandatory)]
-        [string]$Key
-    )
-
-    $escapedKey = [regex]::Escape($Key)
-    $pattern = "^\s*$escapedKey\s*:\s*(.*)$"
-    $foundValues = [System.Collections.Generic.List[object]]::new()
-
-    foreach ($line in Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop) {
-        $match = [regex]::Match($line, $pattern)
-
-        if ($match.Success) {
-            $scalarValue = ConvertFrom-SimpleYamlScalar -Value $match.Groups[1].Value
-            [void]$foundValues.Add($scalarValue)
-        }
-    }
-
-    if ($foundValues.Count -eq 0) {
-        return $null
-    }
-
-    if ($foundValues.Count -gt 1) {
-        Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message "В конфигурации найдено несколько значений ключа $Key."
-    }
-
-    return $foundValues[0]
 }
 
 function Get-WebUiConfiguration {
@@ -728,8 +579,8 @@ function Enter-RepositoryMutex {
         [string]$ResolvedRepositoryPath
     )
 
-    $pathHash = Get-PathHash -Path $ResolvedRepositoryPath
-    $mutexName = "Local\AzurPilot.Start.$pathHash"
+    $lifecycleNames = Get-AzurPilotLifecycleName -RepositoryPath $ResolvedRepositoryPath
+    $mutexName = $lifecycleNames.StartMutex
     $mutex = [System.Threading.Mutex]::new($false, $mutexName)
     $owned = $false
 
@@ -747,191 +598,6 @@ function Enter-RepositoryMutex {
         Name = $mutexName
         Mutex = $mutex
         Owned = $owned
-    }
-}
-
-function Get-ListeningProcessIdCollection {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [int]$Port
-    )
-
-    $netCommand = Get-Command -Name Get-NetTCPConnection -CommandType Function, Cmdlet -ErrorAction SilentlyContinue
-
-    if ($null -eq $netCommand) {
-        Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message 'Командлет Get-NetTCPConnection недоступен.'
-    }
-
-    $connectionErrors = @()
-    $connectionParameters = @{
-        State = 'Listen'
-        LocalPort = $Port
-        ErrorAction = 'SilentlyContinue'
-        ErrorVariable = 'connectionErrors'
-    }
-
-    $connections = @(
-        Get-NetTCPConnection @connectionParameters
-    )
-
-    if ($connectionErrors.Count -gt 0 -and $connections.Count -eq 0) {
-        $unexpectedErrors = @(
-            $connectionErrors |
-                Where-Object {
-                    $_.CategoryInfo.Category -ne [System.Management.Automation.ErrorCategory]::ObjectNotFound
-                }
-        )
-
-        if ($unexpectedErrors.Count -gt 0) {
-            $errorText = $unexpectedErrors.Exception.Message -join [Environment]::NewLine
-            $message = 'Не удалось проверить TCP-порт {0}: {1}' -f $Port, $errorText
-            Complete-StartFailure -Code $script:ExitCodeUnexpectedFailure -Message $message
-        }
-    }
-
-    return @(
-        $connections |
-            Select-Object -ExpandProperty OwningProcess |
-            Where-Object {
-                $_ -gt 0
-            } |
-            Sort-Object -Unique
-    )
-}
-
-function Get-WindowsProcessRecord {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [int]$ProcessId
-    )
-
-    try {
-        return Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
-    } catch {
-        return $null
-    }
-}
-
-function Test-ProcessBelongsToRepository {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [int]$ProcessId,
-
-        [Parameter(Mandatory)]
-        [string]$ProjectPythonPath,
-
-        [Parameter(Mandatory)]
-        [string]$GuiPath
-    )
-
-    $currentProcessId = $ProcessId
-    $visitedProcessIds = @{}
-    $sawProjectPython = $false
-    $sawGuiCommand = $false
-
-    foreach ($depth in 0..11) {
-        if ($currentProcessId -le 0) {
-            break
-        }
-
-        if ($visitedProcessIds.ContainsKey($currentProcessId)) {
-            break
-        }
-
-        $visitedProcessIds[$currentProcessId] = $true
-        $processRecord = Get-WindowsProcessRecord -ProcessId $currentProcessId
-
-        if ($null -eq $processRecord) {
-            break
-        }
-
-        $executablePath = [string]$processRecord.ExecutablePath
-        $commandLine = [string]$processRecord.CommandLine
-
-        if (
-            -not [string]::IsNullOrWhiteSpace($executablePath) -and
-            [string]::Equals(
-                $executablePath,
-                $ProjectPythonPath,
-                [System.StringComparison]::OrdinalIgnoreCase
-            )
-        ) {
-            $sawProjectPython = $true
-        }
-
-        if (
-            -not [string]::IsNullOrWhiteSpace($commandLine) -and
-            $commandLine.IndexOf(
-                $GuiPath,
-                [System.StringComparison]::OrdinalIgnoreCase
-            ) -ge 0
-        ) {
-            $sawGuiCommand = $true
-        }
-
-        if ($sawProjectPython -and $sawGuiCommand) {
-            return $true
-        }
-
-        $currentProcessId = [int]$processRecord.ParentProcessId
-    }
-
-    return $false
-}
-
-function Get-PortOwnershipState {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [int]$Port,
-
-        [Parameter(Mandatory)]
-        [string]$ProjectPythonPath,
-
-        [Parameter(Mandatory)]
-        [string]$GuiPath
-    )
-
-    $processIds = @(Get-ListeningProcessIdCollection -Port $Port)
-
-    if ($processIds.Count -eq 0) {
-        return [pscustomobject]@{
-            State = 'Free'
-            ProcessIds = @()
-        }
-    }
-
-    $foreignProcessIds = @()
-
-    foreach ($processId in $processIds) {
-        $processCheckParameters = @{
-            ProcessId = $processId
-            ProjectPythonPath = $ProjectPythonPath
-            GuiPath = $GuiPath
-        }
-
-        $belongsToRepository = Test-ProcessBelongsToRepository @processCheckParameters
-
-        if (-not $belongsToRepository) {
-            $foreignProcessIds += $processId
-        }
-    }
-
-    if ($foreignProcessIds.Count -gt 0) {
-        return [pscustomobject]@{
-            State = 'Foreign'
-            ProcessIds = $processIds
-            ForeignProcessIds = $foreignProcessIds
-        }
-    }
-
-    return [pscustomobject]@{
-        State = 'AzurPilot'
-        ProcessIds = $processIds
-        ForeignProcessIds = @()
     }
 }
 
@@ -1234,7 +900,11 @@ function Invoke-AzurPilotBackendStart {
         [string]$GuiPath,
 
         [Parameter(Mandatory)]
-        [string]$ResolvedRepositoryPath
+        [string]$ResolvedRepositoryPath,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$StopEventName
     )
 
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -1263,6 +933,7 @@ function Invoke-AzurPilotBackendStart {
 
     $startInfo.Environment['PYTHONUTF8'] = '1'
     $startInfo.Environment['PYTHONUNBUFFERED'] = '1'
+    $startInfo.Environment['AZURPILOT_LIFECYCLE_STOP_EVENT'] = $StopEventName
 
     $pathEntries = [System.Collections.Generic.List[string]]::new()
     $venvScriptsPath = Split-Path -Path $PythonPath -Parent
@@ -1314,7 +985,10 @@ function Invoke-StartedBackendStop {
     param(
         [Parameter()]
         [ValidateNotNullOrEmpty()]
-        [string]$Reason = 'завершение управляющего процесса Start'
+        [string]$Reason = 'завершение управляющего процесса Start',
+
+        [Parameter()]
+        [switch]$Intentional
     )
 
     if ($null -eq $script:StartedProcess) {
@@ -1327,7 +1001,12 @@ function Invoke-StartedBackendStop {
         }
 
         $backendProcessId = $script:StartedProcess.Id
-        Write-StartLog -Level 'WARN' -Message (
+        $logLevel = if ($Intentional) {
+            'INFO'
+        } else {
+            'WARN'
+        }
+        Write-StartLog -Level $logLevel -Message (
             'Останавливается серверный процесс с PID {0}. Причина: {1}.' -f
             $backendProcessId,
             $Reason
@@ -1357,6 +1036,104 @@ function Invoke-StartedBackendStop {
             $script:StartedProcess.Id,
             $_.Exception.Message
         )
+    }
+}
+
+function Enable-AzurPilotConsoleStopHandler {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Threading.EventWaitHandle]$StopEvent
+    )
+
+    if ($FromShortcut) {
+        return $false
+    }
+
+    if (-not ('AzurPilotConsoleStopHandler' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Threading;
+
+public static class AzurPilotConsoleStopHandler
+{
+    private static EventWaitHandle stopEvent;
+    private static ConsoleCancelEventHandler handler;
+
+    public static void Install(EventWaitHandle target)
+    {
+        if (handler != null)
+        {
+            throw new InvalidOperationException("Console stop handler is already installed.");
+        }
+
+        stopEvent = target ?? throw new ArgumentNullException(nameof(target));
+        handler = OnCancelKeyPress;
+        Console.CancelKeyPress += handler;
+    }
+
+    public static void Remove()
+    {
+        if (handler != null)
+        {
+            Console.CancelKeyPress -= handler;
+        }
+
+        handler = null;
+        stopEvent = null;
+    }
+
+    private static void OnCancelKeyPress(object sender, ConsoleCancelEventArgs args)
+    {
+        if (args.SpecialKey != ConsoleSpecialKey.ControlC)
+        {
+            return;
+        }
+
+        args.Cancel = true;
+        stopEvent?.Set();
+    }
+}
+'@ -ErrorAction Stop
+    }
+
+    [AzurPilotConsoleStopHandler]::Install($StopEvent)
+    return $true
+}
+
+function Wait-ForIntentionalBackendStop {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$ProcessData,
+
+        [Parameter()]
+        [ValidateRange(1, 60)]
+        [int]$GracefulTimeoutSeconds = 15
+    )
+
+    $script:IntentionalStopRequested = $true
+    Write-StartLog -Level 'INFO' -Message 'Получен координированный запрос штатной остановки.'
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($GracefulTimeoutSeconds)
+
+    while (
+        -not $ProcessData.Process.HasExited -and
+        [DateTimeOffset]::UtcNow -lt $deadline
+    ) {
+        Read-AvailableProcessOutput -ProcessData $ProcessData
+        [void]$ProcessData.Process.WaitForExit(200)
+    }
+
+    if (-not $ProcessData.Process.HasExited) {
+        Write-StartLog -Level 'WARN' -Message (
+            'Штатная остановка не завершилась за {0} секунд; применяется принудительный fallback доказанного дерева AzurPilot.' -f
+            $GracefulTimeoutSeconds
+        )
+        Invoke-StartedBackendStop -Reason 'таймаут штатной остановки' -Intentional
+    }
+
+    if ($ProcessData.Process.HasExited) {
+        Read-ProcessOutputToEnd -ProcessData $ProcessData
     }
 }
 
@@ -1391,7 +1168,7 @@ function Wait-ForExistingBackend {
             GuiPath = $GuiPath
         }
 
-        $ownership = Get-PortOwnershipState @ownershipParameters
+        $ownership = Get-AzurPilotPortOwnershipState @ownershipParameters
 
         if ($ownership.State -eq 'Foreign') {
             $foreignText = $ownership.ForeignProcessIds -join ', '
@@ -1441,6 +1218,11 @@ function Wait-ForStartedBackend {
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
         Read-AvailableProcessOutput -ProcessData $ProcessData
 
+        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+            Wait-ForIntentionalBackendStop -ProcessData $ProcessData
+            return $false
+        }
+
         if ($ProcessData.Process.HasExited) {
             Read-ProcessOutputToEnd -ProcessData $ProcessData
             Write-BufferedProcessOutput -ProcessData $ProcessData
@@ -1453,7 +1235,7 @@ function Wait-ForStartedBackend {
             GuiPath = $GuiPath
         }
 
-        $ownership = Get-PortOwnershipState @ownershipParameters
+        $ownership = Get-AzurPilotPortOwnershipState @ownershipParameters
 
         if ($ownership.State -eq 'Foreign') {
             $foreignText = $ownership.ForeignProcessIds -join ', '
@@ -1550,6 +1332,25 @@ function Invoke-AzurPilotStart {
 
         $resolvedRepositoryPath = Resolve-RequiredPath @repositoryPathParameters
 
+        $lifecycleNames = Get-AzurPilotLifecycleName -RepositoryPath $resolvedRepositoryPath
+        $mutexData = Enter-RepositoryMutex -ResolvedRepositoryPath $resolvedRepositoryPath
+        $script:StartMutex = $mutexData.Mutex
+        $script:StartMutexOwned = $mutexData.Owned
+
+        Write-StartLog -Level 'INFO' -Message "Мьютекс Start: $($mutexData.Name)"
+        Write-StartLog -Level 'INFO' -Message "Мьютекс Start захвачен: $($mutexData.Owned)"
+
+        if ($mutexData.Owned) {
+            $script:StopEvent = New-AzurPilotStopEvent -Name $lifecycleNames.StopEvent -ReuseExisting
+
+            if ($null -eq $script:StopEvent) {
+                Write-StartLog -Level 'WARN' -Message 'Объект координации остановки не создан; координация штатной остановки недоступна.'
+            } else {
+                $script:ConsoleStopHandlerInstalled = Enable-AzurPilotConsoleStopHandler -StopEvent $script:StopEvent
+                Write-StartLog -Level 'INFO' -Message 'Координация штатной остановки активна.'
+            }
+        }
+
         $guiPathParameters = @{
             Path = Join-Path -Path $resolvedRepositoryPath -ChildPath 'gui.py'
             PathType = 'Leaf'
@@ -1584,7 +1385,19 @@ function Invoke-AzurPilotStart {
 
         Write-StartLog -Level 'INFO' -Message "Python проекта исправен: $projectPythonPath"
 
+        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки до старта backend.'
+            return $script:ExitCodeSuccess
+        }
+
         Invoke-PostgreSqlStartPreflight -PythonPath $projectPythonPath -WorkingDirectory $resolvedRepositoryPath
+
+        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки после preflight.'
+            return $script:ExitCodeSuccess
+        }
 
         $webUiConfiguration = Get-WebUiConfiguration -DeployConfigPath $deployConfigPath
         $browserUri = $webUiConfiguration.BrowserUri
@@ -1594,13 +1407,6 @@ function Invoke-AzurPilotStart {
         Write-StartLog -Level 'INFO' -Message "SSL включён: $($webUiConfiguration.SslEnabled)"
 
         $readinessClient = Get-ReadinessClient -SslEnabled $webUiConfiguration.SslEnabled
-
-        $mutexData = Enter-RepositoryMutex -ResolvedRepositoryPath $resolvedRepositoryPath
-        $script:StartMutex = $mutexData.Mutex
-        $script:StartMutexOwned = $mutexData.Owned
-
-        Write-StartLog -Level 'INFO' -Message "Мьютекс Start: $($mutexData.Name)"
-        Write-StartLog -Level 'INFO' -Message "Мьютекс Start захвачен: $($mutexData.Owned)"
 
         if (-not $mutexData.Owned) {
             Write-StartLog -Level 'INFO' -Message 'Другой Start уже управляет этим репозиторием. Ожидание существующего WebUI.'
@@ -1620,7 +1426,9 @@ function Invoke-AzurPilotStart {
                 Complete-StartFailure -Code $script:ExitCodeConcurrentStartTimeout -Message "Другой Start не довёл WebUI до готовности за $StartupTimeoutSeconds секунд."
             }
 
-            Write-StartLog -Level 'INFO' -Message 'Существующий AzurPilot подтверждён и готов.'
+            Write-StartLog -Level 'INFO' -Message 'AzurPilot уже запущен и готов.'
+            Write-StartLog -Level 'INFO' -Message 'Этот запуск только открывает существующий WebUI; текущая консоль не управляет серверным процессом.'
+            Write-StartLog -Level 'INFO' -Message ("Для остановки: {0}" -f (Join-Path -Path $resolvedRepositoryPath -ChildPath 'scripts\Stop-AzurPilot.ps1'))
 
             $browserOpened = Open-WebUiBrowser -BrowserUri $browserUri
 
@@ -1637,7 +1445,7 @@ function Invoke-AzurPilotStart {
             GuiPath = $guiPath
         }
 
-        $initialOwnership = Get-PortOwnershipState @initialOwnershipParameters
+        $initialOwnership = Get-AzurPilotPortOwnershipState @initialOwnershipParameters
 
         if ($initialOwnership.State -eq 'Foreign') {
             $foreignText = $initialOwnership.ForeignProcessIds -join ', '
@@ -1660,7 +1468,9 @@ function Invoke-AzurPilotStart {
                 Complete-StartFailure -Code $script:ExitCodeReadinessTimeout -Message "Найден процесс AzurPilot, но WebUI не стал готов за $StartupTimeoutSeconds секунд."
             }
 
-            Write-StartLog -Level 'INFO' -Message 'Найден уже работающий AzurPilot.'
+            Write-StartLog -Level 'INFO' -Message 'AzurPilot уже запущен и готов.'
+            Write-StartLog -Level 'INFO' -Message 'Этот запуск только открывает существующий WebUI; текущая консоль не управляет серверным процессом.'
+            Write-StartLog -Level 'INFO' -Message ("Для остановки: {0}" -f (Join-Path -Path $resolvedRepositoryPath -ChildPath 'scripts\Stop-AzurPilot.ps1'))
 
             $browserOpened = Open-WebUiBrowser -BrowserUri $browserUri
 
@@ -1677,6 +1487,7 @@ function Invoke-AzurPilotStart {
             PythonPath = $projectPythonPath
             GuiPath = $guiPath
             ResolvedRepositoryPath = $resolvedRepositoryPath
+            StopEventName = $lifecycleNames.StopEvent
         }
 
         $script:StartedProcessData = Invoke-AzurPilotBackendStart @backendStartParameters
@@ -1695,7 +1506,12 @@ function Invoke-AzurPilotStart {
             TimeoutSeconds = $StartupTimeoutSeconds
         }
 
-        [void](Wait-ForStartedBackend @startedBackendWaitParameters)
+        $startedReady = Wait-ForStartedBackend @startedBackendWaitParameters
+
+        if (-not $startedReady -and $script:IntentionalStopRequested) {
+            Write-StartLog -Level 'INFO' -Message 'AzurPilot штатно остановлен во время запуска.'
+            return $script:ExitCodeSuccess
+        }
 
         $script:BackendReady = $true
         Write-StartLog -Level 'INFO' -Message "WebUI готов: $browserUri"
@@ -1710,6 +1526,12 @@ function Invoke-AzurPilotStart {
 
         while (-not $script:StartedProcess.HasExited) {
             Read-AvailableProcessOutput -ProcessData $script:StartedProcessData
+
+            if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+                Wait-ForIntentionalBackendStop -ProcessData $script:StartedProcessData
+                break
+            }
+
             [void]$script:StartedProcess.WaitForExit(250)
         }
 
@@ -1717,6 +1539,11 @@ function Invoke-AzurPilotStart {
 
         $backendExitCode = $script:StartedProcess.ExitCode
         Write-StartLog -Level 'INFO' -Message "Серверный процесс завершился с кодом $backendExitCode."
+
+        if ($script:IntentionalStopRequested) {
+            Write-StartLog -Level 'INFO' -Message 'AzurPilot остановлен штатно по внешнему запросу.'
+            return $script:ExitCodeSuccess
+        }
 
         if ($backendExitCode -ne 0) {
             Write-BufferedProcessOutput -ProcessData $script:StartedProcessData
@@ -1758,6 +1585,22 @@ function Invoke-AzurPilotStart {
             $readinessClient.Dispose()
         }
 
+        if ($null -ne $script:StartedProcess) {
+            if (-not $script:StartedProcess.HasExited) {
+                Invoke-StartedBackendStop -Reason 'выход управляющего процесса Start'
+            }
+
+            $script:StartedProcess.Dispose()
+        }
+
+        if ($null -ne $script:StopEvent) {
+            if ($script:ConsoleStopHandlerInstalled) {
+                [AzurPilotConsoleStopHandler]::Remove()
+            }
+
+            $script:StopEvent.Dispose()
+        }
+
         if ($null -ne $script:StartMutex) {
             if ($script:StartMutexOwned) {
                 try {
@@ -1770,14 +1613,6 @@ function Invoke-AzurPilotStart {
             }
 
             $script:StartMutex.Dispose()
-        }
-
-        if ($null -ne $script:StartedProcess) {
-            if (-not $script:StartedProcess.HasExited) {
-                Invoke-StartedBackendStop -Reason 'выход управляющего процесса Start'
-            }
-
-            $script:StartedProcess.Dispose()
         }
 
         if ($null -ne $script:LogPath) {

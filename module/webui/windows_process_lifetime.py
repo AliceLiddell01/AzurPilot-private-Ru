@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import _thread
 import ctypes
 import os
 import threading
@@ -11,6 +12,10 @@ from typing import NoReturn
 
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+_SYNCHRONIZE = 0x00100000
+_WAIT_OBJECT_0 = 0
+_INFINITE = 0xFFFFFFFF
+_LIFECYCLE_STOP_EVENT_ENV = "AZURPILOT_LIFECYCLE_STOP_EVENT"
 _CONSOLE_PARENT_NAMES = frozenset(
     {
         "cmd.exe",
@@ -33,6 +38,7 @@ _LAUNCHER_BRIDGE_NAMES = frozenset(
 _guard_lock = threading.Lock()
 _process_tree_job_handle: int | None = None
 _parent_watch_started = False
+_lifecycle_stop_watch_started = False
 
 
 class _JobObjectBasicLimitInformation(ctypes.Structure):
@@ -86,6 +92,10 @@ def _kernel32():
     kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
     kernel32.GetCurrentProcess.argtypes = []
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.OpenEventW.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
     return kernel32
@@ -175,6 +185,53 @@ def _wait_for_console_parent_exit(parent) -> None:
     os._exit(0)
 
 
+def _wait_for_lifecycle_stop_event(kernel32, handle: int, event_name: str) -> None:
+    """Преобразовать repository-scoped Windows event в штатный KeyboardInterrupt."""
+    try:
+        wait_result = kernel32.WaitForSingleObject(handle, _INFINITE)
+    finally:
+        kernel32.CloseHandle(handle)
+
+    if wait_result != _WAIT_OBJECT_0:
+        from module.logger import logger
+
+        logger.warning(
+            "[WebUI] Ожидание координированного запроса остановки завершилось "
+            f"неожиданным кодом {wait_result}; event={event_name}"
+        )
+        return
+
+    _thread.interrupt_main()
+
+
+def _start_lifecycle_stop_watcher() -> bool:
+    """Открыть созданный Start event и включить однократный stop watcher."""
+    event_name = os.environ.get(_LIFECYCLE_STOP_EVENT_ENV, "").strip()
+    if not event_name:
+        return False
+
+    kernel32 = _kernel32()
+    handle = kernel32.OpenEventW(_SYNCHRONIZE, False, event_name)
+    if not handle:
+        error_code = ctypes.get_last_error()
+        from module.logger import logger
+
+        logger.warning(
+            "[WebUI] Не удалось открыть объект координации остановки AzurPilot "
+            f"({event_name}): {ctypes.FormatError(error_code)}. "
+            "Координированная остановка отключена"
+        )
+        return False
+
+    threading.Thread(
+        target=_wait_for_lifecycle_stop_event,
+        args=(kernel32, int(handle), event_name),
+        daemon=True,
+        name="azurpilot-lifecycle-stop-watcher",
+    ).start()
+    return True
+
+
 def install_windows_process_lifetime_guards() -> int | None:
     """Защитить WebUI и дочерние процессы от смерти управляющей консоли.
 
@@ -190,6 +247,7 @@ def install_windows_process_lifetime_guards() -> int | None:
     """
     global _parent_watch_started
     global _process_tree_job_handle
+    global _lifecycle_stop_watch_started
 
     if os.name != "nt":
         return None
@@ -197,6 +255,9 @@ def install_windows_process_lifetime_guards() -> int | None:
     with _guard_lock:
         if _process_tree_job_handle is None:
             _process_tree_job_handle = _create_process_tree_job()
+
+        if not _lifecycle_stop_watch_started:
+            _lifecycle_stop_watch_started = _start_lifecycle_stop_watcher()
 
         if _parent_watch_started:
             return None
