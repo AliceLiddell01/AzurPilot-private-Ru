@@ -22,12 +22,13 @@ from adbutils import AdbError, Network
 from starlette.responses import JSONResponse, HTMLResponse, StreamingResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocketDisconnect
+from module.config.profile import InvalidProfileConfigError, parse_profile_config_bytes
+from module.config.utils import DEFAULT_CONFIG_NAME
 from module.device.method.scrcpy import const as scrcpy_const
 from module.device.method.scrcpy.control import ControlSender
 from module.device.method.scrcpy.options import ScrcpyOptions
 from module.device.method.utils import recv_all
 from module.logger import logger
-from module.config.utils import DEFAULT_CONFIG_NAME
 from module.webui.deploy_settings import (
     deploy_settings_schema,
     get_startup_run,
@@ -1667,13 +1668,30 @@ async def api_import_legacy_upload(request):
 
             planned.append((file, resolved))
 
-        for file, resolved in planned:
+        validated_configs = {}
+        for index, (file, resolved) in enumerate(planned):
+            target, rel_target = resolved
+            if rel_target.startswith("config/") and target.parent == current_root / "config":
+                content = await file.read()
+                try:
+                    parse_profile_config_bytes(content, target.name)
+                except InvalidProfileConfigError:
+                    logger.warning("[WebUI] Root JSON legacy-импорта не является профилем")
+                    return JSONResponse(
+                        {"success": False, "error": "Это некорректная конфигурация AzurPilot/ALAS"},
+                        status_code=400,
+                    )
+                validated_configs[index] = content
+
+        for index, (file, resolved) in enumerate(planned):
             target, rel_target = resolved
             filename = target.name
+            content = validated_configs.get(index)
+            if content is None:
+                content = await file.read()
 
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                content = await file.read()
                 target.write_bytes(content)
 
                 if rel_target.startswith("config/"):

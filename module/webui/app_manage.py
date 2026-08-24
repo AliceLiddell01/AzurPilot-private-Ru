@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING
 
+from module.config.profile import InvalidProfileConfigError, parse_profile_config_bytes
+
 from module.webui.app_dependencies import (
     Any,
     Dict,
@@ -425,19 +427,18 @@ def app_manage(gui: "AlasGUI") -> None:
         file = cast(bytes, upload["content"])
         file_name = cast(str, upload["filename"])
 
-        if IS_ON_PHONE_CLOUD:
-            config_name = mod_name = "alas"
-        elif len(file_name.split(".")) == 2:
-            config_name, _ = file_name.split(".")
-            mod_name = "alas"
-        else:
-            config_name, mod_name, _ = file_name.rsplit(".", maxsplit=2)
+        try:
+            identity, config = parse_profile_config_bytes(file, file_name)
+        except InvalidProfileConfigError:
+            toast(t("Gui.OOBE.ImportErrorInvalid"), color="error")
+            return
+        config_name = "alas" if IS_ON_PHONE_CLOUD else identity.name
+        mod_name = identity.mod_name
 
         if is_webui_hidden_instance(config_name):
             toast(t("Gui.AppManage.NameExist"), color="error")
             return
 
-        config = cast(Dict[str, Any], json.loads(file.decode(encoding="utf-8")))
         State.config_updater.write_file(config_name, config, mod_name)
         toast(t("Gui.AppManage.ImportSuccess"), color="success")
 

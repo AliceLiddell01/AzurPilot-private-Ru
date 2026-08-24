@@ -14,6 +14,7 @@ from pathlib import Path
 from module.application.errors import StorageError
 from module.application.migration_models import ReconciliationReport, RecordDisposition
 from module.application.migration_service import MigrationService, finalize_rehearsal
+from module.config.profile import ProfileDiscoveryError, discover_profile_names
 from module.persistence import DatabaseSettings, LazyEngine
 from module.persistence.legacy import LegacySourceReader, create_consistent_snapshot
 from module.persistence.legacy.reader import LegacySourceError
@@ -34,30 +35,11 @@ def _has_link_component(root: Path, path: Path) -> bool:
 
 
 def _profile_names(root: Path) -> tuple[str, ...]:
-    names: list[str] = []
     config = root / "config"
-    if not config.is_dir():
-        return ()
-    paths = sorted(config.glob("*.json"))
-    if len(paths) > 512:
-        raise LegacySourceError("PROFILE_CONFIG_COUNT_EXCEEDED")
-    for path in paths:
-        if path.name.startswith(("template", "args", "menu")):
-            continue
-        resolved = path.resolve(strict=True)
-        if (
-            _has_link_component(root, path)
-            or not resolved.is_relative_to(root)
-            or resolved.stat().st_size > 1024 * 1024
-        ):
-            raise LegacySourceError("PROFILE_CONFIG_UNSAFE")
-        try:
-            data = json.loads(resolved.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
-            continue
-        if isinstance(data, dict) and isinstance(data.get("Alas"), dict):
-            names.append(path.stem)
-    return tuple(names)
+    try:
+        return tuple(discover_profile_names(config, strict=True))
+    except ProfileDiscoveryError as exc:
+        raise LegacySourceError(exc.code) from exc
 
 
 def _decryption_ids(root: Path) -> tuple[str, ...]:
