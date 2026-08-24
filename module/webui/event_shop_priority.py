@@ -53,7 +53,7 @@ def event_shop_priority_path(
 
 
 @contextmanager
-def _event_shop_priority_write_lock(
+def event_shop_priority_write_lock(
     instance: str,
     root: Path | str = EVENT_SHOP_PRIORITY_ROOT,
 ):
@@ -80,7 +80,7 @@ def _priority_writer_locked(func):
             raise TypeError("Не удалось определить профиль для блокировки приоритетов")
         instance = first if isinstance(first, str) else first.config_name
         root = kwargs.get("root", EVENT_SHOP_PRIORITY_ROOT)
-        with _event_shop_priority_write_lock(str(instance), root):
+        with event_shop_priority_write_lock(str(instance), root):
             return func(*args, **kwargs)
 
     return wrapper
@@ -224,6 +224,59 @@ def load_event_shop_priority(
     return empty_event_shop_priority(event_id)
 
 
+def event_shop_target_capacity(
+    item: Mapping[str, Any],
+    priority_state: Mapping[str, Any],
+) -> int | None:
+    """Вернуть максимальный размер цели по доказанному остатку и её baseline."""
+    row_id = str(item.get("id") or "")
+    stock = max(int(item.get("stock", 0) or 0), 0)
+    selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
+
+    purchased_values = priority_state.get("purchased")
+    purchased = (
+        {str(value) for value in purchased_values}
+        if isinstance(purchased_values, Sequence)
+        and not isinstance(purchased_values, (str, bytes))
+        else set()
+    )
+    remaining_values = priority_state.get("remaining")
+    remaining_values = remaining_values if isinstance(remaining_values, Mapping) else {}
+    baselines = priority_state.get("target_baselines")
+    baselines = baselines if isinstance(baselines, Mapping) else {}
+
+    current_remaining = None
+    observed_remaining = item.get("remaining")
+    if isinstance(observed_remaining, int) and not isinstance(observed_remaining, bool):
+        current_remaining = min(max(observed_remaining, 0), stock)
+    elif row_id in remaining_values:
+        try:
+            current_remaining = min(
+                max(int(remaining_values[row_id]), 0),
+                stock,
+            )
+        except (TypeError, ValueError, OverflowError):
+            current_remaining = None
+
+    if selected > 0:
+        baseline_value = baselines.get(row_id)
+        if baseline_value is not None:
+            try:
+                baseline = min(max(int(baseline_value), 0), stock)
+            except (TypeError, ValueError, OverflowError):
+                baseline = selected
+            if current_remaining is not None:
+                baseline = max(baseline, current_remaining)
+            return max(baseline, selected)
+        if current_remaining is not None:
+            return max(selected, current_remaining)
+        return selected
+
+    if row_id in purchased:
+        return 0
+    return current_remaining
+
+
 @_priority_writer_locked
 def set_event_shop_priority(
     instance: str,
@@ -287,16 +340,32 @@ def update_event_shop_target_state(
 
     if after <= 0:
         state["target_baselines"].pop(key, None)
-    elif before <= 0:
-        if key in state["purchased"]:
-            state["target_baselines"].pop(key, None)
-        elif key in state["remaining"]:
-            state["target_baselines"][key] = max(
-                int(state["remaining"][key]),
-                0,
+    else:
+        known_values = [before, after]
+        for source in (state.get("remaining"), state.get("target_baselines")):
+            if isinstance(source, Mapping) and key in source:
+                try:
+                    known_values.append(max(int(source[key]), 0))
+                except (TypeError, ValueError, OverflowError):
+                    pass
+        capacity = event_shop_target_capacity(
+            {
+                "id": key,
+                "stock": max(known_values),
+                "selected": before,
+            },
+            state,
+        )
+        if capacity is None:
+            raise ValueError(
+                "Для новой цели требуется подтверждённый полный скан магазина"
             )
-        else:
-            state["target_baselines"].pop(key, None)
+        if after > capacity:
+            raise ValueError(
+                f"Цель {after} превышает доступную ёмкость товара {capacity}"
+            )
+        if before <= 0:
+            state["target_baselines"][key] = capacity
 
     save_event_shop_priority(instance, state, root=root)
     return state
@@ -411,6 +480,83 @@ def _target_remaining(
     target = min(max(int(selected), 0), baseline)
     bought_for_goal = max(baseline - current, 0)
     return max(target - bought_for_goal, 0)
+
+
+def _reconcile_proven_inventory_state(
+    state: dict[str, Any],
+    *,
+    config: Any,
+    selected_targets: Mapping[str, int],
+    runtime_by_row: Mapping[str, Any],
+    catalog_by_id: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    """Синхронизировать только доказанные остатки, не снимая недоказанные блокировки."""
+    changed = False
+    purchased = set(state["purchased"])
+    completed = set(state["completed"])
+
+    for row_id, runtime in runtime_by_row.items():
+        source = catalog_by_id.get(row_id)
+        if source is None:
+            continue
+        stock = max(int(source.get("stock", 0) or 0), 0)
+        count = min(max(int(getattr(runtime, "count", 0) or 0), 0), stock)
+        if state["remaining"].get(row_id) != count:
+            state["remaining"][row_id] = count
+            changed = True
+
+        selected = min(max(int(selected_targets.get(row_id, 0) or 0), 0), stock)
+        if count == 0:
+            if row_id not in purchased:
+                purchased.add(row_id)
+                changed = True
+            if row_id in completed:
+                completed.remove(row_id)
+                changed = True
+            target_cleared = True
+            if selected > 0:
+                target_cleared = _clear_selected_target(
+                    config,
+                    state["event_id"],
+                    row_id,
+                    selected,
+                )
+            if target_cleared:
+                if state["target_baselines"].pop(row_id, None) is not None:
+                    changed = True
+                if state["priorities"].pop(row_id, None) is not None:
+                    changed = True
+            continue
+
+        if row_id in purchased:
+            purchased.remove(row_id)
+            changed = True
+
+        if row_id in completed and selected > 0:
+            baseline_value = state["target_baselines"].get(row_id)
+            if baseline_value is None:
+                completed.remove(row_id)
+                changed = True
+            else:
+                remaining_goal = _target_remaining(
+                    source,
+                    runtime,
+                    selected,
+                    baseline_remaining=int(baseline_value),
+                )
+                if remaining_goal > 0:
+                    completed.remove(row_id)
+                    changed = True
+
+    normalized_purchased = sorted(purchased)
+    normalized_completed = sorted(completed)
+    if state["purchased"] != normalized_purchased:
+        state["purchased"] = normalized_purchased
+        changed = True
+    if state["completed"] != normalized_completed:
+        state["completed"] = normalized_completed
+        changed = True
+    return changed
 
 
 def _runtime_filter(item: Any) -> str:
@@ -588,20 +734,19 @@ def prepare_event_shop_runtime_items(
         )
         return PriorityRuntimeItems([], observation_items=full_scan)
 
-    changed = False
+    # Проверка ожидающей покупки могла атомарно завершить и очистить цель.
+    # Согласование обязано видеть уже новое состояние цели, иначе прежнее выбранное
+    # количество в том же проходе ошибочно снимет только что доказанное завершение.
+    selected_targets = _selected_targets(config, event_id)
+
+    changed = _reconcile_proven_inventory_state(
+        state,
+        config=config,
+        selected_targets=selected_targets,
+        runtime_by_row=runtime_by_row,
+        catalog_by_id=catalog_by_id,
+    )
     purchased = set(state["purchased"])
-    for row_id, runtime in runtime_by_row.items():
-        count = max(int(getattr(runtime, "count", 0) or 0), 0)
-        if state["remaining"].get(row_id) != count:
-            state["remaining"][row_id] = count
-            changed = True
-    for row_id in list(purchased):
-        runtime = runtime_by_row.get(row_id)
-        if runtime is not None and int(getattr(runtime, "count", 0) or 0) > 0:
-            purchased.remove(row_id)
-            changed = True
-    if changed:
-        state["purchased"] = sorted(purchased)
 
     candidates: list[
         tuple[int, int, str, Mapping[str, Any], Any, int]

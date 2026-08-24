@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -21,7 +22,6 @@ from module.webui.instance_visibility import (
     is_webui_hidden_instance,
     visible_webui_instances,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -176,6 +176,51 @@ class SnapshotStateNamespaceTests(unittest.TestCase):
 
 
 class WebUIInternalInstanceTests(unittest.TestCase):
+    def test_runtime_state_namespace_never_becomes_profile(self):
+        from module.config.utils import alas_instance as all_instances
+        from module.config.utils import is_oobe_needed as core_is_oobe_needed
+        from module.webui.deploy_settings import _validate_instance_name
+
+        previous_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as temp:
+            try:
+                os.chdir(temp)
+                config = Path("config")
+                (config / "state").mkdir(parents=True)
+                profile = {
+                    "Alas": {"Emulator": {}},
+                    "General": {},
+                    "Main": {"Scheduler": {}},
+                }
+                mod_profile = {
+                    "Fpy": {"Emulator": {}},
+                    "FpyMain": {"Scheduler": {}},
+                }
+                (config / "alas.json").write_text(json.dumps(profile), encoding="utf-8")
+                (config / "ap.json").write_text(json.dumps(profile), encoding="utf-8")
+                (config / "modded.fpy.json").write_text(
+                    json.dumps(mod_profile), encoding="utf-8"
+                )
+                (config / "state/storage_backend.json").write_text(
+                    "{}", encoding="utf-8"
+                )
+                (config / "state/future_service.json").write_text(
+                    "{}", encoding="utf-8"
+                )
+
+                instances = all_instances()
+                self.assertIn("alas", instances)
+                self.assertIn("ap", instances)
+                self.assertIn("modded", instances)
+                self.assertNotIn("storage_backend", instances)
+                self.assertNotIn("future_service", instances)
+                self.assertFalse(core_is_oobe_needed())
+                self.assertEqual(_validate_instance_name("alas", True), "alas")
+                with self.assertRaisesRegex(ValueError, "не существует"):
+                    _validate_instance_name("storage_backend", True)
+            finally:
+                os.chdir(previous_cwd)
+
     def test_ap_and_legacy_snapshot_names_are_hidden_but_not_deleted(self):
         self.assertEqual(
             WEBUI_HIDDEN_INSTANCE_NAMES,

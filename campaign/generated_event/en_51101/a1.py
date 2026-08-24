@@ -38,7 +38,6 @@ class Config:
     STAR_REQUIRE_1 = 1
     STAR_REQUIRE_2 = 2
     STAR_REQUIRE_3 = 3
-    MAP_HAS_MOVABLE_NORMAL_ENEMY = True
     MOVABLE_ENEMY_TURN = (2,)
     # Проверенные runtime-факты из ограниченной policy generated package.
     MAP_SIREN_TEMPLATE = []

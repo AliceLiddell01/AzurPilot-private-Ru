@@ -6,12 +6,10 @@
 # 负责从加密 SQLite 数据库中读取统计数据，并具备计算概况与详细指标的功能。
 from __future__ import annotations
 
-from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-from module.logger import logger
-from module.statistics.cl1_database import db as cl1_db
+from module.statistics.postgresql_stats import get_monthly_stats
 
 
 class OpsiMonthStats:
@@ -29,13 +27,11 @@ class OpsiMonthStats:
         key = f"{year:04d}-{month:02d}"
 
         # 从数据库读取数据
-        data = cl1_db.get_stats(self._instance_name, key)
+        data = get_monthly_stats(self._instance_name, year, month)
 
         total = int(data.get("battle_count", 0))
         akashi = int(data.get("akashi_encounters", 0))
-        siren_research_devices = cl1_db.get_siren_research_device_count(
-            data, source="cl1"
-        )
+        siren_research_devices = int(data["siren_research_devices"]["cl1"])
 
         return {
             "month": key,
@@ -59,15 +55,13 @@ class OpsiMonthStats:
         key = f"{year:04d}-{month:02d}"
 
         # 从数据库读取数据
-        data = cl1_db.get_stats(self._instance_name, key)
+        data = get_monthly_stats(self._instance_name, year, month)
 
         # 基础数据
         battle_count = int(data.get("battle_count", 0))
         akashi_encounters = int(data.get("akashi_encounters", 0))
         akashi_ap = int(data.get("akashi_ap", 0))
-        siren_research_devices = cl1_db.get_siren_research_device_count(
-            data, source="cl1"
-        )
+        siren_research_devices = int(data["siren_research_devices"]["cl1"])
 
         # 计算衍生指标
         battle_rounds = battle_count // 2
@@ -127,7 +121,7 @@ def compute_monthly_cl1_akashi_ap(
     key_prefix = f"{year:04d}-{month:02d}"
 
     instance_name = instance_name or "default"
-    data = cl1_db.get_stats(instance_name, key_prefix)
+    data = get_monthly_stats(instance_name, year, month)
 
     return int(data.get("akashi_ap", 0))
 
@@ -159,7 +153,7 @@ def get_ap_timeline(
     key_prefix = f"{year:04d}-{month:02d}"
 
     instance_name = instance_name or "default"
-    data = cl1_db.get_stats(instance_name, key_prefix)
+    data = get_monthly_stats(instance_name, year, month)
 
     snapshots = data.get("ap_snapshots", [])
     if not snapshots:
@@ -202,7 +196,7 @@ def get_coins_timeline(
     key_prefix = f"{year:04d}-{month:02d}"
 
     instance_name = instance_name or "default"
-    data = cl1_db.get_stats(instance_name, key_prefix)
+    data = get_monthly_stats(instance_name, year, month)
 
     snapshots = data.get("coins_snapshots", [])
     if not snapshots:
@@ -260,6 +254,6 @@ def get_asset_timeline(
         month = now.month
     key_prefix = f"{year:04d}-{month:02d}"
 
-    data = cl1_db.get_stats(instance_name or "default", key_prefix)
+    data = get_monthly_stats(instance_name or "default", year, month)
     snapshots = data.get("ap_snapshots", [])
     return sorted([s for s in snapshots if s.get("ts")], key=lambda e: e.get("ts", ""))

@@ -37,7 +37,7 @@ def test_transition_returns_exact_previous_value_from_locked_state(tmp_path):
         source_revision=spec["provenance"]["revision"],
         value=200,
         observed_at=first_at,
-        source="dashboard_ocr",
+        source="event_shop_ocr",
         root=tmp_path,
     )
 
@@ -48,7 +48,7 @@ def test_transition_returns_exact_previous_value_from_locked_state(tmp_path):
         source_revision=spec["provenance"]["revision"],
         value=150,
         observed_at=second_at,
-        source="dashboard_ocr",
+        source="event_shop_ocr",
         root=tmp_path,
     )
 
@@ -68,7 +68,7 @@ def test_newer_pt_advances_global_observation_clock():
             "observed_at": base_at.isoformat(),
             "source": "event_shop_scanner",
             "current_pt": 100,
-            "current_pt_source": "dashboard_ocr",
+            "current_pt_source": "event_shop_ocr",
             "current_pt_observed_at": base_at.isoformat(),
             "current_pt_status": "observed",
         }
@@ -78,14 +78,14 @@ def test_newer_pt_advances_global_observation_clock():
         observation,
         value=150,
         timestamp=candidate_at.isoformat(),
-        source="dashboard_ocr",
+        source="event_shop_ocr",
     )
 
     assert accepted is True
     assert observation["current_pt"] == 150
     assert observation["current_pt_observed_at"] == candidate_at.isoformat()
     assert observation["observed_at"] == candidate_at.isoformat()
-    assert observation["source"] == "dashboard_ocr"
+    assert observation["source"] == "event_shop_ocr"
 
 
 def test_newer_pt_does_not_roll_back_newer_global_shop_clock():
@@ -100,7 +100,7 @@ def test_newer_pt_does_not_roll_back_newer_global_shop_clock():
             "observed_at": shop_at.isoformat(),
             "source": "event_shop_scanner",
             "current_pt": 100,
-            "current_pt_source": "dashboard_ocr",
+            "current_pt_source": "event_shop_ocr",
             "current_pt_observed_at": pt_at.isoformat(),
             "current_pt_status": "observed",
         }
@@ -110,7 +110,7 @@ def test_newer_pt_does_not_roll_back_newer_global_shop_clock():
         observation,
         value=150,
         timestamp=candidate_at.isoformat(),
-        source="dashboard_ocr",
+        source="event_shop_ocr",
     )
 
     assert accepted is True
@@ -148,7 +148,7 @@ def test_pt_and_shop_writers_share_one_read_modify_write_lock(monkeypatch, tmp_p
             source_revision=spec["provenance"]["revision"],
             value=200,
             observed_at=datetime.now(timezone.utc),
-            source="dashboard_ocr",
+            source="event_shop_ocr",
             root=tmp_path,
         )
 
@@ -187,6 +187,6 @@ def test_pt_and_shop_writers_share_one_read_modify_write_lock(monkeypatch, tmp_p
         root=tmp_path,
     )
     assert stored["current_pt"] == 200
-    assert stored["current_pt_source"] == "dashboard_ocr"
+    assert stored["current_pt_source"] == "event_shop_ocr"
     assert stored["shop_source"] == "event_shop_scanner"
     assert stored["shop_observed_at"]

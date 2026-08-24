@@ -24,6 +24,44 @@ jobs:
     name: Python
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    env:
+      CI_POSTGRES_ADMIN_USER: stage2_admin
+      CI_POSTGRES_ADMIN_PASSWORD: stage2-admin-${{ github.run_id }}-${{ github.run_attempt }}
+      CI_POSTGRES_OWNER_USER: azurpilot_ci_owner
+      CI_POSTGRES_MIGRATOR_USER: azurpilot_ci_migrator
+      CI_POSTGRES_MIGRATOR_PASSWORD: stage4-migrator-${{ github.run_id }}-${{ github.run_attempt }}
+      AZURPILOT_POSTGRES_HOST: 127.0.0.1
+      AZURPILOT_POSTGRES_PORT: "5432"
+      AZURPILOT_POSTGRES_DATABASE: azurpilot_ci
+      AZURPILOT_POSTGRES_USER: azurpilot_ci
+      AZURPILOT_POSTGRES_PASSWORD: stage2-app-${{ github.run_id }}-${{ github.run_attempt }}
+      AZURPILOT_POSTGRES_SSLMODE: disable
+      AZURPILOT_POSTGRES_MIGRATOR_HOST: 127.0.0.1
+      AZURPILOT_POSTGRES_MIGRATOR_PORT: "5432"
+      AZURPILOT_POSTGRES_MIGRATOR_DATABASE: azurpilot_ci
+      AZURPILOT_POSTGRES_MIGRATOR_USER: azurpilot_ci_migrator
+      AZURPILOT_POSTGRES_MIGRATOR_PASSWORD: stage4-migrator-${{ github.run_id }}-${{ github.run_attempt }}
+      AZURPILOT_POSTGRES_MIGRATOR_SSLMODE: disable
+      AZURPILOT_POSTGRES_DISPOSABLE: "1"
+      AZURPILOT_POSTGRES_DISPOSABLE_HOST: 127.0.0.1
+      AZURPILOT_POSTGRES_DISPOSABLE_PORT: "5432"
+      AZURPILOT_POSTGRES_DISPOSABLE_DATABASE: azurpilot_ci
+      AZURPILOT_POSTGRES_DISPOSABLE_USER: azurpilot_ci
+      AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE: azurpilot_ci_restore
+    services:
+      postgres:
+        image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
+        env:
+          POSTGRES_USER: stage2_admin
+          POSTGRES_PASSWORD: stage2-admin-${{ github.run_id }}-${{ github.run_attempt }}
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stage2_admin -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Получить exact head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -96,6 +134,138 @@ jobs:
             --log-file "${RUNNER_TEMP}/azurpilot-ci-python/uv-sync.log" \
             -- uv sync --locked --group ci
 
+      - name: Проверить PostgreSQL 18 и Alembic cycle
+        id: python_postgresql
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked python - <<'PY'
+          import os
+          import psycopg
+          from psycopg import sql
+
+          with psycopg.connect(
+              host=os.environ["AZURPILOT_POSTGRES_HOST"],
+              port=os.environ["AZURPILOT_POSTGRES_PORT"],
+              dbname="postgres",
+              user=os.environ["CI_POSTGRES_ADMIN_USER"],
+              password=os.environ["CI_POSTGRES_ADMIN_PASSWORD"],
+              autocommit=True,
+          ) as connection:
+              with connection.cursor() as cursor:
+                  cursor.execute(
+                      sql.SQL(
+                          "CREATE ROLE {} NOLOGIN NOSUPERUSER "
+                          "NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+                      ).format(
+                          sql.Identifier(os.environ["CI_POSTGRES_OWNER_USER"]),
+                      )
+                  )
+                  cursor.execute(
+                      sql.SQL(
+                          "CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER "
+                          "NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+                      ).format(
+                          sql.Identifier(os.environ["CI_POSTGRES_MIGRATOR_USER"]),
+                          sql.Literal(os.environ["CI_POSTGRES_MIGRATOR_PASSWORD"]),
+                      )
+                  )
+                  cursor.execute(
+                      sql.SQL("GRANT {} TO {}").format(
+                          sql.Identifier(os.environ["CI_POSTGRES_OWNER_USER"]),
+                          sql.Identifier(os.environ["CI_POSTGRES_MIGRATOR_USER"]),
+                      )
+                  )
+                  cursor.execute(
+                      sql.SQL(
+                          "CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER "
+                          "NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+                      ).format(
+                          sql.Identifier(os.environ["AZURPILOT_POSTGRES_USER"]),
+                          sql.Literal(os.environ["AZURPILOT_POSTGRES_PASSWORD"]),
+                      )
+                  )
+                  cursor.execute(
+                      sql.SQL("CREATE DATABASE {} OWNER {}").format(
+                          sql.Identifier(os.environ["AZURPILOT_POSTGRES_DATABASE"]),
+                          sql.Identifier(os.environ["CI_POSTGRES_OWNER_USER"]),
+                      )
+                  )
+                  cursor.execute(
+                      sql.SQL("CREATE DATABASE {} OWNER {}").format(
+                          sql.Identifier(
+                              os.environ[
+                                  "AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE"
+                              ]
+                          ),
+                          sql.Identifier(os.environ["CI_POSTGRES_OWNER_USER"]),
+                      )
+                  )
+          PY
+          mkdir -p "${RUNNER_TEMP}/azurpilot-ci-python"
+          export AZURPILOT_POSTGRES_USER="${CI_POSTGRES_MIGRATOR_USER}"
+          export AZURPILOT_POSTGRES_PASSWORD="${CI_POSTGRES_MIGRATOR_PASSWORD}"
+          export AZURPILOT_POSTGRES_DISPOSABLE_USER="${CI_POSTGRES_MIGRATOR_USER}"
+          export PGOPTIONS="-c role=${CI_POSTGRES_OWNER_USER}"
+          cycle_script="${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.sh"
+          cat > "$cycle_script" <<'SH'
+          set -euo pipefail
+          uv run --locked alembic upgrade head
+          uv run --locked alembic current --check-heads
+          uv run --locked alembic check
+          uv run --locked alembic downgrade base
+          uv run --locked alembic upgrade head
+          uv run --locked alembic current --check-heads
+          uv run --locked alembic check
+          SH
+          python tools/ci_heartbeat.py \
+            --label "Полный Alembic cycle" \
+            --heartbeat-seconds 0 \
+            --log-file "${RUNNER_TEMP}/azurpilot-ci-python/alembic-cycle.log" \
+            -- bash "$cycle_script"
+          unset PGOPTIONS
+          export AZURPILOT_POSTGRES_USER="azurpilot_ci"
+          export AZURPILOT_POSTGRES_PASSWORD="stage2-app-${{ github.run_id }}-${{ github.run_attempt }}"
+          export AZURPILOT_POSTGRES_DISPOSABLE_USER="azurpilot_ci"
+          uv run --locked python - <<'PY'
+          import os
+          import psycopg
+          from psycopg import sql
+
+          with psycopg.connect(
+              host=os.environ["AZURPILOT_POSTGRES_HOST"],
+              port=os.environ["AZURPILOT_POSTGRES_PORT"],
+              dbname=os.environ["AZURPILOT_POSTGRES_DATABASE"],
+              user=os.environ["CI_POSTGRES_ADMIN_USER"],
+              password=os.environ["CI_POSTGRES_ADMIN_PASSWORD"],
+              autocommit=True,
+          ) as connection:
+              with connection.cursor() as cursor:
+                  app = sql.Identifier(os.environ["AZURPILOT_POSTGRES_USER"])
+                  owner = sql.Identifier(os.environ["CI_POSTGRES_OWNER_USER"])
+                  cursor.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+                      sql.Identifier(os.environ["AZURPILOT_POSTGRES_DATABASE"]), app
+                  ))
+                  cursor.execute(sql.SQL("GRANT USAGE ON SCHEMA azurpilot TO {}").format(app))
+                  cursor.execute(sql.SQL("GRANT SELECT ON TABLE alembic_version TO {}").format(app))
+                  cursor.execute(sql.SQL(
+                      "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA azurpilot TO {}"
+                  ).format(app))
+                  cursor.execute(sql.SQL(
+                      "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA azurpilot TO {}"
+                  ).format(app))
+                  cursor.execute(sql.SQL("SET ROLE {}").format(owner))
+                  cursor.execute(sql.SQL(
+                      "ALTER DEFAULT PRIVILEGES IN SCHEMA azurpilot "
+                      "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {}"
+                  ).format(app))
+                  cursor.execute(sql.SQL(
+                      "ALTER DEFAULT PRIVILEGES IN SCHEMA azurpilot "
+                      "GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {}"
+                  ).format(app))
+          PY
+
       - name: Проверить Ruff
         id: python_ruff
         timeout-minutes: 5
@@ -149,6 +319,8 @@ jobs:
       - name: Запустить полный pytest
         id: python_pytest
         timeout-minutes: 25
+        env:
+          AZURPILOT_PYTEST_PARALLEL: "0"
         shell: bash
         run: |
           set -euo pipefail
@@ -162,6 +334,122 @@ jobs:
               -q \
               --junitxml="${artifact_dir}/pytest.xml" \
               tests
+
+      - name: Проверить migration importer и dump/restore
+        id: python_migration_rehearsal
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          dump_dir="${RUNNER_TEMP}/azurpilot-stage3-dump"
+          dump_path="${dump_dir}/stage3-migration.dump"
+          mkdir -p "$dump_dir"
+          trap 'rm -f -- "$dump_path"; rmdir -- "$dump_dir" 2>/dev/null || true' EXIT
+          export PGPASSWORD="${AZURPILOT_POSTGRES_PASSWORD}"
+          uv run --locked python -m pytest -q tests/test_postgresql_migration.py
+          docker run --rm --network host \
+            -e PGPASSWORD \
+            -v "${dump_dir}:/evidence" \
+            postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941 \
+            pg_dump \
+              --host 127.0.0.1 \
+              --port 5432 \
+              --username "${AZURPILOT_POSTGRES_USER}" \
+              --format custom \
+              --no-owner \
+              --no-acl \
+              --file /evidence/stage3-migration.dump \
+              "${AZURPILOT_POSTGRES_DATABASE}"
+          docker run --rm \
+            -v "${dump_dir}:/evidence:ro" \
+            postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941 \
+            pg_restore --list /evidence/stage3-migration.dump >/dev/null
+          export PGPASSWORD="${CI_POSTGRES_MIGRATOR_PASSWORD}"
+          export PGOPTIONS="-c role=${CI_POSTGRES_OWNER_USER}"
+          docker run --rm --network host \
+            -e PGPASSWORD \
+            -e PGOPTIONS \
+            -v "${dump_dir}:/evidence:ro" \
+            postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941 \
+            pg_restore \
+              --host 127.0.0.1 \
+              --port 5432 \
+              --username "${CI_POSTGRES_MIGRATOR_USER}" \
+              --exit-on-error \
+              --no-owner \
+              --no-acl \
+              --dbname "${AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE}" \
+              /evidence/stage3-migration.dump
+          unset PGOPTIONS
+          export PGPASSWORD="${AZURPILOT_POSTGRES_PASSWORD}"
+          uv run --locked python - <<'PY'
+          import os
+          import psycopg
+          from psycopg import sql
+
+          with psycopg.connect(
+              host=os.environ["AZURPILOT_POSTGRES_HOST"],
+              port=os.environ["AZURPILOT_POSTGRES_PORT"],
+              dbname=os.environ["AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE"],
+              user=os.environ["CI_POSTGRES_ADMIN_USER"],
+              password=os.environ["CI_POSTGRES_ADMIN_PASSWORD"],
+              autocommit=True,
+          ) as connection:
+              with connection.cursor() as cursor:
+                  app = sql.Identifier(os.environ["AZURPILOT_POSTGRES_USER"])
+                  cursor.execute(sql.SQL("GRANT USAGE ON SCHEMA azurpilot TO {}").format(app))
+                  cursor.execute(sql.SQL("GRANT SELECT ON TABLE alembic_version TO {}").format(app))
+                  cursor.execute(sql.SQL(
+                      "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA azurpilot TO {}"
+                  ).format(app))
+          PY
+          uv run --locked python - <<'PY'
+          import os
+          from dataclasses import replace
+
+          from sqlalchemy import func, select, text
+
+          from module.persistence import DatabaseSettings, LazyEngine
+          from module.persistence.schema import import_record, metadata
+
+          settings = DatabaseSettings.from_environment()
+          restored_settings = replace(
+              settings,
+              database=os.environ[
+                  "AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE"
+              ],
+          )
+          primary = LazyEngine(settings)
+          restored = LazyEngine(restored_settings)
+          try:
+              def projection(engine):
+                  with engine.get().connect() as connection:
+                      head = connection.execute(
+                          text("SELECT version_num FROM alembic_version")
+                      ).scalar_one()
+                      counts = tuple(
+                          (table.name, connection.execute(
+                              select(func.count()).select_from(table)
+                          ).scalar_one())
+                          for table in metadata.sorted_tables
+                      )
+                      ledger = tuple(connection.execute(
+                          select(
+                              import_record.c.disposition,
+                              import_record.c.payload_digest,
+                          ).order_by(
+                              import_record.c.disposition,
+                              import_record.c.payload_digest,
+                          )
+                      ))
+                  return head, counts, ledger
+
+              if projection(primary) != projection(restored):
+                  raise SystemExit("Dump/restore semantic projection mismatch.")
+          finally:
+              primary.dispose()
+              restored.dispose()
+          PY
 
       - name: Проверить генератор assets
         id: python_assets
@@ -243,6 +531,16 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
+      - name: Проверить PowerShell 7.6.x
+        shell: pwsh
+        run: |
+          if (
+              $PSVersionTable.PSVersion.Major -ne 7 -or
+              $PSVersionTable.PSVersion.Minor -ne 6
+          ) {
+              throw ('Требуется PowerShell 7.6.x, получена версия {0}.' -f $PSVersionTable.PSVersion)
+          }
+
       - name: Получить exact head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         timeout-minutes: 10
@@ -559,12 +857,52 @@ jobs:
               'tests.test_powershell_contracts'
               'tests.test_deploy_set'
               'tests.test_webui_deploy_settings'
+              'tests.test_persistence_contracts'
           )
           & $pythonExecutable @runnerArguments
           $runnerExitCode = $LASTEXITCODE
 
           if ($runnerExitCode -ne 0) {
               throw ('Windows-регрессии завершились с кодом {0}.' -f $runnerExitCode)
+          }
+
+          $pwshCommand = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
+          $robocopyCommand = Get-Command robocopy -CommandType Application -ErrorAction Stop | Select-Object -First 1
+          $tarCommand = Get-Command tar -CommandType Application -ErrorAction Stop | Select-Object -First 1
+          $updaterTest = Join-Path -Path $PWD -ChildPath 'tests/powershell/Test-Update-AzurPilot.ps1'
+          $updater = Join-Path -Path $PWD -ChildPath 'scripts/Update-AzurPilot.ps1'
+          $projectPython = Join-Path -Path $PWD -ChildPath '.venv/Scripts/python.exe'
+          $updaterLog = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/updater-regressions.log'
+          $runnerArguments = @(
+              $runnerPath
+              '--label'
+              'Изолированные регрессии Update-AzurPilot'
+              '--heartbeat-seconds'
+              '60'
+              '--log-file'
+              $updaterLog
+              '--'
+              $pwshCommand.Path
+              '-NoLogo'
+              '-NoProfile'
+              '-File'
+              $updaterTest
+              '-UpdaterPath'
+              $updater
+              '-UvExecutablePath'
+              $uvExecutable
+              '-PythonExecutablePath'
+              $projectPython
+              '-RobocopyExecutablePath'
+              $robocopyCommand.Path
+              '-TarExecutablePath'
+              $tarCommand.Path
+          )
+          & $pythonExecutable @runnerArguments
+          $runnerExitCode = $LASTEXITCODE
+
+          if ($runnerExitCode -ne 0) {
+              throw ('Изолированные регрессии Update-AzurPilot завершились с кодом {0}.' -f $runnerExitCode)
           }
 
       - name: Проверить чистоту рабочего дерева
@@ -933,7 +1271,13 @@ jobs:
               tests.test_ocr_rpc_security \
               tests.test_ocr_rpc_runtime \
               tests.test_ocr_acceptance \
-              tests.test_opsi_zone_ocr_acceptance
+              tests.test_opsi_zone_ocr_acceptance \
+              tests.test_persistence_contracts
+          uv run --locked python -m pytest -q \
+            tests/test_postgresql_security.py \
+            tests/test_postgresql_runtime_contracts.py \
+            tests/test_postgresql_runtime_commands.py \
+            tests/test_postgresql_cutover.py
 
       - name: Установить закреплённый browser runner
         id: security_browser_install

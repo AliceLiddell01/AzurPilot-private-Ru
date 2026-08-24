@@ -11,6 +11,7 @@ import typing as t
 from datetime import timedelta
 
 import module.config.server as server
+from module.application.errors import StorageError
 from module.base.timer import Timer
 from module.config.config import Function
 from module.config.time_source import now as current_time
@@ -177,14 +178,17 @@ class OSStatus(UI):
         try:
             instance_name = getattr(self.config, 'config_name', 'default')
             source = 'cl1' if self.is_running_cl1_leveling else ('meow' if self.is_in_task_meow else 'other')
-            from module.statistics.cl1_database import db as cl1_db
-            cl1_db.add_coins_snapshot(
+            from module.application.runtime_storage import get_runtime_storage
+
+            get_runtime_storage().record_coins_snapshot(
                 instance_name,
                 self._shop_yellow_coins,
-                self._shop_purple_coins,
-                source=source
+                purple_coins=self._shop_purple_coins,
+                source=source,
             )
             # LogRes 已将值写入 config.modified，在此持久化
             self.config.save()
+        except StorageError:
+            raise
         except Exception:
             logger.exception('[Операция «Сирена» — состояние] Не удалось записать снимок ваучеров')

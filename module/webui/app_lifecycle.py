@@ -1,4 +1,4 @@
-"""WebUIASGI生命周期管理"""
+"""Управление жизненным циклом ASGI-приложения WebUI."""
 
 from module.webui.app_dependencies import (
     ProcessManager,
@@ -20,7 +20,7 @@ from module.webui.app_helpers import (
 
 
 def _clearup_step(name, handler) -> bool:
-    """执行单项清理；一项失败不应阻断其余资源回收。"""
+    """Выполнить один шаг очистки, не блокируя освобождение остальных ресурсов."""
     try:
         return handler() is not False
     except Exception as exc:
@@ -37,7 +37,10 @@ def _clearup_step(name, handler) -> bool:
 def startup() -> None:
     """Инициализировать WebUI после явной миграции UI locale."""
     from deploy.language_migration import migrate_deploy_language
+    from module.persistence.runtime import bootstrap_runtime_storage
 
+    bootstrap_runtime_storage(require_ready=True)
+    logger.info("[WebUI] PostgreSQL готов к работе")
     result = migrate_deploy_language()
     if result.changed:
         logger.info("[WebUI] Старое значение Language безопасно изменено на ru-RU")
@@ -55,7 +58,7 @@ def startup() -> None:
 
 
 def clearup() -> bool:
-    """停止 WebUI 进程级资源，避免热重载遗留子进程。"""
+    """Остановить ресурсы процесса WebUI без утечек при горячей перезагрузке."""
     with State.cleanup_lock:
         if State._clearup:
             return True

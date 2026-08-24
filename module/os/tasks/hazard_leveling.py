@@ -12,6 +12,7 @@
 
 from datetime import timedelta
 
+from module.application.errors import StorageError
 from module.base.timer import Timer
 from module.config.time_source import now as current_time
 from module.equipment.assets import EQUIPMENT_OPEN
@@ -733,7 +734,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
 
             logger.info("[Операция «Сирена» — прокачка в зоне коррозии 1] Чтение текущей валюты")
             yellow_coins = self.get_yellow_coins()
-            from module.statistics.cl1_database import db as cl1_db
+            from module.application.runtime_storage import get_runtime_storage
             from module.statistics.opsi_month import get_coins_timeline
             instance_name = getattr(self.config, 'config_name', 'default')
             # 从 DB 查找上次已知紫币值（商店写入），保持图表连续
@@ -744,12 +745,22 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
                     if "purple_coins" in pt and pt["purple_coins"] > 0:
                         purple_coins_val = int(pt["purple_coins"])
                         break
+            except StorageError:
+                raise
             except Exception:
-                pass
-            cl1_db.async_add_coins_snapshot(
-                instance_name, yellow_coins, purple_coins=purple_coins_val, source='hazard1'
+                logger.warning(
+                    '[Операция «Сирена» — прокачка в зоне коррозии 1] '
+                    'Не удалось прочитать последнее значение фиолетовых монет'
+                )
+            get_runtime_storage().record_coins_snapshot(
+                instance_name,
+                yellow_coins,
+                purple_coins=purple_coins_val,
+                source='hazard1',
             )
             self.config.save()
+        except StorageError:
+            raise
         except Exception as e:
             logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Ошибка записи очков действия или валюты: {e}")
 

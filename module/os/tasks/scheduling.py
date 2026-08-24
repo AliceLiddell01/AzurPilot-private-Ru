@@ -27,6 +27,7 @@ OpsiScheduling - 智能调度+模块
 import re
 from datetime import timedelta
 
+from module.application.errors import StorageError
 from module.config.config import Function, name_to_function
 from module.config.deep import deep_get
 from module.config.time_source import now as current_time
@@ -371,10 +372,13 @@ class CoinTaskMixin:
         # AP 快照由各任务模块自行管理（如 _record_ap_and_coins），此处仅保留推送逻辑。
         previous_ap = None
         try:
-            from module.statistics.cl1_database import db as cl1_db
-            last_notification = cl1_db.get_last_ap_notification(instance_name)
-            if isinstance(last_notification, dict):
-                previous_ap = last_notification.get('ap')
+            from module.application.runtime_storage import get_runtime_storage
+
+            last_notification = get_runtime_storage().get_ap_notification(instance_name)
+            if last_notification is not None:
+                previous_ap = last_notification.last_ap
+        except StorageError:
+            raise
         except Exception:
             logger.exception('Не удалось загрузить последнее уведомление об AP')
 
@@ -393,14 +397,17 @@ class CoinTaskMixin:
             return
 
         pushed = self.notify_push(
-            title="[AzurPilot] 行动力出现变化！",
+            title="[AzurPilot] Изменились очки действия!",
             content=content
         )
         if pushed:
             self._mark_ap_notification_sent('_last_ap_notification_time')
             try:
-                from module.statistics.cl1_database import db as cl1_db
-                cl1_db.async_set_last_ap_notification(instance_name, total_ap)
+                from module.application.runtime_storage import get_runtime_storage
+
+                get_runtime_storage().set_ap_notification(instance_name, total_ap)
+            except StorageError:
+                raise
             except Exception:
                 logger.exception('Не удалось сохранить последнее уведомление об AP')
 

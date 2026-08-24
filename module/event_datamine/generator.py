@@ -80,16 +80,6 @@ def _matrix(value: tuple[tuple[str, ...], ...]) -> list[str]:
     return ["    " + " ".join(row) for row in value]
 
 
-def _has_grid_token(spec: MapSpec, token: str) -> bool:
-    matrices = (spec.map_data, spec.map_data_loop or ())
-    return any(
-        item == token
-        for matrix in matrices
-        for row in matrix
-        for item in row
-    )
-
-
 def _has_spawn_kind(spec: MapSpec, kind: str) -> bool:
     """Определить сущность по структурным данным появления, а не по CV-шаблонам."""
 
@@ -141,6 +131,14 @@ def _validate_runtime_contract(spec: MapSpec, policy: MapRuntimePolicy) -> None:
         if not (0 <= x <= max_x and 0 <= y <= max_y):
             raise ValueError(
                 f"Runtime camera node {node!r} карты {spec.id} находится вне shape {spec.shape}"
+            )
+
+    for prediction_ignore in policy.prediction_ignores:
+        x, y = node2location(prediction_ignore.node)
+        if not (0 <= x <= max_x and 0 <= y <= max_y):
+            raise ValueError(
+                f"Runtime prediction_ignore node {prediction_ignore.node!r} карты {spec.id} "
+                f"находится вне shape {spec.shape}"
             )
 
     battle_plan = policy.battle_plan
@@ -254,6 +252,11 @@ def generate_map_module(
         lines.append(
             f"MAP.spawn_data_loop = {list(spec.spawn_data_loop)!r}"
         )
+    for prediction_ignore in runtime_policy.prediction_ignores:
+        lines.append(
+            f"MAP.ignore_prediction({prediction_ignore.node!r}, "
+            f"**{prediction_ignore.match_dict()!r})"
+        )
     lines.extend(
         [
             "",
@@ -276,8 +279,6 @@ def generate_map_module(
     }
     for key, value in factual.items():
         lines.append(f"    {key} = {value!r}")
-    if _has_grid_token(spec, "Me"):
-        lines.append("    MAP_HAS_MOVABLE_NORMAL_ENEMY = True")
     if spec.movable_enemy_turns:
         lines.append(
             f"    MOVABLE_ENEMY_TURN = {tuple(spec.movable_enemy_turns)!r}"

@@ -48,7 +48,7 @@ class WebUiDeploySettingsTests(unittest.TestCase):
 
     def test_startup_run_save_only_patches_run(self):
         with patch(
-            'module.webui.deploy_settings.alas_instance',
+            'module.webui.deploy_settings.discover_profile_names',
             return_value=['alpha'],
         ):
             result = deploy_settings.set_startup_run('alpha', True)

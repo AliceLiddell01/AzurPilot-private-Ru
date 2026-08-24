@@ -3,6 +3,7 @@
 以及各功能到对应子模块的映射配置。"""
 
 import os
+import threading
 
 MOD_DICT = {
     'maa': 'AlasMaaBridge',
@@ -15,6 +16,20 @@ MOD_FUNC_DICT = {
     'FpyCall': 'fpy',
 }
 MOD_CONFIG_DICT = {}
+_MOD_CONFIG_LOCK = threading.RLock()
+
+
+def refresh_mod_config_registry(profiles):
+    """Атомарно обновить registry распознанных mod-профилей."""
+    mapping = {
+        profile.name: profile.mod_name
+        for profile in profiles
+        if profile.mod_name != 'alas'
+    }
+    with _MOD_CONFIG_LOCK:
+        MOD_CONFIG_DICT.clear()
+        MOD_CONFIG_DICT.update(mapping)
+    return mapping
 
 
 def get_available_func():
@@ -68,18 +83,10 @@ def list_mod_template():
 
 
 def list_mod_instance():
-    global MOD_CONFIG_DICT
-    MOD_CONFIG_DICT.clear()
-    out = []
-    for file in os.listdir('./config'):
-        name, extension = os.path.splitext(file)
-        config_name, mod_name = os.path.splitext(name)
-        mod_name = mod_name[1:]
-        if config_name != 'template' and extension == '.json' and mod_name != '':
-            out.append(config_name)
-            MOD_CONFIG_DICT[config_name] = mod_name
+    from module.config.profile import discover_profile_configs
 
-    return out
+    profiles = discover_profile_configs('./config')
+    return list(refresh_mod_config_registry(profiles))
 
 
 def get_config_mod(config_name):
@@ -89,7 +96,5 @@ def get_config_mod(config_name):
     """
     if config_name.startswith('template-'):
         return config_name.replace('template-', '')
-    try:
-        return MOD_CONFIG_DICT[config_name]
-    except KeyError:
-        return 'alas'
+    with _MOD_CONFIG_LOCK:
+        return MOD_CONFIG_DICT.get(config_name, 'alas')

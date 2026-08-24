@@ -2,17 +2,23 @@
 
 ## Нулевая проверка
 
-До обещания результата зафиксировать доступность:
+До изменения файлов выполнить только дешёвый минимальный preflight:
 
-- чтения/записи репозитория;
-- веток, commits и PR;
-- Python и `uv`;
-- `pwsh` и PowerShell Parser;
-- PSScriptAnalyzer;
-- tests/lint/build;
-- Windows/GUI/emulator/game smoke.
+- подтвердить репозиторий, целевую ветку и base SHA;
+- убедиться, что рабочая среда изолирована и пользовательские изменения не будут затронуты;
+- проверить инструменты, без которых нельзя начать именно эту задачу.
 
-Недоступность одного инструмента не отменяет остальные проверки. Если недоступен обязательный для задачи gate, результат получает статус `blocked`: Codex не выдаёт непроверенный артефакт как готовый и не передаёт запуск пользователю.
+Остальные capabilities проверяются **лениво, непосредственно перед первым gate, которому они нужны**:
+
+- GitHub push/PR/checks/merge — перед соответствующей GitHub-операцией;
+- PowerShell Parser/PSScriptAnalyzer — перед проверкой затронутого PowerShell;
+- secret/security scanner — перед соответствующим verification checkpoint;
+- browser/GUI/emulator/game — только если изменение реально требует такого acceptance;
+- production/network capabilities — только перед production/network gate.
+
+Не тратить начало задачи на доказательство доступности будущих инструментов, которые могут вообще не понадобиться. Если обязательный gate оказался недоступен в момент, когда он действительно нужен, результат получает статус `blocked`: Codex не выдаёт непроверенный артефакт как готовый и не перекладывает рутинный запуск на пользователя.
+
+Постоянная проблема среды должна устраняться в bootstrap/setup или canonical project runner, а не диагностироваться заново в каждой feature-задаче. Не устанавливать и не перенастраивать глобальные инструменты «на всякий случай».
 
 ## Постоянный CI
 
@@ -23,6 +29,8 @@
 - `Security`.
 
 Исторические номера этапов, committed evidence, stage-specific baselines и временные migration gates не являются постоянными quality gates. Подробный фактический контракт, локальные эквиваленты и правила изменения CI находятся в `docs/ci.md`.
+
+Локально использовать именно repository-defined команды/runner из `docs/ci.md`; не реконструировать CI environment вручную, если проект уже предоставляет канонический способ запуска.
 
 ## Режимы
 
@@ -36,7 +44,7 @@
 - минимальный diff;
 - format/syntax;
 - итоговый diff;
-- secret scan.
+- secret scan перед публикацией изменения.
 
 ### Стандартный
 
@@ -44,10 +52,11 @@
 
 Дополнительно:
 
-- проследить вызовы;
+- проследить релевантные вызовы;
 - проверить аналогичную реализацию;
 - запустить точечные tests;
-- проверить сквозное поведение в разумной границе.
+- проверить сквозное поведение в разумной границе;
+- выполнить Codex self-review итогового diff до внешнего review checkpoint.
 
 ### Расширенный
 
@@ -58,21 +67,40 @@
 - Python/dependencies/uv.lock;
 - device/input/OCR/combat/Operation Siren;
 - MCP/security/privacy;
+- production/data migration;
 - нескольких подсистем.
 
-Требует архитектурного анализа, полного релевантного набора проверок и явных рисков.
+Требует архитектурного анализа, полного релевантного набора проверок, Codex self-review, промежуточных external-review checkpoints на завершённых рискованных слоях и явных рисков.
+
+## Review checkpoints
+
+Внешнее ревью не откладывается обязательно до самого конца и не запускается после каждого мелкого исправления.
+
+Для стандартной/расширенной задачи:
+
+1. Codex завершает логически цельный слой реализации.
+2. Запускает релевантные targeted checks.
+3. Перечитывает base→head diff как незнакомое изменение и выполняет adversarial self-review.
+4. Если завершён существенный или рискованный слой — запускает внешний review checkpoint.
+5. Исправления после внешнего finding проходят self-review и targeted checks.
+6. Новый внешний review нужен, если после прошлого checkpoint появился существенный новый code diff, изменился контракт/архитектура/безопасность или предыдущий reviewer явно требует повторной проверки.
+7. Незначительные правки документации, тестовых ожиданий или механические fixes сами по себе не запускают полный внешний review заново.
+
+Если обязательный внешний reviewer упёрся в rate limit/cooldown, **не ждать cooldown внутри активного прогона**. Сохранить состояние и завершить текущий прогон как ожидающий review; продолжение выполняется новым прогоном после доступности reviewer.
 
 ## Типовая матрица
 
 ### Python
 
-- `uv lock --check` и `uv sync --locked --group ci` для постоянного CI;
+- `uv lock --check` и repository-defined locked sync для постоянного CI;
 - compile/import затронутого модуля;
 - существующий ruff-профиль;
-- точечные tests;
-- полный связанный набор;
+- точечные tests во время реализации;
+- полный связанный набор один раз перед PR/финальным checkpoint, если после него не было существенного code diff;
 - generator check;
 - чистое рабочее дерево после генераторов.
+
+Не повторять полный suite после каждого небольшого fix, если targeted checks покрывают изменённую область. После PR не дублировать локально тот же полный CI без причины: доверять exact-head required checks, а локальный повтор делать при диагностике падения или существенном post-CI изменении.
 
 ### Конфигурация
 
@@ -105,11 +133,11 @@
 
 ### PowerShell
 
-- Parser через фактический `pwsh` для всех tracked `.ps1` и `.psm1`;
+- Parser через фактический `pwsh` для tracked затронутых `.ps1`/`.psm1` и для полного набора, если этого требует CI;
 - PSScriptAnalyzer зафиксированной версии как обязательный gate;
 - статический аудит правил;
-- disposable smoke для Git refs/branches/files;
-- идемпотентный повторный запуск.
+- disposable smoke для изменённой Git-логики;
+- идемпотентный повторный запуск там, где идемпотентность является контрактом.
 
 ### WebUI
 
@@ -120,9 +148,23 @@
 - автоматизированная DOM/security-проверка через browser runner;
 - visual acceptance только если она обязательна для конкретного изменения и доступна безопасная среда.
 
+### Production PostgreSQL
+
+- PostgreSQL 18, exact Alembic head и authenticated app health;
+- application service/repository integration и atomic concurrency;
+- marker absent/corrupt/sqlite и outage fail-closed без fallback;
+- create-only migration валидного marker в `config/state/`, rejection повреждённого legacy marker и отсутствие runtime-state JSON в profile discovery;
+- `.env`/passfile contract, distinct app/migrator secrets и old-credential negative auth;
+- app DML положительно, DDL/role/database отрицательно;
+- Start/Update/Repair/Build ownership и PowerShell gates;
+- final import, repeat zero-delta, dump/list, scratch restore и reconciliation;
+- после canary legacy `.db` и canonical CSV не создаются повторно.
+
+Production/network acceptance выполняется после реализации и локальной верификации, а не как общий preflight каждой задачи.
+
 ## Secret scan
 
-Перед commit и PR:
+Перед commit/PR и перед merge, если после последнего scan менялся relevant diff:
 
 - staged/final diff;
 - новые архивы и binaries;
@@ -130,23 +172,26 @@
 - API tokens, webhooks, credentials, cookies;
 - device/user identifiers.
 
-Перед commit и merge обязателен фактически запущенный secret scanner. Ручной паттерн-аудит может быть только дополнительной проверкой и не заменяет обязательный scanner. Если scanner недоступен, задача блокируется.
+Обязателен фактически запущенный secret scanner. Ручной паттерн-аудит может быть только дополнительной проверкой и не заменяет scanner. Если scanner недоступен в момент обязательного gate, задача блокируется.
 
 Постоянный job `Security` проверяет текущие исходники и релевантный диапазон коммитов PR. Диагностика должна редактировать секреты и загружаться только при падении.
 
 ## Definition of Done
 
-- правильная ветка и базовый SHA;
+- правильная ветка и base SHA;
 - минимальный связный diff;
 - архитектурные границы соблюдены;
 - generated-файлы согласованы;
+- все **релевантные** локальные gates выполнены;
 - required checks `Python`, `Windows`, `Security` зелёные на exact head;
 - на exact head отсутствуют старые параллельные Stage/evidence workflow;
-- упавшие проверки исправлены и повторены в пределах установленного бюджета;
-- secret scan выполнен;
-- независимый reviewer pass завершён;
-- security review завершён;
-- открытые review threads отсутствуют;
+- упавшие проверки исправлены и повторены в затронутой области;
+- полный suite не повторялся без существенного изменения или диагностической причины;
+- secret scan выполнен на финальном relevant diff;
+- Codex adversarial self-review завершён;
+- внешний reviewer прошёл необходимые milestone/final checkpoints;
+- security review завершён в требуемом объёме;
+- открытые blocking review threads отсутствуют;
 - документация обновлена;
 - post-merge verification завершён для слитой задачи;
 - ограничения перечислены;

@@ -26,6 +26,7 @@ from module.config.utils import DEFAULT_CONFIG_NAME, alas_instance
 from module.webui.process_manager import ProcessManager
 from module.config.mcp_helper import McpConfigHelper
 from module.webui.setting import State
+from module.persistence.runtime import bootstrap_runtime_storage
 
 try:
     from module.webui.fake_pil_module import remove_fake_pil_module
@@ -541,8 +542,15 @@ async def mcp_asgi_app(scope, receive, send):
         else:
             await _send_not_found(send)
 
-# Starlette 应用包装
+def _startup_storage() -> None:
+    """Проверить production-хранилище до приёма MCP-запросов."""
+    bootstrap_runtime_storage(require_ready=True)
+    logger.info("[MCP] PostgreSQL готов к работе")
+
+
+# Обёртка приложения Starlette.
 app = Starlette(
+    on_startup=[_startup_storage],
     middleware=[
         Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     ]

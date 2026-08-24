@@ -27,6 +27,7 @@ from module.webui.app_dependencies import (
 from module.webui.app_types import WebUIMixinBase
 from module.webui.event_assets import event_asset_url
 from module.webui.event_shop_priority import (
+    event_shop_target_capacity,
     load_event_shop_priority,
     set_event_shop_priority,
 )
@@ -62,7 +63,25 @@ class EventShopV2Mixin(WebUIMixinBase):
         return _shop_presentation_names().get(source, source)
 
     @staticmethod
+    def _event_shop_available(
+        item: Mapping[str, Any],
+        priority_state: Mapping[str, Any],
+    ) -> int:
+        """Вернуть доказанный остаток товара по приоритетному состоянию."""
+        row_id = str(item.get("id") or "")
+        stock = max(int(item.get("stock", 0) or 0), 0)
+        if row_id in set(priority_state.get("purchased") or []):
+            return 0
+        if isinstance(item.get("remaining"), int):
+            return min(max(int(item["remaining"]), 0), stock)
+        remembered_remaining = dict(priority_state.get("remaining") or {})
+        if row_id in remembered_remaining:
+            return min(max(int(remembered_remaining[row_id]), 0), stock)
+        return stock
+
+    @classmethod
     def _event_shop_target_remaining(
+        cls,
         item: Mapping[str, Any],
         priority_state: Mapping[str, Any],
     ) -> int:
@@ -71,17 +90,8 @@ class EventShopV2Mixin(WebUIMixinBase):
         stock = max(int(item.get("stock", 0) or 0), 0)
         priorities = set(priority_state.get("priorities") or {})
         purchased = set(priority_state.get("purchased") or [])
-        remembered_remaining = dict(priority_state.get("remaining") or {})
         target_baselines = dict(priority_state.get("target_baselines") or {})
-
-        if row_id in purchased:
-            available = 0
-        elif isinstance(item.get("remaining"), int):
-            available = min(max(int(item["remaining"]), 0), stock)
-        elif row_id in remembered_remaining:
-            available = min(max(int(remembered_remaining[row_id]), 0), stock)
-        else:
-            available = stock
+        available = cls._event_shop_available(item, priority_state)
 
         selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
         if row_id not in priorities and row_id not in purchased:
@@ -95,6 +105,27 @@ class EventShopV2Mixin(WebUIMixinBase):
         selected = min(selected, baseline)
         bought_for_goal = max(baseline - available, 0)
         return max(selected - bought_for_goal, 0)
+
+    @classmethod
+    def _event_shop_target_bought(
+        cls,
+        item: Mapping[str, Any],
+        priority_state: Mapping[str, Any],
+    ) -> int:
+        """Вернуть доказанное число покупок в текущем эпизоде цели."""
+        row_id = str(item.get("id") or "")
+        stock = max(int(item.get("stock", 0) or 0), 0)
+        target_baselines = dict(priority_state.get("target_baselines") or {})
+        available = cls._event_shop_available(item, priority_state)
+
+        if row_id in target_baselines:
+            baseline = min(max(int(target_baselines[row_id]), 0), stock)
+            baseline = max(baseline, available)
+            return max(baseline - available, 0)
+
+        selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
+        remaining = cls._event_shop_target_remaining(item, priority_state)
+        return max(selected - remaining, 0)
 
     @classmethod
     def _event_shop_priority_metrics(
@@ -219,17 +250,40 @@ class EventShopV2Mixin(WebUIMixinBase):
         state = load_event_shop_priority(self.alas_name, event_id)
         metrics = self._event_shop_priority_metrics(plan, state)
         live_key = self._shop_item_dom_key(identity)
+        capacity = event_shop_target_capacity(item, state)
         remaining_target = self._event_shop_target_remaining(item, state)
+        selected = max(int(snapshot["selected"]), 0)
+        active_target_episode = (
+            str(item.get("id") or "")
+            in dict(state.get("target_baselines") or {})
+            and selected > 0
+        )
+        target_label = (
+            "Цель эпизода" if active_target_episode else "Цель покупки"
+        )
+        bought_for_target = self._event_shop_target_bought(item, state)
         self._run_event_shop_dom_patch(
             {
                 "values": [
                     {
                         "id": f"event-shop-selected-{live_key}",
-                        "value": self._fmt(snapshot["selected"]),
+                        "value": self._fmt(selected),
                     },
                     {
                         "id": f"event-shop-cost-{live_key}",
                         "value": self._fmt(snapshot["cost"]),
+                    },
+                    {
+                        "id": f"event-shop-capacity-{live_key}",
+                        "value": self._fmt(capacity) if capacity is not None else "—",
+                    },
+                    {
+                        "id": f"event-shop-target-label-{live_key}",
+                        "value": target_label,
+                    },
+                    {
+                        "id": f"event-shop-target-bought-{live_key}",
+                        "value": self._fmt(bought_for_target),
                     },
                     {
                         "id": f"event-shop-target-left-{live_key}",
@@ -404,7 +458,7 @@ class EventShopV2Mixin(WebUIMixinBase):
         priorities = dict(priority_state.get("priorities") or {})
         purchased = set(priority_state.get("purchased") or [])
         completed = set(priority_state.get("completed") or [])
-        remembered_remaining = dict(priority_state.get("remaining") or {})
+        target_baselines = dict(priority_state.get("target_baselines") or {})
         blocked = dict(priority_state.get("blocked") or {})
         shop_items = [
             item
@@ -445,7 +499,7 @@ class EventShopV2Mixin(WebUIMixinBase):
   </div>
 </section>
 <div class="event-shop-priority-help">
-  <strong>Цель</strong> задаёт, сколько единиц товара купить. <strong>Приоритет</strong> задаёт порядок: 0 выше 1, 1 выше 2. Для автоматической покупки должны быть заданы и цель больше 0, и приоритет.
+  <strong>Цель</strong> задаёт размер эпизода покупки. Для активной цели исходный предел сохраняется, а поле «Осталось купить» показывает её фактически невыполненную часть. <strong>Приоритет</strong> задаёт порядок: 0 выше 1, 1 выше 2. Для автоматической покупки должны быть заданы и цель больше 0, и приоритет.
 </div>
 """
         )
@@ -460,20 +514,18 @@ class EventShopV2Mixin(WebUIMixinBase):
                 is_purchased = row_id in purchased
 
                 stock = max(int(item.get("stock", 0) or 0), 0)
-                remaining = item.get("remaining")
-                if is_purchased:
-                    available = 0
-                elif isinstance(remaining, int):
-                    available = min(max(remaining, 0), stock)
-                elif row_id in remembered_remaining:
-                    available = min(
-                        max(int(remembered_remaining[row_id]), 0), stock
-                    )
-                else:
-                    available = stock
+                available = self._event_shop_available(item, priority_state)
 
                 selected = min(max(int(item.get("selected", 0) or 0), 0), stock)
+                capacity = event_shop_target_capacity(item, priority_state)
                 target_remaining = self._event_shop_target_remaining(
+                    item, priority_state
+                )
+                active_target_episode = row_id in target_baselines and selected > 0
+                target_label = (
+                    "Цель эпизода" if active_target_episode else "Цель покупки"
+                )
+                bought_for_target = self._event_shop_target_bought(
                     item, priority_state
                 )
                 target_done = (
@@ -529,8 +581,10 @@ class EventShopV2Mixin(WebUIMixinBase):
   <strong class="event-shop-v2-name">{escape(self._event_shop_display_name(item.get("name")))}</strong>
   <div class="event-shop-v2-price"><img src="{escape(currency_asset)}" alt="{currency_name}"><b>{self._fmt(price)}</b></div>
   <div class="event-shop-v2-target">
-    <span>Цель покупки</span>
-    <strong><span id="event-shop-selected-{live_key}" class="event-shop-live-value">{self._fmt(selected)}</span> / {self._fmt(stock)}</strong>
+    <span id="event-shop-target-label-{live_key}">{target_label}</span>
+    <strong><span id="event-shop-selected-{live_key}" class="event-shop-live-value">{self._fmt(selected)}</span></strong>
+    <small>Допустимый максимум: <span id="event-shop-capacity-{live_key}" class="event-shop-live-value">{self._fmt(capacity) if capacity is not None else "—"}</span></small>
+    <small>Уже куплено по цели: <span id="event-shop-target-bought-{live_key}" class="event-shop-live-value">{self._fmt(bought_for_target)}</span></small>
     <small>Осталось купить: <span id="event-shop-target-left-{live_key}" class="event-shop-live-value">{self._fmt(target_remaining)}</span></small>
     <small>Стоимость цели: <span id="event-shop-cost-{live_key}" class="event-shop-live-value">{self._fmt(price * selected)}</span></small>
   </div>

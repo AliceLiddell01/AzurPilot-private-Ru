@@ -92,3 +92,30 @@ MCP не должен становиться обходом конфигурац
 - отключаемость интеграции.
 
 Не фиксировать в документации точное количество инструментов: оно меняется. Источник истины — регистрация tools в текущем коде.
+
+## Основа хранения
+
+Нейтральные DTO и порты хранения принадлежат `module.application`,
+PostgreSQL-адаптеры — `module.persistence`. Типы SQLAlchemy/Psycopg не выходят
+за инфраструктурную границу. Engine создаётся лениво отдельно в каждом PID
+после запуска процесса; импорт пакета не подключается к БД и не выполняет DDL.
+
+Schema изменяется только явной Alembic-командой. Для доменов schema v1 игровые,
+WebUI и MCP consumers используют application storage services; только process
+composition roots импортируют `module.persistence.runtime`. Обязательный
+PostgreSQL marker проверяется fail-closed; SQLite fallback и dual-write
+запрещены.
+Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
+корневой `config/*.json` является только пространством кандидатов: игровым
+профилем считается безопасный regular JSON, прошедший единый structural
+classifier `module.config.profile`; произвольный report/state JSON профилем не
+становится. Runtime state хранится только в `config/state/`.
+Локальный `.env` загружается одним persistence owner и направляет libpq к
+защищённым app/migrator passfiles без постоянного `PGPASSWORD`.
+
+Offline migration pipeline проходит через application-owned порты. Legacy
+SQLite/JSON adapters живут только в `module.persistence.legacy`, открывают
+source read-only и path-bounded; PostgreSQL target пишет bounded chunks и затем
+проверяет import ledger вместе с фактическими domain rows. Этот pipeline не
+является runtime backend и не запускается из production entry points. После
+cutover он сохраняется только для offline recovery из restricted archive.

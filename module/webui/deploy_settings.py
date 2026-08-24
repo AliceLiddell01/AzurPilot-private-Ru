@@ -9,7 +9,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from module.config.utils import alas_instance
+from module.config.profile import discover_profile_names
 from module.webui.setting import State
 
 
@@ -304,6 +304,6 @@ def _validate_instance_name(instance: str, require_exists: bool) -> str:
         raise ValueError("Имя профиля содержит недопустимые символы")
     if instance.lower().startswith("template"):
         raise ValueError("Имя профиля не может начинаться с template")
-    if require_exists and instance not in alas_instance():
+    if require_exists and instance not in discover_profile_names("./config"):
         raise ValueError(f"Профиль не существует: {instance}")
     return instance

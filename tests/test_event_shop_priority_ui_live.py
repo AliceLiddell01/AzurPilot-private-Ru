@@ -207,9 +207,7 @@ def test_event_shop_live_refresh_patches_pt_and_rebuilds_only_runtime_plan(monke
     assert len(scripts) == 1
     assert "5 060" in scripts[0]
 
-    priority_state["completed"] = ["row-1"]
     priority_state["remaining"]["row-1"] = 90
-    user_state["shop_selections"]["row-1"] = 0
     view._event_shop_live_refresh()
 
     assert refreshes == [True]
