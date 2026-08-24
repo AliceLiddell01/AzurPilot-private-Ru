@@ -56,9 +56,22 @@ def _read_wsl_file(distro: str, path: str) -> bytes:
 def _write_wsl_file(distro: str, path: str, owner: str, content: bytes) -> None:
     temporary = f"{path}.{os.getpid()}.tmp"
     try:
+        _run(
+            _wsl(
+                distro,
+                "sudo",
+                "install",
+                "-m",
+                "600",
+                "-o",
+                owner,
+                "-g",
+                owner,
+                "/dev/null",
+                temporary,
+            )
+        )
         _run(_wsl(distro, "sudo", "tee", temporary), input_bytes=content)
-        _run(_wsl(distro, "sudo", "chown", f"{owner}:{owner}", temporary))
-        _run(_wsl(distro, "sudo", "chmod", "600", temporary))
         _run(_wsl(distro, "sudo", "mv", "-T", temporary, path))
     finally:
         _run(
@@ -184,6 +197,8 @@ def _verify_backup(distro: str, backup: Path) -> None:
     if not resolved.is_file() or resolved.stat().st_size < 1024:
         raise RuntimeError("Проверенная резервная копия PostgreSQL отсутствует.")
     drive = resolved.drive.rstrip(":").lower()
+    if len(drive) != 1:
+        raise RuntimeError("Путь резервной копии PostgreSQL не содержит букву диска.")
     suffix = resolved.as_posix().split(":", 1)[1]
     _run(_wsl(distro, "pg_restore", "--list", f"/mnt/{drive}{suffix}"))
 
@@ -406,7 +421,13 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     try:
         rotate(_parser().parse_args(argv))
-    except (OSError, RuntimeError, UnicodeError, ValueError):
+    except (
+        OSError,
+        RuntimeError,
+        UnicodeError,
+        ValueError,
+        subprocess.SubprocessError,
+    ):
         print("Ротация PostgreSQL credentials завершилась ошибкой.", file=sys.stderr)
         return 1
     print("Ротация PostgreSQL credentials и auth tests завершены успешно.")

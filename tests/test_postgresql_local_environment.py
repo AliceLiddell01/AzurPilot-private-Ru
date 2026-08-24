@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -36,11 +37,37 @@ def _document() -> str:
     )
 
 
+def _write_env(path: Path, document: str) -> None:
+    path.write_text(document, encoding="utf-8")
+    if os.name == "nt":
+        identity = subprocess.run(
+            ["whoami.exe"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        subprocess.run(
+            [
+                "icacls.exe",
+                str(path),
+                "/inheritance:r",
+                "/grant:r",
+                f"{identity}:(F)",
+                "/grant:r",
+                "SYSTEM:(F)",
+            ],
+            check=True,
+            capture_output=True,
+        )
+    else:
+        path.chmod(0o600)
+
+
 def test_local_env_installs_metadata_and_passfile_without_secret_environment(
     tmp_path: Path,
 ):
     path = tmp_path / ".env"
-    path.write_text(_document(), encoding="utf-8")
+    _write_env(path, _document())
     environment = {"PGPASSWORD": "stale", "AZURPILOT_POSTGRES_PASSWORD": "stale"}
 
     local = load_local_postgres_environment(path, environment=environment)
@@ -55,7 +82,7 @@ def test_local_env_installs_metadata_and_passfile_without_secret_environment(
 
 def test_local_env_can_select_migrator_without_exporting_secret(tmp_path: Path):
     path = tmp_path / ".env"
-    path.write_text(_document(), encoding="utf-8")
+    _write_env(path, _document())
     environment: dict[str, str] = {}
 
     load_local_postgres_environment(path, role="migrator", environment=environment)
@@ -67,28 +94,24 @@ def test_local_env_can_select_migrator_without_exporting_secret(tmp_path: Path):
 
 def test_local_env_rejects_unknown_or_duplicate_contract_key(tmp_path: Path):
     path = tmp_path / ".env"
-    path.write_text(_document() + "AZURPILOT_POSTGRES_UNUSED=value\n", encoding="utf-8")
+    _write_env(path, _document() + "AZURPILOT_POSTGRES_UNUSED=value\n")
     with pytest.raises(StorageConfigurationError, match="Ключ"):
         load_local_postgres_environment(path, environment={})
 
-    path.write_text(
-        _document() + "AZURPILOT_POSTGRES_HOST=localhost\n", encoding="utf-8"
-    )
+    _write_env(path, _document() + "AZURPILOT_POSTGRES_HOST=localhost\n")
     with pytest.raises(StorageConfigurationError, match="Ключ"):
         load_local_postgres_environment(path, environment={})
 
 
 def test_local_env_requires_distinct_secrets_and_full_contract(tmp_path: Path):
     path = tmp_path / ".env"
-    path.write_text(
-        _document().replace("migrator-secret", "app-secret"), encoding="utf-8"
-    )
+    _write_env(path, _document().replace("migrator-secret", "app-secret"))
     with pytest.raises(StorageConfigurationError, match="разные"):
         load_local_postgres_environment(path, environment={})
 
-    path.write_text(
+    _write_env(
+        path,
         _document().replace("AZURPILOT_POSTGRES_PORT=5432\n", "", 1),
-        encoding="utf-8",
     )
     with pytest.raises(StorageConfigurationError, match="полный"):
         load_local_postgres_environment(path, environment={})
@@ -96,7 +119,7 @@ def test_local_env_requires_distinct_secrets_and_full_contract(tmp_path: Path):
 
 def test_local_env_runtime_contract_must_match_marker(tmp_path: Path):
     path = tmp_path / ".env"
-    path.write_text(_document(), encoding="utf-8")
+    _write_env(path, _document())
     local = load_local_postgres_environment(path, environment={})
     assert local is not None
     settings = DatabaseSettings(
@@ -127,3 +150,18 @@ def test_missing_local_env_is_a_noop(tmp_path: Path):
     assert load_local_postgres_environment(
         tmp_path / ".env", environment=environment
     ) is None
+
+
+def test_local_env_rejects_broad_permissions(tmp_path: Path, monkeypatch):
+    path = tmp_path / ".env"
+    _write_env(path, _document())
+    if os.name == "nt":
+        monkeypatch.setattr(
+            "module.persistence.local_environment._windows_acl_is_restricted",
+            lambda _path: False,
+        )
+    else:
+        path.chmod(0o644)
+
+    with pytest.raises(StorageConfigurationError, match="права доступа"):
+        load_local_postgres_environment(path, environment={})

@@ -137,10 +137,7 @@ class DatabaseSettings:
     ) -> DatabaseSettings:
         """Загрузить единственный production-маркер без секретных значений."""
 
-        path = Path(marker_path)
-        if path == DEFAULT_BACKEND_MARKER_PATH:
-            migrate_legacy_backend_marker()
-        _, payload = _read_backend_marker(path)
+        _, payload = _read_backend_marker(Path(marker_path))
         return cls._from_backend_marker_payload(payload)
 
     @classmethod

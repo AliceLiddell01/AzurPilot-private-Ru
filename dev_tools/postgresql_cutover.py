@@ -47,7 +47,7 @@ def _load_ready_report(path: Path) -> tuple[dict[str, object], str]:
     return payload, hashlib.sha256(raw).hexdigest()
 
 
-def activate(arguments: argparse.Namespace) -> None:
+def activate(arguments: argparse.Namespace) -> bool:
     if arguments.confirm != CONFIRMATION:
         raise RuntimeError("Точное подтверждение необратимой активации отсутствует.")
     if str(arguments.host).strip().lower() not in {"localhost", "127.0.0.1", "::1"}:
@@ -77,7 +77,7 @@ def activate(arguments: argparse.Namespace) -> None:
     if legacy is not None and legacy.exists():
         try:
             if migrate_legacy_backend_marker(target=marker, legacy=legacy):
-                return
+                return True
         except StorageConfigurationError:
             if legacy.is_symlink() or not legacy.is_file():
                 raise RuntimeError(
@@ -129,6 +129,7 @@ def activate(arguments: argparse.Namespace) -> None:
                 raise
     finally:
         temporary.unlink(missing_ok=True)
+    return False
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -154,11 +155,14 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     try:
         load_local_postgres_environment(role="app")
-        activate(_parser().parse_args(argv))
+        migrated = activate(_parser().parse_args(argv))
     except (OSError, RuntimeError, StorageError, ValueError) as exc:
         print(f"Ошибка активации production PostgreSQL: {exc}", file=sys.stderr)
         return 1
-    print("Production-маркер PostgreSQL создан атомарно.")
+    if migrated:
+        print("Legacy production-маркер PostgreSQL перенесён атомарно.")
+    else:
+        print("Production-маркер PostgreSQL создан атомарно.")
     return 0
 
 

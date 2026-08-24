@@ -81,7 +81,7 @@ passfiles. Migrator выбирается только maintenance-команда
 из нового report с `cutover_ready=true`, пустыми reason codes, успешным app
 health и точной строкой подтверждения.
 `dev_tools.postgresql_credentials` ротирует app/migrator SCRAM secrets только
-после проверки внешнего custom dump и role contract; password передаются `psql`
+после проверки внешнего custom dump и role contract; пароли передаются `psql`
 через stdin, а новые и старые credentials проходят positive/negative auth tests.
 
 ## Maintenance cutover

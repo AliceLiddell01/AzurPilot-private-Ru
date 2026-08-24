@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
+import shutil
+import stat
+import subprocess
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from module.application.errors import StorageConfigurationError
+from module.persistence.config import DatabaseSettings
 
 DEFAULT_LOCAL_ENV_PATH = Path(".env")
 _KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -67,16 +73,16 @@ class LocalPostgresEnvironment:
         target.pop(_APP_PREFIX + "PASSWORD", None)
         target.pop(_MIGRATOR_PREFIX + "PASSWORD", None)
 
-    def require_runtime_match(self, settings: object) -> None:
-        expected = {
-            "host": self.values[_APP_PREFIX + "HOST"],
-            "port": int(self.values[_APP_PREFIX + "PORT"]),
-            "database": self.values[_APP_PREFIX + "DATABASE"],
-            "user": self.values[_APP_PREFIX + "USER"],
-            "sslmode": self.values[_APP_PREFIX + "SSLMODE"],
-            "runtime_timezone": self.values[_APP_PREFIX + "RUNTIME_TIMEZONE"],
-        }
-        if any(getattr(settings, key, None) != value for key, value in expected.items()):
+    def require_runtime_match(self, settings: DatabaseSettings) -> None:
+        if (
+            settings.host != self.values[_APP_PREFIX + "HOST"]
+            or settings.port != int(self.values[_APP_PREFIX + "PORT"])
+            or settings.database != self.values[_APP_PREFIX + "DATABASE"]
+            or settings.user != self.values[_APP_PREFIX + "USER"]
+            or settings.sslmode != self.values[_APP_PREFIX + "SSLMODE"]
+            or settings.runtime_timezone
+            != self.values[_APP_PREFIX + "RUNTIME_TIMEZONE"]
+        ):
             raise StorageConfigurationError(
                 "Локальный PostgreSQL env не совпадает с production marker."
             )
@@ -93,6 +99,93 @@ def _parse_value(raw: str, line_number: int) -> str:
     return value
 
 
+def _windows_acl_is_restricted(path: Path) -> bool:
+    shell = shutil.which("pwsh") or shutil.which("powershell.exe")
+    if shell is None:
+        return False
+    script = """
+$ErrorActionPreference = 'Stop'
+$acl = Get-Acl -LiteralPath $env:AZURPILOT_ENV_ACL_PATH
+$current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$payload = [pscustomobject]@{
+    CurrentSid = $current
+    OwnerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    Protected = $acl.AreAccessRulesProtected
+    Rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | ForEach-Object {
+        [pscustomobject]@{
+            Sid = $_.IdentityReference.Value
+            Rights = [int]$_.FileSystemRights
+            Type = $_.AccessControlType.ToString()
+            Inherited = $_.IsInherited
+        }
+    })
+}
+$payload | ConvertTo-Json -Compress -Depth 4
+"""
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    environment = os.environ.copy()
+    environment["AZURPILOT_ENV_ACL_PATH"] = str(path)
+    try:
+        completed = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=15,
+            text=True,
+            encoding="utf-8-sig",
+        )
+        if completed.returncode != 0:
+            return False
+        payload = json.loads(completed.stdout)
+        current_sid = payload["CurrentSid"]
+        rules = payload["Rules"]
+        if isinstance(rules, dict):
+            rules = [rules]
+        if (
+            payload["OwnerSid"] != current_sid
+            or payload["Protected"] is not True
+            or not isinstance(rules, list)
+        ):
+            return False
+        allowed_sids = {current_sid, "S-1-5-18"}
+        current_full_control = False
+        for rule in rules:
+            if (
+                not isinstance(rule, dict)
+                or rule.get("Sid") not in allowed_sids
+                or rule.get("Type") != "Allow"
+                or rule.get("Inherited") is not False
+                or not isinstance(rule.get("Rights"), int)
+            ):
+                return False
+            if rule["Sid"] == current_sid and rule["Rights"] & 0x1F01FF == 0x1F01FF:
+                current_full_control = True
+        return current_full_control
+    except (
+        KeyError,
+        OSError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        subprocess.SubprocessError,
+    ):
+        return False
+
+
+def _require_secure_permissions(path: Path, metadata: os.stat_result) -> None:
+    if os.name == "nt":
+        secure = _windows_acl_is_restricted(path)
+    else:
+        secure = metadata.st_uid == os.getuid() and stat.S_IMODE(metadata.st_mode) & 0o077 == 0
+    if not secure:
+        raise StorageConfigurationError(
+            "Локальный PostgreSQL env имеет небезопасные права доступа."
+        )
+
+
 def read_local_postgres_environment(
     path: str | Path = DEFAULT_LOCAL_ENV_PATH,
 ) -> LocalPostgresEnvironment | None:
@@ -100,10 +193,12 @@ def read_local_postgres_environment(
     if not env_path.exists():
         return None
     try:
-        if env_path.is_symlink() or not env_path.is_file() or env_path.stat().st_size > 65_536:
+        metadata = env_path.stat()
+        if env_path.is_symlink() or not env_path.is_file() or metadata.st_size > 65_536:
             raise StorageConfigurationError(
                 "Локальный PostgreSQL env отсутствует или небезопасен."
             )
+        _require_secure_permissions(env_path, metadata)
         lines = env_path.read_text(encoding="utf-8").splitlines()
     except StorageConfigurationError:
         raise

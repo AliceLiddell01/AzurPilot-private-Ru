@@ -16,7 +16,11 @@ from alembic.util.exc import CommandError
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
-from module.persistence.config import DEFAULT_BACKEND_MARKER_PATH, DatabaseSettings
+from module.persistence.config import (
+    DEFAULT_BACKEND_MARKER_PATH,
+    DatabaseSettings,
+    migrate_legacy_backend_marker,
+)
 from module.persistence.database import LazyEngine, StorageHealthChecker
 from module.persistence.local_environment import load_local_postgres_environment
 
@@ -141,6 +145,8 @@ def _backup(
 
 
 def _health(marker: Path) -> None:
+    if marker == DEFAULT_BACKEND_MARKER_PATH:
+        migrate_legacy_backend_marker()
     settings = DatabaseSettings.from_backend_marker(marker)
     engine = LazyEngine(settings)
     try:
@@ -198,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "health":
             _health(Path(arguments.marker))
         elif arguments.command == "backup":
+            if Path(arguments.marker) == DEFAULT_BACKEND_MARKER_PATH:
+                migrate_legacy_backend_marker()
             settings = DatabaseSettings.from_backend_marker(arguments.marker)
             _backup(
                 settings,

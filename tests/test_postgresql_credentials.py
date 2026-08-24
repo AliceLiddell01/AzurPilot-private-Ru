@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -56,3 +58,16 @@ def test_sql_secret_escapes_quotes_and_rejects_line_breaks():
     assert postgresql_credentials._sql_secret("value'quoted") == "value''quoted"
     with pytest.raises(RuntimeError):
         postgresql_credentials._sql_secret("bad\nvalue")
+
+
+def test_verify_backup_rejects_drive_less_path(tmp_path: Path, monkeypatch):
+    backup = tmp_path / "production.dump"
+    backup.write_bytes(b"x" * 2048)
+    resolved = Mock()
+    resolved.is_file.return_value = True
+    resolved.stat.return_value = SimpleNamespace(st_size=2048)
+    resolved.drive = ""
+    monkeypatch.setattr(Path, "resolve", lambda *_args, **_kwargs: resolved)
+
+    with pytest.raises(RuntimeError, match="букву диска"):
+        postgresql_credentials._verify_backup("archlinux", backup)
