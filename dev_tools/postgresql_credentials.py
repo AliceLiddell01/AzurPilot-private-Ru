@@ -25,6 +25,7 @@ def _run(
     *,
     input_bytes: bytes | None = None,
     capture: bool = False,
+    capture_stderr: bool = False,
     expected: frozenset[int] = frozenset({0}),
 ) -> subprocess.CompletedProcess[bytes]:
     options: dict[str, object] = {}
@@ -35,7 +36,7 @@ def _run(
         input=input_bytes,
         stdin=None if input_bytes is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
         check=False,
         timeout=180,
         **options,
@@ -269,10 +270,12 @@ def _auth(
     *,
     should_succeed: bool,
 ) -> None:
+    expected = frozenset({0}) if should_succeed else frozenset({2})
     completed = _run(
         _wsl(
             distro,
             "env",
+            "LC_ALL=C",
             f"PGPASSFILE={passfile}",
             "psql",
             "-X",
@@ -288,9 +291,12 @@ def _auth(
             "--command",
             "select 1",
         ),
-        expected=frozenset({0, 1, 2}),
+        capture_stderr=not should_succeed,
+        expected=expected,
     )
-    if (completed.returncode == 0) is not should_succeed:
+    if not should_succeed and b"password authentication failed for user" not in (
+        completed.stderr or b""
+    ):
         raise RuntimeError("Результат PostgreSQL auth test не соответствует ожиданию.")
 
 

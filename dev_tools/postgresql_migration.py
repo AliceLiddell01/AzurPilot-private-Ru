@@ -149,9 +149,13 @@ def _require_production_cutover(
 def _run_pg(executable: str, arguments: list[str], settings: DatabaseSettings) -> None:
     environment = os.environ.copy()
     environment.pop("PGPASSWORD", None)
-    environment["PGPASSFILE"] = os.environ.get(
-        "AZURPILOT_POSTGRES_PGPASSFILE", environment.get("PGPASSFILE", "")
+    passfile = os.environ.get("AZURPILOT_POSTGRES_PGPASSFILE") or environment.get(
+        "PGPASSFILE"
     )
+    if passfile:
+        environment["PGPASSFILE"] = passfile
+    else:
+        environment.pop("PGPASSFILE", None)
     command = [executable, *arguments]
     if executable.startswith("wsl:"):
         tool = executable.removeprefix("wsl:")
@@ -253,12 +257,12 @@ def _dump_restore(
     return replace(settings, database=scratch_database)
 
 
-def _write_report(payload: str, path: Path | None) -> None:
+def _write_report(payload: str, path: Path | None, source_root: Path) -> None:
     if path is None:
         print(payload, end="")
         return
     parent = path.parent.resolve(strict=True)
-    if parent == Path("config").resolve():
+    if parent == (source_root / "config").resolve():
         raise LegacySourceError("REPORT_TARGET_PROFILE_NAMESPACE")
     if path.exists() or path.is_symlink() or not parent.is_dir():
         raise LegacySourceError("REPORT_TARGET_UNSAFE")
@@ -345,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
             _write_report(
                 _inspection_payload(_reader(source_root, arguments.legacy_timezone)),
                 arguments.report,
+                source_root,
             )
             print("STATUS:INSPECTED")
             return 0
@@ -392,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
                 ).run(chunk_size=arguments.chunk_size)
             finally:
                 migration_target.dispose()
-        _write_report(report.to_json(), arguments.report)
+        _write_report(report.to_json(), arguments.report, source_root)
         if report.cutover_ready:
             print("STATUS:READY")
         else:

@@ -57,6 +57,14 @@ class LocalPostgresEnvironment:
         role: str = "app",
         environment: MutableMapping[str, str] | None = None,
     ) -> None:
+        """Установить metadata и passfile без экспорта паролей.
+
+        Для ``role="migrator"`` канонические app-переменные заменяются
+        migrator-контрактом, поэтому последующий ``DatabaseSettings.from_environment()``
+        создаёт migrator-подключение. ``PGPASSWORD`` и оба password-ключа удаляются,
+        а ``PGPASSFILE`` указывает на passfile выбранной роли.
+        """
+
         if role not in {"app", "migrator"}:
             raise StorageConfigurationError("Роль локального PostgreSQL env некорректна.")
         target = os.environ if environment is None else environment

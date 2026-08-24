@@ -95,9 +95,46 @@ def test_report_rejects_root_profile_namespace(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(LegacySourceError, match="REPORT_TARGET_PROFILE_NAMESPACE"):
-        postgresql_migration._write_report("{}\n", config / "report.json")
+        postgresql_migration._write_report("{}\n", config / "report.json", tmp_path)
 
     assert not (config / "report.json").exists()
+
+
+def test_report_guard_is_anchored_to_source_root(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    config = source / "config"
+    config.mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    with pytest.raises(LegacySourceError, match="REPORT_TARGET_PROFILE_NAMESPACE"):
+        postgresql_migration._write_report("{}\n", config / "report.json", source)
+
+    assert not (config / "report.json").exists()
+
+
+def test_pgpassfile_is_not_exported_when_missing(monkeypatch):
+    settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        database="azurpilot",
+        user="azurpilot_migrator",
+        sslmode="disable",
+    )
+    observed: dict[str, str] = {}
+    monkeypatch.delenv("AZURPILOT_POSTGRES_PGPASSFILE", raising=False)
+    monkeypatch.delenv("PGPASSFILE", raising=False)
+
+    def capture_run(*_args, **kwargs):
+        observed.update(kwargs["env"])
+        return subprocess.CompletedProcess([], 0)
+
+    monkeypatch.setattr(postgresql_migration.subprocess, "run", capture_run)
+
+    postgresql_migration._run_pg("pg_restore", ["--list", "backup.dump"], settings)
+
+    assert "PGPASSFILE" not in observed
 
 
 def test_full_rehearsal_requires_exact_disposable_guard_before_network(tmp_path):

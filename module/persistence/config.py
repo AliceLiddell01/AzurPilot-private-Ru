@@ -213,40 +213,51 @@ def migrate_legacy_backend_marker(
 
     target_path = Path(target)
     legacy_path = Path(legacy)
-    if target_path.exists() or not legacy_path.exists():
+    if not legacy_path.exists():
         return False
 
     legacy_raw, legacy_payload = _read_backend_marker(legacy_path)
     DatabaseSettings._from_backend_marker_payload(legacy_payload)
+
+    def finish_existing_target(*, remove_on_failure: bool) -> bool:
+        try:
+            target_raw, target_payload = _read_backend_marker(target_path)
+            DatabaseSettings._from_backend_marker_payload(target_payload)
+            target_stat = target_path.stat()
+            legacy_stat = legacy_path.stat()
+            if (
+                target_raw != legacy_raw
+                or target_stat.st_dev != legacy_stat.st_dev
+                or target_stat.st_ino != legacy_stat.st_ino
+            ):
+                if remove_on_failure:
+                    target_path.unlink(missing_ok=True)
+                    raise StorageConfigurationError(
+                        "Production backend marker изменился во время переноса."
+                    )
+                return False
+            legacy_path.unlink()
+        except (OSError, StorageConfigurationError) as exc:
+            if remove_on_failure:
+                target_path.unlink(missing_ok=True)
+            if isinstance(exc, StorageConfigurationError):
+                raise
+            raise StorageConfigurationError(
+                "Не удалось завершить перенос production backend marker."
+            ) from exc
+        return True
+
+    if target_path.exists() or target_path.is_symlink():
+        return finish_existing_target(remove_on_failure=False)
+
     target_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         target_path.hardlink_to(legacy_path)
     except FileExistsError:
-        return False
+        return finish_existing_target(remove_on_failure=False)
     except OSError as exc:
         raise StorageConfigurationError(
             "Не удалось безопасно перенести production backend marker."
         ) from exc
 
-    try:
-        target_raw, target_payload = _read_backend_marker(target_path)
-        DatabaseSettings._from_backend_marker_payload(target_payload)
-        target_stat = target_path.stat()
-        legacy_stat = legacy_path.stat()
-        if (
-            target_raw != legacy_raw
-            or target_stat.st_dev != legacy_stat.st_dev
-            or target_stat.st_ino != legacy_stat.st_ino
-        ):
-            raise StorageConfigurationError(
-                "Production backend marker изменился во время переноса."
-            )
-        legacy_path.unlink()
-    except (OSError, StorageConfigurationError) as exc:
-        target_path.unlink(missing_ok=True)
-        if isinstance(exc, StorageConfigurationError):
-            raise
-        raise StorageConfigurationError(
-            "Не удалось завершить перенос production backend marker."
-        ) from exc
-    return True
+    return finish_existing_target(remove_on_failure=True)

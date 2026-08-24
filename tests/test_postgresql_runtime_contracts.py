@@ -146,6 +146,26 @@ def test_legacy_marker_migration_does_not_clobber_racing_target(
     assert legacy.is_file()
 
 
+def test_legacy_marker_migration_finishes_same_inode_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    target = tmp_path / "config/state/storage_backend.json"
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    legacy.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+    original = Path.hardlink_to
+
+    def create_same_target_then_report_race(path: Path, source: Path):
+        original(path, source)
+        raise FileExistsError
+
+    monkeypatch.setattr(Path, "hardlink_to", create_same_target_then_report_race)
+
+    assert migrate_legacy_backend_marker(target=target, legacy=legacy)
+    assert target.is_file()
+    assert not legacy.exists()
+
+
 def test_runtime_bootstrap_is_lazy_without_health_request(tmp_path: Path):
     marker = tmp_path / "storage_backend.json"
     marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")

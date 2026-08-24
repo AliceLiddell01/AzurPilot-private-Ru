@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -71,3 +72,59 @@ def test_verify_backup_rejects_drive_less_path(tmp_path: Path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="букву диска"):
         postgresql_credentials._verify_backup("archlinux", backup)
+
+
+def test_negative_auth_accepts_only_password_rejection(monkeypatch):
+    completed = subprocess.CompletedProcess(
+        [], 2, stderr=b'password authentication failed for user "azurpilot_app"'
+    )
+    run = Mock(return_value=completed)
+    monkeypatch.setattr(postgresql_credentials, "_run", run)
+
+    postgresql_credentials._auth(
+        "archlinux",
+        "/tmp/old-pgpass",
+        "azurpilot",
+        "azurpilot_app",
+        should_succeed=False,
+    )
+
+    assert run.call_args.kwargs["expected"] == frozenset({2})
+    assert run.call_args.kwargs["capture_stderr"] is True
+
+
+def test_negative_auth_rejects_server_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        postgresql_credentials,
+        "_run",
+        Mock(return_value=subprocess.CompletedProcess([], 2, stderr=b"connection refused")),
+    )
+
+    with pytest.raises(RuntimeError, match="auth test"):
+        postgresql_credentials._auth(
+            "archlinux",
+            "/tmp/old-pgpass",
+            "azurpilot",
+            "azurpilot_app",
+            should_succeed=False,
+        )
+
+
+def test_wsl_secret_file_is_restricted_before_write(monkeypatch):
+    calls: list[tuple[list[str], bytes | None]] = []
+
+    def observe(arguments, *, input_bytes=None, **_kwargs):
+        calls.append((arguments, input_bytes))
+        return subprocess.CompletedProcess(arguments, 0)
+
+    monkeypatch.setattr(postgresql_credentials, "_run", observe)
+
+    postgresql_credentials._write_wsl_file(
+        "archlinux", "/etc/azurpilot/pgpass", "kykla", b"secret-content"
+    )
+
+    assert "install" in calls[0][0]
+    assert "600" in calls[0][0]
+    assert calls[0][1] is None
+    assert "tee" in calls[1][0]
+    assert calls[1][1] == b"secret-content"

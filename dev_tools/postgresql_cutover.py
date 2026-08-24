@@ -76,8 +76,7 @@ def activate(arguments: argparse.Namespace) -> bool:
     invalid_legacy_digest: str | None = None
     if legacy is not None and legacy.exists():
         try:
-            if migrate_legacy_backend_marker(target=marker, legacy=legacy):
-                return True
+            DatabaseSettings.from_backend_marker(legacy)
         except StorageConfigurationError:
             if legacy.is_symlink() or not legacy.is_file():
                 raise RuntimeError(
@@ -88,6 +87,9 @@ def activate(arguments: argparse.Namespace) -> bool:
                 raise RuntimeError(
                     "Повреждённый legacy marker требует exact SHA-256 recovery guard."
                 ) from None
+        else:
+            if migrate_legacy_backend_marker(target=marker, legacy=legacy):
+                return True
     marker.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "backend": "postgresql",

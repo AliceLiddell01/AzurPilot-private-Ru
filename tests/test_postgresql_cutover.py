@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from dev_tools import postgresql_cutover
+from module.application.errors import StorageConfigurationError
 
 
 def _arguments(tmp_path: Path, report: Path, confirmation: str) -> argparse.Namespace:
@@ -155,3 +156,47 @@ def test_activation_reports_valid_legacy_marker_migration(tmp_path: Path):
 
     assert marker.is_file()
     assert not legacy.exists()
+
+
+def test_activation_does_not_treat_migration_io_failure_as_corrupt(tmp_path: Path):
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+    )
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    legacy.write_text(
+        json.dumps(
+            {
+                "backend": "postgresql",
+                "version": 1,
+                "alembic_head": "0002_migration_shapes",
+                "reconciliation_report_sha256": "a" * 64,
+                "reviewed_head": "b" * 40,
+                "merge_commit": "c" * 40,
+                "host": "127.0.0.1",
+                "port": 5432,
+                "database": "azurpilot",
+                "user": "azurpilot_app",
+                "sslmode": "disable",
+                "runtime_timezone": "Asia/Novosibirsk",
+            }
+        ),
+        encoding="utf-8",
+    )
+    arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
+    arguments.legacy_marker = str(legacy)
+
+    with (
+        patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"),
+        patch.object(
+            postgresql_cutover,
+            "migrate_legacy_backend_marker",
+            side_effect=StorageConfigurationError("migration-io-failure"),
+        ),
+        pytest.raises(StorageConfigurationError, match="migration-io-failure"),
+    ):
+        postgresql_cutover.activate(arguments)
+
+    assert legacy.is_file()
+    assert not Path(arguments.marker).exists()
