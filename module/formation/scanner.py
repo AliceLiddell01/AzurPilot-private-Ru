@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 import cv2
 import numpy as np
 
 from module.base.utils import extract_letters
-from module.dock_inventory.catalog import DockIdentityCatalog, load_dock_identity_catalog
+from module.dock_inventory.catalog import (
+    DockIdentityCatalog,
+    load_dock_identity_catalog,
+)
 from module.dock_inventory.identity import DockShipIdentityResolver
 from module.formation.model import (
     FormationFleetSide,
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
+    validate_surface_fleet_index,
 )
 from module.ocr.ocr import Ocr
 
@@ -230,7 +235,9 @@ class FormationFleetInfoScanner:
         )
 
     def scan(self, frame: np.ndarray, *, fleet_index: int) -> FormationFleetSnapshot:
-        if type(fleet_index) is not int or not 1 <= fleet_index <= 6:
+        try:
+            fleet_index = validate_surface_fleet_index(fleet_index)
+        except ValueError:
             raise FormationFleetInputError("fleet_index должен быть int в диапазоне 1..6")
         self._validate_frame(frame)
 

@@ -420,6 +420,10 @@ class SchemaMetadataTests(unittest.TestCase):
             "siren_research_device_event",
             "ap_notification_state",
             "resource_current_state",
+            "formation_surface_fleet_scan_run",
+            "formation_surface_fleet_scan_request",
+            "formation_surface_fleet_snapshot",
+            "formation_surface_fleet_slot",
         }
         self.assertEqual({table.name for table in metadata.tables.values()}, expected)
         self.assertTrue(

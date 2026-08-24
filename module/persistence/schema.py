@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
@@ -21,14 +22,13 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
 )
-
-from module.application.resource_fields import RESOURCE_FIELDS
 from sqlalchemy.dialects.postgresql import JSONB
 
+from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0002_migration_shapes"
+EXPECTED_ALEMBIC_HEAD = "0003_fleet_state_core"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -464,4 +464,149 @@ resource_current_state = Table(
     PrimaryKeyConstraint("instance_id", "resource_code"),
     CheckConstraint("value >= 0", name="value_nonnegative"),
     CheckConstraint("version >= 1", name="version_positive"),
+)
+
+formation_surface_fleet_scan_run = Table(
+    "formation_surface_fleet_scan_run",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("instance_id", Uuid, _instance_fk(), nullable=False),
+    Column("source", String(64), nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+    Column("status", String(16), nullable=False, server_default="started"),
+    Column("error_code", String(64), nullable=True),
+    CheckConstraint(
+        "status IN ('started', 'succeeded', 'partial', 'failed')",
+        name="status_allowed",
+    ),
+    CheckConstraint(
+        "(status = 'started' AND finished_at IS NULL AND error_code IS NULL) OR "
+        "(status = 'succeeded' AND finished_at IS NOT NULL AND error_code IS NULL) OR "
+        "(status IN ('partial', 'failed') AND finished_at IS NOT NULL "
+        "AND error_code IS NOT NULL)",
+        name="lifecycle_consistent",
+    ),
+    CheckConstraint(
+        "finished_at IS NULL OR finished_at >= started_at",
+        name="time_ordered",
+    ),
+    UniqueConstraint("id", "instance_id", name="uq_formation_fleet_run_instance"),
+)
+Index(
+    "ix_formation_surface_fleet_scan_run_instance_started",
+    formation_surface_fleet_scan_run.c.instance_id,
+    formation_surface_fleet_scan_run.c.started_at.desc(),
+)
+
+formation_surface_fleet_scan_request = Table(
+    "formation_surface_fleet_scan_request",
+    metadata,
+    Column(
+        "run_id",
+        Uuid,
+        ForeignKey(
+            f"{SCHEMA_NAME}.formation_surface_fleet_scan_run.id",
+            ondelete="CASCADE",
+            name="fk_formation_fleet_request_run",
+        ),
+        nullable=False,
+    ),
+    Column("fleet_index", Integer, nullable=False),
+    PrimaryKeyConstraint("run_id", "fleet_index"),
+    CheckConstraint("fleet_index BETWEEN 1 AND 6", name="fleet_index_range"),
+)
+
+formation_surface_fleet_snapshot = Table(
+    "formation_surface_fleet_snapshot",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column(
+        "run_id",
+        Uuid,
+        nullable=False,
+    ),
+    Column("instance_id", Uuid, _instance_fk(), nullable=False),
+    Column("idempotency_key", String(128), nullable=False),
+    Column("payload_digest", String(64), nullable=False),
+    Column("fleet_index", Integer, nullable=False),
+    Column("observed_at", DateTime(timezone=True), nullable=False),
+    Column("complete", Boolean, nullable=False),
+    Column("catalog_fingerprint", String(64), nullable=False),
+    UniqueConstraint("idempotency_key"),
+    UniqueConstraint("run_id", "fleet_index"),
+    ForeignKeyConstraint(
+        ("run_id", "fleet_index"),
+        (
+            f"{SCHEMA_NAME}.formation_surface_fleet_scan_request.run_id",
+            f"{SCHEMA_NAME}.formation_surface_fleet_scan_request.fleet_index",
+        ),
+        ondelete="CASCADE",
+        name="fk_formation_fleet_snapshot_request",
+    ),
+    ForeignKeyConstraint(
+        ("run_id", "instance_id"),
+        (
+            f"{SCHEMA_NAME}.formation_surface_fleet_scan_run.id",
+            f"{SCHEMA_NAME}.formation_surface_fleet_scan_run.instance_id",
+        ),
+        ondelete="CASCADE",
+        name="fk_formation_fleet_snapshot_run_instance",
+    ),
+    CheckConstraint("fleet_index BETWEEN 1 AND 6", name="fleet_index_range"),
+    CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="payload_digest_sha256"),
+    CheckConstraint(
+        "catalog_fingerprint ~ '^[0-9a-f]{64}$'",
+        name="catalog_fingerprint_sha256",
+    ),
+)
+Index(
+    "ix_formation_surface_fleet_snapshot_instance_fleet_observed_id",
+    formation_surface_fleet_snapshot.c.instance_id,
+    formation_surface_fleet_snapshot.c.fleet_index,
+    formation_surface_fleet_snapshot.c.observed_at.desc(),
+    formation_surface_fleet_snapshot.c.id.desc(),
+)
+
+formation_surface_fleet_slot = Table(
+    "formation_surface_fleet_slot",
+    metadata,
+    Column(
+        "snapshot_id",
+        Uuid,
+        ForeignKey(
+            f"{SCHEMA_NAME}.formation_surface_fleet_snapshot.id",
+            ondelete="CASCADE",
+            name="fk_formation_fleet_slot_snapshot",
+        ),
+        nullable=False,
+    ),
+    Column("side", String(8), nullable=False),
+    Column("position", Integer, nullable=False),
+    Column("occupied", Boolean, nullable=False),
+    Column("identity_status", String(16), nullable=True),
+    Column("raw_name_ocr", String(256), nullable=True),
+    Column("displayed_name", String(256), nullable=True),
+    Column("canonical_identity_key", String(128), nullable=True),
+    Column("canonical_name", String(256), nullable=True),
+    PrimaryKeyConstraint("snapshot_id", "side", "position"),
+    CheckConstraint("side IN ('main', 'vanguard')", name="side_allowed"),
+    CheckConstraint("position BETWEEN 1 AND 3", name="position_range"),
+    CheckConstraint(
+        "identity_status IS NULL OR identity_status IN "
+        "('unresolved', 'matched', 'ambiguous')",
+        name="identity_status_allowed",
+    ),
+    CheckConstraint(
+        "(occupied = false AND identity_status IS NULL AND raw_name_ocr IS NULL "
+        "AND displayed_name IS NULL AND canonical_identity_key IS NULL "
+        "AND canonical_name IS NULL) OR "
+        "(occupied = true AND identity_status IN ('unresolved', 'ambiguous') "
+        "AND raw_name_ocr IS NOT NULL AND displayed_name IS NOT NULL "
+        "AND canonical_identity_key IS NULL AND canonical_name IS NULL) OR "
+        "(occupied = true AND identity_status = 'matched' "
+        "AND raw_name_ocr IS NOT NULL AND displayed_name IS NOT NULL "
+        "AND canonical_identity_key IS NOT NULL AND canonical_name IS NOT NULL)",
+        name="identity_consistent",
+    ),
 )

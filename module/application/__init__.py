@@ -27,6 +27,17 @@ from module.application.models import (
     TaskOption,
     TaskSummary,
 )
+from module.application.fleet_state import (
+    FleetRefreshPolicy,
+    FleetScanBatchResult,
+    FleetScanRun,
+    FleetScanRunStatus,
+    FleetScanService,
+    FleetStateObservation,
+    FleetStateRequest,
+    FleetStateResult,
+    FleetStateService,
+)
 from module.application.services import InstanceQueryService, TaskCatalogService
 from module.application.migration_service import MigrationService, finalize_rehearsal
 from module.application.storage_models import (
@@ -47,6 +58,15 @@ __all__ = (
     "ApplicationError",
     "CommissionIncome",
     "CommissionItem",
+    "FleetRefreshPolicy",
+    "FleetScanBatchResult",
+    "FleetScanRun",
+    "FleetScanRunStatus",
+    "FleetScanService",
+    "FleetStateObservation",
+    "FleetStateRequest",
+    "FleetStateResult",
+    "FleetStateService",
     "ImportBatch",
     "ImportBatchStatus",
     "IncompatibleSchemaError",

@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
 from module.persistence.database import LazyEngine, translate_database_error
+from module.persistence.fleet_state_repositories import PostgresFleetStateRepository
 from module.persistence.repositories import (
     PostgresImportLedgerRepository,
     PostgresInstanceIdentityRepository,
@@ -29,6 +30,7 @@ class PostgresUnitOfWork:
         self.statistics: PostgresStatisticsRepository
         self.imports: PostgresImportLedgerRepository
         self.runtime: PostgresRuntimeStatisticsRepository
+        self.fleet_state: PostgresFleetStateRepository
 
     def __enter__(self) -> Self:
         if self._connection is not None:
@@ -42,6 +44,7 @@ class PostgresUnitOfWork:
             self.statistics = PostgresStatisticsRepository(connection)
             self.imports = PostgresImportLedgerRepository(connection)
             self.runtime = PostgresRuntimeStatisticsRepository(connection)
+            self.fleet_state = PostgresFleetStateRepository(connection)
         except SQLAlchemyError as exc:
             self._connection = None
             self._clear_repositories()
@@ -55,7 +58,13 @@ class PostgresUnitOfWork:
         return self
 
     def _clear_repositories(self) -> None:
-        for attribute in ("instances", "statistics", "imports", "runtime"):
+        for attribute in (
+            "instances",
+            "statistics",
+            "imports",
+            "runtime",
+            "fleet_state",
+        ):
             self.__dict__.pop(attribute, None)
 
     @staticmethod

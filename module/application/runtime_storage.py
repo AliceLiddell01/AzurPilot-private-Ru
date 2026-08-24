@@ -6,19 +6,21 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from hashlib import sha256
 from threading import Lock
 from typing import Protocol, TypeVar
-from uuid import UUID, uuid4, uuid5
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from module.application.canonical_payload import payload_digest
 from module.application.errors import StorageConfigurationError, StorageInvalidDataError
+from module.application.instance_identity import (
+    resolve_runtime_instance,
+    runtime_instance_identity,
+)
 from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import (
     CommissionIncome,
     CommissionItem,
-    InstanceIdentity,
     MonthlyAggregate,
     MonthlyMetric,
     OpsiItemEvent,
@@ -26,7 +28,6 @@ from module.application.storage_models import (
 )
 from module.application.storage_ports import StorageUnitOfWork
 
-_IDENTITY_NAMESPACE = UUID("bc6db2da-cb91-4d6e-bc33-bb598d715c13")
 _T = TypeVar("_T")
 
 
@@ -240,30 +241,12 @@ class RuntimeStorageService:
 
     @staticmethod
     def _identity_parts(instance: str) -> tuple[str, UUID]:
-        if not isinstance(instance, str) or not instance or len(instance) > 128:
-            raise StorageConfigurationError("Имя экземпляра хранилища некорректно.")
-        digest = sha256(instance.encode("utf-8")).hexdigest()
-        return digest, uuid5(_IDENTITY_NAMESPACE, digest)
+        return runtime_instance_identity(instance)
 
     def _run(self, instance: str, operation: Callable[[RuntimeStorageUnitOfWork, UUID], _T]) -> _T:
-        digest, identity_id = self._identity_parts(instance)
         with self._uow_factory() as uow:
-            identity = uow.instances.resolve(
-                alias_kind="legacy_instance", alias_digest=digest
-            )
-            if identity is None:
-                identity = InstanceIdentity(identity_id, instance)
-                uow.instances.register(
-                    identity,
-                    alias_kind="legacy_instance",
-                    alias_digest=digest,
-                    source_provenance="runtime_exact_profile",
-                )
-            elif identity.id != identity_id:
-                raise StorageConfigurationError(
-                    "Идентификатор экземпляра не совпадает с происхождением миграции."
-                )
-            result = operation(uow, identity.id)
+            identity_id = resolve_runtime_instance(uow, instance)
+            result = operation(uow, identity_id)
             uow.commit()
             return result
 

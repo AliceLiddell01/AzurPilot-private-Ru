@@ -9,7 +9,7 @@ Revision-файлы не должны читать production config или вы
 Alembic entry point также требует отдельного точного подтверждения target через
 `AZURPILOT_POSTGRES_DISPOSABLE_HOST`, `_PORT`, `_DATABASE` и `_USER`.
 
-Текущий единственный head — `0002_migration_shapes`. Он расширяет schema v1
+Текущий единственный head — `0003_fleet_state_core`. Он расширяет schema v1
 только доказанными legacy migration shapes; production wiring по-прежнему
 отсутствует.
 

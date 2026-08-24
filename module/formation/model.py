@@ -8,6 +8,45 @@ from enum import Enum
 
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
 
+SUPPORTED_SURFACE_FLEET_INDICES = (1, 2, 3, 4, 5, 6)
+
+
+def validate_surface_fleet_index(value: object) -> int:
+    """Вернуть допустимый индекс Formation Surface Fleet."""
+
+    if type(value) is not int or value not in SUPPORTED_SURFACE_FLEET_INDICES:
+        raise ValueError("fleet_index должен быть int в диапазоне 1..6")
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class FleetSelection:
+    """Декларативный неизменяемый выбор одного или нескольких флотов."""
+
+    fleet_indices: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.fleet_indices, tuple):
+            raise TypeError("fleet_indices должен быть tuple")
+        if not self.fleet_indices:
+            raise ValueError("Fleet selection не должен быть пустым")
+        normalized = tuple(
+            sorted({validate_surface_fleet_index(value) for value in self.fleet_indices})
+        )
+        object.__setattr__(self, "fleet_indices", normalized)
+
+    @classmethod
+    def one(cls, fleet_index: int) -> FleetSelection:
+        return cls((fleet_index,))
+
+    @classmethod
+    def several(cls, *fleet_indices: int) -> FleetSelection:
+        return cls(tuple(fleet_indices))
+
+    @classmethod
+    def all(cls) -> FleetSelection:
+        return cls(SUPPORTED_SURFACE_FLEET_INDICES)
+
 
 class FormationFleetSide(Enum):
     """Сторона обычного надводного флота."""
@@ -78,8 +117,7 @@ class FormationFleetSnapshot:
     catalog_fingerprint: str
 
     def __post_init__(self) -> None:
-        if type(self.fleet_index) is not int or not 1 <= self.fleet_index <= 6:
-            raise ValueError("fleet_index должен быть int в диапазоне 1..6")
+        validate_surface_fleet_index(self.fleet_index)
         if not isinstance(self.slots, tuple) or len(self.slots) != 6:
             raise ValueError("Formation snapshot должен содержать ровно шесть слотов")
         if not all(isinstance(slot, FormationFleetSlotObservation) for slot in self.slots):
