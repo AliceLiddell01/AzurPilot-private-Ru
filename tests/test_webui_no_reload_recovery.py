@@ -136,7 +136,12 @@ class TestWebUiNoReloadRecovery(unittest.TestCase):
                 return_value=2,
                 create=True,
             ),
-            patch.object(process_lifetime.ctypes, "FormatError", return_value="not found"),
+            patch.object(
+                process_lifetime.ctypes,
+                "FormatError",
+                return_value="not found",
+                create=True,
+            ),
             patch("module.logger.logger.warning") as warning,
             patch.object(process_lifetime.threading, "Thread") as thread,
         ):
