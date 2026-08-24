@@ -328,8 +328,9 @@ class FleetManualScanCoordinator:
         if command is None:
             return None
 
-        # После claim в PostgreSQL снова существует RUNNING-состояние. Пока terminal
-        # transition не подтверждён, следующая safe boundary обязана уметь восстановить его.
+        # После получения команды в PostgreSQL снова существует состояние RUNNING. Пока
+        # завершающий переход не подтверждён, следующая безопасная граница обязана уметь
+        # восстановить его.
         self._recovered_instances.discard(instance)
         try:
             batch = self._state_service.scan(
