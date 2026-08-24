@@ -1,4 +1,4 @@
-"""PostgreSQL adapter for durable manual Fleet scan commands."""
+"""PostgreSQL-адаптер устойчивых команд ручного сканирования флотов."""
 
 from __future__ import annotations
 
