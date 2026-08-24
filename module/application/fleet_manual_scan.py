@@ -327,6 +327,10 @@ class FleetManualScanCoordinator:
         command = self._command_service.claim_next(instance)
         if command is None:
             return None
+
+        # После claim в PostgreSQL снова существует RUNNING-состояние. Пока terminal
+        # transition не подтверждён, следующая safe boundary обязана уметь восстановить его.
+        self._recovered_instances.discard(instance)
         try:
             batch = self._state_service.scan(
                 instance,
@@ -347,6 +351,8 @@ class FleetManualScanCoordinator:
                     "Дополнительно не удалось завершить manual Fleet command: "
                     f"{type(cleanup_error).__name__}"
                 )
+            else:
+                self._recovered_instances.add(instance)
             raise
 
         status = {
@@ -361,6 +367,7 @@ class FleetManualScanCoordinator:
             result_run_id=batch.run_id,
             error_code=batch.failure_code,
         )
+        self._recovered_instances.add(instance)
         return FleetManualScanExecution(command=finished, batch_result=batch)
 
 
