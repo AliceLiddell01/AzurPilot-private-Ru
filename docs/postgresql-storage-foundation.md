@@ -65,6 +65,15 @@ Formation Surface Fleet хранится как append-only цепочка scan 
 Application API `FleetStateService` выбирает latest/history по `app_instance` и
 явной refresh policy, а PostgreSQL adapters не управляют Formation UI.
 
+Опциональный Fleet AutoScan запускается планировщиком на безопасной границе
+перед обычной задачей и использует тот же `Device`, `LazyEngine` и
+`FleetStateService`. Настройки `Alas.FleetAutoScan.Mode` и `Fleets` по умолчанию
+отключают автосканирование; `daily` определяет календарный день в
+`AZURPILOT_POSTGRES_RUNTIME_TIMEZONE`, а `every_start` хранит состояние только
+в текущем процессе. Неполный или неудачный скан повторяется не чаще одного раза
+в 30 минут. Для политики используются append-only данные schema v1, поэтому
+отдельная миграция не требуется.
+
 ## Alembic
 
 Alembic — единственный schema-version mechanism. Приложение не вызывает

@@ -571,6 +571,38 @@
         ]
       }
     },
+    "FleetAutoScan": {
+      "Mode": {
+        "type": "select",
+        "value": "disabled",
+        "option": [
+          "disabled",
+          "every_start",
+          "daily"
+        ],
+        "strict": true
+      },
+      "Fleets": {
+        "type": "multiselect",
+        "value": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "option": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "strict": true
+      }
+    },
     "Storage": {
       "Storage": {
         "type": "storage",

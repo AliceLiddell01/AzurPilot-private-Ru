@@ -19,6 +19,8 @@ class SchedulerContinuationTests(unittest.TestCase):
         script.last_emulator_restart_time = 0
         script.__dict__['config'] = Mock()
         script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+        script.config.FleetAutoScan_Mode = 'disabled'
+        script.config.FleetAutoScan_Fleets = [1, 2, 3, 4, 5, 6]
         script.config.Scheduler_PushNotification = False
         script.config.Error_StrictRestart = False
         script.config.Error_HandleError = True

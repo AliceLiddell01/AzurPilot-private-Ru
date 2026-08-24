@@ -280,6 +280,67 @@ class AzurLaneAutoScript:
             )
             exit(1)
 
+    def _build_fleet_autoscan_controller(self):
+        """Создать Formation controller поверх текущего scheduler-owned Device."""
+
+        from module.formation.navigation import FormationFleetController
+
+        device = self.device
+        device.stuck_record_clear()
+        device.click_record_clear()
+        return FormationFleetController(config=self.config, device=device)
+
+    @cached_property
+    def fleet_autoscan(self):
+        """Process-local coordinator с ленивым Device/controller boundary."""
+
+        from module.application.fleet_autoscan import (
+            FleetAutoScanCoordinator,
+            FleetAutoScanPolicy,
+        )
+        from module.persistence.runtime import build_runtime_fleet_state_context
+
+        context = build_runtime_fleet_state_context(
+            self._build_fleet_autoscan_controller,
+            require_ready=False,
+        )
+        return FleetAutoScanCoordinator(
+            context.state_service,
+            FleetAutoScanPolicy(context.runtime_timezone),
+        )
+
+    def _run_fleet_autoscan_if_due(self):
+        from module.application.fleet_autoscan import (
+            FleetAutoScanConfig,
+            FleetAutoScanMode,
+        )
+
+        config = FleetAutoScanConfig.from_raw(
+            self.config.FleetAutoScan_Mode,
+            self.config.FleetAutoScan_Fleets,
+        )
+        if config.mode is FleetAutoScanMode.DISABLED:
+            return None
+        execution = self.fleet_autoscan.run_if_due(self.config_name, config)
+        if execution is None:
+            return None
+
+        due = ", ".join(map(str, execution.due_selection.fleet_indices))
+        complete = ", ".join(map(str, execution.complete_fleet_indices)) or "нет"
+        incomplete = ", ".join(map(str, execution.incomplete_fleet_indices)) or "нет"
+        logger.hr('[Alas] Автосканирование флотов', level=1)
+        logger.info(
+            f'[Alas] Автосканирование завершено: режим={execution.mode.value}, '
+            f'запрошены флоты={due}, полные={complete}, неполные={incomplete}'
+        )
+        if execution.batch_result.failed_fleet_index is not None:
+            logger.warning(
+                '[Alas] Автосканирование остановлено на флоте '
+                f'{execution.batch_result.failed_fleet_index}; повтор будет разрешён '
+                'после защитной задержки'
+            )
+        return execution
+
     def _check_sensitive_exit(self, command, error):
         """
         检查当前任务是否为敏感任务，如果是则直接退出。
@@ -1416,6 +1477,22 @@ class AzurLaneAutoScript:
         AzurLaneConfig.is_hoarding_task = False
         return task.command
 
+    def _prepare_task_boundary(self, task):
+        """Подготовить Device и выполнить autoscan до запуска обычной задачи."""
+
+        _ = self.device
+        self.device.config = self.config
+        if self.is_first_task and task == 'Restart':
+            logger.info('[Alas] При запуске планировщика задача `Restart` пропущена')
+            self.delay_next_restart()
+            del_cached_property(self, 'config')
+            return False
+        self._run_fleet_autoscan_if_due()
+        if self.stop_event is not None and self.stop_event.is_set():
+            logger.info('[Alas] Запрос на остановку получен во время автосканирования')
+            return False
+        return True
+
     def loop(self):
         logger.set_file_logger(self.config_name)
         logger.info(f'[Alas] Запуск цикла планировщика: {self.config_name}')
@@ -1484,14 +1561,8 @@ class AzurLaneAutoScript:
 
                 # 获取任务
                 task = self.get_next_task()
-                # 初始化设备并更改服务器
-                _ = self.device
-                self.device.config = self.config
-                # 跳过第一次重启
-                if self.is_first_task and task == 'Restart':
-                    logger.info('[Alas] При запуске планировщика задача `Restart` пропущена')
-                    self.delay_next_restart()
-                    del_cached_property(self, 'config')
+                # Autoscan проверяется на безопасной границе после возможного ожидания.
+                if not self._prepare_task_boundary(task):
                     continue
 
                 # 运行

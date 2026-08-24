@@ -697,7 +697,12 @@ class ConfigUpdater:
             # 跳过非字典项（叶子值，如字符串、数字等）
             if not isinstance(data, dict):
                 continue
-            value = deep_get(old, keys=keys, default=data['value'])
+            missing = object()
+            value = deep_get(old, keys=keys, default=missing)
+            if value is missing:
+                value = data['value']
+            elif data.get('strict') and (value is None or value == ''):
+                raise ValueError(f'Параметр {keys} не может быть пустым')
             typ = data['type']
             display = data.get('display')
             value_empty = value == '' and not data.get('preserve_empty')

@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from module.application.canonical_payload import payload_digest
 from module.application.errors import StorageConflictError, StorageInvalidDataError
 from module.application.fleet_state import (
+    FleetScanAttempt,
     FleetScanRun,
     FleetScanRunStatus,
     FleetStateObservation,
@@ -283,6 +284,113 @@ class PostgresFleetStateRepository:
             .limit(limit)
         )
         return self._read(statement)
+
+    def complete_in_window(
+        self,
+        instance_id: UUID,
+        selection: FleetSelection,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[int, ...]:
+        if not isinstance(start, datetime) or start.tzinfo is None:
+            raise StorageInvalidDataError("start должен содержать timezone.")
+        if not isinstance(end, datetime) or end.tzinfo is None or end <= start:
+            raise StorageInvalidDataError("end должен быть позже start и содержать timezone.")
+        statement = (
+            select(formation_surface_fleet_snapshot.c.fleet_index)
+            .where(
+                formation_surface_fleet_snapshot.c.instance_id == instance_id,
+                formation_surface_fleet_snapshot.c.fleet_index.in_(
+                    selection.fleet_indices
+                ),
+                formation_surface_fleet_snapshot.c.complete.is_(True),
+                formation_surface_fleet_snapshot.c.observed_at >= start,
+                formation_surface_fleet_snapshot.c.observed_at < end,
+            )
+            .distinct()
+            .order_by(formation_surface_fleet_snapshot.c.fleet_index)
+        )
+        try:
+            return tuple(self._connection.execute(statement).scalars().all())
+        except SQLAlchemyError as exc:
+            raise translate_database_error(exc) from None
+
+    def latest_attempts(
+        self,
+        instance_id: UUID,
+        selection: FleetSelection,
+        *,
+        source: str,
+    ) -> tuple[FleetScanAttempt, ...]:
+        if not isinstance(source, str) or not source.strip() or len(source) > 64:
+            raise StorageInvalidDataError("source некорректен.")
+        ranked = (
+            select(
+                formation_surface_fleet_scan_request.c.fleet_index,
+                formation_surface_fleet_scan_run.c.id.label("run_id"),
+                formation_surface_fleet_scan_run.c.source,
+                formation_surface_fleet_scan_run.c.started_at,
+                formation_surface_fleet_scan_run.c.status,
+                formation_surface_fleet_scan_run.c.error_code,
+                func.row_number()
+                .over(
+                    partition_by=formation_surface_fleet_scan_request.c.fleet_index,
+                    order_by=(
+                        formation_surface_fleet_scan_run.c.started_at.desc(),
+                        formation_surface_fleet_scan_run.c.id.desc(),
+                    ),
+                )
+                .label("rank"),
+            )
+            .select_from(
+                formation_surface_fleet_scan_run.join(
+                    formation_surface_fleet_scan_request,
+                    formation_surface_fleet_scan_request.c.run_id
+                    == formation_surface_fleet_scan_run.c.id,
+                )
+            )
+            .where(
+                formation_surface_fleet_scan_run.c.instance_id == instance_id,
+                formation_surface_fleet_scan_run.c.source == source,
+                formation_surface_fleet_scan_request.c.fleet_index.in_(
+                    selection.fleet_indices
+                ),
+            )
+            .subquery()
+        )
+        statement = (
+            select(
+                ranked.c.run_id,
+                ranked.c.fleet_index,
+                ranked.c.source,
+                ranked.c.started_at,
+                ranked.c.status,
+                ranked.c.error_code,
+            )
+            .where(ranked.c.rank == 1)
+            .order_by(ranked.c.fleet_index)
+        )
+        try:
+            rows = tuple(self._connection.execute(statement).mappings().all())
+        except SQLAlchemyError as exc:
+            raise translate_database_error(exc) from None
+        try:
+            return tuple(
+                FleetScanAttempt(
+                    run_id=row["run_id"],
+                    fleet_index=row["fleet_index"],
+                    source=row["source"],
+                    started_at=row["started_at"],
+                    status=FleetScanRunStatus(row["status"]),
+                    error_code=row["error_code"],
+                )
+                for row in rows
+            )
+        except (TypeError, ValueError):
+            raise StorageInvalidDataError(
+                "PostgreSQL содержит некорректную Fleet scan attempt."
+            ) from None
 
     def _read(self, statement) -> tuple[FleetStateObservation, ...]:
         try:

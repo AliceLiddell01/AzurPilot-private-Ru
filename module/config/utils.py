@@ -242,16 +242,24 @@ def parse_value(value, data):
 
     if data.get('type') == 'multiselect':
         if value is None or value == '':
+            if data.get('strict'):
+                raise ValueError('Пустое значение multiselect запрещено')
             return data['value']
         if not isinstance(value, list):
             value = [value]
         value = [parse_single(item) for item in value]
+        if data.get('strict') and not value:
+            raise ValueError('Пустое значение multiselect запрещено')
         if 'option' in data and any(item not in data['option'] for item in value):
+            if data.get('strict'):
+                raise ValueError('Multiselect содержит неподдерживаемое значение')
             return data['value']
         return value
 
     if 'option' in data:
         if value not in data['option']:
+            if data.get('strict'):
+                raise ValueError('Параметр содержит неподдерживаемое значение')
             return data['value']
     value = parse_single(value)
     return value

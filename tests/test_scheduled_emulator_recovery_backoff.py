@@ -22,6 +22,8 @@ def test_failed_scheduled_recovery_moves_retry_window_before_next_task():
     config = types.SimpleNamespace(
         EmulatorManagement_ScheduledEmulatorRestart=True,
         EmulatorManagement_RestartIntervalHours=1,
+        FleetAutoScan_Mode='disabled',
+        FleetAutoScan_Fleets=[1, 2, 3, 4, 5, 6],
         Scheduler_PushNotification=False,
         Error_OnePushConfig={},
         Error_StrictRestart=False,

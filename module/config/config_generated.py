@@ -979,6 +979,10 @@ class GeneratedConfig:
     EmulatorManagement_ScheduledEmulatorRestart = False
     EmulatorManagement_RestartIntervalHours = 4
 
+    # 配置组 `FleetAutoScan`
+    FleetAutoScan_Mode = 'disabled'  # disabled, every_start, daily
+    FleetAutoScan_Fleets = [1, 2, 3, 4, 5, 6]  # 1, 2, 3, 4, 5, 6
+
     # 配置组 `EmulatorManager`
     EmulatorManager_EnableRemoteSSH = False  # True, False
     EmulatorManager_RemoteSSHHost = None

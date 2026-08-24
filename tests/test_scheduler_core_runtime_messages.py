@@ -334,6 +334,10 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
                 def get_next_task(self):
                     return "Synthetic"
 
+                def _prepare_task_boundary(self, task):
+                    self.device.config = self.config
+                    return task == "Synthetic"
+
                 def run(self, command):
                     return False
 
