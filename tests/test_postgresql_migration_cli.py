@@ -114,6 +114,16 @@ def test_report_guard_is_anchored_to_source_root(tmp_path, monkeypatch):
     assert not (config / "report.json").exists()
 
 
+def test_report_rejects_missing_parent_with_bounded_code(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+
+    with pytest.raises(LegacySourceError, match="REPORT_TARGET_UNSAFE"):
+        postgresql_migration._write_report(
+            "{}\n", tmp_path / "missing/report.json", source
+        )
+
+
 def test_pgpassfile_is_not_exported_when_missing(monkeypatch):
     settings = DatabaseSettings(
         host="127.0.0.1",

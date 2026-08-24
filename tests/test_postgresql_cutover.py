@@ -200,3 +200,47 @@ def test_activation_does_not_treat_migration_io_failure_as_corrupt(tmp_path: Pat
 
     assert legacy.is_file()
     assert not Path(arguments.marker).exists()
+
+
+def test_parser_rejects_empty_legacy_marker():
+    with pytest.raises(SystemExit):
+        postgresql_cutover._parser().parse_args(
+            [
+                "--confirm",
+                postgresql_cutover.CONFIRMATION,
+                "--reconciliation-report",
+                "report.json",
+                "--legacy-marker",
+                "",
+                "--reviewed-head",
+                "b" * 40,
+                "--merge-commit",
+                "c" * 40,
+            ]
+        )
+
+
+def test_activation_rejects_legacy_symlink_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+    )
+    legacy = tmp_path / "config/storage_backend.json"
+    arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
+    arguments.legacy_marker = str(legacy)
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda candidate: True if candidate == legacy else original_is_symlink(candidate),
+    )
+
+    with (
+        patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"),
+        pytest.raises(RuntimeError, match="небезопасен"),
+    ):
+        postgresql_cutover.activate(arguments)
+
+    assert not Path(arguments.marker).exists()

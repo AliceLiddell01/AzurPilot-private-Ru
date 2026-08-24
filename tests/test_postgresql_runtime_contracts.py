@@ -125,6 +125,28 @@ def test_corrupt_legacy_marker_is_not_migrated(tmp_path: Path):
     assert legacy.read_bytes() == before
 
 
+def test_broken_legacy_marker_symlink_is_not_treated_as_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    target = tmp_path / "config/state/storage_backend.json"
+    legacy = tmp_path / "config/storage_backend.json"
+    original_exists = Path.exists
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "exists",
+        lambda candidate: False if candidate == legacy else original_exists(candidate),
+    )
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda candidate: True if candidate == legacy else original_is_symlink(candidate),
+    )
+
+    with pytest.raises(StorageConfigurationError, match="небезопасен"):
+        migrate_legacy_backend_marker(target=target, legacy=legacy)
+
+
 def test_legacy_marker_migration_does_not_clobber_racing_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

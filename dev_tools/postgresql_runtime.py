@@ -97,9 +97,11 @@ def _backup(
     environment = os.environ.copy()
     environment.pop("PGPASSWORD", None)
     if native:
-        environment["PGPASSFILE"] = os.environ.get(
-            "AZURPILOT_POSTGRES_PGPASSFILE", environment.get("PGPASSFILE", "")
-        )
+        environment["PGPASSFILE"] = environment.get(
+            "PGPASSFILE"
+        ) or os.environ.get("AZURPILOT_POSTGRES_PGPASSFILE", "")
+        if not environment["PGPASSFILE"]:
+            environment.pop("PGPASSFILE")
     arguments = (
         [native, *_pg_dump_arguments(settings)]
         if native

@@ -149,8 +149,8 @@ def _require_production_cutover(
 def _run_pg(executable: str, arguments: list[str], settings: DatabaseSettings) -> None:
     environment = os.environ.copy()
     environment.pop("PGPASSWORD", None)
-    passfile = os.environ.get("AZURPILOT_POSTGRES_PGPASSFILE") or environment.get(
-        "PGPASSFILE"
+    passfile = environment.get("PGPASSFILE") or os.environ.get(
+        "AZURPILOT_POSTGRES_PGPASSFILE"
     )
     if passfile:
         environment["PGPASSFILE"] = passfile
@@ -261,8 +261,15 @@ def _write_report(payload: str, path: Path | None, source_root: Path) -> None:
     if path is None:
         print(payload, end="")
         return
-    parent = path.parent.resolve(strict=True)
-    if parent == (source_root / "config").resolve():
+    try:
+        parent = path.parent.resolve(strict=True)
+        protected_config_roots = {
+            (Path(__file__).resolve().parents[1] / "config").resolve(),
+            (source_root / "config").resolve(),
+        }
+    except OSError as exc:
+        raise LegacySourceError("REPORT_TARGET_UNSAFE") from exc
+    if parent in protected_config_roots:
         raise LegacySourceError("REPORT_TARGET_PROFILE_NAMESPACE")
     if path.exists() or path.is_symlink() or not parent.is_dir():
         raise LegacySourceError("REPORT_TARGET_UNSAFE")

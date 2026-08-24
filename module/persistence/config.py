@@ -138,10 +138,10 @@ class DatabaseSettings:
         """Загрузить единственный production-маркер без секретных значений."""
 
         _, payload = _read_backend_marker(Path(marker_path))
-        return cls._from_backend_marker_payload(payload)
+        return cls.from_backend_marker_payload(payload)
 
     @classmethod
-    def _from_backend_marker_payload(
+    def from_backend_marker_payload(
         cls, payload: dict[str, object]
     ) -> DatabaseSettings:
         if payload.get("backend") != "postgresql" or payload.get("version") != 1:
@@ -213,16 +213,16 @@ def migrate_legacy_backend_marker(
 
     target_path = Path(target)
     legacy_path = Path(legacy)
-    if not legacy_path.exists():
+    if not legacy_path.exists() and not legacy_path.is_symlink():
         return False
 
     legacy_raw, legacy_payload = _read_backend_marker(legacy_path)
-    DatabaseSettings._from_backend_marker_payload(legacy_payload)
+    DatabaseSettings.from_backend_marker_payload(legacy_payload)
 
     def finish_existing_target(*, remove_on_failure: bool) -> bool:
         try:
             target_raw, target_payload = _read_backend_marker(target_path)
-            DatabaseSettings._from_backend_marker_payload(target_payload)
+            DatabaseSettings.from_backend_marker_payload(target_payload)
             target_stat = target_path.stat()
             legacy_stat = legacy_path.stat()
             if (

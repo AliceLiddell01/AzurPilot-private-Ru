@@ -38,6 +38,8 @@ _ALLOWED_KEYS = frozenset(
         "AZURPILOT_WSL_PGPASSFILE",
     }
 )
+# Приложенный recovery contract требует оба секрета в защищённом local source;
+# loader валидирует их различие, но никогда не экспортирует в process environment.
 _SECRET_KEYS = frozenset(
     {
         f"{_APP_PREFIX}PASSWORD",
@@ -73,7 +75,7 @@ class LocalPostgresEnvironment:
                 target[key] = value
         source_prefix = _APP_PREFIX if role == "app" else _MIGRATOR_PREFIX
         for field_name in _CONNECTION_FIELDS:
-            if field_name in {"PASSWORD", "PGPASSFILE"}:
+            if field_name == "PASSWORD":
                 continue
             target[_APP_PREFIX + field_name] = self.values[source_prefix + field_name]
         target["PGPASSFILE"] = self.values[source_prefix + "PGPASSFILE"]
@@ -199,6 +201,10 @@ def read_local_postgres_environment(
 ) -> LocalPostgresEnvironment | None:
     env_path = Path(path)
     if not env_path.exists():
+        if env_path.is_symlink():
+            raise StorageConfigurationError(
+                "Локальный PostgreSQL env отсутствует или небезопасен."
+            )
         return None
     try:
         metadata = env_path.stat()

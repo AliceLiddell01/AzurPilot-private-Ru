@@ -36,11 +36,14 @@ def test_backup_rejects_repository_target(tmp_path: Path):
         )
 
 
-def test_backup_is_verified_and_published_create_only(tmp_path: Path):
+def test_backup_is_verified_and_published_create_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     repository = tmp_path / "repository"
     repository.mkdir()
     output = tmp_path / "backups" / "production.dump"
     calls: list[tuple[list[str], dict[str, str] | None]] = []
+    monkeypatch.setenv("AZURPILOT_POSTGRES_PGPASSFILE", "C:/secure/pgpass.conf")
 
     def run_hidden(
         arguments: list[str],
@@ -63,7 +66,7 @@ def test_backup_is_verified_and_published_create_only(tmp_path: Path):
     assert output.stat().st_size == 2048
     assert calls[0][0][0] == "pg_dump"
     assert "PGPASSWORD" not in calls[0][1]
-    assert "PGPASSFILE" in calls[0][1]
+    assert calls[0][1]["PGPASSFILE"] == "C:/secure/pgpass.conf"
     assert calls[1][0][:2] == ["pg_restore", "--list"]
     assert not tuple(output.parent.glob("*.tmp"))
 

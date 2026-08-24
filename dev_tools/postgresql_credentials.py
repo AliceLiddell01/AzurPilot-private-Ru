@@ -317,7 +317,12 @@ def rotate(arguments: argparse.Namespace) -> None:
     old_wsl = _read_wsl_file(arguments.distro, arguments.wsl_passfile)
     old_app = _password_for(old_wsl, arguments.database, "azurpilot_app")
     old_migrator = _password_for(old_wsl, arguments.database, "azurpilot_migrator")
-    old_windows = windows_passfile.read_bytes() if windows_passfile.is_file() else b""
+    if windows_passfile.is_symlink() or (
+        windows_passfile.exists() and not windows_passfile.is_file()
+    ):
+        raise RuntimeError("Windows passfile отсутствует или небезопасен.")
+    windows_existed = windows_passfile.is_file()
+    old_windows = windows_passfile.read_bytes() if windows_existed else b""
     old_env = env_path.read_bytes() if env_path.is_file() else None
     app_secret = secrets.token_urlsafe(48)
     migrator_secret = secrets.token_urlsafe(48)
@@ -395,7 +400,10 @@ def rotate(arguments: argparse.Namespace) -> None:
             _write_wsl_file(
                 arguments.distro, arguments.wsl_passfile, wsl_user, old_wsl
             )
-            _write_windows_file(windows_passfile, old_windows)
+            if windows_existed:
+                _write_windows_file(windows_passfile, old_windows)
+            else:
+                windows_passfile.unlink(missing_ok=True)
             if old_env is None:
                 env_path.unlink(missing_ok=True)
             else:

@@ -23,6 +23,12 @@ from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 CONFIRMATION = "АКТИВИРОВАТЬ-POSTGRESQL-БЕЗ-SQLITE-ROLLBACK"
 
 
+def _non_empty_path(value: str) -> str:
+    if not value.strip():
+        raise argparse.ArgumentTypeError("Путь legacy production-маркера не может быть пустым.")
+    return value
+
+
 def _git_revision(value: str) -> str:
     if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
         raise RuntimeError("Git provenance для production-маркера некорректен.")
@@ -72,7 +78,9 @@ def activate(arguments: argparse.Namespace) -> bool:
     marker = Path(arguments.marker).resolve()
     if marker.exists() or marker.is_symlink():
         raise RuntimeError("Production-маркер уже существует.")
-    legacy = Path(arguments.legacy_marker).resolve() if arguments.legacy_marker else None
+    legacy = Path(arguments.legacy_marker) if arguments.legacy_marker else None
+    if legacy is not None and legacy.is_symlink():
+        raise RuntimeError("Legacy production-маркер отсутствует или небезопасен.")
     invalid_legacy_digest: str | None = None
     if legacy is not None and legacy.exists():
         try:
@@ -141,7 +149,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--confirm", required=True)
     parser.add_argument("--reconciliation-report", required=True)
     parser.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
-    parser.add_argument("--legacy-marker", default=str(LEGACY_BACKEND_MARKER_PATH))
+    parser.add_argument(
+        "--legacy-marker",
+        type=_non_empty_path,
+        default=str(LEGACY_BACKEND_MARKER_PATH),
+    )
     parser.add_argument("--retire-invalid-legacy-marker-sha256")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5432)

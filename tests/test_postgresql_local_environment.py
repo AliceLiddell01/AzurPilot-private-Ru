@@ -29,7 +29,7 @@ def _document() -> str:
             "AZURPILOT_POSTGRES_MIGRATOR_PASSWORD=migrator-secret",
             "AZURPILOT_POSTGRES_MIGRATOR_SSLMODE=disable",
             "AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE=Asia/Novosibirsk",
-            "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/pgpass.conf",
+            "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/migrator-pgpass.conf",
             "AZURPILOT_WSL_DISTRO=archlinux",
             "AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass",
             "",
@@ -88,7 +88,11 @@ def test_local_env_can_select_migrator_without_exporting_secret(tmp_path: Path):
     load_local_postgres_environment(path, role="migrator", environment=environment)
 
     assert environment["AZURPILOT_POSTGRES_USER"] == "azurpilot_migrator"
-    assert environment["PGPASSFILE"] == "C:/secure/pgpass.conf"
+    assert environment["PGPASSFILE"] == "C:/secure/migrator-pgpass.conf"
+    assert (
+        environment["AZURPILOT_POSTGRES_PGPASSFILE"]
+        == "C:/secure/migrator-pgpass.conf"
+    )
     assert all("secret" not in value for value in environment.values())
 
 
@@ -164,4 +168,23 @@ def test_local_env_rejects_broad_permissions(tmp_path: Path, monkeypatch):
         path.chmod(0o644)
 
     with pytest.raises(StorageConfigurationError, match="права доступа"):
+        load_local_postgres_environment(path, environment={})
+
+
+def test_missing_local_env_rejects_broken_symlink_alias(tmp_path: Path, monkeypatch):
+    path = tmp_path / ".env"
+    original_exists = Path.exists
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "exists",
+        lambda candidate: False if candidate == path else original_exists(candidate),
+    )
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda candidate: True if candidate == path else original_is_symlink(candidate),
+    )
+
+    with pytest.raises(StorageConfigurationError, match="небезопасен"):
         load_local_postgres_environment(path, environment={})
