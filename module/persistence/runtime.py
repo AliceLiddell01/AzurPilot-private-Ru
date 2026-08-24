@@ -54,7 +54,7 @@ class RuntimeFleetStateContext:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeFleetPageContext:
-    """Read-side и сервис отправки команд для процесса WebUI."""
+    """Сервисы чтения и отправки команд для процесса WebUI."""
 
     query_service: FleetPageQueryService
     command_service: FleetManualScanCommandService
@@ -63,7 +63,7 @@ class RuntimeFleetPageContext:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeFleetManualScanContext:
-    """Worker-side coordinator с ленивой привязкой к scheduler-owned Device."""
+    """Координатор рабочего процесса с ленивой привязкой к устройству планировщика."""
 
     coordinator: FleetManualScanCoordinator
 
@@ -153,7 +153,7 @@ def build_runtime_fleet_page_context(
     clock: Callable[[], datetime] | None = None,
     require_ready: bool = True,
 ) -> RuntimeFleetPageContext:
-    """Собрать WebUI Fleet services без Device и scan controller."""
+    """Собрать сервисы WebUI-страницы флотов без устройства и контроллера сканирования."""
 
     bootstrap_runtime_storage(require_ready=require_ready)
     with _lock:
@@ -178,7 +178,7 @@ def build_runtime_fleet_manual_scan_context(
     clock: Callable[[], datetime] | None = None,
     require_ready: bool = True,
 ) -> RuntimeFleetManualScanContext:
-    """Собрать устойчивый command coordinator для существующего worker-процесса."""
+    """Собрать устойчивый координатор команд для существующего рабочего процесса."""
 
     state_context = build_runtime_fleet_state_context(
         controller_factory,

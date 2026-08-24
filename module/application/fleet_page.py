@@ -1,4 +1,4 @@
-"""Нейтральная к представлению query-модель для WebUI-страницы «Флоты»."""
+"""Нейтральная к представлению модель запросов для WebUI-страницы «Флоты»."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def _slot_view(slot: FormationFleetSlotObservation) -> FleetSlotViewModel:
         state = FleetSlotState.UNRESOLVED
     elif slot.identity_status is IdentityStatus.AMBIGUOUS:
         state = FleetSlotState.AMBIGUOUS
-    else:  # Domain-валидация должна делать эту ветку недостижимой.
+    else:  # Проверка доменной модели должна делать эту ветку недостижимой.
         raise ValueError("Занятый Fleet slot содержит неизвестное identity state")
     return FleetSlotViewModel(
         side=slot.side,
@@ -118,7 +118,7 @@ def _row_view(
 
 
 class FleetPageQueryService:
-    """Загружает все шесть флотов и последнюю команду одной application-транзакцией."""
+    """Загружает все шесть флотов и последнюю команду одной транзакцией уровня приложения."""
 
     def __init__(self, uow_factory: Callable[[], FleetPageUnitOfWork]) -> None:
         self._uow_factory = uow_factory

@@ -20,7 +20,7 @@ from module.webui.app_helpers import (
 
 
 def build_fleet_page_runtime_context(*, clock=None, require_ready: bool = True):
-    """Собрать Fleet page runtime-контекст в разрешённой WebUI composition root."""
+    """Собрать контекст выполнения страницы флотов в разрешённой корневой точке WebUI."""
     from module.persistence.runtime import build_runtime_fleet_page_context
 
     return build_runtime_fleet_page_context(

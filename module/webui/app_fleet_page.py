@@ -1,4 +1,4 @@
-"""Отдельная страница Fleet State и элементы ручного сканирования."""
+"""Отдельная страница состояния флотов и элементы ручного сканирования."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ _REFRESH_SECONDS = 2.0
 
 
 def load_fleet_autoscan_config(config: Mapping[str, Any]) -> FleetAutoScanConfig:
-    """Прочитать существующий Stage 2 contract без дублирования настройки."""
+    """Прочитать существующий контракт этапа 2 без дублирования настройки."""
 
     return FleetAutoScanConfig.from_raw(
         deep_get(config, "Alas.FleetAutoScan.Mode"),
@@ -86,7 +86,7 @@ def fleet_slot_text(slot: FleetSlotViewModel) -> str:
 
 
 class FleetPageMixin(WebUIMixinBase):
-    """Возможность Fleet page, подключаемая к session-scoped AlasGUI."""
+    """Возможность страницы флотов, подключаемая к AlasGUI текущей сессии."""
 
     @cached_property
     def fleet_page_context(self):

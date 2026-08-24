@@ -253,6 +253,6 @@ def test_invalid_lifecycle_constraint_and_rollback_safety(database):
             FleetSelection.one(2),
             created_at=datetime(2026, 8, 25, tzinfo=UTC),
         )
-        # Deliberately omit commit; __exit__ must roll back both identity and command.
+        # Намеренно не выполняем commit: __exit__ должен откатить identity и команду.
 
     assert _command_service(database).latest("profile-rollback") is None
