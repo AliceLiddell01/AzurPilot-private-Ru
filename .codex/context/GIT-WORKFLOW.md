@@ -1,572 +1,366 @@
 # Регламент автономной работы Codex с Git для AzurPilot Private RU
 
-Версия: **2.0**
+Версия: **2.1**
 Репозиторий: `AliceLiddell01/AzurPilot-private-Ru`
-Исходный проект: `wess09/AzurPilot`
-Модель ответственности: **Codex выполняет 100% технического цикла, пользователь — 0% рутинных действий**.
-
-Этот документ заменяет модель 90/10 из версии 1.3. Пользователь не используется как ручной CI, исполнитель локальных команд, оператор Git, тестировщик промежуточных файлов или подтверждающий каждый технический шаг.
+Upstream: `wess09/AzurPilot`
+Модель ответственности: **Codex выполняет 100% технического цикла; пользователь не используется как ручной CI, Git-оператор или тестировщик.**
 
 ## Журнал изменений
 
+### 2.1
+
+- capability preflight сокращён до минимального; task-specific capabilities проверяются перед первым использованием;
+- один основной Codex выполняет implementation, adversarial self-review, security и release passes последовательно, без обязательных subagents;
+- внешнее ревью запускается на существенных milestone checkpoints: не только в конце, но и не после каждого мелкого fix;
+- rate limit/cooldown обязательного reviewer завершает текущий прогон с сохранением состояния вместо ожидания;
+- дорогие suites/gates повторяются только после существенного relevant diff или для диагностики;
+- контекст загружается по необходимости; routine tool-call narration запрещён.
+
 ### 2.0
 
-- модель ответственности изменена с 90/10 на полностью автономную;
-- новые рабочие ветки используют префикс `codex/*`;
-- добавлена система автономных quality gates без ручной приёмки;
-- введено разделение ролей «исполнитель / независимый ревьюер / security reviewer»;
-- PowerShell Parser, PSScriptAnalyzer и Windows smoke теперь обязательны для соответствующих изменений;
-- добавлена автономная работа с CI, артефактами, логами, эмулятором и тестовым профилем;
-- описаны автоматические merge, rollback, cleanup и post-merge verification;
-- введён ограниченный бюджет повторных попыток и fail-closed поведение;
-- добавлен порядок действий при инфраструктурном или политическом блокере без обращения к пользователю;
-- уточнены разрешённые, условно разрешённые и запрещённые операции Codex;
-- добавлены требования к минимальным правам плагинов и MCP-серверов.
-
-### 1.3
-
-- добавлена проверка доступов и средств тестирования;
-- рабочий цикл разделён на быстрый, стандартный и расширенный режимы;
-- определена синхронизация `master` с upstream;
-- добавлена проверка секретов;
-- добавлены рекомендации по branch protection.
+- введён полностью автономный lifecycle;
+- рабочие ветки переведены на `codex/*`;
+- закреплены CI/security/secret/review/post-merge gates;
+- PowerShell Parser, PSScriptAnalyzer и Windows smoke стали обязательными для релевантных изменений;
+- описаны merge, rollback, cleanup и fail-closed поведение.
 
 ## 1. Область действия
 
-Регламент применяется только к:
+Документ применяется только к `AliceLiddell01/AzurPilot-private-Ru` и регулирует:
+
+- `master`, `personal/stable`, `codex/*`, legacy `chatgpt/*`, `sync/*`;
+- upstream sync и перенос upstream-изменений в персональный контур;
+- Git/PR/CI/review/merge/rollback/cleanup;
+- Python, PowerShell, документацию, security и production-sensitive изменения.
+
+## 2. Главный принцип
+
+Штатный lifecycle:
 
 ```text
-AliceLiddell01/AzurPilot-private-Ru
-```
-
-Он регулирует:
-
-- работу с `master`, `personal/stable`, `codex/*`, устаревшими `chatgpt/*` и временными `sync/*`;
-- синхронизацию с `wess09/AzurPilot`;
-- изменение Python-кода, PowerShell-скриптов, конфигурации, документации и Wiki;
-- создание, проверку, публикацию и слияние pull request;
-- CI, security scan, secret scan, тестирование и post-merge verification;
-- автономное восстановление после ошибок;
-- очистку временных ресурсов;
-- итоговую отчётность без запроса действий у пользователя.
-
-Документ не является универсальным регламентом для других репозиториев.
-
-## 2. Главный принцип: 100% Codex
-
-Codex самостоятельно выполняет полный технический цикл:
-
-```text
-получение задачи
-→ проверка доступа и среды
-→ изучение архитектуры
-→ выбор ветки и режима
-→ планирование
-→ реализация
-→ статические проверки
-→ тесты
-→ security review
-→ secret scan
-→ commit
-→ pull request
-→ независимое автоматическое ревью
+задача
+→ минимальный preflight + base SHA
+→ релевантный контекст
+→ план
+→ реализация логическими слоями
+→ targeted checks
+→ Codex adversarial self-review
+→ внешний review checkpoint на существенном/рискованном milestone
+→ финальные релевантные gates
+→ commit / PR
+→ required CI exact head
 → merge
 → post-merge verification
 → cleanup
-→ итоговый отчёт
+→ короткий доказательный отчёт
 ```
 
-Codex не просит пользователя:
+Codex не просит пользователя запускать команды, тесты, Git, CI, создавать PR/merge или проверять промежуточные файлы, если это технически доступно самому Codex.
 
-- запускать PowerShell, Python, `uv`, Git или тесты;
-- скачивать и поочерёдно проверять версии файлов;
-- присылать консольный вывод;
-- выбирать способ исправления технической ошибки;
-- вручную создавать ветку, commit, PR или merge;
-- проверять GitHub Actions;
-- выполнять ручную синхронизацию;
-- подтверждать безопасные и заранее разрешённые операции;
-- тестировать GUI или игру, если доступна соответствующая MCP-среда;
-- принимать промежуточный результат.
+**Subagents не обязательны.** По умолчанию один основной Codex выполняет все внутренние passes последовательно. Независимость обеспечивается внешним reviewer/tool, когда он предусмотрен task contract.
 
-Пользователь может позже изучить итоговый PR, commit или отчёт, но это не является обязательной частью рабочего цикла.
+## 3. Контекст и источники
 
-## 3. Обязательные источники контекста
+Использовать progressive disclosure.
 
-В зависимости от задачи Codex использует:
+Приоритет:
 
-1. фактический код целевой ветки `AliceLiddell01/AzurPilot-private-Ru`;
-2. README и Wiki персонального форка;
-3. исходный репозиторий `wess09/AzurPilot`;
-4. оригинальную DeepWiki:
-   - `https://deepwiki.com/wess09/AzurPilot/1-azurpilot-overview`;
-   - релевантные дочерние страницы;
-5. upstream commits, issues и pull request;
-6. документацию AzurLaneAutoScript для существенно не переписанного унаследованного слоя;
-7. официальную документацию используемых библиотек и инструментов через доступные плагины;
-8. фактические CI-конфигурации, тесты и эксплуатационные скрипты репозитория.
-
-Приоритет источников:
-
-1. код и конфигурация целевой ветки;
-2. исполняемые тесты и фактическое поведение;
-3. эксплуатационные контракты Wiki форка;
-4. `.codex/context/` как навигационная карта и перечень проверяемых инвариантов;
-5. upstream diff и исходные файлы;
+1. фактический код/конфигурация целевой ветки;
+2. ближайшие executable tests и runtime behavior;
+3. корневой `AGENTS.md` и релевантные файлы `.codex/context/`;
+4. README/Wiki форка;
+5. upstream diff/issues/PR;
 6. DeepWiki как архитектурная карта;
-7. внешняя документация.
+7. официальная документация конкретного API/инструмента.
 
-DeepWiki не заменяет чтение кода.
+Правила:
 
-При расхождении источников Codex:
-
-1. устанавливает фактическое поведение;
-2. определяет, является ли расхождение намеренным отличием форка;
-3. обновляет связанную документацию в том же PR;
-4. фиксирует решение в описании PR и итоговом отчёте.
+- сначала `.codex/context/INDEX.md`, затем только нужные документы;
+- `GIT-WORKFLOW.md` читать по релевантным разделам;
+- `POWERSHELL-GIT-RULES.md` читать только при PowerShell/Git scope;
+- не перечитывать большие документы после каждого небольшого fix;
+- не выполнять общий web/docs survey без конкретного вопроса;
+- не расширять problem surface без evidence из call graph, tests, diff или runtime behavior;
+- при расхождении документации и кода сначала установить фактическое поведение.
 
 ## 4. Архитектурные границы форка
 
-AzurPilot Private RU наследует AzurPilot и AzurLaneAutoScript, но содержит отдельный персональный эксплуатационный контур.
+AzurPilot Private RU наследует upstream, но содержит отдельный персональный эксплуатационный контур.
 
-| Подсистема | Типичные области | Основные риски |
-|---|---|---|
-| Запуск и WebUI | `gui.py`, WebUI, backend | процессы, порт, завершение, совместимость со `Start` |
-| Конфигурация и задачи | scheduler, dispatch, config | состояние, приоритеты, повторный запуск |
-| Устройство | `module/device/`, ADB | reconnect, timeout, платформенные различия |
-| Скриншоты и ввод | screenshot/control backends | задержки, координаты, backend-совместимость |
-| OCR и распознавание | OCR, assets, templates | масштаб, локализация, ложные совпадения |
-| Игровая автоматизация | campaign, combat, fleet | состояние UI, безопасность флота, settlement |
-| Operation Siren | `module/os/`, `module/os_*` | навигация, AP, ремонт, магазины, бой |
-| Интеграции | уведомления, телеметрия, MCP, remote control | секреты, приватность, сетевые ошибки |
-| Персональный контур | `scripts/*.ps1` | Git, `.venv`, rollback, журналы, update source |
+| Область | Типичные риски |
+|---|---|
+| WebUI/runtime | процессы, порт, lifecycle |
+| config/scheduler | состояние, migration, повторный запуск |
+| device/ADB | reconnect, timeout, platform differences |
+| screenshot/input/OCR | координаты, thresholds, localization |
+| combat/campaign/Operation Siren | state machine, retries, exit conditions |
+| integrations/MCP | secrets, privacy, network errors |
+| `scripts/*.ps1` | Git, `.venv`, update, rollback |
+| production data | migration, credentials, recovery, rollback |
 
-Codex оценивает не только локальный diff, но и затронутый сквозной поток выполнения.
+Оценивать сквозной поток только в пределах фактически затронутых границ.
 
-## 5. Плагины и MCP-серверы
+## 5. Capabilities
 
-Перед началом работы Codex формирует динамический capability map.
+### Базовые
 
-Минимально ожидаются:
+Проверяются в начале:
 
-- GitHub: чтение, ветки, commits, PR, reviews, checks, artifacts, merge;
-- файловая система и Git worktree/clone;
-- Windows runner;
-- PowerShell 7.6.x;
-- PowerShell Parser;
-- PSScriptAnalyzer;
-- Python, удовлетворяющий `pyproject.toml` (в текущем проверяемом контуре — 3.14.6), и `uv`;
-- запуск тестов проекта;
-- secret scanner;
-- security scanner и независимая validation-проверка;
-- браузер/WebUI runner;
-- Android/ADB/эмуляторный runner для релевантных сценариев;
-- доступ к README, Wiki, DeepWiki и официальной документации;
-- хранилище логов и тестовых артефактов.
+- repo/worktree и чтение base branch;
+- Git;
+- runtime/package manager, без которого нельзя начать конкретную задачу.
 
-Принцип прав:
+### Task-specific
 
-- использовать минимально достаточные полномочия;
-- не расширять права ради удобства;
-- не передавать секреты между инструментами без необходимости;
-- не хранить токены в файлах репозитория;
-- не публиковать закрытые логи и конфигурацию;
-- не отключать branch protection ради выполнения задачи.
+Проверяются перед первым соответствующим gate:
 
-## 6. Нулевой шаг: автономная проверка возможностей
+- GitHub push/PR/review/checks/artifacts/merge;
+- Windows/PowerShell Parser/PSScriptAnalyzer;
+- secret/security scanners;
+- browser/WebUI;
+- ADB/emulator/game;
+- production database/network/runtime;
+- внешняя документация.
 
-До изменения веток и файлов Codex проверяет:
+Не доказывать в нулевую минуту доступность capability, которая может не понадобиться.
 
-1. доступ к форку и upstream;
-2. чтение целевой ветки и файлов;
-3. права на создание веток, commits, PR и merge;
-4. доступ к status checks и artifacts;
-5. доступность Windows/PowerShell/Python/`uv`;
-6. доступность security и secret scan;
-7. доступность браузерной, эмуляторной или игровой среды, если она требуется;
-8. отсутствие конфликтующей активной автоматизации;
-9. состояние branch protection;
-10. возможность закончить задачу без ручного действия пользователя.
+Повторяющийся дефект среды исправлять в setup/bootstrap или canonical project runner, а не новым ad-hoc workaround в каждой задаче.
 
-Результат записывается в служебный лог задачи и кратко отражается в PR.
+## 6. Минимальный preflight и блокеры
 
-Если обязательная возможность недоступна, Codex действует fail-closed:
+До изменения файлов:
 
-1. не выдаёт непроверенный артефакт как готовый;
-2. не просит пользователя выполнить команду;
-3. не обходит защиту;
-4. создаёт или обновляет GitHub issue с безопасной диагностикой;
-5. помечает задачу `blocked-infrastructure` или эквивалентной меткой;
-6. очищает временные ресурсы;
-7. завершает прогон со статусом `blocked`.
+1. определить repo/worktree;
+2. убедиться, что пользовательские изменения не затрагиваются;
+3. получить base branch/base SHA;
+4. проверить только инструменты, необходимые для начала текущего scope.
 
-При восстановлении инфраструктуры задача может быть продолжена новым автономным прогоном.
+Если обязательный gate недоступен в момент фактической необходимости:
+
+- не выдавать результат как готовый;
+- не обходить защиту;
+- сохранить безопасную диагностику и полезные commits/PR;
+- очистить только принадлежащие текущему прогону временные ресурсы;
+- завершить прогон как `blocked`.
+
+Не создавать инфраструктурный issue автоматически из-за одной transient-ошибки; делать это только при устойчивой проблеме или если task contract требует tracking.
 
 ## 7. Классы задач
 
-### 7.1. Fast-track
+### Fast-track
 
-Допустим только для:
+Только опечатки, формулировки, комментарии, ссылки и очевидный локальный diff без изменения control flow/state/security/architecture.
 
-- опечаток;
-- локальных формулировок;
-- комментариев;
-- ссылок;
-- очевидной документационной правки;
-- изолированной константы без изменения control flow, форматов, состояния, безопасности и архитектуры.
+Минимум:
 
-Минимальный цикл:
-
-1. capability check;
-2. чтение целевого файла;
+1. preflight/base SHA;
+2. целевой файл;
 3. минимальный diff;
-4. форматирование или syntax check;
-5. точечная проверка поведения для константы;
-6. итоговый diff;
-7. secret scan;
-8. один commit;
-9. fast-track PR;
-10. автоматическое ревью и merge;
-11. post-merge verification.
+4. format/syntax;
+5. relevant check;
+6. final diff + secret scan;
+7. commit/PR;
+8. required checks и достаточный review;
+9. merge + короткий post-merge smoke.
 
-### 7.2. Стандартный режим
+### Стандартный
 
-Используется для обычного bugfix или небольшой функции в известной подсистеме.
+Обычный bugfix/feature в известной подсистеме:
 
-Требует:
+- релевантная архитектурная разведка;
+- code/tests;
+- targeted checks;
+- сквозная проверка в разумной границе;
+- adversarial self-review;
+- внешний review checkpoint согласно разделу 20.
 
-- точечной архитектурной разведки;
-- чтения связанного кода и тестов;
-- минимального плана;
-- syntax/lint/tests;
-- проверки сквозного поведения;
-- независимого review pass.
+### Расширенный
 
-### 7.3. Расширенный режим
+Используется для:
 
-Обязателен для:
-
-- `master` и upstream sync;
-- `personal/stable` и пользовательского update path;
-- `Start`, `Update`, `Repair`, `Build`;
-- `.venv`, Python, `pyproject.toml`, `uv.lock`;
-- существенного upstream-port;
+- `master`, upstream sync, `personal/stable` update path;
+- Start/Update/Repair/Build;
+- Python/dependencies/`uv.lock`;
 - device/input/OCR/combat/Operation Siren;
-- секретов, телеметрии, MCP и remote control;
-- новой архитектурной границы;
-- нескольких подсистем;
-- миграций и rollback;
-- риска потери данных;
-- действий в реальной игровой среде.
+- MCP/security/privacy;
+- production/data migration/recovery;
+- нескольких подсистем или риска потери данных.
 
-Если класс неочевиден, выбирается более строгий.
+Если класс неочевиден, выбрать более строгий.
 
 ## 8. Модель веток
 
-### 8.1. `master`
+### `master`
 
-`master` — чистое зеркало `wess09/AzurPilot:master`.
+Чистое зеркало `wess09/AzurPilot:master`. Fork-only changes запрещены. Обновление — только по разделу 9.
 
-В него не попадают персональные изменения форка.
+### `personal/stable`
 
-Изменение `master` возможно только через автономную процедуру sync PR из раздела 9.
-
-### 8.2. `personal/stable`
-
-`personal/stable` — стабильная пользовательская версия и единственный автоматический источник обновления:
+Стабильная пользовательская версия и источник автоматического обновления:
 
 ```text
 origin/personal/stable
 ```
 
-Она не используется как рабочая ветка.
+Не используется как рабочая ветка. Изменения попадают только через PR и required gates.
 
-Любое изменение попадает в неё через PR после прохождения всех обязательных gates.
+### `codex/*`
 
-### 8.3. `codex/*`
-
-Новые рабочие задачи используют:
+Новые задачи:
 
 ```text
-codex/<stage-or-task>
+codex/<task>
 ```
 
-Примеры:
+Одна задача — одна рабочая ветка. Ошибка теста или fix реализации не создаёт новую ветку.
 
-```text
-codex/updater-hardening
-codex/fix-repair-rollback
-codex/docs-update-recovery
-```
+### `chatgpt/*`
 
-Одна задача использует одну рабочую ветку.
+Legacy. Существующую ветку можно закончить, если она однозначно относится к задаче; новые задачи используют `codex/*`.
 
-Новая ветка создаётся только для отдельной задачи, Stage, hotfix, независимого эксперимента или отдельного PR.
+### `sync/*`
 
-Ошибка теста или корректировка реализации не создаёт новую ветку.
-
-### 8.4. `chatgpt/*`
-
-`chatgpt/*` считается legacy-префиксом.
-
-Codex может:
-
-- продолжить существующую активную ветку, если она однозначно относится к текущей задаче;
-- после завершения удалить её обычным способом;
-- не переименовывать опубликованную ветку без необходимости.
-
-Новые задачи используют `codex/*`.
-
-### 8.5. `sync/*`
-
-`sync/*` используется только для синхронизации `master`.
-
-Формат:
+Только upstream sync:
 
 ```text
 sync/upstream-master-YYYYMMDD-<short-sha>
 ```
 
-## 9. Автономная синхронизация `master`
+## 9. Upstream sync `master`
 
-### 9.1. Предварительная проверка
+### Pre-check
 
-Codex:
+Перед sync:
 
-1. получает актуальные SHA `origin/master` и `upstream/master`;
-2. подтверждает правильность remotes;
-3. проверяет, что `origin/master` является предком `upstream/master`;
-4. проверяет fast-forward;
-5. анализирует commits и changed files;
-6. запускает security и secret review для переносимого диапазона;
-7. определяет риски для будущего переноса в `personal/stable`.
+1. получить `origin/master` и `upstream/master`;
+2. подтвердить remotes;
+3. доказать ancestry/fast-forward;
+4. просмотреть переносимый commit range/diff;
+5. выполнить релевантные security/secret checks.
 
-При divergence:
+При divergence запрещены reset/rebase/force push/обычный merge. Синхронизация блокируется и оформляется controlled conflict/divergence workflow.
 
-- reset, rebase, force push и merge запрещены;
-- создаётся issue `upstream-divergence`;
-- прикладываются граф refs, диапазоны commits и безопасная диагностика;
-- автоматическая синхронизация останавливается.
+### Sync PR
 
-### 9.2. Sync PR
+Создать `sync/upstream-master-...` точно на `upstream/master`, открыть PR в `master`, указать old/new SHA, range, существенные подсистемы, checks/risks и пройти review/CI.
 
-Codex:
+### Применение
 
-1. создаёт `sync/upstream-master-...` точно на SHA `upstream/master`;
-2. открывает PR в `master`;
-3. публикует:
-   - старый и новый SHA;
-   - commit range;
-   - список файлов и подсистем;
-   - security findings;
-   - результаты checks;
-   - риски для `personal/stable`;
-4. запускает независимый review pass;
-5. ждёт только машинные quality gates, а не пользователя.
-
-### 9.3. Применение
-
-После успешных gates Codex:
-
-1. выполняет нефорсированный fast-forward `master` к head SHA sync-ветки;
-2. проверяет:
+После gates выполнить только non-force fast-forward и подтвердить:
 
 ```text
 origin/master == sync branch == upstream/master
 ```
 
-3. проверяет отсутствие fork-only diff;
-4. закрывает или финализирует PR с комментарием о fast-forward;
-5. удаляет sync-ветку;
-6. запускает post-sync verification.
-
-Не применяются:
-
-- merge commit;
-- squash merge;
-- rebase merge;
-- force update.
-
-Для этой операции выделенная GitHub App может иметь узкий bypass branch protection только на post-review fast-forward. Другие bypass не разрешаются.
+Fork-only diff должен отсутствовать. Merge/squash/rebase commit для зеркального sync не использовать.
 
 ## 10. Перенос upstream в `personal/stable`
 
-Upstream sync не переносится механически в `personal/stable`.
+Не переносить upstream механически.
 
-Codex создаёт отдельную ветку:
+Использовать отдельную `codex/port-upstream-<topic>` и:
 
-```text
-codex/port-upstream-<topic>
-```
-
-Затем:
-
-1. изучает upstream diff;
-2. сверяет DeepWiki и исходные файлы;
-3. определяет намеренные отличия форка;
-4. адаптирует код под персональный PowerShell-контур;
-5. обновляет тесты;
-6. проверяет migration и rollback;
-7. обновляет Wiki форка;
-8. открывает отдельный PR;
-9. проходит полный расширенный pipeline;
-10. автоматически сливает только после зелёных gates.
+1. изучить upstream diff;
+2. сохранить намеренные отличия форка;
+3. адаптировать персональный runtime/PowerShell-контур;
+4. обновить tests/docs;
+5. проверить migration/rollback;
+6. пройти расширенный pipeline отдельным PR.
 
 ## 11. Изолированная рабочая среда
 
-Codex не изменяет основной пользовательский checkout.
+Не изменять основной пользовательский checkout.
 
-Для каждой задачи создаётся:
+Использовать disposable clone или отдельный worktree.
 
-- disposable clone; либо
-- отдельный Git worktree.
+- base SHA фиксируется до изменений;
+- пользовательские config/secrets не копируются без необходимости;
+- временные artifacts отделены;
+- полезный долговременный результат — commits/PR;
+- после завершения удаляются только ресурсы текущей задачи.
 
-Требования:
+Destructive Git внутри disposable среды регулируется разделом 22; предпочтительно удалить весь disposable worktree.
 
-- базовый SHA фиксируется до изменений;
-- конфигурация пользователя не копируется;
-- секреты подключаются только через secret manager;
-- тестовые артефакты сохраняются отдельно;
-- после завершения worktree/clone удаляется;
-- опубликованные commits и PR остаются единственным долговременным результатом.
+## 12. Рабочий цикл
 
-`git reset --hard` и `git clean` допустимы только внутри созданной Codex одноразовой среды при соблюдении раздела 22.
+### Разведка
 
-## 12. Автономный рабочий цикл
+- live branch/PR state;
+- base SHA;
+- класс задачи;
+- релевантный код/tests/history/context;
+- затронутые boundaries;
+- risks/checks/rollback.
 
-### 12.1. Разведка
+### План
 
-Codex:
+Зафиксировать outcome, scope, ожидаемый diff, gates, review checkpoints, merge/rollback и критерии остановки. Не создавать отдельный plan-файл без необходимости.
 
-1. получает живое состояние веток и PR;
-2. фиксирует базовый SHA;
-3. определяет класс задачи;
-4. читает релевантный код, тесты и историю;
-5. изучает Wiki/DeepWiki/upstream в объёме класса;
-6. строит карту затронутых подсистем;
-7. определяет риски, проверки и rollback.
+### Реализация
 
-### 12.2. План
+- минимальный связный diff;
+- не форматировать посторонние файлы;
+- dependencies/network sources менять только с обоснованием;
+- не создавать `_v2/_final/_fixed` вместо исправления текущего файла;
+- tests/docs обновлять вместе с поведением.
 
-План включает:
+### Проверка
 
-- режим;
-- base/head;
-- базовый SHA;
-- изменяемые и неизменяемые файлы;
-- затронутые подсистемы;
-- тестовую матрицу;
-- security checks;
-- merge strategy;
-- rollback;
-- критерии остановки.
+Порядок:
 
-План хранится в task log или PR body. Отдельный файл создаётся только если он нужен проекту.
+1. static/syntax/parser;
+2. lint/static analysis;
+3. targeted tests;
+4. adversarial self-review base→head;
+5. внешний review checkpoint на существенном/рискованном milestone;
+6. полный релевантный test set перед PR/final checkpoint;
+7. dependency/build/security/secret gates;
+8. controlled smoke;
+9. GUI/browser/emulator/game acceptance только для relevant scope;
+10. final diff.
 
-### 12.3. Реализация
+Полный suite не повторять после каждого мелкого fix. После fix сначала повторять затронутые checks. Полный повтор нужен после существенного code diff, изменения общего контракта/зависимостей или для диагностики.
 
-Codex:
+После PR exact-head required CI является авторитетным повтором постоянных gates; не дублировать локально тот же полный CI без причины.
 
-1. использует существующую подходящую ветку или создаёт одну `codex/*`;
-2. делает минимальный связный diff;
-3. не форматирует посторонние файлы;
-4. не меняет зависимости без обоснования;
-5. не добавляет новые сетевые источники без проверки;
-6. исправляет текущий файл, а не создаёт серии `_v2`, `_final`, `_fixed`;
-7. добавляет или обновляет тесты вместе с кодом;
-8. обновляет документацию при изменении поведения.
+## 13. Последовательные passes одного Codex
 
-### 12.4. Проверка
+### Implementer pass
 
-Порядок от дешёвых к дорогим:
+Разведка, implementation, tests, docs, первичная диагностика.
 
-1. статический аудит;
-2. syntax/parser;
-3. lint/static analysis;
-4. точечные тесты;
-5. полный релевантный test set;
-6. dependency/build check;
-7. security scan;
-8. secret scan;
-9. controlled smoke;
-10. GUI/browser test;
-11. emulator/game test;
-12. итоговый diff;
-13. независимый review pass.
+### Adversarial self-review
 
-При падении Codex:
+Перечитать фактический base→head diff как незнакомое изменение и искать:
 
-1. сохраняет полный вывод;
-2. классифицирует ошибку как code, test, environment, flaky или policy;
-3. устанавливает первопричину;
-4. исправляет реализацию;
-5. повторяет затронутые проверки;
-6. не создаёт новую ветку из-за собственной ошибки.
+- несоответствие задаче/scope creep;
+- пропущенные call sites;
+- regressions/error handling;
+- fail-open/fail-closed;
+- idempotency/concurrency, если релевантны;
+- недостаточные tests/docs;
+- Git/workflow violations.
 
-## 13. Разделение ролей внутри Codex
+Собственные прежние объяснения не считаются доказательством корректности.
 
-Для стандартных и расширенных задач обязательны независимые проходы.
+### Security pass
 
-### 13.1. Implementer pass
+Для чувствительных/расширенных изменений тот же основной Codex отдельно проверяет trust boundaries, findings, validation/severity, fix verification, secrets/privacy. Внешний scanner/reviewer остаётся независимым gate, если предусмотрен проектом.
 
-Отвечает за:
+## 14. PowerShell
 
-- архитектурную разведку;
-- реализацию;
-- тесты;
-- документацию;
-- первичную диагностику.
+При изменении `.ps1`/`.psm1` с Git-командами применяется `POWERSHELL-GIT-RULES.md`.
 
-### 13.2. Reviewer pass
+Обязательные релевантные gates:
 
-Запускается в отдельном контексте без опоры на объяснения implementer.
+- фактический Parser через `pwsh`;
+- PSScriptAnalyzer закреплённой версии;
+- disposable Git smoke для изменённой Git-логики;
+- Windows integration smoke для Start/Update/Repair/Build и другого затронутого Windows flow.
 
-Проверяет:
+Статический аудит не заменяет обязательный runtime gate.
 
-- соответствие задаче;
-- полноту diff;
-- регрессии;
-- error handling;
-- идемпотентность;
-- тестовое покрытие;
-- документацию;
-- соблюдение веточной модели.
-
-Reviewer не должен автоматически соглашаться с implementer.
-
-### 13.3. Security pass
-
-Для расширенных задач и чувствительных изменений используется отдельный security workflow:
-
-- threat model при изменении архитектурной границы;
-- finding discovery;
-- validation;
-- severity calibration;
-- fix verification;
-- secret scan;
-- privacy review.
-
-Merge блокируется при незакрытом подтверждённом finding уровня, запрещённого политикой проекта.
-
-## 14. Контракт PowerShell
-
-Для `.ps1` с Git-командами обязателен `.codex/context/POWERSHELL-GIT-RULES.md`.
-
-В автономной модели требования строже:
-
-1. фактический PowerShell Parser обязателен;
-2. PSScriptAnalyzer обязателен;
-3. используется PowerShell 7.6.x;
-4. для веток, refs, commits и файлов выполняется smoke test во временном репозитории;
-5. для Start/Update/Repair/Build выполняется Windows integration smoke;
-6. статический аудит не заменяет фактический запуск;
-7. отсутствие `pwsh` является инфраструктурным блокером, а не поводом для merge;
-8. полный файл проверяется после последнего изменения;
-9. результаты parser/analyzer/smoke прикладываются к task log или PR checks.
-
-Codex не может назвать `.ps1` готовым, если хотя бы один обязательный PowerShell gate не выполнен.
-
-## 15. Контракт четырёх команд
+## 15. Контракт Start/Update/Repair/Build
 
 ```text
 scripts/Start-AzurPilot.ps1
@@ -575,265 +369,101 @@ scripts/Repair-AzurPilot.ps1
 scripts/Build-AzurPilot.ps1
 ```
 
-### Start
+- **Start:** запускает подготовленную установку; не владеет Git update.
+- **Update:** единственный владелец update path; безопасная схема `fetch → history check → merge --ff-only`; без reset/rebase и уничтожения local changes.
+- **Repair:** диагностирует и транзакционно восстанавливает `.venv`, сохраняя rollback state до успешной проверки.
+- **Build:** подготавливает уже полученный checkout; не клонирует repo, не подменяет Update, не уничтожает config, проверяет hashes загружаемых artifacts.
 
-- запускает подготовленную установку;
-- не обновляет Git;
-- не пересоздаёт `.venv` вне своего контракта;
-- корректно управляет процессами, портом и завершением.
-
-### Update
-
-- единственный владелец пользовательского update path;
-- использует только безопасную модель:
-
-```text
-git fetch
-→ проверка истории
-→ git merge --ff-only
-```
-
-- не уничтожает локальные изменения;
-- не выполняет автоматический rebase/reset.
-
-### Repair
-
-- диагностирует и транзакционно восстанавливает `.venv`;
-- сохраняет исходную среду до успешной проверки;
-- поддерживает diagnostic mode;
-- ведёт журнал и rollback state.
-
-### Build
-
-- подготавливает уже полученный checkout;
-- не клонирует репозиторий;
-- не подменяет Update;
-- не уничтожает существующий config;
-- проверяет SHA-256 загружаемых artifacts.
-
-Изменение одной команды проверяется на отсутствие захвата обязанностей остальных.
+Изменение одной команды не должно захватывать обязанности другой.
 
 ## 16. Python и зависимости
 
-Формальный контракт версии Python определяется `pyproject.toml`:
+Формальный контракт задаётся `pyproject.toml`/`uv.lock`; текущий проверяемый Windows runtime — Python 3.14.6.
 
-```text
-Python >=3.14.6,<3.15
-uv
-pyproject.toml
-uv.lock
-```
+Не выдумывать команды: сначала читать фактический `pyproject.toml`, `uv.lock` и `docs/ci.md`.
 
-Версия 3.14.6 является текущей проверяемой версией персонального Windows-контура, а не универсальным точным pin для всех допустимых сред.
+При dependency change обязательны согласованность lock, clean locked sync, релевантные tests/rollback, source/vulnerability check и license review для новой зависимости.
 
-При изменении Python-кода Codex выполняет актуальные проектные проверки.
+## 17. Secrets
 
-При изменении зависимостей обязательны:
+Не записывать/печатать secrets в repo/logs/artifacts и не переносить пользовательскую конфигурацию в disposable worktree без необходимости.
 
-1. обоснование;
-2. согласованность `pyproject.toml` и `uv.lock`;
-3. `uv sync --frozen` в чистой среде;
-4. тесты Build/Update/Repair;
-5. rollback test;
-6. проверка источников;
-7. vulnerability scan;
-8. license review, если добавляется новая зависимость;
-9. воспроизводимость после удаления `.venv`.
+Secret scanner обязателен перед публикацией relevant diff и перед merge, если после прошлого scan relevant diff менялся.
 
-Несуществующие команды не выдумываются: Codex сначала читает конфигурацию проекта.
+Проверять как минимум source diff, новые archives/binaries, `.env*`, configs/logs/dumps/backups, keys/tokens/cookies/auth headers и персональные identifiers.
 
-## 17. Secret management
+При finding: блокировать публикацию/merge, удалить secret из рабочего дерева, проверить историю текущей ветки и при remote exposure использовать доступный revoke/rotate workflow без публикации значения.
 
-Секреты поступают только через подключённый secret manager или безопасный MCP.
+## 18. GUI, emulator и игровая проверка
 
-Запрещено:
+Запускать только когда изменение реально требует этого acceptance.
 
-- записывать секреты в репозиторий;
-- печатать их в лог;
-- передавать через аргументы командной строки, когда они видимы процессам;
-- прикладывать закрытые config/logs к публичному PR;
-- сохранять secrets в artifacts;
-- копировать пользовательскую конфигурацию в disposable worktree.
+- тестовая конфигурация изолирована;
+- irreversible gameplay/purchases/value-consuming actions запрещены;
+- для OCR сохраняются только безопасные artifacts/metrics;
+- проверять timeout/retry/exit conditions;
+- после теста очищать принадлежащие задаче процессы/sessions/profiles.
 
-Перед каждым commit и merge выполняется secret scan.
-
-Проверяются:
-
-- diff и staged content;
-- новые binaries/archives;
-- `.env*`, config, logs, dumps, backups;
-- private keys;
-- URL с credentials;
-- Telegram/Discord/GitHub/API tokens;
-- cookies, session data и auth headers;
-- device identifiers и персональные данные.
-
-При обнаружении секрета:
-
-1. commit/merge блокируется;
-2. секрет удаляется из рабочего дерева;
-3. проверяется история текущей ветки;
-4. если секрет попал в remote, запускается доступный revoke/rotate workflow;
-5. история очищается только отдельной контролируемой процедурой;
-6. finding фиксируется без публикации полного значения.
-
-## 18. GUI, эмулятор и игровая проверка
-
-Пользователь не выполняет ручной smoke.
-
-Codex использует подключённые:
-
-- Windows runner;
-- браузерный runner;
-- Android/ADB MCP;
-- эмулятор;
-- выделенный тестовый профиль AzurPilot;
-- безопасный тестовый аккаунт или заранее разрешённую тестовую среду.
-
-Правила:
-
-1. тестовая конфигурация изолирована от пользовательской;
-2. необратимые игровые действия запрещены;
-3. покупки, расходование ценных ресурсов, удаление/retire и изменение аккаунта не выполняются;
-4. сценарии выбираются по allowlist;
-5. для OCR сохраняются безопасные screenshots и confidence metrics;
-6. для combat/Operation Siren проверяются timeout, retry и exit conditions;
-7. после теста процессы, ADB-сессии и временные профили очищаются;
-8. чувствительные screenshots не публикуются в открытые artifacts.
-
-Если безопасную игровую проверку невозможно выполнить, merge чувствительного изменения блокируется как infrastructure blocker.
+Если обязательный безопасный acceptance невозможен, sensitive merge блокируется.
 
 ## 19. Коммиты
 
-Commit должен быть логически цельным.
-
-Ориентиры:
-
-- Fast-track — один commit;
-- небольшая задача — один commit;
-- средняя задача — один–три commits;
-- Stage — несколько самостоятельных архитектурных commits.
-
-Запрещены сообщения:
-
-```text
-f
-fix
-test
-again
-final
-update
-```
-
-Примеры:
-
-```text
-fix(update): корректно обрабатывать divergence personal/stable
-fix(repair): восстановить rollback повреждённой venv
-feat(build): добавить проверку SHA-256 platform-tools
-docs(workflow): перейти на автономную модель Codex
-```
+Commit должен быть логически цельным. Не дробить задачу ради формального числа commits и не создавать новый commit только из-за каждого review fix, если squash/amend безопасен и политика ветки это допускает.
 
 Перед commit:
 
-1. итоговый diff;
-2. форматирование;
-3. syntax/lint;
-4. secret scan;
-5. отсутствие случайных файлов.
+- final relevant diff;
+- required format/syntax/targeted checks;
+- secret scan;
+- отсутствие случайных файлов.
 
-## 20. Pull request, review и merge
+Сообщение описывает смысл изменения (`fix(update): ...`, `feat(build): ...`), а не `fix/final/test`.
 
-PR обязателен:
+## 20. PR, review и merge
 
-- для `master`;
-- для `personal/stable`;
-- для Start/Update/Repair/Build;
-- для dependency changes;
-- для значимого upstream-port;
-- для security-sensitive изменений;
-- для стандартного и расширенного режима.
+PR обязателен для `master`, `personal/stable`, standard/extended задач, dependency/security-sensitive изменений и Start/Update/Repair/Build.
 
-Fast-track также использует PR, но с сокращённым pipeline.
+PR body должен содержать только существенное: цель/scope, base SHA, ключевой diff, выполненные gates, migration/rollback и ограничения.
 
-PR содержит:
+### Внешнее ревью
 
-- цель;
-- scope;
-- base SHA;
-- изменённые подсистемы;
-- тесты;
-- security/secret scan;
-- migration/rollback;
-- ограничения;
-- способ merge.
+Внешний reviewer — **milestone gate**.
 
-### Автоматическое ревью
+Схема:
 
-PR проходит:
+1. завершить логически цельный слой;
+2. targeted checks;
+3. Codex adversarial self-review;
+4. внешний review, если слой существенный/рискованный;
+5. исправить findings, повторить targeted checks + self-review;
+6. следующий внешний checkpoint — только после существенного нового code diff, изменения architecture/security/data contract или если reviewer требует re-check;
+7. required CI на exact PR head.
 
-1. implementer self-check;
-2. независимый reviewer pass;
-3. security pass при необходимости;
-4. required status checks.
+Большая задача может иметь несколько review checkpoints, чтобы не накапливать десятки findings до конца. Небольшой standard diff обычно требует одного checkpoint.
 
-Человеческое одобрение не требуется.
+Не запускать полный внешний review заново из-за typo/format/docs или узкой test-only правки без изменения production contract.
 
-Рекомендуемая конфигурация:
+**Rate limit/cooldown:** не ждать таймер и не polling-loop внутри активного прогона. Сохранить branch/commit/PR и завершить прогон как ожидающий review; продолжить новым прогоном позже.
 
-- required checks;
-- запрет force push;
-- запрет удаления;
-- linear history;
-- auto-merge после зелёных gates;
-- при необходимости review от отдельной GitHub App/бота, не являющегося implementer identity.
+### Merge
 
-### Merge strategy
+Для `personal/stable` по умолчанию squash merge для небольших/средних PR; merge commit — только если самостоятельная история commits важна. Rebase merge — только с отдельным обоснованием.
 
-Для `personal/stable`:
-
-- squash merge по умолчанию для небольших и средних PR;
-- merge commit только когда история самостоятельных commits важна;
-- rebase merge не используется без отдельного обоснования.
-
-Для `master` используется только процедура fast-forward из раздела 9.
-
-После merge Codex запускает post-merge verification.
+`master` синхронизируется только процедурой раздела 9.
 
 ## 21. GitHub Actions
 
-Codex предпочитает:
+Предпочитать существующие reusable workflows и runners. Новый workflow создавать только для устойчивой повторяемой ценности, а не для разового запуска, компенсации временно отсутствующего инструмента или дублирования существующей проверки.
 
-1. существующие reusable workflows;
-2. локальные/удалённые runners;
-3. расширение существующего workflow;
-4. новый workflow только при постоянной проектной ценности.
-
-Новый workflow не создаётся ради:
-
-- разового запуска;
-- компенсации отсутствующего инструмента в одном прогоне;
-- формального увеличения CI;
-- дублирования проверки.
-
-Workflow оправдан, если он:
-
-- регулярно нужен на PR/push;
-- предотвращает повторяемый класс ошибок;
-- воспроизводим;
-- не требует пользовательских секретов в небезопасном контексте;
-- имеет ограниченные permissions;
-- использует pinned actions;
-- не выполняет код из недоверенного PR с write-token.
+Workflow должен иметь ограниченные permissions, безопасно работать с недоверенным PR и использовать проектную политику pinning actions.
 
 ## 22. Опасные Git-операции
 
-### Всегда запрещено
-
-В `master`, `personal/stable`, пользовательских скриптах и опубликованных ветках запрещены:
+В пользовательском checkout, `master`, `personal/stable` и опубликованных ветках запрещены:
 
 ```text
 git push --force
+git push --force-with-lease
 git reset --hard
 git clean -fd
 git clean -fdx
@@ -843,211 +473,132 @@ git reflog expire
 git gc --prune=now
 ```
 
-Также запрещено:
+Не обходить branch protection, не переписывать опубликованную историю и не уничтожать пользовательские uncommitted data.
 
-- обходить branch protection;
-- переписывать опубликованную историю;
-- удалять чужие ветки;
-- уничтожать незакоммиченные пользовательские данные.
+В disposable clone/worktree destructive cleanup допустим только после проверки, что среда создана Codex для текущей задачи, не содержит пользовательских данных/secrets и полезный результат уже сохранён. Предпочтительно удалить весь worktree.
 
-### Допустимо только в disposable среде
+## 23. Ошибки и retry budget
 
-`git reset --hard` и `git clean` допустимы исключительно в clone/worktree, созданном Codex для текущей задачи, если:
+Для ошибки:
 
-1. это не пользовательский checkout;
-2. нет пользовательских данных и секретов;
-3. результат уже сохранён в commit или не имеет ценности;
-4. проверен `git status`;
-5. для `git clean` выполнен dry-run;
-6. область ограничена;
-7. force push не используется;
-8. предпочтительная альтернатива — удалить весь disposable worktree.
+1. сохранить достаточный output/evidence;
+2. определить root cause;
+3. отличить product defect от устойчивого setup/runner defect;
+4. исправить текущую ветку/bootstrap;
+5. повторить relevant checks;
+6. выполнить self-review изменённой области.
 
-## 23. Автономная обработка ошибок
+Внешний reviewer после fix повторяется, если finding пришёл от него и нужен re-check, появился существенный production diff, изменился architecture/security/data contract или reviewer явно требует повтор.
 
-Codex не передаёт пользователю цикл пробных запусков.
+Бюджет:
 
-Для каждой ошибки:
+- transient infrastructure: до 2 быстрых повторов, если нет explicit cooldown;
+- explicit reviewer rate limit/cooldown: 0 ожидания/polling, сохранить состояние и завершить run;
+- flaky test: до 2 повторов с evidence;
+- одна code root cause: до 3 fix/targeted-check циклов;
+- security finding: до 2 fix/validation циклов.
 
-1. сохраняется полный вывод;
-2. определяется первопричина;
-3. проверяется нарушение регламента;
-4. исправляется текущая ветка;
-5. повторяются релевантные checks;
-6. PR обновляется;
-7. reviewer повторно проверяет исправление.
+После исчерпания бюджета merge блокируется, полезное состояние сохраняется, временные ресурсы безопасно очищаются.
 
-### Бюджет повторных попыток
+## 24. Post-merge и rollback
 
-Чтобы избежать бесконечных циклов:
+После merge:
 
-- инфраструктурная transient-ошибка: до 2 повторов с backoff;
-- flaky test: до 2 повторов с сохранением evidence;
-- одна подтверждённая code root cause: до 3 циклов исправления;
-- security finding: до 2 циклов fix/validation;
-- конфликт с upstream: один автоматический rebase/merge не выполняется — задача сразу переводится в controlled conflict workflow.
+1. получить merged SHA;
+2. проверить required checks/merged state;
+3. выполнить короткий relevant smoke;
+4. проверить Update/Build/Repair только если затронут эксплуатационный контур;
+5. убедиться в ожидаемом diff/state;
+6. удалить task branch/worktree/artifacts, если безопасно.
 
-После исчерпания бюджета:
+При regression destructive rollback не выполнять автоматически. Использовать controlled revert/hotfix branch и ускоренный relevant pipeline.
 
-1. merge блокируется;
-2. создаётся issue с безопасной диагностикой;
-3. добавляется label `blocked` или `needs-architecture`;
-4. сохраняются commits и ветка, если они полезны;
-5. временная среда очищается;
-6. пользователь не вызывается как ручной исполнитель.
-
-## 24. Rollback и post-merge verification
-
-После merge Codex:
-
-1. получает новый SHA целевой ветки;
-2. проверяет required checks на merged commit;
-3. выполняет короткий smoke;
-4. проверяет Update/Build/Repair при затрагивании эксплуатационного контура;
-5. проверяет отсутствие новых секретов;
-6. проверяет diff против ожидаемого;
-7. удаляет рабочую ветку;
-8. удаляет worktree и временные artifacts;
-9. публикует итоговый комментарий.
-
-При post-merge regression:
-
-- автоматический destructive rollback не выполняется;
-- создаётся hotfix-ветка от предыдущего стабильного SHA или revert commit;
-- запускается ускоренный, но полный relevant pipeline;
-- открывается и автоматически сливается hotfix PR после зелёных gates.
-
-Для `master` rollback выполняется только через отдельную контролируемую процедуру, не нарушающую зеркальную модель.
-
-## 25. Branch protection для автономной модели
+## 25. Branch protection
 
 ### `master`
 
-- force push запрещён;
-- удаление запрещено;
-- PR обязателен как audit/review gate;
-- linear history обязательна;
+- force push/delete запрещены;
+- fork-only commits запрещены;
 - required checks обязательны;
-- dedicated automation App имеет только узкий bypass для post-review fast-forward sync;
-- никакие fork-specific commits не разрешены.
+- возможен только узкий automation bypass для post-review fast-forward sync, если он уже предусмотрен ruleset.
 
 ### `personal/stable`
 
-- force push запрещён;
-- удаление запрещено;
-- PR обязателен;
-- required checks обязательны;
-- human approval не требуется;
-- auto-merge разрешён после машинных gates;
-- reviewer App может выдавать отдельный review status;
-- bypass ограничен аварийным администраторским контуром и не используется Codex в штатной работе.
+- force push/delete запрещены;
+- PR + required checks обязательны;
+- human approval не требуется при машинных gates;
+- auto-merge допустим после зелёных gates.
 
 ### `codex/*`
 
-- force push не используется после публикации;
-- ветка автоматически удаляется после успешного merge;
-- незавершённая полезная ветка сохраняется при блокере;
-- заброшенные ветки очищаются отдельной безопасной задачей.
+- не использовать force push после публикации;
+- удалять после успешного merge;
+- полезную незавершённую ветку сохранять при blocker.
 
 ## 26. Definition of Done
 
-Задача завершена, когда:
+Задача готова, когда:
 
-- capability check выполнен;
-- выбран правильный режим;
-- зафиксированы base branch и base SHA;
+- base branch/SHA и scope зафиксированы;
 - работа выполнена в изолированной среде;
-- diff минимален;
-- `master` не загрязнён персональными изменениями;
-- `personal/stable` не использовалась как черновик;
-- PowerShell-правила соблюдены;
-- Parser, PSScriptAnalyzer и Windows smoke выполнены для релевантных `.ps1`;
-- Python/`uv` checks выполнены;
-- тесты добавлены или обновлены;
-- security review выполнен в требуемом объёме;
-- secret scan выполнен;
-- GUI/emulator/game smoke выполнен, когда он обязателен;
-- независимый reviewer pass завершён;
-- PR прошёл required checks;
-- merge выполнен автоматически;
+- diff минимален и без scope creep;
+- релевантные local gates выполнены;
+- tests обновлены там, где менялось поведение;
+- полный suite выполнен в установленном checkpoint и не повторялся без причины;
+- Codex adversarial self-review завершён;
+- необходимые внешние review checkpoints закрыты;
+- security/secret gates выполнены в требуемом объёме;
+- required CI зелёный на exact head;
+- blocking review threads отсутствуют;
+- merge выполнен разрешённой стратегией;
 - post-merge verification зелёный;
-- rollback path проверен для рискованных изменений;
-- документация обновлена;
-- временные ветки, worktrees и artifacts очищены;
-- итоговый отчёт опубликован;
-- от пользователя не требуется никаких действий.
+- docs/rollback обновлены там, где нужно;
+- принадлежащие задаче временные ресурсы очищены;
+- пользователь не требуется как ручной исполнитель.
 
-## 27. Формат итогового отчёта
+Task-specific capability не входит в DoD, если соответствующий gate не относится к фактическому scope.
+
+## 27. Progress updates и итоговый отчёт
+
+Во время работы писать progress update только при:
+
+- начале новой крупной фазы;
+- факте, который меняет план;
+- существенном checkpoint;
+- blocker.
+
+Update — 1–2 предложения с конкретным результатом. Не narrate routine calls вроде «читаю файл», «запускаю тест», «проверяю Git».
+
+Финал краткий и доказательный:
 
 ```text
-Статус:
-- merged / blocked / reverted
-
-Режим:
-- Fast-track / стандартный / расширенный
-
-Git:
-- репозиторий: AliceLiddell01/AzurPilot-private-Ru
-- base branch:
-- base SHA:
-- рабочая ветка:
-- commits:
-- PR:
-- merge SHA:
-
-Изменённые файлы:
-- ...
-
-Архитектурный контекст:
-- Wiki форка:
-- DeepWiki:
-- upstream:
-- намеренные расхождения:
-
-Проверки:
-- static audit:
-- PowerShell Parser:
-- PSScriptAnalyzer:
-- Python/uv:
-- tests:
-- build:
-- Windows smoke:
-- WebUI/browser:
-- emulator/game:
-- security review:
-- secret scan:
-- independent review:
-- post-merge verification:
-
-Cleanup:
-- рабочая ветка:
-- worktree:
-- artifacts:
-
-Ограничения или блокеры:
-- отсутствуют / ...
-
-От пользователя требуется:
-- ничего
+Статус: merged / blocked / reverted
+Git: base SHA, branch, PR, merge SHA
+Изменено: ключевые файлы/подсистемы
+Проверено: фактически выполненные relevant gates + exact-head CI
+Review: self-review, external checkpoints, blocking findings
+Post-merge: relevant smoke/verification
+Ограничения: только реальные
+От пользователя требуется: ничего / неизбежный внешний шаг
 ```
+
+Не дублировать в финале полные изменённые файлы, длинные test logs и историю каждого tool call, если пользователь прямо этого не просил.
 
 ## 28. Живое состояние
 
-Активные ветки, текущий Stage, open PR, SHAs, CI status и состояние upstream не фиксируются в регламенте как постоянные факты.
-
-Codex получает их заново перед каждой задачей через GitHub и другие подключённые источники.
+Активные branches, PR, SHAs, CI status и upstream state не фиксируются здесь как постоянные факты. Получать их заново при соответствующей операции.
 
 ## 29. Итоговая политика
 
-Штатный результат автономной работы Codex — не файл для ручной проверки, а:
+Штатный результат:
 
 ```text
-проверенный commit
-+ проверенный PR
-+ автоматический merge
+проверенный commit/PR
++ требуемые review/CI gates
++ разрешённый merge
 + post-merge verification
-+ очищенная временная среда
-+ отчёт
++ безопасный cleanup
++ короткий отчёт
 ```
 
-Если обязательный gate недоступен или не пройден, результатом считается корректно оформленный `blocked`-статус, а не непроверенный код и не запрос к пользователю выполнить работу вручную.
+Если обязательный gate недоступен или не пройден, корректный результат — сохранённое полезное состояние и `blocked`, а не непроверенный merge и не просьба пользователю вручную закончить технический цикл.
