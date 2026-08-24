@@ -615,7 +615,16 @@ formation_surface_fleet_scan_command = Table(
     "formation_surface_fleet_scan_command",
     metadata,
     Column("id", Uuid, primary_key=True),
-    Column("instance_id", Uuid, _instance_fk(), nullable=False),
+    Column(
+        "instance_id",
+        Uuid,
+        ForeignKey(
+            f"{SCHEMA_NAME}.app_instance.id",
+            ondelete="RESTRICT",
+            name="fk_fleet_scan_command_instance",
+        ),
+        nullable=False,
+    ),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("started_at", DateTime(timezone=True), nullable=True),
     Column("finished_at", DateTime(timezone=True), nullable=True),
