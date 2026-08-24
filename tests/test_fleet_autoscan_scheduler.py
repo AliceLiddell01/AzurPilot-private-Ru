@@ -114,6 +114,25 @@ def test_first_restart_skip_does_not_run_autoscan() -> None:
     assert events == ["delay-restart"]
 
 
+def test_restart_boundary_runs_before_manual_scan_and_autoscan() -> None:
+    events = []
+    script = _script(mode="daily", fleets=[1])
+    script.fleet_manual_scan = _ManualCoordinator(
+        events,
+        execution=SimpleNamespace(
+            command=SimpleNamespace(
+                selection=SimpleNamespace(fleet_indices=(1,)),
+                status=SimpleNamespace(value="succeeded"),
+            ),
+            batch_result=SimpleNamespace(failed_fleet_index=None),
+        ),
+    )
+    script._run_fleet_autoscan_if_due = lambda: events.append("autoscan")
+
+    assert script._prepare_task_boundary("Restart")
+    assert events == []
+
+
 def test_stop_requested_during_autoscan_prevents_normal_task() -> None:
     script = _script(mode="daily", fleets=[1])
     stop_state = {"set": False}
@@ -237,6 +256,9 @@ def test_scheduler_source_keeps_safe_boundary_and_recovery_ordering() -> None:
             "    def loop(self):"
         )
     ]
+    assert prepare.index("task == 'Restart'") < prepare.index(
+        "self._run_fleet_manual_scan_if_pending()"
+    )
     assert prepare.index("task == 'Restart'") < prepare.index(
         "self._run_fleet_autoscan_if_due()"
     )
