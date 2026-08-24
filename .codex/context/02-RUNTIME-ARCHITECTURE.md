@@ -106,7 +106,10 @@ composition roots импортируют `module.persistence.runtime`. Обяз�
 PostgreSQL marker проверяется fail-closed; SQLite fallback и dual-write
 запрещены.
 Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
-корневой `config/*.json` сохраняет историческое значение profile namespace.
+корневой `config/*.json` является только пространством кандидатов: игровым
+профилем считается безопасный regular JSON, прошедший единый structural
+classifier `module.config.profile`; произвольный report/state JSON профилем не
+становится. Runtime state хранится только в `config/state/`.
 Локальный `.env` загружается одним persistence owner и направляет libpq к
 защищённым app/migrator passfiles без постоянного `PGPASSWORD`.
 

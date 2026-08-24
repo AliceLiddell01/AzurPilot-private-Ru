@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -186,9 +187,20 @@ class WebUIInternalInstanceTests(unittest.TestCase):
                 os.chdir(temp)
                 config = Path("config")
                 (config / "state").mkdir(parents=True)
-                (config / "alas.json").write_text("{}", encoding="utf-8")
-                (config / "ap.json").write_text("{}", encoding="utf-8")
-                (config / "modded.fpy.json").write_text("{}", encoding="utf-8")
+                profile = {
+                    "Alas": {"Emulator": {}},
+                    "General": {},
+                    "Main": {"Scheduler": {}},
+                }
+                mod_profile = {
+                    "Fpy": {"Emulator": {}},
+                    "FpyMain": {"Scheduler": {}},
+                }
+                (config / "alas.json").write_text(json.dumps(profile), encoding="utf-8")
+                (config / "ap.json").write_text(json.dumps(profile), encoding="utf-8")
+                (config / "modded.fpy.json").write_text(
+                    json.dumps(mod_profile), encoding="utf-8"
+                )
                 (config / "state/storage_backend.json").write_text(
                     "{}", encoding="utf-8"
                 )

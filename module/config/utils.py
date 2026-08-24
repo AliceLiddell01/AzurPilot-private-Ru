@@ -36,6 +36,7 @@ from module.config.locale import (
     LEGACY_UI_LOCALES,
     UI_LOCALE,
 )
+from module.config.profile import discover_profile_configs, discover_profile_names
 SERVER_TO_TIMEZONE = {
     'en': timedelta(hours=-7),
 }
@@ -164,20 +165,8 @@ def iter_folder(folder, is_dir=False, ext=None):
 
 
 def is_oobe_needed():
-    """
-    检查是否需要 OOBE 初次设置向导。
-    config/ 目录下不存在任何非 template 开头的 .json 配置文件时返回 True。
-
-    Returns:
-        bool:
-    """
-    if not os.path.exists('./config'):
-        return True
-    for file in os.listdir('./config'):
-        name, ext = os.path.splitext(file)
-        if ext == '.json' and not name.startswith('template'):
-            return False
-    return True
+    """Вернуть True, когда canonical discovery не нашёл реальных профилей."""
+    return not discover_profile_names('./config')
 
 
 def alas_template():
@@ -199,21 +188,15 @@ def alas_template():
 
 
 def alas_instance():
-    """
-    获取所有 Alas 实例名称。
-
-    Returns:
-        list[str]: 除 `template` 外的所有 Alas 实例名称。
-    """
-    out = []
-    for file in os.listdir('./config'):
-        name, extension = os.path.splitext(file)
-        config_name, mod_name = os.path.splitext(name)
-        mod_name = mod_name[1:]
-        if name != 'template' and extension == '.json' and mod_name == '':
-            out.append(name)
-
-    out.extend(list_mod_instance())
+    """Получить canonical registry профилей с legacy default fallback."""
+    profiles = discover_profile_configs('./config')
+    out = [profile.name for profile in profiles]
+    MOD_CONFIG_DICT.clear()
+    MOD_CONFIG_DICT.update(
+        (profile.name, profile.mod_name)
+        for profile in profiles
+        if profile.mod_name != 'alas'
+    )
 
     if not len(out):
         out = [DEFAULT_CONFIG_NAME]
