@@ -9,13 +9,24 @@ import os
 import sys
 from pathlib import Path
 
-from module.application.errors import StorageError
-from module.persistence.config import DatabaseSettings
+from module.application.errors import StorageConfigurationError, StorageError
+from module.persistence.config import (
+    DEFAULT_BACKEND_MARKER_PATH,
+    LEGACY_BACKEND_MARKER_PATH,
+    DatabaseSettings,
+    migrate_legacy_backend_marker,
+)
 from module.persistence.database import LazyEngine, StorageHealthChecker
+from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
-
 CONFIRMATION = "АКТИВИРОВАТЬ-POSTGRESQL-БЕЗ-SQLITE-ROLLBACK"
+
+
+def _non_empty_path(value: str) -> str:
+    if not value.strip():
+        raise argparse.ArgumentTypeError("Путь legacy production-маркера не может быть пустым.")
+    return value
 
 
 def _git_revision(value: str) -> str:
@@ -39,10 +50,28 @@ def _load_ready_report(path: Path) -> tuple[dict[str, object], str]:
         raise RuntimeError("Отчёт reconciliation не разрешает cutover.")
     if payload.get("reason_codes") not in ([], ()):
         raise RuntimeError("Отчёт reconciliation содержит блокирующие причины.")
+    if (
+        payload.get("format") != "azurpilot-postgresql-migration-report-v1"
+        or payload.get("schema_head") != EXPECTED_ALEMBIC_HEAD
+        or payload.get("source_record_coverage") is not True
+        or payload.get("semantic_shadow_parity") is not True
+        or payload.get("repeat_import_zero_delta") is not True
+        or payload.get("dump_restore_parity") is not True
+        or payload.get("target")
+        != {
+            "host": "127.0.0.1",
+            "port": 5432,
+            "database": "azurpilot",
+            "user": "azurpilot_migrator",
+            "sslmode": "disable",
+            "runtime_timezone": "Asia/Novosibirsk",
+        }
+    ):
+        raise RuntimeError("Отчёт reconciliation не содержит полный cutover evidence.")
     return payload, hashlib.sha256(raw).hexdigest()
 
 
-def activate(arguments: argparse.Namespace) -> None:
+def activate(arguments: argparse.Namespace) -> bool:
     if arguments.confirm != CONFIRMATION:
         raise RuntimeError("Точное подтверждение необратимой активации отсутствует.")
     if str(arguments.host).strip().lower() not in {"localhost", "127.0.0.1", "::1"}:
@@ -58,16 +87,8 @@ def activate(arguments: argparse.Namespace) -> None:
     )
     if settings.user != "azurpilot_app":
         raise RuntimeError("Production-маркер разрешён только для app-роли PostgreSQL.")
-    engine = LazyEngine(settings)
-    try:
-        StorageHealthChecker(engine).require_ready()
-    finally:
-        engine.dispose()
-
-    marker = Path(arguments.marker).resolve()
-    if marker.exists() or marker.is_symlink():
-        raise RuntimeError("Production-маркер уже существует.")
-    marker.parent.mkdir(parents=True, exist_ok=True)
+    if settings.database != "azurpilot":
+        raise RuntimeError("Production-маркер разрешён только для database azurpilot.")
     payload = {
         "backend": "postgresql",
         "version": 1,
@@ -82,6 +103,62 @@ def activate(arguments: argparse.Namespace) -> None:
         "sslmode": settings.sslmode,
         "runtime_timezone": settings.runtime_timezone,
     }
+    engine = LazyEngine(settings)
+    try:
+        StorageHealthChecker(engine).require_ready()
+    finally:
+        engine.dispose()
+
+    marker_argument = Path(arguments.marker)
+    if marker_argument.is_symlink():
+        raise RuntimeError("Production-маркер уже существует или небезопасен.")
+    marker = marker_argument.resolve()
+    repository_root_value = getattr(arguments, "repository_root", None)
+    if repository_root_value is not None:
+        repository_argument = Path(repository_root_value)
+        if repository_argument.is_symlink() or not repository_argument.is_dir():
+            raise RuntimeError("Корень репозитория отсутствует или небезопасен.")
+        repository_root = repository_argument.resolve(strict=True)
+        if marker != (repository_root / DEFAULT_BACKEND_MARKER_PATH).resolve():
+            raise RuntimeError("Production-маркер использует неканонический путь.")
+        if arguments.legacy_marker is not None and Path(
+            arguments.legacy_marker
+        ).resolve() != (repository_root / LEGACY_BACKEND_MARKER_PATH).resolve():
+            raise RuntimeError("Legacy production-маркер использует неканонический путь.")
+    if marker.exists() or marker.is_symlink():
+        raise RuntimeError("Production-маркер уже существует.")
+    legacy = Path(arguments.legacy_marker) if arguments.legacy_marker else None
+    if legacy is not None and legacy.is_symlink():
+        raise RuntimeError("Legacy production-маркер отсутствует или небезопасен.")
+    legacy_digest_to_retire: str | None = None
+    if legacy is not None and legacy.exists():
+        if legacy.is_symlink() or not legacy.is_file():
+            raise RuntimeError("Legacy production-маркер отсутствует или небезопасен.")
+        legacy_raw = legacy.read_bytes()
+        legacy_digest = hashlib.sha256(legacy_raw).hexdigest()
+        try:
+            legacy_payload = json.loads(legacy_raw)
+            if not isinstance(legacy_payload, dict):
+                raise StorageConfigurationError(
+                    "Legacy production-маркер имеет некорректный формат."
+                )
+            DatabaseSettings.from_backend_marker_payload(legacy_payload)
+        except (UnicodeError, json.JSONDecodeError, StorageConfigurationError):
+            recovery_guard = (
+                arguments.retire_invalid_legacy_marker_sha256 or ""
+            ).strip().lower()
+            if recovery_guard != legacy_digest:
+                raise RuntimeError(
+                    "Повреждённый legacy marker требует exact SHA-256 recovery guard."
+                ) from None
+            legacy_digest_to_retire = legacy_digest
+        else:
+            if legacy_payload == payload:
+                if migrate_legacy_backend_marker(target=marker, legacy=legacy):
+                    return True
+            else:
+                legacy_digest_to_retire = legacy_digest
+    marker.parent.mkdir(parents=True, exist_ok=True)
     temporary = marker.with_suffix(marker.suffix + f".{os.getpid()}.tmp")
     try:
         with temporary.open("x", encoding="utf-8", newline="\n") as stream:
@@ -89,9 +166,39 @@ def activate(arguments: argparse.Namespace) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
+        if (
+            legacy is not None
+            and legacy_digest_to_retire is not None
+            and (
+                legacy.is_symlink()
+                or not legacy.is_file()
+                or hashlib.sha256(legacy.read_bytes()).hexdigest()
+                != legacy_digest_to_retire
+            )
+        ):
+            raise RuntimeError(
+                "Legacy production-маркер изменился до публикации recovery."
+            )
         os.link(temporary, marker)
+        if legacy is not None and legacy_digest_to_retire is not None:
+            if (
+                legacy.is_symlink()
+                or not legacy.is_file()
+                or hashlib.sha256(legacy.read_bytes()).hexdigest()
+                != legacy_digest_to_retire
+            ):
+                marker.unlink(missing_ok=True)
+                raise RuntimeError(
+                    "Legacy production-маркер изменился во время recovery."
+                )
+            try:
+                legacy.unlink()
+            except OSError:
+                marker.unlink(missing_ok=True)
+                raise
     finally:
         temporary.unlink(missing_ok=True)
+    return False
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -99,8 +206,15 @@ def _parser() -> argparse.ArgumentParser:
         description="Одноразовая активация PostgreSQL после полного cutover."
     )
     parser.add_argument("--confirm", required=True)
+    parser.add_argument("--repository-root", default=".")
     parser.add_argument("--reconciliation-report", required=True)
-    parser.add_argument("--marker", default="config/storage_backend.json")
+    parser.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
+    parser.add_argument(
+        "--legacy-marker",
+        type=_non_empty_path,
+        default=str(LEGACY_BACKEND_MARKER_PATH),
+    )
+    parser.add_argument("--retire-invalid-legacy-marker-sha256")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5432)
     parser.add_argument("--database", default="azurpilot")
@@ -113,12 +227,18 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = _parser().parse_args(argv)
     try:
-        activate(_parser().parse_args(argv))
+        repository_root = Path(arguments.repository_root).resolve(strict=True)
+        load_local_postgres_environment(repository_root / ".env", role="app")
+        migrated = activate(arguments)
     except (OSError, RuntimeError, StorageError, ValueError) as exc:
         print(f"Ошибка активации production PostgreSQL: {exc}", file=sys.stderr)
         return 1
-    print("Production-маркер PostgreSQL создан атомарно.")
+    if migrated:
+        print("Legacy production-маркер PostgreSQL перенесён атомарно.")
+    else:
+        print("Production-маркер PostgreSQL создан атомарно.")
     return 0
 
 

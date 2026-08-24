@@ -89,6 +89,57 @@ def test_report_is_create_only(tmp_path):
     assert report.read_text(encoding="utf-8") == "preserve"
 
 
+def test_report_rejects_root_profile_namespace(tmp_path, monkeypatch):
+    config = tmp_path / "config"
+    config.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(LegacySourceError, match="REPORT_TARGET_PROFILE_NAMESPACE"):
+        postgresql_migration._write_report("{}\n", config / "report.json", tmp_path)
+
+    assert not (config / "report.json").exists()
+
+
+def test_report_guard_is_anchored_to_source_root(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    config = source / "config"
+    config.mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    with pytest.raises(LegacySourceError, match="REPORT_TARGET_PROFILE_NAMESPACE"):
+        postgresql_migration._write_report("{}\n", config / "report.json", source)
+
+    assert not (config / "report.json").exists()
+
+
+def test_report_rejects_missing_parent_with_bounded_code(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+
+    with pytest.raises(LegacySourceError, match="REPORT_TARGET_UNSAFE"):
+        postgresql_migration._write_report(
+            "{}\n", tmp_path / "missing/report.json", source
+        )
+
+
+def test_pgpassfile_is_not_exported_when_missing(monkeypatch):
+    observed: dict[str, str] = {}
+    monkeypatch.delenv("AZURPILOT_POSTGRES_PGPASSFILE", raising=False)
+    monkeypatch.delenv("PGPASSFILE", raising=False)
+
+    def capture_run(*_args, **kwargs):
+        observed.update(kwargs["env"])
+        return subprocess.CompletedProcess([], 0)
+
+    monkeypatch.setattr(postgresql_migration.subprocess, "run", capture_run)
+
+    postgresql_migration._run_pg("pg_restore", ["--list", "backup.dump"])
+
+    assert "PGPASSFILE" not in observed
+
+
 def test_full_rehearsal_requires_exact_disposable_guard_before_network(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
@@ -131,9 +182,7 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
     monkeypatch.setattr(
         postgresql_migration,
         "_run_pg",
-        lambda executable, arguments, _settings: calls.append(
-            (executable, arguments)
-        ),
+        lambda executable, arguments: calls.append((executable, arguments)),
     )
 
     restored = postgresql_migration._dump_restore(
@@ -149,13 +198,6 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
 
 
 def test_pg_timeout_returns_bounded_storage_error(monkeypatch):
-    settings = DatabaseSettings(
-        host="127.0.0.1",
-        port=5432,
-        database="azurpilot",
-        user="azurpilot_migrator",
-        sslmode="disable",
-    )
     observed: dict[str, object] = {}
 
     def raise_timeout(*_args, **kwargs):
@@ -173,7 +215,6 @@ def test_pg_timeout_returns_bounded_storage_error(monkeypatch):
         postgresql_migration._run_pg(
             "pg_restore",
             ["--dbname", "azurpilot_restore_stage4"],
-            settings,
         )
 
     assert observed["timeout"] == 180
@@ -210,6 +251,56 @@ def test_production_cutover_requires_exact_environment_guard(monkeypatch):
         sslmode="disable",
     )
     monkeypatch.delenv("AZURPILOT_POSTGRES_CUTOVER", raising=False)
+
+    with pytest.raises(
+        LegacySourceError, match="PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED"
+    ):
+        postgresql_migration._require_production_cutover(
+            settings, "azurpilot_restore", "FINAL-PRODUCTION-CUTOVER"
+        )
+
+
+def test_production_cutover_rejects_nonproduction_database(monkeypatch):
+    settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        database="other",
+        user="azurpilot_migrator",
+        sslmode="disable",
+    )
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER", "1")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_HOST", "127.0.0.1")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_PORT", "5432")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_DATABASE", "other")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_USER", "azurpilot_migrator")
+    monkeypatch.setenv(
+        "AZURPILOT_POSTGRES_CUTOVER_SCRATCH_DATABASE", "other_restore"
+    )
+
+    with pytest.raises(
+        LegacySourceError, match="PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED"
+    ):
+        postgresql_migration._require_production_cutover(
+            settings, "other_restore", "FINAL-PRODUCTION-CUTOVER"
+        )
+
+
+def test_production_cutover_requires_migrator_role(monkeypatch):
+    settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        database="azurpilot",
+        user="azurpilot_app",
+        sslmode="disable",
+    )
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER", "1")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_HOST", settings.host)
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_PORT", str(settings.port))
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_DATABASE", settings.database)
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_USER", settings.user)
+    monkeypatch.setenv(
+        "AZURPILOT_POSTGRES_CUTOVER_SCRATCH_DATABASE", "azurpilot_restore"
+    )
 
     with pytest.raises(
         LegacySourceError, match="PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED"

@@ -9,11 +9,19 @@
 сервиса. Игровые модули, статистика и WebUI не импортируют SQLAlchemy, Psycopg
 или Alembic.
 
-`config/storage_backend.json` — атомарный non-secret marker. Он обязателен,
+`config/state/storage_backend.json` — атомарный non-secret marker в выделенном
+runtime-state namespace. Он обязателен,
 разрешает только `postgresql`, фиксирует schema head, SHA-256 итогового
 reconciliation report, reviewed head, merge commit и IANA timezone. Отсутствующий, повреждённый, SQLite или
 несовместимый marker останавливает runtime. Наличие legacy `.db` ничего не
 переключает; fallback и dual-write отсутствуют.
+
+Валидный legacy `config/storage_backend.json` переносится create-only hard-link
+migration после полной проверки содержимого. Повреждённый legacy marker не
+переносится и может быть выведен из эксплуатации только guarded cutover-командой
+после нового READY reconciliation с exact SHA-256 recovery guard. После успешной
+migration root-level alias не остаётся, поэтому marker не попадает в исторический
+namespace игровых профилей `config/*.json`.
 
 ## Матрица production-вызовов
 
@@ -48,10 +56,12 @@ Listener остаётся на loopback. TCP HBA для app/migrator испол�
 backup exact file, `pg_hba_file_rules.error IS NULL`, reload, положительный и
 отрицательный auth tests.
 
-Пароли не находятся в repository, marker, argv или журналах. Windows runtime
-использует защищённый libpq credential source, migrator — отдельный credential
-source, который normal runtime не загружает. ACL проверяется фактически; логи и
-typed errors не содержат DSN, SQL или raw DBAPI diagnostics.
+Пароли не находятся в repository, marker, argv или журналах. Локальный `.env`
+является user-owned источником полного PostgreSQL contract и никогда не
+коммитится. Единый loader экспортирует только несекретные параметры и
+`PGPASSFILE`; app и migrator secrets остаются в защищённых Windows/WSL libpq
+passfiles. Migrator выбирается только maintenance-командами. ACL проверяется
+фактически; логи и typed errors не содержат DSN, SQL или raw DBAPI diagnostics.
 
 ## Lifecycle
 
@@ -70,6 +80,9 @@ typed errors не содержат DSN, SQL или raw DBAPI diagnostics.
 точным environment guard. `dev_tools.postgresql_cutover` создаёт marker только
 из нового report с `cutover_ready=true`, пустыми reason codes, успешным app
 health и точной строкой подтверждения.
+`dev_tools.postgresql_credentials` ротирует app/migrator SCRAM secrets только
+после проверки внешнего custom dump и role contract; пароли передаются `psql`
+через stdin, а новые и старые credentials проходят positive/negative auth tests.
 
 ## Maintenance cutover
 

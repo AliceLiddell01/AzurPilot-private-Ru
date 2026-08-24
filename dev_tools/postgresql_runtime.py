@@ -16,8 +16,15 @@ from alembic.util.exc import CommandError
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
-from module.persistence.config import DatabaseSettings
+from module.persistence.config import (
+    DEFAULT_BACKEND_MARKER_PATH,
+    DatabaseSettings,
+    migrate_legacy_backend_marker,
+)
 from module.persistence.database import LazyEngine, StorageHealthChecker
+from module.persistence.local_environment import load_local_postgres_environment
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run_hidden(
@@ -90,8 +97,13 @@ def _backup(
     output = _validate_external_output(output, repository_root)
     native = shutil.which("pg_dump")
     environment = os.environ.copy()
-    if native and settings.password:
-        environment["PGPASSWORD"] = settings.password
+    environment.pop("PGPASSWORD", None)
+    if native:
+        passfile = environment.get("PGPASSFILE") or environment.get(
+            "AZURPILOT_POSTGRES_PGPASSFILE"
+        )
+        if passfile:
+            environment["PGPASSFILE"] = passfile
     arguments = (
         [native, *_pg_dump_arguments(settings)]
         if native
@@ -136,6 +148,17 @@ def _backup(
         temporary.unlink(missing_ok=True)
 
 
+def _resolve_marker(value: str | Path) -> Path:
+    marker = Path(value)
+    if marker == DEFAULT_BACKEND_MARKER_PATH:
+        marker = _REPOSITORY_ROOT / marker
+        migrate_legacy_backend_marker(
+            target=marker,
+            legacy=_REPOSITORY_ROOT / "config/storage_backend.json",
+        )
+    return marker
+
+
 def _health(marker: Path) -> None:
     settings = DatabaseSettings.from_backend_marker(marker)
     engine = LazyEngine(settings)
@@ -146,6 +169,7 @@ def _health(marker: Path) -> None:
 
 
 def _upgrade() -> None:
+    load_local_postgres_environment(_REPOSITORY_ROOT / ".env", role="migrator")
     settings = DatabaseSettings.from_environment(
         prefix="AZURPILOT_POSTGRES_MIGRATOR_"
     )
@@ -159,11 +183,9 @@ def _upgrade() -> None:
             "AZURPILOT_POSTGRES_RUNTIME_TIMEZONE": settings.runtime_timezone,
         }
     )
-    if settings.password:
-        os.environ["AZURPILOT_POSTGRES_PASSWORD"] = settings.password
-    else:
-        os.environ.pop("AZURPILOT_POSTGRES_PASSWORD", None)
-    configuration = Config("alembic.ini")
+    os.environ.pop("AZURPILOT_POSTGRES_PASSWORD", None)
+    os.environ.pop("PGPASSWORD", None)
+    configuration = Config(str(_REPOSITORY_ROOT / "alembic.ini"))
     command.upgrade(configuration, "head")
 
 
@@ -174,10 +196,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     health = subparsers.add_parser("health", help="Проверить marker, доступ и schema head.")
-    health.add_argument("--marker", default="config/storage_backend.json")
+    health.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
 
     backup = subparsers.add_parser("backup", help="Создать проверяемый custom dump.")
-    backup.add_argument("--marker", default="config/storage_backend.json")
+    backup.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
     backup.add_argument("--output", required=True)
     backup.add_argument("--distro", default="Archlinux")
     backup.add_argument("--repository-root", default=".")
@@ -190,10 +212,14 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
+        if arguments.command in {"health", "backup"}:
+            load_local_postgres_environment(_REPOSITORY_ROOT / ".env", role="app")
         if arguments.command == "health":
-            _health(Path(arguments.marker))
+            _health(_resolve_marker(arguments.marker))
         elif arguments.command == "backup":
-            settings = DatabaseSettings.from_backend_marker(arguments.marker)
+            settings = DatabaseSettings.from_backend_marker(
+                _resolve_marker(arguments.marker)
+            )
             _backup(
                 settings,
                 Path(arguments.output),

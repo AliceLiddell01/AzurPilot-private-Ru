@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -36,11 +36,14 @@ def test_backup_rejects_repository_target(tmp_path: Path):
         )
 
 
-def test_backup_is_verified_and_published_create_only(tmp_path: Path):
+def test_backup_is_verified_and_published_create_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     repository = tmp_path / "repository"
     repository.mkdir()
     output = tmp_path / "backups" / "production.dump"
     calls: list[tuple[list[str], dict[str, str] | None]] = []
+    monkeypatch.setenv("AZURPILOT_POSTGRES_PGPASSFILE", "C:/secure/pgpass.conf")
 
     def run_hidden(
         arguments: list[str],
@@ -62,7 +65,8 @@ def test_backup_is_verified_and_published_create_only(tmp_path: Path):
 
     assert output.stat().st_size == 2048
     assert calls[0][0][0] == "pg_dump"
-    assert calls[0][1]["PGPASSWORD"] == "test-password"
+    assert "PGPASSWORD" not in calls[0][1]
+    assert calls[0][1]["PGPASSFILE"] == "C:/secure/pgpass.conf"
     assert calls[1][0][:2] == ["pg_restore", "--list"]
     assert not tuple(output.parent.glob("*.tmp"))
 
@@ -112,3 +116,19 @@ def test_runtime_command_redacts_sqlalchemy_diagnostics(capsys):
         "Ошибка production PostgreSQL: операция с базой данных завершилась ошибкой.\n"
     )
     assert "secret" not in captured.err
+
+
+def test_default_marker_resolution_runs_legacy_migration():
+    with patch.object(postgresql_runtime, "migrate_legacy_backend_marker") as migrate:
+        marker = postgresql_runtime._resolve_marker(
+            postgresql_runtime.DEFAULT_BACKEND_MARKER_PATH
+        )
+
+    assert marker == (
+        postgresql_runtime._REPOSITORY_ROOT
+        / postgresql_runtime.DEFAULT_BACKEND_MARKER_PATH
+    )
+    migrate.assert_called_once_with(
+        target=marker,
+        legacy=postgresql_runtime._REPOSITORY_ROOT / "config/storage_backend.json",
+    )

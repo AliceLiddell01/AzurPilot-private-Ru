@@ -105,6 +105,10 @@ WebUI и MCP consumers используют application storage services; тол
 composition roots импортируют `module.persistence.runtime`. Обязательный
 PostgreSQL marker проверяется fail-closed; SQLite fallback и dual-write
 запрещены.
+Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
+корневой `config/*.json` сохраняет историческое значение profile namespace.
+Локальный `.env` загружается одним persistence owner и направляет libpq к
+защищённым app/migrator passfiles без постоянного `PGPASSWORD`.
 
 Offline migration pipeline проходит через application-owned порты. Legacy
 SQLite/JSON adapters живут только в `module.persistence.legacy`, открывают

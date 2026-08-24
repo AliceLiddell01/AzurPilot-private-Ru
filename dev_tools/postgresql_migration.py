@@ -12,11 +12,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from module.application.errors import StorageError
-from module.application.migration_models import RecordDisposition
+from module.application.migration_models import ReconciliationReport, RecordDisposition
 from module.application.migration_service import MigrationService, finalize_rehearsal
 from module.persistence import DatabaseSettings, LazyEngine
 from module.persistence.legacy import LegacySourceReader, create_consistent_snapshot
 from module.persistence.legacy.reader import LegacySourceError
+from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.migration_target import PostgresMigrationTarget
 
 
@@ -140,15 +141,24 @@ def _require_production_cutover(
         or confirmation != "FINAL-PRODUCTION-CUTOVER"
         or any(not value for value in expected.values())
         or expected != actual
+        or settings.host not in {"localhost", "127.0.0.1", "::1"}
+        or settings.database != "azurpilot"
+        or settings.user != "azurpilot_migrator"
         or scratch in {settings.database, "postgres"}
     ):
         raise LegacySourceError("PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED")
 
 
-def _run_pg(executable: str, arguments: list[str], settings: DatabaseSettings) -> None:
+def _run_pg(executable: str, arguments: list[str]) -> None:
     environment = os.environ.copy()
-    if settings.password:
-        environment["PGPASSWORD"] = settings.password
+    environment.pop("PGPASSWORD", None)
+    passfile = environment.get("PGPASSFILE") or environment.get(
+        "AZURPILOT_POSTGRES_PGPASSFILE"
+    )
+    if passfile:
+        environment["PGPASSFILE"] = passfile
+    else:
+        environment.pop("PGPASSFILE", None)
     command = [executable, *arguments]
     if executable.startswith("wsl:"):
         tool = executable.removeprefix("wsl:")
@@ -229,9 +239,8 @@ def _dump_restore(
             str(dump_path),
             settings.database,
         ],
-        settings,
     )
-    _run_pg(restore, ["--list", str(dump_path)], settings)
+    _run_pg(restore, ["--list", str(dump_path)])
     _run_pg(
         restore,
         [
@@ -245,16 +254,24 @@ def _dump_restore(
             scratch_database,
             str(dump_path),
         ],
-        settings,
     )
     return replace(settings, database=scratch_database)
 
 
-def _write_report(payload: str, path: Path | None) -> None:
+def _write_report(payload: str, path: Path | None, source_root: Path) -> None:
     if path is None:
         print(payload, end="")
         return
-    parent = path.parent.resolve(strict=True)
+    try:
+        parent = path.parent.resolve(strict=True)
+        protected_config_roots = {
+            (Path(__file__).resolve().parents[1] / "config").resolve(),
+            (source_root / "config").resolve(),
+        }
+    except OSError as exc:
+        raise LegacySourceError("REPORT_TARGET_UNSAFE") from exc
+    if parent in protected_config_roots:
+        raise LegacySourceError("REPORT_TARGET_PROFILE_NAMESPACE")
     if path.exists() or path.is_symlink() or not parent.is_dir():
         raise LegacySourceError("REPORT_TARGET_UNSAFE")
     with path.open("x", encoding="utf-8", newline="\n") as stream:
@@ -287,6 +304,21 @@ def _inspection_payload(reader: LegacySourceReader) -> str:
             item.disposition is RecordDisposition.QUARANTINE for item in plan.records
         ),
         "derived_csv_parity": plan.derived_csv_parity,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+
+
+def _reconciliation_payload(
+    report: ReconciliationReport, settings: DatabaseSettings
+) -> str:
+    payload = report.as_dict()
+    payload["target"] = {
+        "host": settings.host,
+        "port": settings.port,
+        "database": settings.database,
+        "user": settings.user,
+        "sslmode": settings.sslmode,
+        "runtime_timezone": settings.runtime_timezone,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
 
@@ -334,10 +366,15 @@ def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     try:
         source_root = arguments.source_root.resolve(strict=True)
+        if arguments.command == "full-cutover":
+            load_local_postgres_environment(
+                source_root / ".env", role="migrator"
+            )
         if arguments.command == "inspect":
             _write_report(
                 _inspection_payload(_reader(source_root, arguments.legacy_timezone)),
                 arguments.report,
+                source_root,
             )
             print("STATUS:INSPECTED")
             return 0
@@ -385,7 +422,11 @@ def main(argv: list[str] | None = None) -> int:
                 ).run(chunk_size=arguments.chunk_size)
             finally:
                 migration_target.dispose()
-        _write_report(report.to_json(), arguments.report)
+        _write_report(
+            _reconciliation_payload(report, settings),
+            arguments.report,
+            source_root,
+        )
         if report.cutover_ready:
             print("STATUS:READY")
         else:
