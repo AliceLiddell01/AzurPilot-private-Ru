@@ -260,6 +260,31 @@ def test_production_cutover_requires_exact_environment_guard(monkeypatch):
         )
 
 
+def test_production_cutover_rejects_nonproduction_database(monkeypatch):
+    settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        database="other",
+        user="azurpilot_migrator",
+        sslmode="disable",
+    )
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER", "1")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_HOST", "127.0.0.1")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_PORT", "5432")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_DATABASE", "other")
+    monkeypatch.setenv("AZURPILOT_POSTGRES_CUTOVER_USER", "azurpilot_migrator")
+    monkeypatch.setenv(
+        "AZURPILOT_POSTGRES_CUTOVER_SCRATCH_DATABASE", "other_restore"
+    )
+
+    with pytest.raises(
+        LegacySourceError, match="PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED"
+    ):
+        postgresql_migration._require_production_cutover(
+            settings, "other_restore", "FINAL-PRODUCTION-CUTOVER"
+        )
+
+
 def test_production_cutover_requires_migrator_role(monkeypatch):
     settings = DatabaseSettings(
         host="127.0.0.1",

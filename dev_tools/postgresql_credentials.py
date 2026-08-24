@@ -13,6 +13,7 @@ from pathlib import Path
 
 CONFIRMATION = "ROTATE-AZURPILOT-POSTGRESQL-CREDENTIALS"
 _SAFE_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+_SAFE_WSL_PASSFILE = re.compile(r"^/etc/azurpilot/[A-Za-z0-9._-]+$")
 _ROLE_CONTRACT = {
     "azurpilot_app": (True, False, False, False),
     "azurpilot_migrator": (True, False, False, False),
@@ -54,6 +55,22 @@ def _read_wsl_file(distro: str, path: str) -> bytes:
     return _run(_wsl(distro, "sudo", "cat", path), capture=True).stdout
 
 
+def _require_wsl_passfile(distro: str, path: str, owner: str) -> None:
+    if not _SAFE_WSL_PASSFILE.fullmatch(path):
+        raise RuntimeError("WSL passfile использует небезопасный путь.")
+    metadata = _run(
+        _wsl(distro, "sudo", "stat", "--format=%f|%a|%U", "--", path),
+        capture=True,
+    ).stdout.decode().strip()
+    try:
+        raw_mode, permissions, observed_owner = metadata.split("|", 2)
+        regular_file = int(raw_mode, 16) & 0o170000 == 0o100000
+    except ValueError as exc:
+        raise RuntimeError("WSL passfile отсутствует или небезопасен.") from exc
+    if not regular_file or permissions != "600" or observed_owner != owner:
+        raise RuntimeError("WSL passfile отсутствует или небезопасен.")
+
+
 def _write_wsl_file(distro: str, path: str, owner: str, content: bytes) -> None:
     temporary = f"{path}.{os.getpid()}.tmp"
     try:
@@ -73,6 +90,7 @@ def _write_wsl_file(distro: str, path: str, owner: str, content: bytes) -> None:
             )
         )
         _run(_wsl(distro, "sudo", "tee", temporary), input_bytes=content)
+        _run(_wsl(distro, "sudo", "sync", "-f", temporary))
         _run(_wsl(distro, "sudo", "mv", "-T", temporary, path))
     finally:
         _run(
@@ -276,10 +294,13 @@ def _merge_windows_passfile(
     preserved: list[str] = []
     for line in previous.decode("utf-8").splitlines():
         fields = _parse_pgpass_line(line)
-        if fields is not None and fields[3] in {
-            "azurpilot_app",
-            "azurpilot_migrator",
-        }:
+        if (
+            fields is not None
+            and fields[0] in {"127.0.0.1", "localhost"}
+            and fields[1] == "5432"
+            and fields[2] in {database, "*"}
+            and fields[3] in {"azurpilot_app", "azurpilot_migrator"}
+        ):
             continue
         preserved.append(line)
     additions = _passfile(database, app_secret, migrator_secret).decode().splitlines()
@@ -317,6 +338,15 @@ def _env_document(
         "AZURPILOT_WSL_DISTRO": distro,
         "AZURPILOT_WSL_PGPASSFILE": wsl_passfile,
     }
+    if any(
+        not value
+        or "\x00" in value
+        or "\r" in value
+        or "\n" in value
+        or " #" in value
+        for value in values.values()
+    ):
+        raise RuntimeError("Значение локального PostgreSQL env некорректно.")
     return ("".join(f"{key}={value}\n" for key, value in values.items())).encode()
 
 
@@ -363,6 +393,8 @@ def rotate(arguments: argparse.Namespace) -> None:
         raise RuntimeError("Точное подтверждение ротации credentials отсутствует.")
     if not _SAFE_NAME.fullmatch(arguments.database):
         raise RuntimeError("Имя production database некорректно.")
+    if not _SAFE_WSL_PASSFILE.fullmatch(arguments.wsl_passfile):
+        raise RuntimeError("WSL passfile использует небезопасный путь.")
     repository_argument = Path(arguments.repository_root)
     if repository_argument.is_symlink() or not repository_argument.is_dir():
         raise RuntimeError("Корень репозитория отсутствует или небезопасен.")
@@ -390,6 +422,7 @@ def rotate(arguments: argparse.Namespace) -> None:
     wsl_user = _run(
         _wsl(arguments.distro, "id", "-un"), capture=True
     ).stdout.decode().strip()
+    _require_wsl_passfile(arguments.distro, arguments.wsl_passfile, wsl_user)
     old_wsl = _read_wsl_file(arguments.distro, arguments.wsl_passfile)
     old_app = _password_for(old_wsl, arguments.database, "azurpilot_app")
     old_migrator = _password_for(old_wsl, arguments.database, "azurpilot_migrator")

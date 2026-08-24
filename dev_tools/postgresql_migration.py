@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from module.application.errors import StorageError
-from module.application.migration_models import RecordDisposition
+from module.application.migration_models import ReconciliationReport, RecordDisposition
 from module.application.migration_service import MigrationService, finalize_rehearsal
 from module.persistence import DatabaseSettings, LazyEngine
 from module.persistence.legacy import LegacySourceReader, create_consistent_snapshot
@@ -141,6 +141,8 @@ def _require_production_cutover(
         or confirmation != "FINAL-PRODUCTION-CUTOVER"
         or any(not value for value in expected.values())
         or expected != actual
+        or settings.host not in {"localhost", "127.0.0.1", "::1"}
+        or settings.database != "azurpilot"
         or settings.user != "azurpilot_migrator"
         or scratch in {settings.database, "postgres"}
     ):
@@ -306,6 +308,21 @@ def _inspection_payload(reader: LegacySourceReader) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
 
 
+def _reconciliation_payload(
+    report: ReconciliationReport, settings: DatabaseSettings
+) -> str:
+    payload = report.as_dict()
+    payload["target"] = {
+        "host": settings.host,
+        "port": settings.port,
+        "database": settings.database,
+        "user": settings.user,
+        "sslmode": settings.sslmode,
+        "runtime_timezone": settings.runtime_timezone,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Offline migration legacy SQLite/CL1 в PostgreSQL schema v1."
@@ -348,9 +365,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     try:
-        if arguments.command == "full-cutover":
-            load_local_postgres_environment(role="migrator")
         source_root = arguments.source_root.resolve(strict=True)
+        if arguments.command == "full-cutover":
+            load_local_postgres_environment(
+                source_root / ".env", role="migrator"
+            )
         if arguments.command == "inspect":
             _write_report(
                 _inspection_payload(_reader(source_root, arguments.legacy_timezone)),
@@ -403,7 +422,11 @@ def main(argv: list[str] | None = None) -> int:
                 ).run(chunk_size=arguments.chunk_size)
             finally:
                 migration_target.dispose()
-        _write_report(report.to_json(), arguments.report, source_root)
+        _write_report(
+            _reconciliation_payload(report, settings),
+            arguments.report,
+            source_root,
+        )
         if report.cutover_ready:
             print("STATUS:READY")
         else:

@@ -33,7 +33,7 @@ def _document() -> str:
             "AZURPILOT_POSTGRES_MIGRATOR_PASSWORD=migrator-secret",
             "AZURPILOT_POSTGRES_MIGRATOR_SSLMODE=disable",
             "AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE=Asia/Novosibirsk",
-            "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/migrator-pgpass.conf",
+            "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/pgpass.conf",
             "AZURPILOT_WSL_DISTRO=archlinux",
             "AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass",
             "",
@@ -92,10 +92,10 @@ def test_local_env_can_select_migrator_without_exporting_secret(tmp_path: Path):
     load_local_postgres_environment(path, role="migrator", environment=environment)
 
     assert environment["AZURPILOT_POSTGRES_USER"] == "azurpilot_migrator"
-    assert environment["PGPASSFILE"] == "C:/secure/migrator-pgpass.conf"
+    assert environment["PGPASSFILE"] == "C:/secure/pgpass.conf"
     assert (
         environment["AZURPILOT_POSTGRES_PGPASSFILE"]
-        == "C:/secure/migrator-pgpass.conf"
+        == "C:/secure/pgpass.conf"
     )
     assert all("secret" not in value for value in environment.values())
 
@@ -179,6 +179,26 @@ def test_missing_local_env_is_a_noop(tmp_path: Path):
 def test_direct_local_environment_rejects_incomplete_contract(tmp_path: Path):
     with pytest.raises(StorageConfigurationError, match="полный"):
         LocalPostgresEnvironment(path=tmp_path / ".env", values={})
+
+
+def test_direct_local_environment_rejects_extra_contract_key(tmp_path: Path):
+    values = dict(line.split("=", 1) for line in _document().splitlines() if line)
+    values["UNEXPECTED"] = "value"
+    with pytest.raises(StorageConfigurationError, match="полный"):
+        LocalPostgresEnvironment(path=tmp_path / ".env", values=values)
+
+
+def test_local_env_requires_matching_app_and_migrator_endpoint(tmp_path: Path):
+    path = tmp_path / ".env"
+    _write_env(
+        path,
+        _document().replace(
+            "AZURPILOT_POSTGRES_MIGRATOR_DATABASE=azurpilot",
+            "AZURPILOT_POSTGRES_MIGRATOR_DATABASE=other",
+        ),
+    )
+    with pytest.raises(StorageConfigurationError, match="endpoints"):
+        load_local_postgres_environment(path, environment={})
 
 
 def test_local_env_rejects_broad_permissions(tmp_path: Path, monkeypatch):

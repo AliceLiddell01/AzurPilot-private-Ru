@@ -93,6 +93,21 @@ def test_backend_marker_has_explicit_identity_time_and_provenance(tmp_path: Path
     assert settings.password is None
 
 
+def test_backend_marker_requires_exact_typed_contract(tmp_path: Path):
+    marker = tmp_path / "storage_backend.json"
+    payload = _marker_payload()
+    payload["password"] = "must-never-be-present"
+    marker.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(StorageConfigurationError, match="contract"):
+        DatabaseSettings.from_backend_marker(marker)
+
+    payload = _marker_payload()
+    payload["port"] = True
+    marker.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(StorageConfigurationError, match="неполон"):
+        DatabaseSettings.from_backend_marker(marker)
+
+
 def test_backend_marker_default_uses_runtime_state_namespace():
     assert DEFAULT_BACKEND_MARKER_PATH == Path("config/state/storage_backend.json")
     assert LEGACY_BACKEND_MARKER_PATH == Path("config/storage_backend.json")
@@ -120,7 +135,7 @@ def test_corrupt_legacy_marker_is_not_migrated(tmp_path: Path):
     legacy.write_text(json.dumps({"Alas": {}}), encoding="utf-8")
     before = legacy.read_bytes()
 
-    with pytest.raises(StorageConfigurationError, match="не разрешает"):
+    with pytest.raises(StorageConfigurationError, match="contract"):
         migrate_legacy_backend_marker(target=target, legacy=legacy)
 
     assert not target.exists()

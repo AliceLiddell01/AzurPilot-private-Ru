@@ -43,6 +43,8 @@ def test_passfile_round_trips_escaped_password_fields():
 def test_windows_passfile_merge_preserves_unrelated_entries():
     previous = (
         b"remote.example:5432:wikidb:alice:keep\n"
+        b"remote.example:5432:azurpilot:azurpilot_app:remote-keep\n"
+        b"127.0.0.1:5432:other:azurpilot_migrator:other-keep\n"
         b"127.0.0.1:5432:azurpilot:azurpilot_app:old\n"
     )
 
@@ -51,6 +53,8 @@ def test_windows_passfile_merge_preserves_unrelated_entries():
     ).decode()
 
     assert "remote.example:5432:wikidb:alice:keep" in merged
+    assert "azurpilot_app:remote-keep" in merged
+    assert "azurpilot_migrator:other-keep" in merged
     assert ":old" not in merged
     assert "azurpilot_app:new-app" in merged
     assert "azurpilot_migrator:new-migrator" in merged
@@ -72,6 +76,17 @@ def test_env_document_contains_full_contract_without_pgpassword(tmp_path: Path):
     assert "AZURPILOT_POSTGRES_PGPASSFILE=" in document
     assert "AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass" in document
     assert "PGPASSWORD=" not in document
+
+    with pytest.raises(RuntimeError, match="env некорректно"):
+        postgresql_credentials._env_document(
+            tmp_path,
+            tmp_path / "pgpass.conf",
+            "/etc/azurpilot/pgpass",
+            "bad\ndistro",
+            "azurpilot",
+            "new-app",
+            "new-migrator",
+        )
 
 
 def test_sql_secret_escapes_quotes_and_rejects_line_breaks():
@@ -147,6 +162,27 @@ def test_wsl_secret_file_is_restricted_before_write(monkeypatch):
     assert calls[0][1] is None
     assert "tee" in calls[1][0]
     assert calls[1][1] == b"secret-content"
+    assert "sync" in calls[2][0]
+
+
+def test_wsl_passfile_requires_safe_path_owner_and_mode(monkeypatch):
+    monkeypatch.setattr(
+        postgresql_credentials,
+        "_run",
+        Mock(
+            return_value=subprocess.CompletedProcess(
+                [], 0, stdout=b"81a0|600|kykla\n"
+            )
+        ),
+    )
+    postgresql_credentials._require_wsl_passfile(
+        "archlinux", "/etc/azurpilot/pgpass", "kykla"
+    )
+
+    with pytest.raises(RuntimeError, match="небезопасный путь"):
+        postgresql_credentials._require_wsl_passfile(
+            "archlinux", "/tmp/pgpass", "kykla"
+        )
 
 
 def test_wsl_private_tempdir_requires_random_path_and_mode(monkeypatch):

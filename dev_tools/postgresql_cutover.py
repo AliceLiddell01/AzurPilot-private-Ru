@@ -50,6 +50,24 @@ def _load_ready_report(path: Path) -> tuple[dict[str, object], str]:
         raise RuntimeError("Отчёт reconciliation не разрешает cutover.")
     if payload.get("reason_codes") not in ([], ()):
         raise RuntimeError("Отчёт reconciliation содержит блокирующие причины.")
+    if (
+        payload.get("format") != "azurpilot-postgresql-migration-report-v1"
+        or payload.get("schema_head") != EXPECTED_ALEMBIC_HEAD
+        or payload.get("source_record_coverage") is not True
+        or payload.get("semantic_shadow_parity") is not True
+        or payload.get("repeat_import_zero_delta") is not True
+        or payload.get("dump_restore_parity") is not True
+        or payload.get("target")
+        != {
+            "host": "127.0.0.1",
+            "port": 5432,
+            "database": "azurpilot",
+            "user": "azurpilot_migrator",
+            "sslmode": "disable",
+            "runtime_timezone": "Asia/Novosibirsk",
+        }
+    ):
+        raise RuntimeError("Отчёт reconciliation не содержит полный cutover evidence.")
     return payload, hashlib.sha256(raw).hexdigest()
 
 
@@ -69,6 +87,8 @@ def activate(arguments: argparse.Namespace) -> bool:
     )
     if settings.user != "azurpilot_app":
         raise RuntimeError("Production-маркер разрешён только для app-роли PostgreSQL.")
+    if settings.database != "azurpilot":
+        raise RuntimeError("Production-маркер разрешён только для database azurpilot.")
     payload = {
         "backend": "postgresql",
         "version": 1,
@@ -89,7 +109,22 @@ def activate(arguments: argparse.Namespace) -> bool:
     finally:
         engine.dispose()
 
-    marker = Path(arguments.marker).resolve()
+    marker_argument = Path(arguments.marker)
+    if marker_argument.is_symlink():
+        raise RuntimeError("Production-маркер уже существует или небезопасен.")
+    marker = marker_argument.resolve()
+    repository_root_value = getattr(arguments, "repository_root", None)
+    if repository_root_value is not None:
+        repository_argument = Path(repository_root_value)
+        if repository_argument.is_symlink() or not repository_argument.is_dir():
+            raise RuntimeError("Корень репозитория отсутствует или небезопасен.")
+        repository_root = repository_argument.resolve(strict=True)
+        if marker != (repository_root / DEFAULT_BACKEND_MARKER_PATH).resolve():
+            raise RuntimeError("Production-маркер использует неканонический путь.")
+        if arguments.legacy_marker is not None and Path(
+            arguments.legacy_marker
+        ).resolve() != (repository_root / LEGACY_BACKEND_MARKER_PATH).resolve():
+            raise RuntimeError("Legacy production-маркер использует неканонический путь.")
     if marker.exists() or marker.is_symlink():
         raise RuntimeError("Production-маркер уже существует.")
     legacy = Path(arguments.legacy_marker) if arguments.legacy_marker else None
@@ -171,6 +206,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Одноразовая активация PostgreSQL после полного cutover."
     )
     parser.add_argument("--confirm", required=True)
+    parser.add_argument("--repository-root", default=".")
     parser.add_argument("--reconciliation-report", required=True)
     parser.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
     parser.add_argument(
@@ -193,7 +229,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
-        load_local_postgres_environment(role="app")
+        repository_root = Path(arguments.repository_root).resolve(strict=True)
+        load_local_postgres_environment(repository_root / ".env", role="app")
         migrated = activate(arguments)
     except (OSError, RuntimeError, StorageError, ValueError) as exc:
         print(f"Ошибка активации production PostgreSQL: {exc}", file=sys.stderr)

@@ -54,7 +54,7 @@ class LocalPostgresEnvironment:
     values: dict[str, str] = field(repr=False)
 
     def __post_init__(self) -> None:
-        if _ALLOWED_KEYS.difference(self.values):
+        if frozenset(self.values) != _ALLOWED_KEYS:
             raise StorageConfigurationError(
                 "Локальный PostgreSQL env не содержит полный production contract."
             )
@@ -149,6 +149,9 @@ $payload | ConvertTo-Json -Compress -Depth 4
 """
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     environment = os.environ.copy()
+    environment.pop("PGPASSWORD", None)
+    environment.pop(_APP_PREFIX + "PASSWORD", None)
+    environment.pop(_MIGRATOR_PREFIX + "PASSWORD", None)
     environment["AZURPILOT_ENV_ACL_PATH"] = str(path)
     try:
         completed = subprocess.run(
@@ -234,6 +237,17 @@ def read_local_postgres_environment(
             )
         _require_secure_permissions(env_path, metadata)
         lines = env_path.read_text(encoding="utf-8").splitlines()
+        final_metadata = env_path.stat()
+        if (
+            env_path.is_symlink()
+            or metadata.st_dev != final_metadata.st_dev
+            or metadata.st_ino != final_metadata.st_ino
+            or metadata.st_size != final_metadata.st_size
+            or metadata.st_mtime_ns != final_metadata.st_mtime_ns
+        ):
+            raise StorageConfigurationError(
+                "Локальный PostgreSQL env изменился во время чтения."
+            )
     except StorageConfigurationError:
         raise
     except (OSError, UnicodeError) as exc:
@@ -284,6 +298,18 @@ def read_local_postgres_environment(
         if values[prefix + "USER"] != expected_user:
             raise StorageConfigurationError(
                 "Роль в локальном PostgreSQL env не соответствует production contract."
+            )
+    for field_name in (
+        "HOST",
+        "PORT",
+        "DATABASE",
+        "SSLMODE",
+        "RUNTIME_TIMEZONE",
+        "PGPASSFILE",
+    ):
+        if values[_APP_PREFIX + field_name] != values[_MIGRATOR_PREFIX + field_name]:
+            raise StorageConfigurationError(
+                "App и migrator используют разные PostgreSQL endpoints."
             )
     return LocalPostgresEnvironment(path=env_path, values=values)
 

@@ -11,6 +11,27 @@ from dev_tools import postgresql_cutover
 from module.application.errors import StorageConfigurationError
 
 
+def _ready_report() -> dict[str, object]:
+    return {
+        "format": "azurpilot-postgresql-migration-report-v1",
+        "schema_head": "0002_migration_shapes",
+        "source_record_coverage": True,
+        "semantic_shadow_parity": True,
+        "repeat_import_zero_delta": True,
+        "dump_restore_parity": True,
+        "target": {
+            "host": "127.0.0.1",
+            "port": 5432,
+            "database": "azurpilot",
+            "user": "azurpilot_migrator",
+            "sslmode": "disable",
+            "runtime_timezone": "Asia/Novosibirsk",
+        },
+        "cutover_ready": True,
+        "reason_codes": [],
+    }
+
+
 def _arguments(tmp_path: Path, report: Path, confirmation: str) -> argparse.Namespace:
     return argparse.Namespace(
         confirm=confirmation,
@@ -53,7 +74,7 @@ def _matching_marker_payload(
 def test_activation_requires_ready_report_and_exact_confirmation(tmp_path: Path):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
 
     with pytest.raises(RuntimeError):
@@ -68,11 +89,19 @@ def test_activation_requires_ready_report_and_exact_confirmation(tmp_path: Path)
             _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
         )
 
+    report.write_text(
+        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+    )
+    with pytest.raises(RuntimeError, match="полный cutover evidence"):
+        postgresql_cutover.activate(
+            _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
+        )
+
 
 def test_activation_writes_non_secret_marker_atomically(tmp_path: Path):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
     arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
 
@@ -97,7 +126,7 @@ def test_activation_writes_non_secret_marker_atomically(tmp_path: Path):
 def test_activation_rejects_non_loopback_before_marker_creation(tmp_path: Path):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
     arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
     arguments.host = "192.0.2.10"
@@ -111,7 +140,7 @@ def test_activation_rejects_non_loopback_before_marker_creation(tmp_path: Path):
 def test_activation_retires_corrupt_legacy_only_with_exact_digest(tmp_path: Path):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
     legacy = tmp_path / "config/storage_backend.json"
     legacy.parent.mkdir()
@@ -146,7 +175,7 @@ def test_activation_retires_corrupt_legacy_only_with_exact_digest(tmp_path: Path
 def test_activation_reports_valid_legacy_marker_migration(tmp_path: Path):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
     legacy = tmp_path / "config/storage_backend.json"
     legacy.parent.mkdir()
@@ -168,7 +197,7 @@ def test_activation_reports_valid_legacy_marker_migration(tmp_path: Path):
 def test_activation_does_not_treat_migration_io_failure_as_corrupt(tmp_path: Path):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
     legacy = tmp_path / "config/storage_backend.json"
     legacy.parent.mkdir()
@@ -196,7 +225,7 @@ def test_activation_does_not_treat_migration_io_failure_as_corrupt(tmp_path: Pat
 def test_activation_replaces_valid_legacy_with_stale_provenance(tmp_path: Path):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
     marker = tmp_path / "config/state/storage_backend.json"
     legacy = tmp_path / "config/storage_backend.json"
@@ -220,7 +249,7 @@ def test_activation_detects_legacy_change_before_marker_publish(
 ):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
     marker = tmp_path / "config/state/storage_backend.json"
     legacy = tmp_path / "config/storage_backend.json"
@@ -289,7 +318,7 @@ def test_activation_rejects_legacy_symlink_alias(
 ):
     report = tmp_path / "report.json"
     report.write_text(
-        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+        json.dumps(_ready_report()), encoding="utf-8"
     )
     legacy = tmp_path / "config/storage_backend.json"
     arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)

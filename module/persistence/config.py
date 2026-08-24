@@ -15,6 +15,22 @@ from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 DEFAULT_BACKEND_MARKER_PATH = Path("config/state/storage_backend.json")
 LEGACY_BACKEND_MARKER_PATH = Path("config/storage_backend.json")
+_BACKEND_MARKER_KEYS = frozenset(
+    {
+        "backend",
+        "version",
+        "alembic_head",
+        "reconciliation_report_sha256",
+        "reviewed_head",
+        "merge_commit",
+        "host",
+        "port",
+        "database",
+        "user",
+        "sslmode",
+        "runtime_timezone",
+    }
+)
 
 
 def _read_backend_marker(path: Path) -> tuple[bytes, dict[str, object]]:
@@ -23,7 +39,19 @@ def _read_backend_marker(path: Path) -> tuple[bytes, dict[str, object]]:
             raise StorageConfigurationError(
                 "Production backend marker отсутствует или небезопасен."
             )
+        metadata = path.stat()
         raw = path.read_bytes()
+        final_metadata = path.stat()
+        if (
+            path.is_symlink()
+            or metadata.st_dev != final_metadata.st_dev
+            or metadata.st_ino != final_metadata.st_ino
+            or metadata.st_size != final_metadata.st_size
+            or metadata.st_mtime_ns != final_metadata.st_mtime_ns
+        ):
+            raise StorageConfigurationError(
+                "Production backend marker изменился во время чтения."
+            )
         payload = json.loads(raw)
     except StorageConfigurationError:
         raise
@@ -144,6 +172,10 @@ class DatabaseSettings:
     def from_backend_marker_payload(
         cls, payload: dict[str, object]
     ) -> DatabaseSettings:
+        if frozenset(payload) != _BACKEND_MARKER_KEYS:
+            raise StorageConfigurationError(
+                "Production backend marker имеет некорректный contract."
+            )
         if payload.get("backend") != "postgresql" or payload.get("version") != 1:
             raise StorageConfigurationError(
                 "Production backend marker не разрешает PostgreSQL runtime."
@@ -174,17 +206,24 @@ class DatabaseSettings:
                 raise StorageConfigurationError(
                     "Production backend marker не содержит проверенный Git provenance."
                 )
-        try:
-            port = int(payload["port"])
-            host = str(payload["host"])
-            database = str(payload["database"])
-            user = str(payload["user"])
-            sslmode = str(payload["sslmode"])
-            runtime_timezone = str(payload["runtime_timezone"])
-        except (KeyError, TypeError, ValueError) as exc:
+        port = payload["port"]
+        string_values = tuple(
+            payload[field_name]
+            for field_name in (
+                "host",
+                "database",
+                "user",
+                "sslmode",
+                "runtime_timezone",
+            )
+        )
+        if type(port) is not int or not all(
+            isinstance(value, str) for value in string_values
+        ):
             raise StorageConfigurationError(
                 "Production backend marker неполон."
-            ) from exc
+            )
+        host, database, user, sslmode, runtime_timezone = string_values
         if host not in {"localhost", "127.0.0.1", "::1"}:
             raise StorageConfigurationError(
                 "Production PostgreSQL должен использовать loopback listener."
@@ -192,6 +231,10 @@ class DatabaseSettings:
         if user != "azurpilot_app":
             raise StorageConfigurationError(
                 "Production runtime должен использовать только app-роль PostgreSQL."
+            )
+        if database != "azurpilot":
+            raise StorageConfigurationError(
+                "Production runtime должен использовать database azurpilot."
             )
         return cls(
             host=host,

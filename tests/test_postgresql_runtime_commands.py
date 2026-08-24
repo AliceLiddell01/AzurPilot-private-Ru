@@ -124,5 +124,11 @@ def test_default_marker_resolution_runs_legacy_migration():
             postgresql_runtime.DEFAULT_BACKEND_MARKER_PATH
         )
 
-    assert marker == postgresql_runtime.DEFAULT_BACKEND_MARKER_PATH
-    migrate.assert_called_once_with()
+    assert marker == (
+        postgresql_runtime._REPOSITORY_ROOT
+        / postgresql_runtime.DEFAULT_BACKEND_MARKER_PATH
+    )
+    migrate.assert_called_once_with(
+        target=marker,
+        legacy=postgresql_runtime._REPOSITORY_ROOT / "config/storage_backend.json",
+    )

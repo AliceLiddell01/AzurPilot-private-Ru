@@ -24,6 +24,8 @@ from module.persistence.config import (
 from module.persistence.database import LazyEngine, StorageHealthChecker
 from module.persistence.local_environment import load_local_postgres_environment
 
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
 
 def _run_hidden(
     arguments: list[str],
@@ -149,7 +151,11 @@ def _backup(
 def _resolve_marker(value: str | Path) -> Path:
     marker = Path(value)
     if marker == DEFAULT_BACKEND_MARKER_PATH:
-        migrate_legacy_backend_marker()
+        marker = _REPOSITORY_ROOT / marker
+        migrate_legacy_backend_marker(
+            target=marker,
+            legacy=_REPOSITORY_ROOT / "config/storage_backend.json",
+        )
     return marker
 
 
@@ -163,7 +169,7 @@ def _health(marker: Path) -> None:
 
 
 def _upgrade() -> None:
-    load_local_postgres_environment(role="migrator")
+    load_local_postgres_environment(_REPOSITORY_ROOT / ".env", role="migrator")
     settings = DatabaseSettings.from_environment(
         prefix="AZURPILOT_POSTGRES_MIGRATOR_"
     )
@@ -179,7 +185,7 @@ def _upgrade() -> None:
     )
     os.environ.pop("AZURPILOT_POSTGRES_PASSWORD", None)
     os.environ.pop("PGPASSWORD", None)
-    configuration = Config("alembic.ini")
+    configuration = Config(str(_REPOSITORY_ROOT / "alembic.ini"))
     command.upgrade(configuration, "head")
 
 
@@ -207,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
         if arguments.command in {"health", "backup"}:
-            load_local_postgres_environment(role="app")
+            load_local_postgres_environment(_REPOSITORY_ROOT / ".env", role="app")
         if arguments.command == "health":
             _health(_resolve_marker(arguments.marker))
         elif arguments.command == "backup":
