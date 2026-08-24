@@ -141,6 +141,7 @@ def _require_production_cutover(
         or confirmation != "FINAL-PRODUCTION-CUTOVER"
         or any(not value for value in expected.values())
         or expected != actual
+        or settings.user != "azurpilot_migrator"
         or scratch in {settings.database, "postgres"}
     ):
         raise LegacySourceError("PRODUCTION_CUTOVER_TARGET_NOT_CONFIRMED")

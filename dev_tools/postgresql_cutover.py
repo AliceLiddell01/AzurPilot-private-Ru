@@ -109,7 +109,10 @@ def activate(arguments: argparse.Namespace) -> bool:
                 )
             DatabaseSettings.from_backend_marker_payload(legacy_payload)
         except (UnicodeError, json.JSONDecodeError, StorageConfigurationError):
-            if arguments.retire_invalid_legacy_marker_sha256 != legacy_digest:
+            recovery_guard = (
+                arguments.retire_invalid_legacy_marker_sha256 or ""
+            ).strip().lower()
+            if recovery_guard != legacy_digest:
                 raise RuntimeError(
                     "Повреждённый legacy marker требует exact SHA-256 recovery guard."
                 ) from None

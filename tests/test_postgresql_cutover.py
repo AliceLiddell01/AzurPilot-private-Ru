@@ -130,9 +130,11 @@ def test_activation_retires_corrupt_legacy_only_with_exact_digest(tmp_path: Path
     assert legacy.is_file()
     assert not marker.exists()
 
-    arguments.retire_invalid_legacy_marker_sha256 = postgresql_cutover.hashlib.sha256(
-        legacy.read_bytes()
-    ).hexdigest()
+    arguments.retire_invalid_legacy_marker_sha256 = (
+        "  "
+        + postgresql_cutover.hashlib.sha256(legacy.read_bytes()).hexdigest().upper()
+        + "  "
+    )
     with patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"):
         assert postgresql_cutover.activate(arguments) is False
 

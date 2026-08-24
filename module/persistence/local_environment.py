@@ -71,6 +71,9 @@ class LocalPostgresEnvironment:
         migrator-контрактом, поэтому последующий ``DatabaseSettings.from_environment()``
         создаёт migrator-подключение. ``PGPASSWORD`` и оба password-ключа удаляются,
         а ``PGPASSFILE`` указывает на passfile выбранной роли.
+        Замена канонических app-переменных необратима для текущего процесса:
+        вызывающий код не должен ожидать восстановления прежних значений или
+        повторно использовать это environment для другой роли.
         """
 
         if role not in {"app", "migrator"}:
@@ -121,10 +124,10 @@ def _parse_value(raw: str, line_number: int) -> str:
     return value
 
 
-def _windows_acl_is_restricted(path: Path) -> bool:
+def _windows_acl_is_restricted(path: Path) -> bool | None:
     shell = shutil.which("pwsh") or shutil.which("powershell.exe")
     if shell is None:
-        return False
+        return None
     script = """
 $ErrorActionPreference = 'Stop'
 $acl = Get-Acl -LiteralPath $env:AZURPILOT_ENV_ACL_PATH
@@ -200,6 +203,11 @@ $payload | ConvertTo-Json -Compress -Depth 4
 def _require_secure_permissions(path: Path, metadata: os.stat_result) -> None:
     if os.name == "nt":
         secure = _windows_acl_is_restricted(path)
+        if secure is None:
+            raise StorageConfigurationError(
+                "ACL локального PostgreSQL env невозможно проверить: "
+                "установите или включите PowerShell."
+            )
     else:
         secure = metadata.st_uid == os.getuid() and stat.S_IMODE(metadata.st_mode) & 0o077 == 0
     if not secure:

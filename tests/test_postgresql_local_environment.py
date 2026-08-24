@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from module.application.errors import StorageConfigurationError
+from module.persistence import local_environment as local_environment_module
 from module.persistence.config import DatabaseSettings
 from module.persistence.local_environment import (
     LocalPostgresEnvironment,
@@ -192,6 +193,16 @@ def test_local_env_rejects_broad_permissions(tmp_path: Path, monkeypatch):
         path.chmod(0o644)
 
     with pytest.raises(StorageConfigurationError, match="права доступа"):
+        load_local_postgres_environment(path, environment={})
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACL gate")
+def test_local_env_reports_unavailable_acl_inspection(tmp_path: Path, monkeypatch):
+    path = tmp_path / ".env"
+    _write_env(path, _document())
+    monkeypatch.setattr(local_environment_module.shutil, "which", lambda _name: None)
+
+    with pytest.raises(StorageConfigurationError, match="PowerShell"):
         load_local_postgres_environment(path, environment={})
 
 

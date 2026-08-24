@@ -21,6 +21,25 @@ def test_passfile_uses_distinct_least_privilege_roles():
     assert "azurpilot_owner:" not in payload
 
 
+def test_passfile_round_trips_escaped_password_fields():
+    app_secret = r"app:value\\suffix"
+    migrator_secret = r"migrator:value\\suffix"
+    payload = postgresql_credentials._passfile(
+        "azurpilot", app_secret, migrator_secret
+    )
+
+    assert (
+        postgresql_credentials._password_for(payload, "azurpilot", "azurpilot_app")
+        == app_secret
+    )
+    assert (
+        postgresql_credentials._password_for(
+            payload, "azurpilot", "azurpilot_migrator"
+        )
+        == migrator_secret
+    )
+
+
 def test_windows_passfile_merge_preserves_unrelated_entries():
     previous = (
         b"remote.example:5432:wikidb:alice:keep\n"
@@ -149,3 +168,40 @@ def test_wsl_private_tempdir_requires_random_path_and_mode(monkeypatch):
     )
     assert "mktemp" in calls[0]
     assert "stat" in calls[1]
+
+
+def test_rotation_rejects_relative_or_repository_passfile(tmp_path: Path):
+    arguments = SimpleNamespace(
+        confirm=postgresql_credentials.CONFIRMATION,
+        database="azurpilot",
+        repository_root=str(tmp_path),
+        windows_passfile="pgpass.conf",
+        verified_backup=str(tmp_path / "backup.dump"),
+        distro="archlinux",
+        wsl_passfile="/etc/azurpilot/pgpass",
+    )
+
+    with pytest.raises(RuntimeError, match="абсолютный"):
+        postgresql_credentials.rotate(arguments)
+
+    arguments.windows_passfile = str(tmp_path / "pgpass.conf")
+    with pytest.raises(RuntimeError, match="вне репозитория"):
+        postgresql_credentials.rotate(arguments)
+
+
+def test_rotation_requires_appdata_for_default_windows_passfile(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.delenv("APPDATA", raising=False)
+    arguments = SimpleNamespace(
+        confirm=postgresql_credentials.CONFIRMATION,
+        database="azurpilot",
+        repository_root=str(tmp_path),
+        windows_passfile=None,
+        verified_backup=str(tmp_path / "backup.dump"),
+        distro="archlinux",
+        wsl_passfile="/etc/azurpilot/pgpass",
+    )
+
+    with pytest.raises(RuntimeError, match="APPDATA"):
+        postgresql_credentials.rotate(arguments)

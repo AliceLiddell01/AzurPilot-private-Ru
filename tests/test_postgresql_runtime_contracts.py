@@ -14,6 +14,7 @@ import pytest
 from module.application.canonical_payload import payload_digest
 from module.application.errors import StorageConfigurationError, StorageInvalidDataError
 from module.application.runtime_storage import RuntimeStorageService
+from module.persistence import runtime as persistence_runtime
 from module.persistence.config import (
     DEFAULT_BACKEND_MARKER_PATH,
     LEGACY_BACKEND_MARKER_PATH,
@@ -95,6 +96,7 @@ def test_backend_marker_has_explicit_identity_time_and_provenance(tmp_path: Path
 def test_backend_marker_default_uses_runtime_state_namespace():
     assert DEFAULT_BACKEND_MARKER_PATH == Path("config/state/storage_backend.json")
     assert LEGACY_BACKEND_MARKER_PATH == Path("config/storage_backend.json")
+    assert persistence_runtime._REPOSITORY_ROOT == ROOT
 
 
 def test_valid_legacy_marker_migrates_create_only(tmp_path: Path):

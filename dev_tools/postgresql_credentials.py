@@ -138,10 +138,37 @@ def _create_wsl_private_tempdir(distro: str, owner: str) -> str:
     return path
 
 
+def _parse_pgpass_line(raw_line: str) -> list[str] | None:
+    fields: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for character in raw_line:
+        if escaped:
+            if character not in {":", "\\"}:
+                current.append("\\")
+            current.append(character)
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == ":" and len(fields) < 4:
+            fields.append("".join(current))
+            current = []
+        else:
+            current.append(character)
+    if escaped or len(fields) != 4:
+        return None
+    fields.append("".join(current))
+    return fields
+
+
+def _escape_pgpass_field(value: str) -> str:
+    return value.replace("\\", "\\\\").replace(":", "\\:")
+
+
 def _password_for(content: bytes, database: str, role: str) -> str:
     for raw_line in content.decode("utf-8").splitlines():
-        fields = raw_line.split(":", 4)
-        if len(fields) != 5:
+        fields = _parse_pgpass_line(raw_line)
+        if fields is None:
             continue
         if fields[2] in {database, "*"} and fields[3] == role and fields[4]:
             return fields[4]
@@ -230,10 +257,13 @@ def _verify_backup(distro: str, backup: Path) -> None:
 
 
 def _passfile(database: str, app_secret: str, migrator_secret: str) -> bytes:
+    database_field = _escape_pgpass_field(database)
+    app_field = _escape_pgpass_field(app_secret)
+    migrator_field = _escape_pgpass_field(migrator_secret)
     return (
-        f"127.0.0.1:5432:{database}:azurpilot_app:{app_secret}\n"
-        f"localhost:5432:{database}:azurpilot_app:{app_secret}\n"
-        f"127.0.0.1:5432:*:azurpilot_migrator:{migrator_secret}\n"
+        f"127.0.0.1:5432:{database_field}:azurpilot_app:{app_field}\n"
+        f"localhost:5432:{database_field}:azurpilot_app:{app_field}\n"
+        f"127.0.0.1:5432:*:azurpilot_migrator:{migrator_field}\n"
     ).encode()
 
 
@@ -245,8 +275,11 @@ def _merge_windows_passfile(
 ) -> bytes:
     preserved: list[str] = []
     for line in previous.decode("utf-8").splitlines():
-        fields = line.split(":", 4)
-        if len(fields) == 5 and fields[3] in {"azurpilot_app", "azurpilot_migrator"}:
+        fields = _parse_pgpass_line(line)
+        if fields is not None and fields[3] in {
+            "azurpilot_app",
+            "azurpilot_migrator",
+        }:
             continue
         preserved.append(line)
     additions = _passfile(database, app_secret, migrator_secret).decode().splitlines()
@@ -330,9 +363,27 @@ def rotate(arguments: argparse.Namespace) -> None:
         raise RuntimeError("Точное подтверждение ротации credentials отсутствует.")
     if not _SAFE_NAME.fullmatch(arguments.database):
         raise RuntimeError("Имя production database некорректно.")
-    repository = Path(arguments.repository_root).resolve(strict=True)
+    repository_argument = Path(arguments.repository_root)
+    if repository_argument.is_symlink() or not repository_argument.is_dir():
+        raise RuntimeError("Корень репозитория отсутствует или небезопасен.")
+    repository = repository_argument.resolve(strict=True)
     env_path = repository / ".env"
-    windows_passfile = Path(arguments.windows_passfile).resolve()
+    windows_passfile_argument = arguments.windows_passfile
+    if windows_passfile_argument is None:
+        appdata = os.environ.get("APPDATA", "").strip()
+        if not appdata:
+            raise RuntimeError("APPDATA для Windows passfile не задан.")
+        windows_passfile_argument = str(Path(appdata) / "postgresql/pgpass.conf")
+    candidate_passfile = Path(windows_passfile_argument)
+    if not candidate_passfile.is_absolute():
+        raise RuntimeError("Windows passfile должен использовать абсолютный путь.")
+    windows_passfile = candidate_passfile.resolve()
+    try:
+        windows_passfile.relative_to(repository)
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError("Windows passfile должен находиться вне репозитория.")
     _verify_backup(arguments.distro, Path(arguments.verified_backup))
     _require_role_contract(arguments.distro)
 
@@ -462,7 +513,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--wsl-passfile", default="/etc/azurpilot/pgpass")
     parser.add_argument(
         "--windows-passfile",
-        default=str(Path(os.environ.get("APPDATA", "")) / "postgresql/pgpass.conf"),
+        default=None,
     )
     return parser
 

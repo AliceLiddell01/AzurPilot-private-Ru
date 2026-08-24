@@ -13,16 +13,21 @@ from module.application.runtime_storage import (
 )
 from module.persistence.config import (
     DEFAULT_BACKEND_MARKER_PATH,
+    LEGACY_BACKEND_MARKER_PATH,
     DatabaseSettings,
     migrate_legacy_backend_marker,
 )
 from module.persistence.database import LazyEngine, StorageHealthChecker
-from module.persistence.local_environment import read_local_postgres_environment
+from module.persistence.local_environment import (
+    DEFAULT_LOCAL_ENV_PATH,
+    read_local_postgres_environment,
+)
 from module.persistence.unit_of_work import PostgresUnitOfWork
 
 _lock = Lock()
 _service: RuntimeStorageService | None = None
 _engine: LazyEngine | None = None
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def bootstrap_runtime_storage(
@@ -35,10 +40,19 @@ def bootstrap_runtime_storage(
     global _engine, _service
     with _lock:
         if _service is None:
-            if Path(marker_path) == DEFAULT_BACKEND_MARKER_PATH:
-                migrate_legacy_backend_marker()
-            local_environment = read_local_postgres_environment()
-            settings = DatabaseSettings.from_backend_marker(marker_path)
+            requested_marker = Path(marker_path)
+            if requested_marker == DEFAULT_BACKEND_MARKER_PATH:
+                resolved_marker = _REPOSITORY_ROOT / DEFAULT_BACKEND_MARKER_PATH
+                migrate_legacy_backend_marker(
+                    target=resolved_marker,
+                    legacy=_REPOSITORY_ROOT / LEGACY_BACKEND_MARKER_PATH,
+                )
+            else:
+                resolved_marker = requested_marker
+            local_environment = read_local_postgres_environment(
+                _REPOSITORY_ROOT / DEFAULT_LOCAL_ENV_PATH
+            )
+            settings = DatabaseSettings.from_backend_marker(resolved_marker)
             if local_environment is not None:
                 local_environment.require_app_runtime_match(settings)
                 local_environment.install(role="app")
