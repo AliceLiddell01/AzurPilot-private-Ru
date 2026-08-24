@@ -67,6 +67,41 @@ class FleetScanRun:
 
 
 @dataclass(frozen=True, slots=True)
+class FleetScanAttempt:
+    """Последняя логическая попытка сканирования одного выбранного флота."""
+
+    run_id: UUID
+    fleet_index: int
+    source: str
+    started_at: datetime
+    status: FleetScanRunStatus
+    error_code: str | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.run_id, UUID):
+            raise TypeError("Scan attempt run_id должен быть UUID")
+        validate_surface_fleet_index(self.fleet_index)
+        _source(self.source)
+        _aware(self.started_at, field="started_at")
+        if not isinstance(self.status, FleetScanRunStatus):
+            raise TypeError("status должен быть FleetScanRunStatus")
+        if self.error_code is not None and (
+            not isinstance(self.error_code, str)
+            or not self.error_code
+            or len(self.error_code) > 64
+        ):
+            raise ValueError("error_code некорректен")
+        if self.status in {
+            FleetScanRunStatus.STARTED,
+            FleetScanRunStatus.SUCCEEDED,
+        }:
+            if self.error_code is not None:
+                raise ValueError("Started/succeeded attempt не содержит error_code")
+        elif self.error_code is None:
+            raise ValueError("Неуспешный attempt требует error_code")
+
+
+@dataclass(frozen=True, slots=True)
 class FleetStateObservation:
     id: UUID
     run_id: UUID
@@ -216,6 +251,23 @@ class FleetStateRepository(Protocol):
         *,
         limit: int,
     ) -> tuple[FleetStateObservation, ...]: ...
+
+    def complete_in_window(
+        self,
+        instance_id: UUID,
+        selection: FleetSelection,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[int, ...]: ...
+
+    def latest_attempts(
+        self,
+        instance_id: UUID,
+        selection: FleetSelection,
+        *,
+        source: str,
+    ) -> tuple[FleetScanAttempt, ...]: ...
 
 
 class FleetStateUnitOfWork(StorageUnitOfWork, Protocol):
@@ -405,12 +457,17 @@ class FleetStateService(_FleetStateTransactions):
     def __init__(
         self,
         uow_factory: Callable[[], FleetStateUnitOfWork],
-        scan_service: FleetScanService,
+        scan_service: FleetScanService | Callable[[], FleetScanService],
         *,
         clock: Callable[[], datetime] | None = None,
     ):
         super().__init__(uow_factory)
-        self._scan_service = scan_service
+        if isinstance(scan_service, FleetScanService):
+            self._scan_service_factory = lambda: scan_service
+        elif callable(scan_service):
+            self._scan_service_factory = scan_service
+        else:
+            raise TypeError("scan_service должен быть FleetScanService или factory")
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def scan(
@@ -420,7 +477,10 @@ class FleetStateService(_FleetStateTransactions):
         *,
         source: str,
     ) -> FleetScanBatchResult:
-        return self._scan_service.scan(instance, selection, source=source)
+        scan_service = self._scan_service_factory()
+        if not isinstance(scan_service, FleetScanService):
+            raise TypeError("scan_service factory вернула неверный объект")
+        return scan_service.scan(instance, selection, source=source)
 
     def state(
         self,
@@ -498,6 +558,49 @@ class FleetStateService(_FleetStateTransactions):
                 instance_id,
                 fleet_index,
                 limit=limit,
+            ),
+        )
+
+    def complete_in_window(
+        self,
+        instance: str,
+        selection: FleetSelection,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[int, ...]:
+        if not isinstance(selection, FleetSelection):
+            raise TypeError("selection должен быть FleetSelection")
+        start = _aware(start, field="start")
+        end = _aware(end, field="end")
+        if end <= start:
+            raise ValueError("end должен быть позже start")
+        return self._transaction(
+            instance,
+            lambda uow, instance_id: uow.fleet_state.complete_in_window(
+                instance_id,
+                selection,
+                start=start,
+                end=end,
+            ),
+        )
+
+    def latest_attempts(
+        self,
+        instance: str,
+        selection: FleetSelection,
+        *,
+        source: str,
+    ) -> tuple[FleetScanAttempt, ...]:
+        if not isinstance(selection, FleetSelection):
+            raise TypeError("selection должен быть FleetSelection")
+        source = _source(source)
+        return self._transaction(
+            instance,
+            lambda uow, instance_id: uow.fleet_state.latest_attempts(
+                instance_id,
+                selection,
+                source=source,
             ),
         )
 

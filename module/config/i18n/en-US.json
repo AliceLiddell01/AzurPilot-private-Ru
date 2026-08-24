@@ -5592,6 +5592,29 @@
       "help": "Automatically restart the emulator every few hours."
     }
   },
+  "FleetAutoScan": {
+    "_info": {
+      "name": "Fleet AutoScan",
+      "help": "Checks selected Surface Fleets only at a safe boundary between regular tasks."
+    },
+    "Mode": {
+      "name": "AutoScan mode",
+      "help": "Disable automatic scanning, run it once per process start, or once per calendar day in the storage time zone.",
+      "disabled": "Disabled",
+      "every_start": "Every start",
+      "daily": "Once a day"
+    },
+    "Fleets": {
+      "name": "Fleets to scan",
+      "help": "Select the Surface Fleets whose compositions should be saved automatically in history.",
+      "1": "Fleet 1",
+      "2": "Fleet 2",
+      "3": "Fleet 3",
+      "4": "Fleet 4",
+      "5": "Fleet 5",
+      "6": "Fleet 6"
+    }
+  },
   "EmulatorManager": {
     "_info": {
       "name": "Emulator Manager",

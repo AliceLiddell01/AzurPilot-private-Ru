@@ -9,6 +9,7 @@ Alas:
       - Optimization
       - DropRecord
       - EmulatorManagement
+      - FleetAutoScan
     General:
       - Log
       - Retirement

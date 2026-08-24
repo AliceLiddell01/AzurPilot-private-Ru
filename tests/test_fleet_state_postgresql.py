@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageConflictError
@@ -110,9 +110,12 @@ class _Controller:
     def __init__(self):
         self.calls = []
         self.incomplete = set()
+        self.fail_at: int | None = None
 
     def scan_surface_fleet(self, fleet_index):
         self.calls.append(fleet_index)
+        if fleet_index == self.fail_at:
+            raise RuntimeError("небезопасное состояние UI")
         return _snapshot(fleet_index, complete=fleet_index not in self.incomplete)
 
 
@@ -290,3 +293,88 @@ def test_schema_constraints_cover_requested_fleet_fk_and_unique_snapshot(databas
         assert connection.execute(
             select(func.count()).select_from(formation_surface_fleet_snapshot)
         ).scalar_one() == 0
+
+
+def test_complete_in_window_is_set_based_half_open_and_instance_isolated(database):
+    controller, _, scanner, state = _services(database)
+    start = datetime(2026, 8, 25, tzinfo=UTC)
+    end = start + timedelta(days=1)
+
+    at_start = scanner.scan(
+        "profile-a", FleetSelection.one(1), source="consumer:manual"
+    ).observations[0]
+    controller.incomplete.add(2)
+    incomplete = scanner.scan(
+        "profile-a", FleetSelection.one(2), source="consumer:manual"
+    ).observations[0]
+    controller.incomplete.clear()
+    before = scanner.scan(
+        "profile-a", FleetSelection.one(3), source="consumer:manual"
+    ).observations[0]
+    at_end = scanner.scan(
+        "profile-a", FleetSelection.one(4), source="consumer:manual"
+    ).observations[0]
+    other_instance = scanner.scan(
+        "profile-b", FleetSelection.one(5), source="consumer:manual"
+    ).observations[0]
+    newer_incomplete = scanner.scan(
+        "profile-a", FleetSelection.one(1), source="consumer:manual"
+    ).observations[0]
+
+    with database.get().begin() as connection:
+        timestamps = {
+            at_start.id: start,
+            incomplete.id: start + timedelta(hours=1),
+            before.id: start - timedelta(microseconds=1),
+            at_end.id: end,
+            other_instance.id: start + timedelta(hours=2),
+            newer_incomplete.id: start + timedelta(hours=3),
+        }
+        for observation_id, observed_at in timestamps.items():
+            connection.execute(
+                update(formation_surface_fleet_snapshot)
+                .where(formation_surface_fleet_snapshot.c.id == observation_id)
+                .values(observed_at=observed_at)
+            )
+        connection.execute(
+            update(formation_surface_fleet_snapshot)
+            .where(formation_surface_fleet_snapshot.c.id == newer_incomplete.id)
+            .values(complete=False)
+        )
+
+    assert state.complete_in_window(
+        "profile-a",
+        FleetSelection.several(1, 2, 3, 4, 5),
+        start=start,
+        end=end,
+    ) == (1,)
+    assert state.complete_in_window(
+        "profile-b",
+        FleetSelection.several(1, 5),
+        start=start,
+        end=end,
+    ) == (5,)
+
+
+def test_latest_attempts_are_per_fleet_source_instance_and_partial_request(database):
+    controller, _, scanner, state = _services(database)
+    selection = FleetSelection.several(1, 2, 3)
+    scanner.scan("profile-a", selection, source="autoscan:daily")
+
+    controller.fail_at = 2
+    partial = scanner.scan("profile-a", selection, source="autoscan:daily")
+    assert partial.status is FleetScanRunStatus.PARTIAL
+    controller.fail_at = None
+    scanner.scan("profile-a", FleetSelection.one(2), source="consumer:manual")
+    scanner.scan("profile-b", FleetSelection.one(1), source="autoscan:daily")
+
+    attempts = state.latest_attempts(
+        "profile-a",
+        selection,
+        source="autoscan:daily",
+    )
+
+    assert tuple(item.fleet_index for item in attempts) == (1, 2, 3)
+    assert {item.run_id for item in attempts} == {partial.run_id}
+    assert all(item.status is FleetScanRunStatus.PARTIAL for item in attempts)
+    assert all(item.error_code == "physical_scan_failed" for item in attempts)
