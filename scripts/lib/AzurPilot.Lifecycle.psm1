@@ -22,6 +22,136 @@ function Resolve-AzurPilotRepositoryPath {
     )
 }
 
+function ConvertFrom-YamlInlineCommentValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Value
+    )
+
+    $insideSingleQuote = $false
+    $insideDoubleQuote = $false
+
+    if ($Value.Length -eq 0) {
+        return ''
+    }
+
+    foreach ($index in 0..($Value.Length - 1)) {
+        $character = $Value[$index]
+
+        if ($character -eq "'" -and -not $insideDoubleQuote) {
+            $insideSingleQuote = -not $insideSingleQuote
+            continue
+        }
+
+        if ($character -eq '"' -and -not $insideSingleQuote) {
+            $insideDoubleQuote = -not $insideDoubleQuote
+            continue
+        }
+
+        if ($character -ne '#') {
+            continue
+        }
+
+        if ($insideSingleQuote -or $insideDoubleQuote) {
+            continue
+        }
+
+        if ($index -eq 0) {
+            return ''
+        }
+
+        if ([char]::IsWhiteSpace($Value[$index - 1])) {
+            return $Value.Substring(0, $index).TrimEnd()
+        }
+    }
+
+    return $Value.TrimEnd()
+}
+
+function ConvertFrom-SimpleYamlScalar {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [string]$Value
+    )
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    $valueWithoutComment = ConvertFrom-YamlInlineCommentValue -Value $Value
+    $trimmedValue = $valueWithoutComment.Trim()
+
+    if ([string]::IsNullOrWhiteSpace($trimmedValue)) {
+        return $null
+    }
+
+    if ($trimmedValue -in @('null', 'Null', 'NULL', '~')) {
+        return $null
+    }
+
+    if (
+        $trimmedValue.Length -ge 2 -and
+        $trimmedValue.StartsWith("'") -and
+        $trimmedValue.EndsWith("'")
+    ) {
+        return $trimmedValue.Substring(1, $trimmedValue.Length - 2).Replace("''", "'")
+    }
+
+    if (
+        $trimmedValue.Length -ge 2 -and
+        $trimmedValue.StartsWith('"') -and
+        $trimmedValue.EndsWith('"')
+    ) {
+        return $trimmedValue.Substring(1, $trimmedValue.Length - 2)
+    }
+
+    return $trimmedValue
+}
+
+function Get-YamlScalarValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Key
+    )
+
+    $escapedKey = [regex]::Escape($Key)
+    $pattern = "^\s*$escapedKey\s*:\s*(.*)$"
+    $foundValues = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop) {
+        $match = [regex]::Match($line, $pattern)
+
+        if ($match.Success) {
+            $scalarValue = ConvertFrom-SimpleYamlScalar -Value $match.Groups[1].Value
+            [void]$foundValues.Add($scalarValue)
+        }
+    }
+
+    if ($foundValues.Count -eq 0) {
+        return $null
+    }
+
+    if ($foundValues.Count -gt 1) {
+        $exception = [System.IO.InvalidDataException]::new(
+            "В конфигурации найдено несколько значений ключа $Key."
+        )
+        $exception.Data['ExitCode'] = 20
+        throw $exception
+    }
+
+    return $foundValues[0]
+}
+
 function Get-AzurPilotPathHash {
     [CmdletBinding()]
     param(
@@ -374,8 +504,12 @@ function Get-AzurPilotRepositoryProcessEvidence {
     $expectedPythonPath = [System.IO.Path]::GetFullPath($ProjectPythonPath)
     $expectedGuiPath = [System.IO.Path]::GetFullPath($GuiPath)
 
+    $escapedPythonPath = $expectedPythonPath.Replace('\', '\\').Replace("'", "''")
+
     try {
-        $processRecords = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)
+        $processRecords = @(
+            Get-CimInstance -ClassName Win32_Process -Filter "ExecutablePath = '$escapedPythonPath'" -ErrorAction Stop
+        )
     } catch {
         throw ('Не удалось перечислить процессы Windows: {0}' -f $_.Exception.Message)
     }
@@ -461,14 +595,27 @@ function Stop-AzurPilotOwnedProcessTree {
     $taskkillExitCode = $LASTEXITCODE
 
     if ($taskkillExitCode -ne 0) {
-        return $null -eq (Get-AzurPilotWindowsProcessRecord -ProcessId $RootProcessId)
+        Write-Verbose ('taskkill вернул код {0} для PID {1}.' -f $taskkillExitCode, $RootProcessId)
     }
 
-    return $null -eq (Get-AzurPilotWindowsProcessRecord -ProcessId $RootProcessId)
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
+
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        if ($null -eq (Get-AzurPilotWindowsProcessRecord -ProcessId $RootProcessId)) {
+            return $true
+        }
+
+        Start-Sleep -Milliseconds 100
+    }
+
+    return $false
 }
 
 Export-ModuleMember -Function @(
     'Resolve-AzurPilotRepositoryPath'
+    'ConvertFrom-YamlInlineCommentValue'
+    'ConvertFrom-SimpleYamlScalar'
+    'Get-YamlScalarValue'
     'Get-AzurPilotPathHash'
     'Get-AzurPilotLifecycleName'
     'New-AzurPilotStopEvent'

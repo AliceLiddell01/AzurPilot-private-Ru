@@ -54,6 +54,7 @@ $ownedProcess = $null
 $mutexProcess = $null
 $startingOwnerProcess = $null
 $concurrentStopProcesses = @()
+$concurrentStopOutputs = @()
 
 try {
     New-Item -ItemType Directory -Path $testRoot -Force -ErrorAction Stop | Out-Null
@@ -65,6 +66,9 @@ try {
     $names = Get-AzurPilotLifecycleName -RepositoryPath $repositoryPath
     $sameNames = Get-AzurPilotLifecycleName -RepositoryPath ($repositoryPath + [System.IO.Path]::DirectorySeparatorChar)
     Assert-True -Condition ($names.StartMutex -eq $sameNames.StartMutex) -Message 'Lifecycle namespace должен нормализовать завершающий separator.'
+    $yamlContractPath = Join-Path -Path $testRoot -ChildPath 'yaml-contract.yaml'
+    Set-Content -LiteralPath $yamlContractPath -Encoding utf8BOM -Value 'WebuiPort: "25548" # inline comment'
+    Assert-True -Condition ((Get-YamlScalarValue -Path $yamlContractPath -Key 'WebuiPort') -eq '25548') -Message 'Общий YAML parser должен одинаково обрабатывать кавычки и inline comment.'
 
     $stopEvent = New-AzurPilotStopEvent -Name $names.StopEvent -Confirm:$false
 
@@ -172,18 +176,28 @@ try {
         $stopInfo.CreateNoWindow = $true
         $stopInfo.RedirectStandardOutput = $true
         $stopInfo.RedirectStandardError = $true
+        $stopInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        $stopInfo.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
         foreach ($argument in @('-NoLogo', '-NoProfile', '-File', $resolvedStopScriptPath, '-RepositoryPath', $repositoryPath, '-TimeoutSeconds', '20')) {
             [void]$stopInfo.ArgumentList.Add($argument)
         }
-        $concurrentStopProcesses += [System.Diagnostics.Process]::Start($stopInfo)
+        $stopProcess = [System.Diagnostics.Process]::Start($stopInfo)
+        $stopProcess | Add-Member -NotePropertyName StandardOutputTask -NotePropertyValue $stopProcess.StandardOutput.ReadToEndAsync()
+        $stopProcess | Add-Member -NotePropertyName StandardErrorTask -NotePropertyValue $stopProcess.StandardError.ReadToEndAsync()
+        $concurrentStopProcesses += $stopProcess
     }
 
     foreach ($stopProcess in $concurrentStopProcesses) {
         Assert-True -Condition ($stopProcess.WaitForExit(25000)) -Message 'Concurrent Stop не завершился bounded.'
-        $stopOutput = $stopProcess.StandardOutput.ReadToEnd()
-        $stopError = $stopProcess.StandardError.ReadToEnd()
+        $stopOutput = $stopProcess.StandardOutputTask.GetAwaiter().GetResult()
+        $stopError = $stopProcess.StandardErrorTask.GetAwaiter().GetResult()
+        $concurrentStopOutputs += $stopOutput
         Assert-True -Condition ($stopProcess.ExitCode -eq 0) -Message ("Concurrent Stop завершился с кодом {0}. stdout={1} stderr={2}" -f $stopProcess.ExitCode, $stopOutput, $stopError)
     }
+
+    $concurrentOutputText = $concurrentStopOutputs -join "`n"
+    Assert-True -Condition ($concurrentOutputText -match 'controller AzurPilot') -Message ("Один concurrent Stop должен наблюдать активный STARTING controller. Вывод: {0}" -f $concurrentOutputText)
+    Assert-True -Condition ($concurrentOutputText -notmatch 'fallback') -Message ("Concurrent Stop during STARTING не должен применять fallback. Вывод: {0}" -f $concurrentOutputText)
 
     Assert-True -Condition ($startingOwnerProcess.WaitForExit(5000)) -Message 'Synthetic STARTING owner не завершился после stop request.'
     Assert-True -Condition (Test-Path -LiteralPath $startingStoppedPath -PathType Leaf) -Message 'Stop during STARTING не был подтверждён owner.'

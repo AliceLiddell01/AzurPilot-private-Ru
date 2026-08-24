@@ -213,10 +213,15 @@ def _start_lifecycle_stop_watcher() -> bool:
     kernel32 = _kernel32()
     handle = kernel32.OpenEventW(_SYNCHRONIZE, False, event_name)
     if not handle:
-        _raise_last_win32_error(
-            ctypes.get_last_error(),
-            "Не удалось открыть объект координации остановки AzurPilot",
+        error_code = ctypes.get_last_error()
+        from module.logger import logger
+
+        logger.warning(
+            "[WebUI] Не удалось открыть объект координации остановки AzurPilot "
+            f"({event_name}): {ctypes.FormatError(error_code)}. "
+            "Координированная остановка отключена"
         )
+        return False
 
     threading.Thread(
         target=_wait_for_lifecycle_stop_event,

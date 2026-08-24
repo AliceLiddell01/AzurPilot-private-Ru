@@ -173,32 +173,25 @@ function Get-ConfiguredWebUiPort {
         [string]$DeployConfigPath
     )
 
-    $values = @(
-        foreach ($line in Get-Content -LiteralPath $DeployConfigPath -Encoding utf8 -ErrorAction Stop) {
-            $match = [regex]::Match($line, '^\s*WebuiPort\s*:\s*([^#\s]+)')
+    $value = Get-YamlScalarValue -Path $DeployConfigPath -Key 'WebuiPort'
 
-            if ($match.Success) {
-                $match.Groups[1].Value.Trim('"', "'")
-            }
-        }
-    )
-
-    if ($values.Count -gt 1) {
-        Complete-StopFailure -Code $script:ExitCodePreconditionFailure -Message 'В config\deploy.yaml найдено несколько значений WebuiPort.'
-    }
-
-    if ($values.Count -eq 0) {
+    if ([string]::IsNullOrWhiteSpace($value)) {
         return 25548
     }
 
     $port = 0
 
     if (
-        -not [int]::TryParse($values[0], [ref]$port) -or
+        -not [int]::TryParse(
+            $value,
+            [System.Globalization.NumberStyles]::Integer,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [ref]$port
+        ) -or
         $port -lt 1 -or
         $port -gt 65535
     ) {
-        Complete-StopFailure -Code $script:ExitCodePreconditionFailure -Message ("Некорректное значение WebuiPort: {0}" -f $values[0])
+        Complete-StopFailure -Code $script:ExitCodePreconditionFailure -Message ("Некорректное значение WebuiPort: {0}" -f $value)
     }
 
     return $port
@@ -401,9 +394,9 @@ function Invoke-AzurPilotStop {
         $deployConfigPath = Resolve-StopRequiredPath -Path (Join-Path -Path $resolvedRepositoryPath -ChildPath 'config\deploy.yaml') -PathType Leaf -Label 'config\deploy.yaml'
         $port = Get-ConfiguredWebUiPort -DeployConfigPath $deployConfigPath
         $lifecycleNames = Get-AzurPilotLifecycleName -RepositoryPath $resolvedRepositoryPath
-        $deadline = [DateTimeOffset]::UtcNow.AddSeconds($script:TimeoutSecondsParameter)
         $script:StopMutex = Enter-StopMutex -Name $lifecycleNames.StopMutex -WaitSeconds $script:TimeoutSecondsParameter
         $script:StopMutexOwned = $true
+        $deadline = [DateTimeOffset]::UtcNow.AddSeconds($script:TimeoutSecondsParameter)
 
         $ownership = Get-CurrentOwnership -Port $port -ProjectPythonPath $projectPythonPath -GuiPath $guiPath
 

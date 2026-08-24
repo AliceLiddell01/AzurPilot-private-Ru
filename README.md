@@ -171,12 +171,12 @@ pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrow
 
 > [!NOTE]
 > Закрытие вкладки браузера само по себе не останавливает backend. `Ctrl+C` останавливает AzurPilot только в том окне Start, которое само запустило backend. Если Start сообщил, что открыл уже работающий WebUI, используйте штатную команду Stop:
-
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Stop-AzurPilot.ps1"
-```
-
-Повторный Stop безопасен и сообщает, что AzurPilot уже остановлен. Команда проверяет точный checkout, project Python, `gui.py` и дерево процессов; процесс, который лишь занял тот же порт, она не завершает.
+>
+> ```powershell
+> pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Stop-AzurPilot.ps1"
+> ```
+>
+> Повторный Stop безопасен и сообщает, что AzurPilot уже остановлен. Команда проверяет точный checkout, project Python, `gui.py` и дерево процессов; процесс, который лишь занял тот же порт, она не завершает.
 
 ## Обслуживание установки
 

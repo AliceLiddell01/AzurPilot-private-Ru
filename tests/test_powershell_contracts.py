@@ -146,7 +146,9 @@ class PowerShellContractTests(unittest.TestCase):
         self.assertIn("args.Cancel = true", start)
         self.assertIn("Send-AzurPilotStopRequest", stop)
         self.assertIn("Stop-AzurPilotOwnedProcessTree", stop)
-        self.assertNotRegex(stop, r"Stop-Process\s+.*(?:python|python\.exe)")
+        self.assertNotIn("Stop-Process", stop)
+        self.assertNotIn("taskkill", stop.lower())
+        self.assertIn("taskkill.exe", lifecycle)
 
     def test_start_path_entry_accepts_empty_path_segments(self) -> None:
         source = self.sources["scripts/Start-AzurPilot.ps1"]

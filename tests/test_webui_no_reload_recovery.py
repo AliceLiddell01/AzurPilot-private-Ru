@@ -110,6 +110,36 @@ class TestWebUiNoReloadRecovery(unittest.TestCase):
         )
         thread.return_value.start.assert_called_once_with()
 
+    def test_lifecycle_stop_watcher_ignores_missing_event_name(self):
+        with (
+            patch.dict(process_lifetime.os.environ, {}, clear=True),
+            patch.object(process_lifetime.threading, "Thread") as thread,
+        ):
+            self.assertFalse(process_lifetime._start_lifecycle_stop_watcher())
+
+        thread.assert_not_called()
+
+    def test_lifecycle_stop_watcher_handles_open_race_nonfatally(self):
+        kernel32 = Mock()
+        kernel32.OpenEventW.return_value = 0
+
+        with (
+            patch.dict(
+                process_lifetime.os.environ,
+                {"AZURPILOT_LIFECYCLE_STOP_EVENT": "Local\\AzurPilot.StopRequested.test"},
+                clear=False,
+            ),
+            patch.object(process_lifetime, "_kernel32", return_value=kernel32),
+            patch.object(process_lifetime.ctypes, "get_last_error", return_value=2),
+            patch.object(process_lifetime.ctypes, "FormatError", return_value="not found"),
+            patch("module.logger.logger.warning") as warning,
+            patch.object(process_lifetime.threading, "Thread") as thread,
+        ):
+            self.assertFalse(process_lifetime._start_lifecycle_stop_watcher())
+
+        warning.assert_called_once()
+        thread.assert_not_called()
+
     def test_lifecycle_stop_event_interrupts_main_thread(self):
         kernel32 = Mock()
         kernel32.WaitForSingleObject.return_value = process_lifetime._WAIT_OBJECT_0
@@ -123,6 +153,24 @@ class TestWebUiNoReloadRecovery(unittest.TestCase):
 
         kernel32.CloseHandle.assert_called_once_with(123)
         interrupt_main.assert_called_once_with()
+
+    def test_lifecycle_stop_event_warns_on_unexpected_wait_result(self):
+        kernel32 = Mock()
+        kernel32.WaitForSingleObject.return_value = 258
+
+        with (
+            patch.object(process_lifetime._thread, "interrupt_main") as interrupt_main,
+            patch("module.logger.logger.warning") as warning,
+        ):
+            process_lifetime._wait_for_lifecycle_stop_event(
+                kernel32,
+                123,
+                "Local\\AzurPilot.StopRequested.test",
+            )
+
+        kernel32.CloseHandle.assert_called_once_with(123)
+        warning.assert_called_once()
+        interrupt_main.assert_not_called()
 
     @unittest.skipUnless(os.name == "nt", "Проверка требует Windows Job Object")
     def test_windows_console_death_reaps_gui_process_tree(self):

@@ -233,101 +233,6 @@ function Resolve-RequiredPath {
     }
 }
 
-function ConvertFrom-YamlInlineCommentValue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [AllowEmptyString()]
-        [string]$Value
-    )
-
-    $insideSingleQuote = $false
-    $insideDoubleQuote = $false
-
-    if ($Value.Length -eq 0) {
-        return ''
-    }
-
-    foreach ($index in 0..($Value.Length - 1)) {
-        $character = $Value[$index]
-
-        if ($character -eq "'" -and -not $insideDoubleQuote) {
-            $insideSingleQuote = -not $insideSingleQuote
-            continue
-        }
-
-        if ($character -eq '"' -and -not $insideSingleQuote) {
-            $insideDoubleQuote = -not $insideDoubleQuote
-            continue
-        }
-
-        if ($character -ne '#') {
-            continue
-        }
-
-        if ($insideSingleQuote -or $insideDoubleQuote) {
-            continue
-        }
-
-        if ($index -eq 0) {
-            return ''
-        }
-
-        if ([char]::IsWhiteSpace($Value[$index - 1])) {
-            return $Value.Substring(0, $index).TrimEnd()
-        }
-    }
-
-    return $Value.TrimEnd()
-}
-
-function ConvertFrom-SimpleYamlScalar {
-    [CmdletBinding()]
-    param(
-        [Parameter()]
-        [AllowNull()]
-        [string]$Value
-    )
-
-    if ($null -eq $Value) {
-        return $null
-    }
-
-    $valueWithoutComment = ConvertFrom-YamlInlineCommentValue -Value $Value
-    $trimmedValue = $valueWithoutComment.Trim()
-
-    if ([string]::IsNullOrWhiteSpace($trimmedValue)) {
-        return $null
-    }
-
-    if ($trimmedValue -in @(
-        'null',
-        'Null',
-        'NULL',
-        '~'
-    )) {
-        return $null
-    }
-
-    if (
-        $trimmedValue.Length -ge 2 -and
-        $trimmedValue.StartsWith("'") -and
-        $trimmedValue.EndsWith("'")
-    ) {
-        return $trimmedValue.Substring(1, $trimmedValue.Length - 2).Replace("''", "'")
-    }
-
-    if (
-        $trimmedValue.Length -ge 2 -and
-        $trimmedValue.StartsWith('"') -and
-        $trimmedValue.EndsWith('"')
-    ) {
-        return $trimmedValue.Substring(1, $trimmedValue.Length - 2)
-    }
-
-    return $trimmedValue
-}
-
 function ConvertTo-SimpleBoolean {
     [CmdletBinding()]
     param(
@@ -384,40 +289,6 @@ function ConvertTo-SimpleBoolean {
             Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message $message
         }
     }
-}
-
-function Get-YamlScalarValue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$Path,
-
-        [Parameter(Mandatory)]
-        [string]$Key
-    )
-
-    $escapedKey = [regex]::Escape($Key)
-    $pattern = "^\s*$escapedKey\s*:\s*(.*)$"
-    $foundValues = [System.Collections.Generic.List[object]]::new()
-
-    foreach ($line in Get-Content -LiteralPath $Path -Encoding utf8 -ErrorAction Stop) {
-        $match = [regex]::Match($line, $pattern)
-
-        if ($match.Success) {
-            $scalarValue = ConvertFrom-SimpleYamlScalar -Value $match.Groups[1].Value
-            [void]$foundValues.Add($scalarValue)
-        }
-    }
-
-    if ($foundValues.Count -eq 0) {
-        return $null
-    }
-
-    if ($foundValues.Count -gt 1) {
-        Complete-StartFailure -Code $script:ExitCodePreconditionFailure -Message "В конфигурации найдено несколько значений ключа $Key."
-    }
-
-    return $foundValues[0]
 }
 
 function Get-WebUiConfiguration {
@@ -1471,8 +1342,13 @@ function Invoke-AzurPilotStart {
 
         if ($mutexData.Owned) {
             $script:StopEvent = New-AzurPilotStopEvent -Name $lifecycleNames.StopEvent
-            $script:ConsoleStopHandlerInstalled = Enable-AzurPilotConsoleStopHandler -StopEvent $script:StopEvent
-            Write-StartLog -Level 'INFO' -Message 'Координация штатной остановки активна.'
+
+            if ($null -eq $script:StopEvent) {
+                Write-StartLog -Level 'WARN' -Message 'Объект координации остановки не создан; координация штатной остановки недоступна.'
+            } else {
+                $script:ConsoleStopHandlerInstalled = Enable-AzurPilotConsoleStopHandler -StopEvent $script:StopEvent
+                Write-StartLog -Level 'INFO' -Message 'Координация штатной остановки активна.'
+            }
         }
 
         $guiPathParameters = @{
