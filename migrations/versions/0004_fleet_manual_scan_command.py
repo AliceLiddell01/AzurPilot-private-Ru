@@ -1,4 +1,4 @@
-"""Добавить durable manual Fleet scan command queue.
+"""Добавить устойчивую очередь команд ручного сканирования Fleet.
 
 Revision ID: 0004_fleet_manual_scan_command
 Revises: 0003_fleet_state_core
@@ -56,9 +56,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["instance_id"],
             ["azurpilot.app_instance.id"],
-            name=op.f(
-                "fk_formation_surface_fleet_scan_command_instance_id_app_instance"
-            ),
+            name="fk_fleet_scan_command_instance",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
