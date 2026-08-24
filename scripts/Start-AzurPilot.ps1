@@ -1341,7 +1341,7 @@ function Invoke-AzurPilotStart {
         Write-StartLog -Level 'INFO' -Message "Мьютекс Start захвачен: $($mutexData.Owned)"
 
         if ($mutexData.Owned) {
-            $script:StopEvent = New-AzurPilotStopEvent -Name $lifecycleNames.StopEvent
+            $script:StopEvent = New-AzurPilotStopEvent -Name $lifecycleNames.StopEvent -ReuseExisting
 
             if ($null -eq $script:StopEvent) {
                 Write-StartLog -Level 'WARN' -Message 'Объект координации остановки не создан; координация штатной остановки недоступна.'

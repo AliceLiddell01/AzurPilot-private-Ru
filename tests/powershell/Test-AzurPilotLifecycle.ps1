@@ -74,6 +74,14 @@ try {
 
     try {
         Assert-True -Condition (-not (Test-AzurPilotStopRequested -StopEvent $stopEvent)) -Message 'Новый stop event должен быть сброшен.'
+        $reusedStopEvent = New-AzurPilotStopEvent -Name $names.StopEvent -ReuseExisting -Confirm:$false
+
+        try {
+            Assert-True -Condition (-not (Test-AzurPilotStopRequested -StopEvent $reusedStopEvent)) -Message 'Повторный controller должен переиспользовать несигнальный event без phantom stop state.'
+        } finally {
+            $reusedStopEvent.Dispose()
+        }
+
         Assert-True -Condition (Send-AzurPilotStopRequest -Name $names.StopEvent) -Message 'Stop request должен открыть и установить существующий event.'
         Assert-True -Condition (Test-AzurPilotStopRequested -StopEvent $stopEvent) -Message 'Owner должен увидеть stop request.'
         Assert-True -Condition (Send-AzurPilotStopRequest -Name $names.StopEvent) -Message 'Повторный stop request должен быть идемпотентным.'

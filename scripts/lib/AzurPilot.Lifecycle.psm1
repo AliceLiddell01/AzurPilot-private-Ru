@@ -198,7 +198,10 @@ function New-AzurPilotStopEvent {
     param(
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [string]$Name
+        [string]$Name,
+
+        [Parameter()]
+        [switch]$ReuseExisting
     )
 
     if (-not $PSCmdlet.ShouldProcess($Name, 'Создать объект координации остановки AzurPilot')) {
@@ -213,7 +216,7 @@ function New-AzurPilotStopEvent {
         [ref]$createdNew
     )
 
-    if (-not $createdNew) {
+    if (-not $createdNew -and -not $ReuseExisting) {
         $stopEvent.Dispose()
         throw ('Объект координации остановки уже существует: {0}' -f $Name)
     }
@@ -337,11 +340,7 @@ function Get-AzurPilotWindowsProcessRecord {
         [int]$ProcessId
     )
 
-    try {
-        return Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
-    } catch {
-        return $null
-    }
+    return Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
 }
 
 function Test-AzurPilotCommandLinePathArgument {
@@ -504,7 +503,7 @@ function Get-AzurPilotRepositoryProcessEvidence {
     $expectedPythonPath = [System.IO.Path]::GetFullPath($ProjectPythonPath)
     $expectedGuiPath = [System.IO.Path]::GetFullPath($GuiPath)
 
-    $escapedPythonPath = $expectedPythonPath.Replace('\', '\\').Replace("'", "''")
+    $escapedPythonPath = $expectedPythonPath.Replace('\', '\\').Replace("'", "\'")
 
     try {
         $processRecords = @(
