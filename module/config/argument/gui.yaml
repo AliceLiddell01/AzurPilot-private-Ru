@@ -36,6 +36,61 @@ MenuAlas:
   Overview:
   Log:
 
+FleetPage:
+  Title:
+  ManualTitle:
+  ManualHelp:
+  AutoScanTitle:
+  AutoScanHelp:
+  AutoScanBoundary:
+  StateTitle:
+  Fleets:
+  SelectAll:
+  ClearSelection:
+  ScanSelected:
+  SaveAutoScan:
+  Mode:
+  ModeDisabled:
+  ModeEveryStart:
+  ModeDaily:
+  InvalidSelection:
+  ConfigSaved:
+  ConfigSaveFailed:
+  CommandQueued:
+  CommandAlreadyActive:
+  CommandSubmitFailed:
+  CommandNone:
+  CommandPending:
+  CommandWaitingWorker:
+  CommandRunning:
+  CommandSucceeded:
+  CommandPartial:
+  CommandFailed:
+  CommandStatus:
+  ErrorPhysicalScan:
+  ErrorManualScan:
+  ErrorWorkerInterrupted:
+  ErrorPersistence:
+  ErrorUnknown:
+  StorageUnavailable:
+  ColumnFleet:
+  ColumnMain1:
+  ColumnMain2:
+  ColumnMain3:
+  ColumnVanguard1:
+  ColumnVanguard2:
+  ColumnVanguard3:
+  ColumnObservedAt:
+  ColumnStatus:
+  SlotEmpty:
+  SlotUnknown:
+  SlotUnresolved:
+  SlotAmbiguous:
+  NoData:
+  StatusComplete:
+  StatusIncomplete:
+  StatusNoData:
+
 MenuDevelop:
   HomePage:
   Translate:

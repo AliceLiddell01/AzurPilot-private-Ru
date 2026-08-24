@@ -71,6 +71,7 @@ class AzurLaneAutoScript:
         self._emulator_recovery_transport_lost = False
         # 上次计划重启模拟器的时间戳
         self.last_emulator_restart_time = time.monotonic()
+        self._manual_scan_wakeup = False
 
     def _try_restart_emulator(self, *, reason='adb_offline', verify_game=False):
         """Выполнить одну проверяемую цепочку восстановления эмулятора.
@@ -338,6 +339,36 @@ class AzurLaneAutoScript:
                 '[Alas] Автосканирование остановлено на флоте '
                 f'{execution.batch_result.failed_fleet_index}; повтор будет разрешён '
                 'после защитной задержки'
+            )
+        return execution
+
+    @cached_property
+    def fleet_manual_scan(self):
+        """Durable manual command coordinator using the current worker Device."""
+
+        from module.persistence.runtime import build_runtime_fleet_manual_scan_context
+
+        context = build_runtime_fleet_manual_scan_context(
+            self._build_fleet_autoscan_controller,
+            require_ready=False,
+        )
+        return context.coordinator
+
+    def _run_fleet_manual_scan_if_pending(self):
+        execution = self.fleet_manual_scan.process_next(self.config_name)
+        if execution is None:
+            return None
+        command = execution.command
+        selected = ", ".join(map(str, command.selection.fleet_indices))
+        logger.hr('[Alas] Ручное сканирование флотов', level=1)
+        logger.info(
+            f'[Alas] Ручное сканирование завершено: флоты={selected}, '
+            f'статус={command.status.value}'
+        )
+        if execution.batch_result.failed_fleet_index is not None:
+            logger.warning(
+                '[Alas] Ручное сканирование остановлено на флоте '
+                f'{execution.batch_result.failed_fleet_index}'
             )
         return execution
 
@@ -1374,6 +1405,13 @@ class AzurLaneAutoScript:
         while 1:
             if current_time() > future:
                 return True
+            if self.fleet_manual_scan.has_pending(self.config_name):
+                self._manual_scan_wakeup = True
+                logger.info(
+                    '[Alas] Ожидание прервано ожидающей командой ручного '
+                    'сканирования флотов'
+                )
+                return True
             if self.stop_event is not None:
                 if self.stop_event.is_set():
                     logger.info('[Alas] Получен запрос на остановку')
@@ -1478,14 +1516,26 @@ class AzurLaneAutoScript:
         return task.command
 
     def _prepare_task_boundary(self, task):
-        """Подготовить Device и выполнить autoscan до запуска обычной задачи."""
+        """Run manual scan first, then autoscan, only between normal tasks."""
 
         _ = self.device
         self.device.config = self.config
+        woke_for_manual = self._manual_scan_wakeup
+        self._manual_scan_wakeup = False
+        manual_execution = self._run_fleet_manual_scan_if_pending()
         if self.is_first_task and task == 'Restart':
             logger.info('[Alas] При запуске планировщика задача `Restart` пропущена')
             self.delay_next_restart()
             del_cached_property(self, 'config')
+            return False
+        if manual_execution is not None:
+            if self.stop_event is not None and self.stop_event.is_set():
+                logger.info('[Alas] Запрос на остановку получен во время ручного сканирования')
+                return False
+            # A task returned early from a long wait must not run before next_run.
+            return not woke_for_manual
+        if woke_for_manual:
+            # Another claimant may have consumed the command; resume normal wait.
             return False
         self._run_fleet_autoscan_if_due()
         if self.stop_event is not None and self.stop_event.is_set():

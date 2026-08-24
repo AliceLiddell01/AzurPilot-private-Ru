@@ -45,7 +45,7 @@ def _marker_payload() -> dict[str, object]:
     return {
         "backend": "postgresql",
         "version": 1,
-        "alembic_head": "0003_fleet_state_core",
+        "alembic_head": "0004_fleet_manual_scan_command",
         "reconciliation_report_sha256": "a" * 64,
         "reviewed_head": "b" * 40,
         "merge_commit": "c" * 40,

@@ -49,6 +49,22 @@ from module.application.fleet_state import (
     FleetStateResult,
     FleetStateService,
 )
+from module.application.fleet_manual_scan import (
+    FLEET_MANUAL_SCAN_SOURCE,
+    FleetManualScanCommand,
+    FleetManualScanCommandService,
+    FleetManualScanCoordinator,
+    FleetManualScanExecution,
+    FleetManualScanStatus,
+    FleetManualScanSubmission,
+)
+from module.application.fleet_page import (
+    FleetPageQueryService,
+    FleetPageViewModel,
+    FleetRowViewModel,
+    FleetSlotState,
+    FleetSlotViewModel,
+)
 from module.application.services import InstanceQueryService, TaskCatalogService
 from module.application.migration_service import MigrationService, finalize_rehearsal
 from module.application.storage_models import (
@@ -71,6 +87,7 @@ __all__ = (
     "CommissionItem",
     "FLEET_AUTOSCAN_SOURCE_DAILY",
     "FLEET_AUTOSCAN_SOURCE_EVERY_START",
+    "FLEET_MANUAL_SCAN_SOURCE",
     "FleetAutoScanConfig",
     "FleetAutoScanCoordinator",
     "FleetAutoScanExecution",
@@ -78,6 +95,15 @@ __all__ = (
     "FleetAutoScanPolicy",
     "FleetAutoScanRetryPolicy",
     "FleetRefreshPolicy",
+    "FleetManualScanCommand",
+    "FleetManualScanCommandService",
+    "FleetManualScanCoordinator",
+    "FleetManualScanExecution",
+    "FleetManualScanStatus",
+    "FleetManualScanSubmission",
+    "FleetPageQueryService",
+    "FleetPageViewModel",
+    "FleetRowViewModel",
     "FleetScanAttempt",
     "FleetScanBatchResult",
     "FleetScanRun",
@@ -87,6 +113,8 @@ __all__ = (
     "FleetStateRequest",
     "FleetStateResult",
     "FleetStateService",
+    "FleetSlotState",
+    "FleetSlotViewModel",
     "ImportBatch",
     "ImportBatchStatus",
     "IncompatibleSchemaError",

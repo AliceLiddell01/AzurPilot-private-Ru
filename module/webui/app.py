@@ -46,6 +46,7 @@ from module.webui.app_event_profiles import EventProfilesMixin
 from module.webui.app_event_shop_live import EventShopLiveMixin
 from module.webui.app_event_shop_safety import EventShopSafetyMixin
 from module.webui.app_event_tools import EventToolsMixin
+from module.webui.app_fleet_page import FleetPageMixin
 from module.webui.app_helpers import (
     DEMO_DEVICE_ID_TEXT,
     WEBUI_AUTO_PASSWORD_FILE,
@@ -93,6 +94,7 @@ INITIAL_WEBUI_CSS = _versioned_static_asset("assets/gui/css/alas.css")
 
 class AlasGUI(
     AppShellMixin,
+    FleetPageMixin,
     StatisticsPageMixin,
     ActionPointStatisticsMixin,
     ActionPointToolbarMixin,
@@ -220,6 +222,7 @@ def app():
         add_css(filepath_css("event-general-v2-alas"))
         add_css(filepath_css("event-shop-stability-alas"))
         add_css(filepath_css("traceback-alas"))
+        add_css(filepath_css("fleet-page-alas"))
         if _block_public_webui_password_error():
             return
         localstorage = None

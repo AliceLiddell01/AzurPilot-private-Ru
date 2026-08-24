@@ -90,6 +90,7 @@ class EventProfilesMixin(WebUIMixinBase):
                 ],
                 onclick=[self.alas_overview],
             ).style("--menu-Overview--")
+            self._put_fleet_menu_button()
 
             try:
                 event_config = self._read_event_profile_config()
