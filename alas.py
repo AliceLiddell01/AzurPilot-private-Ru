@@ -344,7 +344,7 @@ class AzurLaneAutoScript:
 
     @cached_property
     def fleet_manual_scan(self):
-        """Durable manual command coordinator using the current worker Device."""
+        """Координатор устойчивых ручных команд на текущем Device worker-процесса."""
 
         from module.persistence.runtime import build_runtime_fleet_manual_scan_context
 
@@ -1516,26 +1516,28 @@ class AzurLaneAutoScript:
         return task.command
 
     def _prepare_task_boundary(self, task):
-        """Run manual scan first, then autoscan, only between normal tasks."""
+        """Выполнить manual scan и autoscan только между обычными задачами."""
 
         _ = self.device
         self.device.config = self.config
-        woke_for_manual = self._manual_scan_wakeup
+        woke_for_manual = bool(getattr(self, '_manual_scan_wakeup', False))
         self._manual_scan_wakeup = False
-        manual_execution = self._run_fleet_manual_scan_if_pending()
         if self.is_first_task and task == 'Restart':
             logger.info('[Alas] При запуске планировщика задача `Restart` пропущена')
             self.delay_next_restart()
             del_cached_property(self, 'config')
             return False
+        if task == 'Restart':
+            return True
+        manual_execution = self._run_fleet_manual_scan_if_pending()
         if manual_execution is not None:
             if self.stop_event is not None and self.stop_event.is_set():
                 logger.info('[Alas] Запрос на остановку получен во время ручного сканирования')
                 return False
-            # A task returned early from a long wait must not run before next_run.
+            # Задача после досрочного пробуждения не должна стартовать раньше next_run.
             return not woke_for_manual
         if woke_for_manual:
-            # Another claimant may have consumed the command; resume normal wait.
+            # Другой worker мог забрать команду, поэтому возвращаемся к штатному ожиданию.
             return False
         self._run_fleet_autoscan_if_due()
         if self.stop_event is not None and self.stop_event.is_set():
