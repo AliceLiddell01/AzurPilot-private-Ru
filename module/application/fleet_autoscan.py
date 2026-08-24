@@ -309,10 +309,11 @@ class FleetAutoScanCoordinator:
             for observation in batch.observations
             if observation.snapshot.complete
         )
+        complete_set = set(complete)
         incomplete = tuple(
-            observation.fleet_index
-            for observation in batch.observations
-            if not observation.snapshot.complete
+            fleet_index
+            for fleet_index in due.fleet_indices
+            if fleet_index not in complete_set
         )
         if config.mode is FleetAutoScanMode.EVERY_START:
             self._startup_complete.update(complete)

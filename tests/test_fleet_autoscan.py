@@ -339,6 +339,7 @@ def test_partial_batch_keeps_only_complete_fleets_satisfied() -> None:
     first = coordinator.run_if_due("profile", config)
     assert first is not None
     assert first.batch_result.status is FleetScanRunStatus.PARTIAL
+    assert first.incomplete_fleet_indices == (2, 3)
     clock.value += timedelta(minutes=5)
     state.result_factory = lambda selection: _batch(
         selection,
