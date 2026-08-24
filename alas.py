@@ -344,7 +344,7 @@ class AzurLaneAutoScript:
 
     @cached_property
     def fleet_manual_scan(self):
-        """Координатор устойчивых ручных команд на текущем Device worker-процесса."""
+        """Durable manual command coordinator using the current worker Device."""
 
         from module.persistence.runtime import build_runtime_fleet_manual_scan_context
 
@@ -403,14 +403,12 @@ class AzurLaneAutoScript:
         handle_notify(
             self.config.Error_OnePushConfig,
             title=f"AzurPilot <{self.config_name}>: ошибка чувствительной задачи",
-            content=f"<{self.config_name}> Чувствительная задача `{task_name}` завершилась с ошибкой; AzurPilot остановлен\
-{error}",
+            content=f"<{self.config_name}> Чувствительная задача `{task_name}` завершилась с ошибкой; AzurPilot остановлен\n{error}",
         )
         notify_webui(
             self.config_name,
             title=f"Ошибка чувствительной задачи {task_name}; AzurPilot остановлен",
-            content=f"Задача {task_name} является чувствительной, поэтому после ошибки автоматический перезапуск не выполняется.\
-{error}",
+            content=f"Задача {task_name} является чувствительной, поэтому после ошибки автоматический перезапуск не выполняется.\n{error}",
         )
         exit(1)
 
@@ -813,8 +811,7 @@ class AzurLaneAutoScript:
                     lines = f.readlines()
                     start = 0
                     for index, line in enumerate(lines):
-                        line = line.strip(' \r\t\
-')
+                        line = line.strip(' \r\t\n')
                         if re.match('^═{15,}$', line):
                             start = index
                     lines = lines[start - 2:]
@@ -1319,8 +1316,7 @@ class AzurLaneAutoScript:
             try:
                 fd, key_file = tempfile.mkstemp()
                 with os.fdopen(fd, 'w') as f:
-                    f.write(key.strip() + '\
-')
+                    f.write(key.strip() + '\n')
 
                 if os.name == 'nt':
                     import subprocess
@@ -1520,28 +1516,26 @@ class AzurLaneAutoScript:
         return task.command
 
     def _prepare_task_boundary(self, task):
-        """Выполнить manual scan и autoscan только между обычными задачами."""
+        """Run manual scan first, then autoscan, only between normal tasks."""
 
         _ = self.device
         self.device.config = self.config
-        woke_for_manual = bool(getattr(self, '_manual_scan_wakeup', False))
+        woke_for_manual = self._manual_scan_wakeup
         self._manual_scan_wakeup = False
+        manual_execution = self._run_fleet_manual_scan_if_pending()
         if self.is_first_task and task == 'Restart':
             logger.info('[Alas] При запуске планировщика задача `Restart` пропущена')
             self.delay_next_restart()
             del_cached_property(self, 'config')
             return False
-        if task == 'Restart':
-            return True
-        manual_execution = self._run_fleet_manual_scan_if_pending()
         if manual_execution is not None:
             if self.stop_event is not None and self.stop_event.is_set():
                 logger.info('[Alas] Запрос на остановку получен во время ручного сканирования')
                 return False
-            # Задача после досрочного пробуждения не должна стартовать раньше next_run.
+            # A task returned early from a long wait must not run before next_run.
             return not woke_for_manual
         if woke_for_manual:
-            # Другой worker мог забрать команду, поэтому возвращаемся к штатному ожиданию.
+            # Another claimant may have consumed the command; resume normal wait.
             return False
         self._run_fleet_autoscan_if_due()
         if self.stop_event is not None and self.stop_event.is_set():
@@ -1692,8 +1686,7 @@ class AzurLaneAutoScript:
                     handle_notify(
                         self.config.Error_OnePushConfig,
                         title=f"AzurPilot <{self.config_name}>: аварийное завершение",
-                        content=f"<{self.config_name}> RequestHumanTakeover\
-Задача `{task}` завершилась с ошибкой не менее {failed} раз.",
+                        content=f"<{self.config_name}> RequestHumanTakeover\nЗадача `{task}` завершилась с ошибкой не менее {failed} раз.",
                     )
                     notify_webui(
                         self.config_name,
