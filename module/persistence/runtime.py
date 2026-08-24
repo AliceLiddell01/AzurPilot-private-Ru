@@ -11,8 +11,9 @@ from module.application.runtime_storage import (
     clear_runtime_storage_provider,
     install_runtime_storage_provider,
 )
-from module.persistence.config import DatabaseSettings
+from module.persistence.config import DEFAULT_BACKEND_MARKER_PATH, DatabaseSettings
 from module.persistence.database import LazyEngine, StorageHealthChecker
+from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.unit_of_work import PostgresUnitOfWork
 
 _lock = Lock()
@@ -21,7 +22,7 @@ _engine: LazyEngine | None = None
 
 
 def bootstrap_runtime_storage(
-    marker_path: str | Path = "config/storage_backend.json",
+    marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
     *,
     require_ready: bool = True,
 ) -> RuntimeStorageService:
@@ -30,7 +31,10 @@ def bootstrap_runtime_storage(
     global _engine, _service
     with _lock:
         if _service is None:
+            local_environment = load_local_postgres_environment()
             settings = DatabaseSettings.from_backend_marker(marker_path)
+            if local_environment is not None:
+                local_environment.require_runtime_match(settings)
             _engine = LazyEngine(settings)
             engine = _engine
             _service = RuntimeStorageService(

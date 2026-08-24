@@ -13,6 +13,28 @@ from sqlalchemy import URL
 from module.application.errors import StorageConfigurationError
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
+DEFAULT_BACKEND_MARKER_PATH = Path("config/state/storage_backend.json")
+LEGACY_BACKEND_MARKER_PATH = Path("config/storage_backend.json")
+
+
+def _read_backend_marker(path: Path) -> tuple[bytes, dict[str, object]]:
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise StorageConfigurationError(
+                "Production backend marker отсутствует или небезопасен."
+            )
+        raw = path.read_bytes()
+        payload = json.loads(raw)
+    except StorageConfigurationError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise StorageConfigurationError(
+            "Production backend marker повреждён."
+        ) from exc
+    if not isinstance(payload, dict):
+        raise StorageConfigurationError("Production backend marker некорректен.")
+    return raw, payload
+
 
 @dataclass(frozen=True, slots=True)
 class PoolSettings:
@@ -111,25 +133,20 @@ class DatabaseSettings:
 
     @classmethod
     def from_backend_marker(
-        cls, marker_path: str | Path = "config/storage_backend.json"
+        cls, marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH
     ) -> DatabaseSettings:
         """Загрузить единственный production-маркер без секретных значений."""
 
         path = Path(marker_path)
-        try:
-            if path.is_symlink() or not path.is_file():
-                raise StorageConfigurationError(
-                    "Production backend marker отсутствует или небезопасен."
-                )
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except StorageConfigurationError:
-            raise
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise StorageConfigurationError(
-                "Production backend marker повреждён."
-            ) from exc
-        if not isinstance(payload, dict):
-            raise StorageConfigurationError("Production backend marker некорректен.")
+        if path == DEFAULT_BACKEND_MARKER_PATH:
+            migrate_legacy_backend_marker()
+        _, payload = _read_backend_marker(path)
+        return cls._from_backend_marker_payload(payload)
+
+    @classmethod
+    def _from_backend_marker_payload(
+        cls, payload: dict[str, object]
+    ) -> DatabaseSettings:
         if payload.get("backend") != "postgresql" or payload.get("version") != 1:
             raise StorageConfigurationError(
                 "Production backend marker не разрешает PostgreSQL runtime."
@@ -188,3 +205,51 @@ class DatabaseSettings:
             sslmode=sslmode,
             runtime_timezone=runtime_timezone,
         )
+
+
+def migrate_legacy_backend_marker(
+    *,
+    target: str | Path = DEFAULT_BACKEND_MARKER_PATH,
+    legacy: str | Path = LEGACY_BACKEND_MARKER_PATH,
+) -> bool:
+    """Перенести только валидный legacy marker без перезаписи canonical state."""
+
+    target_path = Path(target)
+    legacy_path = Path(legacy)
+    if target_path.exists() or not legacy_path.exists():
+        return False
+
+    legacy_raw, legacy_payload = _read_backend_marker(legacy_path)
+    DatabaseSettings._from_backend_marker_payload(legacy_payload)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target_path.hardlink_to(legacy_path)
+    except FileExistsError:
+        return False
+    except OSError as exc:
+        raise StorageConfigurationError(
+            "Не удалось безопасно перенести production backend marker."
+        ) from exc
+
+    try:
+        target_raw, target_payload = _read_backend_marker(target_path)
+        DatabaseSettings._from_backend_marker_payload(target_payload)
+        target_stat = target_path.stat()
+        legacy_stat = legacy_path.stat()
+        if (
+            target_raw != legacy_raw
+            or target_stat.st_dev != legacy_stat.st_dev
+            or target_stat.st_ino != legacy_stat.st_ino
+        ):
+            raise StorageConfigurationError(
+                "Production backend marker изменился во время переноса."
+            )
+        legacy_path.unlink()
+    except (OSError, StorageConfigurationError) as exc:
+        target_path.unlink(missing_ok=True)
+        if isinstance(exc, StorageConfigurationError):
+            raise
+        raise StorageConfigurationError(
+            "Не удалось завершить перенос production backend marker."
+        ) from exc
+    return True

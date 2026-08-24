@@ -101,12 +101,23 @@ AZURPILOT_POSTGRES_DATABASE
 AZURPILOT_POSTGRES_USER
 AZURPILOT_POSTGRES_PASSWORD   # optional при PGPASSFILE/libpq credential source
 AZURPILOT_POSTGRES_SSLMODE
+AZURPILOT_POSTGRES_RUNTIME_TIMEZONE
+AZURPILOT_POSTGRES_PGPASSFILE
+AZURPILOT_POSTGRES_MIGRATOR_HOST / PORT / DATABASE / USER
+AZURPILOT_POSTGRES_MIGRATOR_PASSWORD / SSLMODE / RUNTIME_TIMEZONE / PGPASSFILE
+AZURPILOT_WSL_DISTRO
+AZURPILOT_WSL_PGPASSFILE
 AZURPILOT_POSTGRES_DISPOSABLE          # только для test-only destructive runs
 AZURPILOT_POSTGRES_DISPOSABLE_HOST     # точное подтверждение target
 AZURPILOT_POSTGRES_DISPOSABLE_PORT
 AZURPILOT_POSTGRES_DISPOSABLE_DATABASE
 AZURPILOT_POSTGRES_DISPOSABLE_USER
 ```
+
+В production эти значения хранятся в gitignored `.env`. Owner-loader не
+публикует `*_PASSWORD` в process environment: libpq consumers используют
+защищённые `PGPASSFILE`, а maintenance-команды отдельно выбирают migrator
+contract. `PGPASSWORD` не является постоянным credential transport.
 
 Если `SSLMODE` не задан, foundation проверяет TLS-сертификат и имя сервера
 (`verify-full`); режим `require` и более слабые режимы доступны только через

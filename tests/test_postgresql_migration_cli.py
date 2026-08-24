@@ -89,6 +89,17 @@ def test_report_is_create_only(tmp_path):
     assert report.read_text(encoding="utf-8") == "preserve"
 
 
+def test_report_rejects_root_profile_namespace(tmp_path, monkeypatch):
+    config = tmp_path / "config"
+    config.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(LegacySourceError, match="REPORT_TARGET_PROFILE_NAMESPACE"):
+        postgresql_migration._write_report("{}\n", config / "report.json")
+
+    assert not (config / "report.json").exists()
+
+
 def test_full_rehearsal_requires_exact_disposable_guard_before_network(tmp_path):
     source = tmp_path / "source"
     source.mkdir()

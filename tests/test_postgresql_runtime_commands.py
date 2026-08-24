@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -62,7 +62,8 @@ def test_backup_is_verified_and_published_create_only(tmp_path: Path):
 
     assert output.stat().st_size == 2048
     assert calls[0][0][0] == "pg_dump"
-    assert calls[0][1]["PGPASSWORD"] == "test-password"
+    assert "PGPASSWORD" not in calls[0][1]
+    assert "PGPASSFILE" in calls[0][1]
     assert calls[1][0][:2] == ["pg_restore", "--list"]
     assert not tuple(output.parent.glob("*.tmp"))
 

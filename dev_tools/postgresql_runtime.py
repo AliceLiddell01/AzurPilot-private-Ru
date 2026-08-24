@@ -16,8 +16,9 @@ from alembic.util.exc import CommandError
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
-from module.persistence.config import DatabaseSettings
+from module.persistence.config import DEFAULT_BACKEND_MARKER_PATH, DatabaseSettings
 from module.persistence.database import LazyEngine, StorageHealthChecker
+from module.persistence.local_environment import load_local_postgres_environment
 
 
 def _run_hidden(
@@ -90,8 +91,11 @@ def _backup(
     output = _validate_external_output(output, repository_root)
     native = shutil.which("pg_dump")
     environment = os.environ.copy()
-    if native and settings.password:
-        environment["PGPASSWORD"] = settings.password
+    environment.pop("PGPASSWORD", None)
+    if native:
+        environment["PGPASSFILE"] = os.environ.get(
+            "AZURPILOT_POSTGRES_PGPASSFILE", environment.get("PGPASSFILE", "")
+        )
     arguments = (
         [native, *_pg_dump_arguments(settings)]
         if native
@@ -146,6 +150,7 @@ def _health(marker: Path) -> None:
 
 
 def _upgrade() -> None:
+    load_local_postgres_environment(role="migrator")
     settings = DatabaseSettings.from_environment(
         prefix="AZURPILOT_POSTGRES_MIGRATOR_"
     )
@@ -159,10 +164,8 @@ def _upgrade() -> None:
             "AZURPILOT_POSTGRES_RUNTIME_TIMEZONE": settings.runtime_timezone,
         }
     )
-    if settings.password:
-        os.environ["AZURPILOT_POSTGRES_PASSWORD"] = settings.password
-    else:
-        os.environ.pop("AZURPILOT_POSTGRES_PASSWORD", None)
+    os.environ.pop("AZURPILOT_POSTGRES_PASSWORD", None)
+    os.environ.pop("PGPASSWORD", None)
     configuration = Config("alembic.ini")
     command.upgrade(configuration, "head")
 
@@ -174,10 +177,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     health = subparsers.add_parser("health", help="Проверить marker, доступ и schema head.")
-    health.add_argument("--marker", default="config/storage_backend.json")
+    health.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
 
     backup = subparsers.add_parser("backup", help="Создать проверяемый custom dump.")
-    backup.add_argument("--marker", default="config/storage_backend.json")
+    backup.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
     backup.add_argument("--output", required=True)
     backup.add_argument("--distro", default="Archlinux")
     backup.add_argument("--repository-root", default=".")
@@ -190,6 +193,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
+        if arguments.command in {"health", "backup"}:
+            load_local_postgres_environment(role="app")
         if arguments.command == "health":
             _health(Path(arguments.marker))
         elif arguments.command == "backup":

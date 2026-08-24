@@ -23,6 +23,8 @@ def _arguments(tmp_path: Path, report: Path, confirmation: str) -> argparse.Name
         runtime_timezone="Asia/Novosibirsk",
         reviewed_head="b" * 40,
         merge_commit="c" * 40,
+        legacy_marker=None,
+        retire_invalid_legacy_marker_sha256=None,
     )
 
 
@@ -82,3 +84,36 @@ def test_activation_rejects_non_loopback_before_marker_creation(tmp_path: Path):
         postgresql_cutover.activate(arguments)
 
     assert not (tmp_path / "storage_backend.json").exists()
+
+
+def test_activation_retires_corrupt_legacy_only_with_exact_digest(tmp_path: Path):
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps({"cutover_ready": True, "reason_codes": []}), encoding="utf-8"
+    )
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    legacy.write_text(json.dumps({"Alas": {}}), encoding="utf-8")
+    marker = tmp_path / "config/state/storage_backend.json"
+    arguments = _arguments(tmp_path, report, postgresql_cutover.CONFIRMATION)
+    arguments.marker = str(marker)
+    arguments.legacy_marker = str(legacy)
+
+    with (
+        patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"),
+        pytest.raises(RuntimeError, match="exact SHA-256"),
+    ):
+        postgresql_cutover.activate(arguments)
+
+    assert legacy.is_file()
+    assert not marker.exists()
+
+    arguments.retire_invalid_legacy_marker_sha256 = postgresql_cutover.hashlib.sha256(
+        legacy.read_bytes()
+    ).hexdigest()
+    with patch.object(postgresql_cutover.StorageHealthChecker, "require_ready"):
+        postgresql_cutover.activate(arguments)
+
+    assert marker.is_file()
+    assert not legacy.exists()
+    assert "password" not in json.loads(marker.read_text(encoding="utf-8"))

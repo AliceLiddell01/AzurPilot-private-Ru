@@ -9,11 +9,16 @@ import os
 import sys
 from pathlib import Path
 
-from module.application.errors import StorageError
-from module.persistence.config import DatabaseSettings
+from module.application.errors import StorageConfigurationError, StorageError
+from module.persistence.config import (
+    DEFAULT_BACKEND_MARKER_PATH,
+    LEGACY_BACKEND_MARKER_PATH,
+    DatabaseSettings,
+    migrate_legacy_backend_marker,
+)
 from module.persistence.database import LazyEngine, StorageHealthChecker
+from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
-
 
 CONFIRMATION = "АКТИВИРОВАТЬ-POSTGRESQL-БЕЗ-SQLITE-ROLLBACK"
 
@@ -67,6 +72,22 @@ def activate(arguments: argparse.Namespace) -> None:
     marker = Path(arguments.marker).resolve()
     if marker.exists() or marker.is_symlink():
         raise RuntimeError("Production-маркер уже существует.")
+    legacy = Path(arguments.legacy_marker).resolve() if arguments.legacy_marker else None
+    invalid_legacy_digest: str | None = None
+    if legacy is not None and legacy.exists():
+        try:
+            if migrate_legacy_backend_marker(target=marker, legacy=legacy):
+                return
+        except StorageConfigurationError:
+            if legacy.is_symlink() or not legacy.is_file():
+                raise RuntimeError(
+                    "Legacy production-маркер отсутствует или небезопасен."
+                ) from None
+            invalid_legacy_digest = hashlib.sha256(legacy.read_bytes()).hexdigest()
+            if arguments.retire_invalid_legacy_marker_sha256 != invalid_legacy_digest:
+                raise RuntimeError(
+                    "Повреждённый legacy marker требует exact SHA-256 recovery guard."
+                ) from None
     marker.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "backend": "postgresql",
@@ -90,6 +111,22 @@ def activate(arguments: argparse.Namespace) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.link(temporary, marker)
+        if legacy is not None and invalid_legacy_digest is not None:
+            if (
+                legacy.is_symlink()
+                or not legacy.is_file()
+                or hashlib.sha256(legacy.read_bytes()).hexdigest()
+                != invalid_legacy_digest
+            ):
+                marker.unlink(missing_ok=True)
+                raise RuntimeError(
+                    "Повреждённый legacy marker изменился во время recovery."
+                )
+            try:
+                legacy.unlink()
+            except OSError:
+                marker.unlink(missing_ok=True)
+                raise
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -100,7 +137,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--confirm", required=True)
     parser.add_argument("--reconciliation-report", required=True)
-    parser.add_argument("--marker", default="config/storage_backend.json")
+    parser.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
+    parser.add_argument("--legacy-marker", default=str(LEGACY_BACKEND_MARKER_PATH))
+    parser.add_argument("--retire-invalid-legacy-marker-sha256")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5432)
     parser.add_argument("--database", default="azurpilot")
@@ -114,6 +153,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     try:
+        load_local_postgres_environment(role="app")
         activate(_parser().parse_args(argv))
     except (OSError, RuntimeError, StorageError, ValueError) as exc:
         print(f"Ошибка активации production PostgreSQL: {exc}", file=sys.stderr)

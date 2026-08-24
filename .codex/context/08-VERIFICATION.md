@@ -125,6 +125,10 @@
 - PostgreSQL 18, exact Alembic head и authenticated app health;
 - application service/repository integration и atomic concurrency;
 - marker absent/corrupt/sqlite и outage fail-closed без fallback;
+- create-only migration валидного marker в `config/state/`, rejection
+  повреждённого legacy marker и отсутствие runtime-state JSON в profile discovery;
+- `.env`/passfile contract, distinct app/migrator secrets и old-credential
+  negative auth;
 - app DML положительно, DDL/role/database отрицательно;
 - Start/Update/Repair/Build ownership и PowerShell gates;
 - final import, repeat zero-delta, dump/list, scratch restore и reconciliation;

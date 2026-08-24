@@ -14,7 +14,12 @@ import pytest
 from module.application.canonical_payload import payload_digest
 from module.application.errors import StorageConfigurationError, StorageInvalidDataError
 from module.application.runtime_storage import RuntimeStorageService
-from module.persistence.config import DatabaseSettings
+from module.persistence.config import (
+    DEFAULT_BACKEND_MARKER_PATH,
+    LEGACY_BACKEND_MARKER_PATH,
+    DatabaseSettings,
+    migrate_legacy_backend_marker,
+)
 from module.statistics import postgresql_stats
 from tests.import_inspection import imports_for_path
 
@@ -85,6 +90,60 @@ def test_backend_marker_has_explicit_identity_time_and_provenance(tmp_path: Path
     assert settings.user == "azurpilot_app"
     assert settings.runtime_timezone == "Asia/Novosibirsk"
     assert settings.password is None
+
+
+def test_backend_marker_default_uses_runtime_state_namespace():
+    assert DEFAULT_BACKEND_MARKER_PATH == Path("config/state/storage_backend.json")
+    assert LEGACY_BACKEND_MARKER_PATH == Path("config/storage_backend.json")
+
+
+def test_valid_legacy_marker_migrates_create_only(tmp_path: Path):
+    target = tmp_path / "config/state/storage_backend.json"
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    legacy.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+    before = legacy.read_bytes()
+
+    assert migrate_legacy_backend_marker(target=target, legacy=legacy)
+
+    assert target.read_bytes() == before
+    assert not legacy.exists()
+    assert DatabaseSettings.from_backend_marker(target).user == "azurpilot_app"
+
+
+def test_corrupt_legacy_marker_is_not_migrated(tmp_path: Path):
+    target = tmp_path / "config/state/storage_backend.json"
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    legacy.write_text(json.dumps({"Alas": {}}), encoding="utf-8")
+    before = legacy.read_bytes()
+
+    with pytest.raises(StorageConfigurationError, match="не разрешает"):
+        migrate_legacy_backend_marker(target=target, legacy=legacy)
+
+    assert not target.exists()
+    assert legacy.read_bytes() == before
+
+
+def test_legacy_marker_migration_does_not_clobber_racing_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    target = tmp_path / "config/state/storage_backend.json"
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    legacy.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+    competing = json.dumps({**_marker_payload(), "port": 6543}).encode()
+    original = Path.hardlink_to
+
+    def create_competing_target(path: Path, source: Path):
+        path.write_bytes(competing)
+        return original(path, source)
+
+    monkeypatch.setattr(Path, "hardlink_to", create_competing_target)
+
+    assert not migrate_legacy_backend_marker(target=target, legacy=legacy)
+    assert target.read_bytes() == competing
+    assert legacy.is_file()
 
 
 def test_runtime_bootstrap_is_lazy_without_health_request(tmp_path: Path):

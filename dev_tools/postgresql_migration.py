@@ -17,6 +17,7 @@ from module.application.migration_service import MigrationService, finalize_rehe
 from module.persistence import DatabaseSettings, LazyEngine
 from module.persistence.legacy import LegacySourceReader, create_consistent_snapshot
 from module.persistence.legacy.reader import LegacySourceError
+from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.migration_target import PostgresMigrationTarget
 
 
@@ -147,8 +148,10 @@ def _require_production_cutover(
 
 def _run_pg(executable: str, arguments: list[str], settings: DatabaseSettings) -> None:
     environment = os.environ.copy()
-    if settings.password:
-        environment["PGPASSWORD"] = settings.password
+    environment.pop("PGPASSWORD", None)
+    environment["PGPASSFILE"] = os.environ.get(
+        "AZURPILOT_POSTGRES_PGPASSFILE", environment.get("PGPASSFILE", "")
+    )
     command = [executable, *arguments]
     if executable.startswith("wsl:"):
         tool = executable.removeprefix("wsl:")
@@ -255,6 +258,8 @@ def _write_report(payload: str, path: Path | None) -> None:
         print(payload, end="")
         return
     parent = path.parent.resolve(strict=True)
+    if parent == Path("config").resolve():
+        raise LegacySourceError("REPORT_TARGET_PROFILE_NAMESPACE")
     if path.exists() or path.is_symlink() or not parent.is_dir():
         raise LegacySourceError("REPORT_TARGET_UNSAFE")
     with path.open("x", encoding="utf-8", newline="\n") as stream:
@@ -333,6 +338,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     try:
+        if arguments.command == "full-cutover":
+            load_local_postgres_environment(role="migrator")
         source_root = arguments.source_root.resolve(strict=True)
         if arguments.command == "inspect":
             _write_report(

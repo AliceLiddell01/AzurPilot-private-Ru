@@ -58,6 +58,11 @@ uv run python -m dev_tools.postgresql_migration \
 перезаписывается. В stdout выводится только bounded status/reason summary, а не
 factual report. `inspect` не требует PostgreSQL и не пишет source. Остальные режимы читают
 структурные `AZURPILOT_POSTGRES_*` settings; password не принимается в argv.
+Report нельзя создавать непосредственно как `config/<name>.json`: корень
+`config/*.json` является profile namespace и такой target отклоняется до записи.
+Для локального persistent state используется `config/state/`, а фактические
+cutover reports по-прежнему предпочтительно хранить во внешней Stage-owned
+директории.
 `full-rehearsal` дополнительно требует `--scratch-database`,
 `AZURPILOT_POSTGRES_DISPOSABLE=1` и точное совпадение guard-переменных host,
 port, database, user и scratch database. `pg_dump`/`pg_restore` берутся из PATH
