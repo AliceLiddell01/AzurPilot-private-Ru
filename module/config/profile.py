@@ -201,7 +201,17 @@ def discover_profile_configs(
         profile = classify_profile_config(candidate, root, strict=strict)
         if profile is not None:
             profiles.append(profile)
-    return tuple(profiles)
+
+    name_counts: dict[str, int] = {}
+    for profile in profiles:
+        folded = profile.name.casefold()
+        name_counts[folded] = name_counts.get(folded, 0) + 1
+    collisions = {name for name, count in name_counts.items() if count > 1}
+    if collisions and strict:
+        raise ProfileDiscoveryError("PROFILE_CONFIG_NAME_COLLISION")
+    return tuple(
+        profile for profile in profiles if profile.name.casefold() not in collisions
+    )
 
 
 def discover_profile_names(

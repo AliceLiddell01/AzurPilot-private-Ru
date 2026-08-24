@@ -193,6 +193,17 @@ def test_candidate_count_guard_fails_closed(tmp_path):
         discover_profile_names(config, strict=True)
 
 
+def test_regular_and_mod_profiles_with_same_name_are_both_rejected(tmp_path):
+    config = tmp_path / "config"
+    _write_json(config / "ambiguous.json", _alas_profile())
+    _write_json(config / "ambiguous.fpy.json", _mod_profile("Fpy"))
+    _write_json(config / "unique.json", _alas_profile())
+
+    assert discover_profile_names(config) == ["unique"]
+    with pytest.raises(ProfileDiscoveryError, match="PROFILE_CONFIG_NAME_COLLISION"):
+        discover_profile_names(config, strict=True)
+
+
 def test_upload_parser_accepts_profiles_and_rejects_reports_and_unknown_mods():
     identity, data = parse_profile_config_bytes(
         json.dumps(_alas_profile()).encode(), "alas.json"
