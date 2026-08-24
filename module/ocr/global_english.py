@@ -33,6 +33,7 @@ _GENERAL_OCR_NAMES = frozenset(
         "COMMISSION",
         "DOCK_SHIP_NAME",
         "ENEMY_NAME",
+        "FORMATION_SHIP_NAME",
         "OCR_ACTION_POINT_BUY_REMAIN",
         "OCR_EVENT_SHOP_DEADLINE",
         "OCR_OS_ADAPTABILITY",

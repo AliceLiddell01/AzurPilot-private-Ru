@@ -3,6 +3,7 @@
 Эти команды работают с реальной внешней средой и намеренно не входят в обязательный CI.
 
 - `uv run python -m tools.acceptance.device --help` — проверки устройства и управления с явно выбранной целью;
+- `uv run python -m tools.acceptance.formation --help` — реальная проверка Formation Fleet Scanner для выбранного флота;
 - `uv run python -m tools.acceptance.ocr --help` — локальная проверка OCR provider и безопасного debug output;
 - `uv run python -m tools.acceptance.ocr_opsi_zone --help` — ограниченная read-only проверка OCR зон Operation Siren;
 - `uv run python -m tools.acceptance.ocr_commission --help` — ограниченная read-only проверка Commission OCR;
