@@ -46,6 +46,14 @@ def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
+@pytest.fixture(autouse=True)
+def _restore_mod_registry():
+    snapshot = dict(MOD_CONFIG_DICT)
+    yield
+    MOD_CONFIG_DICT.clear()
+    MOD_CONFIG_DICT.update(snapshot)
+
+
 def test_real_profiles_are_discovered_and_service_json_is_not(tmp_path, monkeypatch):
     config = tmp_path / "config"
     _write_json(config / "alas.json", _alas_profile())
@@ -108,14 +116,20 @@ def test_internal_ap_remains_low_level_but_webui_oobe_stays_user_facing(
     assert dependencies.is_oobe_needed()
 
 
-def test_malformed_array_oversized_and_unreadable_candidates_are_skipped(
-    tmp_path, monkeypatch
-):
+def test_malformed_array_and_oversized_candidates_are_skipped(tmp_path):
     config = tmp_path / "config"
     config.mkdir()
     (config / "malformed.json").write_text("{", encoding="utf-8")
     _write_json(config / "array.json", ["Alas"])
     (config / "oversized.json").write_bytes(b" " * (MAX_PROFILE_CONFIG_BYTES + 1))
+
+    assert discover_profile_names(config) == []
+    with pytest.raises(ProfileDiscoveryError, match="PROFILE_CONFIG_UNSAFE"):
+        discover_profile_configs(config, strict=True)
+
+
+def test_unreadable_candidate_is_skipped_or_rejected_by_mode(tmp_path, monkeypatch):
+    config = tmp_path / "config"
     _write_json(config / "unreadable.json", _alas_profile())
 
     original_read_bytes = Path.read_bytes

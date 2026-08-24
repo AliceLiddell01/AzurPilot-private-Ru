@@ -427,13 +427,12 @@ def app_manage(gui: "AlasGUI") -> None:
         file = cast(bytes, upload["content"])
         file_name = cast(str, upload["filename"])
 
-        effective_name = "alas.json" if IS_ON_PHONE_CLOUD else file_name
         try:
-            identity, config = parse_profile_config_bytes(file, effective_name)
+            identity, config = parse_profile_config_bytes(file, file_name)
         except InvalidProfileConfigError:
             toast(t("Gui.OOBE.ImportErrorInvalid"), color="error")
             return
-        config_name = identity.name
+        config_name = "alas" if IS_ON_PHONE_CLOUD else identity.name
         mod_name = identity.mod_name
 
         if is_webui_hidden_instance(config_name):

@@ -191,12 +191,7 @@ def alas_instance():
     """Получить canonical registry профилей с legacy default fallback."""
     profiles = discover_profile_configs('./config')
     out = [profile.name for profile in profiles]
-    MOD_CONFIG_DICT.clear()
-    MOD_CONFIG_DICT.update(
-        (profile.name, profile.mod_name)
-        for profile in profiles
-        if profile.mod_name != 'alas'
-    )
+    refresh_mod_config_registry(profiles)
 
     if not len(out):
         out = [DEFAULT_CONFIG_NAME]

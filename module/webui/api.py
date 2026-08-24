@@ -1668,11 +1668,11 @@ async def api_import_legacy_upload(request):
 
             planned.append((file, resolved))
 
-        validated = []
-        for file, resolved in planned:
+        validated_configs = {}
+        for index, (file, resolved) in enumerate(planned):
             target, rel_target = resolved
-            content = await file.read()
             if rel_target.startswith("config/") and target.parent == current_root / "config":
+                content = await file.read()
                 try:
                     parse_profile_config_bytes(content, target.name)
                 except InvalidProfileConfigError:
@@ -1681,10 +1681,14 @@ async def api_import_legacy_upload(request):
                         {"success": False, "error": "Это некорректная конфигурация AzurPilot/ALAS"},
                         status_code=400,
                     )
-            validated.append((target, rel_target, content))
+                validated_configs[index] = content
 
-        for target, rel_target, content in validated:
+        for index, (file, resolved) in enumerate(planned):
+            target, rel_target = resolved
             filename = target.name
+            content = validated_configs.get(index)
+            if content is None:
+                content = await file.read()
 
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)

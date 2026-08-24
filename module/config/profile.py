@@ -164,7 +164,11 @@ def classify_profile_config(
     try:
         content = resolved.read_bytes()
         parse_profile_config_bytes(content, candidate.name)
-    except (OSError, InvalidProfileConfigError):
+    except OSError as exc:
+        if strict:
+            raise ProfileDiscoveryError("PROFILE_CONFIG_UNSAFE") from exc
+        return None
+    except InvalidProfileConfigError:
         return None
     return ProfileConfig(identity=identity, path=resolved)
 
