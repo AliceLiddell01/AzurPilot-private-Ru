@@ -84,6 +84,33 @@ class _Commands:
         )
 
 
+class _FinishFailsOnceCommands(_Commands):
+    def __init__(self, command):
+        super().__init__(command)
+        self._finish_failed = False
+
+    def finish(
+        self,
+        instance,
+        command_id,
+        *,
+        status,
+        result_run_id,
+        error_code,
+    ):
+        if not self._finish_failed:
+            self._finish_failed = True
+            self.events.append(("finish-error", instance, command_id))
+            raise RuntimeError("database unavailable")
+        return super().finish(
+            instance,
+            command_id,
+            status=status,
+            result_run_id=result_run_id,
+            error_code=error_code,
+        )
+
+
 class _State:
     def __init__(self, batch=None, error=None):
         self.batch = batch
@@ -150,6 +177,21 @@ def test_persistence_or_scan_failure_never_becomes_success() -> None:
     assert finish[3] is FleetManualScanStatus.FAILED
     assert finish[4] is None
     assert finish[5] == "manual_scan_failed"
+
+
+def test_terminal_persistence_failure_rearms_recovery_in_same_worker() -> None:
+    commands = _FinishFailsOnceCommands(_command())
+    coordinator = FleetManualScanCoordinator(
+        commands,
+        _State(_batch(failure_code="physical_scan_failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        coordinator.process_next("profile-a")
+
+    assert commands.events.count(("recover", "profile-a")) == 1
+    assert coordinator.has_pending("profile-a") is False
+    assert commands.events.count(("recover", "profile-a")) == 2
 
 
 def test_no_pending_command_does_not_touch_device_state_service() -> None:
