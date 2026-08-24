@@ -257,6 +257,14 @@ def read_local_postgres_environment(
         raise StorageConfigurationError(
             "App и migrator должны использовать разные PostgreSQL secrets."
         )
+    for prefix, expected_user in (
+        (_APP_PREFIX, "azurpilot_app"),
+        (_MIGRATOR_PREFIX, "azurpilot_migrator"),
+    ):
+        if values[prefix + "USER"] != expected_user:
+            raise StorageConfigurationError(
+                "Роль в локальном PostgreSQL env не соответствует production contract."
+            )
     return LocalPostgresEnvironment(path=env_path, values=values)
 
 

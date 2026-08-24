@@ -224,7 +224,17 @@ def migrate_legacy_backend_marker(
             target_raw, target_payload = _read_backend_marker(target_path)
             DatabaseSettings.from_backend_marker_payload(target_payload)
             target_stat = target_path.stat()
-            legacy_stat = legacy_path.stat()
+            try:
+                legacy_stat = legacy_path.stat()
+            except FileNotFoundError:
+                if target_raw == legacy_raw:
+                    return True
+                if remove_on_failure:
+                    target_path.unlink(missing_ok=True)
+                    raise StorageConfigurationError(
+                        "Production backend marker изменился во время переноса."
+                    )
+                return False
             if (
                 target_raw != legacy_raw
                 or target_stat.st_dev != legacy_stat.st_dev
@@ -236,7 +246,7 @@ def migrate_legacy_backend_marker(
                         "Production backend marker изменился во время переноса."
                     )
                 return False
-            legacy_path.unlink()
+            legacy_path.unlink(missing_ok=True)
         except (OSError, StorageConfigurationError) as exc:
             if remove_on_failure:
                 target_path.unlink(missing_ok=True)

@@ -128,3 +128,24 @@ def test_wsl_secret_file_is_restricted_before_write(monkeypatch):
     assert calls[0][1] is None
     assert "tee" in calls[1][0]
     assert calls[1][1] == b"secret-content"
+
+
+def test_wsl_private_tempdir_requires_random_path_and_mode(monkeypatch):
+    calls: list[list[str]] = []
+
+    def observe(arguments, **_kwargs):
+        calls.append(arguments)
+        if "mktemp" in arguments:
+            return subprocess.CompletedProcess(
+                arguments, 0, stdout=b"/tmp/azurpilot-credentials.A1b2C3d4E5\n"
+            )
+        return subprocess.CompletedProcess(arguments, 0, stdout=b"700:kykla\n")
+
+    monkeypatch.setattr(postgresql_credentials, "_run", observe)
+
+    assert (
+        postgresql_credentials._create_wsl_private_tempdir("archlinux", "kykla")
+        == "/tmp/azurpilot-credentials.A1b2C3d4E5"
+    )
+    assert "mktemp" in calls[0]
+    assert "stat" in calls[1]

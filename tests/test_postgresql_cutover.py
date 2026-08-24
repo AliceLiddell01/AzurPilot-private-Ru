@@ -220,6 +220,19 @@ def test_parser_rejects_empty_legacy_marker():
         )
 
 
+def test_help_is_parsed_before_local_environment(monkeypatch):
+    loader = patch.object(
+        postgresql_cutover,
+        "load_local_postgres_environment",
+        side_effect=AssertionError("loader must not run"),
+    )
+    with loader as observed, pytest.raises(SystemExit) as exc_info:
+        postgresql_cutover.main(["--help"])
+
+    assert exc_info.value.code == 0
+    observed.assert_not_called()
+
+
 def test_activation_rejects_legacy_symlink_alias(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

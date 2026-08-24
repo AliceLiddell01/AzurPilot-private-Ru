@@ -121,6 +121,18 @@ def test_local_env_requires_distinct_secrets_and_full_contract(tmp_path: Path):
         load_local_postgres_environment(path, environment={})
 
 
+def test_local_env_requires_exact_production_roles(tmp_path: Path):
+    path = tmp_path / ".env"
+    _write_env(path, _document().replace("azurpilot_app", "postgres", 1))
+
+    with pytest.raises(StorageConfigurationError, match="Роль"):
+        load_local_postgres_environment(path, environment={})
+
+    _write_env(path, _document().replace("azurpilot_migrator", "postgres", 1))
+    with pytest.raises(StorageConfigurationError, match="Роль"):
+        load_local_postgres_environment(path, environment={})
+
+
 def test_local_env_runtime_contract_must_match_marker(tmp_path: Path):
     path = tmp_path / ".env"
     _write_env(path, _document())

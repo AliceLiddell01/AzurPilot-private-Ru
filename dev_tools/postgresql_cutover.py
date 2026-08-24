@@ -167,9 +167,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = _parser().parse_args(argv)
     try:
         load_local_postgres_environment(role="app")
-        migrated = activate(_parser().parse_args(argv))
+        migrated = activate(arguments)
     except (OSError, RuntimeError, StorageError, ValueError) as exc:
         print(f"Ошибка активации production PostgreSQL: {exc}", file=sys.stderr)
         return 1

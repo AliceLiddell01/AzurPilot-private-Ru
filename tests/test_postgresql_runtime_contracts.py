@@ -188,6 +188,33 @@ def test_legacy_marker_migration_finishes_same_inode_race(
     assert not legacy.exists()
 
 
+def test_legacy_marker_migration_keeps_target_when_peer_removes_legacy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    target = tmp_path / "config/state/storage_backend.json"
+    legacy = tmp_path / "config/storage_backend.json"
+    legacy.parent.mkdir()
+    legacy.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+    expected = legacy.read_bytes()
+    original_stat = Path.stat
+    legacy_stat_calls = 0
+
+    def remove_legacy_after_target_validation(path: Path, *args, **kwargs):
+        nonlocal legacy_stat_calls
+        if path == legacy:
+            legacy_stat_calls += 1
+            if legacy_stat_calls == 3:
+                legacy.unlink()
+                raise FileNotFoundError
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", remove_legacy_after_target_validation)
+
+    assert migrate_legacy_backend_marker(target=target, legacy=legacy)
+    assert target.read_bytes() == expected
+    assert not legacy.exists()
+
+
 def test_runtime_bootstrap_is_lazy_without_health_request(tmp_path: Path):
     marker = tmp_path / "storage_backend.json"
     marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")

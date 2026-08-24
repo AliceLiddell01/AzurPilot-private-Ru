@@ -115,6 +115,29 @@ def _write_windows_file(path: Path, content: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _create_wsl_private_tempdir(distro: str, owner: str) -> str:
+    path = (
+        _run(
+            _wsl(distro, "mktemp", "--directory", "/tmp/azurpilot-credentials.XXXXXXXXXX"),
+            capture=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    if not re.fullmatch(r"/tmp/azurpilot-credentials\.[A-Za-z0-9]{10}", path):
+        raise RuntimeError("Временный каталог credentials имеет небезопасный путь.")
+    metadata = _run(
+        _wsl(distro, "stat", "--format=%a:%U", path), capture=True
+    ).stdout.decode().strip()
+    if metadata != f"700:{owner}":
+        _run(
+            _wsl(distro, "rm", "-rf", "--", path),
+            expected=frozenset({0, 1}),
+        )
+        raise RuntimeError("Временный каталог credentials имеет небезопасные права.")
+    return path
+
+
 def _password_for(content: bytes, database: str, role: str) -> str:
     for raw_line in content.decode("utf-8").splitlines():
         fields = raw_line.split(":", 4)
@@ -370,14 +393,15 @@ def rotate(arguments: argparse.Namespace) -> None:
             "azurpilot_migrator",
             should_succeed=True,
         )
-        old_test_path = f"/tmp/azurpilot-old-pgpass-{os.getpid()}"
-        _write_wsl_file(
-            arguments.distro,
-            old_test_path,
-            wsl_user,
-            _passfile(arguments.database, old_app, old_migrator),
-        )
+        old_test_directory = _create_wsl_private_tempdir(arguments.distro, wsl_user)
+        old_test_path = f"{old_test_directory}/pgpass"
         try:
+            _write_wsl_file(
+                arguments.distro,
+                old_test_path,
+                wsl_user,
+                _passfile(arguments.database, old_app, old_migrator),
+            )
             _auth(
                 arguments.distro,
                 old_test_path,
@@ -393,7 +417,16 @@ def rotate(arguments: argparse.Namespace) -> None:
                 should_succeed=False,
             )
         finally:
-            _run(_wsl(arguments.distro, "sudo", "rm", "-f", old_test_path))
+            _run(
+                _wsl(
+                    arguments.distro,
+                    "sudo",
+                    "rm",
+                    "-rf",
+                    "--",
+                    old_test_directory,
+                )
+            )
     except Exception:
         try:
             _alter_roles(arguments.distro, old_app, old_migrator)
