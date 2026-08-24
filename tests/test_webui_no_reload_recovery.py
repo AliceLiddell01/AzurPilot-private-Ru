@@ -130,7 +130,12 @@ class TestWebUiNoReloadRecovery(unittest.TestCase):
                 clear=False,
             ),
             patch.object(process_lifetime, "_kernel32", return_value=kernel32),
-            patch.object(process_lifetime.ctypes, "get_last_error", return_value=2),
+            patch.object(
+                process_lifetime.ctypes,
+                "get_last_error",
+                return_value=2,
+                create=True,
+            ),
             patch.object(process_lifetime.ctypes, "FormatError", return_value="not found"),
             patch("module.logger.logger.warning") as warning,
             patch.object(process_lifetime.threading, "Thread") as thread,
