@@ -1,4 +1,4 @@
-"""Standalone Fleet State page and manual scan controls."""
+"""Отдельная страница Fleet State и элементы ручного сканирования."""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from module.webui.app_dependencies import (
     toast,
     use_scope,
 )
+from module.webui.app_lifecycle import build_fleet_page_runtime_context
 from module.webui.app_types import WebUIMixinBase
 
 _PAGE_NAME = "FleetPage"
@@ -46,7 +47,7 @@ _REFRESH_SECONDS = 2.0
 
 
 def load_fleet_autoscan_config(config: Mapping[str, Any]) -> FleetAutoScanConfig:
-    """Read the existing Stage 2 config contract without a duplicate setting."""
+    """Прочитать существующий Stage 2 contract без дублирования настройки."""
 
     return FleetAutoScanConfig.from_raw(
         deep_get(config, "Alas.FleetAutoScan.Mode"),
@@ -85,13 +86,11 @@ def fleet_slot_text(slot: FleetSlotViewModel) -> str:
 
 
 class FleetPageMixin(WebUIMixinBase):
-    """Fleet page capability composed into the session-scoped AlasGUI."""
+    """Возможность Fleet page, подключаемая к session-scoped AlasGUI."""
 
     @cached_property
     def fleet_page_context(self):
-        from module.persistence.runtime import build_runtime_fleet_page_context
-
-        return build_runtime_fleet_page_context(require_ready=False)
+        return build_fleet_page_runtime_context(require_ready=False)
 
     def _put_fleet_menu_button(self) -> None:
         put_buttons(
