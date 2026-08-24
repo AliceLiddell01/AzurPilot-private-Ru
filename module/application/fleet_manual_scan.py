@@ -1,4 +1,4 @@
-"""Durable manual Fleet scan commands and worker-side orchestration."""
+"""Устойчивые команды ручного сканирования флотов и worker-оркестрация."""
 
 from __future__ import annotations
 
@@ -192,7 +192,7 @@ class FleetManualScanUnitOfWork(StorageUnitOfWork, Protocol):
 
 
 class FleetManualScanCommandService:
-    """Transactional command lifecycle shared by WebUI and the worker."""
+    """Транзакционный lifecycle команды, общий для WebUI и worker-процесса."""
 
     def __init__(
         self,
@@ -301,7 +301,7 @@ class FleetManualScanCommandService:
 
 
 class FleetManualScanCoordinator:
-    """Claims and executes one manual command on a scheduler-owned Device."""
+    """Забирает и выполняет одну ручную команду на Device текущего scheduler worker."""
 
     def __init__(
         self,
