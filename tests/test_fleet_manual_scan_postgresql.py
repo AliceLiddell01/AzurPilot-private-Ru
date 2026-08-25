@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
+from module.application.errors import StorageInvalidDataError
 from module.application.fleet_manual_scan import (
     FleetManualScanCommandService,
     FleetManualScanStatus,
@@ -212,7 +213,7 @@ def test_terminal_transitions_result_fk_and_deterministic_latest(database):
 
     another = service.submit("profile-a", FleetSelection.one(3)).command
     service.claim_next("profile-a")
-    with pytest.raises(Exception):
+    with pytest.raises(StorageInvalidDataError):
         service.finish(
             "profile-a",
             another.id,
