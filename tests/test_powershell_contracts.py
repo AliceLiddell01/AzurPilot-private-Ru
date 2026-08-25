@@ -182,23 +182,23 @@ class PowerShellContractTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "требуется Windows")
     def test_start_executes_postgresql_prepare_through_real_wrapper(self) -> None:
         pwsh = shutil.which("pwsh")
-        git = shutil.which("git")
         self.assertIsNotNone(pwsh, "PowerShell 7.6.x должен быть доступен в Windows gate")
-        self.assertIsNotNone(git, "Git for Windows должен быть доступен в Windows gate")
 
-        git_path = Path(str(git)).resolve()
-        true_executable = next(
+        windows_directory = Path(os.environ.get("WINDIR", r"C:\Windows"))
+        csc_candidates = (
+            shutil.which("csc.exe"),
+            windows_directory / "Microsoft.NET" / "Framework64" / "v4.0.30319" / "csc.exe",
+            windows_directory / "Microsoft.NET" / "Framework" / "v4.0.30319" / "csc.exe",
+        )
+        csc = next(
             (
-                parent / "usr" / "bin" / "true.exe"
-                for parent in git_path.parents
-                if (parent / "usr" / "bin" / "true.exe").is_file()
+                Path(str(candidate))
+                for candidate in csc_candidates
+                if candidate is not None and Path(str(candidate)).is_file()
             ),
             None,
         )
-        self.assertIsNotNone(
-            true_executable,
-            "Git for Windows true.exe нужен как disposable wsl.exe probe",
-        )
+        self.assertIsNotNone(csc, "Системный C# compiler нужен для disposable wsl.exe probe")
 
         start_source = self.sources["scripts/Start-AzurPilot.ps1"]
         self.assertIn(
@@ -210,14 +210,53 @@ class PowerShellContractTests(unittest.TestCase):
             "Failure = 'Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.'",
             start_source,
         )
-        self.assertIn("'systemctl'\n                'start'\n                'postgresql'", start_source)
-        self.assertIn("'pg_isready', '--host', '127.0.0.1'", start_source)
 
         with tempfile.TemporaryDirectory(prefix="azurpilot-start-smoke-") as temporary:
             test_root = Path(temporary)
             shim_directory = test_root / "shim"
             shim_directory.mkdir()
-            shutil.copy2(Path(str(true_executable)), shim_directory / "wsl.exe")
+            wsl_source = test_root / "wsl-probe.cs"
+            wsl_executable = shim_directory / "wsl.exe"
+            wsl_source.write_text(
+                "using System;\n"
+                "using System.IO;\n"
+                "\n"
+                "public static class WslProbe\n"
+                "{\n"
+                "    public static int Main(string[] args)\n"
+                "    {\n"
+                "        string path = Environment.GetEnvironmentVariable(\"AZURPILOT_START_WSL_LOG\");\n"
+                "        if (String.IsNullOrWhiteSpace(path))\n"
+                "        {\n"
+                "            return 97;\n"
+                "        }\n"
+                "        File.AppendAllText(path, String.Join(\"\\u001f\", args) + Environment.NewLine);\n"
+                "        return 0;\n"
+                "    }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            compile_result = subprocess.run(
+                [
+                    str(csc),
+                    "/nologo",
+                    f"/out:{wsl_executable}",
+                    str(wsl_source),
+                ],
+                cwd=test_root,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
+                check=False,
+            )
+            self.assertEqual(
+                0,
+                compile_result.returncode,
+                compile_result.stdout + compile_result.stderr,
+            )
+            self.assertTrue(wsl_executable.is_file())
 
             def run_start(mode: str, case_name: str):
                 repository = test_root / case_name / "Repository With Spaces"
@@ -226,6 +265,7 @@ class PowerShellContractTests(unittest.TestCase):
                 gui_path = repository / "gui.py"
                 prepare_log = test_root / f"{case_name}-prepare.log"
                 gui_log = test_root / f"{case_name}-gui.log"
+                wsl_log = test_root / f"{case_name}-wsl.log"
 
                 config_path.parent.mkdir(parents=True)
                 dev_tools_path.mkdir(parents=True)
@@ -290,6 +330,7 @@ class PowerShellContractTests(unittest.TestCase):
                 environment["AZURPILOT_START_PROBE_LOG"] = str(prepare_log)
                 environment["AZURPILOT_START_PROBE_MODE"] = mode
                 environment["AZURPILOT_START_GUI_LOG"] = str(gui_log)
+                environment["AZURPILOT_START_WSL_LOG"] = str(wsl_log)
 
                 result = subprocess.run(
                     [
@@ -314,15 +355,46 @@ class PowerShellContractTests(unittest.TestCase):
                     timeout=30,
                     check=False,
                 )
-                return result, prepare_log, gui_log
+                wsl_calls = tuple(
+                    tuple(line.split("\x1f"))
+                    for line in wsl_log.read_text(encoding="utf-8").splitlines()
+                )
+                return result, prepare_log, gui_log, wsl_calls
 
-            success_result, success_prepare_log, success_gui_log = run_start(
-                "normal", "success"
+            success_result, success_prepare_log, success_gui_log, success_wsl_calls = (
+                run_start("normal", "success")
             )
             self.assertEqual(
                 EXPECTED_EXIT_CODES["scripts/Start-AzurPilot.ps1"]["BackendFailure"],
                 success_result.returncode,
                 success_result.stdout + success_result.stderr,
+            )
+            self.assertEqual(
+                (
+                    (
+                        "--distribution",
+                        "Archlinux",
+                        "--user",
+                        "root",
+                        "--exec",
+                        "systemctl",
+                        "start",
+                        "postgresql",
+                    ),
+                    (
+                        "--distribution",
+                        "Archlinux",
+                        "--exec",
+                        "pg_isready",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "5432",
+                        "--timeout",
+                        "5",
+                    ),
+                ),
+                success_wsl_calls,
             )
             self.assertEqual(
                 "prepare\n",
@@ -337,14 +409,15 @@ class PowerShellContractTests(unittest.TestCase):
                 success_result.stdout + success_result.stderr,
             )
 
-            failed_result, failed_prepare_log, failed_gui_log = run_start(
-                "fail-prepare", "prepare-failure"
+            failed_result, failed_prepare_log, failed_gui_log, failed_wsl_calls = (
+                run_start("fail-prepare", "prepare-failure")
             )
             self.assertEqual(
                 EXPECTED_EXIT_CODES["scripts/Start-AzurPilot.ps1"]["EnvironmentFailure"],
                 failed_result.returncode,
                 failed_result.stdout + failed_result.stderr,
             )
+            self.assertEqual(success_wsl_calls, failed_wsl_calls)
             self.assertEqual(
                 "prepare\n",
                 failed_prepare_log.read_text(encoding="utf-8"),
