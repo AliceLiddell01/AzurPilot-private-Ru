@@ -82,20 +82,21 @@ def test_surface_fleet_selection_is_state_driven_and_verified() -> None:
     assert controller._iteration == 2
 
 
-def test_open_info_clicks_once_then_waits_for_selected_state() -> None:
-    controller = _Controller(iterations=3)
+def test_open_info_clicks_once_then_waits_for_stable_selected_state() -> None:
+    controller = _Controller(iterations=4)
     controller.__dict__["formation_state"] = _State(
         controller,
-        info_by_iteration={1: True},
+        info_by_iteration={1: True, 2: True, 3: True},
     )
 
     controller._open_info()
 
     assert controller.device.clicks == ["FORMATION_OPEN_INFO"]
+    assert controller._iteration == 3
 
 
-def test_close_info_clicks_once_then_requires_formation_page() -> None:
-    controller = _Controller(iterations=3)
+def test_close_info_clicks_once_then_requires_stable_formation_page() -> None:
+    controller = _Controller(iterations=4)
     controller.__dict__["formation_state"] = _State(
         controller,
         info_by_iteration={0: True},
@@ -104,6 +105,7 @@ def test_close_info_clicks_once_then_requires_formation_page() -> None:
     controller._close_info()
 
     assert controller.device.clicks == ["FORMATION_CLOSE_INFO"]
+    assert controller._iteration == 3
 
 
 class _AlwaysInfo:
