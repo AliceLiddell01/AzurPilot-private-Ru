@@ -96,7 +96,7 @@ def test_marker_schema_advance_rejects_unexpected_current_head(
     assert marker.read_bytes() == before
 
 
-def test_upgrade_endpoint_must_match_marker_except_role() -> None:
+def test_upgrade_requires_canonical_migrator_on_marker_endpoint() -> None:
     marker_settings = DatabaseSettings(
         host="127.0.0.1",
         port=5432,
@@ -118,6 +118,20 @@ def test_upgrade_endpoint_must_match_marker_except_role() -> None:
         marker_settings,
         migrator_settings,
     )
+
+    wrong_role = DatabaseSettings(
+        host=migrator_settings.host,
+        port=migrator_settings.port,
+        database=migrator_settings.database,
+        user="postgres",
+        sslmode=migrator_settings.sslmode,
+        runtime_timezone=migrator_settings.runtime_timezone,
+    )
+    with pytest.raises(StorageConfigurationError, match="azurpilot_migrator"):
+        postgresql_runtime._require_upgrade_endpoint_match(
+            marker_settings,
+            wrong_role,
+        )
 
     for field_name, value in (
         ("host", "localhost"),
