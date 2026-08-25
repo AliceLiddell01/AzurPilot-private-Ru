@@ -29,10 +29,38 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             "UPDATE azurpilot.formation_surface_fleet_slot "
-            "SET ship_form = CASE "
-            "WHEN lower(coalesce(nullif(displayed_name, ''), raw_name_ocr)) "
-            "LIKE '%(retro%' THEN 'retrofit' ELSE 'base' END "
-            "WHERE identity_status = 'matched'"
+            "SET ship_form = 'retrofit' "
+            "WHERE identity_status = 'matched' "
+            "AND (lower(displayed_name) LIKE '%(retro%' "
+            "OR lower(raw_name_ocr) LIKE '%(retro%')"
+        )
+    )
+    op.execute(
+        sa.text(
+            "UPDATE azurpilot.formation_surface_fleet_slot "
+            "SET ship_form = 'base' "
+            "WHERE identity_status = 'matched' AND ship_form IS NULL "
+            "AND regexp_replace(lower(displayed_name), '[[:space:]]+', '', 'g') = "
+            "regexp_replace(lower(canonical_name), '[[:space:]]+', '', 'g') "
+            "AND regexp_replace(lower(raw_name_ocr), '[[:space:]]+', '', 'g') = "
+            "regexp_replace(lower(canonical_name), '[[:space:]]+', '', 'g')"
+        )
+    )
+    op.execute(
+        sa.text(
+            "DO $$ "
+            "DECLARE unresolved_count bigint; "
+            "BEGIN "
+            "SELECT count(*) INTO unresolved_count "
+            "FROM azurpilot.formation_surface_fleet_slot "
+            "WHERE identity_status = 'matched' AND ship_form IS NULL; "
+            "IF unresolved_count > 0 THEN "
+            "RAISE EXCEPTION "
+            "'Миграция 0005: для % исторических MATCHED-слотов форма корабля не доказана.', "
+            "unresolved_count "
+            "USING HINT = 'Требуется сверка исторического Fleet State или повторное сканирование; автоматическая подстановка BASE запрещена.'; "
+            "END IF; "
+            "END; $$"
         )
     )
     op.drop_constraint(
