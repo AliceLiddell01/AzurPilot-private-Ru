@@ -272,6 +272,73 @@ def _upgrade(
     )
 
 
+def _run_schema_upgrade_process(marker: Path) -> None:
+    """Выполнить migrator upgrade в отдельном процессе, не меняя app environment."""
+
+    environment = os.environ.copy()
+    environment["PYTHONUTF8"] = "1"
+    arguments = [
+        sys.executable,
+        "-X",
+        "utf8",
+        "-m",
+        "dev_tools.postgresql_runtime",
+        "upgrade",
+        "--marker",
+        str(marker),
+    ]
+    options: dict[str, object] = {}
+    if os.name == "nt":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        result = subprocess.run(
+            arguments,
+            cwd=_REPOSITORY_ROOT,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=180,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            **options,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "Штатный schema upgrade PostgreSQL превысил 180 секунд."
+        ) from exc
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout).strip()
+        if details.startswith("Ошибка production PostgreSQL:"):
+            details = details.removeprefix("Ошибка production PostgreSQL:").strip()
+        if not details:
+            details = f"код завершения {result.returncode}"
+        raise RuntimeError(f"Штатный schema upgrade PostgreSQL не выполнен: {details}")
+
+
+def _prepare(
+    marker: Path = _REPOSITORY_ROOT / DEFAULT_BACKEND_MARKER_PATH,
+) -> None:
+    """Подготовить production PostgreSQL к запуску без смешивания app/migrator ролей."""
+
+    local = load_local_postgres_environment(
+        _REPOSITORY_ROOT / ".env",
+        role="app",
+    )
+    marker_settings, marker_head = load_backend_marker_for_schema_upgrade(marker)
+    if local is not None:
+        local.require_app_runtime_match(marker_settings)
+
+    configuration = Config(str(_REPOSITORY_ROOT / "alembic.ini"))
+    _require_upgrade_marker_revision(configuration, marker_head)
+    if marker_head != EXPECTED_ALEMBIC_HEAD:
+        _run_schema_upgrade_process(marker)
+
+    _health(marker)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Эксплуатационные команды production PostgreSQL AzurPilot."
@@ -281,13 +348,23 @@ def _parser() -> argparse.ArgumentParser:
     health = subparsers.add_parser("health", help="Проверить marker, доступ и schema head.")
     health.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
 
+    prepare = subparsers.add_parser(
+        "prepare",
+        help="Подготовить schema и проверить app-доступ перед запуском.",
+    )
+    prepare.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
+
     backup = subparsers.add_parser("backup", help="Создать проверяемый custom dump.")
     backup.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
     backup.add_argument("--output", required=True)
     backup.add_argument("--distro", default="Archlinux")
     backup.add_argument("--repository-root", default=".")
 
-    subparsers.add_parser("upgrade", help="Применить Alembic от имени migrator.")
+    upgrade = subparsers.add_parser(
+        "upgrade",
+        help="Применить Alembic от имени migrator.",
+    )
+    upgrade.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
 
     return parser
 
@@ -299,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
             load_local_postgres_environment(_REPOSITORY_ROOT / ".env", role="app")
         if arguments.command == "health":
             _health(_resolve_marker(arguments.marker))
+        elif arguments.command == "prepare":
+            _prepare(_resolve_marker(arguments.marker))
         elif arguments.command == "backup":
             settings = DatabaseSettings.from_backend_marker(
                 _resolve_marker(arguments.marker)
@@ -310,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
                 Path(arguments.repository_root),
             )
         elif arguments.command == "upgrade":
-            _upgrade()
+            _upgrade(_resolve_marker(arguments.marker))
         else:
             raise RuntimeError("Неизвестная эксплуатационная команда.")
     except (CommandError, SQLAlchemyError):
