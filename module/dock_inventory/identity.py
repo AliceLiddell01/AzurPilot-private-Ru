@@ -207,8 +207,10 @@ class DockShipIdentityResolver:
     """Conservative exact, explicit-prefix, then threshold+margin resolver."""
 
     MIN_TRUNCATED_PREFIX_LENGTH = 6
+    MIN_UNMARKED_RETROFIT_PREFIX_LENGTH = 5
     FUZZY_MIN_SCORE = 0.86
     FUZZY_MIN_MARGIN = 0.08
+    _RETROFIT_SUFFIX = "retrofit"
     _TRUNCATION_RE = re.compile(r"(?:\.{2,3}|…)+$")
     _FULL_RETROFIT_RE = re.compile(r"^(?P<base>.+?)\s+\(retrofit\)$", re.IGNORECASE)
     _PARTIAL_RETROFIT_RE = re.compile(r"^(?P<base>.+?)\s+\((?P<suffix>[^)]*)$")
@@ -294,6 +296,17 @@ class DockShipIdentityResolver:
         )
         if retrofit is not None:
             return retrofit
+
+        # Незакрытая parenthetical-строка не должна уходить в общий fuzzy path:
+        # без доверенного Retrofit evidence это недостаточно данных для identity match.
+        if self._PARTIAL_RETROFIT_RE.fullmatch(displayed) is not None:
+            return self._decision(
+                raw=raw_name_ocr,
+                displayed=displayed,
+                status=IdentityStatus.UNRESOLVED,
+                method=DockIdentityResolutionMethod.TRUNCATED_PREFIX,
+                reason="untrusted_parenthetical_suffix",
+            )
 
         truncation = self._TRUNCATION_RE.search(displayed)
         if truncation is not None:
@@ -382,6 +395,28 @@ class DockShipIdentityResolver:
             runner_up_score=runner_up_score,
         )
 
+    @classmethod
+    def _is_unmarked_partial_retrofit_suffix(cls, suffix: str) -> bool:
+        normalized = normalize_ship_name(suffix)
+        if len(normalized) < cls.MIN_UNMARKED_RETROFIT_PREFIX_LENGTH:
+            return False
+        if cls._RETROFIT_SUFFIX.startswith(normalized):
+            return True
+
+        prefix_length = 0
+        for observed, expected in zip(normalized, cls._RETROFIT_SUFFIX):
+            if observed != expected:
+                break
+            prefix_length += 1
+
+        # Реальный Formation OCR может заменить первый обрезанный символ после
+        # уже надёжного `retro` на одну цифру; шире этот noise contract не открываем.
+        return (
+            prefix_length >= cls.MIN_UNMARKED_RETROFIT_PREFIX_LENGTH
+            and len(normalized) == prefix_length + 1
+            and normalized[-1].isdigit()
+        )
+
     def _resolve_retrofit_display_suffix(
         self,
         *,
@@ -397,8 +432,15 @@ class DockShipIdentityResolver:
             if match is None:
                 return None
             suffix = normalize_ship_name(match.group("suffix"))
-            if not "retrofit".startswith(suffix):
+            if not self._RETROFIT_SUFFIX.startswith(suffix):
                 return None
+        elif match is None:
+            match = self._PARTIAL_RETROFIT_RE.fullmatch(displayed)
+            if match is None or not self._is_unmarked_partial_retrofit_suffix(
+                match.group("suffix")
+            ):
+                return None
+            method = DockIdentityResolutionMethod.TRUNCATED_PREFIX
         if match is None:
             return None
 
