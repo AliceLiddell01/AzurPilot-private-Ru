@@ -613,7 +613,7 @@ formation_surface_fleet_slot = Table(
         "(occupied = true AND identity_status = 'matched' "
         "AND raw_name_ocr IS NOT NULL AND displayed_name IS NOT NULL "
         "AND canonical_identity_key IS NOT NULL AND canonical_name IS NOT NULL "
-        "AND ship_form IN ('base', 'retrofit'))",
+        "AND ship_form IS NOT NULL AND ship_form IN ('base', 'retrofit'))",
         name="identity_consistent",
     ),
 )

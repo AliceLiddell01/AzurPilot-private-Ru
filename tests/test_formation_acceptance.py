@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
     FormationFleetSide,
     FormationFleetSlotObservation,
@@ -20,6 +20,7 @@ def _snapshot(
     matched: bool,
     displayed_name: str = "Alabama",
     canonical_name: str = "Alabama",
+    ship_form: ShipForm = ShipForm.BASE,
 ) -> FormationFleetSnapshot:
     if matched:
         first = FormationFleetSlotObservation(
@@ -31,6 +32,7 @@ def _snapshot(
             displayed_name=displayed_name,
             canonical_identity=CanonicalShipIdentity("azur_lane_ship_group:1"),
             canonical_name=canonical_name,
+            ship_form=ship_form,
         )
     else:
         first = FormationFleetSlotObservation(
@@ -70,6 +72,7 @@ def test_print_snapshot_keeps_exact_displayed_retrofit_name(capsys) -> None:
         matched=True,
         displayed_name="Belfast (Retrofit)",
         canonical_name="Belfast",
+        ship_form=ShipForm.RETROFIT,
     )
 
     _print_snapshot(snapshot)

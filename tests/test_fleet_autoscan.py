@@ -21,7 +21,7 @@ from module.application.fleet_state import (
     FleetScanRunStatus,
     FleetStateObservation,
 )
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
     FleetSelection,
     FormationFleetSide,
@@ -43,6 +43,7 @@ def _snapshot(fleet_index: int, *, complete: bool) -> FormationFleetSnapshot:
             CanonicalShipIdentity("azur_lane_ship_group:1") if complete else None
         ),
         canonical_name="Enterprise" if complete else None,
+        ship_form=ShipForm.BASE if complete else None,
     )
     empty = tuple(
         FormationFleetSlotObservation(side=side, position=position, occupied=False)
