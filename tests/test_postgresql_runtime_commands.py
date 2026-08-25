@@ -83,6 +83,15 @@ def test_backup_is_verified_and_published_create_only(
 
 
 def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypatch):
+    for key, value in {
+        "AZURPILOT_POSTGRES_HOST": "test-original-host",
+        "AZURPILOT_POSTGRES_PORT": "6543",
+        "AZURPILOT_POSTGRES_DATABASE": "test_original_database",
+        "AZURPILOT_POSTGRES_USER": "test_original_user",
+        "AZURPILOT_POSTGRES_SSLMODE": "require",
+        "AZURPILOT_POSTGRES_RUNTIME_TIMEZONE": "UTC",
+    }.items():
+        monkeypatch.setenv(key, value)
     monkeypatch.setenv("AZURPILOT_POSTGRES_PASSWORD", "stale-application-password")
     settings = _settings(password=None, user="azurpilot_migrator")
     ready = StorageHealth(StorageHealthState.READY, EXPECTED_ALEMBIC_HEAD)

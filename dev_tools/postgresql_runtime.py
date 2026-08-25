@@ -12,6 +12,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -26,6 +27,7 @@ from module.persistence.config import (
 )
 from module.persistence.database import LazyEngine, StorageHealthChecker
 from module.persistence.local_environment import load_local_postgres_environment
+from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
@@ -193,6 +195,29 @@ def _require_upgrade_endpoint_match(
         )
 
 
+def _require_upgrade_marker_revision(
+    configuration: Config,
+    marker_head: str,
+) -> None:
+    """Разрешить только известную ревизию-предка текущего Alembic head."""
+
+    scripts = ScriptDirectory.from_config(configuration)
+    if set(scripts.get_heads()) != {EXPECTED_ALEMBIC_HEAD}:
+        raise StorageConfigurationError(
+            "Alembic graph не соответствует ожидаемому production schema head."
+        )
+    allowed_revisions = {
+        script.revision
+        for script in scripts.iterate_revisions(EXPECTED_ALEMBIC_HEAD, "base")
+        if script.revision is not None
+    }
+    allowed_revisions.add(EXPECTED_ALEMBIC_HEAD)
+    if marker_head not in allowed_revisions:
+        raise StorageConfigurationError(
+            "Production backend marker содержит неизвестный или недопустимый schema head."
+        )
+
+
 def _upgrade(
     marker: Path = _REPOSITORY_ROOT / DEFAULT_BACKEND_MARKER_PATH,
 ) -> None:
@@ -208,6 +233,8 @@ def _upgrade(
         prefix="AZURPILOT_POSTGRES_MIGRATOR_"
     )
     _require_upgrade_endpoint_match(marker_settings, settings)
+    configuration = Config(str(_REPOSITORY_ROOT / "alembic.ini"))
+    _require_upgrade_marker_revision(configuration, marker_head)
     os.environ.update(
         {
             "AZURPILOT_POSTGRES_HOST": settings.host,
@@ -220,7 +247,6 @@ def _upgrade(
     )
     os.environ.pop("AZURPILOT_POSTGRES_PASSWORD", None)
     os.environ.pop("PGPASSWORD", None)
-    configuration = Config(str(_REPOSITORY_ROOT / "alembic.ini"))
 
     engine = LazyEngine(settings)
     try:

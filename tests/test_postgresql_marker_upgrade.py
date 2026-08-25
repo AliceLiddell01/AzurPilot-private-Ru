@@ -179,6 +179,7 @@ def _install_upgrade_fakes(
     database_head: dict[str, str],
     events: list[object],
     upgrade_allowed: bool,
+    marker_head: str = _PREVIOUS_HEAD,
 ) -> None:
     app_settings = DatabaseSettings(
         host="127.0.0.1",
@@ -205,7 +206,7 @@ def _install_upgrade_fakes(
     monkeypatch.setattr(
         postgresql_runtime,
         "load_backend_marker_for_schema_upgrade",
-        lambda _marker: (app_settings, _PREVIOUS_HEAD),
+        lambda _marker: (app_settings, marker_head),
     )
     monkeypatch.setattr(
         postgresql_runtime.DatabaseSettings,
@@ -240,7 +241,7 @@ def _install_upgrade_fakes(
 
     def upgrade(_configuration, revision: str) -> None:
         if not upgrade_allowed:
-            pytest.fail("Alembic upgrade не должен повторяться после частичного успеха")
+            pytest.fail("Alembic upgrade не должен выполняться в этом сценарии")
         events.append(("upgrade", revision))
         database_head["value"] = EXPECTED_ALEMBIC_HEAD
 
@@ -313,5 +314,53 @@ def test_runtime_upgrade_finishes_marker_after_previous_partial_success(
     assert ("advance-marker", _PREVIOUS_HEAD) in events
     assert not any(
         isinstance(event, tuple) and event[0] == "upgrade"
+        for event in events
+    )
+
+
+def test_runtime_upgrade_rejects_unknown_database_head_without_advancing_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+    database_head = {"value": "неизвестная_ревизия_бд"}
+    _install_upgrade_fakes(
+        monkeypatch,
+        database_head=database_head,
+        events=events,
+        upgrade_allowed=False,
+    )
+
+    with pytest.raises(StorageConfigurationError, match="Тестовая schema несовместима"):
+        postgresql_runtime._upgrade(tmp_path / "storage_backend.json")
+
+    assert not any(
+        isinstance(event, tuple) and event[0] == "advance-marker"
+        for event in events
+    )
+
+
+def test_runtime_upgrade_rejects_unknown_marker_head_before_reconciliation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+    database_head = {"value": EXPECTED_ALEMBIC_HEAD}
+    _install_upgrade_fakes(
+        monkeypatch,
+        database_head=database_head,
+        events=events,
+        upgrade_allowed=False,
+        marker_head="неизвестная_ревизия_marker",
+    )
+
+    with pytest.raises(
+        StorageConfigurationError,
+        match="неизвестный или недопустимый schema head",
+    ):
+        postgresql_runtime._upgrade(tmp_path / "storage_backend.json")
+
+    assert not any(
+        isinstance(event, tuple) and event[0] == "advance-marker"
         for event in events
     )
