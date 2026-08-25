@@ -9,7 +9,9 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from dev_tools import postgresql_runtime
+from module.application.storage_models import StorageHealth, StorageHealthState
 from module.persistence.config import DatabaseSettings
+from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 
 def _settings(password: str | None = None) -> DatabaseSettings:
@@ -79,19 +81,38 @@ def test_backup_is_verified_and_published_create_only(
 def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypatch):
     monkeypatch.setenv("AZURPILOT_POSTGRES_PASSWORD", "stale-application-password")
     settings = _settings(password=None)
+    ready = StorageHealth(StorageHealthState.READY, EXPECTED_ALEMBIC_HEAD)
 
     with (
+        patch.object(
+            postgresql_runtime,
+            "load_local_postgres_environment",
+            return_value=None,
+        ),
+        patch.object(
+            postgresql_runtime,
+            "load_backend_marker_for_schema_upgrade",
+            return_value=(_settings(), EXPECTED_ALEMBIC_HEAD),
+        ),
         patch.object(
             postgresql_runtime.DatabaseSettings,
             "from_environment",
             return_value=settings,
         ),
+        patch.object(postgresql_runtime.StorageHealthChecker, "check", return_value=ready),
+        patch.object(postgresql_runtime.StorageHealthChecker, "require_ready"),
         patch.object(postgresql_runtime.command, "upgrade") as upgrade,
+        patch.object(postgresql_runtime, "advance_backend_marker_schema_head") as advance,
     ):
         postgresql_runtime._upgrade()
 
     assert "AZURPILOT_POSTGRES_PASSWORD" not in os.environ
     upgrade.assert_called_once()
+    advance.assert_called_once_with(
+        postgresql_runtime._REPOSITORY_ROOT
+        / postgresql_runtime.DEFAULT_BACKEND_MARKER_PATH,
+        previous_head=EXPECTED_ALEMBIC_HEAD,
+    )
 
 
 def test_runtime_command_redacts_sqlalchemy_diagnostics(capsys):
