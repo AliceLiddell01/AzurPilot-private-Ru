@@ -6,6 +6,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -181,94 +182,100 @@ class PowerShellContractTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "требуется Windows")
     def test_start_executes_postgresql_prepare_through_real_wrapper(self) -> None:
         pwsh = shutil.which("pwsh")
+        git = shutil.which("git")
         self.assertIsNotNone(pwsh, "PowerShell 7.6.x должен быть доступен в Windows gate")
+        self.assertIsNotNone(git, "Git for Windows должен быть доступен в Windows gate")
 
-        probe_source = r"""
-using System;
-using System.IO;
-
-public static class AzurPilotStartProbe
-{
-    public static int Main(string[] args)
-    {
-        string logPath = Environment.GetEnvironmentVariable("AZURPILOT_START_PROBE_LOG");
-        if (String.IsNullOrWhiteSpace(logPath))
-        {
-            return 97;
-        }
-
-        string payload = String.Join("\u001f", args);
-        string executable = Path.GetFileName(Environment.GetCommandLineArgs()[0]);
-        File.AppendAllText(logPath, executable + "\t" + payload + Environment.NewLine);
-
-        string mode = Environment.GetEnvironmentVariable("AZURPILOT_START_PROBE_MODE");
-        if (
-            String.Equals(mode, "fail-prepare", StringComparison.Ordinal) &&
-            payload.Contains("dev_tools.postgresql_runtime\u001fprepare", StringComparison.Ordinal)
+        git_path = Path(str(git)).resolve()
+        true_executable = next(
+            (
+                parent / "usr" / "bin" / "true.exe"
+                for parent in git_path.parents
+                if (parent / "usr" / "bin" / "true.exe").is_file()
+            ),
+            None,
         )
-        {
-            return 43;
-        }
-
-        return 0;
-    }
-}
-""".strip()
-        compile_script = (
-            "Set-StrictMode -Version Latest\n"
-            "$ErrorActionPreference = 'Stop'\n"
-            "$PSNativeCommandUseErrorActionPreference = $false\n"
-            "$source = @'\n"
-            + probe_source
-            + "\n'@\n"
-            "Add-Type -TypeDefinition $source -Language CSharp "
-            "-OutputAssembly $env:AZURPILOT_PROBE_OUTPUT "
-            "-OutputType ConsoleApplication -ErrorAction Stop\n"
+        self.assertIsNotNone(
+            true_executable,
+            "Git for Windows true.exe нужен как disposable wsl.exe probe",
         )
+
+        start_source = self.sources["scripts/Start-AzurPilot.ps1"]
+        self.assertIn(
+            "Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'prepare')",
+            start_source,
+        )
+        self.assertIn("TimeoutMilliseconds = 210000", start_source)
+        self.assertIn(
+            "Failure = 'Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.'",
+            start_source,
+        )
+        self.assertIn("'systemctl'\n                'start'\n                'postgresql'", start_source)
+        self.assertIn("'pg_isready', '--host', '127.0.0.1'", start_source)
 
         with tempfile.TemporaryDirectory(prefix="azurpilot-start-smoke-") as temporary:
             test_root = Path(temporary)
-            probe_executable = test_root / "probe.exe"
-            compile_environment = os.environ.copy()
-            compile_environment["AZURPILOT_PROBE_OUTPUT"] = str(probe_executable)
-            compile_result = subprocess.run(
-                [
-                    str(pwsh),
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    compile_script,
-                ],
-                cwd=ROOT,
-                env=compile_environment,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=60,
-                check=False,
-            )
-            self.assertEqual(
-                0,
-                compile_result.returncode,
-                compile_result.stdout + compile_result.stderr,
-            )
-            self.assertTrue(probe_executable.is_file())
-
             shim_directory = test_root / "shim"
             shim_directory.mkdir()
-            shutil.copy2(probe_executable, shim_directory / "wsl.exe")
+            shutil.copy2(Path(str(true_executable)), shim_directory / "wsl.exe")
 
             def run_start(mode: str, case_name: str):
                 repository = test_root / case_name / "Repository With Spaces"
-                python_path = repository / ".venv" / "Scripts" / "python.exe"
                 config_path = repository / "config" / "deploy.yaml"
+                dev_tools_path = repository / "dev_tools"
                 gui_path = repository / "gui.py"
-                python_path.parent.mkdir(parents=True)
+                prepare_log = test_root / f"{case_name}-prepare.log"
+                gui_log = test_root / f"{case_name}-gui.log"
+
                 config_path.parent.mkdir(parents=True)
-                shutil.copy2(probe_executable, python_path)
-                gui_path.write_text("# disposable Start smoke\n", encoding="utf-8")
+                dev_tools_path.mkdir(parents=True)
+                venv_result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "venv",
+                        "--without-pip",
+                        str(repository / ".venv"),
+                    ],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=60,
+                    check=False,
+                )
+                self.assertEqual(
+                    0,
+                    venv_result.returncode,
+                    venv_result.stdout + venv_result.stderr,
+                )
+                self.assertTrue((repository / ".venv" / "Scripts" / "python.exe").is_file())
+
+                (dev_tools_path / "__init__.py").write_text("", encoding="utf-8")
+                (dev_tools_path / "postgresql_runtime.py").write_text(
+                    "from __future__ import annotations\n"
+                    "\n"
+                    "import os\n"
+                    "import sys\n"
+                    "from pathlib import Path\n"
+                    "\n"
+                    "log_path = Path(os.environ['AZURPILOT_START_PROBE_LOG'])\n"
+                    "with log_path.open('a', encoding='utf-8') as stream:\n"
+                    "    stream.write('\\x1f'.join(sys.argv[1:]) + '\\n')\n"
+                    "if os.environ.get('AZURPILOT_START_PROBE_MODE') == 'fail-prepare':\n"
+                    "    print('Тестовая ошибка prepare', file=sys.stderr)\n"
+                    "    raise SystemExit(43)\n",
+                    encoding="utf-8",
+                )
+                gui_path.write_text(
+                    "from pathlib import Path\n"
+                    "import os\n"
+                    "Path(os.environ['AZURPILOT_START_GUI_LOG']).write_text(\n"
+                    "    'запущено\\n', encoding='utf-8'\n"
+                    ")\n",
+                    encoding="utf-8",
+                )
                 config_path.write_text(
                     "WebuiHost: 127.0.0.1\n"
                     f"WebuiPort: {self._disposable_port()}\n"
@@ -276,13 +283,13 @@ public static class AzurPilotStartProbe
                     encoding="utf-8",
                 )
 
-                probe_log = test_root / f"{case_name}.log"
                 environment = os.environ.copy()
                 environment["PATH"] = str(shim_directory) + os.pathsep + environment.get(
                     "PATH", ""
                 )
-                environment["AZURPILOT_START_PROBE_LOG"] = str(probe_log)
+                environment["AZURPILOT_START_PROBE_LOG"] = str(prepare_log)
                 environment["AZURPILOT_START_PROBE_MODE"] = mode
+                environment["AZURPILOT_START_GUI_LOG"] = str(gui_log)
 
                 result = subprocess.run(
                     [
@@ -307,56 +314,30 @@ public static class AzurPilotStartProbe
                     timeout=30,
                     check=False,
                 )
-                self.assertTrue(probe_log.is_file(), result.stdout + result.stderr)
-                calls = []
-                for line in probe_log.read_text(encoding="utf-8").splitlines():
-                    executable, separator, payload = line.partition("\t")
-                    self.assertEqual("\t", separator)
-                    arguments = tuple(payload.split("\x1f")) if payload else ()
-                    calls.append((executable.lower(), arguments))
-                return result, calls, gui_path
+                return result, prepare_log, gui_log
 
-            success_result, success_calls, success_gui = run_start("normal", "success")
+            success_result, success_prepare_log, success_gui_log = run_start(
+                "normal", "success"
+            )
             self.assertEqual(
                 EXPECTED_EXIT_CODES["scripts/Start-AzurPilot.ps1"]["BackendFailure"],
                 success_result.returncode,
                 success_result.stdout + success_result.stderr,
             )
+            self.assertEqual(
+                "prepare\n",
+                success_prepare_log.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "запущено\n",
+                success_gui_log.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "PostgreSQL 18 запущен; marker, schema upgrade и app-health подготовлены.",
+                success_result.stdout + success_result.stderr,
+            )
 
-            health_index = next(
-                index
-                for index, (executable, arguments) in enumerate(success_calls)
-                if executable == "python.exe" and arguments == ("-c", "raise SystemExit(0)")
-            )
-            systemctl_index = next(
-                index
-                for index, (executable, arguments) in enumerate(success_calls)
-                if executable == "wsl.exe"
-                and arguments[-4:] == ("systemctl", "start", "postgresql")[-4:]
-            )
-            pg_isready_index = next(
-                index
-                for index, (executable, arguments) in enumerate(success_calls)
-                if executable == "wsl.exe" and "pg_isready" in arguments
-            )
-            prepare_index = next(
-                index
-                for index, (executable, arguments) in enumerate(success_calls)
-                if executable == "python.exe"
-                and arguments
-                == ("-X", "utf8", "-m", "dev_tools.postgresql_runtime", "prepare")
-            )
-            gui_index = next(
-                index
-                for index, (executable, arguments) in enumerate(success_calls)
-                if executable == "python.exe" and arguments == (str(success_gui),)
-            )
-            self.assertLess(health_index, systemctl_index)
-            self.assertLess(systemctl_index, pg_isready_index)
-            self.assertLess(pg_isready_index, prepare_index)
-            self.assertLess(prepare_index, gui_index)
-
-            failed_result, failed_calls, failed_gui = run_start(
+            failed_result, failed_prepare_log, failed_gui_log = run_start(
                 "fail-prepare", "prepare-failure"
             )
             self.assertEqual(
@@ -364,28 +345,14 @@ public static class AzurPilotStartProbe
                 failed_result.returncode,
                 failed_result.stdout + failed_result.stderr,
             )
-            failed_output = failed_result.stdout + failed_result.stderr
+            self.assertEqual(
+                "prepare\n",
+                failed_prepare_log.read_text(encoding="utf-8"),
+            )
+            self.assertFalse(failed_gui_log.exists())
             self.assertIn(
                 "Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.",
-                failed_output,
-            )
-            self.assertTrue(
-                any(
-                    executable == "python.exe"
-                    and arguments
-                    == ("-X", "utf8", "-m", "dev_tools.postgresql_runtime", "prepare")
-                    for executable, arguments in failed_calls
-                )
-            )
-            self.assertFalse(
-                any(
-                    executable == "python.exe" and arguments == (str(failed_gui),)
-                    for executable, arguments in failed_calls
-                )
-            )
-            self.assertIn(
-                "TimeoutMilliseconds = 210000",
-                self.sources["scripts/Start-AzurPilot.ps1"],
+                failed_result.stdout + failed_result.stderr,
             )
 
     def test_utf8_text_has_no_mojibake(self) -> None:
