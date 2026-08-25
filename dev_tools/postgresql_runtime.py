@@ -16,9 +16,12 @@ from alembic.util.exc import CommandError
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
+from module.application.storage_models import StorageHealthState
 from module.persistence.config import (
     DEFAULT_BACKEND_MARKER_PATH,
     DatabaseSettings,
+    advance_backend_marker_schema_head,
+    load_backend_marker_for_schema_upgrade,
     migrate_legacy_backend_marker,
 )
 from module.persistence.database import LazyEngine, StorageHealthChecker
@@ -168,8 +171,17 @@ def _health(marker: Path) -> None:
         engine.dispose()
 
 
-def _upgrade() -> None:
-    load_local_postgres_environment(_REPOSITORY_ROOT / ".env", role="migrator")
+def _upgrade(
+    marker: Path = _REPOSITORY_ROOT / DEFAULT_BACKEND_MARKER_PATH,
+) -> None:
+    local = load_local_postgres_environment(
+        _REPOSITORY_ROOT / ".env",
+        role="migrator",
+    )
+    marker_settings, marker_head = load_backend_marker_for_schema_upgrade(marker)
+    if local is not None:
+        local.require_app_runtime_match(marker_settings)
+
     settings = DatabaseSettings.from_environment(
         prefix="AZURPILOT_POSTGRES_MIGRATOR_"
     )
@@ -186,7 +198,29 @@ def _upgrade() -> None:
     os.environ.pop("AZURPILOT_POSTGRES_PASSWORD", None)
     os.environ.pop("PGPASSWORD", None)
     configuration = Config(str(_REPOSITORY_ROOT / "alembic.ini"))
-    command.upgrade(configuration, "head")
+
+    engine = LazyEngine(settings)
+    try:
+        previous_health = StorageHealthChecker(
+            engine,
+            expected_head=marker_head,
+        ).check()
+        current_health = StorageHealthChecker(engine).check()
+        if previous_health.state is StorageHealthState.READY:
+            command.upgrade(configuration, "head")
+        elif current_health.state is not StorageHealthState.READY:
+            StorageHealthChecker(
+                engine,
+                expected_head=marker_head,
+            ).require_ready()
+        StorageHealthChecker(engine).require_ready()
+    finally:
+        engine.dispose()
+
+    advance_backend_marker_schema_head(
+        marker,
+        previous_head=marker_head,
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
