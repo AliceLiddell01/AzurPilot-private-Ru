@@ -223,6 +223,25 @@ def test_terminal_transitions_result_fk_and_deterministic_latest(database):
         )
 
 
+def test_repository_finish_rejects_raw_string_terminal_status(database):
+    service = _command_service(database)
+    command = service.submit("profile-a", FleetSelection.one(1)).command
+    claimed = service.claim_next("profile-a")
+    assert claimed is not None
+
+    with PostgresUnitOfWork(database) as uow:
+        instance_id = resolve_runtime_instance(uow, "profile-a")
+        with pytest.raises(StorageInvalidDataError):
+            uow.fleet_scan_commands.finish(
+                command.id,
+                instance_id,
+                status="succeeded",
+                finished_at=datetime(2026, 8, 25, 0, 0, 1, tzinfo=UTC),
+                result_run_id=None,
+                error_code=None,
+            )
+
+
 def test_interrupted_running_command_is_failed_and_new_submit_is_allowed(database):
     service = _command_service(database)
     command = service.submit("profile-a", FleetSelection.one(5)).command
