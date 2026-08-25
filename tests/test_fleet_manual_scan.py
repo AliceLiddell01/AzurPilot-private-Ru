@@ -12,11 +12,19 @@ from module.application.fleet_manual_scan import (
     FleetManualScanCoordinator,
     FleetManualScanStatus,
 )
-from module.application.fleet_state import FleetScanBatchResult
-from module.formation.model import FleetSelection
+from module.application.fleet_state import FleetScanBatchResult, FleetStateObservation
+from module.formation.model import (
+    FleetSelection,
+    FormationFleetSide,
+    FormationFleetSlotObservation,
+    FormationFleetSnapshot,
+)
 
 
-def _command(status=FleetManualScanStatus.PENDING):
+def _command(
+    status=FleetManualScanStatus.PENDING,
+    selection: FleetSelection | None = None,
+):
     now = datetime(2026, 8, 25, tzinfo=UTC)
     kwargs = {}
     if status is not FleetManualScanStatus.PENDING:
@@ -24,7 +32,7 @@ def _command(status=FleetManualScanStatus.PENDING):
     return FleetManualScanCommand(
         id=uuid4(),
         instance_id=uuid4(),
-        selection=FleetSelection.several(1, 3),
+        selection=selection or FleetSelection.several(1, 3),
         created_at=now,
         status=status,
         **kwargs,
@@ -124,6 +132,40 @@ class _State:
         return self.batch
 
 
+def _snapshot(fleet_index: int) -> FormationFleetSnapshot:
+    coordinates = (
+        (FormationFleetSide.MAIN, 1),
+        (FormationFleetSide.MAIN, 2),
+        (FormationFleetSide.MAIN, 3),
+        (FormationFleetSide.VANGUARD, 1),
+        (FormationFleetSide.VANGUARD, 2),
+        (FormationFleetSide.VANGUARD, 3),
+    )
+    return FormationFleetSnapshot(
+        fleet_index=fleet_index,
+        slots=tuple(
+            FormationFleetSlotObservation(
+                side=side,
+                position=position,
+                occupied=False,
+            )
+            for side, position in coordinates
+        ),
+        catalog_fingerprint="e" * 64,
+    )
+
+
+def _observation(run_id, fleet_index: int) -> FleetStateObservation:
+    return FleetStateObservation(
+        id=uuid4(),
+        run_id=run_id,
+        instance_id=uuid4(),
+        idempotency_key=f"manual-test:{fleet_index}",
+        observed_at=datetime(2026, 8, 25, tzinfo=UTC),
+        snapshot=_snapshot(fleet_index),
+    )
+
+
 def _batch(*, failure_code=None):
     selection = FleetSelection.several(1, 3)
     return FleetScanBatchResult(
@@ -132,6 +174,28 @@ def _batch(*, failure_code=None):
         observations=(),
         failed_fleet_index=1 if failure_code else None,
         failure_code=failure_code,
+    )
+
+
+def _successful_batch(fleet_index: int = 1) -> FleetScanBatchResult:
+    run_id = uuid4()
+    selection = FleetSelection.one(fleet_index)
+    return FleetScanBatchResult(
+        run_id=run_id,
+        selection=selection,
+        observations=(_observation(run_id, fleet_index),),
+    )
+
+
+def _partial_batch() -> FleetScanBatchResult:
+    run_id = uuid4()
+    selection = FleetSelection.several(1, 3)
+    return FleetScanBatchResult(
+        run_id=run_id,
+        selection=selection,
+        observations=(_observation(run_id, 1),),
+        failed_fleet_index=3,
+        failure_code="physical_scan_failed",
     )
 
 
@@ -151,6 +215,40 @@ def test_manual_coordinator_recovers_claims_and_uses_manual_source() -> None:
     assert commands.events[1] == ("claim", "profile-a")
     assert commands.events[-1][3] is FleetManualScanStatus.FAILED
     assert commands.events[-1][-1] == "physical_scan_failed"
+
+
+def test_successful_batch_finishes_command_with_result_run_id() -> None:
+    selection = FleetSelection.one(1)
+    commands = _Commands(_command(selection=selection))
+    batch = _successful_batch(1)
+    state = _State(batch)
+    coordinator = FleetManualScanCoordinator(commands, state)
+
+    execution = coordinator.process_next("profile-a")
+
+    assert execution.command.status is FleetManualScanStatus.SUCCEEDED
+    assert execution.command.result_run_id == batch.run_id
+    assert execution.command.error_code is None
+    assert commands.events[-1][3] is FleetManualScanStatus.SUCCEEDED
+    assert commands.events[-1][4] == batch.run_id
+    assert commands.events[-1][5] is None
+
+
+def test_partial_batch_finishes_command_with_result_run_id() -> None:
+    selection = FleetSelection.several(1, 3)
+    commands = _Commands(_command(selection=selection))
+    batch = _partial_batch()
+    state = _State(batch)
+    coordinator = FleetManualScanCoordinator(commands, state)
+
+    execution = coordinator.process_next("profile-a")
+
+    assert execution.command.status is FleetManualScanStatus.PARTIAL
+    assert execution.command.result_run_id == batch.run_id
+    assert execution.command.error_code == "physical_scan_failed"
+    assert commands.events[-1][3] is FleetManualScanStatus.PARTIAL
+    assert commands.events[-1][4] == batch.run_id
+    assert commands.events[-1][5] == "physical_scan_failed"
 
 
 def test_recovery_happens_once_and_pending_check_is_worker_wakeup_path() -> None:
