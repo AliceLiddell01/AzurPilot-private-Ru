@@ -387,7 +387,7 @@ class FormationFleetController(UI):
         )
         self._run_scan_stage(fleet_index, "open_info", self._open_info)
 
-        primary_error: Exception | None = None
+        primary_error: BaseException | None = None
         try:
             frame = self._run_scan_stage(
                 fleet_index,
@@ -413,7 +413,7 @@ class FormationFleetController(UI):
                 f"полное сопоставление: {result.complete}"
             )
             return result
-        except Exception as error:
+        except BaseException as error:
             primary_error = error
             raise
         finally:

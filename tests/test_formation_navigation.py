@@ -193,3 +193,48 @@ def test_close_info_requires_stable_formation_boundary() -> None:
 
     assert controller.frames_seen == 6
     assert controller.device.clicks == ["FORMATION_CLOSE_INFO", "FORMATION_CLOSE_INFO"]
+
+
+class _InterruptingScanner:
+    def scan(self, frame, *, fleet_index):
+        del frame, fleet_index
+        raise KeyboardInterrupt("cancelled")
+
+
+class _CleanupFailureController(FormationFleetController):
+    def __init__(self) -> None:
+        self._scanner = _InterruptingScanner()
+
+    @property
+    def formation_fleet_scanner(self) -> _InterruptingScanner:
+        return self._scanner
+
+    def ensure_formation_page(self) -> None:
+        return None
+
+    def ensure_surface_fleet(self, fleet_index: int) -> None:
+        del fleet_index
+
+    def _open_info(self) -> None:
+        return None
+
+    def _capture_scan_frame(self) -> np.ndarray:
+        return _frame()
+
+    def _validate_scan_info_state(self, frame: np.ndarray) -> None:
+        del frame
+
+    def _close_info(self) -> None:
+        raise RuntimeError("close failed")
+
+
+def test_cleanup_failure_does_not_replace_keyboard_interrupt() -> None:
+    controller = _CleanupFailureController()
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+        controller.scan_surface_fleet(1)
+
+    assert str(raised.value) == "cancelled"
+    assert raised.value.__notes__ == [
+        "Дополнительно не удалось закрыть Formation Info: RuntimeError: close failed"
+    ]
