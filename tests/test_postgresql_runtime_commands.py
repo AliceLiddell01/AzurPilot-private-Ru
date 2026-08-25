@@ -14,12 +14,16 @@ from module.persistence.config import DatabaseSettings
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 
-def _settings(password: str | None = None) -> DatabaseSettings:
+def _settings(
+    password: str | None = None,
+    *,
+    user: str = "azurpilot_app",
+) -> DatabaseSettings:
     return DatabaseSettings(
         host="127.0.0.1",
         port=5432,
         database="azurpilot",
-        user="azurpilot_app",
+        user=user,
         password=password,
         sslmode="disable",
     )
@@ -80,7 +84,7 @@ def test_backup_is_verified_and_published_create_only(
 
 def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypatch):
     monkeypatch.setenv("AZURPILOT_POSTGRES_PASSWORD", "stale-application-password")
-    settings = _settings(password=None)
+    settings = _settings(password=None, user="azurpilot_migrator")
     ready = StorageHealth(StorageHealthState.READY, EXPECTED_ALEMBIC_HEAD)
 
     with (
