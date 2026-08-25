@@ -175,8 +175,12 @@ def _require_upgrade_endpoint_match(
     marker_settings: DatabaseSettings,
     migrator_settings: DatabaseSettings,
 ) -> None:
-    """Запретить migrator менять БД, отличную от production marker endpoint."""
+    """Разрешить только штатную migrator-роль на production marker endpoint."""
 
+    if migrator_settings.user != "azurpilot_migrator":
+        raise StorageConfigurationError(
+            "Production schema upgrade требует роль azurpilot_migrator."
+        )
     if (
         marker_settings.host != migrator_settings.host
         or marker_settings.port != migrator_settings.port
