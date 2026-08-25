@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 
 SUPPORTED_SURFACE_FLEET_INDICES = (1, 2, 3, 4, 5, 6)
 
@@ -67,6 +67,7 @@ class FormationFleetSlotObservation:
     displayed_name: str | None = None
     canonical_identity: CanonicalShipIdentity | None = None
     canonical_name: str | None = None
+    ship_form: ShipForm | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.side, FormationFleetSide):
@@ -85,6 +86,7 @@ class FormationFleetSlotObservation:
                     self.displayed_name,
                     self.canonical_identity,
                     self.canonical_name,
+                    self.ship_form,
                 )
             ):
                 raise ValueError("Пустой слот не должен содержать identity-данные")
@@ -104,8 +106,13 @@ class FormationFleetSlotObservation:
                 raise ValueError("MATCHED требует canonical identity")
             if not isinstance(self.canonical_name, str) or not self.canonical_name.strip():
                 raise ValueError("MATCHED требует canonical name")
-        elif self.canonical_identity is not None or self.canonical_name is not None:
-            raise ValueError("Только MATCHED может содержать canonical identity/name")
+            if not isinstance(self.ship_form, ShipForm):
+                raise ValueError("MATCHED требует ship form")
+        elif any(
+            value is not None
+            for value in (self.canonical_identity, self.canonical_name, self.ship_form)
+        ):
+            raise ValueError("Только MATCHED может содержать canonical identity/name/form")
 
 
 @dataclass(frozen=True, slots=True)

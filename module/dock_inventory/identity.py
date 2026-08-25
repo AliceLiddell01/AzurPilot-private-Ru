@@ -26,7 +26,7 @@ from module.dock_inventory.catalog import (
     load_dock_identity_catalog,
     normalize_ship_name,
 )
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.dock_inventory.navigation import (
     DockInventoryNavigator,
     DockPrerequisiteEvidence,
@@ -51,6 +51,7 @@ class DockShipIdentityResolution:
     displayed_name: str
     canonical_identity: CanonicalShipIdentity | None = None
     canonical_name: str | None = None
+    ship_form: ShipForm | None = None
     best_score: float | None = None
     runner_up_score: float | None = None
     candidate_count: int = 0
@@ -85,8 +86,13 @@ class DockShipIdentityResolution:
                 raise ValueError("MATCHED требует canonical identity")
             if self.canonical_name is None or not self.canonical_name.strip():
                 raise ValueError("MATCHED требует canonical name")
-        elif self.canonical_identity is not None or self.canonical_name is not None:
-            raise ValueError("Только MATCHED может содержать canonical identity/name")
+            if not isinstance(self.ship_form, ShipForm):
+                raise ValueError("MATCHED требует ship form")
+        elif any(
+            value is not None
+            for value in (self.canonical_identity, self.canonical_name, self.ship_form)
+        ):
+            raise ValueError("Только MATCHED может содержать canonical identity/name/form")
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,9 +174,9 @@ class DockIdentityScanResult:
 
     def __post_init__(self) -> None:
         if not isinstance(self.prerequisite, DockPrerequisiteEvidence):
-            raise TypeError("prerequisite имеет неверный тип")
+            raise TypeError("prerequisite должен быть DockPrerequisiteEvidence")
         if not isinstance(self.traversal, DockTraversalResult):
-            raise TypeError("traversal имеет неверный тип")
+            raise TypeError("traversal должен быть DockTraversalResult")
         if not isinstance(self.viewports, tuple) or not all(
             isinstance(value, DockViewportIdentityScan) for value in self.viewports
         ):
@@ -233,6 +239,7 @@ class DockShipIdentityResolver:
         method: DockIdentityResolutionMethod,
         candidates: Sequence[DockCanonicalShip] = (),
         match: DockCanonicalShip | None = None,
+        ship_form: ShipForm = ShipForm.BASE,
         best_score: float | None = None,
         runner_up_score: float | None = None,
         reason: str | None = None,
@@ -245,6 +252,7 @@ class DockShipIdentityResolver:
             displayed_name=displayed,
             canonical_identity=match.identity if match is not None else None,
             canonical_name=match.canonical_name if match is not None else None,
+            ship_form=ship_form if match is not None else None,
             best_score=best_score,
             runner_up_score=runner_up_score,
             candidate_count=len(candidate_ids),
@@ -454,6 +462,7 @@ class DockShipIdentityResolver:
                 method=method,
                 candidates=candidates,
                 match=candidates[0],
+                ship_form=ShipForm.RETROFIT,
                 best_score=1.0,
                 runner_up_score=self._runner_up_score(
                     base,

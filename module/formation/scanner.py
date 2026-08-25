@@ -304,6 +304,7 @@ class FormationFleetInfoScanner:
                     displayed_name=resolution.displayed_name,
                     canonical_identity=resolution.canonical_identity,
                     canonical_name=resolution.canonical_name,
+                    ship_form=resolution.ship_form,
                 )
             )
 
