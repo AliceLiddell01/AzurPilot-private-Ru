@@ -24,6 +24,7 @@ from module.ui.ui import UI
 
 
 _T = TypeVar("_T")
+_FORMATION_STATE_CONFIRM_FRAMES = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,12 +266,21 @@ class FormationFleetController(UI):
             )
 
     def _close_info(self) -> None:
+        closed_confirmations = 0
         for _ in self.loop(timeout=20):
             frame = self._current_frame()
             if not self.formation_state.info_opened(frame):
                 if self.ui_page_appear(page_fleet, offset=(20, 20)):
-                    return
+                    closed_confirmations += 1
+                    # Следующий флот безопасно выбирать только после нескольких
+                    # свежих кадров подтверждённой Formation boundary.
+                    if closed_confirmations >= _FORMATION_STATE_CONFIRM_FRAMES:
+                        return
+                else:
+                    closed_confirmations = 0
                 continue
+
+            closed_confirmations = 0
             self.device.click(
                 self._click_button(
                     self.formation_navigation_layout.formation_button,
@@ -330,10 +340,18 @@ class FormationFleetController(UI):
         )
 
     def _open_info(self) -> None:
+        opened_confirmations = 0
         for _ in self.loop(skip_first=False, timeout=20):
             frame = self._current_frame()
             if self.formation_state.info_opened(frame):
-                return
+                opened_confirmations += 1
+                # Issue #150: один переходный кадр может ложно выглядеть как
+                # готовый Info. Сканировать можно только устойчивое состояние.
+                if opened_confirmations >= _FORMATION_STATE_CONFIRM_FRAMES:
+                    return
+                continue
+
+            opened_confirmations = 0
             if self.formation_state.fleet_menu_opened(frame):
                 continue
             if not self.ui_page_appear(page_fleet, offset=(20, 20)):
