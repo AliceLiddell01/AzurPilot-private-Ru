@@ -17,7 +17,7 @@ from module.application.fleet_state import (
     FleetStateRequest,
     FleetStateService,
 )
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
     FleetSelection,
     FormationFleetSide,
@@ -59,6 +59,8 @@ def _slot(
     side: FormationFleetSide,
     position: int,
     status: IdentityStatus | None,
+    *,
+    ship_form: ShipForm = ShipForm.BASE,
 ) -> FormationFleetSlotObservation:
     if status is None:
         return FormationFleetSlotObservation(side=side, position=position, occupied=False)
@@ -76,10 +78,16 @@ def _slot(
             else None
         ),
         canonical_name=f"Ship {position}" if matched else None,
+        ship_form=ship_form if matched else None,
     )
 
 
-def _snapshot(fleet_index: int, *, complete: bool = True) -> FormationFleetSnapshot:
+def _snapshot(
+    fleet_index: int,
+    *,
+    complete: bool = True,
+    first_ship_form: ShipForm = ShipForm.BASE,
+) -> FormationFleetSnapshot:
     statuses = (
         IdentityStatus.MATCHED,
         IdentityStatus.MATCHED if complete else IdentityStatus.UNRESOLVED,
@@ -99,7 +107,16 @@ def _snapshot(fleet_index: int, *, complete: bool = True) -> FormationFleetSnaps
     return FormationFleetSnapshot(
         fleet_index=fleet_index,
         slots=tuple(
-            _slot(side, position, status)
+            _slot(
+                side,
+                position,
+                status,
+                ship_form=(
+                    first_ship_form
+                    if side is FormationFleetSide.MAIN and position == 1
+                    else ShipForm.BASE
+                ),
+            )
             for (side, position), status in zip(coordinates, statuses, strict=True)
         ),
         catalog_fingerprint="b" * 64,
@@ -110,13 +127,20 @@ class _Controller:
     def __init__(self):
         self.calls = []
         self.incomplete = set()
+        self.retrofit = set()
         self.fail_at: int | None = None
 
     def scan_surface_fleet(self, fleet_index):
         self.calls.append(fleet_index)
         if fleet_index == self.fail_at:
             raise RuntimeError("небезопасное состояние UI")
-        return _snapshot(fleet_index, complete=fleet_index not in self.incomplete)
+        return _snapshot(
+            fleet_index,
+            complete=fleet_index not in self.incomplete,
+            first_ship_form=(
+                ShipForm.RETROFIT if fleet_index in self.retrofit else ShipForm.BASE
+            ),
+        )
 
 
 class _Clock:
@@ -142,6 +166,7 @@ def _services(database, *, instance="profile", clock=None, controller=None):
 def test_round_trip_full_incomplete_all_slots_and_identity_states(database):
     controller = _Controller()
     controller.incomplete.add(2)
+    controller.retrofit.add(1)
     _, _, scanner, state = _services(database, controller=controller)
 
     result = scanner.scan(
@@ -166,12 +191,60 @@ def test_round_trip_full_incomplete_all_slots_and_identity_states(database):
     matched = latest.observations[1].snapshot.slots[0]
     assert matched.canonical_identity.key == "azur_lane_ship_group:1"
     assert matched.canonical_name == "Ship 1"
+    assert matched.ship_form is ShipForm.BASE
+    assert latest.observations[0].snapshot.slots[0].ship_form is ShipForm.RETROFIT
     assert latest.observations[1].snapshot.slots[2].occupied is False
 
     with database.get().connect() as connection:
         assert connection.execute(
             select(func.count()).select_from(formation_surface_fleet_slot)
         ).scalar_one() == 12
+        stored_forms = tuple(
+            connection.execute(
+                select(formation_surface_fleet_slot.c.ship_form)
+                .join(
+                    formation_surface_fleet_snapshot,
+                    formation_surface_fleet_snapshot.c.id
+                    == formation_surface_fleet_slot.c.snapshot_id,
+                )
+                .where(
+                    formation_surface_fleet_snapshot.c.fleet_index == 1,
+                    formation_surface_fleet_slot.c.identity_status == "matched",
+                )
+                .order_by(
+                    formation_surface_fleet_slot.c.side,
+                    formation_surface_fleet_slot.c.position,
+                )
+            ).scalars().all()
+        )
+    assert ShipForm.RETROFIT.value in stored_forms
+
+
+def test_ship_form_schema_rejects_invalid_or_missing_matched_form(database):
+    _, _, scanner, _ = _services(database)
+    observation = scanner.scan(
+        "profile-a", FleetSelection.one(1), source="consumer:form-constraint"
+    ).observations[0]
+
+    with pytest.raises(SQLAlchemyError), database.get().begin() as connection:
+        connection.execute(
+            update(formation_surface_fleet_slot)
+            .where(
+                formation_surface_fleet_slot.c.snapshot_id == observation.id,
+                formation_surface_fleet_slot.c.identity_status == "matched",
+            )
+            .values(ship_form="invalid")
+        )
+
+    with pytest.raises(SQLAlchemyError), database.get().begin() as connection:
+        connection.execute(
+            update(formation_surface_fleet_slot)
+            .where(
+                formation_surface_fleet_slot.c.snapshot_id == observation.id,
+                formation_surface_fleet_slot.c.identity_status == "matched",
+            )
+            .values(ship_form=None)
+        )
 
 
 def test_identical_composition_remains_two_observations_and_history_is_bounded(database):

@@ -9,9 +9,9 @@ Revision-файлы не должны читать production config или вы
 Alembic entry point также требует отдельного точного подтверждения target через
 `AZURPILOT_POSTGRES_DISPOSABLE_HOST`, `_PORT`, `_DATABASE` и `_USER`.
 
-Текущий единственный head — `0004_fleet_manual_scan_command`. Он расширяет
-schema v1 нормализованным durable lifecycle ручных команд WebUI → worker для
-Surface Fleet 1..6.
+Текущий единственный head — `0005_fleet_ship_form`. Он хранит форму корабля
+`base`/`retrofit` отдельно от canonical identity в Surface Fleet state и
+сохраняет `NULL` для пустых, unresolved и ambiguous слотов.
 
 Downgrade `0002` допускается только в пустой disposable БД. На импортированных
 Stage 3 данных он намеренно не является lossless: `akashi_ap` отсутствует в

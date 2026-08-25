@@ -17,7 +17,7 @@ from module.application.fleet_state import (
     FleetScanRunStatus,
     FleetStateObservation,
 )
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
     FleetSelection,
     FormationFleetSide,
@@ -63,6 +63,7 @@ def _snapshot_payload(observation: FleetStateObservation) -> dict[str, object]:
                     else None
                 ),
                 "canonical_name": slot.canonical_name,
+                "ship_form": slot.ship_form,
             }
             for slot in snapshot.slots
         ),
@@ -179,6 +180,11 @@ class PostgresFleetStateRepository:
                             else None
                         ),
                         "canonical_name": slot.canonical_name,
+                        "ship_form": (
+                            slot.ship_form.value
+                            if slot.ship_form is not None
+                            else None
+                        ),
                     }
                     for slot in observation.snapshot.slots
                 ],
@@ -452,6 +458,21 @@ class PostgresFleetStateRepository:
         ):
             status_value = slot["identity_status"]
             status = IdentityStatus(status_value) if status_value is not None else None
+            ship_form_value = slot["ship_form"]
+            try:
+                ship_form = ShipForm(ship_form_value) if ship_form_value is not None else None
+            except (TypeError, ValueError):
+                raise StorageInvalidDataError(
+                    "PostgreSQL содержит некорректную форму Fleet slot."
+                ) from None
+            if status is IdentityStatus.MATCHED and ship_form is None:
+                raise StorageInvalidDataError(
+                    "MATCHED Fleet slot в PostgreSQL не содержит форму корабля."
+                )
+            if status is not IdentityStatus.MATCHED and ship_form is not None:
+                raise StorageInvalidDataError(
+                    "Только MATCHED Fleet slot в PostgreSQL может содержать форму корабля."
+                )
             canonical_key = slot["canonical_identity_key"]
             slots.append(
                 FormationFleetSlotObservation(
@@ -467,6 +488,7 @@ class PostgresFleetStateRepository:
                         else None
                     ),
                     canonical_name=slot["canonical_name"],
+                    ship_form=ship_form,
                 )
             )
         snapshot = FormationFleetSnapshot(

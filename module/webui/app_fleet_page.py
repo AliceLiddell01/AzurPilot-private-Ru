@@ -78,7 +78,7 @@ def fleet_slot_text(slot: FleetSlotViewModel) -> str:
     if slot.state is FleetSlotState.EMPTY:
         return t("Gui.FleetPage.SlotEmpty")
     if slot.state is FleetSlotState.MATCHED:
-        return slot.canonical_name or t("Gui.FleetPage.SlotUnknown")
+        return slot.canonical_display_name or t("Gui.FleetPage.SlotUnknown")
     displayed = slot.displayed_name or t("Gui.FleetPage.SlotUnknown")
     if slot.state is FleetSlotState.UNRESOLVED:
         return t("Gui.FleetPage.SlotUnresolved", name=displayed)

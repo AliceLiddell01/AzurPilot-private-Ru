@@ -15,7 +15,7 @@ from module.application.fleet_page import FleetPageQueryService, FleetSlotState
 from module.application.fleet_state import FleetStateObservation
 from module.application.instance_identity import runtime_instance_identity
 from module.application.storage_models import InstanceIdentity
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
     FormationFleetSide,
     FormationFleetSlotObservation,
@@ -37,6 +37,7 @@ def _slot(
     status: IdentityStatus | None,
     *,
     canonical_name: str | None = None,
+    ship_form: ShipForm = ShipForm.BASE,
 ) -> FormationFleetSlotObservation:
     if status is None:
         return FormationFleetSlotObservation(side=side, position=position, occupied=False)
@@ -54,6 +55,7 @@ def _slot(
             else None
         ),
         canonical_name=(canonical_name or f"Ship {position}") if matched else None,
+        ship_form=ship_form if matched else None,
     )
 
 
@@ -63,6 +65,7 @@ def _observation(
     *,
     complete: bool,
     canonical_name: str | None = None,
+    first_ship_form: ShipForm = ShipForm.BASE,
 ) -> FleetStateObservation:
     statuses = (
         IdentityStatus.MATCHED,
@@ -95,6 +98,11 @@ def _observation(
                     position,
                     status,
                     canonical_name=canonical_name if position == 1 else None,
+                    ship_form=(
+                        first_ship_form
+                        if side is FormationFleetSide.MAIN and position == 1
+                        else ShipForm.BASE
+                    ),
                 )
                 for (side, position), status in zip(coordinates, statuses, strict=True)
             ),
@@ -218,6 +226,29 @@ def test_page_projects_complete_incomplete_and_all_slot_states_in_order() -> Non
     )
     assert model.rows[1].slots[0].canonical_name == long_name
     assert model.rows[1].slots[0].canonical_identity == "azur_lane_ship_group:1"
+    assert model.rows[1].slots[0].ship_form is ShipForm.BASE
+
+
+def test_retrofit_display_preserves_group_identity_and_base_canonical_name() -> None:
+    service, state, _, _ = _service()
+    _, instance_id = runtime_instance_identity("profile-a")
+    state.by_instance[instance_id] = (
+        _observation(
+            instance_id,
+            1,
+            complete=True,
+            canonical_name="Generic Test Ship",
+            first_ship_form=ShipForm.RETROFIT,
+        ),
+    )
+
+    slot = service.view("profile-a").rows[0].slots[0]
+
+    assert slot.canonical_identity == "azur_lane_ship_group:1"
+    assert slot.canonical_name == "Generic Test Ship"
+    assert slot.ship_form is ShipForm.RETROFIT
+    assert slot.canonical_display_name == "Generic Test Ship (Retrofit)"
+    assert fleet_slot_text(slot) == "Generic Test Ship (Retrofit)"
 
 
 def test_page_isolates_instances_and_failed_command_preserves_observation() -> None:

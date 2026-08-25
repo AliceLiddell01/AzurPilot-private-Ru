@@ -10,7 +10,7 @@ from module.dock_inventory.identity import (
     DockIdentityResolutionMethod,
     DockShipIdentityResolver,
 )
-from module.dock_inventory.model import IdentityStatus
+from module.dock_inventory.model import IdentityStatus, ShipForm
 from module.formation.model import FormationFleetSide
 from module.formation.scanner import FormationFleetInfoScanner, FormationPresenceEvidence
 
@@ -60,6 +60,7 @@ def test_observed_unmarked_retrofit_truncation_resolves_exact_base(
     assert result.status is IdentityStatus.MATCHED
     assert result.method is DockIdentityResolutionMethod.TRUNCATED_PREFIX
     assert result.canonical_name == canonical_name
+    assert result.ship_form is ShipForm.RETROFIT
     assert result.reason == "retrofit_display_suffix"
     assert result.raw_name_ocr == raw
 
@@ -73,9 +74,49 @@ def test_full_and_explicit_ellipsis_retrofit_paths_do_not_regress() -> None:
     assert full.status is IdentityStatus.MATCHED
     assert full.method is DockIdentityResolutionMethod.EXACT
     assert full.canonical_name == "Unicorn"
+    assert full.ship_form is ShipForm.RETROFIT
     assert ellipsis.status is IdentityStatus.MATCHED
     assert ellipsis.method is DockIdentityResolutionMethod.TRUNCATED_PREFIX
     assert ellipsis.canonical_name == "York"
+    assert ellipsis.ship_form is ShipForm.RETROFIT
+
+
+def test_retrofit_form_is_generic_for_arbitrary_catalog_ship() -> None:
+    resolver = DockShipIdentityResolver(
+        _catalog(DockCanonicalShip("azur_lane_ship_group:99999", "Generic Test Ship"))
+    )
+
+    full = resolver.resolve("Generic Test Ship (Retrofit)")
+    truncated = resolver.resolve("Generic Test Ship (Retro")
+
+    assert full.status is IdentityStatus.MATCHED
+    assert full.canonical_name == "Generic Test Ship"
+    assert full.ship_form is ShipForm.RETROFIT
+    assert truncated.status is IdentityStatus.MATCHED
+    assert truncated.canonical_name == "Generic Test Ship"
+    assert truncated.ship_form is ShipForm.RETROFIT
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_method"),
+    (
+        ("Enterprise", DockIdentityResolutionMethod.EXACT),
+        ("Enterprise...", DockIdentityResolutionMethod.TRUNCATED_PREFIX),
+        ("Enterpris", DockIdentityResolutionMethod.FUZZY),
+    ),
+)
+def test_non_retrofit_matches_keep_base_form(
+    raw: str,
+    expected_method: DockIdentityResolutionMethod,
+) -> None:
+    result = DockShipIdentityResolver(
+        _catalog(DockCanonicalShip("azur_lane_ship_group:5", "Enterprise"))
+    ).resolve(raw)
+
+    assert result.status is IdentityStatus.MATCHED
+    assert result.method is expected_method
+    assert result.canonical_name == "Enterprise"
+    assert result.ship_form is ShipForm.BASE
 
 
 @pytest.mark.parametrize(
@@ -96,6 +137,7 @@ def test_unmarked_parenthetical_suffix_requires_strong_bounded_retrofit_evidence
 
     assert result.status is IdentityStatus.UNRESOLVED
     assert result.canonical_name is None
+    assert result.ship_form is None
 
 
 def test_unmarked_retrofit_base_collision_remains_ambiguous() -> None:
@@ -112,6 +154,7 @@ def test_unmarked_retrofit_base_collision_remains_ambiguous() -> None:
     assert result.method is DockIdentityResolutionMethod.TRUNCATED_PREFIX
     assert result.reason == "ambiguous_retrofit_base"
     assert result.candidate_count == 2
+    assert result.ship_form is None
 
 
 def test_retrofit_fix_does_not_weaken_generic_fuzzy_thresholds() -> None:
@@ -160,4 +203,5 @@ def test_formation_scanner_propagates_observed_retrofit_match(monkeypatch) -> No
     assert slot.identity_status is IdentityStatus.MATCHED
     assert slot.raw_name_ocr == "San Diego (Retro1"
     assert slot.canonical_name == "San Diego"
+    assert slot.ship_form is ShipForm.RETROFIT
     assert snapshot.complete is True

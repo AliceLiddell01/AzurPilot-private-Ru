@@ -14,7 +14,7 @@ from module.application.fleet_manual_scan import FleetManualScanCommand
 from module.application.fleet_state import FleetStateObservation, FleetStateRepository
 from module.application.instance_identity import resolve_runtime_instance
 from module.application.storage_ports import StorageUnitOfWork
-from module.dock_inventory.model import IdentityStatus
+from module.dock_inventory.model import IdentityStatus, ShipForm
 from module.formation.model import (
     FleetSelection,
     FormationFleetSide,
@@ -38,6 +38,31 @@ class FleetSlotViewModel:
     canonical_identity: str | None
     canonical_name: str | None
     displayed_name: str | None
+    ship_form: ShipForm | None
+
+    def __post_init__(self) -> None:
+        if self.state is FleetSlotState.MATCHED:
+            if self.canonical_identity is None:
+                raise ValueError("MATCHED Fleet view slot требует canonical identity")
+            if self.canonical_name is None or not self.canonical_name.strip():
+                raise ValueError("MATCHED Fleet view slot требует canonical name")
+            if not isinstance(self.ship_form, ShipForm):
+                raise ValueError("MATCHED Fleet view slot требует ship form")
+        elif any(
+            value is not None
+            for value in (self.canonical_identity, self.canonical_name, self.ship_form)
+        ):
+            raise ValueError(
+                "Только MATCHED Fleet view slot может содержать canonical identity/name/form"
+            )
+
+    @property
+    def canonical_display_name(self) -> str | None:
+        if self.state is not FleetSlotState.MATCHED:
+            return None
+        if self.ship_form is ShipForm.RETROFIT:
+            return f"{self.canonical_name} (Retrofit)"
+        return self.canonical_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +120,7 @@ def _slot_view(slot: FormationFleetSlotObservation) -> FleetSlotViewModel:
         ),
         canonical_name=slot.canonical_name,
         displayed_name=slot.displayed_name,
+        ship_form=slot.ship_form,
     )
 
 

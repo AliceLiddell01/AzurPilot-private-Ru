@@ -28,7 +28,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0004_fleet_manual_scan_command"
+EXPECTED_ALEMBIC_HEAD = "0005_fleet_ship_form"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -589,6 +589,7 @@ formation_surface_fleet_slot = Table(
     Column("displayed_name", String(256), nullable=True),
     Column("canonical_identity_key", String(128), nullable=True),
     Column("canonical_name", String(256), nullable=True),
+    Column("ship_form", String(16), nullable=True),
     PrimaryKeyConstraint("snapshot_id", "side", "position"),
     CheckConstraint("side IN ('main', 'vanguard')", name="side_allowed"),
     CheckConstraint("position BETWEEN 1 AND 3", name="position_range"),
@@ -598,15 +599,21 @@ formation_surface_fleet_slot = Table(
         name="identity_status_allowed",
     ),
     CheckConstraint(
+        "ship_form IS NULL OR ship_form IN ('base', 'retrofit')",
+        name="ship_form_allowed",
+    ),
+    CheckConstraint(
         "(occupied = false AND identity_status IS NULL AND raw_name_ocr IS NULL "
         "AND displayed_name IS NULL AND canonical_identity_key IS NULL "
-        "AND canonical_name IS NULL) OR "
+        "AND canonical_name IS NULL AND ship_form IS NULL) OR "
         "(occupied = true AND identity_status IN ('unresolved', 'ambiguous') "
         "AND raw_name_ocr IS NOT NULL AND displayed_name IS NOT NULL "
-        "AND canonical_identity_key IS NULL AND canonical_name IS NULL) OR "
+        "AND canonical_identity_key IS NULL AND canonical_name IS NULL "
+        "AND ship_form IS NULL) OR "
         "(occupied = true AND identity_status = 'matched' "
         "AND raw_name_ocr IS NOT NULL AND displayed_name IS NOT NULL "
-        "AND canonical_identity_key IS NOT NULL AND canonical_name IS NOT NULL)",
+        "AND canonical_identity_key IS NOT NULL AND canonical_name IS NOT NULL "
+        "AND ship_form IN ('base', 'retrofit'))",
         name="identity_consistent",
     ),
 )
