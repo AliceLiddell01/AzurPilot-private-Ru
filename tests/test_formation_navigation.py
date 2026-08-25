@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from module.formation.navigation import (
+    FormationFleetController,
     FormationFleetIndexOcr,
     FormationNavigationLayout,
     FormationUiStateDetector,
@@ -93,3 +94,29 @@ def test_fleet_index_ocr_is_domain_validated(raw, expected) -> None:
     reader = FormationFleetIndexOcr(model=_IndexModel(raw))
 
     assert reader.read(_frame()) == expected
+
+
+def test_scan_stage_logs_fleet_stage_type_and_preserves_exception(monkeypatch) -> None:
+    warnings: list[str] = []
+    error = RuntimeError("scanner diagnostic")
+
+    def fail() -> None:
+        raise error
+
+    monkeypatch.setattr("module.formation.navigation.logger.warning", warnings.append)
+
+    with pytest.raises(RuntimeError) as raised:
+        FormationFleetController._run_scan_stage(4, "scanner_scan", fail)
+
+    assert raised.value is error
+    assert warnings == [
+        "[Построение — сканер] physical_scan_failure "
+        "fleet=4 stage=scanner_scan type=RuntimeError "
+        "diagnostic=RuntimeError: scanner diagnostic"
+    ]
+
+
+def test_exception_diagnostic_keeps_type_when_message_is_empty() -> None:
+    diagnostic = FormationFleetController._format_exception_diagnostic(RuntimeError())
+
+    assert diagnostic == "RuntimeError"
