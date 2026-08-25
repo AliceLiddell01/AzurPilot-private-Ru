@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Connection, exists, insert, select, update
+from sqlalchemy import Connection, exists, insert, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -27,6 +27,7 @@ _ACTIVE_STATUSES = (
     FleetManualScanStatus.PENDING.value,
     FleetManualScanStatus.RUNNING.value,
 )
+_ACTIVE_STATUS_INDEX_PREDICATE = text("status IN ('pending', 'running')")
 
 
 class PostgresFleetManualScanCommandRepository:
@@ -54,9 +55,7 @@ class PostgresFleetManualScanCommandRepository:
                 )
                 .on_conflict_do_nothing(
                     index_elements=[formation_surface_fleet_scan_command.c.instance_id],
-                    index_where=formation_surface_fleet_scan_command.c.status.in_(
-                        _ACTIVE_STATUSES
-                    ),
+                    index_where=_ACTIVE_STATUS_INDEX_PREDICATE,
                 )
                 .returning(formation_surface_fleet_scan_command.c.id)
             )
