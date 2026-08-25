@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass, field
 from os import environ
 from pathlib import Path
@@ -172,6 +174,15 @@ class DatabaseSettings:
     def from_backend_marker_payload(
         cls, payload: dict[str, object]
     ) -> DatabaseSettings:
+        return cls._from_backend_marker_payload(payload, require_current_schema=True)
+
+    @classmethod
+    def _from_backend_marker_payload(
+        cls,
+        payload: dict[str, object],
+        *,
+        require_current_schema: bool,
+    ) -> DatabaseSettings:
         if frozenset(payload) != _BACKEND_MARKER_KEYS:
             raise StorageConfigurationError(
                 "Production backend marker имеет некорректный contract."
@@ -180,7 +191,17 @@ class DatabaseSettings:
             raise StorageConfigurationError(
                 "Production backend marker не разрешает PostgreSQL runtime."
             )
-        if payload.get("alembic_head") != EXPECTED_ALEMBIC_HEAD:
+        marker_head = payload.get("alembic_head")
+        if (
+            not isinstance(marker_head, str)
+            or not marker_head
+            or len(marker_head) > 128
+            or any(character.isspace() for character in marker_head)
+        ):
+            raise StorageConfigurationError(
+                "Production backend marker содержит некорректный schema head."
+            )
+        if require_current_schema and marker_head != EXPECTED_ALEMBIC_HEAD:
             raise StorageConfigurationError(
                 "Production backend marker содержит несовместимый schema head."
             )
@@ -245,6 +266,89 @@ class DatabaseSettings:
             sslmode=sslmode,
             runtime_timezone=runtime_timezone,
         )
+
+
+def load_backend_marker_for_schema_upgrade(
+    marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
+) -> tuple[DatabaseSettings, str]:
+    """Прочитать валидный marker предыдущей schema для штатного Alembic upgrade."""
+
+    _, payload = _read_backend_marker(Path(marker_path))
+    settings = DatabaseSettings._from_backend_marker_payload(
+        payload,
+        require_current_schema=False,
+    )
+    marker_head = payload["alembic_head"]
+    if not isinstance(marker_head, str):
+        raise StorageConfigurationError(
+            "Production backend marker содержит некорректный schema head."
+        )
+    return settings, marker_head
+
+
+def advance_backend_marker_schema_head(
+    marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
+    *,
+    previous_head: str,
+) -> bool:
+    """Атомарно продвинуть только schema head уже валидного production marker."""
+
+    marker = Path(marker_path)
+    original_raw, payload = _read_backend_marker(marker)
+    DatabaseSettings._from_backend_marker_payload(
+        payload,
+        require_current_schema=False,
+    )
+    marker_head = payload["alembic_head"]
+    if marker_head == EXPECTED_ALEMBIC_HEAD:
+        DatabaseSettings.from_backend_marker_payload(payload)
+        return False
+    if marker_head != previous_head:
+        raise StorageConfigurationError(
+            "Production backend marker изменился во время schema upgrade."
+        )
+
+    updated_payload = dict(payload)
+    updated_payload["alembic_head"] = EXPECTED_ALEMBIC_HEAD
+    DatabaseSettings.from_backend_marker_payload(updated_payload)
+    encoded = (
+        json.dumps(updated_payload, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
+
+    descriptor = -1
+    temporary_path: Path | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=marker.name + ".",
+            suffix=".tmp",
+            dir=marker.parent,
+        )
+        temporary_path = Path(temporary_name)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+        current_raw, _ = _read_backend_marker(marker)
+        if current_raw != original_raw:
+            raise StorageConfigurationError(
+                "Production backend marker изменился во время schema upgrade."
+            )
+        os.replace(temporary_path, marker)
+        temporary_path = None
+    except StorageConfigurationError:
+        raise
+    except OSError as exc:
+        raise StorageConfigurationError(
+            "Не удалось обновить schema head production backend marker."
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+    return True
 
 
 def migrate_legacy_backend_marker(
