@@ -190,7 +190,7 @@ class PostgresFleetManualScanCommandRepository:
         result_run_id: UUID | None,
         error_code: str | None,
     ) -> FleetManualScanCommand:
-        if status not in {
+        if not isinstance(status, FleetManualScanStatus) or status not in {
             FleetManualScanStatus.SUCCEEDED,
             FleetManualScanStatus.PARTIAL,
             FleetManualScanStatus.FAILED,
