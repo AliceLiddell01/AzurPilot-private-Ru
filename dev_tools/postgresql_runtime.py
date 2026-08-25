@@ -15,7 +15,7 @@ from alembic.config import Config
 from alembic.util.exc import CommandError
 from sqlalchemy.exc import SQLAlchemyError
 
-from module.application.errors import StorageError
+from module.application.errors import StorageConfigurationError, StorageError
 from module.application.storage_models import StorageHealthState
 from module.persistence.config import (
     DEFAULT_BACKEND_MARKER_PATH,
@@ -171,6 +171,24 @@ def _health(marker: Path) -> None:
         engine.dispose()
 
 
+def _require_upgrade_endpoint_match(
+    marker_settings: DatabaseSettings,
+    migrator_settings: DatabaseSettings,
+) -> None:
+    """Запретить migrator менять БД, отличную от production marker endpoint."""
+
+    if (
+        marker_settings.host != migrator_settings.host
+        or marker_settings.port != migrator_settings.port
+        or marker_settings.database != migrator_settings.database
+        or marker_settings.sslmode != migrator_settings.sslmode
+        or marker_settings.runtime_timezone != migrator_settings.runtime_timezone
+    ):
+        raise StorageConfigurationError(
+            "Migrator endpoint не совпадает с production backend marker."
+        )
+
+
 def _upgrade(
     marker: Path = _REPOSITORY_ROOT / DEFAULT_BACKEND_MARKER_PATH,
 ) -> None:
@@ -185,6 +203,7 @@ def _upgrade(
     settings = DatabaseSettings.from_environment(
         prefix="AZURPILOT_POSTGRES_MIGRATOR_"
     )
+    _require_upgrade_endpoint_match(marker_settings, settings)
     os.environ.update(
         {
             "AZURPILOT_POSTGRES_HOST": settings.host,
