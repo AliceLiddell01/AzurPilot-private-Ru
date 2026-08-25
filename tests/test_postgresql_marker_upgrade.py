@@ -96,6 +96,53 @@ def test_marker_schema_advance_rejects_unexpected_current_head(
     assert marker.read_bytes() == before
 
 
+def test_upgrade_endpoint_must_match_marker_except_role() -> None:
+    marker_settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        database="azurpilot",
+        user="azurpilot_app",
+        sslmode="disable",
+        runtime_timezone="Asia/Novosibirsk",
+    )
+    migrator_settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        database="azurpilot",
+        user="azurpilot_migrator",
+        sslmode="disable",
+        runtime_timezone="Asia/Novosibirsk",
+    )
+
+    postgresql_runtime._require_upgrade_endpoint_match(
+        marker_settings,
+        migrator_settings,
+    )
+
+    for field_name, value in (
+        ("host", "localhost"),
+        ("port", 6543),
+        ("database", "another_database"),
+        ("sslmode", "require"),
+        ("runtime_timezone", "UTC"),
+    ):
+        values = {
+            "host": migrator_settings.host,
+            "port": migrator_settings.port,
+            "database": migrator_settings.database,
+            "user": migrator_settings.user,
+            "sslmode": migrator_settings.sslmode,
+            "runtime_timezone": migrator_settings.runtime_timezone,
+        }
+        values[field_name] = value
+        mismatched = DatabaseSettings(**values)
+        with pytest.raises(StorageConfigurationError, match="не совпадает"):
+            postgresql_runtime._require_upgrade_endpoint_match(
+                marker_settings,
+                mismatched,
+            )
+
+
 class _LocalEnvironment:
     def __init__(self, events: list[object]) -> None:
         self.events = events
