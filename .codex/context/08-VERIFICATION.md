@@ -120,6 +120,19 @@
 - server/theme variants;
 - range validation OCR.
 
+Для UI-driven Formation/Fleet scanner дополнительно проверять:
+
+- одиночный переходный detector-positive кадр не запускает физический scanner;
+- открытие Info требует ограниченной последовательности свежих подтверждений состояния;
+- закрытие Info требует устойчивой Formation boundary до выбора следующего флота;
+- scanner-layer exception сохраняет физическую stage/type диагностику;
+- структурный `complete == False` остаётся отдельным результатом распознавания и не превращается в physical failure;
+- recoverable continuation разрешён только после доказанного восстановления детерминированного UI состояния;
+- при неизвестном UI состоянии batch останавливается fail-closed;
+- `failed_fleet_index` и итоговые `PARTIAL`/`FAILED` не допускают false success после физического сбоя.
+
+Если production-изменение затрагивает сам переход между флотами, после automated gates нужен один контролируемый реальный device acceptance полного диапазона Surface Fleet 1..6. Не повторять несколько эквивалентных ручных прогонов без нового evidence или существенного code diff.
+
 Реальные device/OCR acceptance и benchmarks выполняются локальными инструментами из `tools/acceptance/` и `tools/benchmarks/`. Они не становятся required checks каждого PR без отдельного устойчивого обоснования.
 
 ### Runtime localization integrity
