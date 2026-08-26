@@ -15,6 +15,7 @@ from module.persistence.fleet_manual_scan_repositories import (
     PostgresFleetManualScanCommandRepository,
 )
 from module.persistence.fleet_state_repositories import PostgresFleetStateRepository
+from module.persistence.morale_repositories import PostgresMoraleRepository
 from module.persistence.repositories import (
     PostgresImportLedgerRepository,
     PostgresInstanceIdentityRepository,
@@ -34,6 +35,7 @@ class PostgresUnitOfWork:
         self.imports: PostgresImportLedgerRepository
         self.runtime: PostgresRuntimeStatisticsRepository
         self.fleet_state: PostgresFleetStateRepository
+        self.morale: PostgresMoraleRepository
         self.fleet_scan_commands: PostgresFleetManualScanCommandRepository
 
     def __enter__(self) -> Self:
@@ -49,6 +51,7 @@ class PostgresUnitOfWork:
             self.imports = PostgresImportLedgerRepository(connection)
             self.runtime = PostgresRuntimeStatisticsRepository(connection)
             self.fleet_state = PostgresFleetStateRepository(connection)
+            self.morale = PostgresMoraleRepository(connection)
             self.fleet_scan_commands = PostgresFleetManualScanCommandRepository(
                 connection
             )
@@ -71,6 +74,7 @@ class PostgresUnitOfWork:
             "imports",
             "runtime",
             "fleet_state",
+            "morale",
             "fleet_scan_commands",
         ):
             self.__dict__.pop(attribute, None)

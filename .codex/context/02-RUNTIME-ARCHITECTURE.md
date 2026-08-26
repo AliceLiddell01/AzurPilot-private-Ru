@@ -124,6 +124,12 @@ WebUI и MCP consumers используют application storage services; тол
 composition roots импортируют `module.persistence.runtime`. Обязательный
 PostgreSQL marker проверяется fail-closed; SQLite fallback и dual-write
 запрещены.
+
+Per-ship Morale Core опирается на append-only Formation Fleet State как на
+единственный источник состава. Он хранит только morale baseline и provenance
+физического slot + canonical identity + form, вычисляет текущее значение по
+инъецированному времени и не подключён к legacy Combat path. Замена occupant,
+смена формы или неоднозначный Fleet slot дают `unknown`, а не перенос состояния.
 Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
 корневой `config/*.json` является только пространством кандидатов: игровым
 профилем считается безопасный regular JSON, прошедший единый structural

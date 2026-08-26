@@ -65,6 +65,30 @@ Formation Surface Fleet хранится как append-only цепочка scan 
 Application API `FleetStateService` выбирает latest/history по `app_instance` и
 явной refresh policy, а PostgreSQL adapters не управляют Formation UI.
 
+Per-ship Morale хранится отдельной append-only цепочкой baseline observations с
+FK provenance к Formation snapshot и slot identity. `MoraleService` читает
+актуальный Fleet State set-based, проверяет continuity canonical identity + form
+и вычисляет projection без фоновых UPDATE.
+
+Runtime identity morale — `app_instance + fleet_index + side + position +
+canonical_identity + ship_form`. Новый Formation snapshot продолжает состояние
+только для того же корабля и формы в том же физическом слоте. Empty, unresolved,
+ambiguous, замена identity и переход `BASE ↔ RETROFIT` дают `unknown`.
+Одинаковые canonical ships в разных слотах, флотах или app instances имеют
+независимые состояния.
+
+Baseline, recovery rate и ceiling представлены `Decimal`/`NUMERIC`. Projection
+применяет только завершённые шестиминутные интервалы: `recovery_per_hour / 10`
+за tick. Базовый профиль вне Dorm — `20/ч` до `119`; baseline выше ceiling не
+уменьшается от течения времени, hard bounds остаются `0..150`. Эти значения и
+tick semantics сверены с [Azur Lane Wiki](https://azur-lane.fandom.com/wiki/Affinity)
+и [Bilibili Azur Lane Wiki](https://wiki.biligame.com/blhx/%E5%BF%83%E6%83%85).
+`MoraleRecoveryProfile` оставляет bounded extension point для будущих доказанных
+oath/Dorm/onsen sources, но Stage 1 их не угадывает.
+
+Stage 1 не подключает core к `module/combat/emotion.py`, Scheduler, Dorm, OCR или
+Fleet WebUI. Legacy Combat остаётся production path до отдельного этапа.
+
 Опциональный Fleet AutoScan запускается планировщиком на безопасной границе
 перед обычной задачей и использует тот же `Device`, `LazyEngine` и
 `FleetStateService`. Настройки `Alas.FleetAutoScan.Mode` и `Fleets` по умолчанию

@@ -61,6 +61,23 @@ from module.application.fleet_page import (
     FleetSlotState,
     FleetSlotViewModel,
 )
+from module.application.morale import (
+    MORALE_MAX,
+    MORALE_MIN,
+    OUTSIDE_DORM_RECOVERY_CEILING,
+    OUTSIDE_DORM_RECOVERY_PER_HOUR,
+    MoraleContinuityError,
+    MoraleFleetState,
+    MoraleKnowledge,
+    MoraleObservation,
+    MoraleProjection,
+    MoraleRecoveryProfile,
+    MoraleSelectionState,
+    MoraleService,
+    MoraleSlotState,
+    RecordMoraleObservation,
+    project_morale,
+)
 from module.application.services import InstanceQueryService, TaskCatalogService
 from module.application.migration_service import MigrationService, finalize_rehearsal
 from module.application.storage_models import (
@@ -118,9 +135,23 @@ __all__ = (
     "MonthlyAggregate",
     "MonthlyMetric",
     "MigrationService",
+    "MORALE_MAX",
+    "MORALE_MIN",
+    "MoraleContinuityError",
+    "MoraleFleetState",
+    "MoraleKnowledge",
+    "MoraleObservation",
+    "MoraleProjection",
+    "MoraleRecoveryProfile",
+    "MoraleSelectionState",
+    "MoraleService",
+    "MoraleSlotState",
     "OpsiItemEvent",
+    "OUTSIDE_DORM_RECOVERY_CEILING",
+    "OUTSIDE_DORM_RECOVERY_PER_HOUR",
     "ResourceNotFoundError",
     "ResourceSnapshot",
+    "RecordMoraleObservation",
     "RuntimeState",
     "ServiceUnavailableError",
     "StorageAuthenticationError",
@@ -138,4 +169,5 @@ __all__ = (
     "TaskOption",
     "TaskSummary",
     "finalize_rehearsal",
+    "project_morale",
 )
