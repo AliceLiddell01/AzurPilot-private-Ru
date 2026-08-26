@@ -143,6 +143,7 @@ def test_non_retrofit_matches_keep_base_form(
     "raw",
     (
         "York (",
+        "York (...",
         "York (r",
         "York (retr",
         "York (retrox",

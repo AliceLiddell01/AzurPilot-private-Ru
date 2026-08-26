@@ -207,6 +207,38 @@ def test_0005_replays_legacy_fuzzy_truncated_and_explicit_retrofit_paths(
     assert _stored_forms(migration_database) == ("base", "base", "retrofit")
 
 
+def test_0005_fails_closed_for_empty_retrofit_prefix_marker(migration_database):
+    _upgrade(migration_database, _PREVIOUS_HEAD)
+    _seed_matched_slots(
+        migration_database,
+        (
+            (
+                "Generic Ambiguous Ship (...",
+                "Generic Ambiguous Ship (...",
+                "Generic Ambiguous Ship",
+            ),
+        ),
+    )
+
+    result = _upgrade(migration_database, "head", check=False)
+
+    assert result.returncode != 0
+    output = result.stdout + result.stderr
+    assert "структурно некорректных исторических MATCHED-слотов" in output
+    with _admin_connection(migration_database) as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT version_num FROM alembic_version")
+        assert cursor.fetchone()[0] == _PREVIOUS_HEAD
+        cursor.execute(
+            "SELECT EXISTS ("
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'azurpilot' "
+            "AND table_name = 'formation_surface_fleet_slot' "
+            "AND column_name = 'ship_form'"
+            ")"
+        )
+        assert cursor.fetchone()[0] is False
+
+
 def test_0005_fails_closed_for_structurally_invalid_historical_matched_row(
     migration_database,
 ):

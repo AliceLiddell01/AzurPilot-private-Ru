@@ -440,7 +440,7 @@ class DockShipIdentityResolver:
             if match is None:
                 return None
             suffix = normalize_ship_name(match.group("suffix"))
-            if not self._RETROFIT_SUFFIX.startswith(suffix):
+            if not suffix or not self._RETROFIT_SUFFIX.startswith(suffix):
                 return None
         elif match is None:
             match = self._PARTIAL_RETROFIT_RE.fullmatch(displayed)
