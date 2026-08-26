@@ -92,7 +92,11 @@ class Frame(Base):
         self.page = name
         self.task_handler.remove_pending_task()
         with self._page_lock:
-            self.cleanup_client_resources("__apChartCleanups", "__resourceChartCleanups")
+            self.cleanup_client_resources(
+                "__apChartCleanups",
+                "__resourceChartCleanups",
+                "__fleetPageCleanups",
+            )
             clear("content")
         if collapse_menu:
             self.collapse_menu()

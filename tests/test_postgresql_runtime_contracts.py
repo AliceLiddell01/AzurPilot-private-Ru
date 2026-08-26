@@ -21,6 +21,7 @@ from module.persistence.config import (
     DatabaseSettings,
     migrate_legacy_backend_marker,
 )
+from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from module.statistics import postgresql_stats
 from tests.import_inspection import imports_for_path
 
@@ -45,7 +46,7 @@ def _marker_payload() -> dict[str, object]:
     return {
         "backend": "postgresql",
         "version": 1,
-        "alembic_head": "0003_fleet_state_core",
+        "alembic_head": EXPECTED_ALEMBIC_HEAD,
         "reconciliation_report_sha256": "a" * 64,
         "reviewed_head": "b" * 40,
         "merge_commit": "c" * 40,

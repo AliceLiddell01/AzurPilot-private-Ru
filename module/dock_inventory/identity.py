@@ -26,7 +26,7 @@ from module.dock_inventory.catalog import (
     load_dock_identity_catalog,
     normalize_ship_name,
 )
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.dock_inventory.navigation import (
     DockInventoryNavigator,
     DockPrerequisiteEvidence,
@@ -51,6 +51,7 @@ class DockShipIdentityResolution:
     displayed_name: str
     canonical_identity: CanonicalShipIdentity | None = None
     canonical_name: str | None = None
+    ship_form: ShipForm | None = None
     best_score: float | None = None
     runner_up_score: float | None = None
     candidate_count: int = 0
@@ -85,8 +86,13 @@ class DockShipIdentityResolution:
                 raise ValueError("MATCHED требует canonical identity")
             if self.canonical_name is None or not self.canonical_name.strip():
                 raise ValueError("MATCHED требует canonical name")
-        elif self.canonical_identity is not None or self.canonical_name is not None:
-            raise ValueError("Только MATCHED может содержать canonical identity/name")
+            if not isinstance(self.ship_form, ShipForm):
+                raise ValueError("MATCHED требует ship form")
+        elif any(
+            value is not None
+            for value in (self.canonical_identity, self.canonical_name, self.ship_form)
+        ):
+            raise ValueError("Только MATCHED может содержать canonical identity/name/form")
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,9 +174,9 @@ class DockIdentityScanResult:
 
     def __post_init__(self) -> None:
         if not isinstance(self.prerequisite, DockPrerequisiteEvidence):
-            raise TypeError("prerequisite имеет неверный тип")
+            raise TypeError("prerequisite должен быть DockPrerequisiteEvidence")
         if not isinstance(self.traversal, DockTraversalResult):
-            raise TypeError("traversal имеет неверный тип")
+            raise TypeError("traversal должен быть DockTraversalResult")
         if not isinstance(self.viewports, tuple) or not all(
             isinstance(value, DockViewportIdentityScan) for value in self.viewports
         ):
@@ -207,8 +213,10 @@ class DockShipIdentityResolver:
     """Conservative exact, explicit-prefix, then threshold+margin resolver."""
 
     MIN_TRUNCATED_PREFIX_LENGTH = 6
+    MIN_UNMARKED_RETROFIT_PREFIX_LENGTH = 5
     FUZZY_MIN_SCORE = 0.86
     FUZZY_MIN_MARGIN = 0.08
+    _RETROFIT_SUFFIX = "retrofit"
     _TRUNCATION_RE = re.compile(r"(?:\.{2,3}|…)+$")
     _FULL_RETROFIT_RE = re.compile(r"^(?P<base>.+?)\s+\(retrofit\)$", re.IGNORECASE)
     _PARTIAL_RETROFIT_RE = re.compile(r"^(?P<base>.+?)\s+\((?P<suffix>[^)]*)$")
@@ -231,6 +239,7 @@ class DockShipIdentityResolver:
         method: DockIdentityResolutionMethod,
         candidates: Sequence[DockCanonicalShip] = (),
         match: DockCanonicalShip | None = None,
+        ship_form: ShipForm = ShipForm.BASE,
         best_score: float | None = None,
         runner_up_score: float | None = None,
         reason: str | None = None,
@@ -243,6 +252,7 @@ class DockShipIdentityResolver:
             displayed_name=displayed,
             canonical_identity=match.identity if match is not None else None,
             canonical_name=match.canonical_name if match is not None else None,
+            ship_form=ship_form if match is not None else None,
             best_score=best_score,
             runner_up_score=runner_up_score,
             candidate_count=len(candidate_ids),
@@ -263,6 +273,13 @@ class DockShipIdentityResolver:
                 method=DockIdentityResolutionMethod.NONE,
                 reason="blank_ocr",
             )
+
+        retrofit = self._resolve_retrofit_display_suffix(
+            raw=raw_name_ocr,
+            displayed=displayed,
+        )
+        if retrofit is not None:
+            return retrofit
 
         exact = self.catalog.candidates_for_exact_name(normalized)
         if len(exact) == 1:
@@ -288,12 +305,16 @@ class DockShipIdentityResolver:
                 reason="normalized_exact_collision",
             )
 
-        retrofit = self._resolve_retrofit_display_suffix(
-            raw=raw_name_ocr,
-            displayed=displayed,
-        )
-        if retrofit is not None:
-            return retrofit
+        # Незакрытая parenthetical-строка не должна уходить в общий fuzzy path:
+        # без доверенного Retrofit evidence это недостаточно данных для identity match.
+        if self._PARTIAL_RETROFIT_RE.fullmatch(displayed) is not None:
+            return self._decision(
+                raw=raw_name_ocr,
+                displayed=displayed,
+                status=IdentityStatus.UNRESOLVED,
+                method=DockIdentityResolutionMethod.TRUNCATED_PREFIX,
+                reason="untrusted_parenthetical_suffix",
+            )
 
         truncation = self._TRUNCATION_RE.search(displayed)
         if truncation is not None:
@@ -382,6 +403,28 @@ class DockShipIdentityResolver:
             runner_up_score=runner_up_score,
         )
 
+    @classmethod
+    def _is_unmarked_partial_retrofit_suffix(cls, suffix: str) -> bool:
+        normalized = normalize_ship_name(suffix)
+        if len(normalized) < cls.MIN_UNMARKED_RETROFIT_PREFIX_LENGTH:
+            return False
+        if cls._RETROFIT_SUFFIX.startswith(normalized):
+            return True
+
+        prefix_length = 0
+        for observed, expected in zip(normalized, cls._RETROFIT_SUFFIX):
+            if observed != expected:
+                break
+            prefix_length += 1
+
+        # Реальный Formation OCR может заменить первый обрезанный символ после
+        # уже надёжного `retro` на одну цифру; шире этот noise contract не открываем.
+        return (
+            prefix_length >= cls.MIN_UNMARKED_RETROFIT_PREFIX_LENGTH
+            and len(normalized) == prefix_length + 1
+            and normalized[-1].isdigit()
+        )
+
     def _resolve_retrofit_display_suffix(
         self,
         *,
@@ -397,8 +440,15 @@ class DockShipIdentityResolver:
             if match is None:
                 return None
             suffix = normalize_ship_name(match.group("suffix"))
-            if not "retrofit".startswith(suffix):
+            if not suffix or not self._RETROFIT_SUFFIX.startswith(suffix):
                 return None
+        elif match is None:
+            match = self._PARTIAL_RETROFIT_RE.fullmatch(displayed)
+            if match is None or not self._is_unmarked_partial_retrofit_suffix(
+                match.group("suffix")
+            ):
+                return None
+            method = DockIdentityResolutionMethod.TRUNCATED_PREFIX
         if match is None:
             return None
 
@@ -412,6 +462,7 @@ class DockShipIdentityResolver:
                 method=method,
                 candidates=candidates,
                 match=candidates[0],
+                ship_form=ShipForm.RETROFIT,
                 best_score=1.0,
                 runner_up_score=self._runner_up_score(
                     base,

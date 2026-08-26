@@ -6,6 +6,13 @@ from unittest.mock import Mock, patch
 from alas import AzurLaneAutoScript
 
 
+def _manual_scan_stub():
+    return types.SimpleNamespace(
+        process_next=lambda _instance: None,
+        has_pending=lambda _instance: False,
+    )
+
+
 def test_failed_scheduled_recovery_moves_retry_window_before_next_task():
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     script.config_name = 'scheduled-backoff'
@@ -15,6 +22,7 @@ def test_failed_scheduled_recovery_moves_retry_window_before_next_task():
     script.consecutive_adb_offline = 0
     script.last_emulator_restart_time = 0.0
     script._emulator_recovery_transport_lost = False
+    script._manual_scan_wakeup = False
 
     stop_state = {'value': False}
     script.stop_event = types.SimpleNamespace(is_set=lambda: stop_state['value'])
@@ -40,6 +48,7 @@ def test_failed_scheduled_recovery_moves_retry_window_before_next_task():
         stuck_record_clear=lambda: None,
         click_record_clear=lambda: None,
     )
+    script.__dict__['fleet_manual_scan'] = _manual_scan_stub()
 
     script.get_next_task = Mock(return_value='Synthetic')
     script._try_restart_emulator = Mock(return_value=False)
@@ -60,6 +69,7 @@ def test_failed_scheduled_recovery_moves_retry_window_before_next_task():
     script._try_restart_emulator.assert_called_once_with(reason='scheduled')
     assert script.last_emulator_restart_time == 7205.0
 
+
 def test_scheduled_recovery_stops_before_task_when_transport_is_lost():
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     script.config_name = 'scheduled-transport-loss'
@@ -69,6 +79,7 @@ def test_scheduled_recovery_stops_before_task_when_transport_is_lost():
     script.consecutive_adb_offline = 0
     script.last_emulator_restart_time = 0.0
     script._emulator_recovery_transport_lost = False
+    script._manual_scan_wakeup = False
     script.stop_event = None
 
     config = types.SimpleNamespace(
@@ -80,6 +91,7 @@ def test_scheduled_recovery_stops_before_task_when_transport_is_lost():
         wait_until_available=lambda: None,
         is_recovered=lambda: False,
     )
+    script.__dict__['fleet_manual_scan'] = _manual_scan_stub()
     script.get_next_task = Mock()
 
     def fail_recovery(*, reason):

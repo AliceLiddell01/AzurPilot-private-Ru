@@ -17,6 +17,7 @@ class SchedulerContinuationTests(unittest.TestCase):
         script._last_emulator_recovery_mode = 'hard-kill'
         script._emulator_recovery_transport_lost = False
         script.last_emulator_restart_time = 0
+        script._manual_scan_wakeup = False
         script.__dict__['config'] = Mock()
         script.config.EmulatorManagement_ScheduledEmulatorRestart = False
         script.config.FleetAutoScan_Mode = 'disabled'
@@ -29,6 +30,10 @@ class SchedulerContinuationTests(unittest.TestCase):
         script.__dict__['device'] = Mock()
         script.__dict__['checker'] = Mock()
         script.checker.is_recovered.return_value = False
+        manual_scan = Mock()
+        manual_scan.process_next.return_value = None
+        manual_scan.has_pending.return_value = False
+        script.__dict__['fleet_manual_scan'] = manual_scan
         return script
 
     def test_recoverable_incident_continues_to_next_task_and_normal_success_resets_budgets(self):

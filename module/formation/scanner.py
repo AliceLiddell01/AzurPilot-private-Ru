@@ -15,12 +15,14 @@ from module.dock_inventory.catalog import (
     load_dock_identity_catalog,
 )
 from module.dock_inventory.identity import DockShipIdentityResolver
+from module.dock_inventory.model import IdentityStatus
 from module.formation.model import (
     FormationFleetSide,
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
     validate_surface_fleet_index,
 )
+from module.logger import logger
 from module.ocr.ocr import Ocr
 
 
@@ -282,6 +284,16 @@ class FormationFleetInfoScanner:
 
             raw_name = next(name_iter)
             resolution = self.resolver.resolve(raw_name)
+            if resolution.status in (IdentityStatus.UNRESOLVED, IdentityStatus.AMBIGUOUS):
+                logger.warning(
+                    "[Построение — сканер] identity_resolution "
+                    f"fleet={fleet_index} side={geometry.side.value} "
+                    f"position={geometry.position} status={resolution.status.value} "
+                    f"method={resolution.method.value} "
+                    f"raw_name_ocr={resolution.raw_name_ocr!r} "
+                    f"displayed_name={resolution.displayed_name!r} "
+                    f"reason={resolution.reason!r}"
+                )
             observations.append(
                 FormationFleetSlotObservation(
                     side=geometry.side,
@@ -292,6 +304,7 @@ class FormationFleetInfoScanner:
                     displayed_name=resolution.displayed_name,
                     canonical_identity=resolution.canonical_identity,
                     canonical_name=resolution.canonical_name,
+                    ship_form=resolution.ship_form,
                 )
             )
 

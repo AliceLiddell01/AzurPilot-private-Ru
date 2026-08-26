@@ -14,6 +14,11 @@ from module.application.fleet_state import (
     FleetStateService,
     FormationFleetScanController,
 )
+from module.application.fleet_manual_scan import (
+    FleetManualScanCommandService,
+    FleetManualScanCoordinator,
+)
+from module.application.fleet_page import FleetPageQueryService
 from module.application.runtime_storage import (
     RuntimeStorageService,
     clear_runtime_storage_provider,
@@ -45,6 +50,22 @@ class RuntimeFleetStateContext:
 
     state_service: FleetStateService
     runtime_timezone: ZoneInfo
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeFleetPageContext:
+    """Сервисы чтения и отправки команд для процесса WebUI."""
+
+    query_service: FleetPageQueryService
+    command_service: FleetManualScanCommandService
+    runtime_timezone: ZoneInfo
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeFleetManualScanContext:
+    """Координатор рабочего процесса с ленивой привязкой к устройству планировщика."""
+
+    coordinator: FleetManualScanCoordinator
 
 
 def bootstrap_runtime_storage(
@@ -127,6 +148,59 @@ def build_runtime_fleet_state_context(
     )
 
 
+def build_runtime_fleet_page_context(
+    *,
+    clock: Callable[[], datetime] | None = None,
+    require_ready: bool = True,
+) -> RuntimeFleetPageContext:
+    """Собрать сервисы WebUI-страницы флотов без устройства и контроллера сканирования."""
+
+    bootstrap_runtime_storage(require_ready=require_ready)
+    with _lock:
+        engine = _engine
+        runtime_timezone = _runtime_timezone
+    if engine is None or runtime_timezone is None:
+        raise RuntimeError("Точка сборки Fleet page не инициализирована.")
+    uow_factory = lambda: PostgresUnitOfWork(engine)
+    return RuntimeFleetPageContext(
+        query_service=FleetPageQueryService(uow_factory),
+        command_service=FleetManualScanCommandService(
+            uow_factory,
+            clock=clock,
+        ),
+        runtime_timezone=runtime_timezone,
+    )
+
+
+def build_runtime_fleet_manual_scan_context(
+    controller_factory: Callable[[], FormationFleetScanController],
+    *,
+    clock: Callable[[], datetime] | None = None,
+    require_ready: bool = True,
+) -> RuntimeFleetManualScanContext:
+    """Собрать устойчивый координатор команд для существующего рабочего процесса."""
+
+    state_context = build_runtime_fleet_state_context(
+        controller_factory,
+        clock=clock,
+        require_ready=require_ready,
+    )
+    with _lock:
+        engine = _engine
+    if engine is None:
+        raise RuntimeError("Точка сборки manual Fleet scan не инициализирована.")
+    command_service = FleetManualScanCommandService(
+        lambda: PostgresUnitOfWork(engine),
+        clock=clock,
+    )
+    return RuntimeFleetManualScanContext(
+        coordinator=FleetManualScanCoordinator(
+            command_service,
+            state_context.state_service,
+        )
+    )
+
+
 def runtime_health() -> None:
     bootstrap_runtime_storage(require_ready=True)
 
@@ -143,8 +217,12 @@ def dispose_runtime_storage() -> None:
 
 
 __all__ = [
+    "RuntimeFleetManualScanContext",
+    "RuntimeFleetPageContext",
     "RuntimeFleetStateContext",
     "bootstrap_runtime_storage",
+    "build_runtime_fleet_manual_scan_context",
+    "build_runtime_fleet_page_context",
     "build_runtime_fleet_state_context",
     "dispose_runtime_storage",
     "runtime_health",

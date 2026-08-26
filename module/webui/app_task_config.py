@@ -74,6 +74,8 @@ class TaskConfigMixin(WebUIMixinBase):
             ],
             onclick=[self.alas_overview],
         ).style(f"--menu-Overview--")
+        if hasattr(self, "_put_fleet_menu_button"):
+            self._put_fleet_menu_button()
 
         for menu, task_data in self.ALAS_MENU.items():
             if task_data.get("page") == "tool":
@@ -94,6 +96,7 @@ class TaskConfigMixin(WebUIMixinBase):
                         onclick=_onclick,
                     ).style(f"--menu-{task}--")
                     for task in task_data.get("tasks", [])
+                    if task != "FleetAutoScan"
                 ]
                 put_collapse(title=t(f"Menu.{menu}.name"), content=task_btn_list)
             else:
@@ -106,6 +109,8 @@ class TaskConfigMixin(WebUIMixinBase):
                     "</div>"
                 )
                 for task in task_data.get("tasks", []):
+                    if task == "FleetAutoScan":
+                        continue
                     put_buttons(
                         [
                             {

@@ -19,6 +19,16 @@ from module.webui.app_helpers import (
 )
 
 
+def build_fleet_page_runtime_context(*, clock=None, require_ready: bool = True):
+    """Собрать контекст выполнения страницы флотов в разрешённой корневой точке WebUI."""
+    from module.persistence.runtime import build_runtime_fleet_page_context
+
+    return build_runtime_fleet_page_context(
+        clock=clock,
+        require_ready=require_ready,
+    )
+
+
 def _clearup_step(name, handler) -> bool:
     """Выполнить один шаг очистки, не блокируя освобождение остальных ресурсов."""
     try:

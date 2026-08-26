@@ -28,7 +28,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0003_fleet_state_core"
+EXPECTED_ALEMBIC_HEAD = "0005_fleet_ship_form"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -589,6 +589,7 @@ formation_surface_fleet_slot = Table(
     Column("displayed_name", String(256), nullable=True),
     Column("canonical_identity_key", String(128), nullable=True),
     Column("canonical_name", String(256), nullable=True),
+    Column("ship_form", String(16), nullable=True),
     PrimaryKeyConstraint("snapshot_id", "side", "position"),
     CheckConstraint("side IN ('main', 'vanguard')", name="side_allowed"),
     CheckConstraint("position BETWEEN 1 AND 3", name="position_range"),
@@ -598,15 +599,116 @@ formation_surface_fleet_slot = Table(
         name="identity_status_allowed",
     ),
     CheckConstraint(
+        "ship_form IS NULL OR ship_form IN ('base', 'retrofit')",
+        name="ship_form_allowed",
+    ),
+    CheckConstraint(
         "(occupied = false AND identity_status IS NULL AND raw_name_ocr IS NULL "
         "AND displayed_name IS NULL AND canonical_identity_key IS NULL "
-        "AND canonical_name IS NULL) OR "
+        "AND canonical_name IS NULL AND ship_form IS NULL) OR "
         "(occupied = true AND identity_status IN ('unresolved', 'ambiguous') "
         "AND raw_name_ocr IS NOT NULL AND displayed_name IS NOT NULL "
-        "AND canonical_identity_key IS NULL AND canonical_name IS NULL) OR "
+        "AND canonical_identity_key IS NULL AND canonical_name IS NULL "
+        "AND ship_form IS NULL) OR "
         "(occupied = true AND identity_status = 'matched' "
         "AND raw_name_ocr IS NOT NULL AND displayed_name IS NOT NULL "
-        "AND canonical_identity_key IS NOT NULL AND canonical_name IS NOT NULL)",
+        "AND canonical_identity_key IS NOT NULL AND canonical_name IS NOT NULL "
+        "AND ship_form IS NOT NULL AND ship_form IN ('base', 'retrofit'))",
         name="identity_consistent",
     ),
+)
+
+formation_surface_fleet_scan_command = Table(
+    "formation_surface_fleet_scan_command",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column(
+        "instance_id",
+        Uuid,
+        ForeignKey(
+            f"{SCHEMA_NAME}.app_instance.id",
+            ondelete="RESTRICT",
+            name="fk_fleet_scan_command_instance",
+        ),
+        nullable=False,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=True),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+    Column("status", String(16), nullable=False, server_default="pending"),
+    Column("result_run_id", Uuid, nullable=True),
+    Column("error_code", String(64), nullable=True),
+    ForeignKeyConstraint(
+        ("result_run_id", "instance_id"),
+        (
+            f"{SCHEMA_NAME}.formation_surface_fleet_scan_run.id",
+            f"{SCHEMA_NAME}.formation_surface_fleet_scan_run.instance_id",
+        ),
+        ondelete="RESTRICT",
+        name="fk_formation_fleet_command_result_run_instance",
+    ),
+    CheckConstraint(
+        "status IN ('pending', 'running', 'succeeded', 'partial', 'failed')",
+        name="status_allowed",
+    ),
+    CheckConstraint(
+        "(status = 'pending' AND started_at IS NULL AND finished_at IS NULL "
+        "AND result_run_id IS NULL AND error_code IS NULL) OR "
+        "(status = 'running' AND started_at IS NOT NULL AND finished_at IS NULL "
+        "AND result_run_id IS NULL AND error_code IS NULL) OR "
+        "(status = 'succeeded' AND started_at IS NOT NULL AND finished_at IS NOT NULL "
+        "AND result_run_id IS NOT NULL AND error_code IS NULL) OR "
+        "(status = 'partial' AND started_at IS NOT NULL AND finished_at IS NOT NULL "
+        "AND result_run_id IS NOT NULL AND error_code IS NOT NULL) OR "
+        "(status = 'failed' AND started_at IS NOT NULL AND finished_at IS NOT NULL "
+        "AND error_code IS NOT NULL)",
+        name="lifecycle_consistent",
+    ),
+    CheckConstraint(
+        "started_at IS NULL OR started_at >= created_at",
+        name="start_time_ordered",
+    ),
+    CheckConstraint(
+        "finished_at IS NULL OR finished_at >= started_at",
+        name="finish_time_ordered",
+    ),
+)
+Index(
+    "uq_formation_surface_fleet_scan_command_active_instance",
+    formation_surface_fleet_scan_command.c.instance_id,
+    unique=True,
+    postgresql_where=formation_surface_fleet_scan_command.c.status.in_(
+        ("pending", "running")
+    ),
+)
+Index(
+    "ix_formation_surface_fleet_scan_command_instance_created",
+    formation_surface_fleet_scan_command.c.instance_id,
+    formation_surface_fleet_scan_command.c.created_at.desc(),
+    formation_surface_fleet_scan_command.c.id.desc(),
+)
+Index(
+    "ix_formation_surface_fleet_scan_command_pending_claim",
+    formation_surface_fleet_scan_command.c.instance_id,
+    formation_surface_fleet_scan_command.c.status,
+    formation_surface_fleet_scan_command.c.created_at,
+    formation_surface_fleet_scan_command.c.id,
+)
+
+formation_surface_fleet_scan_command_fleet = Table(
+    "formation_surface_fleet_scan_command_fleet",
+    metadata,
+    Column(
+        "command_id",
+        Uuid,
+        ForeignKey(
+            f"{SCHEMA_NAME}.formation_surface_fleet_scan_command.id",
+            ondelete="CASCADE",
+            name="fk_formation_fleet_command_fleet_command",
+        ),
+        nullable=False,
+    ),
+    Column("fleet_index", Integer, nullable=False),
+    PrimaryKeyConstraint("command_id", "fleet_index"),
+    CheckConstraint("fleet_index BETWEEN 1 AND 6", name="fleet_index_range"),
 )

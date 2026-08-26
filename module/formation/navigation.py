@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol, TypeVar
 
 import cv2
 import numpy as np
@@ -21,6 +21,10 @@ from module.logger import logger
 from module.ocr.ocr import Digit
 from module.ui.page import page_fleet
 from module.ui.ui import UI
+
+
+_T = TypeVar("_T")
+_FORMATION_STATE_CONFIRM_FRAMES = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,19 +226,61 @@ class FormationFleetController(UI):
     ) -> Button:
         return Button(area=(), color=(), button=area, name=name)
 
+    @staticmethod
+    def _format_exception_diagnostic(error: BaseException) -> str:
+        message = str(error).strip()
+        return f"{type(error).__name__}: {message}" if message else type(error).__name__
+
+    @staticmethod
+    def _run_scan_stage(
+        fleet_index: int,
+        stage: str,
+        action: Callable[[], _T],
+    ) -> _T:
+        try:
+            return action()
+        except Exception as error:
+            logger.warning(
+                "[Построение — сканер] physical_scan_failure "
+                f"fleet={fleet_index} stage={stage} "
+                f"type={type(error).__name__} "
+                "diagnostic="
+                f"{FormationFleetController._format_exception_diagnostic(error)}"
+            )
+            raise
+
     def _current_frame(self) -> np.ndarray:
         frame = self.device.image
         if not isinstance(frame, np.ndarray):
             raise FormationFleetInputError("Device не содержит снимок экрана Formation.")
         return frame
 
+    def _capture_scan_frame(self) -> np.ndarray:
+        self.device.screenshot()
+        return self._current_frame()
+
+    def _validate_scan_info_state(self, frame: np.ndarray) -> None:
+        if not self.formation_state.info_opened(frame):
+            raise FormationFleetInputError(
+                "Formation Info исчез до начала сканирования состава."
+            )
+
     def _close_info(self) -> None:
+        closed_confirmations = 0
         for _ in self.loop(timeout=20):
             frame = self._current_frame()
             if not self.formation_state.info_opened(frame):
                 if self.ui_page_appear(page_fleet, offset=(20, 20)):
-                    return
+                    closed_confirmations += 1
+                    # Следующий флот безопасно выбирать только после нескольких
+                    # свежих кадров подтверждённой Formation boundary.
+                    if closed_confirmations >= _FORMATION_STATE_CONFIRM_FRAMES:
+                        return
+                else:
+                    closed_confirmations = 0
                 continue
+
+            closed_confirmations = 0
             self.device.click(
                 self._click_button(
                     self.formation_navigation_layout.formation_button,
@@ -294,10 +340,18 @@ class FormationFleetController(UI):
         )
 
     def _open_info(self) -> None:
+        opened_confirmations = 0
         for _ in self.loop(skip_first=False, timeout=20):
             frame = self._current_frame()
             if self.formation_state.info_opened(frame):
-                return
+                opened_confirmations += 1
+                # Issue #150: один переходный кадр может ложно выглядеть как
+                # готовый Info. Сканировать можно только устойчивое состояние.
+                if opened_confirmations >= _FORMATION_STATE_CONFIRM_FRAMES:
+                    return
+                continue
+
+            opened_confirmations = 0
             if self.formation_state.fleet_menu_opened(frame):
                 continue
             if not self.ui_page_appear(page_fleet, offset=(20, 20)):
@@ -321,21 +375,37 @@ class FormationFleetController(UI):
     ) -> FormationFleetSnapshot:
         """Получить фактический состав одного Surface Fleet 1..6."""
 
-        self.ensure_formation_page()
-        self.ensure_surface_fleet(fleet_index)
-        self._open_info()
+        self._run_scan_stage(
+            fleet_index,
+            "ensure_formation_page",
+            self.ensure_formation_page,
+        )
+        self._run_scan_stage(
+            fleet_index,
+            "select_surface_fleet",
+            lambda: self.ensure_surface_fleet(fleet_index),
+        )
+        self._run_scan_stage(fleet_index, "open_info", self._open_info)
 
-        primary_error: Exception | None = None
+        primary_error: BaseException | None = None
         try:
-            self.device.screenshot()
-            frame = self._current_frame()
-            if not self.formation_state.info_opened(frame):
-                raise FormationFleetInputError(
-                    "Formation Info исчез до начала сканирования состава."
-                )
-            result = self.formation_fleet_scanner.scan(
-                frame.copy(),
-                fleet_index=fleet_index,
+            frame = self._run_scan_stage(
+                fleet_index,
+                "capture_frame",
+                self._capture_scan_frame,
+            )
+            self._run_scan_stage(
+                fleet_index,
+                "validate_info_state",
+                lambda: self._validate_scan_info_state(frame),
+            )
+            result = self._run_scan_stage(
+                fleet_index,
+                "scanner_scan",
+                lambda: self.formation_fleet_scanner.scan(
+                    frame.copy(),
+                    fleet_index=fleet_index,
+                ),
             )
             logger.info(
                 f"[Построение — сканер] Флот {fleet_index}: "
@@ -343,17 +413,21 @@ class FormationFleetController(UI):
                 f"полное сопоставление: {result.complete}"
             )
             return result
-        except Exception as error:
+        except BaseException as error:
             primary_error = error
             raise
         finally:
             if close_info:
                 try:
-                    self._close_info()
+                    self._run_scan_stage(
+                        fleet_index,
+                        "close_info",
+                        self._close_info,
+                    )
                 except Exception as close_error:
                     if primary_error is None:
                         raise
                     primary_error.add_note(
                         "Дополнительно не удалось закрыть Formation Info: "
-                        f"{close_error}"
+                        f"{self._format_exception_diagnostic(close_error)}"
                     )

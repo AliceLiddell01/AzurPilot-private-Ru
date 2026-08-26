@@ -11,6 +11,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
 from module.persistence.database import LazyEngine, translate_database_error
+from module.persistence.fleet_manual_scan_repositories import (
+    PostgresFleetManualScanCommandRepository,
+)
 from module.persistence.fleet_state_repositories import PostgresFleetStateRepository
 from module.persistence.repositories import (
     PostgresImportLedgerRepository,
@@ -31,6 +34,7 @@ class PostgresUnitOfWork:
         self.imports: PostgresImportLedgerRepository
         self.runtime: PostgresRuntimeStatisticsRepository
         self.fleet_state: PostgresFleetStateRepository
+        self.fleet_scan_commands: PostgresFleetManualScanCommandRepository
 
     def __enter__(self) -> Self:
         if self._connection is not None:
@@ -45,6 +49,9 @@ class PostgresUnitOfWork:
             self.imports = PostgresImportLedgerRepository(connection)
             self.runtime = PostgresRuntimeStatisticsRepository(connection)
             self.fleet_state = PostgresFleetStateRepository(connection)
+            self.fleet_scan_commands = PostgresFleetManualScanCommandRepository(
+                connection
+            )
         except SQLAlchemyError as exc:
             self._connection = None
             self._clear_repositories()
@@ -64,6 +71,7 @@ class PostgresUnitOfWork:
             "imports",
             "runtime",
             "fleet_state",
+            "fleet_scan_commands",
         ):
             self.__dict__.pop(attribute, None)
 

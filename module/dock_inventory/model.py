@@ -13,6 +13,13 @@ class IdentityStatus(Enum):
     AMBIGUOUS = "ambiguous"
 
 
+class ShipForm(Enum):
+    """Наблюдаемая форма однозначно распознанного корабля."""
+
+    BASE = "base"
+    RETROFIT = "retrofit"
+
+
 class AffinityState(Enum):
     """Observable affinity/oath classification for one dock card."""
 

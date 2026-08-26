@@ -50,6 +50,10 @@
       "name": "Restart settings",
       "help": ""
     },
+    "FleetAutoScan": {
+      "name": "Fleet AutoScan",
+      "help": "Scheduled recording of selected fleet compositions."
+    },
     "Main": {
       "name": "Main Campaign-1 Plus",
       "help": ""
@@ -5595,14 +5599,7 @@
   "FleetAutoScan": {
     "_info": {
       "name": "Fleet AutoScan",
-      "help": "Checks selected Surface Fleets only at a safe boundary between regular tasks."
-    },
-    "Mode": {
-      "name": "AutoScan mode",
-      "help": "Disable automatic scanning, run it once per process start, or once per calendar day in the storage time zone.",
-      "disabled": "Disabled",
-      "every_start": "Every start",
-      "daily": "Once a day"
+      "help": "Select Surface Fleets for scheduled scanning."
     },
     "Fleets": {
       "name": "Fleets to scan",
@@ -5775,6 +5772,61 @@
     "MenuAlas": {
       "Overview": "Overview",
       "Log": "Log"
+    },
+    "FleetPage": {
+      "Title": "Fleets",
+      "HeroKicker": "Control center",
+      "HeroLead": "Scheduled and manual fleet-composition scans with confirmed state history.",
+      "SummaryComplete": "complete fleets",
+      "SummaryIncomplete": "need attention",
+      "SummaryNoData": "without data",
+      "ManualTitle": "Manual scan",
+      "ManualHelp": "Select fleets. The current worker will run the command at the next safe boundary.",
+      "AutoScanTitle": "Automatic scan",
+      "AutoScanHelp": "A standard scheduler task: enable it, choose the next run, and select fleets.",
+      "AutoScanBoundary": "A complete scan is scheduled for the next server update; an incomplete result retries after the failure interval.",
+      "StateTitle": "Current state",
+      "StateHelp": "Six Surface Fleets, their last confirmed composition, and recognition completeness.",
+      "StateLoading": "Loading fleet state…",
+      "Fleets": "Fleets",
+      "SelectAll": "Select all",
+      "ClearSelection": "Clear selection",
+      "ScanSelected": "Scan selected",
+      "InvalidSelection": "Select at least one valid fleet.",
+      "CommandQueued": "Manual scan command queued.",
+      "CommandAlreadyActive": "This profile already has an active scan command.",
+      "CommandSubmitFailed": "Could not queue the scan command.",
+      "CommandNone": "No manual scan has been requested yet.",
+      "CommandPending": "Pending",
+      "CommandWaitingWorker": "Waiting for AzurPilot to start",
+      "CommandRunning": "Running",
+      "CommandSucceeded": "Completed",
+      "CommandPartial": "Partially completed",
+      "CommandFailed": "Failed",
+      "CommandStatus": "Status: {state} · fleets: {fleets}",
+      "ErrorPhysicalScan": "The game screen did not allow the scan to complete.",
+      "ErrorManualScan": "The scan could not be completed.",
+      "ErrorWorkerInterrupted": "The worker stopped while running the command.",
+      "ErrorPersistence": "The scan result could not be saved.",
+      "ErrorUnknown": "The command ended with a safely hidden error.",
+      "StorageUnavailable": "Fleet storage is temporarily unavailable.",
+      "ColumnFleet": "Fleet",
+      "ColumnMain1": "Main 1",
+      "ColumnMain2": "Main 2",
+      "ColumnMain3": "Main 3",
+      "ColumnVanguard1": "Vanguard 1",
+      "ColumnVanguard2": "Vanguard 2",
+      "ColumnVanguard3": "Vanguard 3",
+      "ColumnObservedAt": "Last observation",
+      "ColumnStatus": "Status",
+      "SlotEmpty": "Empty",
+      "SlotUnknown": "name unavailable",
+      "SlotUnresolved": "Unresolved: {name}",
+      "SlotAmbiguous": "Ambiguous: {name}",
+      "NoData": "No data",
+      "StatusComplete": "Complete",
+      "StatusIncomplete": "Incomplete",
+      "StatusNoData": "No data"
     },
     "MenuDevelop": {
       "HomePage": "Home",

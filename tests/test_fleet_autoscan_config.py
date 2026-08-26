@@ -10,56 +10,93 @@ from module.config.config_updater import ConfigUpdater
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_existing_profile_receives_safe_disabled_defaults() -> None:
+def test_new_profile_receives_disabled_scheduler_defaults() -> None:
     updated = ConfigUpdater().config_update({})
 
-    assert updated["Alas"]["FleetAutoScan"] == {
-        "Mode": "disabled",
+    assert updated["FleetAutoScan"]["Scheduler"]["Enable"] is False
+    assert updated["FleetAutoScan"]["FleetAutoScan"] == {
         "Fleets": [1, 2, 3, 4, 5, 6],
     }
+    assert "FleetAutoScan" not in updated["Alas"]
 
 
 @pytest.mark.parametrize(
-    "fleet_autoscan",
+    ("mode", "enabled"),
     [
-        {"Mode": "sometimes", "Fleets": [1, 2]},
-        {"Mode": None, "Fleets": [1, 2]},
-        {"Mode": "", "Fleets": [1, 2]},
-        {"Mode": "daily", "Fleets": []},
-        {"Mode": "daily", "Fleets": None},
-        {"Mode": "daily", "Fleets": ""},
-        {"Mode": "daily", "Fleets": [1, 7]},
+        ("disabled", False),
+        ("every_start", True),
+        ("daily", True),
     ],
 )
-def test_invalid_persisted_autoscan_config_fails_closed(fleet_autoscan) -> None:
+def test_legacy_mode_and_selection_migrate_once_to_scheduler(mode, enabled) -> None:
+    updated = ConfigUpdater().config_update(
+        {
+            "Alas": {
+                "FleetAutoScan": {
+                    "Mode": mode,
+                    "Fleets": [6, 2, 6],
+                }
+            }
+        }
+    )
+
+    assert updated["FleetAutoScan"]["Scheduler"]["Enable"] is enabled
+    assert updated["FleetAutoScan"]["FleetAutoScan"]["Fleets"] == [2, 6]
+    assert "FleetAutoScan" not in updated["Alas"]
+
+
+@pytest.mark.parametrize("mode", ["sometimes", None, ""])
+def test_invalid_legacy_mode_fails_closed(mode) -> None:
     with pytest.raises(ValueError):
         ConfigUpdater().config_update(
-            {"Alas": {"FleetAutoScan": fleet_autoscan}}
+            {
+                "Alas": {
+                    "FleetAutoScan": {
+                        "Mode": mode,
+                        "Fleets": [1, 2],
+                    }
+                }
+            }
         )
 
 
-def test_generated_contract_and_russian_i18n_are_complete() -> None:
+@pytest.mark.parametrize(
+    "fleets",
+    [[], "1,2", [1, "2"], [True, 2], [0, 1], [1, 7]],
+)
+def test_invalid_legacy_selection_fails_closed(fleets) -> None:
+    with pytest.raises(ValueError):
+        ConfigUpdater().config_update(
+            {
+                "Alas": {
+                    "FleetAutoScan": {
+                        "Mode": "daily",
+                        "Fleets": fleets,
+                    }
+                }
+            }
+        )
+
+
+def test_generated_scheduler_contract_is_complete() -> None:
     args = json.loads(
         (ROOT / "module/config/argument/args.json").read_text(encoding="utf-8")
+    )
+    menu = json.loads(
+        (ROOT / "module/config/argument/menu.json").read_text(encoding="utf-8")
     )
     template = json.loads(
         (ROOT / "config/template.json").read_text(encoding="utf-8")
     )
-    ru = json.loads(
-        (ROOT / "module/config/i18n/ru-RU.json").read_text(encoding="utf-8")
-    )
 
-    contract = args["Alas"]["FleetAutoScan"]
-    assert contract["Mode"]["value"] == "disabled"
-    assert contract["Mode"]["option"] == ["disabled", "every_start", "daily"]
-    assert contract["Mode"]["strict"] is True
-    assert contract["Fleets"]["type"] == "multiselect"
-    assert contract["Fleets"]["value"] == [1, 2, 3, 4, 5, 6]
-    assert contract["Fleets"]["strict"] is True
-    assert template["Alas"]["FleetAutoScan"] == {
-        "Mode": "disabled",
-        "Fleets": [1, 2, 3, 4, 5, 6],
-    }
-    assert ru["FleetAutoScan"]["Mode"]["disabled"] == "Отключено"
-    assert ru["FleetAutoScan"]["Mode"]["daily"] == "Один раз в день"
-    assert ru["FleetAutoScan"]["Fleets"]["6"] == "Флот 6"
+    contract = args["FleetAutoScan"]
+    assert contract["Scheduler"]["Enable"]["value"] is False
+    assert contract["Scheduler"]["Command"]["value"] == "FleetAutoScan"
+    assert contract["Scheduler"]["FailureInterval"]["value"] == 120
+    assert contract["FleetAutoScan"]["Fleets"]["type"] == "multiselect"
+    assert contract["FleetAutoScan"]["Fleets"]["value"] == [1, 2, 3, 4, 5, 6]
+    assert contract["FleetAutoScan"]["Fleets"]["strict"] is True
+    assert "FleetAutoScan" in menu["Alas"]["tasks"]
+    assert template["FleetAutoScan"]["Scheduler"]["Enable"] is False
+    assert template["FleetAutoScan"]["FleetAutoScan"]["Fleets"] == [1, 2, 3, 4, 5, 6]
+    assert "FleetAutoScan" not in template["Alas"]

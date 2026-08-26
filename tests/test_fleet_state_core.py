@@ -15,7 +15,7 @@ from module.application.fleet_state import (
 )
 from module.application.instance_identity import runtime_instance_identity
 from module.application.storage_models import InstanceIdentity
-from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
+from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
     SUPPORTED_SURFACE_FLEET_INDICES,
     FleetSelection,
@@ -43,6 +43,7 @@ def _snapshot(
             else None
         ),
         canonical_name="Enterprise" if status is IdentityStatus.MATCHED else None,
+        ship_form=ShipForm.BASE if status is IdentityStatus.MATCHED else None,
     )
     empty = tuple(
         FormationFleetSlotObservation(side=side, position=position, occupied=False)

@@ -424,6 +424,8 @@ class SchemaMetadataTests(unittest.TestCase):
             "formation_surface_fleet_scan_request",
             "formation_surface_fleet_snapshot",
             "formation_surface_fleet_slot",
+            "formation_surface_fleet_scan_command",
+            "formation_surface_fleet_scan_command_fleet",
         }
         self.assertEqual({table.name for table in metadata.tables.values()}, expected)
         self.assertTrue(

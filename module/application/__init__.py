@@ -28,14 +28,10 @@ from module.application.models import (
     TaskSummary,
 )
 from module.application.fleet_autoscan import (
-    FLEET_AUTOSCAN_SOURCE_DAILY,
-    FLEET_AUTOSCAN_SOURCE_EVERY_START,
+    FLEET_AUTOSCAN_SOURCE,
     FleetAutoScanConfig,
     FleetAutoScanCoordinator,
     FleetAutoScanExecution,
-    FleetAutoScanMode,
-    FleetAutoScanPolicy,
-    FleetAutoScanRetryPolicy,
 )
 from module.application.fleet_state import (
     FleetRefreshPolicy,
@@ -48,6 +44,22 @@ from module.application.fleet_state import (
     FleetStateRequest,
     FleetStateResult,
     FleetStateService,
+)
+from module.application.fleet_manual_scan import (
+    FLEET_MANUAL_SCAN_SOURCE,
+    FleetManualScanCommand,
+    FleetManualScanCommandService,
+    FleetManualScanCoordinator,
+    FleetManualScanExecution,
+    FleetManualScanStatus,
+    FleetManualScanSubmission,
+)
+from module.application.fleet_page import (
+    FleetPageQueryService,
+    FleetPageViewModel,
+    FleetRowViewModel,
+    FleetSlotState,
+    FleetSlotViewModel,
 )
 from module.application.services import InstanceQueryService, TaskCatalogService
 from module.application.migration_service import MigrationService, finalize_rehearsal
@@ -69,15 +81,21 @@ __all__ = (
     "ApplicationError",
     "CommissionIncome",
     "CommissionItem",
-    "FLEET_AUTOSCAN_SOURCE_DAILY",
-    "FLEET_AUTOSCAN_SOURCE_EVERY_START",
+    "FLEET_AUTOSCAN_SOURCE",
+    "FLEET_MANUAL_SCAN_SOURCE",
     "FleetAutoScanConfig",
     "FleetAutoScanCoordinator",
     "FleetAutoScanExecution",
-    "FleetAutoScanMode",
-    "FleetAutoScanPolicy",
-    "FleetAutoScanRetryPolicy",
     "FleetRefreshPolicy",
+    "FleetManualScanCommand",
+    "FleetManualScanCommandService",
+    "FleetManualScanCoordinator",
+    "FleetManualScanExecution",
+    "FleetManualScanStatus",
+    "FleetManualScanSubmission",
+    "FleetPageQueryService",
+    "FleetPageViewModel",
+    "FleetRowViewModel",
     "FleetScanAttempt",
     "FleetScanBatchResult",
     "FleetScanRun",
@@ -87,6 +105,8 @@ __all__ = (
     "FleetStateRequest",
     "FleetStateResult",
     "FleetStateService",
+    "FleetSlotState",
+    "FleetSlotViewModel",
     "ImportBatch",
     "ImportBatchStatus",
     "IncompatibleSchemaError",

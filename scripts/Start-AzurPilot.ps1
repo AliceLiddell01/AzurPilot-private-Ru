@@ -498,9 +498,9 @@ function Invoke-PostgreSqlStartPreflight {
         }
         [pscustomobject]@{
             Executable = $PythonPath
-            Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'health')
-            TimeoutMilliseconds = 15000
-            Failure = 'Production PostgreSQL не прошёл проверку marker, доступа или schema head.'
+            Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'prepare')
+            TimeoutMilliseconds = 210000
+            Failure = 'Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.'
         }
     )
 
@@ -569,7 +569,7 @@ function Invoke-PostgreSqlStartPreflight {
         }
     }
 
-    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 запущен; marker, app-доступ и schema head проверены.'
+    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 запущен; marker, schema upgrade и app-health подготовлены.'
 }
 
 function Enter-RepositoryMutex {
