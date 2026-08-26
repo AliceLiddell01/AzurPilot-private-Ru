@@ -57,7 +57,12 @@ class PostgresMoraleRepository:
             ).mappings().one_or_none()
             if existing is not None:
                 if existing["payload_digest"] == digest:
-                    return self._hydrate(existing)
+                    try:
+                        return self._hydrate(existing)
+                    except (KeyError, TypeError, ValueError):
+                        raise StorageInvalidDataError(
+                            "PostgreSQL содержит некорректное Morale observation."
+                        ) from None
                 raise StorageConflictError(
                     "Morale idempotency key содержит другой payload."
                 )
