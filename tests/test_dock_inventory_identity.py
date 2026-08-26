@@ -118,7 +118,7 @@ def test_retrofit_ui_suffix_maps_only_through_an_exact_unique_base() -> None:
         )
     )
 
-    truncated = resolver.resolve("San Diego (..")
+    truncated = resolver.resolve("San Diego (R..")
     full = resolver.resolve("York (Retrofit)")
     ambiguous = resolver.resolve("Enterprise (Retrof..")
     arbitrary = resolver.resolve("York (Other..")
