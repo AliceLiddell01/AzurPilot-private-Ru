@@ -274,6 +274,13 @@ class DockShipIdentityResolver:
                 reason="blank_ocr",
             )
 
+        retrofit = self._resolve_retrofit_display_suffix(
+            raw=raw_name_ocr,
+            displayed=displayed,
+        )
+        if retrofit is not None:
+            return retrofit
+
         exact = self.catalog.candidates_for_exact_name(normalized)
         if len(exact) == 1:
             return self._decision(
@@ -297,13 +304,6 @@ class DockShipIdentityResolver:
                 runner_up_score=1.0,
                 reason="normalized_exact_collision",
             )
-
-        retrofit = self._resolve_retrofit_display_suffix(
-            raw=raw_name_ocr,
-            displayed=displayed,
-        )
-        if retrofit is not None:
-            return retrofit
 
         # Незакрытая parenthetical-строка не должна уходить в общий fuzzy path:
         # без доверенного Retrofit evidence это недостаточно данных для identity match.

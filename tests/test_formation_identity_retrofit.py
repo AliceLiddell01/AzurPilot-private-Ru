@@ -97,6 +97,26 @@ def test_retrofit_form_is_generic_for_arbitrary_catalog_ship() -> None:
     assert truncated.ship_form is ShipForm.RETROFIT
 
 
+def test_retrofit_structure_wins_over_exact_catalog_alias() -> None:
+    resolver = DockShipIdentityResolver(
+        _catalog(
+            DockCanonicalShip(
+                "azur_lane_ship_group:99999",
+                "Generic Test Ship",
+                aliases=("Generic Test Ship (Retrofit)",),
+            )
+        )
+    )
+
+    result = resolver.resolve("Generic Test Ship (Retrofit)")
+
+    assert result.status is IdentityStatus.MATCHED
+    assert result.method is DockIdentityResolutionMethod.EXACT
+    assert result.canonical_name == "Generic Test Ship"
+    assert result.ship_form is ShipForm.RETROFIT
+    assert result.reason == "retrofit_display_suffix"
+
+
 @pytest.mark.parametrize(
     ("raw", "expected_method"),
     (
