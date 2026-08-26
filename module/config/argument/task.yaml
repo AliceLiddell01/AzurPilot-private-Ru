@@ -9,7 +9,6 @@ Alas:
       - Optimization
       - DropRecord
       - EmulatorManagement
-      - FleetAutoScan
     General:
       - Log
       - Retirement
@@ -21,6 +20,9 @@ Alas:
     Restart:
       - Scheduler
       - Restart
+    FleetAutoScan:
+      - Scheduler
+      - FleetAutoScan
 Farm:
   menu: collapse
   page: setting

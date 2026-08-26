@@ -298,6 +298,7 @@ YukikazeTaskManager:
       > Exercise
       > Dorm > Meowfficer > Guild > Gacha
       > Reward
+      > FleetAutoScan
       > ShopFrequent > ShopOnce > Shipyard > Freebies
       > PrivateQuarters
       > OpsiExplore
@@ -1860,10 +1861,6 @@ EmulatorManagement:
     value: 4
     validate: [1, 24]
 FleetAutoScan:
-  Mode:
-    value: disabled
-    option: [disabled, every_start, daily]
-    strict: true
   Fleets:
     type: multiselect
     value: [1, 2, 3, 4, 5, 6]

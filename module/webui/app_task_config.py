@@ -96,6 +96,7 @@ class TaskConfigMixin(WebUIMixinBase):
                         onclick=_onclick,
                     ).style(f"--menu-{task}--")
                     for task in task_data.get("tasks", [])
+                    if task != "FleetAutoScan"
                 ]
                 put_collapse(title=t(f"Menu.{menu}.name"), content=task_btn_list)
             else:
@@ -108,6 +109,8 @@ class TaskConfigMixin(WebUIMixinBase):
                     "</div>"
                 )
                 for task in task_data.get("tasks", []):
+                    if task == "FleetAutoScan":
+                        continue
                     put_buttons(
                         [
                             {

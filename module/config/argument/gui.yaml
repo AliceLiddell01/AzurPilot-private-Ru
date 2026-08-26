@@ -38,24 +38,24 @@ MenuAlas:
 
 FleetPage:
   Title:
+  HeroKicker:
+  HeroLead:
+  SummaryComplete:
+  SummaryIncomplete:
+  SummaryNoData:
   ManualTitle:
   ManualHelp:
   AutoScanTitle:
   AutoScanHelp:
   AutoScanBoundary:
   StateTitle:
+  StateHelp:
+  StateLoading:
   Fleets:
   SelectAll:
   ClearSelection:
   ScanSelected:
-  SaveAutoScan:
-  Mode:
-  ModeDisabled:
-  ModeEveryStart:
-  ModeDaily:
   InvalidSelection:
-  ConfigSaved:
-  ConfigSaveFailed:
   CommandQueued:
   CommandAlreadyActive:
   CommandSubmitFailed:

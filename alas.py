@@ -293,54 +293,16 @@ class AzurLaneAutoScript:
 
     @cached_property
     def fleet_autoscan(self):
-        """Process-local coordinator с ленивым Device/controller boundary."""
+        """Scheduler coordinator с ленивым Device/controller boundary."""
 
-        from module.application.fleet_autoscan import (
-            FleetAutoScanCoordinator,
-            FleetAutoScanPolicy,
-        )
+        from module.application.fleet_autoscan import FleetAutoScanCoordinator
         from module.persistence.runtime import build_runtime_fleet_state_context
 
         context = build_runtime_fleet_state_context(
             self._build_fleet_autoscan_controller,
             require_ready=False,
         )
-        return FleetAutoScanCoordinator(
-            context.state_service,
-            FleetAutoScanPolicy(context.runtime_timezone),
-        )
-
-    def _run_fleet_autoscan_if_due(self):
-        from module.application.fleet_autoscan import (
-            FleetAutoScanConfig,
-            FleetAutoScanMode,
-        )
-
-        config = FleetAutoScanConfig.from_raw(
-            self.config.FleetAutoScan_Mode,
-            self.config.FleetAutoScan_Fleets,
-        )
-        if config.mode is FleetAutoScanMode.DISABLED:
-            return None
-        execution = self.fleet_autoscan.run_if_due(self.config_name, config)
-        if execution is None:
-            return None
-
-        due = ", ".join(map(str, execution.due_selection.fleet_indices))
-        complete = ", ".join(map(str, execution.complete_fleet_indices)) or "нет"
-        incomplete = ", ".join(map(str, execution.incomplete_fleet_indices)) or "нет"
-        logger.hr('[Alas] Автосканирование флотов', level=1)
-        logger.info(
-            f'[Alas] Автосканирование завершено: режим={execution.mode.value}, '
-            f'запрошены флоты={due}, полные={complete}, неполные={incomplete}'
-        )
-        if execution.batch_result.failed_fleet_index is not None:
-            logger.warning(
-                '[Alas] Автосканирование остановлено на флоте '
-                f'{execution.batch_result.failed_fleet_index}; повтор будет разрешён '
-                'после защитной задержки'
-            )
-        return execution
+        return FleetAutoScanCoordinator(context.state_service)
 
     @cached_property
     def fleet_manual_scan(self):
@@ -933,6 +895,36 @@ class AzurLaneAutoScript:
         from module.shop_event.shop_event import EventShop
         EventShop(config=self.config, device=self.device).run()
 
+    def fleet_auto_scan(self):
+        from module.application.fleet_autoscan import FleetAutoScanConfig
+
+        config = FleetAutoScanConfig.from_raw(self.config.FleetAutoScan_Fleets)
+        try:
+            execution = self.fleet_autoscan.run(self.config_name, config)
+        except Exception:
+            self.config.task_delay(success=False)
+            raise
+
+        selected = ", ".join(map(str, execution.selection.fleet_indices))
+        complete = ", ".join(map(str, execution.complete_fleet_indices)) or "нет"
+        incomplete = ", ".join(map(str, execution.incomplete_fleet_indices)) or "нет"
+        logger.hr('[Alas] Автосканирование флотов', level=1)
+        logger.info(
+            f'[Alas] Автосканирование завершено: флоты={selected}, '
+            f'полные={complete}, неполные={incomplete}'
+        )
+        if execution.batch_result.failed_fleet_index is not None:
+            logger.warning(
+                '[Alas] Автосканирование остановлено на флоте '
+                f'{execution.batch_result.failed_fleet_index}; задача отложена '
+                'по Scheduler.FailureInterval'
+            )
+        if execution.incomplete_fleet_indices:
+            self.config.task_delay(success=False)
+        else:
+            self.config.task_delay(server_update=True)
+        return execution
+
     def shipyard(self):
         from module.shipyard.shipyard_reward import RewardShipyard
         RewardShipyard(config=self.config, device=self.device).run()
@@ -1516,7 +1508,7 @@ class AzurLaneAutoScript:
         return task.command
 
     def _prepare_task_boundary(self, task):
-        """Выполнить manual scan и autoscan только между обычными задачами."""
+        """Обработать durable manual scan только между обычными задачами."""
 
         _ = self.device
         self.device.config = self.config
@@ -1538,10 +1530,6 @@ class AzurLaneAutoScript:
             return not woke_for_manual
         if woke_for_manual:
             # Другой worker мог забрать команду, поэтому возвращаемся к штатному ожиданию.
-            return False
-        self._run_fleet_autoscan_if_due()
-        if self.stop_event is not None and self.stop_event.is_set():
-            logger.info('[Alas] Запрос на остановку получен во время автосканирования')
             return False
         return True
 

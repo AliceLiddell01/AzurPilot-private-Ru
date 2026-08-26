@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -25,8 +24,6 @@ from module.webui.app_fleet_page import (
     FleetPageMixin,
     fleet_slot_text,
     format_fleet_timestamp,
-    load_fleet_autoscan_config,
-    normalize_fleet_autoscan_update,
 )
 from module.webui import lang
 
@@ -301,131 +298,6 @@ def test_timestamp_and_slot_text_contracts(monkeypatch) -> None:
     assert fleet_slot_text(slots[3]) == "Неоднозначно: display-vanguard-1"
 
 
-def test_autoscan_backend_reuses_stage2_contract_and_rejects_invalid_values() -> None:
-    loaded = load_fleet_autoscan_config(
-        {"Alas": {"FleetAutoScan": {"Mode": "daily", "Fleets": [6, 2, 6]}}}
-    )
-    assert loaded.mode.value == "daily"
-    assert loaded.selection.fleet_indices == (2, 6)
-    assert normalize_fleet_autoscan_update("every_start", [1, 3]) == {
-        "Alas.FleetAutoScan.Mode": "every_start",
-        "Alas.FleetAutoScan.Fleets": [1, 3],
-    }
-    assert normalize_fleet_autoscan_update("disabled", [1, 2, 3, 4, 5, 6])[
-        "Alas.FleetAutoScan.Fleets"
-    ] == [1, 2, 3, 4, 5, 6]
-    with pytest.raises(ValueError):
-        normalize_fleet_autoscan_update("sometimes", [1])
-    with pytest.raises(ValueError):
-        normalize_fleet_autoscan_update("daily", [])
-    with pytest.raises(ValueError):
-        normalize_fleet_autoscan_update("daily", [7])
-
-
-def test_autoscan_save_uses_existing_config_pipeline_and_rereads_persisted_value(
-    monkeypatch,
-) -> None:
-    from module.config.deep import deep_set
-
-    import module.webui.app_fleet_page as fleet_page_module
-
-    class ConfigUpdater:
-        def __init__(self) -> None:
-            self.data = {
-                "Alas": {
-                    "FleetAutoScan": {
-                        "Mode": "disabled",
-                        "Fleets": [1, 2, 3, 4, 5, 6],
-                    }
-                }
-            }
-            self.load_calls = 0
-
-        def read_file(self, _name):
-            return self.data
-
-        def load(self):
-            self.load_calls += 1
-
-    class Harness:
-        def __init__(self) -> None:
-            self.alas_name = "profile-a"
-            self.alas_config = ConfigUpdater()
-            self.save_calls = []
-
-        def _save_config(self, changes, config_name, config_updater):
-            self.save_calls.append((changes.copy(), config_name, config_updater))
-            for key, value in changes.items():
-                deep_set(config_updater.data, key, value)
-
-        def _read_autoscan_config(self):
-            return FleetPageMixin._read_autoscan_config(self)
-
-    harness = Harness()
-    toasts = []
-    monkeypatch.setattr(
-        fleet_page_module,
-        "pin",
-        {
-            "FleetPage_AutoScanMode": "daily",
-            "FleetPage_AutoScanFleets": [6, 2, 6],
-        },
-    )
-    monkeypatch.setattr(
-        fleet_page_module,
-        "toast",
-        lambda message, **kwargs: toasts.append((message, kwargs)),
-    )
-
-    FleetPageMixin._save_autoscan_config(harness)
-
-    assert len(harness.save_calls) == 1
-    changes, instance, updater = harness.save_calls[0]
-    assert changes == {
-        "Alas.FleetAutoScan.Mode": "daily",
-        "Alas.FleetAutoScan.Fleets": [2, 6],
-    }
-    assert instance == "profile-a"
-    assert updater is harness.alas_config
-    assert harness.alas_config.load_calls == 1
-    persisted = load_fleet_autoscan_config(harness.alas_config.data)
-    assert persisted.mode.value == "daily"
-    assert persisted.selection.fleet_indices == (2, 6)
-    assert toasts[-1][1]["color"] == "success"
-
-
-def test_autoscan_invalid_selection_never_enters_config_write_pipeline(
-    monkeypatch,
-) -> None:
-    import module.webui.app_fleet_page as fleet_page_module
-
-    class Harness:
-        alas_name = "profile-a"
-        alas_config = SimpleNamespace(load=lambda: None)
-
-        def _save_config(self, *_args, **_kwargs):
-            pytest.fail("Недопустимая selection не должна попадать в config write")
-
-    toasts = []
-    monkeypatch.setattr(
-        fleet_page_module,
-        "pin",
-        {
-            "FleetPage_AutoScanMode": "daily",
-            "FleetPage_AutoScanFleets": [],
-        },
-    )
-    monkeypatch.setattr(
-        fleet_page_module,
-        "toast",
-        lambda message, **kwargs: toasts.append((message, kwargs)),
-    )
-
-    FleetPageMixin._save_autoscan_config(Harness())
-
-    assert toasts[-1][1]["color"] == "error"
-
-
 def test_fleet_page_i18n_has_ru_en_key_and_placeholder_parity() -> None:
     import json
     from pathlib import Path
@@ -437,3 +309,17 @@ def test_fleet_page_i18n_has_ru_en_key_and_placeholder_parity() -> None:
     assert ru["Gui"]["FleetPage"]["Title"] == "Флоты"
     assert "{state}" in ru["Gui"]["FleetPage"]["CommandStatus"]
     assert "{state}" in en["Gui"]["FleetPage"]["CommandStatus"]
+
+
+def test_fleet_page_uses_event_shop_workspace_and_responsive_stack() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    page_source = (root / "module/webui/app_fleet_page.py").read_text("utf-8")
+    stylesheet = (root / "assets/gui/css/fleet-page-alas.css").read_text("utf-8")
+
+    assert 'size="minmax(0, 1fr) minmax(330px, 360px)"' in page_source
+    assert '.style("--fleet-scheduler-card--")' in page_source
+    assert "position: sticky;" in stylesheet
+    assert "grid-auto-flow: row !important;" in stylesheet
+    assert "grid-template-columns: minmax(0, 1fr) !important;" in stylesheet

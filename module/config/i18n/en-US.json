@@ -50,6 +50,10 @@
       "name": "Restart settings",
       "help": ""
     },
+    "FleetAutoScan": {
+      "name": "Fleet AutoScan",
+      "help": "Scheduled recording of selected fleet compositions."
+    },
     "Main": {
       "name": "Main Campaign-1 Plus",
       "help": ""
@@ -5595,14 +5599,7 @@
   "FleetAutoScan": {
     "_info": {
       "name": "Fleet AutoScan",
-      "help": "Checks selected Surface Fleets only at a safe boundary between regular tasks."
-    },
-    "Mode": {
-      "name": "AutoScan mode",
-      "help": "Disable automatic scanning, run it once per process start, or once per calendar day in the storage time zone.",
-      "disabled": "Disabled",
-      "every_start": "Every start",
-      "daily": "Once a day"
+      "help": "Select Surface Fleets for scheduled scanning."
     },
     "Fleets": {
       "name": "Fleets to scan",
@@ -5778,24 +5775,24 @@
     },
     "FleetPage": {
       "Title": "Fleets",
+      "HeroKicker": "Control center",
+      "HeroLead": "Scheduled and manual fleet-composition scans with confirmed state history.",
+      "SummaryComplete": "complete fleets",
+      "SummaryIncomplete": "need attention",
+      "SummaryNoData": "without data",
       "ManualTitle": "Manual scan",
       "ManualHelp": "Select fleets. The current worker will run the command at the next safe boundary.",
       "AutoScanTitle": "Automatic scan",
-      "AutoScanHelp": "These controls edit the existing FleetAutoScan settings.",
-      "AutoScanBoundary": "The worker applies changes at the next safe boundary.",
+      "AutoScanHelp": "A standard scheduler task: enable it, choose the next run, and select fleets.",
+      "AutoScanBoundary": "A complete scan is scheduled for the next server update; an incomplete result retries after the failure interval.",
       "StateTitle": "Current state",
+      "StateHelp": "Six Surface Fleets, their last confirmed composition, and recognition completeness.",
+      "StateLoading": "Loading fleet state…",
       "Fleets": "Fleets",
       "SelectAll": "Select all",
       "ClearSelection": "Clear selection",
       "ScanSelected": "Scan selected",
-      "SaveAutoScan": "Save automatic scan",
-      "Mode": "Mode",
-      "ModeDisabled": "Disabled",
-      "ModeEveryStart": "Every start",
-      "ModeDaily": "Once a day",
       "InvalidSelection": "Select at least one valid fleet.",
-      "ConfigSaved": "Automatic scan settings saved.",
-      "ConfigSaveFailed": "Could not save automatic scan settings.",
       "CommandQueued": "Manual scan command queued.",
       "CommandAlreadyActive": "This profile already has an active scan command.",
       "CommandSubmitFailed": "Could not queue the scan command.",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -9,19 +9,22 @@ import pytest
 
 from alas import AzurLaneAutoScript
 from module.config.time_source import now as current_time
-from module.application.fleet_autoscan import FleetAutoScanMode
 from module.persistence import runtime as persistence_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class _Coordinator:
-    def __init__(self) -> None:
+    def __init__(self, execution=None, error=None) -> None:
         self.calls = []
+        self.execution = execution
+        self.error = error
 
-    def run_if_due(self, instance, config):
+    def run(self, instance, config):
         self.calls.append((instance, config))
-        return None
+        if self.error is not None:
+            raise self.error
+        return self.execution
 
 
 class _ManualCoordinator:
@@ -38,6 +41,11 @@ class _ManualCoordinator:
         return False
 
 
+class _Config(SimpleNamespace):
+    def task_delay(self, **kwargs):
+        self.delay_calls.append(kwargs)
+
+
 class _Device:
     def __init__(self, events=None) -> None:
         self.config = None
@@ -50,116 +58,76 @@ class _Device:
         self.events.append("click-clear")
 
 
-def _script(*, mode="disabled", fleets=None):
+def _execution(*, incomplete=(), failed=None):
+    selected = (1, 2)
+    return SimpleNamespace(
+        selection=SimpleNamespace(fleet_indices=selected),
+        complete_fleet_indices=tuple(i for i in selected if i not in incomplete),
+        incomplete_fleet_indices=tuple(incomplete),
+        batch_result=SimpleNamespace(failed_fleet_index=failed),
+    )
+
+
+def _script(*, coordinator=None):
     script = object.__new__(AzurLaneAutoScript)
     script.config_name = "profile-a"
-    script.config = SimpleNamespace(
-        FleetAutoScan_Mode=mode,
-        FleetAutoScan_Fleets=[1, 2, 3, 4, 5, 6] if fleets is None else fleets,
+    script.config = _Config(
+        FleetAutoScan_Fleets=[1, 2],
+        delay_calls=[],
     )
     script.is_first_task = False
     script.device = _Device()
-    script.fleet_autoscan = _Coordinator()
+    script.fleet_autoscan = coordinator or _Coordinator(_execution())
     script.fleet_manual_scan = _ManualCoordinator()
     script._manual_scan_wakeup = False
     return script
 
 
-def test_disabled_boundary_uses_config_without_building_controller() -> None:
+def test_scheduler_task_runs_selected_fleets_and_delays_to_server_update() -> None:
     script = _script()
 
-    assert script._run_fleet_autoscan_if_due() is None
+    execution = script.fleet_auto_scan()
 
-    assert script.fleet_autoscan.calls == []
-    assert script.device.events == []
-
-
-def test_boundary_reloads_mode_and_selection_from_current_config() -> None:
-    script = _script(mode="disabled", fleets=[1, 2])
-    coordinator = script.fleet_autoscan
-
-    script._run_fleet_autoscan_if_due()
-    script.config = SimpleNamespace(
-        FleetAutoScan_Mode="daily",
-        FleetAutoScan_Fleets=[6, 4, 6],
-    )
-    script._run_fleet_autoscan_if_due()
-
-    assert len(coordinator.calls) == 1
-    assert coordinator.calls[0][1].mode is FleetAutoScanMode.DAILY
-    assert coordinator.calls[0][1].selection.fleet_indices == (4, 6)
+    assert execution is script.fleet_autoscan.execution
+    assert script.fleet_autoscan.calls[0][0] == "profile-a"
+    assert script.fleet_autoscan.calls[0][1].selection.fleet_indices == (1, 2)
+    assert script.config.delay_calls == [{"server_update": True}]
 
 
-def test_prepare_boundary_runs_autoscan_before_normal_task() -> None:
+@pytest.mark.parametrize(
+    ("execution", "failed"),
+    [
+        (_execution(incomplete=(2,)), False),
+        (_execution(incomplete=(2,), failed=2), False),
+        (None, True),
+    ],
+)
+def test_scheduler_failure_policy_uses_failure_interval(execution, failed) -> None:
+    error = RuntimeError("scan failed") if failed else None
+    script = _script(coordinator=_Coordinator(execution, error))
+
+    if failed:
+        with pytest.raises(RuntimeError, match="scan failed"):
+            script.fleet_auto_scan()
+    else:
+        script.fleet_auto_scan()
+
+    assert script.config.delay_calls == [{"success": False}]
+
+
+def test_prepare_boundary_only_processes_manual_command() -> None:
     events = []
-    script = _script(mode="daily", fleets=[2])
+    script = _script()
     script.device = _Device(events)
-    script._run_fleet_autoscan_if_due = lambda: events.append("autoscan")
-
-    assert script._prepare_task_boundary("Commission")
-    events.append("normal-task")
-
-    assert events == ["autoscan", "normal-task"]
-    assert script.device.config is script.config
-
-
-def test_first_restart_skip_does_not_run_autoscan() -> None:
-    events = []
-    script = _script(mode="every_start", fleets=[1])
-    script.is_first_task = True
-    script.delay_next_restart = lambda: events.append("delay-restart")
-    script._run_fleet_autoscan_if_due = lambda: events.append("autoscan")
-
-    assert not script._prepare_task_boundary("Restart")
-    assert events == ["delay-restart"]
-
-
-def test_restart_boundary_runs_before_manual_scan_and_autoscan() -> None:
-    events = []
-    script = _script(mode="daily", fleets=[1])
-    script.fleet_manual_scan = _ManualCoordinator(
-        events,
-        execution=SimpleNamespace(
-            command=SimpleNamespace(
-                selection=SimpleNamespace(fleet_indices=(1,)),
-                status=SimpleNamespace(value="succeeded"),
-            ),
-            batch_result=SimpleNamespace(failed_fleet_index=None),
-        ),
-    )
-    script._run_fleet_autoscan_if_due = lambda: events.append("autoscan")
-
-    assert script._prepare_task_boundary("Restart")
-    assert events == []
-
-
-def test_stop_requested_during_autoscan_prevents_normal_task() -> None:
-    script = _script(mode="daily", fleets=[1])
-    stop_state = {"set": False}
-    script.stop_event = SimpleNamespace(is_set=lambda: stop_state["set"])
-    script._run_fleet_autoscan_if_due = lambda: stop_state.__setitem__("set", True)
-
-    assert not script._prepare_task_boundary("Commission")
-
-
-def test_manual_scan_has_priority_and_suppresses_same_boundary_autoscan() -> None:
-    events = []
-    script = _script(mode="daily", fleets=[1])
-    script.fleet_manual_scan = _ManualCoordinator(
-        events,
-        execution=SimpleNamespace(command=SimpleNamespace(
-            selection=SimpleNamespace(fleet_indices=(1, 2)),
-            status=SimpleNamespace(value="succeeded"),
-        ), batch_result=SimpleNamespace(failed_fleet_index=None)),
-    )
-    script._run_fleet_autoscan_if_due = lambda: events.append("autoscan")
+    script.fleet_manual_scan = _ManualCoordinator(events)
 
     assert script._prepare_task_boundary("Commission")
     assert events == [("manual", "profile-a")]
+    assert script.device.config is script.config
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:
-    script = _script(mode="daily", fleets=[1])
+    script = _script()
     script._manual_scan_wakeup = True
     script.fleet_manual_scan = _ManualCoordinator(
         execution=SimpleNamespace(
@@ -169,9 +137,6 @@ def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None
             ),
             batch_result=SimpleNamespace(failed_fleet_index=None),
         )
-    )
-    script._run_fleet_autoscan_if_due = lambda: pytest.fail(
-        "Autoscan не должен идти после manual command"
     )
 
     assert not script._prepare_task_boundary("Commission")
@@ -188,7 +153,7 @@ def test_idle_wait_wakes_immediately_for_pending_manual_command() -> None:
 
 
 def test_controller_factory_reuses_scheduler_owned_device(monkeypatch) -> None:
-    script = _script(mode="daily", fleets=[1])
+    script = _script()
     captured = {}
 
     class Controller:
@@ -240,25 +205,16 @@ def test_runtime_factory_is_lazy_and_does_not_create_second_engine(monkeypatch) 
     assert controller_calls == [True]
 
 
-def test_scheduler_source_keeps_safe_boundary_and_recovery_ordering() -> None:
+def test_scheduler_source_has_no_hidden_autoscan_boundary() -> None:
     source = (ROOT / "alas.py").read_text(encoding="utf-8")
-    loop = source[source.index("    def loop(self):") :]
-
-    stop_check = loop.index("if self.stop_event.is_set():")
-    scheduled_restart = loop.index("EmulatorManagement_ScheduledEmulatorRestart")
-    get_task = loop.index("task = self.get_next_task()")
-    autoscan_boundary = loop.index("self._prepare_task_boundary(task)")
-    normal_run = loop.index("success = self.run(inflection.underscore(task))")
-
-    assert stop_check < scheduled_restart < get_task < autoscan_boundary < normal_run
     prepare = source[
         source.index("    def _prepare_task_boundary(self, task):") : source.index(
             "    def loop(self):"
         )
     ]
+
+    assert "_run_fleet_autoscan_if_due" not in source
+    assert "fleet_auto_scan" in source
     assert prepare.index("task == 'Restart'") < prepare.index(
         "self._run_fleet_manual_scan_if_pending()"
-    )
-    assert prepare.index("task == 'Restart'") < prepare.index(
-        "self._run_fleet_autoscan_if_due()"
     )

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from functools import cached_property
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from module.application.fleet_autoscan import FleetAutoScanConfig
 from module.application.fleet_manual_scan import (
     FleetManualScanCommand,
     FleetManualScanStatus,
@@ -18,7 +16,6 @@ from module.application.fleet_page import (
     FleetSlotState,
     FleetSlotViewModel,
 )
-from module.config.deep import deep_get
 from module.formation.model import FleetSelection, SUPPORTED_SURFACE_FLEET_INDICES
 from module.webui.app_dependencies import (
     ProcessManager,
@@ -28,8 +25,8 @@ from module.webui.app_dependencies import (
     put_buttons,
     put_checkbox,
     put_html,
+    put_row,
     put_scope,
-    put_select,
     put_table,
     put_text,
     t,
@@ -41,29 +38,7 @@ from module.webui.app_types import WebUIMixinBase
 
 _PAGE_NAME = "FleetPage"
 _MANUAL_SELECTION_PIN = "FleetPage_ManualSelection"
-_AUTOSCAN_MODE_PIN = "FleetPage_AutoScanMode"
-_AUTOSCAN_FLEETS_PIN = "FleetPage_AutoScanFleets"
 _REFRESH_SECONDS = 2.0
-
-
-def load_fleet_autoscan_config(config: Mapping[str, Any]) -> FleetAutoScanConfig:
-    """Прочитать существующий контракт этапа 2 без дублирования настройки."""
-
-    return FleetAutoScanConfig.from_raw(
-        deep_get(config, "Alas.FleetAutoScan.Mode"),
-        deep_get(config, "Alas.FleetAutoScan.Fleets"),
-    )
-
-
-def normalize_fleet_autoscan_update(
-    mode: object,
-    fleet_indices: object,
-) -> dict[str, object]:
-    config = FleetAutoScanConfig.from_raw(mode, fleet_indices)
-    return {
-        "Alas.FleetAutoScan.Mode": config.mode.value,
-        "Alas.FleetAutoScan.Fleets": list(config.selection.fleet_indices),
-    }
 
 
 def format_fleet_timestamp(value, timezone: ZoneInfo) -> str:
@@ -106,38 +81,6 @@ class FleetPageMixin(WebUIMixinBase):
 
     def _fleet_page_is_current(self, instance: str) -> bool:
         return self.page == _PAGE_NAME and self.alas_name == instance
-
-    def _read_autoscan_config(self) -> FleetAutoScanConfig:
-        return load_fleet_autoscan_config(
-            self.alas_config.read_file(self.alas_name)
-        )
-
-    def _save_autoscan_config(self) -> None:
-        try:
-            changes = normalize_fleet_autoscan_update(
-                pin[_AUTOSCAN_MODE_PIN],
-                pin[_AUTOSCAN_FLEETS_PIN],
-            )
-        except (TypeError, ValueError):
-            toast(t("Gui.FleetPage.InvalidSelection"), color="error")
-            return
-
-        self._save_config(changes, self.alas_name, self.alas_config)
-        self.alas_config.load()
-        try:
-            persisted = self._read_autoscan_config()
-        except Exception as exc:
-            logger.exception(exc)
-            toast(t("Gui.FleetPage.ConfigSaveFailed"), color="error")
-            return
-        expected = FleetAutoScanConfig.from_raw(
-            changes["Alas.FleetAutoScan.Mode"],
-            changes["Alas.FleetAutoScan.Fleets"],
-        )
-        if persisted != expected:
-            toast(t("Gui.FleetPage.ConfigSaveFailed"), color="error")
-            return
-        toast(t("Gui.FleetPage.ConfigSaved"), color="success")
 
     @staticmethod
     def _select_all_manual_fleets() -> None:
@@ -295,13 +238,38 @@ class FleetPageMixin(WebUIMixinBase):
         with use_scope("fleet_state_table", clear=True):
             put_table([headers, *(self._row_outputs(row) for row in model.rows)])
 
+    def _render_fleet_summary(self, model: FleetPageViewModel) -> None:
+        complete = sum(row.observed_at is not None and row.complete for row in model.rows)
+        incomplete = sum(
+            row.observed_at is not None and not row.complete for row in model.rows
+        )
+        no_data = len(model.rows) - complete - incomplete
+        with use_scope("fleet_summary", clear=True):
+            put_html(
+                '<div class="fleet-summary-grid">'
+                f'<div><strong>{complete}</strong><span>{t("Gui.FleetPage.SummaryComplete")}</span></div>'
+                f'<div><strong>{incomplete}</strong><span>{t("Gui.FleetPage.SummaryIncomplete")}</span></div>'
+                f'<div><strong>{no_data}</strong><span>{t("Gui.FleetPage.SummaryNoData")}</span></div>'
+                '</div>'
+            )
+
     def _render_load_error(self, instance: str) -> None:
         with use_scope("fleet_manual_status", clear=True):
             put_text(t("Gui.FleetPage.StorageUnavailable")).style(
                 "--fleet-slot-incomplete--"
             )
         with use_scope("fleet_state_table", clear=True):
-            put_text(t("Gui.FleetPage.StorageUnavailable"))
+            put_html(
+                '<div class="fleet-state-message fleet-state-message-error">'
+                f'{t("Gui.FleetPage.StorageUnavailable")}'
+                '</div>'
+            )
+        with use_scope("fleet_summary", clear=True):
+            put_html(
+                '<div class="fleet-summary-error">'
+                f'{t("Gui.FleetPage.StorageUnavailable")}'
+                '</div>'
+            )
         self._render_manual_action(None, available=False, instance=instance)
 
     def _refresh_fleet_page(self, instance: str) -> None:
@@ -320,10 +288,15 @@ class FleetPageMixin(WebUIMixinBase):
             instance=instance,
         )
         self._render_fleet_table(model)
+        self._render_fleet_summary(model)
 
     def _render_manual_controls(self, instance: str) -> None:
-        put_html(f"<h3>{t('Gui.FleetPage.ManualTitle')}</h3>")
-        put_text(t("Gui.FleetPage.ManualHelp"))
+        put_html(
+            '<div class="fleet-card-heading">'
+            f'<span>{t("Gui.FleetPage.ManualTitle")}</span>'
+            f'<small>{t("Gui.FleetPage.ManualHelp")}</small>'
+            '</div>'
+        )
         put_checkbox(
             _MANUAL_SELECTION_PIN,
             options=[
@@ -352,42 +325,37 @@ class FleetPageMixin(WebUIMixinBase):
         put_scope("fleet_manual_action")
         put_scope("fleet_manual_status")
 
-    def _render_autoscan_controls(self) -> None:
-        autoscan = self._read_autoscan_config()
-        put_html(f"<h3>{t('Gui.FleetPage.AutoScanTitle')}</h3>")
-        put_text(t("Gui.FleetPage.AutoScanHelp"))
-        put_select(
-            _AUTOSCAN_MODE_PIN,
-            options=[
-                {
-                    "label": t("Gui.FleetPage.ModeDisabled"),
-                    "value": "disabled",
-                },
-                {
-                    "label": t("Gui.FleetPage.ModeEveryStart"),
-                    "value": "every_start",
-                },
-                {"label": t("Gui.FleetPage.ModeDaily"), "value": "daily"},
-            ],
-            label=t("Gui.FleetPage.Mode"),
-            value=autoscan.mode.value,
+    def _render_autoscan_controls(self, config) -> None:
+        with use_scope("groups"):
+            put_html(
+                '<div class="fleet-card-heading">'
+                f'<span>{t("Gui.FleetPage.AutoScanTitle")}</span>'
+                f'<small>{t("Gui.FleetPage.AutoScanHelp")}</small>'
+                '</div>'
+            )
+        scheduler_args = {
+            name: definition
+            for name, definition in self.ALAS_ARGS["FleetAutoScan"]["Scheduler"].items()
+            if name in {"Enable", "PushNotification", "NextRun"}
+        }
+        self.set_group(
+            ("Scheduler",),
+            scheduler_args,
+            config,
+            "FleetAutoScan",
         )
-        put_checkbox(
-            _AUTOSCAN_FLEETS_PIN,
-            options=[
-                {"label": str(index), "value": index}
-                for index in SUPPORTED_SURFACE_FLEET_INDICES
-            ],
-            label=t("Gui.FleetPage.Fleets"),
-            inline=True,
-            value=list(autoscan.selection.fleet_indices),
+        self.set_group(
+            ("FleetAutoScan",),
+            self.ALAS_ARGS["FleetAutoScan"]["FleetAutoScan"],
+            config,
+            "FleetAutoScan",
         )
-        put_button(
-            t("Gui.FleetPage.SaveAutoScan"),
-            onclick=self._save_autoscan_config,
-            color="primary",
-        )
-        put_text(t("Gui.FleetPage.AutoScanBoundary"))
+        with use_scope("groups"):
+            put_html(
+                '<div class="fleet-scheduler-note">'
+                f'{t("Gui.FleetPage.AutoScanBoundary")}'
+                '</div>'
+            )
 
     @use_scope("content", clear=True)
     def ui_fleet_page(self) -> None:
@@ -398,10 +366,51 @@ class FleetPageMixin(WebUIMixinBase):
         self.set_title(t("Gui.FleetPage.Title"))
         put_scope("fleet_page_root").style("--fleet-page--")
         with use_scope("fleet_page_root"):
-            self._render_manual_controls(instance)
-            self._render_autoscan_controls()
-            put_html(f"<h3>{t('Gui.FleetPage.StateTitle')}</h3>")
-            put_scope("fleet_state_table")
+            put_row(
+                [
+                    put_scope("fleet_main"),
+                    put_scope("groups").style("--fleet-scheduler-card--"),
+                ],
+                size="minmax(0, 1fr) minmax(330px, 360px)",
+            ).style("--fleet-workspace--")
+            with use_scope("fleet_main"):
+                put_html(
+                    '<section class="fleet-hero">'
+                    f'<div class="fleet-eyebrow">{t("Gui.FleetPage.HeroKicker")}</div>'
+                    f'<h2>{t("Gui.FleetPage.Title")}</h2>'
+                    f'<p>{t("Gui.FleetPage.HeroLead")}</p>'
+                    '</section>'
+                )
+                put_scope("fleet_summary")
+                put_scope("fleet_manual_card").style("--fleet-manual-card--")
+                put_scope(
+                    "fleet_state_card",
+                    [
+                        put_html(
+                            '<div class="fleet-card-heading fleet-state-heading">'
+                            f'<span>{t("Gui.FleetPage.StateTitle")}</span>'
+                            f'<small>{t("Gui.FleetPage.StateHelp")}</small>'
+                            '</div>'
+                        ),
+                        put_scope("fleet_state_table"),
+                    ],
+                ).style("--fleet-state-card--")
+            config = self.alas_config.read_file(instance)
+            with use_scope("fleet_manual_card"):
+                self._render_manual_controls(instance)
+            self._render_autoscan_controls(config)
+            with use_scope("fleet_summary"):
+                put_html(
+                    '<div class="fleet-state-message">'
+                    f'{t("Gui.FleetPage.StateLoading")}'
+                    '</div>'
+                )
+            with use_scope("fleet_state_table"):
+                put_html(
+                    '<div class="fleet-state-message">'
+                    f'{t("Gui.FleetPage.StateLoading")}'
+                    '</div>'
+                )
         self._refresh_fleet_page(instance)
         self.task_handler.add(
             lambda: self._refresh_fleet_page(instance),
@@ -414,6 +423,4 @@ __all__ = [
     "FleetPageMixin",
     "fleet_slot_text",
     "format_fleet_timestamp",
-    "load_fleet_autoscan_config",
-    "normalize_fleet_autoscan_update",
 ]

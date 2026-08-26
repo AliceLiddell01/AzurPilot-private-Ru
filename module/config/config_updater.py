@@ -78,6 +78,31 @@ MARITIME_ESCORTS = ['MaritimeEscort']
 HOSPITAL = ['Hospital', 'HospitalEvent']
 
 
+def fleet_autoscan_mode_to_scheduler_enable(value):
+    """Однократно перенести legacy FleetAutoScan.Mode в Scheduler.Enable."""
+
+    if value == 'disabled':
+        return False
+    if value in {'every_start', 'daily'}:
+        return True
+    raise ValueError('FleetAutoScan.Mode содержит неподдерживаемое значение')
+
+
+def fleet_autoscan_fleets_redirect(value):
+    """Нормализовать legacy selection перед переносом в новый task path."""
+
+    if not isinstance(value, (list, tuple)):
+        raise ValueError('FleetAutoScan.Fleets должен быть списком индексов')
+    if not value or any(
+        not isinstance(index, int)
+        or isinstance(index, bool)
+        or index not in range(1, 7)
+        for index in value
+    ):
+        raise ValueError('FleetAutoScan.Fleets содержит недопустимый индекс')
+    return sorted(set(value))
+
+
 class Event:
     """活动数据解析类。
 
@@ -613,6 +638,16 @@ class ConfigGenerator:
 class ConfigUpdater:
     # 格式：source, target, (可选) convert_func
     redirection = [
+        (
+            'Alas.FleetAutoScan.Mode',
+            'FleetAutoScan.Scheduler.Enable',
+            fleet_autoscan_mode_to_scheduler_enable,
+        ),
+        (
+            'Alas.FleetAutoScan.Fleets',
+            'FleetAutoScan.FleetAutoScan.Fleets',
+            fleet_autoscan_fleets_redirect,
+        ),
         # ('OpsiDaily.OpsiDaily.BuySupply', 'OpsiShop.Scheduler.Enable'),
         # ('OpsiDaily.Scheduler.Enable', 'OpsiDaily.OpsiDaily.DoMission'),
         # ('OpsiShop.Scheduler.Enable', 'OpsiShop.OpsiShop.BuySupply'),
@@ -758,6 +793,20 @@ class ConfigUpdater:
                 deep_set(new, keys=stage_key, value=stage)
 
         if not is_template:
+            missing = object()
+            legacy_fleet_autoscan_mode = deep_get(
+                old,
+                'Alas.FleetAutoScan.Mode',
+                default=missing,
+            )
+            if (
+                    legacy_fleet_autoscan_mode is not missing
+                    and (
+                        legacy_fleet_autoscan_mode is None
+                        or legacy_fleet_autoscan_mode == ''
+                    )
+            ):
+                fleet_autoscan_mode_to_scheduler_enable(legacy_fleet_autoscan_mode)
             new = self.config_redirect(old, new)
             old_priority = deep_get(old, 'General.YukikazeTaskManager.TaskPriorityAdjustment')
             new_priority = deep_get(new, 'General.YukikazeTaskManager.TaskPriorityAdjustment')
