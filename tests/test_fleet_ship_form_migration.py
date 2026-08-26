@@ -152,7 +152,16 @@ def _seed_matched_slots(
         connection.commit()
 
 
-def test_0005_backfills_only_proven_base_and_retrofit_forms(migration_database):
+def _stored_forms(database: str) -> tuple[str, ...]:
+    with _admin_connection(database) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT ship_form FROM azurpilot.formation_surface_fleet_slot "
+            "ORDER BY position"
+        )
+        return tuple(row[0] for row in cursor.fetchall())
+
+
+def test_0005_backfills_exact_and_retrofit_forms(migration_database):
     _upgrade(migration_database, _PREVIOUS_HEAD)
     _seed_matched_slots(
         migration_database,
@@ -164,8 +173,8 @@ def test_0005_backfills_only_proven_base_and_retrofit_forms(migration_database):
                 "Generic Retrofit Ship",
             ),
             (
-                "Generic Partial Ship (Retro",
-                "Generic Partial Ship (Retro",
+                "Generic Partial Ship (Retro1",
+                "Generic Partial Ship (Retro1",
                 "Generic Partial Ship",
             ),
         ),
@@ -173,33 +182,51 @@ def test_0005_backfills_only_proven_base_and_retrofit_forms(migration_database):
 
     _upgrade(migration_database, "head")
 
-    with _admin_connection(migration_database) as connection, connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT ship_form FROM azurpilot.formation_surface_fleet_slot "
-            "ORDER BY position"
-        )
-        assert tuple(row[0] for row in cursor.fetchall()) == (
-            "base",
-            "retrofit",
-            "retrofit",
-        )
+    assert _stored_forms(migration_database) == ("base", "retrofit", "retrofit")
 
 
-def test_0005_fails_closed_when_historical_matched_form_is_unproven(
+def test_0005_replays_legacy_fuzzy_truncated_and_explicit_retrofit_paths(
     migration_database,
 ):
     _upgrade(migration_database, _PREVIOUS_HEAD)
     _seed_matched_slots(
         migration_database,
-        (("Gener1c Base Ship", "Gener1c Base Ship", "Generic Base Ship"),),
+        (
+            ("Gener1c Base Ship", "Gener1c Base Ship", "Generic Base Ship"),
+            ("Generic Trunca...", "Generic Trunca...", "Generic Truncated Ship"),
+            (
+                "Generic Retrofit Ship (R...",
+                "Generic Retrofit Ship (R...",
+                "Generic Retrofit Ship",
+            ),
+        ),
     )
+
+    _upgrade(migration_database, "head")
+
+    assert _stored_forms(migration_database) == ("base", "base", "retrofit")
+
+
+def test_0005_fails_closed_for_structurally_invalid_historical_matched_row(
+    migration_database,
+):
+    _upgrade(migration_database, _PREVIOUS_HEAD)
+    _seed_matched_slots(
+        migration_database,
+        (("Generic Base Ship", "Generic Base Ship", "Generic Base Ship"),),
+    )
+    with _admin_connection(migration_database) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE azurpilot.formation_surface_fleet_slot "
+            "SET canonical_identity_key = 'unexpected:900001'"
+        )
 
     result = _upgrade(migration_database, "head", check=False)
 
     assert result.returncode != 0
     output = result.stdout + result.stderr
-    assert "форма корабля не доказана" in output
-    assert "автоматическая подстановка BASE запрещена" in output
+    assert "структурно некорректных исторических MATCHED-слотов" in output
+    assert "форма для некорректной записи не назначается" in output
     with _admin_connection(migration_database) as connection, connection.cursor() as cursor:
         cursor.execute("SELECT version_num FROM alembic_version")
         assert cursor.fetchone()[0] == _PREVIOUS_HEAD

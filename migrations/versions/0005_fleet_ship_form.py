@@ -19,6 +19,20 @@ depends_on: str | Sequence[str] | None = None
 _IDENTITY_CONSTRAINT = "ck_formation_surface_fleet_slot_identity_consistent"
 _SHIP_FORM_CONSTRAINT = "ck_formation_surface_fleet_slot_ship_form_allowed"
 
+# До этой ревизии форма отдельно не сохранялась. Исторический writer принимал
+# MATCHED только от общего Formation identity resolver: его Retrofit-ветка
+# всегда оставляла в displayed_name структурный suffix, а exact/fuzzy/truncated
+# ветки без такого evidence семантически соответствуют BASE.
+_LEGACY_RETROFIT_EVIDENCE = (
+    "displayed_name ~* "
+    "'[[:space:]]+[(]retrofit[)]$' "
+    "OR displayed_name ~* "
+    "'[[:space:]]+[(](r|re|ret|retr|retro|retrof|retrofi|retrofit)?"
+    "([.]{2,3}|…)+$' "
+    "OR displayed_name ~* "
+    "'[[:space:]]+[(]retro(f(i(t)?)?)?[0-9]?$'"
+)
+
 
 def upgrade() -> None:
     op.add_column(
@@ -28,39 +42,42 @@ def upgrade() -> None:
     )
     op.execute(
         sa.text(
+            "DO $$ "
+            "DECLARE invalid_count bigint; "
+            "BEGIN "
+            "SELECT count(*) INTO invalid_count "
+            "FROM azurpilot.formation_surface_fleet_slot "
+            "WHERE identity_status = 'matched' AND ("
+            "raw_name_ocr IS NULL OR btrim(raw_name_ocr) = '' "
+            "OR displayed_name IS NULL OR btrim(displayed_name) = '' "
+            "OR canonical_name IS NULL OR btrim(canonical_name) = '' "
+            "OR canonical_identity_key IS NULL "
+            "OR canonical_identity_key !~ '^azur_lane_ship_group:[0-9]+$'"
+            "); "
+            "IF invalid_count > 0 THEN "
+            "RAISE EXCEPTION "
+            "'Миграция 0005: обнаружено % структурно некорректных исторических MATCHED-слотов.', "
+            "invalid_count "
+            "USING HINT = 'Требуется сверка Fleet State или повторное "
+            "сканирование; форма для некорректной записи не назначается.'; "
+            "END IF; "
+            "END; $$"
+        )
+    )
+    op.execute(
+        sa.text(
             "UPDATE azurpilot.formation_surface_fleet_slot "
             "SET ship_form = 'retrofit' "
-            "WHERE identity_status = 'matched' "
-            "AND (lower(displayed_name) LIKE '%(retro%' "
-            "OR lower(raw_name_ocr) LIKE '%(retro%')"
+            "WHERE identity_status = 'matched' AND ("
+            f"{_LEGACY_RETROFIT_EVIDENCE}"
+            ")"
         )
     )
     op.execute(
         sa.text(
             "UPDATE azurpilot.formation_surface_fleet_slot "
             "SET ship_form = 'base' "
-            "WHERE identity_status = 'matched' AND ship_form IS NULL "
-            "AND regexp_replace(lower(displayed_name), '[[:space:]]+', '', 'g') = "
-            "regexp_replace(lower(canonical_name), '[[:space:]]+', '', 'g') "
-            "AND regexp_replace(lower(raw_name_ocr), '[[:space:]]+', '', 'g') = "
-            "regexp_replace(lower(canonical_name), '[[:space:]]+', '', 'g')"
-        )
-    )
-    op.execute(
-        sa.text(
-            "DO $$ "
-            "DECLARE unresolved_count bigint; "
-            "BEGIN "
-            "SELECT count(*) INTO unresolved_count "
-            "FROM azurpilot.formation_surface_fleet_slot "
-            "WHERE identity_status = 'matched' AND ship_form IS NULL; "
-            "IF unresolved_count > 0 THEN "
-            "RAISE EXCEPTION "
-            "'Миграция 0005: для % исторических MATCHED-слотов форма корабля не доказана.', "
-            "unresolved_count "
-            "USING HINT = 'Требуется сверка исторического Fleet State или повторное сканирование; автоматическая подстановка BASE запрещена.'; "
-            "END IF; "
-            "END; $$"
+            "WHERE identity_status = 'matched' AND ship_form IS NULL"
         )
     )
     op.drop_constraint(
