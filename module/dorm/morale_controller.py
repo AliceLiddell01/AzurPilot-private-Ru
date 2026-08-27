@@ -1,4 +1,4 @@
-"""State-driven контроллер Dorm для сканирования обоих этажей morale management."""
+"""Контроллер Dorm по состояниям для сканирования обоих этажей управления morale."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from module.ui.ui import UI
 
 
 class DormMoraleControllerError(RuntimeError):
-    """Dorm manage UI не достиг подтверждённого состояния."""
+    """UI управления Dorm не достиг подтверждённого состояния."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +57,7 @@ class DormManageStateDetector:
 
     def _normalize(self, frame: np.ndarray) -> np.ndarray:
         if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
-            raise DormMoraleInputError("Dorm controller ожидает кадр 1280x720.")
+            raise DormMoraleInputError("Контроллер Dorm ожидает кадр 1280x720.")
         height, width = frame.shape[:2]
         if (
             width * self.layout.frame_height != height * self.layout.frame_width
@@ -65,7 +65,7 @@ class DormManageStateDetector:
             or height < self.layout.frame_height
         ):
             raise DormMoraleInputError(
-                "Dorm controller ожидает кадр 16:9 не меньше 1280x720."
+                "Контроллер Dorm ожидает кадр 16:9 не меньше 1280x720."
             )
         if (height, width) == (self.layout.frame_height, self.layout.frame_width):
             return frame
@@ -100,7 +100,7 @@ class DormManageStateDetector:
 
 
 class DormMoraleController(UI):
-    """Открыть Dorm manage и выполнить ограниченный скан 1F -> 2F."""
+    """Открыть управление Dorm и выполнить ограниченный скан 1F -> 2F."""
 
     def __init__(
         self,
@@ -132,14 +132,14 @@ class DormMoraleController(UI):
         value = self._clock()
         if not isinstance(value, datetime) or value.tzinfo is None:
             raise DormMoraleControllerError(
-                "Controller clock должен быть timezone-aware."
+                "Часы контроллера должны возвращать datetime с часовым поясом."
             )
         return value
 
     def _current_frame(self) -> np.ndarray:
         frame = self.device.image
         if not isinstance(frame, np.ndarray):
-            raise DormMoraleControllerError("Device не содержит Dorm screenshot.")
+            raise DormMoraleControllerError("Device не содержит снимок экрана Dorm.")
         return frame
 
     def _capture(self) -> np.ndarray:
@@ -169,9 +169,9 @@ class DormMoraleController(UI):
                 frame = self._capture()
                 continue
             raise DormMoraleControllerError(
-                "Dorm manage не открыт и текущее UI state не распознано."
+                "Управление Dorm не открыто, текущее состояние UI не распознано."
             )
-        raise DormMoraleControllerError("Истёк лимит открытия Dorm manage.")
+        raise DormMoraleControllerError("Истёк лимит открытия управления Dorm.")
 
     def _select_floor(self, frame: np.ndarray, floor: DormFloor) -> np.ndarray:
         for _ in range(10):
@@ -183,7 +183,7 @@ class DormMoraleController(UI):
                     frame = self._capture()
                     continue
                 raise DormMoraleControllerError(
-                    "Dorm manage floor state не распознано."
+                    "Состояние этажа управления Dorm не распознано."
                 )
             area = (
                 self.dorm_manage_layout.floor_1_button
@@ -192,7 +192,7 @@ class DormMoraleController(UI):
             )
             self.device.click(self._button(area, f"DORM_MORALE_{floor.value}"))
             frame = self._capture()
-        raise DormMoraleControllerError(f"Не удалось выбрать Dorm floor {floor.value}.")
+        raise DormMoraleControllerError(f"Не удалось выбрать этаж Dorm {floor.value}.")
 
     def _scan_floor(
         self,
@@ -203,7 +203,7 @@ class DormMoraleController(UI):
         fresh = self._capture()
         if self.dorm_manage_state.selected_floor(fresh) is not floor:
             raise DormMoraleControllerError(
-                f"Dorm floor {floor.value} не подтверждён на свежем screenshot."
+                f"Этаж Dorm {floor.value} не подтверждён на свежем снимке экрана."
             )
         observed_at = self._now()
         snapshot = self.dorm_morale_scanner.scan(fresh.copy(), floor=floor)
