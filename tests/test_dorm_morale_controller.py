@@ -125,6 +125,25 @@ def test_controller_switches_one_action_per_screenshot_and_scans_both_floors():
     assert controller.device.clicks == ["DORM_MORALE_1F", "DORM_MORALE_2F"]
 
 
+def test_controller_waits_through_transitional_frame_after_floor_switch():
+    unknown = np.zeros((720, 1280, 3), dtype=np.uint8)
+    controller = _controller(
+        (
+            _frame(DormFloor.FLOOR_1),
+            _frame(DormFloor.FLOOR_1),
+            unknown,
+            _frame(DormFloor.FLOOR_2),
+            _frame(DormFloor.FLOOR_2),
+        )
+    )
+
+    result = controller.scan_both_floors(source="test:controller")
+
+    assert result.status is DormMoraleScanStatus.SUCCEEDED
+    assert controller._scanner.calls == [DormFloor.FLOOR_1, DormFloor.FLOOR_2]
+    assert controller.device.clicks == ["DORM_MORALE_2F"]
+
+
 def test_controller_second_floor_failure_is_partial_not_outside_evidence():
     controller = _controller(
         (
