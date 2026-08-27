@@ -1,11 +1,13 @@
-"""Сохранить semantic idempotency key Dorm scan в пределах app instance.
+"""Сохранить смысловой ключ идемпотентности скана Dorm в пределах экземпляра приложения.
 
 Revision ID: 0008_dorm_morale_idempotency
 Revises: 0007_dorm_morale_reconciliation
 
-Существующие строки Stage 2 уже содержат необратимый namespaced SHA-256 вместо
-caller key. Миграция намеренно не выдумывает исходные значения: старые ключи
-остаются opaque legacy keys, а все новые записи хранят caller key напрямую.
+Существующие строки Stage 2 содержат SHA-256, рассчитанный из ``instance_id`` и
+исходного ключа вызывающего кода. Массово восстановить исходные ключи по уже
+сохранённым хэшам нельзя. Миграция не вводит параллельный legacy-путь: старые
+значения остаются непрозрачными историческими ключами, а новые записи хранят
+исходный ключ напрямую.
 """
 
 from __future__ import annotations
@@ -46,8 +48,8 @@ def downgrade() -> None:
     ).first()
     if duplicate is not None:
         raise RuntimeError(
-            "Downgrade 0008 невозможен: одинаковый Dorm idempotency key уже "
-            "используется несколькими app instances."
+            "Откат 0008 невозможен: одинаковый ключ идемпотентности скана Dorm "
+            "уже используется несколькими экземплярами приложения."
         )
     op.drop_constraint(_NEW_UNIQUE, _SCAN, schema=_SCHEMA, type_="unique")
     op.create_unique_constraint(
