@@ -28,7 +28,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0007_dorm_morale_reconciliation"
+EXPECTED_ALEMBIC_HEAD = "0008_dorm_morale_semantic_idempotency"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -650,7 +650,7 @@ dorm_morale_scan_run = Table(
     Column("floor_2_status", String(16), nullable=False),
     Column("floor_2_observed_at", DateTime(timezone=True), nullable=True),
     Column("floor_2_error_code", String(64), nullable=True),
-    UniqueConstraint("idempotency_key"),
+    UniqueConstraint("instance_id", "idempotency_key"),
     UniqueConstraint("id", "instance_id", name="uq_dorm_morale_scan_run_provenance"),
     CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="digest_sha256"),
     CheckConstraint("finished_at >= started_at", name="time_order"),
