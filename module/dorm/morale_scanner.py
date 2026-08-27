@@ -24,11 +24,11 @@ from module.ocr.ocr import Ocr
 
 
 class DormMoraleScanError(RuntimeError):
-    """Базовая ошибка чистого Dorm scanner."""
+    """Базовая ошибка чистого сканера Dorm."""
 
 
 class DormMoraleInputError(DormMoraleScanError):
-    """Кадр или floor не соответствует контракту scanner."""
+    """Кадр или этаж не соответствует контракту сканера."""
 
 
 class DormMoraleOcrError(DormMoraleScanError):
@@ -254,7 +254,7 @@ class DormRecoverySpeedOcr:
 
 
 class DormMoraleScanner:
-    """Прочитать один уже открытый этаж без side effects Device или UI."""
+    """Прочитать один уже открытый этаж без побочных эффектов Device или UI."""
 
     def __init__(
         self,
