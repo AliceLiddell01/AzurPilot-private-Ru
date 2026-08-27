@@ -1,10 +1,12 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from threading import Barrier
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, insert
+from sqlalchemy import delete, func, insert, select
 
 from module.application.errors import StorageConflictError
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
@@ -18,7 +20,7 @@ from module.dorm.morale_model import (
 )
 from module.persistence import DatabaseSettings, LazyEngine
 from module.persistence.dorm_morale_repositories import PostgresDormMoraleRepository
-from module.persistence.schema import app_instance, metadata
+from module.persistence.schema import app_instance, dorm_morale_scan_run, metadata
 
 pytestmark = pytest.mark.skipif(
     any(
@@ -69,21 +71,47 @@ def _scan(*, finished_at, key):
     )
 
 
+def _prepare_database(lazy, instances, now):
+    with lazy.get().begin() as connection:
+        for table in reversed(metadata.sorted_tables):
+            connection.execute(delete(table))
+        connection.execute(
+            insert(app_instance),
+            [
+                {"id": instance_id, "name": name, "created_at": now}
+                for instance_id, name in instances
+            ],
+        )
+
+
+def _append_concurrently(lazy, instance_id, scans):
+    barrier = Barrier(len(scans))
+
+    def append(scan):
+        with lazy.get().begin() as connection:
+            repository = PostgresDormMoraleRepository(connection)
+            barrier.wait(timeout=10)
+            return repository.append_scan(instance_id, scan)
+
+    with ThreadPoolExecutor(max_workers=len(scans)) as executor:
+        futures = tuple(executor.submit(append, scan) for scan in scans)
+        return tuple(future.result(timeout=30) for future in futures)
+
+
 def test_dorm_scan_round_trip_idempotency_latest_and_instance_isolation():
     lazy = LazyEngine(DatabaseSettings.from_environment())
     first_instance, second_instance = uuid4(), uuid4()
     now = datetime(2026, 8, 27, 10, tzinfo=UTC)
     try:
+        _prepare_database(
+            lazy,
+            (
+                (first_instance, "dorm-pg-1"),
+                (second_instance, "dorm-pg-2"),
+            ),
+            now,
+        )
         with lazy.get().begin() as connection:
-            for table in reversed(metadata.sorted_tables):
-                connection.execute(delete(table))
-            connection.execute(
-                insert(app_instance),
-                [
-                    {"id": first_instance, "name": "dorm-pg-1", "created_at": now},
-                    {"id": second_instance, "name": "dorm-pg-2", "created_at": now},
-                ],
-            )
             repository = PostgresDormMoraleRepository(connection)
             older = _scan(finished_at=now, key="scan:older")
             newer = _scan(finished_at=now + timedelta(seconds=1), key="scan:newer")
@@ -115,5 +143,38 @@ def test_dorm_scan_round_trip_idempotency_latest_and_instance_isolation():
             assert latest.idempotency_key == newer.idempotency_key
             assert isolated.id == other_instance_scan.id
             assert isolated.idempotency_key == other_instance_scan.idempotency_key
+    finally:
+        lazy.dispose()
+
+
+def test_concurrent_semantic_retry_replays_single_scan():
+    lazy = LazyEngine(DatabaseSettings.from_environment())
+    instance_id = uuid4()
+    now = datetime(2026, 8, 27, 10, tzinfo=UTC)
+    scans = (
+        _scan(finished_at=now, key="scan:concurrent"),
+        _scan(finished_at=now, key="scan:concurrent"),
+    )
+    try:
+        _prepare_database(lazy, ((instance_id, "dorm-pg-concurrent"),), now)
+        results = _append_concurrently(lazy, instance_id, scans)
+
+        assert results[0] == results[1]
+        assert results[0].id in {scan.id for scan in scans}
+        assert results[0].idempotency_key == "scan:concurrent"
+
+        with lazy.get().begin() as connection:
+            stored_count = connection.execute(
+                select(func.count())
+                .select_from(dorm_morale_scan_run)
+                .where(
+                    dorm_morale_scan_run.c.instance_id == instance_id,
+                    dorm_morale_scan_run.c.idempotency_key == "scan:concurrent",
+                )
+            ).scalar_one()
+            latest = PostgresDormMoraleRepository(connection).latest(instance_id)
+
+        assert stored_count == 1
+        assert latest == results[0]
     finally:
         lazy.dispose()
