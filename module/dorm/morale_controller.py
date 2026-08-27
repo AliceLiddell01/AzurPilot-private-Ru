@@ -32,7 +32,7 @@ class DormMoraleControllerError(RuntimeError):
 class DormManageLayout:
     frame_width: int = 1280
     frame_height: int = 720
-    train_entry_button: tuple[int, int, int, int] = (20, 656, 190, 700)
+    train_entry_button: tuple[int, int, int, int] = (45, 560, 115, 635)
     floor_1_probe: tuple[int, int, int, int] = (145, 90, 330, 120)
     floor_2_probe: tuple[int, int, int, int] = (360, 90, 545, 120)
     floor_1_button: tuple[int, int, int, int] = (134, 85, 347, 137)
