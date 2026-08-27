@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, insert
 
+from module.application.errors import StorageConflictError
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus
 from module.dorm.morale_model import (
     DormFloor,
@@ -88,14 +89,31 @@ def test_dorm_scan_round_trip_idempotency_latest_and_instance_isolation():
             newer = _scan(finished_at=now + timedelta(seconds=1), key="scan:newer")
             assert repository.append_scan(first_instance, older) == older
             assert repository.append_scan(first_instance, older) == older
+
             semantic_retry = _scan(finished_at=now, key="scan:older")
-            assert repository.append_scan(first_instance, semantic_retry).id == older.id
+            semantic_result = repository.append_scan(first_instance, semantic_retry)
+            assert semantic_result == older
+            assert semantic_result.idempotency_key == older.idempotency_key
+
+            conflicting_retry = _scan(
+                finished_at=now + timedelta(seconds=2),
+                key="scan:older",
+            )
+            with pytest.raises(StorageConflictError):
+                repository.append_scan(first_instance, conflicting_retry)
+
             repository.append_scan(first_instance, newer)
             other_instance_scan = _scan(finished_at=now, key="scan:older")
-            repository.append_scan(second_instance, other_instance_scan)
+            assert (
+                repository.append_scan(second_instance, other_instance_scan)
+                == other_instance_scan
+            )
+
             latest = repository.latest(first_instance)
             isolated = repository.latest(second_instance)
             assert latest.id == newer.id and latest.observations == newer.observations
+            assert latest.idempotency_key == newer.idempotency_key
             assert isolated.id == other_instance_scan.id
+            assert isolated.idempotency_key == other_instance_scan.idempotency_key
     finally:
         lazy.dispose()
