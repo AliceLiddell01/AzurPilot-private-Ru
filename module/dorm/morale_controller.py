@@ -32,7 +32,7 @@ class DormMoraleControllerError(RuntimeError):
 class DormManageLayout:
     frame_width: int = 1280
     frame_height: int = 720
-    manage_entry_button: tuple[int, int, int, int] = (20, 656, 190, 700)
+    train_entry_button: tuple[int, int, int, int] = (20, 656, 190, 700)
     floor_1_probe: tuple[int, int, int, int] = (145, 90, 330, 120)
     floor_2_probe: tuple[int, int, int, int] = (360, 90, 545, 120)
     floor_1_button: tuple[int, int, int, int] = (134, 85, 347, 137)
@@ -158,16 +158,19 @@ class DormMoraleController(UI):
     def _open_manage(self) -> np.ndarray:
         self.ui_ensure(page_dorm)
         frame = self._capture()
+        train_clicked = False
         for _ in range(20):
             if self.dorm_manage_state.selected_floor(frame) is not None:
                 return frame
             if self.ui_page_appear(page_dorm, offset=(20, 20)):
-                self.device.click(
-                    self._button(
-                        self.dorm_manage_layout.manage_entry_button,
-                        "DORM_MORALE_OPEN",
+                if not train_clicked:
+                    self.device.click(
+                        self._button(
+                            self.dorm_manage_layout.train_entry_button,
+                            "DORM_MORALE_TRAIN",
+                        )
                     )
-                )
+                    train_clicked = True
                 frame = self._capture()
                 continue
             if self.ui_additional(get_ship=False):

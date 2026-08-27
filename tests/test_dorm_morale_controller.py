@@ -23,12 +23,14 @@ class _Device:
         self.frames = list(frames)
         self.image = np.zeros((720, 1280, 3), dtype=np.uint8)
         self.clicks = []
+        self.clicked_buttons = []
 
     def screenshot(self):
         self.image = self.frames.pop(0)
 
     def click(self, button):
         self.clicks.append(button.name)
+        self.clicked_buttons.append(button)
 
 
 class _Scanner:
@@ -39,7 +41,7 @@ class _Scanner:
     def scan(self, _frame, *, floor):
         self.calls.append(floor)
         if floor is self.fail_floor:
-            raise RuntimeError("synthetic OCR failure")
+            raise RuntimeError("синтетическая ошибка OCR")
         return DormFloorSnapshot(floor, (), "a" * 64)
 
 
@@ -48,16 +50,17 @@ class _Controller(DormMoraleController):
         self.ensured = page
 
     def ui_page_appear(self, page, offset=(20, 20)):
-        return False
+        return self.dorm_page_visible
 
     def ui_additional(self, get_ship=False):
         return False
 
 
-def _controller(frames, *, fail_floor=None):
+def _controller(frames, *, fail_floor=None, dorm_page_visible=False):
     controller = object.__new__(_Controller)
     controller.device = _Device(frames)
     controller._scanner = _Scanner(fail_floor)
+    controller.dorm_page_visible = dorm_page_visible
     values = iter(
         datetime(2026, 8, 27, 10, tzinfo=UTC) + timedelta(seconds=index)
         for index in range(20)
@@ -76,6 +79,24 @@ def test_state_detector_distinguishes_selected_floor_and_unknown():
     large = np.repeat(np.repeat(_frame(DormFloor.FLOOR_1), 3, axis=0), 3, axis=1)
     assert detector.selected_floor(large) is DormFloor.FLOOR_1
     assert detector.selected_floor(np.zeros((720, 1280, 3), dtype=np.uint8)) is None
+
+
+def test_controller_opens_train_once_and_waits_for_confirmed_floor():
+    unknown = np.zeros((720, 1280, 3), dtype=np.uint8)
+    controller = _controller(
+        (unknown, unknown.copy(), _frame(DormFloor.FLOOR_1)),
+        dorm_page_visible=True,
+    )
+
+    frame = controller._open_manage()
+
+    assert controller.dorm_manage_state.selected_floor(frame) is DormFloor.FLOOR_1
+    assert controller.device.clicks == ["DORM_MORALE_TRAIN"]
+    assert len(controller.device.clicked_buttons) == 1
+    assert (
+        controller.device.clicked_buttons[0].button
+        == controller.dorm_manage_layout.train_entry_button
+    )
 
 
 def test_controller_switches_one_action_per_screenshot_and_scans_both_floors():
