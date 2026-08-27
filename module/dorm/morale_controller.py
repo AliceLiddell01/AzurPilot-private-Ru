@@ -13,7 +13,7 @@ import numpy as np
 
 from module.base.button import Button
 from module.base.decorator import cached_property
-from module.dorm.assets import DORM_MANAGE, DORM_MANAGE_CHECK
+from module.dorm.assets import OCR_DORM_SLOT
 from module.dorm.morale_model import (
     DormFloor,
     DormFloorScanAttempt,
@@ -26,11 +26,11 @@ from module.ui.ui import UI
 
 
 class DormMoraleControllerError(RuntimeError):
-    """UI управления Dorm не достиг подтверждённого состояния."""
+    """UI Train Dorm не достиг подтверждённого состояния."""
 
 
 @dataclass(frozen=True, slots=True)
-class DormManageLayout:
+class DormTrainLayout:
     frame_width: int = 1280
     frame_height: int = 720
     floor_1_probe: tuple[int, int, int, int] = (145, 90, 330, 120)
@@ -40,20 +40,20 @@ class DormManageLayout:
 
 
 @dataclass(frozen=True, slots=True)
-class DormManageStatePolicy:
+class DormTrainStatePolicy:
     selected_luma_min: float = 180.0
     unselected_luma_max: float = 140.0
     selected_delta_min: float = 60.0
 
 
-class DormManageStateDetector:
+class DormTrainStateDetector:
     def __init__(
         self,
-        layout: DormManageLayout | None = None,
-        policy: DormManageStatePolicy | None = None,
+        layout: DormTrainLayout | None = None,
+        policy: DormTrainStatePolicy | None = None,
     ) -> None:
-        self.layout = DormManageLayout() if layout is None else layout
-        self.policy = DormManageStatePolicy() if policy is None else policy
+        self.layout = DormTrainLayout() if layout is None else layout
+        self.policy = DormTrainStatePolicy() if policy is None else policy
 
     def _normalize(self, frame: np.ndarray) -> np.ndarray:
         if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
@@ -100,7 +100,7 @@ class DormManageStateDetector:
 
 
 class DormMoraleController(UI):
-    """Открыть управление Dorm и выполнить ограниченный скан 1F -> 2F."""
+    """Открыть Train Dorm и выполнить ограниченный скан 1F -> 2F."""
 
     def __init__(
         self,
@@ -117,12 +117,12 @@ class DormMoraleController(UI):
         self._id_factory = id_factory
 
     @cached_property
-    def dorm_manage_layout(self) -> DormManageLayout:
-        return DormManageLayout()
+    def dorm_train_layout(self) -> DormTrainLayout:
+        return DormTrainLayout()
 
     @cached_property
-    def dorm_manage_state(self) -> DormManageStateDetector:
-        return DormManageStateDetector(self.dorm_manage_layout)
+    def dorm_train_state(self) -> DormTrainStateDetector:
+        return DormTrainStateDetector(self.dorm_train_layout)
 
     @cached_property
     def dorm_morale_scanner(self) -> DormMoraleScanner:
@@ -155,35 +155,37 @@ class DormMoraleController(UI):
         value = re.sub(r"(?<!^)(?=[A-Z])", "_", type(error).__name__).lower()
         return value[:64] or "dorm_scan_failed"
 
-    def _open_manage(self) -> np.ndarray:
+    def _open_train(self) -> np.ndarray:
         self.ui_ensure(page_dorm)
         frame = self._capture()
-        manage_requested = False
+        train_requested = False
         for _ in range(20):
-            if self.dorm_manage_state.selected_floor(frame) is not None:
+            if self.dorm_train_state.selected_floor(frame) is not None:
                 return frame
-            if self.appear_then_click(DORM_MANAGE, offset=(20, 20), interval=3):
-                manage_requested = True
-                frame = self._capture()
-                continue
-            if self.appear(DORM_MANAGE_CHECK, offset=(20, 20)):
-                manage_requested = True
+            if not train_requested and self.ui_page_appear(
+                page_dorm,
+                offset=(20, 20),
+            ):
+                self.device.click(OCR_DORM_SLOT)
+                train_requested = True
                 frame = self._capture()
                 continue
             if self.ui_additional(get_ship=False):
                 frame = self._capture()
                 continue
-            if manage_requested:
+            if train_requested:
                 frame = self._capture()
                 continue
             raise DormMoraleControllerError(
-                "Управление Dorm не открыто, текущее состояние UI не распознано."
+                "Экран Train Dorm не открыт, текущее состояние UI не распознано."
             )
-        raise DormMoraleControllerError("Истёк лимит открытия управления Dorm.")
+        raise DormMoraleControllerError(
+            "Истёк лимит ожидания экрана Train Dorm."
+        )
 
     def _select_floor(self, frame: np.ndarray, floor: DormFloor) -> np.ndarray:
         for _ in range(10):
-            selected = self.dorm_manage_state.selected_floor(frame)
+            selected = self.dorm_train_state.selected_floor(frame)
             if selected is floor:
                 return frame
             if selected is None:
@@ -191,12 +193,12 @@ class DormMoraleController(UI):
                     frame = self._capture()
                     continue
                 raise DormMoraleControllerError(
-                    "Состояние этажа управления Dorm не распознано."
+                    "Состояние этажа Train Dorm не распознано."
                 )
             area = (
-                self.dorm_manage_layout.floor_1_button
+                self.dorm_train_layout.floor_1_button
                 if floor is DormFloor.FLOOR_1
-                else self.dorm_manage_layout.floor_2_button
+                else self.dorm_train_layout.floor_2_button
             )
             self.device.click(self._button(area, f"DORM_MORALE_{floor.value}"))
             frame = self._capture()
@@ -209,7 +211,7 @@ class DormMoraleController(UI):
     ) -> tuple[np.ndarray, DormFloorScanAttempt]:
         frame = self._select_floor(frame, floor)
         fresh = self._capture()
-        if self.dorm_manage_state.selected_floor(fresh) is not floor:
+        if self.dorm_train_state.selected_floor(fresh) is not floor:
             raise DormMoraleControllerError(
                 f"Этаж Dorm {floor.value} не подтверждён на свежем снимке экрана."
             )
@@ -231,7 +233,7 @@ class DormMoraleController(UI):
         started_at = self._now()
         attempts: list[DormFloorScanAttempt] = []
         try:
-            frame = self._open_manage()
+            frame = self._open_train()
             frame, floor_1 = self._scan_floor(frame, DormFloor.FLOOR_1)
             attempts.append(floor_1)
         except Exception as error:  # noqa: BLE001 - результат хранит физический этап.
@@ -282,9 +284,9 @@ class DormMoraleController(UI):
 
 
 __all__ = (
-    "DormManageLayout",
-    "DormManageStateDetector",
-    "DormManageStatePolicy",
+    "DormTrainLayout",
+    "DormTrainStateDetector",
+    "DormTrainStatePolicy",
     "DormMoraleController",
     "DormMoraleControllerError",
 )

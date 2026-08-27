@@ -4,7 +4,7 @@ import pytest
 
 from module.base.utils import load_image
 from module.dock_inventory.model import IdentityStatus, ShipForm
-from module.dorm.morale_controller import DormManageStateDetector
+from module.dorm.morale_controller import DormTrainStateDetector
 from module.dorm.morale_model import DormFloor
 from module.dorm.morale_scanner import DormMoraleScanner
 
@@ -43,7 +43,7 @@ def test_real_dorm_screenshot_is_stable(environment, floor):
         pytest.skip(f"{environment} не задан: локальная приёмочная проверка отключена")
     frame = load_image(path)
 
-    detector = DormManageStateDetector()
+    detector = DormTrainStateDetector()
     assert detector.selected_floor(frame) is floor
 
     scanner = DormMoraleScanner()
