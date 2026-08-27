@@ -33,6 +33,7 @@ class DormMoraleControllerError(RuntimeError):
 class DormTrainLayout:
     frame_width: int = 1280
     frame_height: int = 720
+    # В live UI вкладка Train показывает персонажей 1F, Rest — персонажей 2F.
     floor_1_probe: tuple[int, int, int, int] = (145, 90, 330, 120)
     floor_2_probe: tuple[int, int, int, int] = (360, 90, 545, 120)
     floor_1_button: tuple[int, int, int, int] = (134, 85, 347, 137)
@@ -184,6 +185,7 @@ class DormMoraleController(UI):
         )
 
     def _select_floor(self, frame: np.ndarray, floor: DormFloor) -> np.ndarray:
+        switch_requested = False
         for _ in range(10):
             selected = self.dorm_train_state.selected_floor(frame)
             if selected is floor:
@@ -192,15 +194,22 @@ class DormMoraleController(UI):
                 if self.ui_additional(get_ship=False):
                     frame = self._capture()
                     continue
+                if switch_requested:
+                    frame = self._capture()
+                    continue
                 raise DormMoraleControllerError(
                     "Состояние этажа Train Dorm не распознано."
                 )
+            if switch_requested:
+                frame = self._capture()
+                continue
             area = (
                 self.dorm_train_layout.floor_1_button
                 if floor is DormFloor.FLOOR_1
                 else self.dorm_train_layout.floor_2_button
             )
             self.device.click(self._button(area, f"DORM_MORALE_{floor.value}"))
+            switch_requested = True
             frame = self._capture()
         raise DormMoraleControllerError(f"Не удалось выбрать этаж Dorm {floor.value}.")
 
