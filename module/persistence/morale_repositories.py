@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from uuid import UUID
 
-from sqlalchemy import Connection, func, insert, select
+from sqlalchemy import Connection, func, insert, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.canonical_payload import payload_digest
@@ -18,7 +19,11 @@ from module.application.morale import (
 from module.dock_inventory.model import CanonicalShipIdentity, ShipForm
 from module.formation.model import FleetSelection, FormationFleetSide
 from module.persistence.database import translate_database_error
-from module.persistence.schema import formation_surface_fleet_morale_observation
+from module.persistence.schema import (
+    formation_surface_fleet_morale_observation,
+    formation_surface_fleet_slot,
+    formation_surface_fleet_snapshot,
+)
 
 
 def _payload(observation: MoraleObservation) -> dict[str, object]:
@@ -40,6 +45,17 @@ def _payload(observation: MoraleObservation) -> dict[str, object]:
     }
 
 
+def _storage_idempotency_key(observation: MoraleObservation) -> str:
+    """Namespace caller idempotency внутри app instance без расширения DB field."""
+
+    return payload_digest(
+        {
+            "instance_id": observation.instance_id,
+            "idempotency_key": observation.idempotency_key,
+        }
+    )
+
+
 class PostgresMoraleRepository:
     def __init__(self, connection: Connection):
         self._connection = connection
@@ -48,21 +64,26 @@ class PostgresMoraleRepository:
         if not isinstance(observation, MoraleObservation):
             raise StorageInvalidDataError("Morale observation имеет неверный тип.")
         digest = payload_digest(_payload(observation))
+        storage_idempotency_key = _storage_idempotency_key(observation)
         table = formation_surface_fleet_morale_observation
         try:
             existing = self._connection.execute(
                 select(table).where(
-                    table.c.idempotency_key == observation.idempotency_key
+                    table.c.idempotency_key == storage_idempotency_key
                 )
             ).mappings().one_or_none()
             if existing is not None:
                 if existing["payload_digest"] == digest:
                     try:
-                        return self._hydrate(existing)
+                        hydrated = self._hydrate(existing)
                     except (KeyError, TypeError, ValueError):
                         raise StorageInvalidDataError(
                             "PostgreSQL содержит некорректное Morale observation."
                         ) from None
+                    return replace(
+                        hydrated,
+                        idempotency_key=observation.idempotency_key,
+                    )
                 raise StorageConflictError(
                     "Morale idempotency key содержит другой payload."
                 )
@@ -71,7 +92,7 @@ class PostgresMoraleRepository:
                     id=observation.id,
                     formation_snapshot_id=observation.formation_snapshot_id,
                     instance_id=observation.instance_id,
-                    idempotency_key=observation.idempotency_key,
+                    idempotency_key=storage_idempotency_key,
                     payload_digest=digest,
                     fleet_index=observation.fleet_index,
                     side=observation.side.value,
@@ -101,6 +122,35 @@ class PostgresMoraleRepository:
         if not isinstance(instance_id, UUID) or not isinstance(selection, FleetSelection):
             raise StorageInvalidDataError("Morale latest request некорректен.")
         table = formation_surface_fleet_morale_observation
+        anchor_snapshot = formation_surface_fleet_snapshot.alias("morale_anchor_snapshot")
+        later_snapshot = formation_surface_fleet_snapshot.alias("morale_later_snapshot")
+        later_slot = formation_surface_fleet_slot.alias("morale_later_slot")
+        continuity_break = (
+            select(later_snapshot.c.id)
+            .select_from(
+                later_snapshot.join(
+                    later_slot,
+                    later_slot.c.snapshot_id == later_snapshot.c.id,
+                )
+            )
+            .where(
+                later_snapshot.c.instance_id == table.c.instance_id,
+                later_snapshot.c.fleet_index == table.c.fleet_index,
+                later_snapshot.c.id != anchor_snapshot.c.id,
+                later_snapshot.c.observed_at >= anchor_snapshot.c.observed_at,
+                later_slot.c.side == table.c.side,
+                later_slot.c.position == table.c.position,
+                or_(
+                    later_slot.c.occupied.is_(False),
+                    later_slot.c.identity_status.is_distinct_from("matched"),
+                    later_slot.c.canonical_identity_key.is_distinct_from(
+                        table.c.canonical_identity_key
+                    ),
+                    later_slot.c.ship_form.is_distinct_from(table.c.ship_form),
+                ),
+            )
+            .exists()
+        )
         ranked = (
             select(
                 table.c.id,
@@ -111,9 +161,16 @@ class PostgresMoraleRepository:
                 )
                 .label("rank"),
             )
+            .select_from(
+                table.join(
+                    anchor_snapshot,
+                    anchor_snapshot.c.id == table.c.formation_snapshot_id,
+                )
+            )
             .where(
                 table.c.instance_id == instance_id,
                 table.c.fleet_index.in_(selection.fleet_indices),
+                ~continuity_break,
             )
             .subquery()
         )
