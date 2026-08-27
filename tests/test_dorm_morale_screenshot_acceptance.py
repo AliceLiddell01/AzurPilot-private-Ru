@@ -4,6 +4,7 @@ import cv2
 import pytest
 
 from module.dock_inventory.model import IdentityStatus, ShipForm
+from module.dorm.morale_controller import DormManageStateDetector
 from module.dorm.morale_model import DormFloor
 from module.dorm.morale_scanner import DormMoraleScanner
 
@@ -39,9 +40,13 @@ EXPECTED = {
 def test_real_dorm_screenshot_is_stable(environment, floor):
     path = os.getenv(environment)
     if not path:
-        pytest.skip(f"{environment} is an opt-in local acceptance input")
+        pytest.skip(f"{environment} не задан: локальный acceptance test отключён")
     frame = cv2.imread(path)
     assert frame is not None
+
+    detector = DormManageStateDetector()
+    assert detector.selected_floor(frame) is floor
+
     scanner = DormMoraleScanner()
     actual_runs = []
     for _ in range(2):
