@@ -4,7 +4,6 @@
 
 - `uv run python -m tools.acceptance.device --help` — проверки устройства и управления с явно выбранной целью;
 - `uv run python -m tools.acceptance.formation --help` — реальная проверка Formation Fleet Scanner для выбранного флота;
-- `uv run python -m tools.acceptance.dorm_morale --help` — реальная приёмка Dorm Morale Stage 2 через сохранённый Fleet State, штатный Dorm-контроллер и PostgreSQL;
 - `uv run python -m tools.acceptance.ocr --help` — локальная проверка OCR provider и безопасного debug output;
 - `uv run python -m tools.acceptance.ocr_opsi_zone --help` — ограниченная read-only проверка OCR зон Operation Siren;
 - `uv run python -m tools.acceptance.ocr_commission --help` — ограниченная read-only проверка Commission OCR;
