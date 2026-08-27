@@ -73,6 +73,13 @@ class MoraleKnowledge(StrEnum):
     UNKNOWN = "unknown"
 
 
+class MoraleLocation(StrEnum):
+    UNKNOWN = "unknown"
+    DORM_FLOOR_1 = "dorm_floor_1"
+    DORM_FLOOR_2 = "dorm_floor_2"
+    OUTSIDE_DORM = "outside_dorm"
+
+
 class MoraleContinuityError(ValueError):
     """Fleet State не доказывает occupant, к которому относится observation."""
 
@@ -159,12 +166,14 @@ class MoraleObservation:
     position: int
     canonical_identity: CanonicalShipIdentity
     ship_form: ShipForm
-    baseline: Decimal
+    baseline: Decimal | None
     observed_at: datetime
     recovery: MoraleRecoveryProfile
     source: str
     idempotency_key: str
     knowledge: MoraleKnowledge = MoraleKnowledge.EXACT
+    location: MoraleLocation = MoraleLocation.UNKNOWN
+    dorm_scan_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if not all(
@@ -186,19 +195,30 @@ class MoraleObservation:
         )
         if not isinstance(self.ship_form, ShipForm):
             raise TypeError("ship_form должен быть ShipForm")
-        _decimal(
-            self.baseline,
-            field="baseline",
-            minimum=MORALE_MIN,
-            maximum=MORALE_MAX,
-        )
+        if self.knowledge is MoraleKnowledge.EXACT:
+            _decimal(
+                self.baseline,
+                field="baseline",
+                minimum=MORALE_MIN,
+                maximum=MORALE_MAX,
+            )
+        elif self.knowledge is MoraleKnowledge.UNKNOWN:
+            if self.baseline is not None:
+                raise ValueError("UNKNOWN observation не должен содержать baseline")
+        else:
+            raise ValueError("Сохранённое observation должно быть exact или unknown")
         _aware(self.observed_at, field="observed_at")
         if not isinstance(self.recovery, MoraleRecoveryProfile):
             raise TypeError("recovery должен быть MoraleRecoveryProfile")
         _bounded(self.source, field="source", maximum=64)
         _bounded(self.idempotency_key, field="idempotency_key", maximum=128)
-        if self.knowledge is not MoraleKnowledge.EXACT:
-            raise ValueError("Сохранённое morale observation должно быть exact")
+        if not isinstance(self.location, MoraleLocation):
+            raise TypeError("location должен быть MoraleLocation")
+        if self.location is MoraleLocation.UNKNOWN:
+            if self.dorm_scan_id is not None:
+                raise ValueError("Unknown location не должна ссылаться на Dorm scan")
+        elif not isinstance(self.dorm_scan_id, UUID):
+            raise ValueError("Наблюдаемая location требует Dorm scan provenance")
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +233,11 @@ def project_morale(observation: MoraleObservation, *, at: datetime) -> MoralePro
 
     if not isinstance(observation, MoraleObservation):
         raise TypeError("observation должен быть MoraleObservation")
+    if (
+        observation.knowledge is not MoraleKnowledge.EXACT
+        or observation.baseline is None
+    ):
+        raise ValueError("Проекция требует exact morale baseline")
     at = _aware(at, field="at")
     elapsed = at.astimezone(UTC) - observation.observed_at.astimezone(UTC)
     if elapsed.days < 0:
@@ -237,9 +262,7 @@ def project_morale(observation: MoraleObservation, *, at: datetime) -> MoralePro
     return MoraleProjection(
         value=value,
         knowledge=(
-            MoraleKnowledge.EXACT
-            if elapsed_ticks == 0
-            else MoraleKnowledge.PROJECTED
+            MoraleKnowledge.EXACT if elapsed_ticks == 0 else MoraleKnowledge.PROJECTED
         ),
         elapsed_ticks=elapsed_ticks,
     )
@@ -262,6 +285,8 @@ class MoraleSlotState:
     observed_at: datetime | None = None
     source: str | None = None
     morale_observation_id: UUID | None = None
+    location: MoraleLocation = MoraleLocation.UNKNOWN
+    dorm_scan_id: UUID | None = None
 
     def __post_init__(self) -> None:
         validate_surface_fleet_index(self.fleet_index)
@@ -273,19 +298,40 @@ class MoraleSlotState:
             raise TypeError("occupied должен быть bool или None")
         if not isinstance(self.knowledge, MoraleKnowledge):
             raise TypeError("knowledge должен быть MoraleKnowledge")
-        morale_fields = (
+        if not isinstance(self.location, MoraleLocation):
+            raise TypeError("location должен быть MoraleLocation")
+        exact_fields = (
             self.baseline,
             self.current,
+        )
+        evidence_fields = (
             self.recovery,
             self.observed_at,
             self.source,
             self.morale_observation_id,
         )
         if self.knowledge is MoraleKnowledge.UNKNOWN:
-            if any(value is not None for value in morale_fields):
-                raise ValueError("UNKNOWN slot не должен содержать morale values")
-        elif any(value is None for value in morale_fields):
+            if any(value is not None for value in exact_fields):
+                raise ValueError("UNKNOWN slot не должен содержать exact morale")
+            if self.recovery is None:
+                if any(value is not None for value in evidence_fields[1:]):
+                    raise ValueError("UNKNOWN slot содержит неполное recovery evidence")
+                if (
+                    self.location is not MoraleLocation.UNKNOWN
+                    or self.dorm_scan_id is not None
+                ):
+                    raise ValueError(
+                        "UNKNOWN без evidence должен иметь unknown location"
+                    )
+            elif any(value is None for value in evidence_fields):
+                raise ValueError("Известный recovery context требует полное evidence")
+        elif any(value is None for value in (*exact_fields, *evidence_fields)):
             raise ValueError("Known slot должен содержать полное morale state")
+        if self.location is MoraleLocation.UNKNOWN:
+            if self.dorm_scan_id is not None:
+                raise ValueError("Unknown location не должна ссылаться на Dorm scan")
+        elif not isinstance(self.dorm_scan_id, UUID):
+            raise ValueError("Наблюдаемая location требует Dorm scan provenance")
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,7 +350,9 @@ class MoraleFleetState:
         if (self.formation_observation_id is None) != (
             self.formation_observed_at is None
         ):
-            raise ValueError("Formation provenance должен быть полным или отсутствовать")
+            raise ValueError(
+                "Formation provenance должен быть полным или отсутствовать"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,7 +364,10 @@ class MoraleSelectionState:
     def __post_init__(self) -> None:
         if not isinstance(self.selection, FleetSelection):
             raise TypeError("selection должен быть FleetSelection")
-        if tuple(item.fleet_index for item in self.fleets) != self.selection.fleet_indices:
+        if (
+            tuple(item.fleet_index for item in self.fleets)
+            != self.selection.fleet_indices
+        ):
             raise ValueError("Morale fleets не соответствуют selection")
         _aware(self.projected_at, field="projected_at")
 
@@ -391,7 +442,9 @@ class MoraleService:
                 FleetSelection.one(command.fleet_index),
             )
             if not formations:
-                raise MoraleContinuityError("Для флота отсутствует сохранённый Fleet State")
+                raise MoraleContinuityError(
+                    "Для флота отсутствует сохранённый Fleet State"
+                )
             formation = formations[0]
             if observed_at.astimezone(UTC) < formation.observed_at.astimezone(UTC):
                 raise MoraleContinuityError(
@@ -482,9 +535,7 @@ class MoraleService:
     def _fleet_state(
         fleet_index: int,
         formation: FleetStateObservation | None,
-        morale_by_slot: dict[
-            tuple[int, FormationFleetSide, int], MoraleObservation
-        ],
+        morale_by_slot: dict[tuple[int, FormationFleetSide, int], MoraleObservation],
         projected_at: datetime,
     ) -> MoraleFleetState:
         if formation is None:
@@ -544,6 +595,17 @@ class MoraleService:
             or observation.ship_form is not slot.ship_form
         ):
             return MoraleSlotState(**common, knowledge=MoraleKnowledge.UNKNOWN)
+        if observation.knowledge is MoraleKnowledge.UNKNOWN:
+            return MoraleSlotState(
+                **common,
+                knowledge=MoraleKnowledge.UNKNOWN,
+                recovery=observation.recovery,
+                observed_at=observation.observed_at,
+                source=observation.source,
+                morale_observation_id=observation.id,
+                location=observation.location,
+                dorm_scan_id=observation.dorm_scan_id,
+            )
         projection = project_morale(observation, at=projected_at)
         return MoraleSlotState(
             **common,
@@ -554,6 +616,8 @@ class MoraleService:
             observed_at=observation.observed_at,
             source=observation.source,
             morale_observation_id=observation.id,
+            location=observation.location,
+            dorm_scan_id=observation.dorm_scan_id,
         )
 
 
@@ -565,6 +629,7 @@ __all__ = (
     "MoraleContinuityError",
     "MoraleFleetState",
     "MoraleKnowledge",
+    "MoraleLocation",
     "MoraleObservation",
     "MoraleProjection",
     "MoraleRecoveryProfile",

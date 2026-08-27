@@ -28,7 +28,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0006_per_ship_morale_core"
+EXPECTED_ALEMBIC_HEAD = "0007_dorm_morale_reconciliation"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -536,7 +536,10 @@ formation_surface_fleet_snapshot = Table(
     UniqueConstraint("idempotency_key"),
     UniqueConstraint("run_id", "fleet_index"),
     UniqueConstraint(
-        "id", "instance_id", "fleet_index", name="uq_formation_fleet_snapshot_provenance"
+        "id",
+        "instance_id",
+        "fleet_index",
+        name="uq_formation_fleet_snapshot_provenance",
     ),
     ForeignKeyConstraint(
         ("run_id", "fleet_index"),
@@ -629,6 +632,118 @@ formation_surface_fleet_slot = Table(
     ),
 )
 
+dorm_morale_scan_run = Table(
+    "dorm_morale_scan_run",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("instance_id", Uuid, _instance_fk(), nullable=False),
+    Column("idempotency_key", String(128), nullable=False),
+    Column("payload_digest", String(64), nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("finished_at", DateTime(timezone=True), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("source", String(64), nullable=False),
+    Column("catalog_fingerprint", String(64), nullable=True),
+    Column("floor_1_status", String(16), nullable=False),
+    Column("floor_1_observed_at", DateTime(timezone=True), nullable=True),
+    Column("floor_1_error_code", String(64), nullable=True),
+    Column("floor_2_status", String(16), nullable=False),
+    Column("floor_2_observed_at", DateTime(timezone=True), nullable=True),
+    Column("floor_2_error_code", String(64), nullable=True),
+    UniqueConstraint("idempotency_key"),
+    UniqueConstraint("id", "instance_id", name="uq_dorm_morale_scan_run_provenance"),
+    CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="digest_sha256"),
+    CheckConstraint("finished_at >= started_at", name="time_order"),
+    CheckConstraint(
+        "status IN ('succeeded', 'partial', 'failed')", name="status_allowed"
+    ),
+    CheckConstraint(
+        "catalog_fingerprint IS NULL OR catalog_fingerprint ~ '^[0-9a-f]{64}$'",
+        name="catalog_fingerprint_sha256",
+    ),
+    CheckConstraint(
+        "floor_1_status IN ('succeeded', 'failed') AND "
+        "floor_2_status IN ('succeeded', 'failed')",
+        name="floor_status_allowed",
+    ),
+    CheckConstraint(
+        "(floor_1_status = 'succeeded' AND floor_1_observed_at IS NOT NULL "
+        "AND floor_1_error_code IS NULL) OR "
+        "(floor_1_status = 'failed' AND floor_1_observed_at IS NULL "
+        "AND floor_1_error_code IS NOT NULL)",
+        name="floor_1_consistent",
+    ),
+    CheckConstraint(
+        "(floor_2_status = 'succeeded' AND floor_2_observed_at IS NOT NULL "
+        "AND floor_2_error_code IS NULL) OR "
+        "(floor_2_status = 'failed' AND floor_2_observed_at IS NULL "
+        "AND floor_2_error_code IS NOT NULL)",
+        name="floor_2_consistent",
+    ),
+    CheckConstraint(
+        "(status = 'succeeded' AND floor_1_status = 'succeeded' "
+        "AND floor_2_status = 'succeeded') OR "
+        "(status = 'partial' AND floor_1_status <> floor_2_status) OR "
+        "(status = 'failed' AND floor_1_status = 'failed' "
+        "AND floor_2_status = 'failed')",
+        name="status_consistent",
+    ),
+    CheckConstraint("btrim(source) <> ''", name="source_not_blank"),
+)
+Index(
+    "ix_dorm_morale_scan_run_latest",
+    dorm_morale_scan_run.c.instance_id,
+    dorm_morale_scan_run.c.finished_at.desc(),
+    dorm_morale_scan_run.c.id.desc(),
+)
+
+dorm_morale_scan_observation = Table(
+    "dorm_morale_scan_observation",
+    metadata,
+    Column("scan_id", Uuid, nullable=False),
+    Column("instance_id", Uuid, nullable=False),
+    Column("floor", String(2), nullable=False),
+    Column("ordinal", Integer, nullable=False),
+    Column("raw_name_ocr", String(256), nullable=False),
+    Column("displayed_name", String(256), nullable=False),
+    Column("identity_status", String(16), nullable=False),
+    Column("canonical_identity_key", String(128), nullable=True),
+    Column("canonical_name", String(256), nullable=True),
+    Column("ship_form", String(16), nullable=True),
+    Column("morale", Numeric(9, 6), nullable=False),
+    Column("recovery_per_hour", Numeric(10, 6), nullable=False),
+    PrimaryKeyConstraint("scan_id", "floor", "ordinal"),
+    ForeignKeyConstraint(
+        ("scan_id", "instance_id"),
+        (
+            f"{SCHEMA_NAME}.dorm_morale_scan_run.id",
+            f"{SCHEMA_NAME}.dorm_morale_scan_run.instance_id",
+        ),
+        ondelete="CASCADE",
+        name="fk_dorm_morale_observation_scan_instance",
+    ),
+    CheckConstraint("floor IN ('1F', '2F')", name="floor_allowed"),
+    CheckConstraint("ordinal BETWEEN 1 AND 5", name="ordinal_range"),
+    CheckConstraint(
+        "identity_status IN ('unresolved', 'matched', 'ambiguous')",
+        name="identity_status_allowed",
+    ),
+    CheckConstraint(
+        "ship_form IS NULL OR ship_form IN ('base', 'retrofit')",
+        name="ship_form_allowed",
+    ),
+    CheckConstraint(
+        "(identity_status = 'matched' AND canonical_identity_key IS NOT NULL "
+        "AND canonical_name IS NOT NULL) OR "
+        "(identity_status IN ('unresolved', 'ambiguous') "
+        "AND canonical_identity_key IS NULL AND canonical_name IS NULL "
+        "AND ship_form IS NULL)",
+        name="identity_consistent",
+    ),
+    CheckConstraint("morale BETWEEN 0 AND 150", name="morale_range"),
+    CheckConstraint("recovery_per_hour BETWEEN 0 AND 1500", name="recovery_rate_range"),
+)
+
 formation_surface_fleet_morale_observation = Table(
     "formation_surface_fleet_morale_observation",
     metadata,
@@ -642,13 +757,15 @@ formation_surface_fleet_morale_observation = Table(
     Column("position", Integer, nullable=False),
     Column("canonical_identity_key", String(128), nullable=False),
     Column("ship_form", String(16), nullable=False),
-    Column("baseline", Numeric(9, 6), nullable=False),
+    Column("baseline", Numeric(9, 6), nullable=True),
     Column("observed_at", DateTime(timezone=True), nullable=False),
     Column("recovery_per_hour", Numeric(10, 6), nullable=False),
     Column("recovery_ceiling", Numeric(9, 6), nullable=False),
     Column("source", String(64), nullable=False),
     Column("recovery_source", String(64), nullable=False),
     Column("knowledge", String(16), nullable=False),
+    Column("location", String(32), nullable=False, server_default="unknown"),
+    Column("dorm_scan_id", Uuid, nullable=True),
     UniqueConstraint("idempotency_key"),
     ForeignKeyConstraint(
         ("formation_snapshot_id", "instance_id", "fleet_index"),
@@ -678,21 +795,42 @@ formation_surface_fleet_morale_observation = Table(
         ondelete="RESTRICT",
         name="fk_morale_observation_slot_identity",
     ),
+    ForeignKeyConstraint(
+        ("dorm_scan_id", "instance_id"),
+        (
+            f"{SCHEMA_NAME}.dorm_morale_scan_run.id",
+            f"{SCHEMA_NAME}.dorm_morale_scan_run.instance_id",
+        ),
+        ondelete="RESTRICT",
+        name="fk_morale_observation_dorm_scan_instance",
+    ),
     CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="digest_sha256"),
     CheckConstraint("fleet_index BETWEEN 1 AND 6", name="fleet_range"),
     CheckConstraint("side IN ('main', 'vanguard')", name="side_allowed"),
     CheckConstraint("position BETWEEN 1 AND 3", name="position_range"),
     CheckConstraint("ship_form IN ('base', 'retrofit')", name="ship_form_allowed"),
-    CheckConstraint("baseline BETWEEN 0 AND 150", name="baseline_range"),
     CheckConstraint(
-        "recovery_per_hour BETWEEN 0 AND 1500", name="rate_range"
+        "baseline IS NULL OR baseline BETWEEN 0 AND 150", name="baseline_range"
     ),
-    CheckConstraint(
-        "recovery_ceiling BETWEEN 0 AND 150", name="ceiling_range"
-    ),
+    CheckConstraint("recovery_per_hour BETWEEN 0 AND 1500", name="rate_range"),
+    CheckConstraint("recovery_ceiling BETWEEN 0 AND 150", name="ceiling_range"),
     CheckConstraint("btrim(source) <> ''", name="source_not_blank"),
     CheckConstraint("btrim(recovery_source) <> ''", name="recover_not_blank"),
-    CheckConstraint("knowledge = 'exact'", name="knowledge_exact"),
+    CheckConstraint("knowledge IN ('exact', 'unknown')", name="knowledge_allowed"),
+    CheckConstraint(
+        "(knowledge = 'exact' AND baseline IS NOT NULL) OR "
+        "(knowledge = 'unknown' AND baseline IS NULL)",
+        name="knowledge_value",
+    ),
+    CheckConstraint(
+        "location IN ('unknown', 'dorm_floor_1', 'dorm_floor_2', 'outside_dorm')",
+        name="location_allowed",
+    ),
+    CheckConstraint(
+        "(location = 'unknown' AND dorm_scan_id IS NULL) OR "
+        "(location <> 'unknown' AND dorm_scan_id IS NOT NULL)",
+        name="dorm_provenance",
+    ),
 )
 Index(
     "ix_formation_fleet_morale_latest",

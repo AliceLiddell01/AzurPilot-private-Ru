@@ -126,10 +126,12 @@ PostgreSQL marker проверяется fail-closed; SQLite fallback и dual-wr
 запрещены.
 
 Per-ship Morale Core опирается на append-only Formation Fleet State как на
-единственный источник состава. Он хранит только morale baseline и provenance
-физического slot + canonical identity + form, вычисляет текущее значение по
-инъецированному времени и не подключён к legacy Combat path. Замена occupant,
-смена формы или неоднозначный Fleet slot дают `unknown`, а не перенос состояния.
+единственный источник состава. Dorm scanner наблюдает только UI-факты, а
+reconciliation связывает их с физическим slot set-based и fail-closed. Exact
+Dorm observation хранит baseline/rate/floor; complete двухэтажное отсутствие
+хранит `unknown` morale с доказанным outside-Dorm recovery, не fake baseline.
+Partial scan, замена occupant, смена формы, stale Fleet State или неоднозначный
+slot не переносят состояние. Legacy Combat path этим этапом не подключён.
 Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
 корневой `config/*.json` является только пространством кандидатов: игровым
 профилем считается безопасный regular JSON, прошедший единый structural

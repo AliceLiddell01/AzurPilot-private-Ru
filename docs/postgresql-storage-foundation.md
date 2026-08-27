@@ -65,10 +65,12 @@ Formation Surface Fleet хранится как append-only цепочка scan 
 Application API `FleetStateService` выбирает latest/history по `app_instance` и
 явной refresh policy, а PostgreSQL adapters не управляют Formation UI.
 
-Per-ship Morale хранится отдельной append-only цепочкой baseline observations с
-FK provenance к Formation snapshot и slot identity. `MoraleService` читает
+Per-ship Morale хранится отдельной append-only цепочкой observations с FK
+provenance к Formation snapshot и slot identity. `MoraleService` читает
 актуальный Fleet State set-based, проверяет continuity canonical identity + form
-и вычисляет projection без фоновых UPDATE.
+и вычисляет projection без фоновых UPDATE. Exact observation содержит baseline;
+unknown observation может честно содержать известные recovery/location без
+выдуманного текущего morale.
 
 Runtime identity morale — `app_instance + fleet_index + side + position +
 canonical_identity + ship_form`. Новый Formation snapshot продолжает состояние
@@ -83,11 +85,16 @@ Baseline, recovery rate и ceiling представлены `Decimal`/`NUMERIC`.
 уменьшается от течения времени, hard bounds остаются `0..150`. Эти значения и
 tick semantics сверены с [Azur Lane Wiki](https://azur-lane.fandom.com/wiki/Affinity)
 и [Bilibili Azur Lane Wiki](https://wiki.biligame.com/blhx/%E5%BF%83%E6%83%85).
-`MoraleRecoveryProfile` оставляет bounded extension point для будущих доказанных
-oath/Dorm/onsen sources, но Stage 1 их не угадывает.
+`DormMoraleScanner` чисто распознаёт уже открытый этаж, а controller получает 1F
+и 2F через существующий UI graph. `MoraleReconciliationService` сохраняет
+append-only Dorm scan provenance и сопоставляет его с Fleet State одним чтением.
+Найденный корабль получает exact UI baseline/rate и floor; доказанное отсутствие
+на обоих этажах — unknown morale с `outside_dorm`, `20/ч` и ceiling `119`.
+Partial scan отсутствие не доказывает. Неоднозначные identity/form и stale Fleet
+State fail closed.
 
-Stage 1 не подключает core к `module/combat/emotion.py`, Scheduler, Dorm, OCR или
-Fleet WebUI. Legacy Combat остаётся production path до отдельного этапа.
+Stage 2 не подключает core к `module/combat/emotion.py`, Scheduler или Fleet
+WebUI. Legacy Combat остаётся production path до отдельного этапа.
 
 Опциональный Fleet AutoScan запускается планировщиком на безопасной границе
 перед обычной задачей и использует тот же `Device`, `LazyEngine` и
