@@ -55,13 +55,25 @@ class DormManageStateDetector:
         self.layout = DormManageLayout() if layout is None else layout
         self.policy = DormManageStatePolicy() if policy is None else policy
 
-    def _validate(self, frame: np.ndarray) -> None:
-        if not isinstance(frame, np.ndarray) or frame.shape != (
-            self.layout.frame_height,
-            self.layout.frame_width,
-            3,
-        ):
+    def _normalize(self, frame: np.ndarray) -> np.ndarray:
+        if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
             raise DormMoraleInputError("Dorm controller ожидает кадр 1280x720.")
+        height, width = frame.shape[:2]
+        if (
+            width * self.layout.frame_height != height * self.layout.frame_width
+            or width < self.layout.frame_width
+            or height < self.layout.frame_height
+        ):
+            raise DormMoraleInputError(
+                "Dorm controller ожидает кадр 16:9 не меньше 1280x720."
+            )
+        if (height, width) == (self.layout.frame_height, self.layout.frame_width):
+            return frame
+        return cv2.resize(
+            frame,
+            (self.layout.frame_width, self.layout.frame_height),
+            interpolation=cv2.INTER_AREA,
+        )
 
     @staticmethod
     def _mean_luma(frame: np.ndarray, area: tuple[int, int, int, int]) -> float:
@@ -69,7 +81,7 @@ class DormManageStateDetector:
         return float(np.mean(cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)))
 
     def selected_floor(self, frame: np.ndarray) -> DormFloor | None:
-        self._validate(frame)
+        frame = self._normalize(frame)
         floor_1 = self._mean_luma(frame, self.layout.floor_1_probe)
         floor_2 = self._mean_luma(frame, self.layout.floor_2_probe)
         if (

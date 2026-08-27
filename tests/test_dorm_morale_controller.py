@@ -73,6 +73,8 @@ def test_state_detector_distinguishes_selected_floor_and_unknown():
     detector = DormManageStateDetector()
     assert detector.selected_floor(_frame(DormFloor.FLOOR_1)) is DormFloor.FLOOR_1
     assert detector.selected_floor(_frame(DormFloor.FLOOR_2)) is DormFloor.FLOOR_2
+    large = np.repeat(np.repeat(_frame(DormFloor.FLOOR_1), 3, axis=0), 3, axis=1)
+    assert detector.selected_floor(large) is DormFloor.FLOOR_1
     assert detector.selected_floor(np.zeros((720, 1280, 3), dtype=np.uint8)) is None
 
 
