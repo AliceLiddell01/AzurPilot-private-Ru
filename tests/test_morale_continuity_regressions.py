@@ -4,6 +4,7 @@ import os
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from sqlalchemy import delete
@@ -87,12 +88,22 @@ class _Controller:
         return _snapshot(self.ship)
 
 
-def _services(database, *, clock, controller):
+def _services(database, *, clock, controller, fleet_ids=None):
     factory = lambda: PostgresUnitOfWork(database)
+    scanner_kwargs = {}
+    if fleet_ids is not None:
+        scanner_kwargs["id_factory"] = lambda: next(fleet_ids)
     return (
-        FleetScanService(factory, controller, clock=clock),
+        FleetScanService(factory, controller, clock=clock, **scanner_kwargs),
         MoraleService(factory, clock=clock),
     )
+
+
+def _fleet_ids(*snapshot_ids: int):
+    values = []
+    for offset, snapshot_id in enumerate(snapshot_ids, start=1):
+        values.extend((UUID(int=100 + offset), UUID(int=snapshot_id)))
+    return iter(values)
 
 
 def _command(*, baseline: Decimal = Decimal(50), key: str = "same-key"):
@@ -144,6 +155,65 @@ def test_repeated_same_occupant_scan_preserves_morale_continuity(database):
     slot = morale.fleet("profile", 1, at=now[0]).slots[0]
     assert slot.knowledge is MoraleKnowledge.PROJECTED
     assert slot.current == Decimal(56)
+
+
+def test_equal_timestamp_older_uuid_does_not_break_newer_anchor(database):
+    now = datetime(2026, 8, 27, 0, 0, tzinfo=UTC)
+    controller = _Controller(1)
+    scanner, morale = _services(
+        database,
+        clock=lambda: now,
+        controller=controller,
+        fleet_ids=_fleet_ids(200, 150),
+    )
+
+    scanner.scan("profile", FleetSelection.one(1), source="regression:anchor")
+    morale.record("profile", _command())
+    controller.ship = 2
+    scanner.scan("profile", FleetSelection.one(1), source="regression:older")
+
+    slot = morale.fleet("profile", 1, at=now).slots[0]
+    assert slot.knowledge is MoraleKnowledge.EXACT
+    assert slot.current == Decimal(50)
+
+
+def test_equal_timestamp_newer_uuid_changed_occupant_breaks_continuity(database):
+    now = datetime(2026, 8, 27, 0, 0, tzinfo=UTC)
+    controller = _Controller(1)
+    scanner, morale = _services(
+        database,
+        clock=lambda: now,
+        controller=controller,
+        fleet_ids=_fleet_ids(150, 200),
+    )
+
+    scanner.scan("profile", FleetSelection.one(1), source="regression:anchor")
+    morale.record("profile", _command())
+    controller.ship = 2
+    scanner.scan("profile", FleetSelection.one(1), source="regression:newer")
+
+    slot = morale.fleet("profile", 1, at=now).slots[0]
+    assert slot.knowledge is MoraleKnowledge.UNKNOWN
+    assert slot.current is None
+
+
+def test_equal_timestamp_newer_uuid_same_occupant_preserves_continuity(database):
+    now = datetime(2026, 8, 27, 0, 0, tzinfo=UTC)
+    controller = _Controller(1)
+    scanner, morale = _services(
+        database,
+        clock=lambda: now,
+        controller=controller,
+        fleet_ids=_fleet_ids(150, 200),
+    )
+
+    scanner.scan("profile", FleetSelection.one(1), source="regression:anchor")
+    morale.record("profile", _command())
+    scanner.scan("profile", FleetSelection.one(1), source="regression:newer")
+
+    slot = morale.fleet("profile", 1, at=now).slots[0]
+    assert slot.knowledge is MoraleKnowledge.EXACT
+    assert slot.current == Decimal(50)
 
 
 def test_same_caller_idempotency_key_is_isolated_by_app_instance(database):

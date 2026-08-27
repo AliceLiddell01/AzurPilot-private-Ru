@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from uuid import UUID
 
-from sqlalchemy import Connection, func, insert, or_, select
+from sqlalchemy import Connection, and_, func, insert, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.canonical_payload import payload_digest
@@ -136,8 +136,14 @@ class PostgresMoraleRepository:
             .where(
                 later_snapshot.c.instance_id == table.c.instance_id,
                 later_snapshot.c.fleet_index == table.c.fleet_index,
-                later_snapshot.c.id != anchor_snapshot.c.id,
-                later_snapshot.c.observed_at >= anchor_snapshot.c.observed_at,
+                or_(
+                    later_snapshot.c.observed_at > anchor_snapshot.c.observed_at,
+                    and_(
+                        later_snapshot.c.observed_at
+                        == anchor_snapshot.c.observed_at,
+                        later_snapshot.c.id > anchor_snapshot.c.id,
+                    ),
+                ),
                 later_slot.c.side == table.c.side,
                 later_slot.c.position == table.c.position,
                 or_(
