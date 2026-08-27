@@ -19,7 +19,6 @@ from module.application.fleet_manual_scan import (
     FleetManualScanCoordinator,
 )
 from module.application.fleet_page import FleetPageQueryService
-from module.application.morale_reconciliation import MoraleReconciliationService
 from module.application.runtime_storage import (
     RuntimeStorageService,
     clear_runtime_storage_provider,
@@ -67,14 +66,6 @@ class RuntimeFleetManualScanContext:
     """Координатор рабочего процесса с ленивой привязкой к устройству планировщика."""
 
     coordinator: FleetManualScanCoordinator
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeDormMoraleContext:
-    """Сервисы Dorm morale поверх общего PostgreSQL engine."""
-
-    reconciliation_service: MoraleReconciliationService
-    uow_factory: Callable[[], PostgresUnitOfWork]
 
 
 def bootstrap_runtime_storage(
@@ -210,27 +201,6 @@ def build_runtime_fleet_manual_scan_context(
     )
 
 
-def build_runtime_dorm_morale_context(
-    *,
-    require_ready: bool = True,
-) -> RuntimeDormMoraleContext:
-    """Собрать reconciliation и UoW для Dorm morale без второго Engine."""
-
-    bootstrap_runtime_storage(require_ready=require_ready)
-    with _lock:
-        engine = _engine
-    if engine is None:
-        raise RuntimeError("Точка сборки Dorm morale не инициализирована.")
-
-    def uow_factory() -> PostgresUnitOfWork:
-        return PostgresUnitOfWork(engine)
-
-    return RuntimeDormMoraleContext(
-        reconciliation_service=MoraleReconciliationService(uow_factory),
-        uow_factory=uow_factory,
-    )
-
-
 def runtime_health() -> None:
     bootstrap_runtime_storage(require_ready=True)
 
@@ -247,12 +217,10 @@ def dispose_runtime_storage() -> None:
 
 
 __all__ = [
-    "RuntimeDormMoraleContext",
     "RuntimeFleetManualScanContext",
     "RuntimeFleetPageContext",
     "RuntimeFleetStateContext",
     "bootstrap_runtime_storage",
-    "build_runtime_dorm_morale_context",
     "build_runtime_fleet_manual_scan_context",
     "build_runtime_fleet_page_context",
     "build_runtime_fleet_state_context",
