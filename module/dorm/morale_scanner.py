@@ -308,7 +308,7 @@ class DormMoraleScanner:
 
     def _occupied(self, frame: np.ndarray, card: DormCardGeometry) -> bool:
         x1, y1, x2, y2 = card.presence_area
-        hsv = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2HSV)
         green = (
             (hsv[:, :, 0] >= self.presence_policy.green_hue_min)
             & (hsv[:, :, 0] <= self.presence_policy.green_hue_max)

@@ -1,8 +1,8 @@
 import os
 
-import cv2
 import pytest
 
+from module.base.utils import load_image
 from module.dock_inventory.model import IdentityStatus, ShipForm
 from module.dorm.morale_controller import DormManageStateDetector
 from module.dorm.morale_model import DormFloor
@@ -41,8 +41,7 @@ def test_real_dorm_screenshot_is_stable(environment, floor):
     path = os.getenv(environment)
     if not path:
         pytest.skip(f"{environment} не задан: локальная приёмочная проверка отключена")
-    frame = cv2.imread(path)
-    assert frame is not None
+    frame = load_image(path)
 
     detector = DormManageStateDetector()
     assert detector.selected_floor(frame) is floor

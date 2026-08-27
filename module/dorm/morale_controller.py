@@ -32,7 +32,7 @@ class DormMoraleControllerError(RuntimeError):
 class DormManageLayout:
     frame_width: int = 1280
     frame_height: int = 720
-    train_entry_button: tuple[int, int, int, int] = (20, 656, 190, 700)
+    train_entry_button: tuple[int, int, int, int] = (20, 540, 190, 700)
     floor_1_probe: tuple[int, int, int, int] = (145, 90, 330, 120)
     floor_2_probe: tuple[int, int, int, int] = (360, 90, 545, 120)
     floor_1_button: tuple[int, int, int, int] = (134, 85, 347, 137)
@@ -78,7 +78,7 @@ class DormManageStateDetector:
     @staticmethod
     def _mean_luma(frame: np.ndarray, area: tuple[int, int, int, int]) -> float:
         x1, y1, x2, y2 = area
-        return float(np.mean(cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)))
+        return float(np.mean(cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)))
 
     def selected_floor(self, frame: np.ndarray) -> DormFloor | None:
         frame = self._normalize(frame)

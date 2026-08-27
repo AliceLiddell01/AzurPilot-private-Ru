@@ -81,6 +81,14 @@ def test_state_detector_distinguishes_selected_floor_and_unknown():
     assert detector.selected_floor(np.zeros((720, 1280, 3), dtype=np.uint8)) is None
 
 
+def test_state_detector_uses_rgb_channel_contract():
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    x1, y1, x2, y2 = (145, 90, 330, 120)
+    frame[y1:y2, x1:x2] = (255, 255, 0)
+
+    assert DormManageStateDetector().selected_floor(frame) is DormFloor.FLOOR_1
+
+
 def test_controller_opens_train_once_and_waits_for_confirmed_floor():
     unknown = np.zeros((720, 1280, 3), dtype=np.uint8)
     controller = _controller(
