@@ -40,7 +40,7 @@ EXPECTED = {
 def test_real_dorm_screenshot_is_stable(environment, floor):
     path = os.getenv(environment)
     if not path:
-        pytest.skip(f"{environment} не задан: локальный acceptance test отключён")
+        pytest.skip(f"{environment} не задан: локальная приёмочная проверка отключена")
     frame = cv2.imread(path)
     assert frame is not None
 
