@@ -1,4 +1,4 @@
-"""PostgreSQL adapter append-only Dorm morale scan provenance."""
+"""PostgreSQL-адаптер append-only provenance сканов морали в общежитии."""
 
 from __future__ import annotations
 
@@ -62,10 +62,6 @@ def _payload(scan: DormMoraleScanResult) -> dict[str, object]:
     }
 
 
-def _storage_key(instance_id: UUID, key: str) -> str:
-    return payload_digest({"instance_id": instance_id, "idempotency_key": key})
-
-
 class PostgresDormMoraleRepository:
     def __init__(self, connection: Connection):
         self._connection = connection
@@ -77,13 +73,13 @@ class PostgresDormMoraleRepository:
             scan, DormMoraleScanResult
         ):
             raise StorageInvalidDataError("Dorm morale scan имеет неверный тип.")
-        key = _storage_key(instance_id, scan.idempotency_key)
         digest = payload_digest(_payload(scan))
         try:
             existing = (
                 self._connection.execute(
                     select(dorm_morale_scan_run).where(
-                        dorm_morale_scan_run.c.idempotency_key == key
+                        dorm_morale_scan_run.c.instance_id == instance_id,
+                        dorm_morale_scan_run.c.idempotency_key == scan.idempotency_key,
                     )
                 )
                 .mappings()
@@ -94,7 +90,7 @@ class PostgresDormMoraleRepository:
                     raise StorageConflictError(
                         "Dorm scan idempotency key содержит другой payload."
                     )
-                return self._hydrate(existing, original_key=scan.idempotency_key)
+                return self._hydrate(existing)
             attempts = {item.floor: item for item in scan.attempts}
             floor_1 = attempts[DormFloor.FLOOR_1]
             floor_2 = attempts[DormFloor.FLOOR_2]
@@ -102,7 +98,7 @@ class PostgresDormMoraleRepository:
                 insert(dorm_morale_scan_run).values(
                     id=scan.id,
                     instance_id=instance_id,
-                    idempotency_key=key,
+                    idempotency_key=scan.idempotency_key,
                     payload_digest=digest,
                     started_at=scan.started_at,
                     finished_at=scan.finished_at,
@@ -173,9 +169,7 @@ class PostgresDormMoraleRepository:
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
-    def _hydrate(
-        self, row: Mapping[str, object], *, original_key: str | None = None
-    ) -> DormMoraleScanResult:
+    def _hydrate(self, row: Mapping[str, object]) -> DormMoraleScanResult:
         child_rows = (
             self._connection.execute(
                 select(dorm_morale_scan_observation)
@@ -246,7 +240,7 @@ class PostgresDormMoraleRepository:
             finished_at=row["finished_at"],
             attempts=tuple(attempts),
             source=row["source"],
-            idempotency_key=original_key or row["idempotency_key"],
+            idempotency_key=row["idempotency_key"],
         )
 
 
