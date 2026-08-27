@@ -357,6 +357,7 @@ class ActionPointHandler(UI, MapEventHandler):
         for _ in self.loop(timeout=1):
 
             current, _, total = OCR_ACTION_POINT_BUY_REMAIN.ocr(self.device.image)
+
             # 可能的结果: 0/5, 05
             if total == 0:
                 continue
