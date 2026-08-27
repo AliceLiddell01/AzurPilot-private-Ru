@@ -1,4 +1,4 @@
-"""State-driven Dorm controller that captures both morale management floors."""
+"""State-driven контроллер Dorm для сканирования обоих этажей morale management."""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ class DormManageStateDetector:
 
 
 class DormMoraleController(UI):
-    """Open Dorm manage and perform a bounded 1F -> 2F scan."""
+    """Открыть Dorm manage и выполнить ограниченный скан 1F -> 2F."""
 
     def __init__(
         self,
@@ -226,7 +226,7 @@ class DormMoraleController(UI):
             frame = self._open_manage()
             frame, floor_1 = self._scan_floor(frame, DormFloor.FLOOR_1)
             attempts.append(floor_1)
-        except Exception as error:  # noqa: BLE001 - result сохраняет physical stage.
+        except Exception as error:  # noqa: BLE001 - результат хранит физический этап.
             attempts.extend(
                 (
                     DormFloorScanAttempt(
@@ -254,7 +254,7 @@ class DormMoraleController(UI):
         try:
             _frame, floor_2 = self._scan_floor(frame, DormFloor.FLOOR_2)
             attempts.append(floor_2)
-        except Exception as error:  # noqa: BLE001 - partial is explicit evidence.
+        except Exception as error:  # noqa: BLE001 - partial хранится как явное доказательство.
             attempts.append(
                 DormFloorScanAttempt(
                     floor=DormFloor.FLOOR_2,
