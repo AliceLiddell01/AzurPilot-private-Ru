@@ -28,7 +28,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0005_fleet_ship_form"
+EXPECTED_ALEMBIC_HEAD = "0006_per_ship_morale_core"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -535,6 +535,9 @@ formation_surface_fleet_snapshot = Table(
     Column("catalog_fingerprint", String(64), nullable=False),
     UniqueConstraint("idempotency_key"),
     UniqueConstraint("run_id", "fleet_index"),
+    UniqueConstraint(
+        "id", "instance_id", "fleet_index", name="uq_formation_fleet_snapshot_provenance"
+    ),
     ForeignKeyConstraint(
         ("run_id", "fleet_index"),
         (
@@ -591,6 +594,14 @@ formation_surface_fleet_slot = Table(
     Column("canonical_name", String(256), nullable=True),
     Column("ship_form", String(16), nullable=True),
     PrimaryKeyConstraint("snapshot_id", "side", "position"),
+    UniqueConstraint(
+        "snapshot_id",
+        "side",
+        "position",
+        "canonical_identity_key",
+        "ship_form",
+        name="uq_formation_fleet_slot_morale_identity",
+    ),
     CheckConstraint("side IN ('main', 'vanguard')", name="side_allowed"),
     CheckConstraint("position BETWEEN 1 AND 3", name="position_range"),
     CheckConstraint(
@@ -616,6 +627,81 @@ formation_surface_fleet_slot = Table(
         "AND ship_form IS NOT NULL AND ship_form IN ('base', 'retrofit'))",
         name="identity_consistent",
     ),
+)
+
+formation_surface_fleet_morale_observation = Table(
+    "formation_surface_fleet_morale_observation",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("formation_snapshot_id", Uuid, nullable=False),
+    Column("instance_id", Uuid, nullable=False),
+    Column("idempotency_key", String(128), nullable=False),
+    Column("payload_digest", String(64), nullable=False),
+    Column("fleet_index", Integer, nullable=False),
+    Column("side", String(8), nullable=False),
+    Column("position", Integer, nullable=False),
+    Column("canonical_identity_key", String(128), nullable=False),
+    Column("ship_form", String(16), nullable=False),
+    Column("baseline", Numeric(9, 6), nullable=False),
+    Column("observed_at", DateTime(timezone=True), nullable=False),
+    Column("recovery_per_hour", Numeric(10, 6), nullable=False),
+    Column("recovery_ceiling", Numeric(9, 6), nullable=False),
+    Column("source", String(64), nullable=False),
+    Column("recovery_source", String(64), nullable=False),
+    Column("knowledge", String(16), nullable=False),
+    UniqueConstraint("idempotency_key"),
+    ForeignKeyConstraint(
+        ("formation_snapshot_id", "instance_id", "fleet_index"),
+        (
+            f"{SCHEMA_NAME}.formation_surface_fleet_snapshot.id",
+            f"{SCHEMA_NAME}.formation_surface_fleet_snapshot.instance_id",
+            f"{SCHEMA_NAME}.formation_surface_fleet_snapshot.fleet_index",
+        ),
+        ondelete="RESTRICT",
+        name="fk_morale_observation_snapshot_provenance",
+    ),
+    ForeignKeyConstraint(
+        (
+            "formation_snapshot_id",
+            "side",
+            "position",
+            "canonical_identity_key",
+            "ship_form",
+        ),
+        (
+            f"{SCHEMA_NAME}.formation_surface_fleet_slot.snapshot_id",
+            f"{SCHEMA_NAME}.formation_surface_fleet_slot.side",
+            f"{SCHEMA_NAME}.formation_surface_fleet_slot.position",
+            f"{SCHEMA_NAME}.formation_surface_fleet_slot.canonical_identity_key",
+            f"{SCHEMA_NAME}.formation_surface_fleet_slot.ship_form",
+        ),
+        ondelete="RESTRICT",
+        name="fk_morale_observation_slot_identity",
+    ),
+    CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="digest_sha256"),
+    CheckConstraint("fleet_index BETWEEN 1 AND 6", name="fleet_range"),
+    CheckConstraint("side IN ('main', 'vanguard')", name="side_allowed"),
+    CheckConstraint("position BETWEEN 1 AND 3", name="position_range"),
+    CheckConstraint("ship_form IN ('base', 'retrofit')", name="ship_form_allowed"),
+    CheckConstraint("baseline BETWEEN 0 AND 150", name="baseline_range"),
+    CheckConstraint(
+        "recovery_per_hour BETWEEN 0 AND 1500", name="rate_range"
+    ),
+    CheckConstraint(
+        "recovery_ceiling BETWEEN 0 AND 150", name="ceiling_range"
+    ),
+    CheckConstraint("btrim(source) <> ''", name="source_not_blank"),
+    CheckConstraint("btrim(recovery_source) <> ''", name="recover_not_blank"),
+    CheckConstraint("knowledge = 'exact'", name="knowledge_exact"),
+)
+Index(
+    "ix_formation_fleet_morale_latest",
+    formation_surface_fleet_morale_observation.c.instance_id,
+    formation_surface_fleet_morale_observation.c.fleet_index,
+    formation_surface_fleet_morale_observation.c.side,
+    formation_surface_fleet_morale_observation.c.position,
+    formation_surface_fleet_morale_observation.c.observed_at.desc(),
+    formation_surface_fleet_morale_observation.c.id.desc(),
 )
 
 formation_surface_fleet_scan_command = Table(
