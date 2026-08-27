@@ -205,7 +205,7 @@ class ActionPointHandler(UI, MapEventHandler):
         current = OCR_ACTION_POINT_REMAIN.ocr(self.device.image)
         total = current
         if self.config.OS_ACTION_POINT_BOX_USE:
-            total += np.sum(np.array(box) * tuple(ACTION_POINT_BOX.values()))
+            total += int(np.sum(np.array(box) * tuple(ACTION_POINT_BOX.values())))
         oil = box[0]
 
         LogRes(self.config).Oil = oil
