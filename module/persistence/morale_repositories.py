@@ -13,6 +13,7 @@ from module.application.canonical_payload import payload_digest
 from module.application.errors import StorageConflictError, StorageInvalidDataError
 from module.application.morale import (
     MoraleKnowledge,
+    MoraleLocation,
     MoraleObservation,
     MoraleRecoveryProfile,
 )
@@ -42,6 +43,8 @@ def _payload(observation: MoraleObservation) -> dict[str, object]:
         "source": observation.source,
         "recovery_source": observation.recovery.source,
         "knowledge": observation.knowledge,
+        "location": observation.location,
+        "dorm_scan_id": observation.dorm_scan_id,
     }
 
 
@@ -67,16 +70,20 @@ class PostgresMoraleRepository:
         storage_idempotency_key = _storage_idempotency_key(observation)
         table = formation_surface_fleet_morale_observation
         try:
-            existing = self._connection.execute(
-                select(table).where(
-                    table.c.idempotency_key == storage_idempotency_key
+            existing = (
+                self._connection.execute(
+                    select(table).where(
+                        table.c.idempotency_key == storage_idempotency_key
+                    )
                 )
-            ).mappings().one_or_none()
+                .mappings()
+                .one_or_none()
+            )
             if existing is not None:
                 if existing["payload_digest"] == digest:
                     try:
                         hydrated = self._hydrate(existing)
-                    except (KeyError, TypeError, ValueError):
+                    except KeyError, TypeError, ValueError:
                         raise StorageInvalidDataError(
                             "PostgreSQL содержит некорректное Morale observation."
                         ) from None
@@ -106,6 +113,8 @@ class PostgresMoraleRepository:
                     source=observation.source,
                     recovery_source=observation.recovery.source,
                     knowledge=observation.knowledge.value,
+                    location=observation.location.value,
+                    dorm_scan_id=observation.dorm_scan_id,
                 )
             )
             return observation
@@ -119,10 +128,14 @@ class PostgresMoraleRepository:
         instance_id: UUID,
         selection: FleetSelection,
     ) -> tuple[MoraleObservation, ...]:
-        if not isinstance(instance_id, UUID) or not isinstance(selection, FleetSelection):
+        if not isinstance(instance_id, UUID) or not isinstance(
+            selection, FleetSelection
+        ):
             raise StorageInvalidDataError("Morale latest request некорректен.")
         table = formation_surface_fleet_morale_observation
-        anchor_snapshot = formation_surface_fleet_snapshot.alias("morale_anchor_snapshot")
+        anchor_snapshot = formation_surface_fleet_snapshot.alias(
+            "morale_anchor_snapshot"
+        )
         later_snapshot = formation_surface_fleet_snapshot.alias("morale_later_snapshot")
         later_slot = formation_surface_fleet_slot.alias("morale_later_slot")
         continuity_break = (
@@ -139,8 +152,7 @@ class PostgresMoraleRepository:
                 or_(
                     later_snapshot.c.observed_at > anchor_snapshot.c.observed_at,
                     and_(
-                        later_snapshot.c.observed_at
-                        == anchor_snapshot.c.observed_at,
+                        later_snapshot.c.observed_at == anchor_snapshot.c.observed_at,
                         later_snapshot.c.id > anchor_snapshot.c.id,
                     ),
                 ),
@@ -192,7 +204,7 @@ class PostgresMoraleRepository:
             raise translate_database_error(exc) from None
         try:
             return tuple(self._hydrate(row) for row in rows)
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             raise StorageInvalidDataError(
                 "PostgreSQL содержит некорректное Morale observation."
             ) from None
@@ -218,6 +230,8 @@ class PostgresMoraleRepository:
             source=row["source"],
             idempotency_key=row["idempotency_key"],
             knowledge=MoraleKnowledge(row["knowledge"]),
+            location=MoraleLocation(row["location"]),
+            dorm_scan_id=row["dorm_scan_id"],
         )
 
 

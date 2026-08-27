@@ -364,7 +364,13 @@ class DatabaseConfigurationTests(unittest.TestCase):
 
         self.assertIsNone(unit_of_work._connection)
         connection.close.assert_called_once_with()
-        for attribute in ("instances", "statistics", "imports", "morale"):
+        for attribute in (
+            "instances",
+            "statistics",
+            "imports",
+            "morale",
+            "dorm_morale",
+        ):
             self.assertFalse(hasattr(unit_of_work, attribute), attribute)
 
     def test_digest_canonicalizes_equivalent_datetime_and_decimal_values(self):
@@ -395,7 +401,13 @@ class DatabaseConfigurationTests(unittest.TestCase):
             unit_of_work.__exit__(None, None, None)
 
         self.assertIsNone(unit_of_work._connection)
-        for attribute in ("instances", "statistics", "imports", "morale"):
+        for attribute in (
+            "instances",
+            "statistics",
+            "imports",
+            "morale",
+            "dorm_morale",
+        ):
             self.assertFalse(hasattr(unit_of_work, attribute), attribute)
 
 
@@ -425,6 +437,8 @@ class SchemaMetadataTests(unittest.TestCase):
             "formation_surface_fleet_snapshot",
             "formation_surface_fleet_slot",
             "formation_surface_fleet_morale_observation",
+            "dorm_morale_scan_run",
+            "dorm_morale_scan_observation",
             "formation_surface_fleet_scan_command",
             "formation_surface_fleet_scan_command_fleet",
         }

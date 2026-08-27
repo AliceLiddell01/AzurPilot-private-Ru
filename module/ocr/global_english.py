@@ -32,6 +32,8 @@ _GENERAL_OCR_NAMES = frozenset(
     {
         "COMMISSION",
         "DOCK_SHIP_NAME",
+        "DORM_MORALE_SHIP_NAME",
+        "DORM_RECOVERY_SPEED",
         "ENEMY_NAME",
         "FORMATION_SHIP_NAME",
         "OCR_ACTION_POINT_BUY_REMAIN",

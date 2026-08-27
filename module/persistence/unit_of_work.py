@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
 from module.persistence.database import LazyEngine, translate_database_error
+from module.persistence.dorm_morale_repositories import PostgresDormMoraleRepository
 from module.persistence.fleet_manual_scan_repositories import (
     PostgresFleetManualScanCommandRepository,
 )
@@ -36,6 +37,7 @@ class PostgresUnitOfWork:
         self.runtime: PostgresRuntimeStatisticsRepository
         self.fleet_state: PostgresFleetStateRepository
         self.morale: PostgresMoraleRepository
+        self.dorm_morale: PostgresDormMoraleRepository
         self.fleet_scan_commands: PostgresFleetManualScanCommandRepository
 
     def __enter__(self) -> Self:
@@ -52,6 +54,7 @@ class PostgresUnitOfWork:
             self.runtime = PostgresRuntimeStatisticsRepository(connection)
             self.fleet_state = PostgresFleetStateRepository(connection)
             self.morale = PostgresMoraleRepository(connection)
+            self.dorm_morale = PostgresDormMoraleRepository(connection)
             self.fleet_scan_commands = PostgresFleetManualScanCommandRepository(
                 connection
             )
@@ -75,6 +78,7 @@ class PostgresUnitOfWork:
             "runtime",
             "fleet_state",
             "morale",
+            "dorm_morale",
             "fleet_scan_commands",
         ):
             self.__dict__.pop(attribute, None)
