@@ -9,7 +9,7 @@ Revision-файлы не должны читать production config или вы
 Alembic entry point также требует отдельного точного подтверждения target через
 `AZURPILOT_POSTGRES_DISPOSABLE_HOST`, `_PORT`, `_DATABASE` и `_USER`.
 
-Текущий единственный head — `0008_dorm_morale_semantic_idempotency`. Он переводит
+Текущий единственный head — `0008_dorm_morale_idempotency`. Он переводит
 уникальность Dorm scan idempotency key на scope `app_instance + caller key`,
 чтобы новые scan rows сохраняли semantic caller key без namespaced rehash.
 Существующие Stage 2 rows сохраняют необратимые legacy SHA-256 keys как opaque
