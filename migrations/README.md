@@ -9,10 +9,16 @@ Revision-файлы не должны читать production config или вы
 Alembic entry point также требует отдельного точного подтверждения target через
 `AZURPILOT_POSTGRES_DISPOSABLE_HOST`, `_PORT`, `_DATABASE` и `_USER`.
 
-Текущий единственный head — `0007_dorm_morale_reconciliation`. Он добавляет
-append-only Dorm scan provenance и позволяет хранить известный recovery/location
-при неизвестном exact morale без выдуманного baseline.
+Текущий единственный head — `0008_dorm_morale_semantic_idempotency`. Он переводит
+уникальность Dorm scan idempotency key на scope `app_instance + caller key`,
+чтобы новые scan rows сохраняли semantic caller key без namespaced rehash.
+Существующие Stage 2 rows сохраняют необратимые legacy SHA-256 keys как opaque
+значения: исходный caller key из них достоверно восстановить невозможно.
 
 Downgrade `0002` допускается только в пустой disposable БД. На импортированных
 Stage 3 данных он намеренно не является lossless: `akashi_ap` отсутствует в
 старом CHECK, а Numeric `asset` нельзя безопасно вернуть в bigint.
+
+Downgrade `0008` fail-closed запрещён, если после upgrade одинаковый caller key
+уже используется несколькими app instances: старый глобальный UNIQUE нельзя
+восстановить без потери данных.
