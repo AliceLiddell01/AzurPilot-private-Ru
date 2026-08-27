@@ -13,6 +13,7 @@ import numpy as np
 
 from module.base.button import Button
 from module.base.decorator import cached_property
+from module.dorm.assets import DORM_MANAGE, DORM_MANAGE_CHECK
 from module.dorm.morale_model import (
     DormFloor,
     DormFloorScanAttempt,
@@ -32,7 +33,6 @@ class DormMoraleControllerError(RuntimeError):
 class DormManageLayout:
     frame_width: int = 1280
     frame_height: int = 720
-    train_entry_button: tuple[int, int, int, int] = (20, 540, 190, 700)
     floor_1_probe: tuple[int, int, int, int] = (145, 90, 330, 120)
     floor_2_probe: tuple[int, int, int, int] = (360, 90, 545, 120)
     floor_1_button: tuple[int, int, int, int] = (134, 85, 347, 137)
@@ -158,19 +158,13 @@ class DormMoraleController(UI):
     def _open_manage(self) -> np.ndarray:
         self.ui_ensure(page_dorm)
         frame = self._capture()
-        train_clicked = False
         for _ in range(20):
             if self.dorm_manage_state.selected_floor(frame) is not None:
                 return frame
-            if self.ui_page_appear(page_dorm, offset=(20, 20)):
-                if not train_clicked:
-                    self.device.click(
-                        self._button(
-                            self.dorm_manage_layout.train_entry_button,
-                            "DORM_MORALE_TRAIN",
-                        )
-                    )
-                    train_clicked = True
+            if self.appear_then_click(DORM_MANAGE, offset=(20, 20), interval=3):
+                frame = self._capture()
+                continue
+            if self.appear(DORM_MANAGE_CHECK, offset=(20, 20)):
                 frame = self._capture()
                 continue
             if self.ui_additional(get_ship=False):

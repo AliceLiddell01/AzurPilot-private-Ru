@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
+from module.dorm.assets import DORM_MANAGE, DORM_MANAGE_CHECK
 from module.dorm.morale_controller import DormManageStateDetector, DormMoraleController
 from module.dorm.morale_model import (
     DormFloor,
@@ -49,18 +50,32 @@ class _Controller(DormMoraleController):
     def ui_ensure(self, page):
         self.ensured = page
 
-    def ui_page_appear(self, page, offset=(20, 20)):
-        return self.dorm_page_visible
+    def appear_then_click(self, button, offset=(20, 20), interval=0):
+        if not self.manage_entry_visible or button != DORM_MANAGE:
+            return False
+        self.device.click(button)
+        self.manage_entry_visible = False
+        return True
+
+    def appear(self, button, offset=(20, 20), interval=0):
+        return self.manage_check_visible and button == DORM_MANAGE_CHECK
 
     def ui_additional(self, get_ship=False):
         return False
 
 
-def _controller(frames, *, fail_floor=None, dorm_page_visible=False):
+def _controller(
+    frames,
+    *,
+    fail_floor=None,
+    manage_entry_visible=False,
+    manage_check_visible=False,
+):
     controller = object.__new__(_Controller)
     controller.device = _Device(frames)
     controller._scanner = _Scanner(fail_floor)
-    controller.dorm_page_visible = dorm_page_visible
+    controller.manage_entry_visible = manage_entry_visible
+    controller.manage_check_visible = manage_check_visible
     values = iter(
         datetime(2026, 8, 27, 10, tzinfo=UTC) + timedelta(seconds=index)
         for index in range(20)
@@ -89,22 +104,19 @@ def test_state_detector_uses_rgb_channel_contract():
     assert DormManageStateDetector().selected_floor(frame) is DormFloor.FLOOR_1
 
 
-def test_controller_opens_train_once_and_waits_for_confirmed_floor():
+def test_controller_reuses_manage_asset_and_waits_for_confirmed_floor():
     unknown = np.zeros((720, 1280, 3), dtype=np.uint8)
     controller = _controller(
         (unknown, unknown.copy(), _frame(DormFloor.FLOOR_1)),
-        dorm_page_visible=True,
+        manage_entry_visible=True,
+        manage_check_visible=True,
     )
 
     frame = controller._open_manage()
 
     assert controller.dorm_manage_state.selected_floor(frame) is DormFloor.FLOOR_1
-    assert controller.device.clicks == ["DORM_MORALE_TRAIN"]
-    assert len(controller.device.clicked_buttons) == 1
-    assert (
-        controller.device.clicked_buttons[0].button
-        == controller.dorm_manage_layout.train_entry_button
-    )
+    assert controller.device.clicks == ["DORM_MANAGE"]
+    assert controller.device.clicked_buttons == [DORM_MANAGE]
 
 
 def test_controller_switches_one_action_per_screenshot_and_scans_both_floors():
