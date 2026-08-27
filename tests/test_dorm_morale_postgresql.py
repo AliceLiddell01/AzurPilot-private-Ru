@@ -71,7 +71,30 @@ def _scan(*, finished_at, key):
     )
 
 
-def _prepare_database(lazy, instances, now):
+def _require_disposable_target(settings):
+    if os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1":
+        raise RuntimeError("Очистка PostgreSQL требует явного подтверждения одноразовой БД.")
+    expected = {
+        "host": os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE_HOST"),
+        "port": os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE_PORT"),
+        "database": os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE_DATABASE"),
+        "user": os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE_USER"),
+    }
+    actual = {
+        "host": settings.host,
+        "port": str(settings.port),
+        "database": settings.database,
+        "user": settings.user,
+    }
+    if any(not value for value in expected.values()) or expected != actual:
+        raise RuntimeError(
+            "Очистка PostgreSQL разрешена только для точно подтверждённой "
+            "одноразовой тестовой БД."
+        )
+
+
+def _prepare_database(lazy, settings, instances, now):
+    _require_disposable_target(settings)
     with lazy.get().begin() as connection:
         for table in reversed(metadata.sorted_tables):
             connection.execute(delete(table))
@@ -98,13 +121,30 @@ def _append_concurrently(lazy, instance_id, scans):
         return tuple(future.result(timeout=30) for future in futures)
 
 
+def test_prepare_database_rejects_mismatched_disposable_target(monkeypatch):
+    settings = DatabaseSettings.from_environment()
+    monkeypatch.setenv(
+        "AZURPILOT_POSTGRES_DISPOSABLE_DATABASE",
+        f"{settings.database}_unexpected",
+    )
+    with pytest.raises(RuntimeError, match="точно подтверждённой"):
+        _prepare_database(
+            object(),
+            settings,
+            (),
+            datetime(2026, 8, 27, 10, tzinfo=UTC),
+        )
+
+
 def test_dorm_scan_round_trip_idempotency_latest_and_instance_isolation():
-    lazy = LazyEngine(DatabaseSettings.from_environment())
+    settings = DatabaseSettings.from_environment()
+    lazy = LazyEngine(settings)
     first_instance, second_instance = uuid4(), uuid4()
     now = datetime(2026, 8, 27, 10, tzinfo=UTC)
     try:
         _prepare_database(
             lazy,
+            settings,
             (
                 (first_instance, "dorm-pg-1"),
                 (second_instance, "dorm-pg-2"),
@@ -148,7 +188,8 @@ def test_dorm_scan_round_trip_idempotency_latest_and_instance_isolation():
 
 
 def test_concurrent_semantic_retry_replays_single_scan():
-    lazy = LazyEngine(DatabaseSettings.from_environment())
+    settings = DatabaseSettings.from_environment()
+    lazy = LazyEngine(settings)
     instance_id = uuid4()
     now = datetime(2026, 8, 27, 10, tzinfo=UTC)
     scans = (
@@ -156,7 +197,12 @@ def test_concurrent_semantic_retry_replays_single_scan():
         _scan(finished_at=now, key="scan:concurrent"),
     )
     try:
-        _prepare_database(lazy, ((instance_id, "dorm-pg-concurrent"),), now)
+        _prepare_database(
+            lazy,
+            settings,
+            ((instance_id, "dorm-pg-concurrent"),),
+            now,
+        )
         results = _append_concurrently(lazy, instance_id, scans)
 
         assert results[0] == results[1]
