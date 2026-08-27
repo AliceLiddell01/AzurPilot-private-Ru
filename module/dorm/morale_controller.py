@@ -158,16 +158,22 @@ class DormMoraleController(UI):
     def _open_manage(self) -> np.ndarray:
         self.ui_ensure(page_dorm)
         frame = self._capture()
+        manage_requested = False
         for _ in range(20):
             if self.dorm_manage_state.selected_floor(frame) is not None:
                 return frame
             if self.appear_then_click(DORM_MANAGE, offset=(20, 20), interval=3):
+                manage_requested = True
                 frame = self._capture()
                 continue
             if self.appear(DORM_MANAGE_CHECK, offset=(20, 20)):
+                manage_requested = True
                 frame = self._capture()
                 continue
             if self.ui_additional(get_ship=False):
+                frame = self._capture()
+                continue
+            if manage_requested:
                 frame = self._capture()
                 continue
             raise DormMoraleControllerError(
