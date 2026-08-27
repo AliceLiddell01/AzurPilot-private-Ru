@@ -10,12 +10,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+
 from module.application.instance_identity import resolve_runtime_instance
 from module.application.morale import (
     MoraleKnowledge,
     MoraleLocation,
     MoraleRecoveryProfile,
 )
+from module.application.morale_reconciliation import MoraleReconciliationResult
 from module.config.config import AzurLaneConfig
 from module.config.utils import DEFAULT_CONFIG_NAME
 from module.device.device import Device
@@ -164,7 +169,7 @@ def _verify_persistence(
     config_name: str,
     selection: FleetSelection,
     scan: DormMoraleScanResult,
-    reconciliation,
+    reconciliation: MoraleReconciliationResult,
     log: SmokeLog,
 ) -> None:
     with context.uow_factory() as uow:
@@ -192,10 +197,7 @@ def _verify_persistence(
         len(persisted) == expected_count,
         "Количество перечитанных morale rows не совпадает с reconciliation summary.",
     )
-    slot_keys = tuple(
-        (row.fleet_index, row.side, row.position)
-        for row in persisted
-    )
+    slot_keys = tuple((row.fleet_index, row.side, row.position) for row in persisted)
     _require(
         len(slot_keys) == len(set(slot_keys)),
         "Один physical Fleet slot получил несколько morale rows текущего scan.",
@@ -248,26 +250,40 @@ def _verify_persistence(
     )
 
 
+def _prepare_runtime(metadata: SmokeMetadata, log: SmokeLog):
+    try:
+        context = build_runtime_dorm_morale_context(require_ready=True)
+        selection = FleetSelection.all()
+        instance_id, formations = _load_fleet_state(
+            context,
+            metadata.config_name,
+            selection,
+        )
+        config = AzurLaneConfig(metadata.config_name)
+        device = Device(config)
+        controller = DormMoraleController(config, device=device)
+    except SmokePreflightError:
+        dispose_runtime_storage()
+        raise
+    except BaseException as error:
+        dispose_runtime_storage()
+        raise SmokePreflightError(
+            f"Не удалось подготовить production runtime: {type(error).__name__}: {error}"
+        ) from error
+
+    log.write(
+        f"Fleet State: instance={str(instance_id)[:8]}…; "
+        f"fleets={','.join(str(item.fleet_index) for item in formations)}"
+    )
+    return context, selection, device, controller
+
+
 def run_smoke(metadata: SmokeMetadata, log: SmokeLog) -> None:
     log.write(
         f"Старт smoke: repository={metadata.repository}; branch={metadata.branch}; "
         f"head={metadata.head}; profile={metadata.config_name}"
     )
-    context = build_runtime_dorm_morale_context(require_ready=True)
-    selection = FleetSelection.all()
-    instance_id, formations = _load_fleet_state(
-        context,
-        metadata.config_name,
-        selection,
-    )
-    log.write(
-        f"Fleet State: instance={str(instance_id)[:8]}…; "
-        f"fleets={','.join(str(item.fleet_index) for item in formations)}"
-    )
-
-    config = AzurLaneConfig(metadata.config_name)
-    device = Device(config)
-    controller = DormMoraleController(config, device=device)
+    context, selection, device, controller = _prepare_runtime(metadata, log)
     primary_error: BaseException | None = None
     cleanup_error: BaseException | None = None
 
@@ -333,9 +349,7 @@ def run_smoke(metadata: SmokeMetadata, log: SmokeLog) -> None:
             log.write("Cleanup: Main подтверждён.")
         except BaseException as error:
             cleanup_error = error
-            log.write(
-                f"Cleanup: FAIL: {type(error).__name__}: {error}"
-            )
+            log.write(f"Cleanup: FAIL: {type(error).__name__}: {error}")
         finally:
             dispose_runtime_storage()
 
