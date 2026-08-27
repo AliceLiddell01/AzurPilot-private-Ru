@@ -28,7 +28,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0008_dorm_morale_semantic_idempotency"
+EXPECTED_ALEMBIC_HEAD = "0008_dorm_morale_idempotency"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
