@@ -2,7 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
-from module.dorm.morale_controller import DormManageStateDetector, DormMoraleController
+from module.dorm.assets import OCR_DORM_SLOT
+from module.dorm.morale_controller import DormMoraleController, DormTrainStateDetector
 from module.dorm.morale_model import (
     DormFloor,
     DormFloorSnapshot,
@@ -23,12 +24,14 @@ class _Device:
         self.frames = list(frames)
         self.image = np.zeros((720, 1280, 3), dtype=np.uint8)
         self.clicks = []
+        self.clicked_buttons = []
 
     def screenshot(self):
         self.image = self.frames.pop(0)
 
     def click(self, button):
         self.clicks.append(button.name)
+        self.clicked_buttons.append(button)
 
 
 class _Scanner:
@@ -39,7 +42,7 @@ class _Scanner:
     def scan(self, _frame, *, floor):
         self.calls.append(floor)
         if floor is self.fail_floor:
-            raise RuntimeError("synthetic OCR failure")
+            raise RuntimeError("синтетическая ошибка OCR")
         return DormFloorSnapshot(floor, (), "a" * 64)
 
 
@@ -48,16 +51,22 @@ class _Controller(DormMoraleController):
         self.ensured = page
 
     def ui_page_appear(self, page, offset=(20, 20)):
-        return False
+        return self.dorm_page_visible
 
     def ui_additional(self, get_ship=False):
         return False
 
 
-def _controller(frames, *, fail_floor=None):
+def _controller(
+    frames,
+    *,
+    fail_floor=None,
+    dorm_page_visible=False,
+):
     controller = object.__new__(_Controller)
     controller.device = _Device(frames)
     controller._scanner = _Scanner(fail_floor)
+    controller.dorm_page_visible = dorm_page_visible
     values = iter(
         datetime(2026, 8, 27, 10, tzinfo=UTC) + timedelta(seconds=index)
         for index in range(20)
@@ -70,12 +79,34 @@ def _controller(frames, *, fail_floor=None):
 
 
 def test_state_detector_distinguishes_selected_floor_and_unknown():
-    detector = DormManageStateDetector()
+    detector = DormTrainStateDetector()
     assert detector.selected_floor(_frame(DormFloor.FLOOR_1)) is DormFloor.FLOOR_1
     assert detector.selected_floor(_frame(DormFloor.FLOOR_2)) is DormFloor.FLOOR_2
     large = np.repeat(np.repeat(_frame(DormFloor.FLOOR_1), 3, axis=0), 3, axis=1)
     assert detector.selected_floor(large) is DormFloor.FLOOR_1
     assert detector.selected_floor(np.zeros((720, 1280, 3), dtype=np.uint8)) is None
+
+
+def test_state_detector_uses_rgb_channel_contract():
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    x1, y1, x2, y2 = (145, 90, 330, 120)
+    frame[y1:y2, x1:x2] = (255, 255, 0)
+
+    assert DormTrainStateDetector().selected_floor(frame) is DormFloor.FLOOR_1
+
+
+def test_controller_reuses_train_slot_anchor_once_and_waits_for_confirmed_floor():
+    unknown = np.zeros((720, 1280, 3), dtype=np.uint8)
+    controller = _controller(
+        (unknown, unknown.copy(), _frame(DormFloor.FLOOR_1)),
+        dorm_page_visible=True,
+    )
+
+    frame = controller._open_train()
+
+    assert controller.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_1
+    assert controller.device.clicks == ["OCR_DORM_SLOT"]
+    assert controller.device.clicked_buttons == [OCR_DORM_SLOT]
 
 
 def test_controller_switches_one_action_per_screenshot_and_scans_both_floors():
@@ -92,6 +123,25 @@ def test_controller_switches_one_action_per_screenshot_and_scans_both_floors():
     assert result.status is DormMoraleScanStatus.SUCCEEDED
     assert controller._scanner.calls == [DormFloor.FLOOR_1, DormFloor.FLOOR_2]
     assert controller.device.clicks == ["DORM_MORALE_1F", "DORM_MORALE_2F"]
+
+
+def test_controller_waits_through_transitional_frame_after_floor_switch():
+    unknown = np.zeros((720, 1280, 3), dtype=np.uint8)
+    controller = _controller(
+        (
+            _frame(DormFloor.FLOOR_1),
+            _frame(DormFloor.FLOOR_1),
+            unknown,
+            _frame(DormFloor.FLOOR_2),
+            _frame(DormFloor.FLOOR_2),
+        )
+    )
+
+    result = controller.scan_both_floors(source="test:controller")
+
+    assert result.status is DormMoraleScanStatus.SUCCEEDED
+    assert controller._scanner.calls == [DormFloor.FLOOR_1, DormFloor.FLOOR_2]
+    assert controller.device.clicks == ["DORM_MORALE_2F"]
 
 
 def test_controller_second_floor_failure_is_partial_not_outside_evidence():

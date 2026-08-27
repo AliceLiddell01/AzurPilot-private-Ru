@@ -1,4 +1,4 @@
-"""PostgreSQL adapter append-only Dorm morale scan provenance."""
+"""PostgreSQL-адаптер неизменяемой истории сканов морали в Dorm."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from uuid import UUID
 
 from sqlalchemy import Connection, insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.canonical_payload import payload_digest
@@ -62,10 +63,6 @@ def _payload(scan: DormMoraleScanResult) -> dict[str, object]:
     }
 
 
-def _storage_key(instance_id: UUID, key: str) -> str:
-    return payload_digest({"instance_id": instance_id, "idempotency_key": key})
-
-
 class PostgresDormMoraleRepository:
     def __init__(self, connection: Connection):
         self._connection = connection
@@ -77,32 +74,17 @@ class PostgresDormMoraleRepository:
             scan, DormMoraleScanResult
         ):
             raise StorageInvalidDataError("Dorm morale scan имеет неверный тип.")
-        key = _storage_key(instance_id, scan.idempotency_key)
         digest = payload_digest(_payload(scan))
         try:
-            existing = (
-                self._connection.execute(
-                    select(dorm_morale_scan_run).where(
-                        dorm_morale_scan_run.c.idempotency_key == key
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if existing is not None:
-                if existing["payload_digest"] != digest:
-                    raise StorageConflictError(
-                        "Dorm scan idempotency key содержит другой payload."
-                    )
-                return self._hydrate(existing, original_key=scan.idempotency_key)
             attempts = {item.floor: item for item in scan.attempts}
             floor_1 = attempts[DormFloor.FLOOR_1]
             floor_2 = attempts[DormFloor.FLOOR_2]
-            self._connection.execute(
-                insert(dorm_morale_scan_run).values(
+            inserted_id = self._connection.execute(
+                pg_insert(dorm_morale_scan_run)
+                .values(
                     id=scan.id,
                     instance_id=instance_id,
-                    idempotency_key=key,
+                    idempotency_key=scan.idempotency_key,
                     payload_digest=digest,
                     started_at=scan.started_at,
                     finished_at=scan.finished_at,
@@ -116,7 +98,35 @@ class PostgresDormMoraleRepository:
                     floor_2_observed_at=floor_2.observed_at,
                     floor_2_error_code=floor_2.error_code,
                 )
-            )
+                .on_conflict_do_nothing(
+                    index_elements=(
+                        dorm_morale_scan_run.c.instance_id,
+                        dorm_morale_scan_run.c.idempotency_key,
+                    )
+                )
+                .returning(dorm_morale_scan_run.c.id)
+            ).scalar_one_or_none()
+            if inserted_id is None:
+                existing = (
+                    self._connection.execute(
+                        select(dorm_morale_scan_run).where(
+                            dorm_morale_scan_run.c.instance_id == instance_id,
+                            dorm_morale_scan_run.c.idempotency_key
+                            == scan.idempotency_key,
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if existing is None:
+                    raise StorageInvalidDataError(
+                        "Конфликтующая запись Dorm scan недоступна после вставки."
+                    )
+                if existing["payload_digest"] != digest:
+                    raise StorageConflictError(
+                        "Dorm scan idempotency key содержит другой payload."
+                    )
+                return self._hydrate(existing)
             rows = [
                 {
                     "scan_id": scan.id,
@@ -173,9 +183,7 @@ class PostgresDormMoraleRepository:
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
-    def _hydrate(
-        self, row: Mapping[str, object], *, original_key: str | None = None
-    ) -> DormMoraleScanResult:
+    def _hydrate(self, row: Mapping[str, object]) -> DormMoraleScanResult:
         child_rows = (
             self._connection.execute(
                 select(dorm_morale_scan_observation)
@@ -246,7 +254,7 @@ class PostgresDormMoraleRepository:
             finished_at=row["finished_at"],
             attempts=tuple(attempts),
             source=row["source"],
-            idempotency_key=original_key or row["idempotency_key"],
+            idempotency_key=row["idempotency_key"],
         )
 
 

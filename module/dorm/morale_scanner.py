@@ -1,4 +1,4 @@
-"""Pure scanner for name, morale and recovery facts on an opened Dorm floor."""
+"""Чистый сканер имени, morale и recovery на уже открытом этаже Dorm."""
 
 from __future__ import annotations
 
@@ -24,11 +24,11 @@ from module.ocr.ocr import Ocr
 
 
 class DormMoraleScanError(RuntimeError):
-    """Базовая ошибка pure Dorm scanner."""
+    """Базовая ошибка чистого сканера Dorm."""
 
 
 class DormMoraleInputError(DormMoraleScanError):
-    """Кадр или floor не соответствует scanner contract."""
+    """Кадр или этаж не соответствует контракту сканера."""
 
 
 class DormMoraleOcrError(DormMoraleScanError):
@@ -254,7 +254,7 @@ class DormRecoverySpeedOcr:
 
 
 class DormMoraleScanner:
-    """Read a single already-opened floor without Device or UI side effects."""
+    """Прочитать один уже открытый этаж без побочных эффектов Device или UI."""
 
     def __init__(
         self,
@@ -308,7 +308,7 @@ class DormMoraleScanner:
 
     def _occupied(self, frame: np.ndarray, card: DormCardGeometry) -> bool:
         x1, y1, x2, y2 = card.presence_area
-        hsv = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2HSV)
         green = (
             (hsv[:, :, 0] >= self.presence_policy.green_hue_min)
             & (hsv[:, :, 0] <= self.presence_policy.green_hue_max)
@@ -356,8 +356,8 @@ class DormMoraleScanner:
             resolution = self.resolver.resolve(raw_name)
             if resolution.status is not IdentityStatus.MATCHED:
                 logger.warning(
-                    "[Общежитие — morale scanner] identity_resolution "
-                    f"floor={floor.value} ordinal={card.ordinal} "
+                    "[Общежитие — сканер морали] Не удалось однозначно определить "
+                    f"корабль: floor={floor.value} ordinal={card.ordinal} "
                     f"status={resolution.status.value} raw_name_ocr={raw_name!r} "
                     f"reason={resolution.reason!r}"
                 )

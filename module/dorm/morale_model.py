@@ -1,4 +1,4 @@
-"""Transport-neutral observations from the Dorm morale management UI."""
+"""Независимые от транспорта наблюдения из UI управления morale в Dorm."""
 
 from __future__ import annotations
 
