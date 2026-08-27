@@ -1,4 +1,4 @@
-"""Pure scanner for name, morale and recovery facts on an opened Dorm floor."""
+"""Чистый сканер имени, morale и recovery на уже открытом этаже Dorm."""
 
 from __future__ import annotations
 
@@ -24,11 +24,11 @@ from module.ocr.ocr import Ocr
 
 
 class DormMoraleScanError(RuntimeError):
-    """Базовая ошибка pure Dorm scanner."""
+    """Базовая ошибка чистого Dorm scanner."""
 
 
 class DormMoraleInputError(DormMoraleScanError):
-    """Кадр или floor не соответствует scanner contract."""
+    """Кадр или floor не соответствует контракту scanner."""
 
 
 class DormMoraleOcrError(DormMoraleScanError):
@@ -254,7 +254,7 @@ class DormRecoverySpeedOcr:
 
 
 class DormMoraleScanner:
-    """Read a single already-opened floor without Device or UI side effects."""
+    """Прочитать один уже открытый этаж без side effects Device или UI."""
 
     def __init__(
         self,
@@ -356,8 +356,8 @@ class DormMoraleScanner:
             resolution = self.resolver.resolve(raw_name)
             if resolution.status is not IdentityStatus.MATCHED:
                 logger.warning(
-                    "[Общежитие — morale scanner] identity_resolution "
-                    f"floor={floor.value} ordinal={card.ordinal} "
+                    "[Общежитие — сканер морали] Не удалось однозначно определить "
+                    f"корабль: floor={floor.value} ordinal={card.ordinal} "
                     f"status={resolution.status.value} raw_name_ocr={raw_name!r} "
                     f"reason={resolution.reason!r}"
                 )
