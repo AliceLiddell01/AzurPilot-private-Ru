@@ -1,6 +1,6 @@
 """Сохранить semantic idempotency key Dorm scan в пределах app instance.
 
-Revision ID: 0008_dorm_morale_semantic_idempotency
+Revision ID: 0008_dorm_morale_idempotency
 Revises: 0007_dorm_morale_reconciliation
 
 Существующие строки Stage 2 уже содержат необратимый namespaced SHA-256 вместо
@@ -15,7 +15,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0008_dorm_morale_semantic_idempotency"
+revision: str = "0008_dorm_morale_idempotency"
 down_revision: str | None = "0007_dorm_morale_reconciliation"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
