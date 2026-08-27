@@ -1,4 +1,4 @@
-"""Ручной end-to-end smoke Stage 2 Dorm morale на реальном устройстве."""
+"""Ручная сквозная проверка Stage 2 Dorm morale на реальном устройстве."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
+from module.application.fleet_state import FleetScanBatchResult, FleetScanRunStatus
 from module.application.instance_identity import resolve_runtime_instance
 from module.application.morale import (
     MoraleKnowledge,
@@ -33,20 +34,22 @@ from module.dorm.morale_model import (
     DormMoraleScanStatus,
 )
 from module.formation.model import FleetSelection
+from module.formation.navigation import FormationFleetController
 from module.persistence.runtime import (
     RuntimeDormMoraleContext,
     build_runtime_dorm_morale_context,
+    build_runtime_fleet_state_context,
     dispose_runtime_storage,
 )
 from module.ui.page import page_main
 
 
 class SmokePreflightError(RuntimeError):
-    """Локальное окружение не готово к реальному smoke."""
+    """Локальное окружение не готово к реальному проверочному запуску."""
 
 
 class SmokeAcceptanceError(RuntimeError):
-    """Production-путь нарушил acceptance contract smoke."""
+    """Production-путь нарушил контракт приёмочной проверки."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,10 +93,63 @@ def _require(condition: bool, message: str) -> None:
         raise SmokeAcceptanceError(message)
 
 
-def _validate_scan(scan: DormMoraleScanResult, log: SmokeLog) -> None:
+def _validate_fleet_scan(batch: FleetScanBatchResult, log: SmokeLog) -> None:
+    _require(
+        batch.status is FleetScanRunStatus.SUCCEEDED,
+        "Скан состояния флотов завершился неуспешно: "
+        f"status={batch.status.value}, failed_fleet={batch.failed_fleet_index}, "
+        f"error={batch.failure_code}",
+    )
+    _require(
+        tuple(item.fleet_index for item in batch.observations)
+        == batch.selection.fleet_indices,
+        "Скан состояния флотов не вернул все выбранные флоты.",
+    )
+    incomplete = tuple(
+        item.fleet_index for item in batch.observations if not item.snapshot.complete
+    )
+    _require(
+        not incomplete,
+        "Скан состояния флотов содержит неполное сопоставление для флотов: "
+        + ", ".join(str(index) for index in incomplete),
+    )
+    log.write(
+        "Скан состояния флотов: успешно; "
+        f"run_id={batch.run_id}; флоты="
+        + ",".join(str(item.fleet_index) for item in batch.observations)
+    )
+
+
+def _verify_fleet_persistence(
+    context: RuntimeDormMoraleContext,
+    config_name: str,
+    batch: FleetScanBatchResult,
+    log: SmokeLog,
+) -> None:
+    with context.uow_factory() as uow:
+        instance_id = resolve_runtime_instance(uow, config_name)
+        persisted = uow.fleet_state.latest(instance_id, batch.selection)
+
+    _require(
+        tuple(item.id for item in persisted)
+        == tuple(item.id for item in batch.observations),
+        "Свежий Fleet State не читается обратно из PostgreSQL без изменений.",
+    )
+    _require(
+        tuple(item.snapshot for item in persisted)
+        == tuple(item.snapshot for item in batch.observations),
+        "Состав флотов изменился после обратного чтения из PostgreSQL.",
+    )
+    log.write(
+        "Обратное чтение состояния флотов из PostgreSQL: успешно; "
+        f"instance={str(instance_id)[:8]}…"
+    )
+
+
+def _validate_dorm_scan(scan: DormMoraleScanResult, log: SmokeLog) -> None:
     _require(
         scan.status is DormMoraleScanStatus.SUCCEEDED and scan.complete,
-        f"Dorm scan не завершён полностью: status={scan.status.value}",
+        f"Скан Dorm не завершён полностью: status={scan.status.value}",
     )
     attempts = {attempt.floor: attempt for attempt in scan.attempts}
     for floor in (DormFloor.FLOOR_1, DormFloor.FLOOR_2):
@@ -107,64 +163,40 @@ def _validate_scan(scan: DormMoraleScanResult, log: SmokeLog) -> None:
             f"Успешный скан {floor.value} не содержит snapshot.",
         )
         log.write(
-            f"Floor detector {floor.value}: подтверждён production controller; "
-            f"observations={len(attempt.snapshot.observations)}"
+            f"Детектор этажа {floor.value}: состояние подтверждено; "
+            f"наблюдений={len(attempt.snapshot.observations)}"
         )
         for observation in attempt.snapshot.observations:
             _require(
                 bool(observation.raw_name_ocr.strip()),
-                f"{floor.value} slot {observation.ordinal}: raw_name_ocr пуст.",
+                f"{floor.value}, слот {observation.ordinal}: raw_name_ocr пуст.",
             )
             _require(
                 observation.identity_status is IdentityStatus.MATCHED,
-                f"{floor.value} slot {observation.ordinal}: identity="
+                f"{floor.value}, слот {observation.ordinal}: идентификация="
                 f"{observation.identity_status.value}",
             )
             _require(
                 observation.canonical_identity is not None,
-                f"{floor.value} slot {observation.ordinal}: canonical identity отсутствует.",
+                f"{floor.value}, слот {observation.ordinal}: "
+                "каноническая идентичность отсутствует.",
             )
             _require(
                 Decimal(0) <= observation.morale <= Decimal(150),
-                f"{floor.value} slot {observation.ordinal}: morale вне domain range.",
+                f"{floor.value}, слот {observation.ordinal}: morale вне диапазона.",
             )
             _require(
                 Decimal(0) <= observation.recovery_per_hour <= Decimal(1500),
-                f"{floor.value} slot {observation.ordinal}: recovery вне domain range.",
+                f"{floor.value}, слот {observation.ordinal}: "
+                "скорость восстановления вне диапазона.",
             )
             _require(
                 observation.floor is floor,
-                f"{floor.value} slot {observation.ordinal}: observation другого этажа.",
+                f"{floor.value}, слот {observation.ordinal}: наблюдение другого этажа.",
             )
 
 
-def _load_fleet_state(
-    context: RuntimeDormMoraleContext,
-    config_name: str,
-    selection: FleetSelection,
-):
-    with context.uow_factory() as uow:
-        instance_id = resolve_runtime_instance(uow, config_name)
-        formations = uow.fleet_state.latest(instance_id, selection)
-    if not formations:
-        raise SmokePreflightError(
-            "Для текущего профиля нет сохранённого Fleet State. "
-            "Сначала должен существовать реальный Formation scan."
-        )
-    incomplete = tuple(
-        observation.fleet_index
-        for observation in formations
-        if not observation.snapshot.complete
-    )
-    if incomplete:
-        raise SmokePreflightError(
-            "Последний Fleet State неполный для флотов: "
-            + ", ".join(str(index) for index in incomplete)
-        )
-    return instance_id, formations
-
-
-def _verify_persistence(
+def _verify_dorm_persistence(
     context: RuntimeDormMoraleContext,
     config_name: str,
     selection: FleetSelection,
@@ -177,15 +209,15 @@ def _verify_persistence(
         latest_scan = uow.dorm_morale.latest(instance_id)
         morale_rows = uow.morale.latest(instance_id, selection)
 
-    _require(latest_scan is not None, "Dorm scan не читается обратно из PostgreSQL.")
-    _require(latest_scan.id == scan.id, "latest Dorm scan имеет другой id.")
+    _require(latest_scan is not None, "Скан Dorm не читается обратно из PostgreSQL.")
+    _require(latest_scan.id == scan.id, "Последний скан Dorm имеет другой id.")
     _require(
         latest_scan.idempotency_key == scan.idempotency_key,
-        "Semantic idempotency key не пережил PostgreSQL round-trip.",
+        "Семантический idempotency key не пережил обратное чтение PostgreSQL.",
     )
     _require(
         latest_scan.observations == scan.observations,
-        "Dorm observations изменились после PostgreSQL round-trip.",
+        "Наблюдения Dorm изменились после обратного чтения PostgreSQL.",
     )
 
     persisted = tuple(row for row in morale_rows if row.dorm_scan_id == scan.id)
@@ -195,12 +227,12 @@ def _verify_persistence(
     )
     _require(
         len(persisted) == expected_count,
-        "Количество перечитанных morale rows не совпадает с reconciliation summary.",
+        "Количество перечитанных строк morale не совпадает с итогом сопоставления.",
     )
     slot_keys = tuple((row.fleet_index, row.side, row.position) for row in persisted)
     _require(
         len(slot_keys) == len(set(slot_keys)),
-        "Один physical Fleet slot получил несколько morale rows текущего scan.",
+        "Один физический слот флота получил несколько строк morale текущего скана.",
     )
 
     outside_profile = MoraleRecoveryProfile.outside_dorm_base()
@@ -213,123 +245,149 @@ def _verify_persistence(
         }:
             _require(
                 row.knowledge is MoraleKnowledge.EXACT and row.baseline is not None,
-                "Dorm-matched slot не сохранил exact baseline.",
+                "Слот из Dorm не сохранил точное базовое значение morale.",
             )
             _require(
                 row.recovery.source.startswith("dorm_ui:"),
-                "Dorm-matched slot не сохранил UI recovery provenance.",
+                "Слот из Dorm не сохранил происхождение скорости восстановления из UI.",
             )
             exact_count += 1
         elif row.location is MoraleLocation.OUTSIDE_DORM:
             _require(
                 row.knowledge is MoraleKnowledge.UNKNOWN and row.baseline is None,
-                "Outside-Dorm slot получил fake morale baseline.",
+                "Слот вне Dorm получил выдуманное базовое значение morale.",
             )
             _require(
                 row.recovery == outside_profile,
-                "Outside-Dorm slot не использует базовый recovery profile.",
+                "Слот вне Dorm не использует базовый профиль восстановления.",
             )
             outside_count += 1
         else:
             raise SmokeAcceptanceError(
-                f"Morale row текущего Dorm scan имеет недопустимую location: "
+                "Строка morale текущего скана Dorm имеет недопустимое местоположение: "
                 f"{row.location.value}"
             )
 
     _require(
         exact_count == reconciliation.exact_observations,
-        "Persisted exact count не совпадает с reconciliation summary.",
+        "Сохранённое число точных наблюдений не совпадает с итогом сопоставления.",
     )
     _require(
         outside_count == reconciliation.outside_dorm_observations,
-        "Persisted outside-Dorm count не совпадает с reconciliation summary.",
+        "Сохранённое число наблюдений вне Dorm не совпадает с итогом сопоставления.",
     )
     log.write(
-        "PostgreSQL round-trip: PASS; "
-        f"scan_id={scan.id}; semantic_key=PASS; morale_rows={len(persisted)}"
+        "Обратное чтение Dorm morale из PostgreSQL: успешно; "
+        f"scan_id={scan.id}; семантический_ключ=успешно; строк_morale={len(persisted)}"
     )
 
 
-def _prepare_runtime(metadata: SmokeMetadata, log: SmokeLog):
+def _prepare_runtime(metadata: SmokeMetadata):
     try:
-        context = build_runtime_dorm_morale_context(require_ready=True)
+        dorm_context = build_runtime_dorm_morale_context(require_ready=True)
         selection = FleetSelection.all()
-        instance_id, formations = _load_fleet_state(
-            context,
-            metadata.config_name,
-            selection,
-        )
         config = AzurLaneConfig(metadata.config_name)
         device = Device(config)
-        controller = DormMoraleController(config, device=device)
-    except SmokePreflightError:
-        dispose_runtime_storage()
-        raise
+        formation_controller = FormationFleetController(config, device=device)
+        fleet_context = build_runtime_fleet_state_context(
+            lambda: formation_controller,
+            require_ready=True,
+        )
+        dorm_controller = DormMoraleController(config, device=device)
     except BaseException as error:
         dispose_runtime_storage()
         raise SmokePreflightError(
-            f"Не удалось подготовить production runtime: {type(error).__name__}: {error}"
+            "Не удалось подготовить production runtime: "
+            f"{type(error).__name__}: {error}"
         ) from error
 
-    log.write(
-        f"Fleet State: instance={str(instance_id)[:8]}…; "
-        f"fleets={','.join(str(item.fleet_index) for item in formations)}"
-    )
-    return context, selection, device, controller
+    return dorm_context, fleet_context, selection, device, dorm_controller
+
+
+def _confirm_main(controller: DormMoraleController, message: str) -> None:
+    controller.device.screenshot()
+    _require(controller.ui_page_appear(page_main), message)
 
 
 def run_smoke(metadata: SmokeMetadata, log: SmokeLog) -> None:
     log.write(
-        f"Старт smoke: repository={metadata.repository}; branch={metadata.branch}; "
-        f"head={metadata.head}; profile={metadata.config_name}"
+        f"Старт реальной проверки: репозиторий={metadata.repository}; "
+        f"ветка={metadata.branch}; head={metadata.head}; профиль={metadata.config_name}"
     )
-    context, selection, device, controller = _prepare_runtime(metadata, log)
+    (
+        dorm_context,
+        fleet_context,
+        selection,
+        device,
+        dorm_controller,
+    ) = _prepare_runtime(metadata)
     primary_error: BaseException | None = None
     cleanup_error: BaseException | None = None
 
     try:
-        device.screenshot()
-        _require(
-            controller.ui_page_appear(page_main),
-            "Smoke должен начинаться с подтверждённого Main menu.",
+        _confirm_main(
+            dorm_controller,
+            "Проверка должна начинаться с подтверждённой страницы Main.",
         )
-        log.write("Стартовая страница: Main подтверждена.")
+        log.write("Стартовая страница Main подтверждена.")
 
-        scan = controller.scan_both_floors(source="acceptance:dorm_morale_stage2")
-        _validate_scan(scan, log)
+        fleet_batch = fleet_context.state_service.scan(
+            metadata.config_name,
+            selection,
+            source="acceptance:dorm_morale_stage2_fleet",
+        )
+        _validate_fleet_scan(fleet_batch, log)
+        _verify_fleet_persistence(
+            dorm_context,
+            metadata.config_name,
+            fleet_batch,
+            log,
+        )
+
+        dorm_controller.ui_ensure(page_main)
+        _confirm_main(
+            dorm_controller,
+            "После скана флотов не удалось подтвердить возврат на Main.",
+        )
+        log.write("После скана флотов страница Main подтверждена.")
+
+        scan = dorm_controller.scan_both_floors(
+            source="acceptance:dorm_morale_stage2"
+        )
+        _validate_dorm_scan(scan, log)
         log.write(
-            f"Dorm scan: status={scan.status.value}; observations={len(scan.observations)}"
+            f"Скан Dorm: status={scan.status.value}; наблюдений={len(scan.observations)}"
         )
 
-        reconciliation = context.reconciliation_service.reconcile(
+        reconciliation = dorm_context.reconciliation_service.reconcile(
             metadata.config_name,
             selection,
             scan,
         )
         _require(
             reconciliation.complete_scan,
-            "Reconciliation не считает Dorm scan полным.",
+            "Сопоставление не считает скан Dorm полным.",
         )
         _require(
             not reconciliation.stale_fleet_indices,
-            "Fleet State стал stale для флотов: "
+            "Состояние флотов стало устаревшим для флотов: "
             + ", ".join(str(index) for index in reconciliation.stale_fleet_indices),
         )
         _require(
             reconciliation.unresolved_observations == 0,
-            "Scanner оставил unresolved Dorm observations.",
+            "Сканер оставил неразрешённые наблюдения Dorm.",
         )
         log.write(
-            "Reconciliation: "
-            f"exact={reconciliation.exact_observations}; "
-            f"outside={reconciliation.outside_dorm_observations}; "
-            f"ambiguous={reconciliation.ambiguous_observations}; "
-            f"unresolved={reconciliation.unresolved_observations}; "
-            f"unmatched={reconciliation.unmatched_observations}; "
-            f"stale={list(reconciliation.stale_fleet_indices)}"
+            "Сопоставление morale: "
+            f"точных={reconciliation.exact_observations}; "
+            f"вне_Dorm={reconciliation.outside_dorm_observations}; "
+            f"неоднозначных={reconciliation.ambiguous_observations}; "
+            f"неразрешённых={reconciliation.unresolved_observations}; "
+            f"без_совпадения={reconciliation.unmatched_observations}; "
+            f"устаревшие_флоты={list(reconciliation.stale_fleet_indices)}"
         )
-        _verify_persistence(
-            context,
+        _verify_dorm_persistence(
+            dorm_context,
             metadata.config_name,
             selection,
             scan,
@@ -340,32 +398,34 @@ def run_smoke(metadata: SmokeMetadata, log: SmokeLog) -> None:
         primary_error = error
     finally:
         try:
-            controller.ui_ensure(page_main)
+            dorm_controller.ui_ensure(page_main)
             device.screenshot()
-            if not controller.ui_page_appear(page_main):
+            if not dorm_controller.ui_page_appear(page_main):
                 raise SmokeAcceptanceError(
-                    "Cleanup не подтвердил возврат игры в Main menu."
+                    "Очистка не подтвердила возврат игры на страницу Main."
                 )
-            log.write("Cleanup: Main подтверждён.")
+            log.write("Очистка: страница Main подтверждена.")
         except BaseException as error:
             cleanup_error = error
-            log.write(f"Cleanup: FAIL: {type(error).__name__}: {error}")
+            log.write(f"Очистка: ОШИБКА: {type(error).__name__}: {error}")
         finally:
             dispose_runtime_storage()
 
     if primary_error is not None:
         if cleanup_error is not None:
-            log.write("Основная ошибка сохранена; cleanup error приведён отдельно выше.")
+            log.write(
+                "Основная ошибка сохранена; ошибка очистки приведена отдельно выше."
+            )
         raise primary_error
     if cleanup_error is not None:
         raise cleanup_error
 
-    log.write("PASS")
+    log.write("УСПЕХ")
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Реальный smoke Stage 2 Dorm morale reconciliation.",
+        description="Реальная проверка Stage 2 Dorm morale reconciliation.",
     )
     parser.add_argument("--log-path", required=True)
     parser.add_argument("--repository", required=True)
@@ -387,10 +447,10 @@ def main() -> int:
     try:
         run_smoke(metadata, log)
     except SmokePreflightError as error:
-        log.write(f"FAIL preflight: {type(error).__name__}: {error}")
+        log.write(f"ОШИБКА подготовки: {type(error).__name__}: {error}")
         return 2
     except BaseException as error:
-        log.write(f"FAIL acceptance: {type(error).__name__}: {error}")
+        log.write(f"ОШИБКА приёмки: {type(error).__name__}: {error}")
         return 1
     return 0
 
