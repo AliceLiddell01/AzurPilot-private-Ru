@@ -1,4 +1,4 @@
-"""PostgreSQL-адаптер append-only provenance сканов морали в общежитии."""
+"""PostgreSQL-адаптер неизменяемой истории сканов морали в Dorm."""
 
 from __future__ import annotations
 
