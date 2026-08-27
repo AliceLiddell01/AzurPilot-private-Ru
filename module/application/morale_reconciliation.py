@@ -1,4 +1,4 @@
-"""Set-based reconciliation Dorm-фактов с актуальным физическим Fleet State."""
+"""Сопоставление множества Dorm-фактов с актуальным физическим Fleet State."""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ class _FleetCandidate:
 
 
 class MoraleReconciliationService:
-    """Сохранить Dorm provenance и консервативный morale-контекст по слотам."""
+    """Сохранить происхождение Dorm scan и консервативный morale-контекст по слотам."""
 
     def __init__(
         self,
