@@ -15,7 +15,6 @@ Alas:
       - OneClickRetire
       - Enhance
       - OldRetire
-      - PublicEmotion
       - YukikazeTaskManager
     Restart:
       - Scheduler

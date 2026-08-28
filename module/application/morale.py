@@ -167,7 +167,13 @@ class RecordMoraleObservation:
 
 @dataclass(frozen=True, slots=True)
 class RecordMoraleEvent:
-    """Команда идемпотентного combat/warning event для одного физического флота."""
+    """Команда идемпотентного event для одного физического флота.
+
+    ``target_side``/``target_position`` адресуют только доказанный casualty
+    slot. Если shipwreck evidence не содержит такой пары, событие сохраняет
+    честную uncertainty для текущих matched slots вместо fleet-wide exact
+    deduction.
+    """
 
     fleet_index: int
     kind: MoraleEventKind
@@ -175,6 +181,8 @@ class RecordMoraleEvent:
     source: str
     event_key: str
     observed_at: datetime | None = None
+    target_side: FormationFleetSide | None = None
+    target_position: int | None = None
 
     def __post_init__(self) -> None:
         validate_surface_fleet_index(self.fleet_index)
@@ -183,6 +191,19 @@ class RecordMoraleEvent:
         _decimal(self.cost, field="cost", minimum=MORALE_MIN, maximum=MORALE_MAX)
         if self.kind is MoraleEventKind.WARNING and self.cost != MORALE_MIN:
             raise ValueError("Warning event не должен списывать morale")
+        if (self.target_side is None) != (self.target_position is None):
+            raise ValueError("Casualty target должен содержать side и position")
+        if self.target_side is not None and not isinstance(
+            self.target_side, FormationFleetSide
+        ):
+            raise TypeError("target_side должен быть FormationFleetSide")
+        if self.target_position is not None and (
+            type(self.target_position) is not int
+            or not 1 <= self.target_position <= 3
+        ):
+            raise ValueError("target_position должен быть int в диапазоне 1..3")
+        if self.target_side is not None and self.kind is not MoraleEventKind.SHIPWRECK:
+            raise ValueError("Casualty target допустим только для shipwreck event")
         _bounded(self.source, field="source", maximum=64)
         _bounded(self.event_key, field="event_key", maximum=96)
         if self.observed_at is not None:
@@ -622,6 +643,18 @@ class MoraleService:
                 for slot in formation.snapshot.slots
                 if slot.occupied and slot.identity_status is IdentityStatus.MATCHED
             )
+            if (
+                command.kind is MoraleEventKind.SHIPWRECK
+                and command.target_side is not None
+            ):
+                current_slots = tuple(
+                    slot
+                    for slot in current_slots
+                    if (
+                        slot.side == command.target_side
+                        and slot.position == command.target_position
+                    )
+                )
             slot_keys = tuple(
                 self._event_idempotency_key(command, slot)
                 for slot in current_slots
@@ -717,11 +750,7 @@ class MoraleService:
     ) -> frozenset[str]:
         if not keys:
             return frozenset()
-        contains = getattr(repository, "contains_idempotency", None)
-        if callable(contains):
-            return frozenset(contains(instance_id, keys))
-        # Совместимость с минимальными in-memory repository doubles старых тестов.
-        return frozenset()
+        return frozenset(repository.contains_idempotency(instance_id, keys))
 
     def _event_observation(
         self,
@@ -734,18 +763,40 @@ class MoraleService:
         observed_at: datetime,
         idempotency_key: str,
     ) -> MoraleObservation:
-        recovery = MoraleRecoveryProfile.outside_dorm_base()
-        baseline: Decimal | None = None
-        knowledge = MoraleKnowledge.UNKNOWN
-        if (
-            command.kind is not MoraleEventKind.WARNING
-            and previous is not None
-            and previous.knowledge is MoraleKnowledge.EXACT
-            and previous.baseline is not None
+        continuity = (
+            previous is not None
             and previous.observed_at.astimezone(UTC)
             <= observed_at.astimezone(UTC)
             and previous.canonical_identity == slot.canonical_identity
             and previous.ship_form is slot.ship_form
+        )
+        recovery = (
+            previous.recovery
+            if continuity and previous is not None
+            else MoraleRecoveryProfile.outside_dorm_base()
+        )
+        location = (
+            previous.location
+            if continuity and previous is not None
+            else MoraleLocation.UNKNOWN
+        )
+        dorm_scan_id = (
+            previous.dorm_scan_id
+            if continuity and previous is not None
+            else None
+        )
+        baseline: Decimal | None = None
+        knowledge = MoraleKnowledge.UNKNOWN
+        if (
+            command.kind is not MoraleEventKind.WARNING
+            and not (
+                command.kind is MoraleEventKind.SHIPWRECK
+                and command.target_side is None
+            )
+            and continuity
+            and previous is not None
+            and previous.knowledge is MoraleKnowledge.EXACT
+            and previous.baseline is not None
         ):
             projection = project_morale(previous, at=observed_at)
             baseline = max(MORALE_MIN, projection.value - command.cost)
@@ -766,7 +817,8 @@ class MoraleService:
             source=command.source,
             idempotency_key=idempotency_key,
             knowledge=knowledge,
-            location=MoraleLocation.UNKNOWN,
+            location=location,
+            dorm_scan_id=dorm_scan_id,
         )
 
     @staticmethod

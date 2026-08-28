@@ -671,16 +671,6 @@
         ]
       }
     },
-    "PublicEmotion": {
-      "Enable": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Tasks": {
-        "type": "textarea",
-        "value": null
-      }
-    },
     "YukikazeTaskManager": {
       "TaskPriorityAdjustment": {
         "type": "task_priority",

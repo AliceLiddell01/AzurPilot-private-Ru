@@ -234,21 +234,39 @@ class InfoHandler(ModuleBase):
             texts.extend(self._hierarchy_texts(self.device.dump_hierarchy()))
         except Exception as exc:  # noqa: BLE001 - OCR остаётся резервом evidence.
             logger.debug(f"[Настроение — popup] Не удалось получить UI hierarchy: {exc}")
-        if texts:
-            return tuple(texts)
+        return tuple(texts)
 
+    def _low_morale_warning_ocr_image(self):
+        """Подготовить bounded область текущего popup для резервного OCR."""
+
+        image = self.device.image
+        shape = getattr(image, "shape", ())
+        if len(shape) < 2:
+            return image
+        height, width = shape[:2]
+        # Координаты popup assets заданы для стандартного 1280x720 canvas;
+        # масштабируем их под фактический screenshot без нового UI contract.
+        area = (
+            round(300 * width / 1280),
+            round(120 * height / 720),
+            round(980 * width / 1280),
+            round(475 * height / 720),
+        )
+        return self.image_crop(area, copy=False)
+
+    def _low_morale_warning_ocr_texts(self) -> tuple[str, ...]:
         try:
             from module.ocr.global_english import GLOBAL_ENGLISH_OCR
 
-            detections = GLOBAL_ENGLISH_OCR.det(self.device.image)
-            texts.extend(
+            detections = GLOBAL_ENGLISH_OCR.det(self._low_morale_warning_ocr_image())
+            return tuple(
                 str(text)
                 for text, _box, _score in detections
                 if isinstance(text, str) and text.strip()
             )
         except Exception as exc:  # noqa: BLE001 - отсутствие OCR не является evidence.
             logger.debug(f"[Настроение — popup] Не удалось выполнить резервный OCR: {exc}")
-        return tuple(texts)
+            return ()
 
     def _low_morale_warning_evidence(self):
         if not (
@@ -263,7 +281,13 @@ class InfoHandler(ModuleBase):
             return None
         from module.application.low_morale import LowMoraleWarningDetector
 
-        return LowMoraleWarningDetector().detect_many(self._low_morale_warning_texts())
+        detector = LowMoraleWarningDetector()
+        hierarchy_texts = self._low_morale_warning_texts()
+        evidence = detector.detect_many(hierarchy_texts)
+        if evidence is not None:
+            return evidence
+        ocr_texts = self._low_morale_warning_ocr_texts()
+        return detector.detect_many((*hierarchy_texts, *ocr_texts))
 
     def _logical_morale_fleet_index(self) -> int | None:
         for attribute in (
@@ -329,16 +353,18 @@ class InfoHandler(ModuleBase):
                 "[Настроение — popup] Не удалось доказать logical fleet; "
                 "предупреждение отменено без продолжения"
             )
-        try:
-            self.emotion.record_warning(logical_fleet_index)
-        except Exception as exc:  # noqa: BLE001 - запись не должна оставлять warning в UI.
-            logger.exception(exc)
-            self._cancel_low_morale_warning_safely()
-            raise ScriptEnd(
-                "[Настроение — popup] Предупреждение отменено, "
-                "но его запись в morale ledger не завершена"
-            ) from exc
+        warning_recorded = False
         if allow_confirm or self.emotion.is_ignore:
+            try:
+                self.emotion.record_warning(logical_fleet_index)
+                warning_recorded = True
+            except Exception as exc:  # noqa: BLE001 - запись не должна оставлять warning в UI.
+                logger.exception(exc)
+                self._cancel_low_morale_warning_safely()
+                raise ScriptEnd(
+                    "[Настроение — popup] Предупреждение отменено, "
+                    "но его запись в morale ledger не завершена"
+                ) from exc
             result = self.handle_popup_confirm("LOW_MORALE_WARNING", interval=0)
             if result:
                 # Не допускаем, чтобы следующее действие ошибочно нажало соседний toggle.
@@ -346,6 +372,15 @@ class InfoHandler(ModuleBase):
                 return result
 
         self._cancel_low_morale_warning_safely()
+        if not warning_recorded:
+            try:
+                self.emotion.record_warning(logical_fleet_index)
+            except Exception as exc:  # noqa: BLE001 - запись не должна оставлять warning в UI.
+                logger.exception(exc)
+                raise ScriptEnd(
+                    "[Настроение — popup] Предупреждение отменено, "
+                    "но его запись в morale ledger не завершена"
+                ) from exc
         try:
             result = self._reconcile_morale_after_warning(logical_fleet_index)
         except Exception as exc:  # noqa: BLE001 - reconciliation failure is a clean scheduler stop.

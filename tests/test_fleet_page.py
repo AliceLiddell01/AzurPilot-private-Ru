@@ -171,6 +171,17 @@ class _MoraleRepository:
             if observation.fleet_index in selection.fleet_indices
         )
 
+    def contains_idempotency(self, instance_id, keys):
+        return frozenset(
+            key
+            for key in keys
+            if any(
+                observation.instance_id == instance_id
+                and observation.idempotency_key == key
+                for observation in self.by_instance.get(instance_id, ())
+            )
+        )
+
 
 class _Uow:
     def __init__(self, instances, fleet_state, commands, morale):

@@ -265,11 +265,6 @@ Retirement:
   RetireMode:
     value: one_click_retire
     option: [one_click_retire, enhance, old_retire]
-PublicEmotion:
-  Enable: false
-  Tasks:
-    type: textarea
-    value: null
 YukikazeTaskManager:
   TaskPriorityAdjustment:
     type: task_priority

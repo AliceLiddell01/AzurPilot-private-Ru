@@ -341,8 +341,6 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                 break
             if self.appear(BATTLE_STATUS_A) or self.appear(BATTLE_STATUS_B) \
                     or self.appear(EXP_INFO_A) or self.appear(EXP_INFO_B):
-                if emotion_reduce:
-                    self.emotion.reduce(fleet_index, shipwreck=True)
                 break
             if self.appear(BATTLE_STATUS_S) or self.appear(EXP_INFO_S) \
                     or self.appear(GET_MISSION) or self.is_auto_search_running():

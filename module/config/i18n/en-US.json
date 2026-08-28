@@ -818,20 +818,6 @@
       "old_retire": "traditional retirement"
     }
   },
-  "PublicEmotion": {
-    "_info": {
-      "name": "Shared Morale",
-      "help": "Can use the same team to complete multiple tasks\nWhen using this function, please ensure that the fleet function of the corresponding task is to clear all single teams, and the team is a shared team."
-    },
-    "Enable": {
-      "name": "Enable Shared Morale",
-      "help": "After enabling, the shared morale will be used, and the following morale configuration will replace the original configuration."
-    },
-    "Tasks": {
-      "name": "Shared Morale Tasks",
-      "help": "Select tasks that use shared morale, separated by half-width commas, such as \"Main, Event, EventA\"\nMain Line Diagram-1: Main, Main Line Diagram-2: Main2, Main Line Diagram-3: Main3\nActivity Diagram-1: Event, Activity Diagram-2: Event2, War Archives: WarArchives\nDaily A chart: EventA, Daily B chart: EventB, Daily C chart: EventC, Daily D chart: EventD, Daily SP chart: EventSp"
-    }
-  },
   "YukikazeTaskManager": {
     "_info": {
       "name": "Yukikaze-sama's task management",

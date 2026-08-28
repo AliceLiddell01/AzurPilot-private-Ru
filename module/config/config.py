@@ -217,7 +217,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         if recovery_migration or legacy_emotion_migration:
             if legacy_emotion_migration:
                 logger.info(
-                    "[Конфигурация] Legacy Emotion numeric state удалён из profile data; "
+                    "[Конфигурация] Legacy morale state удалён из profile data; "
                     "источник morale теперь MoraleService"
                 )
             if recovery_migration:

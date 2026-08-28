@@ -76,7 +76,7 @@ class GemsEmotion(Emotion):
             return
 
         recovered, delay = self._check_reduce(battle)
-        if delay:
+        if recovered is None or delay:
             self.config.GEMS_EMOTION_TRIGGERED = True
             logger.info('[Фарм самоцветов] Обнаружено низкое настроение; текущая задача приостановлена')
             raise CampaignEnd('Emotion control')

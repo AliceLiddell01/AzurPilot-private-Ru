@@ -8,8 +8,13 @@ from dataclasses import dataclass
 
 _WORD_RE = re.compile(r"[^\w]+", re.UNICODE)
 _MOOD_RE = re.compile(r"\b(?:mood|morale|emotion|spirit)\b", re.IGNORECASE)
-_LOW_RE = re.compile(
-    r"\b(?:low|lowest|red|reduced|decrease|decreased|decreasing|decline|declined|loss|lost|fall|fallen)\b",
+_LOW_MOOD_RE = re.compile(
+    r"\b(?:mood|morale|emotion|spirit)\b"
+    r"(?:\s+\w+){0,5}\s+"
+    r"\b(?:low|lowest|red|decrease|decreased|decreasing|decline|declined|fall|fallen|falling)\b"
+    r"|\b(?:low|lowest|red|decrease|decreased|decreasing|decline|declined|fall|fallen|falling)\b"
+    r"(?:\s+\w+){0,5}\s+"
+    r"\b(?:mood|morale|emotion|spirit)\b",
     re.IGNORECASE,
 )
 _AFFINITY_RE = re.compile(
@@ -62,10 +67,14 @@ class LowMoraleWarningDetector:
         normalized = normalize_warning_text(text)
         if not normalized:
             return None
+        clauses = tuple(
+            normalize_warning_text(clause)
+            for clause in re.split(r"[.!?;:]", text)
+        )
         evidence = LowMoraleWarningEvidence(
             normalized_text=normalized,
             mood_term=bool(_MOOD_RE.search(normalized)),
-            low_term=bool(_LOW_RE.search(normalized)),
+            low_term=any(_LOW_MOOD_RE.search(clause) for clause in clauses),
             consequence_term=bool(_AFFINITY_RE.search(normalized)),
             forced_attack_term=bool(_FORCED_ATTACK_RE.search(normalized)),
         )

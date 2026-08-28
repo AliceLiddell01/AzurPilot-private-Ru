@@ -95,16 +95,22 @@ _LEGACY_EMOTION_STATE_FIELDS = frozenset(
         'Fleet2Onsen',
     }
 )
+_LEGACY_PUBLIC_EMOTION_FIELDS = frozenset({'Enable', 'Tasks'})
 
 
 def legacy_emotion_state_present(data: object) -> bool:
-    """Проверить наличие старого numeric morale state в profile data."""
+    """Проверить наличие удалённого legacy morale state в profile data."""
 
     if not isinstance(data, dict):
         return False
     for group, value in data.items():
-        if group in {'Emotion', 'PublicEmotion'} and isinstance(value, dict):
+        if group == 'Emotion' and isinstance(value, dict):
             if any(key in value for key in _LEGACY_EMOTION_STATE_FIELDS):
+                return True
+        if group == 'PublicEmotion' and isinstance(value, dict):
+            if any(key in value for key in _LEGACY_PUBLIC_EMOTION_FIELDS) or any(
+                key in value for key in _LEGACY_EMOTION_STATE_FIELDS
+            ):
                 return True
         if legacy_emotion_state_present(value):
             return True

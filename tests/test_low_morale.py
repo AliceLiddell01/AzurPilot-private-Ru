@@ -1,5 +1,7 @@
+from xml.etree import ElementTree
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from module.application.low_morale import LowMoraleWarningDetector
@@ -14,6 +16,27 @@ def test_detector_requires_morale_and_consequence_evidence():
     assert detector.detect("Confirm or Cancel") is None
     assert detector.detect("The mood is low") is None
     assert detector.detect("Affinity will drop if you force the attack") is None
+    assert (
+        detector.detect(
+            "Mood status. Affinity will be reduced if you continue attack."
+        )
+        is None
+    )
+    assert detector.detect("Low fuel. Morale status. Confirm or Cancel") is None
+
+
+def test_detector_accepts_split_hierarchy_nodes():
+    evidence = LowMoraleWarningDetector().detect_many(
+        (
+            "Morale",
+            "is low",
+            "Affinity will be reduced",
+            "if forced to attack",
+        )
+    )
+
+    assert evidence is not None
+    assert evidence.proven
 
 
 @pytest.mark.parametrize(
@@ -61,10 +84,75 @@ def test_handler_cancels_proven_warning_reconciles_and_stops(monkeypatch):
         handler._handle_low_morale_warning()
 
     assert events == [
-        ("warning", 1),
         ("cancel", ("LOW_MORALE_WARNING",), {"interval": 0}),
+        ("warning", 1),
         ("reconcile", 1),
     ]
+
+
+def _warning_handler(hierarchy_texts):
+    root = ElementTree.Element("hierarchy")
+    for text in hierarchy_texts:
+        ElementTree.SubElement(root, "node", text=text)
+    handler = object.__new__(InfoHandler)
+    handler.device = SimpleNamespace(
+        image=np.zeros((720, 1280, 3), dtype=np.uint8),
+        dump_hierarchy=lambda: root,
+    )
+    return handler
+
+
+def test_handler_uses_proven_hierarchy_without_unnecessary_ocr(monkeypatch):
+    handler = _warning_handler(
+        ("Cancel", "Confirm", "Morale is low. Affinity will be reduced if forced to attack.")
+    )
+    monkeypatch.setattr(handler, "appear", lambda *_args, **_kwargs: True)
+    calls = []
+
+    def unexpected_ocr(_image):
+        calls.append("ocr")
+        raise AssertionError("OCR must not run after proven hierarchy evidence")
+
+    monkeypatch.setattr(
+        "module.ocr.global_english.GLOBAL_ENGLISH_OCR.det",
+        unexpected_ocr,
+    )
+
+    evidence = handler._low_morale_warning_evidence()
+
+    assert evidence is not None
+    assert calls == []
+
+
+def test_handler_combines_partial_hierarchy_with_bounded_ocr(monkeypatch):
+    handler = _warning_handler(("Cancel", "Confirm", "Morale"))
+    monkeypatch.setattr(handler, "appear", lambda *_args, **_kwargs: True)
+    received = []
+
+    def fallback_ocr(image):
+        received.append(image.shape)
+        return [
+            ("is low.", (0, 0, 1, 1), 0.99),
+            ("Affinity will be reduced if forced to attack.", (0, 0, 1, 1), 0.99),
+        ]
+
+    monkeypatch.setattr("module.ocr.global_english.GLOBAL_ENGLISH_OCR.det", fallback_ocr)
+
+    evidence = handler._low_morale_warning_evidence()
+
+    assert evidence is not None
+    assert received == [(355, 680, 3)]
+
+
+def test_handler_keeps_unproven_hierarchy_and_malformed_ocr_closed(monkeypatch):
+    handler = _warning_handler(("Cancel", "Confirm", "Mood status"))
+    monkeypatch.setattr(handler, "appear", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        "module.ocr.global_english.GLOBAL_ENGLISH_OCR.det",
+        lambda _image: [(None, (0, 0, 1, 1), 0.2), ("Affinity", None, 0.1)],
+    )
+
+    assert handler._low_morale_warning_evidence() is None
 
 
 def test_handler_never_confirms_proven_warning_under_safe_policy(monkeypatch):
