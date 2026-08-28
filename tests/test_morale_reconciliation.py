@@ -4,7 +4,11 @@ from uuid import uuid4
 
 from module.application.fleet_state import FleetStateObservation
 from module.application.instance_identity import runtime_instance_identity
-from module.application.morale import MoraleKnowledge, MoraleLocation
+from module.application.morale import (
+    MoraleKnowledge,
+    MoraleLocation,
+    project_morale,
+)
 from module.application.morale_reconciliation import MoraleReconciliationService
 from module.application.storage_models import InstanceIdentity
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
@@ -75,12 +79,16 @@ def _formation(
 
 
 def _observation(
-    floor=DormFloor.FLOOR_1, ship=1, form=None, status=IdentityStatus.MATCHED
+    floor=DormFloor.FLOOR_1,
+    ship=1,
+    form=None,
+    status=IdentityStatus.MATCHED,
+    ordinal=1,
 ):
     matched = status is IdentityStatus.MATCHED
     return DormMoraleObservation(
         floor=floor,
-        ordinal=1,
+        ordinal=ordinal,
         raw_name_ocr=f"Ship {ship}",
         displayed_name=f"Ship {ship}",
         identity_status=status,
@@ -216,7 +224,7 @@ def _service(formations):
     )
     service = MoraleReconciliationService(
         lambda: _Uow(instances, fleet, morale, dorm),
-        clock=lambda: NOW + timedelta(seconds=1),
+        clock=lambda: NOW + timedelta(minutes=20),
     )
     return service, fleet, morale
 
@@ -227,26 +235,26 @@ def test_unique_unknown_form_writes_exact_ui_recovery_and_floor():
     result = service.reconcile("alas", FleetSelection.one(1), _scan(_observation()))
     value = morale.values[0]
     assert result.exact_observations == 1 and fleet.calls == 1
-    assert value.baseline == Decimal(
-        100
-    ) and value.recovery.recovery_per_hour == Decimal(47)
-    assert (
-        value.location is MoraleLocation.DORM_FLOOR_1
-        and value.knowledge is MoraleKnowledge.EXACT
-    )
+    assert result.lookup_targets == ()
+    assert value.baseline == Decimal(100)
+    assert value.recovery.recovery_per_hour == Decimal(47)
+    assert value.location is MoraleLocation.DORM_FLOOR_1
+    assert value.knowledge is MoraleKnowledge.EXACT
 
 
-def test_known_form_mismatch_fails_closed_and_does_not_mark_outside():
+def test_known_form_mismatch_routes_target_to_lookup_without_fake_outside():
     instance_id = _instance_id()
     service, _, morale = _service((_formation(instance_id),))
     result = service.reconcile(
         "alas", FleetSelection.one(1), _scan(_observation(form=ShipForm.RETROFIT))
     )
     assert result.exact_observations == result.outside_dorm_observations == 0
-    assert result.unmatched_observations == 1 and morale.values == []
+    assert result.unmatched_observations == 1
+    assert len(result.lookup_targets) == 1
+    assert morale.values == []
 
 
-def test_duplicate_candidates_are_ambiguous_and_one_observation_is_not_reused():
+def test_duplicate_candidates_are_ambiguous_and_each_target_needs_lookup():
     instance_id = _instance_id()
     service, _, morale = _service(
         (_formation(instance_id, 1), _formation(instance_id, 2))
@@ -254,58 +262,111 @@ def test_duplicate_candidates_are_ambiguous_and_one_observation_is_not_reused():
     result = service.reconcile(
         "alas", FleetSelection.several(1, 2), _scan(_observation())
     )
-    assert result.ambiguous_observations == 1 and morale.values == []
+    assert result.ambiguous_observations == 1
+    assert len(result.lookup_targets) == 2
+    assert morale.values == []
 
 
-def test_complete_absence_writes_known_outside_baseline_but_partial_does_not():
-    instance_id = _instance_id()
-    for complete, expected in ((True, 1), (False, 0)):
-        service, _, morale = _service((_formation(instance_id),))
-        result = service.reconcile(
-            "alas", FleetSelection.one(1), _scan(complete=complete)
-        )
-        assert result.outside_dorm_observations == expected
-        if complete:
-            value = morale.values[0]
-            assert value.baseline == Decimal(119)
-            assert value.knowledge is MoraleKnowledge.EXACT
-            assert value.location is MoraleLocation.OUTSIDE_DORM
-            assert value.recovery.recovery_per_hour == Decimal(20)
-        else:
-            assert morale.values == []
-
-
-def test_repeated_outside_scan_preserves_projected_continuity():
+def test_complete_absence_never_synthesizes_initial_119():
     instance_id = _instance_id()
     service, _, morale = _service((_formation(instance_id),))
-    service.reconcile("alas", FleetSelection.one(1), _scan())
-    morale.values[-1] = morale.values[-1].__class__(
-        **{
-            field: getattr(morale.values[-1], field)
-            for field in morale.values[-1].__dataclass_fields__
-            if field not in {"baseline", "observed_at"}
-        },
-        baseline=Decimal(80),
-        observed_at=NOW - timedelta(minutes=6),
+    result = service.reconcile("alas", FleetSelection.one(1), _scan())
+    assert result.complete_scan is True
+    assert result.outside_dorm_observations == 0
+    assert len(result.lookup_targets) == 1
+    assert morale.values == []
+
+
+def test_partial_scan_also_routes_missing_target_to_lookup_without_outside_claim():
+    instance_id = _instance_id()
+    service, _, morale = _service((_formation(instance_id),))
+    result = service.reconcile(
+        "alas", FleetSelection.one(1), _scan(complete=False)
     )
+    assert result.complete_scan is False
+    assert len(result.lookup_targets) == 1
+    assert result.outside_dorm_observations == 0
+    assert morale.values == []
 
-    service.reconcile("alas", FleetSelection.one(1), _scan())
 
-    assert morale.values[-1].baseline == Decimal(82)
-    assert morale.values[-1].source == "dorm_reconciliation:outside_continuity"
+def test_unrelated_unresolved_dorm_card_does_not_block_exact_target():
+    instance_id = _instance_id()
+    service, _, morale = _service((_formation(instance_id),))
+    unrelated = _observation(
+        ship=99,
+        status=IdentityStatus.UNRESOLVED,
+        ordinal=2,
+    )
+    result = service.reconcile(
+        "alas",
+        FleetSelection.one(1),
+        _scan(_observation(), unrelated),
+    )
+    assert result.unresolved_observations == 1
+    assert result.exact_observations == 1
+    assert result.lookup_targets == ()
+    assert len(morale.values) == 1
 
 
-def test_unresolved_scan_and_stale_fleet_fail_closed():
+def test_unrelated_matched_dorm_ship_is_counted_but_does_not_block_target_lookup():
     instance_id = _instance_id()
     service, _, morale = _service((_formation(instance_id),))
     result = service.reconcile(
         "alas",
         FleetSelection.one(1),
-        _scan(_observation(status=IdentityStatus.UNRESOLVED)),
+        _scan(_observation(ship=99)),
     )
-    assert result.unresolved_observations == 1 and morale.values == []
+    assert result.unmatched_observations == 1
+    assert len(result.lookup_targets) == 1
+    assert morale.values == []
+
+
+def test_targeted_search_records_exact_150_outside_and_time_does_not_clamp_down():
+    instance_id = _instance_id()
+    service, _, morale = _service((_formation(instance_id),))
+    scan = _scan()
+    result = service.reconcile("alas", FleetSelection.one(1), scan)
+    target = result.lookup_targets[0]
+
+    value = service.record_targeted_outside(
+        "alas",
+        target,
+        dorm_scan_id=result.dorm_scan_id,
+        morale=Decimal(150),
+        observed_at=NOW + timedelta(minutes=1),
+    )
+
+    assert value.baseline == Decimal(150)
+    assert value.knowledge is MoraleKnowledge.EXACT
+    assert value.location is MoraleLocation.OUTSIDE_DORM
+    assert value.recovery.recovery_per_hour == Decimal(20)
+    assert value.recovery.recovery_ceiling == Decimal(119)
+    projected = project_morale(value, at=NOW + timedelta(minutes=13))
+    assert projected.value == Decimal(150)
+
+
+def test_targeted_search_below_119_recovers_only_to_outside_ceiling():
+    instance_id = _instance_id()
+    service, _, _ = _service((_formation(instance_id),))
+    result = service.reconcile("alas", FleetSelection.one(1), _scan())
+    value = service.record_targeted_outside(
+        "alas",
+        result.lookup_targets[0],
+        dorm_scan_id=result.dorm_scan_id,
+        morale=Decimal(118),
+        observed_at=NOW + timedelta(minutes=1),
+    )
+    projected = project_morale(value, at=NOW + timedelta(hours=1, minutes=1))
+    assert projected.value == Decimal(119)
+
+
+def test_stale_fleet_never_enters_targeted_lookup_queue():
+    instance_id = _instance_id()
     service, _, morale = _service(
         (_formation(instance_id, at=NOW + timedelta(seconds=1)),)
     )
     result = service.reconcile("alas", FleetSelection.one(1), _scan(_observation()))
-    assert result.stale_fleet_indices == (1,) and morale.values == []
+    assert result.stale_fleet_indices == (1,)
+    assert result.target_count == 1
+    assert result.lookup_targets == ()
+    assert morale.values == []
