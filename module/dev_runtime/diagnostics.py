@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import subprocess
 import sys
@@ -18,6 +19,8 @@ from module.dev_runtime.contracts import (
     DevStatusKind,
     ProcessIdentity,
 )
+
+_REGISTRY_MAX_BYTES = 1024 * 1024
 
 
 class DevDiagnosticsMixin:
@@ -55,6 +58,19 @@ class DevDiagnosticsMixin:
 
         storage_ok, storage_message = self.storage_probe(self.environment)
         add("storage", storage_ok, "DEV_STORAGE_NOT_READY", storage_message)
+
+        dependency_sync_pending = _dependency_sync_pending(self.environment)
+        add(
+            "dependency_sync",
+            not dependency_sync_pending,
+            "DEV_DEPENDENCY_SYNC_PENDING",
+            "Ожидающая синхронизация зависимостей отсутствует"
+            if not dependency_sync_pending
+            else (
+                "Обнаружена ожидающая синхронизация зависимостей; Dev Runtime не запускает "
+                "uv sync и требует заранее подготовленное окружение"
+            ),
+        )
 
         state = self.status()
         try:
@@ -216,6 +232,23 @@ class DevDiagnosticsMixin:
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
 
+        if session.state in {DevSessionState.FAILED, DevSessionState.STOPPED}:
+            code = (
+                "DEV_FAILED_PROCESS_STILL_RUNNING"
+                if session.state is DevSessionState.FAILED
+                else "DEV_STOPPED_PROCESS_STILL_RUNNING"
+            )
+            return self._session_result(
+                session,
+                ok=False,
+                code=code,
+                message=(
+                    f"DevSession помечена как {session.state.value}, но принадлежащий ей "
+                    "процесс всё ещё работает; повторный старт запрещён до безопасной остановки"
+                ),
+                state=DevStatusKind.STALE,
+            )
+
         if session.state is DevSessionState.RUNNING:
             ready, reason = self.readiness_probe(self.environment, identity)
             if not ready:
@@ -233,8 +266,6 @@ class DevDiagnosticsMixin:
             DevSessionState.RUNNING: DevStatusKind.RUNNING_OWNED,
             DevSessionState.STOPPING: DevStatusKind.STOPPING,
             DevSessionState.STALE: DevStatusKind.STALE,
-            DevSessionState.FAILED: DevStatusKind.STALE,
-            DevSessionState.STOPPED: DevStatusKind.STALE,
         }.get(session.state, DevStatusKind.FAILED)
         return self._session_result(
             session,
@@ -258,7 +289,7 @@ class DevDiagnosticsMixin:
         try:
             from module.webui import worker_registry
 
-            owner = worker_registry.get_owner_record()
+            owner, workers = _read_worker_registry_snapshot(environment)
             if owner is None:
                 return False, "WebUI ещё не зарегистрировала владельца"
             owner_pid = int(owner["pid"])
@@ -271,7 +302,6 @@ class DevDiagnosticsMixin:
                 owner_pid, environment.host, environment.port
             ):
                 return False, "локальный порт не принадлежит подтверждённому владельцу WebUI"
-            workers = worker_registry.get_workers(owner_pid)
             worker = workers.get(DEV_PROFILE)
             if worker is None:
                 return False, "рабочий процесс профиля ap ещё не зарегистрирован"
@@ -311,17 +341,126 @@ class DevDiagnosticsMixin:
         try:
             from module.webui import worker_registry
 
-            owner = worker_registry.get_owner_record()
-            if owner is None:
-                return True, "Активный владелец WebUI отсутствует"
-            matches = worker_registry.process_matches(owner)
-            if matches is True:
-                return False, "В этой рабочей копии уже работает WebUI; второй владелец запрещён"
-            if matches is False:
-                return True, "PID старого WebUI переиспользован; новый gui.py выполнит штатную очистку при восстановлении"
-            return True, "Предыдущий WebUI завершён; новый gui.py выполнит штатную очистку при восстановлении"
+            owner, workers = _read_worker_registry_snapshot(self.environment)
+            if owner is not None:
+                matches = worker_registry.process_matches(owner)
+                if matches is True:
+                    return False, "В этой рабочей копии уже работает WebUI; второй владелец запрещён"
+                if matches is False:
+                    owner_message = "PID старого WebUI переиспользован"
+                else:
+                    owner_message = "Предыдущий WebUI завершён"
+            else:
+                owner_message = "Активный владелец WebUI отсутствует"
+
+            for name, record in workers.items():
+                worker_matches = worker_registry.process_matches(record)
+                if worker_matches is True:
+                    return (
+                        False,
+                        f"После прежнего WebUI всё ещё работает worker {name}; Dev Runtime не будет завершать чужой процесс",
+                    )
+
+            if owner is None and not workers:
+                return True, owner_message
+            return (
+                True,
+                f"{owner_message}; остались только безопасно устаревшие записи, штатный gui.py может их очистить",
+            )
         except Exception as exc:
             return False, f"Нельзя безопасно проверить реестр рабочих процессов: {type(exc).__name__}"
+
+
+def _dependency_sync_pending(environment: DevEnvironment) -> bool:
+    marker = environment.repository_root / "config" / "webui-dependency-sync-pending"
+    try:
+        return marker.exists() or marker.is_symlink()
+    except OSError:
+        return True
+
+
+def _read_worker_registry_snapshot(
+    environment: DevEnvironment,
+) -> tuple[dict[str, object] | None, dict[str, dict[str, object]]]:
+    """Прочитать worker registry без блокировок, миграции и любых записей."""
+
+    current = environment.repository_root / "cache" / "webui-workers.json"
+    legacy = environment.repository_root / "config" / "webui-workers.json"
+    current_payload = _read_registry_file(current)
+    legacy_payload = _read_registry_file(legacy)
+
+    if current_payload is not None and legacy_payload is not None:
+        if current_payload != legacy_payload:
+            raise RuntimeError("Новый и legacy worker registry конфликтуют")
+        payload = current_payload
+    else:
+        payload = current_payload if current_payload is not None else legacy_payload
+
+    if payload is None:
+        return None, {}
+    return _validate_registry_payload(payload)
+
+
+def _read_registry_file(path: Path) -> object | None:
+    try:
+        if path.is_symlink() or (
+            hasattr(path, "is_junction") and path.is_junction()
+        ):
+            raise RuntimeError("worker registry не должен быть ссылкой или junction")
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise RuntimeError("worker registry невозможно безопасно прочитать") from exc
+    if len(raw) > _REGISTRY_MAX_BYTES:
+        raise RuntimeError("worker registry превышает допустимый размер")
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise RuntimeError("worker registry содержит некорректный JSON") from exc
+
+
+def _validate_registry_payload(
+    payload: object,
+) -> tuple[dict[str, object] | None, dict[str, dict[str, object]]]:
+    if not isinstance(payload, dict):
+        raise RuntimeError("worker registry должен быть объектом")
+    workers_payload = payload.get("workers")
+    if not isinstance(workers_payload, dict):
+        raise RuntimeError("worker registry содержит некорректный workers")
+
+    owner_pid = payload.get("owner_pid")
+    owner_created_at = payload.get("owner_created_at")
+    owner: dict[str, object] | None
+    if owner_pid is None:
+        if owner_created_at is not None:
+            raise RuntimeError("worker registry содержит owner_created_at без owner_pid")
+        owner = None
+    else:
+        owner = _validated_process_record(
+            {"pid": owner_pid, "created_at": owner_created_at},
+            label="owner",
+        )
+
+    workers: dict[str, dict[str, object]] = {}
+    for name, record in workers_payload.items():
+        if not isinstance(name, str) or not name:
+            raise RuntimeError("worker registry содержит некорректное имя worker")
+        workers[name] = _validated_process_record(record, label=f"worker {name}")
+    return owner, workers
+
+
+def _validated_process_record(record: object, *, label: str) -> dict[str, object]:
+    if not isinstance(record, dict):
+        raise RuntimeError(f"worker registry содержит некорректную запись {label}")
+    try:
+        pid = int(record["pid"])
+        created_at = float(record["created_at"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"worker registry содержит неполную запись {label}") from exc
+    if pid <= 0 or created_at <= 0:
+        raise RuntimeError(f"worker registry содержит недопустимую запись {label}")
+    return {"pid": pid, "created_at": created_at}
 
 
 def _port_is_listening(host: str, port: int) -> bool:
