@@ -98,7 +98,7 @@ class GemsCampaignOverride(CampaignBase):
         如果启用了更换先锋，撤出战斗并更换旗舰和先锋。
         """
         if self.config.GemsFarming_IgnoreEmotionWarning or self.config.GemsFarming_ChangeVanguard == 'disabled':
-            result = self._handle_low_morale_warning(allow_confirm=True)
+            result = self._handle_low_morale_warning(allow_confirm=True, stop=False)
             if result:
                 # Не допускаем нажатия AUTO_SEARCH_MAP_OPTION_OFF.
                 self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)

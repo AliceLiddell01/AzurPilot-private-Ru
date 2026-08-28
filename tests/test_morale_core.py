@@ -23,7 +23,7 @@ from module.application.morale import (
 )
 from module.application.storage_models import InstanceIdentity
 from module.combat.emotion import Emotion
-from module.campaign.gems_farming import GemsEmotion
+from module.campaign.gems_farming import GemsCampaignOverride, GemsEmotion
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.exception import CampaignEnd, ScriptEnd
 from module.formation.model import (
@@ -907,6 +907,26 @@ def test_gems_override_stops_on_unknown_instead_of_entering_battle():
         GemsEmotion(config, morale_service=service).check_reduce(1)
 
     assert config.GEMS_EMOTION_TRIGGERED is True
+
+
+def test_gems_ignore_warning_does_not_stop_when_popup_is_not_on_current_frame():
+    config = SimpleNamespace(
+        GemsFarming_IgnoreEmotionWarning=True,
+        GemsFarming_ChangeVanguard="enabled",
+        GEMS_EMOTION_TRIGGERED=False,
+    )
+    campaign = GemsCampaignOverride.__new__(GemsCampaignOverride)
+    campaign.config = config
+    calls = []
+
+    def handle_warning(**kwargs):
+        calls.append(kwargs)
+        return False
+
+    campaign._handle_low_morale_warning = handle_warning
+
+    assert campaign.handle_combat_low_emotion() is False
+    assert calls == [{"allow_confirm": True, "stop": False}]
 
 
 def test_warning_invalidates_exact_morale_without_inventing_a_value():
