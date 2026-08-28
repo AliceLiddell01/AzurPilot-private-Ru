@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterator
 
-from deploy.atomic import atomic_write
+from deploy.atomic import file_write, replace_tmp, to_tmp_file
 from module.dev_runtime.contracts import (
     DEFAULT_READY_TIMEOUT,
     DEFAULT_STOP_TIMEOUT,
@@ -554,10 +554,20 @@ class DevSessionManager(DevDiagnosticsMixin):
 
     def _write_session(self, session: DevSession) -> None:
         self.environment.state_file.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write(
-            str(self.environment.state_file),
-            json.dumps(session.as_dict(), ensure_ascii=True, sort_keys=True) + "\n",
-        )
+        target = str(self.environment.state_file)
+        temp = to_tmp_file(target)
+        payload = json.dumps(session.as_dict(), ensure_ascii=True, sort_keys=True) + "\n"
+        try:
+            file_write(temp, payload)
+            replace_tmp(temp, target)
+        finally:
+            try:
+                Path(temp).unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                # Сбой best-effort cleanup не должен скрывать исходную ошибку записи.
+                pass
 
     def _raw_state_bytes(self) -> bytes | None:
         try:
@@ -593,6 +603,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             session_id=session.session_id,
             details=details or {},
         )
+
 
 @contextmanager
 def _exclusive_file_lock(path: Path) -> Iterator[None]:
