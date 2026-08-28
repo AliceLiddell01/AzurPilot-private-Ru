@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from module.application.morale_bootstrap import CampaignMoraleBootstrapError
 from module.application.morale_rescan import MoraleRescanPolicy
 from module.campaign.run import CampaignRun
 
@@ -77,11 +78,11 @@ def test_campaign_hook_invokes_periodic_callback_only_when_config_policy_is_due(
     runner.morale_campaign_clear_callback = calls.append
     runner._morale_rescan_last_at = time.monotonic()
 
-    runner.after_campaign_run()
+    assert runner.after_campaign_run() is True
     assert calls == []
 
     runner.run_count = 3
-    runner.after_campaign_run()
+    assert runner.after_campaign_run() is True
     assert calls == [3]
 
 
@@ -91,6 +92,21 @@ def test_campaign_hook_time_trigger_uses_same_safe_boundary():
     runner.morale_campaign_clear_callback = calls.append
     runner._morale_rescan_last_at = time.monotonic() - 61
 
-    runner.after_campaign_run()
+    assert runner.after_campaign_run() is True
 
     assert calls == [1]
+
+
+def test_periodic_bootstrap_failure_stops_campaign_loop_without_escaping():
+    runner = _runner(3, runs=3, minutes=0)
+    runner._morale_rescan_last_at = time.monotonic()
+
+    def fail(_completed_runs):
+        raise CampaignMoraleBootstrapError(
+            "target_lookup_failed",
+            "synthetic periodic evidence failure",
+        )
+
+    runner.morale_campaign_clear_callback = fail
+
+    assert runner.after_campaign_run() is False
