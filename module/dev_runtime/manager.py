@@ -154,6 +154,22 @@ class DevSessionManager(DevDiagnosticsMixin):
                     state=DevStatusKind.OWNERSHIP_MISMATCH.value,
                     session_id=session.session_id,
                 )
+            if (
+                latest.state is not DevSessionState.STARTING
+                or latest.process != session.process
+            ):
+                observed = self.status()
+                return DevResult(
+                    ok=False,
+                    code="DEV_SESSION_STATE_CHANGED",
+                    message=(
+                        "Состояние DevSession изменилось во время ожидания готовности; "
+                        "более новое состояние сохранено"
+                    ),
+                    state=observed.state,
+                    session_id=session.session_id,
+                    details={"observed_code": observed.code},
+                )
             if not ready:
                 cleanup = self._stop_owned_process(latest.process)
                 latest.state = DevSessionState.FAILED
