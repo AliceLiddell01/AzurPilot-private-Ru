@@ -232,7 +232,7 @@ class InfoHandler(ModuleBase):
         texts: list[str] = []
         try:
             texts.extend(self._hierarchy_texts(self.device.dump_hierarchy()))
-        except Exception as exc:  # noqa: BLE001 - OCR остаётся резервом evidence.
+        except Exception as exc:  # noqa: BLE001 - OCR остаётся резервом доказательства.
             logger.debug(f"[Настроение — popup] Не удалось получить UI hierarchy: {exc}")
         return tuple(texts)
 
@@ -264,7 +264,7 @@ class InfoHandler(ModuleBase):
                 for text, _box, _score in detections
                 if isinstance(text, str) and text.strip()
             )
-        except Exception as exc:  # noqa: BLE001 - отсутствие OCR не является evidence.
+        except Exception as exc:  # noqa: BLE001 - отсутствие OCR не является доказательством.
             logger.debug(f"[Настроение — popup] Не удалось выполнить резервный OCR: {exc}")
             return ()
 

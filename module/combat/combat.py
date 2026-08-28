@@ -767,7 +767,13 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
         begin_event = getattr(self.emotion, "begin_event", None)
         if callable(begin_event):
             campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
-            execution_id = f"combat:{campaign}:{self._morale_execution_sequence}:{fleet_index}"
+            # battle_count — координата боя в текущем scheduler run; sequence
+            # различает несколько засад, пока карта остаётся на той же позиции.
+            battle_coordinate = getattr(self, "battle_count", 0)
+            execution_id = (
+                f"combat:{campaign}:{battle_coordinate}:"
+                f"{self._morale_execution_sequence}:{fleet_index}"
+            )
             begin_event(execution_id, execution_id=execution_id)
 
         with self.stat.new(

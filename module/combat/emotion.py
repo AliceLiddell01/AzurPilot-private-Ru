@@ -17,7 +17,6 @@ from module.application.morale import (
 )
 from module.base.decorator import cached_property
 from module.base.utils import random_normal_distribution_int
-from module.config.time_source import now as current_time
 from module.dock_inventory.model import IdentityStatus
 from module.exception import RequestHumanTakeover, ScriptEnd, ScriptError
 from module.formation.model import FleetSelection
@@ -167,11 +166,11 @@ class Emotion:
             count * self.reduce_per_battle_before_entering for count in counts
         )
         logical_indices = tuple(index for index, cost in enumerate(costs, 1) if cost)
-        if not logical_indices:
-            return current_time(), False
-        physical = tuple(self._physical_fleet(index) for index in logical_indices)
         service = self._service()
         now = service.now()
+        if not logical_indices:
+            return now, False
+        physical = tuple(self._physical_fleet(index) for index in logical_indices)
         state = service.state(
             self._instance(),
             FleetSelection.several(*physical),
@@ -310,7 +309,7 @@ class Emotion:
                 f"[Настроение — ожидание] Нет доказательства безопасного morale для physical Fleet {physical}"
             )
         recovered = max(ready, default=now)
-        while current_time() < recovered:
+        while service.now() < recovered:
             logger.attr("Ожидание до", recovered)
             sleep(60)
 

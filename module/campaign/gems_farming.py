@@ -1086,7 +1086,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def set_emotion(self, emotion):
         """
-        Сохранить совместимость вызовов без записи legacy numeric state.
+        Сохранить совместимость вызовов без записи устаревшего числового состояния.
         """
         del emotion
         logger.info(

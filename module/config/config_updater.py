@@ -99,7 +99,7 @@ _LEGACY_PUBLIC_EMOTION_FIELDS = frozenset({'Enable', 'Tasks'})
 
 
 def legacy_emotion_state_present(data: object) -> bool:
-    """Проверить наличие удалённого legacy morale state в profile data."""
+    """Проверить наличие удалённого устаревшего состояния морали в данных профиля."""
 
     if not isinstance(data, dict):
         return False

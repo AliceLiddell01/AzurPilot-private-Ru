@@ -1,4 +1,4 @@
-"""Fail-closed semantic evidence detector для low-morale warning popup."""
+"""Детектор признаков предупреждения о низкой морали с безопасным отказом."""
 
 from __future__ import annotations
 
