@@ -2,7 +2,6 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
-from module.dorm.assets import OCR_DORM_SLOT
 from module.dorm.morale_controller import DormMoraleController, DormTrainStateDetector
 from module.dorm.morale_model import (
     DormFloor,
@@ -87,6 +86,20 @@ def test_state_detector_distinguishes_selected_floor_and_unknown():
     assert detector.selected_floor(np.zeros((720, 1280, 3), dtype=np.uint8)) is None
 
 
+def test_state_detector_does_not_treat_dorm_home_floor_header_as_train_popup():
+    frame = _frame(DormFloor.FLOOR_1)
+    x1, y1, x2, y2 = DormTrainStateDetector().layout.train_modal_probe
+    frame[y1:y2, x1:x2] = 255
+
+    assert DormTrainStateDetector().selected_floor(frame) is None
+
+
+def test_state_detector_uses_train_button_to_confirm_dorm_home():
+    frame = np.full((720, 1280, 3), 255, dtype=np.uint8)
+
+    assert DormTrainStateDetector().dorm_home_visible(frame)
+
+
 def test_state_detector_uses_rgb_channel_contract():
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     x1, y1, x2, y2 = (145, 90, 330, 120)
@@ -105,8 +118,21 @@ def test_controller_reuses_train_slot_anchor_once_and_waits_for_confirmed_floor(
     frame = controller._open_train()
 
     assert controller.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_1
-    assert controller.device.clicks == ["OCR_DORM_SLOT"]
-    assert controller.device.clicked_buttons == [OCR_DORM_SLOT]
+    assert controller.device.clicks == ["DORM_MORALE_TRAIN"]
+    assert controller.device.clicked_buttons[0].button == (20, 640, 230, 719)
+
+
+def test_controller_opens_train_from_home_without_dorm_check_move_button():
+    home = np.full((720, 1280, 3), 255, dtype=np.uint8)
+    controller = _controller(
+        (home, np.zeros((720, 1280, 3), dtype=np.uint8), _frame(DormFloor.FLOOR_1))
+    )
+
+    frame = controller._open_train()
+
+    assert controller.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_1
+    assert controller.device.clicks == ["DORM_MORALE_TRAIN"]
+    assert not hasattr(controller, "ensured")
 
 
 def test_controller_switches_one_action_per_screenshot_and_scans_both_floors():

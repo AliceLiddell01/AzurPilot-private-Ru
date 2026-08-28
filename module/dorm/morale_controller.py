@@ -13,7 +13,6 @@ import numpy as np
 
 from module.base.button import Button
 from module.base.decorator import cached_property
-from module.dorm.assets import OCR_DORM_SLOT
 from module.dorm.morale_model import (
     DormFloor,
     DormFloorScanAttempt,
@@ -36,12 +35,19 @@ class DormTrainLayout:
     # В live UI вкладка Train показывает персонажей 1F, Rest — персонажей 2F.
     floor_1_probe: tuple[int, int, int, int] = (145, 90, 330, 120)
     floor_2_probe: tuple[int, int, int, int] = (360, 90, 545, 120)
+    train_modal_probe: tuple[int, int, int, int] = (555, 40, 900, 110)
+    dorm_home_header_probe: tuple[int, int, int, int] = (830, 20, 1260, 130)
     floor_1_button: tuple[int, int, int, int] = (134, 85, 347, 137)
     floor_2_button: tuple[int, int, int, int] = (347, 85, 561, 137)
+    train_button: tuple[int, int, int, int] = (20, 640, 230, 719)
 
 
 @dataclass(frozen=True, slots=True)
 class DormTrainStatePolicy:
+    dorm_home_luma_min: float = 170.0
+    dorm_home_light_ratio_min: float = 0.55
+    train_modal_dark_luma_max: float = 100.0
+    train_modal_dark_ratio_min: float = 0.5
     selected_luma_min: float = 180.0
     unselected_luma_max: float = 140.0
     selected_delta_min: float = 60.0
@@ -81,8 +87,37 @@ class DormTrainStateDetector:
         x1, y1, x2, y2 = area
         return float(np.mean(cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)))
 
+    @staticmethod
+    def _light_ratio(frame: np.ndarray, area: tuple[int, int, int, int]) -> float:
+        x1, y1, x2, y2 = area
+        luma = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)
+        return float(np.mean(luma >= 180))
+
+    def train_modal_visible(self, frame: np.ndarray) -> bool:
+        frame = self._normalize(frame)
+        x1, y1, x2, y2 = self.layout.train_modal_probe
+        luma = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)
+        dark_ratio = float(np.mean(luma <= self.policy.train_modal_dark_luma_max))
+        return dark_ratio >= self.policy.train_modal_dark_ratio_min
+
+    def dorm_home_visible(self, frame: np.ndarray) -> bool:
+        """Подтверждает Home Dorm по Train, а не по кнопке редактора Move."""
+        frame = self._normalize(frame)
+        if self.train_modal_visible(frame):
+            return False
+        for area in (self.layout.train_button, self.layout.dorm_home_header_probe):
+            if (
+                self._mean_luma(frame, area) < self.policy.dorm_home_luma_min
+                or self._light_ratio(frame, area)
+                < self.policy.dorm_home_light_ratio_min
+            ):
+                return False
+        return True
+
     def selected_floor(self, frame: np.ndarray) -> DormFloor | None:
         frame = self._normalize(frame)
+        if not self.train_modal_visible(frame):
+            return None
         floor_1 = self._mean_luma(frame, self.layout.floor_1_probe)
         floor_2 = self._mean_luma(frame, self.layout.floor_2_probe)
         if (
@@ -157,17 +192,29 @@ class DormMoraleController(UI):
         return value[:64] or "dorm_scan_failed"
 
     def _open_train(self) -> np.ndarray:
-        self.ui_ensure(page_dorm)
         frame = self._capture()
+        if self.dorm_train_state.selected_floor(frame) is not None:
+            return frame
+        if not self.dorm_train_state.dorm_home_visible(frame) and not self.ui_page_appear(
+            page_dorm,
+            offset=(20, 20),
+        ):
+            self.ui_ensure(page_dorm)
+            frame = self._current_frame()
         train_requested = False
         for _ in range(20):
             if self.dorm_train_state.selected_floor(frame) is not None:
                 return frame
-            if not train_requested and self.ui_page_appear(
-                page_dorm,
-                offset=(20, 20),
+            if not train_requested and (
+                self.dorm_train_state.dorm_home_visible(frame)
+                or self.ui_page_appear(page_dorm, offset=(20, 20))
             ):
-                self.device.click(OCR_DORM_SLOT)
+                self.device.click(
+                    self._button(
+                        self.dorm_train_layout.train_button,
+                        "DORM_MORALE_TRAIN",
+                    )
+                )
                 train_requested = True
                 frame = self._capture()
                 continue
@@ -293,9 +340,9 @@ class DormMoraleController(UI):
 
 
 __all__ = (
+    "DormMoraleController",
+    "DormMoraleControllerError",
     "DormTrainLayout",
     "DormTrainStateDetector",
     "DormTrainStatePolicy",
-    "DormMoraleController",
-    "DormMoraleControllerError",
 )
