@@ -57,12 +57,25 @@ class DevDiagnosticsMixin:
         add("storage", storage_ok, "DEV_STORAGE_NOT_READY", storage_message)
 
         state = self.status()
-        state_ok = state.state in {
-            DevStatusKind.NO_SESSION.value,
-            DevStatusKind.STOPPED.value,
-            DevStatusKind.FAILED.value,
-            DevStatusKind.STALE.value,
-        }
+        try:
+            stored_session = self._read_session()
+        except (OSError, ValueError):
+            stored_session = None
+        failed_without_process = (
+            state.state == DevStatusKind.FAILED.value
+            and stored_session is not None
+            and stored_session.process is None
+        )
+        safely_recoverable_stale = (
+            state.state == DevStatusKind.STALE.value
+            and state.code == "DEV_SESSION_STALE"
+        )
+        state_ok = (
+            state.state
+            in {DevStatusKind.NO_SESSION.value, DevStatusKind.STOPPED.value}
+            or failed_without_process
+            or safely_recoverable_stale
+        )
         add(
             "session",
             state_ok,
