@@ -185,7 +185,7 @@ class AzurLaneAutoScript:
             logger.exception_context(
                 title='Не удалось перезапустить эмулятор',
                 exc=e,
-                impact='Эмулятор может оставаться недоступным; текущую задачу восстановить невозможно.',
+                impact='Эмулятор может оставаться недоступен; текущую задачу восстановить невозможно.',
                 action='Проверьте права процесса эмулятора, службу ADB и параметры управления эмулятором.',
             )
             return False
@@ -426,18 +426,12 @@ class AzurLaneAutoScript:
 
     def _campaign_morale_after_clear(self, task, completed_runs):
         state = self._morale_scan_state.get(task)
-        if state is None:
-            return self._scan_campaign_morale(task, source='campaign:first_missing')
-        state['completed_runs'] = completed_runs
-        due_by_runs = completed_runs > 0 and completed_runs % 10 == 0
-        due_by_time = time.monotonic() - state['last_scan'] >= 3600
-        if due_by_runs or due_by_time:
-            reason = 'runs' if due_by_runs else 'time'
-            return self._scan_campaign_morale(
-                task,
-                source=f'campaign:periodic_{reason}',
-            )
-        return None
+        if state is not None:
+            state['completed_runs'] = completed_runs
+        return self._scan_campaign_morale(
+            task,
+            source=f'campaign:periodic_{completed_runs}',
+        )
 
     def _run_campaign_task(self, task):
         from module.campaign.run import CampaignRun
@@ -1640,7 +1634,16 @@ class AzurLaneAutoScript:
             # Другой worker мог забрать команду, поэтому возвращаемся к штатному ожиданию.
             return False
         if self._campaign_morale_enabled(task):
-            self._scan_campaign_morale(task, source='campaign:first_run')
+            from module.application.morale_bootstrap import CampaignMoraleBootstrapError
+
+            try:
+                self._scan_campaign_morale(task, source='campaign:first_run')
+            except CampaignMoraleBootstrapError as error:
+                logger.warning(
+                    '[Настроение] Campaign bootstrap безопасно остановил только '
+                    f'текущую задачу: stage={error.code}'
+                )
+                return False
         return True
 
     def loop(self):
