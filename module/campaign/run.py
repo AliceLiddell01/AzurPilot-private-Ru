@@ -459,7 +459,11 @@ class CampaignRun(CampaignEvent, ShopStatus):
 
     def after_campaign_run(self):
         """Расширяемый hook после завершения одного запуска кампании."""
-        pass
+        if self.campaign.emotion.is_calculate:
+            self.campaign.emotion.log_working_fleets(f"after_map_{self.run_count}")
+        callback = getattr(self, "morale_campaign_clear_callback", None)
+        if callable(callback):
+            callback(self.run_count)
 
     def handle_commission_notice(self):
         """Обработать уведомление о завершившейся комиссии.
@@ -497,6 +501,9 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.load_campaign(name, folder=folder)
         finally:
             del self._campaign_load_route
+        callback = getattr(self, "morale_reconciliation_callback", None)
+        if callable(callback):
+            self.campaign.morale_reconciliation_callback = callback
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
@@ -560,6 +567,10 @@ class CampaignRun(CampaignEvent, ShopStatus):
             # Запуск карты.
             self.device.stuck_record_clear()
             self.device.click_record_clear()
+            # Устойчивая координата карты внутри одного Scheduler run. Она
+            # отличает одинаковые battle_count на последовательных зачистках,
+            # сохраняя повторяемость ключей при рестарте в пределах первой карты.
+            self.campaign.morale_campaign_run_index = self.run_count
             try:
                 self.campaign.run()
             except ScriptEnd as e:

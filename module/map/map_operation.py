@@ -74,6 +74,24 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
             self.fleet_current_index = self.fleet_show_index
             return self.fleet_current_index
 
+    def _handle_direct_combat_loading(self):
+        """Переключить вход на карту на прямой боевой цикл при Repeat Sortie."""
+        if not hasattr(self, 'is_combat_loading') or not self.is_combat_loading():
+            return False
+
+        if not self.map_is_auto_search:
+            logger.warning(
+                '[Карта — операция] При входе на карту появился экран загрузки боя; '
+                'переключаю обработку на прямой боевой цикл'
+            )
+            # Актуальный клиент может начать Repeat Sortie сразу после подготовки
+            # флота, даже если прежние шаблоны экрана этапа не позволили определить
+            # auto-search заранее. В таком состоянии карты для map_init ещё нет.
+            self.map_is_auto_search = True
+        else:
+            logger.warning('[Карта — операция] При входе на карту появился экран загрузки боя')
+        return True
+
     def fleet_set(self, index=None, skip_first_screenshot=True):
         """Переключиться на целевой логический флот.
 
@@ -254,12 +272,10 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
                     if self.is_auto_search_running():
                         logger.info('[Карта — операция] Обнаружен выполняющийся автопоиск')
                         break
-                    if hasattr(self, 'is_combat_loading') and self.is_combat_loading():
-                        logger.warning('[Карта — операция] При входе на карту появился экран загрузки боя')
+                    if self._handle_direct_combat_loading():
                         break
                 else:
-                    if hasattr(self, 'is_combat_loading') and self.is_combat_loading():
-                        logger.warning('[Карта — операция] При входе на карту появился экран загрузки боя')
+                    if self._handle_direct_combat_loading():
                         break
                     if self.handle_in_map_with_enemy_searching():
                         break

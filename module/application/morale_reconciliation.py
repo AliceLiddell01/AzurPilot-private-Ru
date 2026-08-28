@@ -19,6 +19,7 @@ from module.application.morale import (
     MoraleObservation,
     MoraleRecoveryProfile,
     MoraleRepository,
+    project_morale,
 )
 from module.application.storage_ports import StorageUnitOfWork
 from module.dock_inventory.model import IdentityStatus
@@ -154,6 +155,10 @@ class MoraleReconciliationService:
                 item for item in formations if item.fleet_index not in stale_fleets
             )
             candidates = self._candidates(active_formations)
+            previous_by_slot = {
+                (item.fleet_index, item.side, item.position): item
+                for item in uow.morale.latest(instance_id, selection)
+            }
             observations = stored_scan.observations
             candidate_map: dict[int, tuple[_FleetCandidate, ...]] = {}
             identity_candidates: dict[int, tuple[_FleetCandidate, ...]] = {}
@@ -230,6 +235,7 @@ class MoraleReconciliationService:
                             instance_id,
                             stored_scan,
                             candidate,
+                            previous_by_slot.get(candidate.key),
                         )
                     )
                     outside_count += 1
@@ -285,8 +291,23 @@ class MoraleReconciliationService:
         instance_id: UUID,
         scan: DormMoraleScanResult,
         candidate: _FleetCandidate,
+        previous: MoraleObservation | None,
     ) -> MoraleObservation:
         slot = candidate.slot
+        continuity = (
+            previous is not None
+            and previous.knowledge is MoraleKnowledge.EXACT
+            and previous.baseline is not None
+            and previous.observed_at.astimezone(UTC)
+            <= scan.finished_at.astimezone(UTC)
+            and previous.canonical_identity == slot.canonical_identity
+            and previous.ship_form is slot.ship_form
+        )
+        baseline = (
+            project_morale(previous, at=scan.finished_at).value
+            if continuity and previous is not None
+            else MoraleRecoveryProfile.outside_dorm_base().recovery_ceiling
+        )
         return MoraleObservation(
             id=self._id_factory(),
             formation_snapshot_id=candidate.formation.id,
@@ -296,15 +317,19 @@ class MoraleReconciliationService:
             position=slot.position,
             canonical_identity=slot.canonical_identity,
             ship_form=slot.ship_form,
-            baseline=None,
+            baseline=baseline,
             observed_at=scan.finished_at,
             recovery=MoraleRecoveryProfile.outside_dorm_base(),
-            source="dorm_reconciliation:outside",
+            source=(
+                "dorm_reconciliation:outside_continuity"
+                if continuity
+                else "dorm_reconciliation:outside_initial"
+            ),
             idempotency_key=(
                 f"dorm-reconcile-v1:{scan.id}:{candidate.formation.fleet_index}:"
                 f"{slot.side.value}:{slot.position}"
             ),
-            knowledge=MoraleKnowledge.UNKNOWN,
+            knowledge=MoraleKnowledge.EXACT,
             location=MoraleLocation.OUTSIDE_DORM,
             dorm_scan_id=scan.id,
         )

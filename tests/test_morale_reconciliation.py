@@ -161,6 +161,16 @@ class _Morale:
         self.values.append(value)
         return value
 
+    def latest(self, instance_id, selection):
+        latest = {}
+        for value in self.values:
+            if (
+                value.instance_id == instance_id
+                and value.fleet_index in selection.fleet_indices
+            ):
+                latest[(value.fleet_index, value.side, value.position)] = value
+        return tuple(latest.values())
+
 
 class _Dorm:
     def __init__(self):
@@ -247,7 +257,7 @@ def test_duplicate_candidates_are_ambiguous_and_one_observation_is_not_reused():
     assert result.ambiguous_observations == 1 and morale.values == []
 
 
-def test_complete_absence_writes_unknown_outside_but_partial_does_not():
+def test_complete_absence_writes_known_outside_baseline_but_partial_does_not():
     instance_id = _instance_id()
     for complete, expected in ((True, 1), (False, 0)):
         service, _, morale = _service((_formation(instance_id),))
@@ -257,11 +267,32 @@ def test_complete_absence_writes_unknown_outside_but_partial_does_not():
         assert result.outside_dorm_observations == expected
         if complete:
             value = morale.values[0]
-            assert value.baseline is None and value.knowledge is MoraleKnowledge.UNKNOWN
+            assert value.baseline == Decimal(119)
+            assert value.knowledge is MoraleKnowledge.EXACT
             assert value.location is MoraleLocation.OUTSIDE_DORM
             assert value.recovery.recovery_per_hour == Decimal(20)
         else:
             assert morale.values == []
+
+
+def test_repeated_outside_scan_preserves_projected_continuity():
+    instance_id = _instance_id()
+    service, _, morale = _service((_formation(instance_id),))
+    service.reconcile("alas", FleetSelection.one(1), _scan())
+    morale.values[-1] = morale.values[-1].__class__(
+        **{
+            field: getattr(morale.values[-1], field)
+            for field in morale.values[-1].__dataclass_fields__
+            if field not in {"baseline", "observed_at"}
+        },
+        baseline=Decimal(80),
+        observed_at=NOW - timedelta(minutes=6),
+    )
+
+    service.reconcile("alas", FleetSelection.one(1), _scan())
+
+    assert morale.values[-1].baseline == Decimal(82)
+    assert morale.values[-1].source == "dorm_reconciliation:outside_continuity"
 
 
 def test_unresolved_scan_and_stale_fleet_fail_closed():

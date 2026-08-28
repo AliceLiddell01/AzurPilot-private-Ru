@@ -115,7 +115,7 @@ def test_scheduler_failure_policy_uses_failure_interval(execution, failed) -> No
     assert script.config.delay_calls == [{"success": False}]
 
 
-def test_prepare_boundary_only_processes_manual_command() -> None:
+def test_prepare_boundary_only_processes_manual_command_for_non_campaign() -> None:
     events = []
     script = _script()
     script.device = _Device(events)
@@ -124,6 +124,57 @@ def test_prepare_boundary_only_processes_manual_command() -> None:
     assert script._prepare_task_boundary("Commission")
     assert events == [("manual", "profile-a")]
     assert script.device.config is script.config
+
+
+def test_prepare_boundary_scans_campaign_morale_after_manual_command() -> None:
+    events = []
+    script = _script()
+    script.config.Emotion_Mode = "calculate"
+    script.fleet_manual_scan = _ManualCoordinator(events)
+    script._scan_campaign_morale = (
+        lambda task, *, source: events.append(("morale", task, source))
+    )
+
+    assert script._prepare_task_boundary("Main")
+    assert events == [
+        ("manual", "profile-a"),
+        ("morale", "Main", "campaign:first_run"),
+    ]
+
+
+def test_campaign_morale_rescan_is_not_run_after_every_clear(monkeypatch) -> None:
+    script = _script()
+    script._morale_scan_state = {
+        "Main": {"last_scan": 100.0, "completed_runs": 0}
+    }
+    calls = []
+    script._scan_campaign_morale = (
+        lambda task, *, source: calls.append((task, source))
+    )
+    monkeypatch.setattr("alas.time.monotonic", lambda: 101.0)
+
+    for completed_runs in range(1, 10):
+        script._campaign_morale_after_clear("Main", completed_runs)
+    assert calls == []
+
+    script._campaign_morale_after_clear("Main", 10)
+    assert calls == [("Main", "campaign:periodic_runs")]
+
+
+def test_campaign_morale_rescan_runs_after_one_hour(monkeypatch) -> None:
+    script = _script()
+    script._morale_scan_state = {
+        "Main": {"last_scan": 100.0, "completed_runs": 0}
+    }
+    calls = []
+    script._scan_campaign_morale = (
+        lambda task, *, source: calls.append((task, source))
+    )
+    monkeypatch.setattr("alas.time.monotonic", lambda: 3700.0)
+
+    script._campaign_morale_after_clear("Main", 1)
+
+    assert calls == [("Main", "campaign:periodic_time")]
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:
@@ -205,7 +256,7 @@ def test_runtime_factory_is_lazy_and_does_not_create_second_engine(monkeypatch) 
     assert controller_calls == [True]
 
 
-def test_scheduler_source_has_no_hidden_autoscan_boundary() -> None:
+def test_scheduler_source_runs_campaign_morale_scan_after_manual_boundary() -> None:
     source = (ROOT / "alas.py").read_text(encoding="utf-8")
     prepare = source[
         source.index("    def _prepare_task_boundary(self, task):") : source.index(
@@ -213,8 +264,10 @@ def test_scheduler_source_has_no_hidden_autoscan_boundary() -> None:
         )
     ]
 
-    assert "_run_fleet_autoscan_if_due" not in source
     assert "fleet_auto_scan" in source
     assert prepare.index("task == 'Restart'") < prepare.index(
         "self._run_fleet_manual_scan_if_pending()"
+    )
+    assert prepare.index("self._run_fleet_manual_scan_if_pending()") < prepare.index(
+        "self._scan_campaign_morale(task, source='campaign:first_run')"
     )

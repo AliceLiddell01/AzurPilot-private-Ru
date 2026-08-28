@@ -40,6 +40,7 @@ class DormTrainLayout:
     floor_1_button: tuple[int, int, int, int] = (134, 85, 347, 137)
     floor_2_button: tuple[int, int, int, int] = (347, 85, 561, 137)
     train_button: tuple[int, int, int, int] = (20, 640, 230, 719)
+    close_button: tuple[int, int, int, int] = (1110, 65, 1160, 120)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,12 +203,13 @@ class DormMoraleController(UI):
             self.ui_ensure(page_dorm)
             frame = self._current_frame()
         train_requested = False
-        for _ in range(20):
+        for attempt in range(20):
             if self.dorm_train_state.selected_floor(frame) is not None:
                 return frame
-            if not train_requested and (
-                self.dorm_train_state.dorm_home_visible(frame)
-                or self.ui_page_appear(page_dorm, offset=(20, 20))
+            home_visible = self.dorm_train_state.dorm_home_visible(frame)
+            if (
+                (home_visible or self.ui_page_appear(page_dorm, offset=(20, 20)))
+                and (not train_requested or (home_visible and attempt % 5 == 0))
             ):
                 self.device.click(
                     self._button(
@@ -233,7 +235,7 @@ class DormMoraleController(UI):
 
     def _select_floor(self, frame: np.ndarray, floor: DormFloor) -> np.ndarray:
         switch_requested = False
-        for _ in range(10):
+        for attempt in range(10):
             selected = self.dorm_train_state.selected_floor(frame)
             if selected is floor:
                 return frame
@@ -247,7 +249,7 @@ class DormMoraleController(UI):
                 raise DormMoraleControllerError(
                     "Состояние этажа Train Dorm не распознано."
                 )
-            if switch_requested:
+            if switch_requested and attempt % 4 != 0:
                 frame = self._capture()
                 continue
             area = (
@@ -259,6 +261,37 @@ class DormMoraleController(UI):
             switch_requested = True
             frame = self._capture()
         raise DormMoraleControllerError(f"Не удалось выбрать этаж Dorm {floor.value}.")
+
+    def close_train(self) -> np.ndarray:
+        """Закрыть Train/Rest только по доказанному modal state."""
+
+        frame = self._capture()
+        close_requested = False
+        for attempt in range(15):
+            if self.dorm_train_state.dorm_home_visible(frame):
+                return frame
+            modal_visible = self.dorm_train_state.selected_floor(frame) is not None
+            if modal_visible and (
+                not close_requested or attempt % 5 == 0
+            ):
+                self.device.click(
+                    self._button(
+                        self.dorm_train_layout.close_button,
+                        "DORM_MORALE_CLOSE",
+                    )
+                )
+                close_requested = True
+                frame = self._capture()
+                continue
+            if close_requested:
+                frame = self._capture()
+                continue
+            raise DormMoraleControllerError(
+                "Безопасный выход из Train Dorm не доказан."
+            )
+        raise DormMoraleControllerError(
+            "Истёк лимит ожидания закрытия Train Dorm."
+        )
 
     def _scan_floor(
         self,

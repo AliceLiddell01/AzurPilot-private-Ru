@@ -129,9 +129,11 @@ Per-ship Morale Core опирается на append-only Formation Fleet State �
 единственный источник состава. Dorm scanner наблюдает только UI-факты, а
 reconciliation связывает их с физическим slot set-based и fail-closed. Exact
 Dorm observation хранит baseline/rate/floor; complete двухэтажное отсутствие
-хранит `unknown` morale с доказанным outside-Dorm recovery, не fake baseline.
-Partial scan, замена occupant, смена формы, stale Fleet State или неоднозначный
-slot не переносят состояние. Legacy Combat path этим этапом не подключён.
+инициализирует известное состояние `outside_dorm` на естественном потолке `119`
+с recovery `20/ч`. Повторный scan сохраняет непрерывную projection и не
+сбрасывает battle deductions. Partial scan, замена occupant, смена формы, stale
+Fleet State или неоднозначный slot оставляют состояние `unknown` и блокируют
+боевой вход.
 Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
 корневой `config/*.json` является только пространством кандидатов: игровым
 профилем считается безопасный regular JSON, прошедший единый structural

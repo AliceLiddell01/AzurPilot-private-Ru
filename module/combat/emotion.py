@@ -176,6 +176,7 @@ class Emotion:
             FleetSelection.several(*physical),
             at=now,
         )
+        self._log_state(state, label="before_map")
         fleet_by_physical = {
             fleet_state.fleet_index: fleet_state for fleet_state in state.fleets
         }
@@ -235,6 +236,45 @@ class Emotion:
             return None, True
         recovered = max(ready, default=now)
         return recovered, recovered > now
+
+    @staticmethod
+    def _log_state(state, *, label: str) -> None:
+        for fleet_state in state.fleets:
+            for slot in fleet_state.slots:
+                if not slot.occupied:
+                    continue
+                current = "unknown" if slot.current is None else str(slot.current)
+                recovery = (
+                    "unknown"
+                    if slot.recovery is None
+                    else str(slot.recovery.recovery_per_hour)
+                )
+                logger.info(
+                    f"[Настроение — снимок] {label}: physical Fleet "
+                    f"{fleet_state.fleet_index}, {slot.side.value}:{slot.position}, "
+                    f"morale={current}, recovery={recovery}/hour, "
+                    f"location={slot.location.value}, knowledge={slot.knowledge.value}"
+                )
+
+    def log_working_fleets(self, label: str) -> None:
+        """Записать projection только для физических флотов текущей задачи."""
+
+        from module.application.fleet_mapping import working_fleet_bindings
+
+        physical = tuple(
+            binding.physical_fleet_index
+            for binding in working_fleet_bindings(self.config)
+        )
+        service = self._service()
+        now = service.now()
+        self._log_state(
+            service.state(
+                self._instance(),
+                FleetSelection(physical),
+                at=now,
+            ),
+            label=label,
+        )
 
     def check_reduce(self, battle):
         """Перед входом в campaign проверить известные per-ship projections."""

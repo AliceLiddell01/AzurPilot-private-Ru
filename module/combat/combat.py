@@ -770,8 +770,9 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             # battle_count — координата боя в текущем scheduler run; sequence
             # различает несколько засад, пока карта остаётся на той же позиции.
             battle_coordinate = getattr(self, "battle_count", 0)
+            campaign_run = getattr(self, "morale_campaign_run_index", 0)
             execution_id = (
-                f"combat:{campaign}:{battle_coordinate}:"
+                f"combat:{campaign}:{campaign_run}:{battle_coordinate}:"
                 f"{self._morale_execution_sequence}:{fleet_index}"
             )
             begin_event(execution_id, execution_id=execution_id)
