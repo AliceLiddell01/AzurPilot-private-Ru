@@ -28,6 +28,34 @@ def test_logical_fleet_maps_to_configured_physical_surface_fleet():
     ]
 
 
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    (
+        ("fleet1_all_fleet2_standby", [(1, 5, "all")]),
+        ("fleet1_standby_fleet2_all", [(2, 6, "all")]),
+        ("fleet1_mob_fleet2_boss", [(1, 5, "mob"), (2, 6, "boss")]),
+        ("fleet1_boss_fleet2_mob", [(1, 5, "boss"), (2, 6, "mob")]),
+    ),
+)
+def test_working_mapping_covers_all_supported_fleet_orders(order, expected):
+    data = {
+        "Main": {
+            "Fleet": {
+                "Fleet1": 5,
+                "Fleet2": 6,
+                "FleetOrder": order,
+            }
+        }
+    }
+
+    bindings = working_fleet_bindings_from_data(data, "Main")
+
+    assert [
+        (item.logical_fleet_index, item.physical_fleet_index, item.role)
+        for item in bindings
+    ] == expected
+
+
 def test_working_mapping_from_profile_only_includes_active_all_role():
     data = {
         "Main": {
