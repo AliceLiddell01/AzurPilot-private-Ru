@@ -283,11 +283,11 @@ class InfoHandler(ModuleBase):
 
         detector = LowMoraleWarningDetector()
         hierarchy_texts = self._low_morale_warning_texts()
-        evidence = detector.detect_many(hierarchy_texts)
+        evidence = detector.detect_fragments(hierarchy_texts)
         if evidence is not None:
             return evidence
         ocr_texts = self._low_morale_warning_ocr_texts()
-        return detector.detect_many((*hierarchy_texts, *ocr_texts))
+        return detector.detect_fragments((*hierarchy_texts, *ocr_texts))
 
     def _logical_morale_fleet_index(self) -> int | None:
         for attribute in (
@@ -299,6 +299,13 @@ class InfoHandler(ModuleBase):
             if type(value) is int and value in (1, 2):
                 return value
         return None
+
+    def _morale_battle_coordinate(self):
+        for attribute in ("_morale_battle_id", "battle_count", "run_count"):
+            value = getattr(self, attribute, None)
+            if value is not None:
+                return value
+        return 0
 
     def _reconcile_morale_after_warning(self, logical_fleet_index: int) -> object:
         callback = getattr(self, "morale_reconciliation_callback", None)
@@ -353,10 +360,11 @@ class InfoHandler(ModuleBase):
                 "[Настроение — popup] Не удалось доказать logical fleet; "
                 "предупреждение отменено без продолжения"
             )
+        battle = self._morale_battle_coordinate()
         warning_recorded = False
         if allow_confirm or self.emotion.is_ignore:
             try:
-                self.emotion.record_warning(logical_fleet_index)
+                self.emotion.record_warning(logical_fleet_index, battle=battle)
                 warning_recorded = True
             except Exception as exc:  # noqa: BLE001 - запись не должна оставлять warning в UI.
                 logger.exception(exc)
@@ -374,7 +382,7 @@ class InfoHandler(ModuleBase):
         self._cancel_low_morale_warning_safely()
         if not warning_recorded:
             try:
-                self.emotion.record_warning(logical_fleet_index)
+                self.emotion.record_warning(logical_fleet_index, battle=battle)
             except Exception as exc:  # noqa: BLE001 - запись не должна оставлять warning в UI.
                 logger.exception(exc)
                 raise ScriptEnd(

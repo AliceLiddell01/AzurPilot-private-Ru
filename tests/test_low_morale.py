@@ -26,7 +26,7 @@ def test_detector_requires_morale_and_consequence_evidence():
 
 
 def test_detector_accepts_split_hierarchy_nodes():
-    evidence = LowMoraleWarningDetector().detect_many(
+    evidence = LowMoraleWarningDetector().detect_fragments(
         (
             "Morale",
             "is low",
@@ -37,6 +37,21 @@ def test_detector_accepts_split_hierarchy_nodes():
 
     assert evidence is not None
     assert evidence.proven
+
+
+def test_detector_preserves_colon_and_semicolon_within_warning_clause():
+    evidence = LowMoraleWarningDetector().detect(
+        "Morale: low; Affinity will be reduced if forced to attack."
+    )
+
+    assert evidence is not None
+    assert evidence.proven
+
+
+def test_detector_does_not_form_low_mood_relation_from_independent_texts():
+    detector = LowMoraleWarningDetector()
+
+    assert detector.detect_many(("Morale", "is low")) is None
 
 
 @pytest.mark.parametrize(
@@ -61,7 +76,7 @@ def test_handler_cancels_proven_warning_reconciles_and_stops(monkeypatch):
     events = []
     handler.emotion = SimpleNamespace(
         is_ignore=False,
-        record_warning=lambda fleet: events.append(("warning", fleet)),
+        record_warning=lambda fleet, **_kwargs: events.append(("warning", fleet)),
     )
     handler._morale_fleet_index = 1
     evidence = LowMoraleWarningDetector().detect(
@@ -88,6 +103,30 @@ def test_handler_cancels_proven_warning_reconciles_and_stops(monkeypatch):
         ("warning", 1),
         ("reconcile", 1),
     ]
+
+
+def test_handler_passes_durable_battle_coordinate_to_warning_ledger(monkeypatch):
+    handler = object.__new__(InfoHandler)
+    calls = []
+    handler.emotion = SimpleNamespace(
+        is_ignore=False,
+        record_warning=lambda fleet, **kwargs: calls.append((fleet, kwargs)),
+    )
+    handler._morale_fleet_index = 1
+    handler._morale_battle_id = 7
+    evidence = LowMoraleWarningDetector().detect(
+        "Morale is low. Affinity will be reduced if forced to attack."
+    )
+    monkeypatch.setattr(handler, "_low_morale_warning_evidence", lambda: evidence)
+    monkeypatch.setattr(handler, "handle_popup_cancel", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        handler, "_reconcile_morale_after_warning", lambda _fleet: "done"
+    )
+
+    with pytest.raises(ScriptEnd):
+        handler._handle_low_morale_warning()
+
+    assert calls == [(1, {"battle": 7})]
 
 
 def _warning_handler(hierarchy_texts):
@@ -160,7 +199,7 @@ def test_handler_never_confirms_proven_warning_under_safe_policy(monkeypatch):
     actions = []
     handler.emotion = SimpleNamespace(
         is_ignore=False,
-        record_warning=lambda fleet: actions.append(("warning", fleet)),
+        record_warning=lambda fleet, **_kwargs: actions.append(("warning", fleet)),
     )
     handler._morale_fleet_index = 1
     evidence = LowMoraleWarningDetector().detect(
@@ -189,7 +228,7 @@ def test_handler_cancels_before_clean_stop_when_warning_record_fails(monkeypatch
     handler = object.__new__(InfoHandler)
     actions = []
 
-    def record_warning(_fleet):
+    def record_warning(_fleet, **_kwargs):
         actions.append("record")
         raise RuntimeError("ledger unavailable")
 
@@ -225,7 +264,7 @@ def test_handler_does_not_guess_fleet_when_context_is_missing(monkeypatch):
     actions = []
     handler.emotion = SimpleNamespace(
         is_ignore=False,
-        record_warning=lambda fleet: actions.append(("warning", fleet)),
+        record_warning=lambda fleet, **_kwargs: actions.append(("warning", fleet)),
     )
     evidence = LowMoraleWarningDetector().detect(
         "Morale is low. Affinity will be reduced if forced to attack."

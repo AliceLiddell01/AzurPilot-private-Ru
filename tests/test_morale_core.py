@@ -396,6 +396,14 @@ def test_emotion_execution_id_separates_same_coordinate_within_scheduler_run():
     assert emotion._active_event_key != first
 
 
+def test_bug_threshold_reset_is_safe_before_cached_property_evaluation():
+    emotion = object.__new__(Emotion)
+
+    emotion.bug_threshold_reset()
+
+    assert "bug_threshold" not in emotion.__dict__
+
+
 def test_projection_has_exact_decimal_arithmetic_and_long_interval_ceiling():
     recovery = MoraleRecoveryProfile(Decimal(1), Decimal(119), "test:one-per-hour")
     observation = _morale_observation(baseline=Decimal("0.1"), recovery=recovery)

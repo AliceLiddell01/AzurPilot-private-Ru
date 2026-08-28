@@ -69,7 +69,7 @@ class LowMoraleWarningDetector:
             return None
         clauses = tuple(
             normalize_warning_text(clause)
-            for clause in re.split(r"[.!?;:]", text)
+            for clause in re.split(r"[.!?]", text)
         )
         evidence = LowMoraleWarningEvidence(
             normalized_text=normalized,
@@ -84,8 +84,38 @@ class LowMoraleWarningDetector:
         values = tuple(text for text in texts if isinstance(text, str))
         if not values:
             return None
-        combined = " ".join(values)
+        combined = ". ".join(values)
         return self.detect(combined)
+
+    def detect_fragments(
+        self, texts: Iterable[str]
+    ) -> LowMoraleWarningEvidence | None:
+        """Проверить соседние фрагменты одного popup без склейки всей страницы."""
+
+        values = tuple(
+            normalize_warning_text(text)
+            for text in texts
+            if isinstance(text, str) and text.strip()
+        )
+        if not values:
+            return None
+
+        normalized = " ".join(values)
+        windows = tuple(
+            " ".join(values[index : index + width])
+            for width in (1, 2, 3)
+            for index in range(len(values) - width + 1)
+        )
+        evidence = LowMoraleWarningEvidence(
+            normalized_text=normalized,
+            mood_term=any(_MOOD_RE.search(value) for value in values),
+            low_term=any(_LOW_MOOD_RE.search(window) for window in windows),
+            consequence_term=any(_AFFINITY_RE.search(window) for window in windows),
+            forced_attack_term=any(
+                _FORCED_ATTACK_RE.search(window) for window in windows
+            ),
+        )
+        return evidence if evidence.proven else None
 
 
 __all__ = (

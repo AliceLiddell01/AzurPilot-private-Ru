@@ -384,9 +384,19 @@ class Emotion:
         digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
         return f"morale-event:{kind.value}:{digest}"
 
-    def record_warning(self, fleet_index: int, *, event_key: str | None = None):
+    def record_warning(
+        self,
+        fleet_index: int,
+        *,
+        event_key: str | None = None,
+        battle: object | None = None,
+    ):
         physical = self._physical_fleet(fleet_index)
-        key = event_key or self._event_key(fleet_index, MoraleEventKind.WARNING)
+        key = event_key or self._event_key(
+            fleet_index,
+            MoraleEventKind.WARNING,
+            battle=battle,
+        )
         return self._service().record_warning(
             self._instance(),
             fleet_index=physical,
@@ -433,7 +443,7 @@ class Emotion:
         return random_normal_distribution_int(55, 105, n=2)
 
     def bug_threshold_reset(self):
-        del self.__dict__["bug_threshold"]
+        self.__dict__.pop("bug_threshold", None)
 
     def triggered_bug(self):
         logger.attr("Ошибка настроения", f"{self.total_reduced}/{self.bug_threshold}")
