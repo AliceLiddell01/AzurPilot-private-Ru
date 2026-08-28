@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from typing import Mapping
-
-_RUNS_ENV = "AZURPILOT_MORALE_RESCAN_RUNS"
-_MINUTES_ENV = "AZURPILOT_MORALE_RESCAN_MINUTES"
 
 
 def _non_negative_int(raw: object, *, name: str, default: int) -> int:
@@ -26,7 +21,7 @@ def _non_negative_int(raw: object, *, name: str, default: int) -> int:
 
 @dataclass(frozen=True, slots=True)
 class MoraleRescanPolicy:
-    """`0` отключает соответствующий periodic trigger."""
+    """Config-driven policy; `0` отключает соответствующий periodic trigger."""
 
     runs: int = 10
     minutes: int = 60
@@ -38,20 +33,18 @@ class MoraleRescanPolicy:
             raise ValueError("minutes должен быть int >= 0")
 
     @classmethod
-    def from_environment(
-        cls,
-        environment: Mapping[str, str] | None = None,
-    ) -> "MoraleRescanPolicy":
-        env = os.environ if environment is None else environment
+    def from_config(cls, config) -> "MoraleRescanPolicy":
+        """Прочитать operational policy из штатного config contract."""
+
         return cls(
             runs=_non_negative_int(
-                env.get(_RUNS_ENV),
-                name=_RUNS_ENV,
+                getattr(config, "MoraleRescan_Runs", 10),
+                name="MoraleRescan.Runs",
                 default=10,
             ),
             minutes=_non_negative_int(
-                env.get(_MINUTES_ENV),
-                name=_MINUTES_ENV,
+                getattr(config, "MoraleRescan_Minutes", 60),
+                name="MoraleRescan.Minutes",
                 default=60,
             ),
         )
