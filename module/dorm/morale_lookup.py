@@ -84,8 +84,9 @@ class TargetedMoraleLookupLayout:
                         row=row,
                         column=column,
                         area=(x1, y1, x2, y2),
-                        # Белые цифры находятся рядом с зелёной morale-иконкой.
-                        morale_area=(x1 + 18, y1 + 22, x1 + 58, y1 + 58),
+                        # Совпадает с проверенной CARD_EMOTION_GRIDS geometry:
+                        # только белые цифры, без зелёной иконки и светлых частей арта.
+                        morale_area=(x1 + 23, y1 + 29, x1 + 48, y1 + 52),
                         fleet_badge_area=(x1 - 8, y1 + 108, x1 + 48, y1 + 160),
                         state_area=(x1 - 8, y1 + 62, x1 + 146, y1 + 139),
                         presence_area=(x1 - 8, y1 + 20, x1 + 27, y1 + 58),
