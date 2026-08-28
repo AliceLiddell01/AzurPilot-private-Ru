@@ -41,6 +41,15 @@ class DormTrainLayout:
     floor_2_button: tuple[int, int, int, int] = (347, 85, 561, 137)
     train_button: tuple[int, int, int, int] = (20, 640, 230, 719)
     close_button: tuple[int, int, int, int] = (1110, 65, 1160, 120)
+    # Реальные пять Train cards из EN UI. Клик выполняется только по уже
+    # наблюдаемому occupant и лишь открывает replacement-selection modal.
+    train_card_buttons: tuple[tuple[int, int, int, int], ...] = (
+        (141, 205, 299, 535),
+        (311, 205, 469, 535),
+        (481, 205, 639, 535),
+        (651, 205, 809, 535),
+        (821, 205, 979, 535),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +300,64 @@ class DormMoraleController(UI):
             )
         raise DormMoraleControllerError(
             "Истёк лимит ожидания закрытия Train Dorm."
+        )
+
+    def open_candidate_selection(self, scan: DormMoraleScanResult) -> np.ndarray:
+        """Открыть replacement-selection через уже наблюдаемого Train occupant.
+
+        Метод намеренно не нажимает REMOVE, result card, Cancel или Confirm.
+        Единственное действие после доказанного Train state — tap по существующему
+        occupant, что в подтверждённом EN UI открывает read-only для нашей задачи
+        candidate-selection до тех пор, пока Confirm не используется.
+        """
+
+        if not isinstance(scan, DormMoraleScanResult):
+            raise TypeError("scan должен быть DormMoraleScanResult")
+        floor_1 = next(
+            (attempt for attempt in scan.attempts if attempt.floor is DormFloor.FLOOR_1),
+            None,
+        )
+        if (
+            floor_1 is None
+            or floor_1.status is not DormFloorScanStatus.SUCCEEDED
+            or floor_1.snapshot is None
+            or not floor_1.snapshot.observations
+        ):
+            raise DormMoraleControllerError(
+                "Targeted Search требует хотя бы одного доказанного Train occupant."
+            )
+        ordinal = floor_1.snapshot.observations[0].ordinal
+        if type(ordinal) is not int or not 0 <= ordinal < len(self.dorm_train_layout.train_card_buttons):
+            raise DormMoraleControllerError(
+                "Ordinal Train occupant не соответствует подтверждённой геометрии 1F."
+            )
+
+        frame = self._open_train()
+        frame = self._select_floor(frame, DormFloor.FLOOR_1)
+        if self.dorm_train_state.selected_floor(frame) is not DormFloor.FLOOR_1:
+            raise DormMoraleControllerError(
+                "Train 1F не доказан перед открытием candidate-selection."
+            )
+
+        from module.retire.assets import DOCK_CHECK
+
+        button = self._button(
+            self.dorm_train_layout.train_card_buttons[ordinal],
+            "DORM_MORALE_EXISTING_TRAIN_OCCUPANT",
+        )
+        for attempt in range(8):
+            if self.appear(DOCK_CHECK, offset=(20, 20)):
+                return frame
+            if self.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_1:
+                if attempt in {0, 4}:
+                    self.device.click(button)
+                frame = self._capture()
+                continue
+            raise DormMoraleControllerError(
+                "После tap Train occupant получено неожиданное состояние UI."
+            )
+        raise DormMoraleControllerError(
+            "Candidate-selection не открылся за ограниченное число попыток."
         )
 
     def _scan_floor(
