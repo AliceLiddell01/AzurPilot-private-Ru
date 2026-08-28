@@ -87,7 +87,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                     state=current.state,
                     session_id=current.session_id,
                 )
-            if current.state == DevStatusKind.STALE.value:
+            if current.state in {
+                DevStatusKind.FAILED.value,
+                DevStatusKind.STALE.value,
+            }:
                 recovered = self._recover_locked()
                 if not recovered.ok:
                     return recovered
