@@ -163,7 +163,7 @@ class DevDiagnosticsMixin:
                 state=DevStatusKind.NO_SESSION.value,
             )
 
-        if session.state is DevSessionState.STOPPED:
+        if session.state is DevSessionState.STOPPED and session.process is None:
             return self._session_result(
                 session,
                 ok=True,
@@ -233,7 +233,8 @@ class DevDiagnosticsMixin:
             DevSessionState.RUNNING: DevStatusKind.RUNNING_OWNED,
             DevSessionState.STOPPING: DevStatusKind.STOPPING,
             DevSessionState.STALE: DevStatusKind.STALE,
-            DevSessionState.FAILED: DevStatusKind.FAILED,
+            DevSessionState.FAILED: DevStatusKind.STALE,
+            DevSessionState.STOPPED: DevStatusKind.STALE,
         }.get(session.state, DevStatusKind.FAILED)
         return self._session_result(
             session,
