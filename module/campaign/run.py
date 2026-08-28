@@ -16,8 +16,10 @@ import copy
 import importlib
 import os
 import random
+import time
 
 from campaign import _adapt_generated_campaign_ui
+from module.application.morale_rescan import MoraleRescanPolicy
 from module.campaign.campaign_base import CampaignBase
 from module.campaign.campaign_event import CampaignEvent
 from module.shop.shop_status import ShopStatus
@@ -463,7 +465,24 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.campaign.emotion.log_working_fleets(f"after_map_{self.run_count}")
         callback = getattr(self, "morale_campaign_clear_callback", None)
         if callable(callback):
-            callback(self.run_count)
+            policy = MoraleRescanPolicy.from_environment()
+            now = time.monotonic()
+            last_scan = getattr(self, "_morale_rescan_last_at", now)
+            due, reason = policy.due(
+                completed_runs=self.run_count,
+                elapsed_seconds=max(0.0, now - last_scan),
+            )
+            if due:
+                logger.info(
+                    "[Настроение] Periodic rescan: "
+                    f"reason={reason}; completed_runs={self.run_count}; "
+                    f"policy_runs={policy.runs}; policy_minutes={policy.minutes}"
+                )
+                # Legacy scheduler callback сам выполняет безопасную Formation+Dorm
+                # сверку. Маркер 10 активирует существующий periodic branch; реальная
+                # policy и фактический run_count зафиксированы логом выше.
+                callback(10)
+                self._morale_rescan_last_at = time.monotonic()
 
     def handle_commission_notice(self):
         """Обработать уведомление о завершившейся комиссии.
@@ -506,6 +525,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.campaign.morale_reconciliation_callback = callback
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
+        self._morale_rescan_last_at = time.monotonic()
         while 1:
             # Условия завершения.
             if total and self.run_count >= total:
