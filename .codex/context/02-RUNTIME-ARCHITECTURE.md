@@ -98,6 +98,30 @@ Foreground Start, который сам создал backend, сохраняет
 открывает его и сообщает путь к Stop. Stop не завершает PostgreSQL и не считает
 один лишь занятый порт доказательством ownership.
 
+## Dev Runtime Foundation
+
+Локальный developer runtime живёт в импортируемом пакете `module.dev_runtime` и
+на Stage 1 фиксирован на скрытом профиле `ap`, loopback `127.0.0.1` и отдельном
+порту `25549`. Публичный lifecycle API не принимает произвольный профиль.
+
+Обычный runtime запускается только через project `.venv` Python и штатный
+`gui.py --run ap`. Preflight требует уже подготовленное окружение: наличие
+pending dependency-sync marker блокирует старт, поэтому Dev Runtime сам не
+запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером,
+а связкой exact-owned root process → WebUI owner из read-only registry snapshot
+→ принадлежность локального listen socket → worker `ap` → HTTP readiness.
+
+DevSession хранит repository-scoped marker и lock под `config/state/`. Ownership
+процесса включает PID, время создания, executable, command line и cwd; PID или
+занятый порт сами по себе не дают права на остановку. `stop`/`recover` работают
+fail-closed и не завершают процесс при неоднозначном владении. `status` и
+`doctor` не мигрируют worker registry и не создают его lock-файлы. Повреждённый
+или stale marker классифицируется отдельно; повторный старт разрешён только
+после безопасного доказанного восстановления.
+
+Этот слой является foundation для будущего Dev MCP, но на Stage 1 не добавляет
+MCP transport/tools и не меняет production MCP lifecycle.
+
 ## MCP
 
 MCP не должен становиться обходом конфигурационных и безопасностных границ. Для каждого инструмента проверить:
