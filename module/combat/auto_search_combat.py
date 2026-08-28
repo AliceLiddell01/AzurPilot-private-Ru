@@ -554,7 +554,13 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
         self._auto_search_emotion_reduce = emotion_reduce
         self._auto_search_fleet_index = fleet_index
+        self._morale_fleet_index = fleet_index
         self._shipwreck_emotion_reduced = False
+        begin_event = getattr(self.emotion, "begin_event", None)
+        if callable(begin_event):
+            campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
+            battle_text = str(battle if battle is not None else getattr(self, "battle_count", 0))[:16]
+            begin_event(f"auto:{campaign}:{battle_text}:{fleet_index}")
         self.auto_search_combat_execute(emotion_reduce=emotion_reduce, fleet_index=fleet_index, battle=battle)
         self.auto_search_combat_status()
 

@@ -20,6 +20,8 @@
 """
 
 from module.base.decorator import cached_property
+from module.application.fleet_mapping import physical_fleet_index
+from module.application.morale import MoraleKnowledge
 from module.campaign.assets import CHAPTER_NEXT, CHAPTER_PREV
 from module.campaign.campaign_base import CampaignBase
 from module.campaign.run import CampaignRun
@@ -96,7 +98,7 @@ class GemsCampaignOverride(CampaignBase):
         如果启用了更换先锋，撤出战斗并更换旗舰和先锋。
         """
         if self.config.GemsFarming_IgnoreEmotionWarning or self.config.GemsFarming_ChangeVanguard == 'disabled':
-            result = self.handle_popup_confirm('IGNORE_LOW_EMOTION')
+            result = self._handle_low_morale_warning(allow_confirm=True)
             if result:
                 # 避免点击 AUTO_SEARCH_MAP_OPTION_OFF
                 self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)
@@ -104,7 +106,7 @@ class GemsCampaignOverride(CampaignBase):
                     self.config.GEMS_EMOTION_TRIGGERED = True
             return result
 
-        if self.handle_popup_cancel('IGNORE_LOW_EMOTION'):
+        if self._handle_low_morale_warning(stop=False):
             self.config.GEMS_EMOTION_TRIGGERED = True
             logger.hr('[Фарм самоцветов] Отступление из-за настроения')
 
@@ -113,7 +115,7 @@ class GemsCampaignOverride(CampaignBase):
 
                 if self.handle_story_skip():
                     continue
-                if self.handle_popup_cancel('IGNORE_LOW_EMOTION'):
+                if self._handle_low_morale_warning(stop=False):
                     continue
 
                 if self.appear(BATTLE_PREPARATION, offset=(20, 20), interval=2):
@@ -1055,21 +1057,40 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def get_emotion(self):
         """
-        从配置中获取舰队情绪值。
+        Получить безопасную нижнюю границу текущей morale projection.
         """
-        if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
-            return self.campaign.config.Emotion_Fleet2Value
-        else:
-            return self.campaign.config.Emotion_Fleet1Value
+        logical = 2 if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all' else 1
+        try:
+            physical = physical_fleet_index(self.campaign.config, logical)
+            state = self.campaign.emotion._service().fleet(
+                self.campaign.config.config_name,
+                physical,
+            )
+        except Exception as exc:
+            logger.exception(exc)
+            raise RequestHumanTakeover(
+                'Не удалось прочитать morale projection для GemsFarming.'
+            ) from exc
+        values = [
+            slot.current
+            for slot in state.slots
+            if slot.knowledge is not MoraleKnowledge.UNKNOWN and slot.current is not None
+        ]
+        if not values:
+            logger.warning(
+                '[Фарм самоцветов] Morale projection неизвестна; выбор корабля использует безопасную нижнюю границу 0'
+            )
+            return 0
+        return int(min(values))
 
     def set_emotion(self, emotion):
         """
-        设置舰队情绪值。
+        Сохранить совместимость вызовов без записи legacy numeric state.
         """
-        if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
-            self.campaign.config.set_record(Emotion_Fleet2Value=emotion)
-        else:
-            self.campaign.config.set_record(Emotion_Fleet1Value=emotion)
+        del emotion
+        logger.info(
+            '[Фарм самоцветов] Legacy запись morale пропущена; точное состояние появится после подтверждённого Fleet/Dorm observation'
+        )
 
     def run(self, name, folder='campaign_main', mode='normal', total=0):
         """

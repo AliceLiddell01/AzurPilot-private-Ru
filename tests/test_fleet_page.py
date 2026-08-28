@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -10,9 +12,16 @@ from module.application.fleet_manual_scan import (
     FleetManualScanCommand,
     FleetManualScanStatus,
 )
+from module.application.fleet_mapping import WorkingFleetBinding
 from module.application.fleet_page import FleetPageQueryService, FleetSlotState
 from module.application.fleet_state import FleetStateObservation
 from module.application.instance_identity import runtime_instance_identity
+from module.application.morale import (
+    MoraleKnowledge,
+    MoraleObservation,
+    MoraleRecoveryProfile,
+    MoraleService,
+)
 from module.application.storage_models import InstanceIdentity
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
@@ -20,12 +29,12 @@ from module.formation.model import (
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
 )
+from module.webui import lang
 from module.webui.app_fleet_page import (
     FleetPageMixin,
     fleet_slot_text,
     format_fleet_timestamp,
 )
-from module.webui import lang
 
 
 def _slot(
@@ -149,11 +158,26 @@ class _CommandRepository:
         return self.by_instance.get(instance_id)
 
 
+class _MoraleRepository:
+    def __init__(self) -> None:
+        self.by_instance = {}
+        self.calls = []
+
+    def latest(self, instance_id, selection):
+        self.calls.append((instance_id, selection.fleet_indices))
+        return tuple(
+            observation
+            for observation in self.by_instance.get(instance_id, ())
+            if observation.fleet_index in selection.fleet_indices
+        )
+
+
 class _Uow:
-    def __init__(self, instances, fleet_state, commands):
+    def __init__(self, instances, fleet_state, commands, morale):
         self.instances = instances
         self.fleet_state = fleet_state
         self.fleet_scan_commands = commands
+        self.morale = morale
         self.commits = 0
 
     def __enter__(self):
@@ -166,16 +190,25 @@ class _Uow:
         self.commits += 1
 
 
-def _service():
+def _service(*, clock=None):
     instances = _Instances()
     state = _FleetStateRepository()
     commands = _CommandRepository()
-    uow = _Uow(instances, state, commands)
-    return FleetPageQueryService(lambda: uow), state, commands, uow
+    morale = _MoraleRepository()
+    uow = _Uow(instances, state, commands, morale)
+    effective_clock = clock or (lambda: datetime(2026, 8, 25, 1, 2, 3, tzinfo=UTC))
+    morale_service = MoraleService(lambda: uow, clock=effective_clock)
+    return (
+        FleetPageQueryService(lambda: uow, morale_service=morale_service),
+        state,
+        commands,
+        morale,
+        uow,
+    )
 
 
 def test_page_always_has_six_rows_and_no_data_state() -> None:
-    service, state, commands, uow = _service()
+    service, state, commands, _, uow = _service()
 
     model = service.view("profile-a")
 
@@ -188,7 +221,7 @@ def test_page_always_has_six_rows_and_no_data_state() -> None:
 
 
 def test_page_projects_complete_incomplete_and_all_slot_states_in_order() -> None:
-    service, state, _, _ = _service()
+    service, state, _, _, _ = _service()
     _, instance_id = runtime_instance_identity("profile-a")
     long_name = "Very Long Canonical Ship Name " * 12
     state.by_instance[instance_id] = (
@@ -227,7 +260,7 @@ def test_page_projects_complete_incomplete_and_all_slot_states_in_order() -> Non
 
 
 def test_retrofit_display_preserves_group_identity_and_base_canonical_name() -> None:
-    service, state, _, _ = _service()
+    service, state, _, _, _ = _service()
     _, instance_id = runtime_instance_identity("profile-a")
     state.by_instance[instance_id] = (
         _observation(
@@ -249,7 +282,7 @@ def test_retrofit_display_preserves_group_identity_and_base_canonical_name() -> 
 
 
 def test_page_isolates_instances_and_failed_command_preserves_observation() -> None:
-    service, state, commands, _ = _service()
+    service, state, commands, _, _ = _service()
     _, instance_a = runtime_instance_identity("profile-a")
     _, instance_b = runtime_instance_identity("profile-b")
     state.by_instance[instance_a] = (_observation(instance_a, 1, complete=True),)
@@ -276,6 +309,102 @@ def test_page_isolates_instances_and_failed_command_preserves_observation() -> N
     assert model_b.rows[1].observed_at is not None
 
 
+def test_page_morale_rows_use_configured_working_physical_fleet_only() -> None:
+    observed_at = datetime(2026, 8, 25, 1, 2, 3, tzinfo=UTC)
+    service, state, _, morale, _ = _service(clock=lambda: observed_at)
+    _, instance_id = runtime_instance_identity("profile-a")
+    state.by_instance[instance_id] = (
+        _observation(instance_id, 1, complete=True),
+        _observation(
+            instance_id,
+            2,
+            complete=True,
+            canonical_name="Retrofit Test Ship",
+            first_ship_form=ShipForm.RETROFIT,
+        ),
+    )
+    morale.by_instance[instance_id] = (
+        MoraleObservation(
+            id=uuid4(),
+            formation_snapshot_id=uuid4(),
+            instance_id=instance_id,
+            fleet_index=2,
+            side=FormationFleetSide.MAIN,
+            position=1,
+            canonical_identity=CanonicalShipIdentity("azur_lane_ship_group:1"),
+            ship_form=ShipForm.RETROFIT,
+            baseline=Decimal(80),
+            observed_at=observed_at,
+            recovery=MoraleRecoveryProfile.outside_dorm_base(),
+            source="test:fleet-page",
+            idempotency_key="test:fleet-page:morale",
+        ),
+    )
+
+    model = service.view(
+        "profile-a",
+        working_fleets=(
+            WorkingFleetBinding(
+                task="Main",
+                role="all",
+                logical_fleet_index=1,
+                physical_fleet_index=2,
+            ),
+        ),
+    )
+
+    assert model.morale_rows
+    assert {row.physical_fleet_index for row in model.morale_rows} == {2}
+    exact = model.morale_rows[0]
+    assert exact.task == "Main"
+    assert exact.ship_form is ShipForm.RETROFIT
+    assert exact.knowledge is MoraleKnowledge.EXACT
+    assert exact.current == Decimal(80)
+    assert exact.recovery_per_hour == Decimal(20)
+    assert any(row.knowledge is MoraleKnowledge.UNKNOWN for row in model.morale_rows)
+    assert morale.calls == [(instance_id, (2,))]
+
+
+def test_webui_morale_mapping_uses_only_current_running_task() -> None:
+    data = {
+        "Alas": {},
+        "Main": {
+            "Fleet": {
+                "Fleet1": 3,
+                "Fleet2": 0,
+                "FleetOrder": "fleet1_all_fleet2_standby",
+            }
+        },
+    }
+
+    class _Config:
+        def __init__(self):
+            self.task = SimpleNamespace(command="Alas")
+            self.pending_task = []
+
+        def read_file(self, _instance):
+            return data
+
+        def load(self):
+            return None
+
+        def get_next_task(self):
+            self.pending_task = [SimpleNamespace(command="Main")]
+
+    page = object.__new__(FleetPageMixin)
+    page.alas_config = _Config()
+    page.alas = SimpleNamespace(alive=False)
+
+    assert page._working_fleets("profile-a") == ()
+
+    page.alas.alive = True
+    bindings = page._working_fleets("profile-a")
+
+    assert len(bindings) == 1
+    assert bindings[0].task == "Main"
+    assert bindings[0].physical_fleet_index == 3
+
+
 def test_timestamp_and_slot_text_contracts(monkeypatch) -> None:
     lang.reload()
     assert format_fleet_timestamp(
@@ -284,11 +413,11 @@ def test_timestamp_and_slot_text_contracts(monkeypatch) -> None:
     ) == "25.08.2026 08:02:03 +07"
     with pytest.raises(ValueError):
         format_fleet_timestamp(
-            datetime(2026, 8, 25, 1, 2, 3),
+            datetime(2026, 8, 25, 1, 2, 3, tzinfo=UTC).replace(tzinfo=None),
             ZoneInfo("UTC"),
         )
 
-    service, state, _, _ = _service()
+    service, state, _, _, _ = _service()
     _, instance_id = runtime_instance_identity("profile-a")
     state.by_instance[instance_id] = (_observation(instance_id, 1, complete=False),)
     slots = service.view("profile-a").rows[0].slots

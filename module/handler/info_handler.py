@@ -22,7 +22,7 @@ from module.base.base import ModuleBase
 from module.base.button import Button
 from module.base.timer import Timer
 from module.base.utils import *
-from module.exception import GameNotRunningError
+from module.exception import GameNotRunningError, ScriptEnd
 from module.handler.assets import *
 from module.logger import logger
 from module.os_handler.assets import CLICK_SAFE_AREA as OS_CLICK_SAFE_AREA
@@ -213,15 +213,157 @@ class InfoHandler(ModuleBase):
 
         return appear
 
-    def handle_combat_low_emotion(self):
-        if not self.emotion.is_ignore:
+    @staticmethod
+    def _hierarchy_texts(hierarchy) -> tuple[str, ...]:
+        texts: list[str] = []
+        if hierarchy is None:
+            return ()
+        for node in hierarchy.iter():
+            attributes = getattr(node, "attrib", {})
+            if not hasattr(attributes, "get"):
+                continue
+            for key in ("text", "content-desc", "contentDescription", "hint"):
+                value = attributes.get(key)
+                if isinstance(value, str) and value.strip():
+                    texts.append(value)
+        return tuple(texts)
+
+    def _low_morale_warning_texts(self) -> tuple[str, ...]:
+        texts: list[str] = []
+        try:
+            texts.extend(self._hierarchy_texts(self.device.dump_hierarchy()))
+        except Exception as exc:  # noqa: BLE001 - OCR остаётся резервом evidence.
+            logger.debug(f"[Настроение — popup] Не удалось получить UI hierarchy: {exc}")
+        if texts:
+            return tuple(texts)
+
+        try:
+            from module.ocr.global_english import GLOBAL_ENGLISH_OCR
+
+            detections = GLOBAL_ENGLISH_OCR.det(self.device.image)
+            texts.extend(
+                str(text)
+                for text, _box, _score in detections
+                if isinstance(text, str) and text.strip()
+            )
+        except Exception as exc:  # noqa: BLE001 - отсутствие OCR не является evidence.
+            logger.debug(f"[Настроение — popup] Не удалось выполнить резервный OCR: {exc}")
+        return tuple(texts)
+
+    def _low_morale_warning_evidence(self):
+        if not (
+            self.appear(POPUP_CANCEL, offset=self._popup_offset)
+            or self.appear(POPUP_CANCEL_WHITE, offset=self._popup_offset)
+        ):
+            return None
+        if not (
+            self.appear(POPUP_CONFIRM, offset=self._popup_offset)
+            or self.appear(POPUP_CONFIRM_WHITE, offset=self._popup_offset)
+        ):
+            return None
+        from module.application.low_morale import LowMoraleWarningDetector
+
+        return LowMoraleWarningDetector().detect_many(self._low_morale_warning_texts())
+
+    def _logical_morale_fleet_index(self) -> int | None:
+        for attribute in (
+            "_morale_fleet_index",
+            "_auto_search_fleet_index",
+            "fleet_current_index",
+        ):
+            value = getattr(self, attribute, None)
+            if type(value) is int and value in (1, 2):
+                return value
+        return None
+
+    def _reconcile_morale_after_warning(self, logical_fleet_index: int) -> object:
+        callback = getattr(self, "morale_reconciliation_callback", None)
+        if callable(callback):
+            return callback()
+
+        from module.application.fleet_mapping import physical_fleet_index
+        from module.dorm.morale_controller import DormMoraleController
+        from module.formation.model import FleetSelection
+        from module.webui.app_lifecycle import build_morale_runtime_context
+
+        physical = physical_fleet_index(self.config, logical_fleet_index)
+        context = build_morale_runtime_context(require_ready=False)
+        scan = DormMoraleController(
+            self.config,
+            device=self.device,
+        ).scan_both_floors(source="combat:low_morale_warning")
+        return context.reconciliation_service.reconcile(
+            self.config.config_name,
+            FleetSelection.one(physical),
+            scan,
+        )
+
+    def _cancel_low_morale_warning_safely(self) -> None:
+        """Закрыть доказанное предупреждение только безопасной кнопкой."""
+
+        try:
+            cancelled = self.handle_popup_cancel("LOW_MORALE_WARNING", interval=0)
+        except Exception as exc:  # noqa: BLE001 - ошибка popup не должна стать GameStuck.
+            logger.exception(exc)
+            cancelled = False
+        if not cancelled:
+            raise ScriptEnd(
+                "[Настроение — popup] Семантическое предупреждение распознано, "
+                "но безопасная кнопка Cancel недоступна"
+            )
+
+    def _handle_low_morale_warning(
+        self,
+        *,
+        allow_confirm: bool = False,
+        stop: bool = True,
+    ) -> bool:
+        evidence = self._low_morale_warning_evidence()
+        if evidence is None:
             return False
 
-        result = self.handle_popup_confirm('IGNORE_LOW_EMOTION')
-        if result:
-            # 避免误点 AUTO_SEARCH_MAP_OPTION_OFF
-            self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)
-        return result
+        logical_fleet_index = self._logical_morale_fleet_index()
+        if logical_fleet_index is None:
+            self._cancel_low_morale_warning_safely()
+            raise ScriptEnd(
+                "[Настроение — popup] Не удалось доказать logical fleet; "
+                "предупреждение отменено без продолжения"
+            )
+        try:
+            self.emotion.record_warning(logical_fleet_index)
+        except Exception as exc:  # noqa: BLE001 - запись не должна оставлять warning в UI.
+            logger.exception(exc)
+            self._cancel_low_morale_warning_safely()
+            raise ScriptEnd(
+                "[Настроение — popup] Предупреждение отменено, "
+                "но его запись в morale ledger не завершена"
+            ) from exc
+        if allow_confirm or self.emotion.is_ignore:
+            result = self.handle_popup_confirm("LOW_MORALE_WARNING", interval=0)
+            if result:
+                # Не допускаем, чтобы следующее действие ошибочно нажало соседний toggle.
+                self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)
+                return result
+
+        self._cancel_low_morale_warning_safely()
+        try:
+            result = self._reconcile_morale_after_warning(logical_fleet_index)
+        except Exception as exc:  # noqa: BLE001 - reconciliation failure is a clean scheduler stop.
+            logger.exception(exc)
+            raise ScriptEnd(
+                "[Настроение — popup] Предупреждение отменено, "
+                "но Dorm reconciliation не завершён"
+            ) from exc
+        logger.info(
+            "[Настроение — popup] Предупреждение отменено; Dorm reconciliation завершён: "
+            f"{type(result).__name__}"
+        )
+        if stop:
+            raise ScriptEnd("[Настроение — popup] Low-morale warning отменён безопасно")
+        return True
+
+    def handle_combat_low_emotion(self):
+        return self._handle_low_morale_warning()
 
     def handle_use_data_key(self):
         if not self.config.USE_DATA_KEY:

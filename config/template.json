@@ -160,13 +160,7 @@
     },
     "PublicEmotion": {
       "Enable": false,
-      "Tasks": null,
-      "FleetValue": 119,
-      "FleetRecord": "2020-01-01 00:00:00",
-      "FleetControl": "prevent_yellow_face",
-      "FleetRecover": "not_in_dormitory",
-      "FleetOath": false,
-      "FleetOnsen": false
+      "Tasks": null
     },
     "YukikazeTaskManager": {
       "TaskPriorityAdjustment": "Restart\n> OpsiCrossMonth\n> Commission > Tactical > Research\n> Exercise\n> Dorm > Meowfficer > Guild > Gacha\n> Reward\n> FleetAutoScan\n> ShopFrequent > ShopOnce > Shipyard > Freebies\n> PrivateQuarters\n> OpsiExplore\n> OpsiPreventActionPointOverflow\n> Minigame > Awaken\n> OpsiAshBeacon\n> OpsiDaily > OpsiShop > OpsiVoucher > EventShop\n> OpsiAbyssal > OpsiStronghold > OpsiObscure > OpsiArchive\n> Daily > Hard > OpsiAshBeacon > OpsiAshAssist > OpsiMonthBoss\n> Sos > EventSp > EventA > EventB > EventC > EventD\n> RaidDaily > CoalitionSp > WarArchives > MaritimeEscort\n> IslandJuuEatery > IslandJuuCoffee > IslandGrill > IslandTeahouse > IslandRestaurant\n> IslandFarm > IslandRancher > IslandMineForest > IslandDailyGather > IslandManufacture\n> IslandAirDrop > IslandBusiness > IslandDailyOrder > IslandDailyInteract > IslandPearlSell > IslandCargoPreparation\n> Event > Event2 > Event3 > Raid > Hospital > HospitalEvent > Coalition > RaidScuttle > Main > Main2 > Main3\n> OpsiScheduling\n> OpsiMeowfficerFarming\n> GemsFarming\n> Ambush11\n> OpsiHazard1Leveling\n> ThreeOilLowCost"
@@ -271,18 +265,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -353,18 +337,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -435,18 +409,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -534,18 +498,8 @@
     },
     "Emotion": {
       "Mode": "calculate_ignore",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_red_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_red_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_red_face"
     },
     "Storage": {
       "Storage": {}
@@ -620,18 +574,8 @@
     },
     "Emotion": {
       "Mode": "calculate_ignore",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_red_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_red_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_red_face"
     },
     "Storage": {
       "Storage": {}
@@ -706,18 +650,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "Storage": {
       "Storage": {}
@@ -789,18 +723,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -871,18 +795,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -953,18 +867,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -1021,18 +925,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_yellow_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_yellow_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_yellow_face"
     },
     "Storage": {
       "Storage": {}
@@ -1097,18 +991,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "Storage": {
       "Storage": {}
@@ -1139,18 +1023,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_yellow_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_yellow_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_yellow_face"
     },
     "Storage": {
       "Storage": {}
@@ -1194,18 +1068,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_yellow_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_yellow_face"
     },
     "Storage": {
       "Storage": {}
@@ -1252,18 +1116,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "Storage": {
       "Storage": {}
@@ -1366,18 +1220,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -1452,18 +1296,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -1538,18 +1372,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -1624,18 +1448,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -1710,18 +1524,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -1792,18 +1596,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_green_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_green_face"
     },
     "HpControl": {
       "UseHpBalance": false,
@@ -1859,18 +1653,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_yellow_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_yellow_face"
     },
     "Storage": {
       "Storage": {}
@@ -1914,18 +1698,8 @@
     },
     "Emotion": {
       "Mode": "calculate",
-      "Fleet1Value": 119,
-      "Fleet1Record": "2020-01-01 00:00:00",
       "Fleet1Control": "prevent_green_face",
-      "Fleet1Recover": "not_in_dormitory",
-      "Fleet1Oath": false,
-      "Fleet1Onsen": false,
-      "Fleet2Value": 119,
-      "Fleet2Record": "2020-01-01 00:00:00",
-      "Fleet2Control": "prevent_yellow_face",
-      "Fleet2Recover": "not_in_dormitory",
-      "Fleet2Oath": false,
-      "Fleet2Onsen": false
+      "Fleet2Control": "prevent_yellow_face"
     },
     "Storage": {
       "Storage": {}

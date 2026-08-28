@@ -10,13 +10,16 @@ from module.application.fleet_manual_scan import (
     FleetManualScanCommand,
     FleetManualScanStatus,
 )
+from module.application.fleet_mapping import working_fleet_bindings_from_data
 from module.application.fleet_page import (
     FleetPageViewModel,
     FleetRowViewModel,
     FleetSlotState,
     FleetSlotViewModel,
+    MoraleRowViewModel,
 )
-from module.formation.model import FleetSelection, SUPPORTED_SURFACE_FLEET_INDICES
+from module.application.morale import MoraleKnowledge, MoraleLocation
+from module.formation.model import SUPPORTED_SURFACE_FLEET_INDICES, FleetSelection
 from module.webui.app_dependencies import (
     ProcessManager,
     logger,
@@ -35,10 +38,11 @@ from module.webui.app_dependencies import (
 )
 from module.webui.app_lifecycle import build_fleet_page_runtime_context
 from module.webui.app_types import WebUIMixinBase
+from module.webui.refresh_policy import WEBUI_REFRESH_POLICY
 
 _PAGE_NAME = "FleetPage"
 _MANUAL_SELECTION_PIN = "FleetPage_ManualSelection"
-_REFRESH_SECONDS = 2.0
+_REFRESH_SECONDS = WEBUI_REFRESH_POLICY.fleet_page_seconds
 
 
 def format_fleet_timestamp(value, timezone: ZoneInfo) -> str:
@@ -58,6 +62,13 @@ def fleet_slot_text(slot: FleetSlotViewModel) -> str:
     if slot.state is FleetSlotState.UNRESOLVED:
         return t("Gui.FleetPage.SlotUnresolved", name=displayed)
     return t("Gui.FleetPage.SlotAmbiguous", name=displayed)
+
+
+def _decimal_text(value) -> str:
+    if value is None:
+        return t("Gui.FleetPage.MoraleUnknown")
+    text = format(value, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 class FleetPageMixin(WebUIMixinBase):
@@ -253,6 +264,120 @@ class FleetPageMixin(WebUIMixinBase):
                 '</div>'
             )
 
+    @staticmethod
+    def _morale_side_text(row: MoraleRowViewModel) -> str:
+        side = (
+            t("Gui.FleetPage.MoraleMain")
+            if row.side.value == "main"
+            else t("Gui.FleetPage.MoraleVanguard")
+        )
+        return f"{side} {row.position}"
+
+    @staticmethod
+    def _morale_knowledge_text(row: MoraleRowViewModel) -> str:
+        keys = {
+            MoraleKnowledge.EXACT: "MoraleExact",
+            MoraleKnowledge.PROJECTED: "MoraleProjected",
+            MoraleKnowledge.UNKNOWN: "MoraleUnknown",
+        }
+        return t(f"Gui.FleetPage.{keys[row.knowledge]}")
+
+    @staticmethod
+    def _morale_location_text(row: MoraleRowViewModel) -> str:
+        keys = {
+            MoraleLocation.UNKNOWN: "MoraleLocationUnknown",
+            MoraleLocation.DORM_FLOOR_1: "MoraleLocationDorm1",
+            MoraleLocation.DORM_FLOOR_2: "MoraleLocationDorm2",
+            MoraleLocation.OUTSIDE_DORM: "MoraleLocationOutside",
+        }
+        return t(f"Gui.FleetPage.{keys[row.location]}")
+
+    def _morale_row_outputs(self, row: MoraleRowViewModel) -> list[Any]:
+        form_key = (
+            "MoraleRetrofit" if row.ship_form.value == "retrofit" else "MoraleBase"
+        )
+        ship = f"{row.ship_name} ({t(f'Gui.FleetPage.{form_key}')})"
+        location = self._morale_location_text(row)
+        if row.source:
+            location = f"{location} · {row.source}"
+        return [
+            self._table_cell(row.task),
+            self._table_cell(
+                t(f"Gui.FleetPage.MoraleRole{row.role.capitalize()}")
+            ),
+            self._table_cell(
+                f"{row.physical_fleet_index} · {self._morale_side_text(row)}"
+            ),
+            self._table_cell(ship),
+            self._table_cell(_decimal_text(row.current), state=row.knowledge.value),
+            self._table_cell(
+                f"{_decimal_text(row.recovery_per_hour)} / "
+                f"{t('Gui.FleetPage.MoraleHour')}"
+            ),
+            self._table_cell(location),
+            self._table_cell(
+                self._morale_knowledge_text(row),
+                state=row.knowledge.value,
+            ),
+            self._table_cell(
+                format_fleet_timestamp(
+                    row.last_sync,
+                    self.fleet_page_context.runtime_timezone,
+                )
+                if row.last_sync is not None
+                else t("Gui.FleetPage.NoData")
+            ),
+        ]
+
+    def _render_morale_table(self, model: FleetPageViewModel) -> None:
+        headers = [
+            t("Gui.FleetPage.MoraleColumnTask"),
+            t("Gui.FleetPage.MoraleColumnRole"),
+            t("Gui.FleetPage.MoraleColumnFleetSlot"),
+            t("Gui.FleetPage.MoraleColumnShip"),
+            t("Gui.FleetPage.MoraleColumnCurrent"),
+            t("Gui.FleetPage.MoraleColumnRecovery"),
+            t("Gui.FleetPage.MoraleColumnLocation"),
+            t("Gui.FleetPage.MoraleColumnKnowledge"),
+            t("Gui.FleetPage.MoraleColumnLastSync"),
+        ]
+        with use_scope("fleet_morale_table", clear=True):
+            if not model.morale_rows:
+                put_html(
+                    '<div class="fleet-state-message fleet-morale-empty">'
+                    f'{t("Gui.FleetPage.MoraleNoData")}'
+                    '</div>'
+                )
+                return
+            put_table(
+                [headers, *(self._morale_row_outputs(row) for row in model.morale_rows)]
+            )
+
+    def _working_fleets(self, instance: str):
+        data = self.alas_config.read_file(instance)
+        task_name = getattr(getattr(self.alas_config, "task", None), "command", None)
+        process_running = bool(getattr(getattr(self, "alas", None), "alive", False))
+        if not process_running:
+            return ()
+        if task_name in {"Alas", "template"} or task_name not in data:
+            try:
+                self.alas_config.load()
+                self.alas_config.get_next_task()
+                running = self.alas_config.pending_task[:1]
+            except Exception as exc:  # noqa: BLE001 - page must fail closed when scheduler state is unavailable.
+                logger.warning(f"[FleetPage] Не удалось определить текущую task: {exc}")
+                return ()
+            if not running:
+                return ()
+            task_name = running[0].command
+        if task_name not in data:
+            return ()
+        try:
+            return working_fleet_bindings_from_data(data, task_name)
+        except (TypeError, ValueError) as exc:
+            logger.warning(f"[FleetPage] Некорректный task/fleet mapping: {exc}")
+            return ()
+
     def _render_load_error(self, instance: str) -> None:
         with use_scope("fleet_manual_status", clear=True):
             put_text(t("Gui.FleetPage.StorageUnavailable")).style(
@@ -270,13 +395,22 @@ class FleetPageMixin(WebUIMixinBase):
                 f'{t("Gui.FleetPage.StorageUnavailable")}'
                 '</div>'
             )
+        with use_scope("fleet_morale_table", clear=True):
+            put_html(
+                '<div class="fleet-state-message fleet-state-message-error">'
+                f'{t("Gui.FleetPage.StorageUnavailable")}'
+                '</div>'
+            )
         self._render_manual_action(None, available=False, instance=instance)
 
     def _refresh_fleet_page(self, instance: str) -> None:
         if not self._fleet_page_is_current(instance):
             return
         try:
-            model = self.fleet_page_context.query_service.view(instance)
+            model = self.fleet_page_context.query_service.view(
+                instance,
+                working_fleets=self._working_fleets(instance),
+            )
         except Exception as exc:
             logger.exception(exc)
             self._render_load_error(instance)
@@ -289,6 +423,7 @@ class FleetPageMixin(WebUIMixinBase):
         )
         self._render_fleet_table(model)
         self._render_fleet_summary(model)
+        self._render_morale_table(model)
 
     def _render_manual_controls(self, instance: str) -> None:
         put_html(
@@ -362,6 +497,7 @@ class FleetPageMixin(WebUIMixinBase):
         instance = self.alas_name
         if not instance:
             return
+        self._fleet_page_refresh_registered = False
         self.init_menu(name=_PAGE_NAME)
         self.set_title(t("Gui.FleetPage.Title"))
         put_scope("fleet_page_root").style("--fleet-page--")
@@ -395,6 +531,18 @@ class FleetPageMixin(WebUIMixinBase):
                         put_scope("fleet_state_table"),
                     ],
                 ).style("--fleet-state-card--")
+                put_scope(
+                    "fleet_morale_card",
+                    [
+                        put_html(
+                            '<div class="fleet-card-heading fleet-morale-heading">'
+                            f'<span>{t("Gui.FleetPage.MoraleTitle")}</span>'
+                            f'<small>{t("Gui.FleetPage.MoraleHelp")}</small>'
+                            '</div>'
+                        ),
+                        put_scope("fleet_morale_table"),
+                    ],
+                ).style("--fleet-morale-card--")
             config = self.alas_config.read_file(instance)
             with use_scope("fleet_manual_card"):
                 self._render_manual_controls(instance)
@@ -411,12 +559,20 @@ class FleetPageMixin(WebUIMixinBase):
                     f'{t("Gui.FleetPage.StateLoading")}'
                     '</div>'
                 )
+            with use_scope("fleet_morale_table"):
+                put_html(
+                    '<div class="fleet-state-message">'
+                    f'{t("Gui.FleetPage.StateLoading")}'
+                    '</div>'
+                )
         self._refresh_fleet_page(instance)
-        self.task_handler.add(
-            lambda: self._refresh_fleet_page(instance),
-            _REFRESH_SECONDS,
-            True,
-        )
+        if not getattr(self, "_fleet_page_refresh_registered", False):
+            self.task_handler.add(
+                lambda: self._refresh_fleet_page(instance),
+                _REFRESH_SECONDS,
+                True,
+            )
+            self._fleet_page_refresh_registered = True
 
 
 __all__ = [

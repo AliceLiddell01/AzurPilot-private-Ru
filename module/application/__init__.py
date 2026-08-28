@@ -32,12 +32,19 @@ from module.application.fleet_manual_scan import (
     FleetManualScanStatus,
     FleetManualScanSubmission,
 )
+from module.application.fleet_mapping import (
+    WorkingFleetBinding,
+    physical_fleet_index,
+    working_fleet_bindings,
+    working_fleet_bindings_from_data,
+)
 from module.application.fleet_page import (
     FleetPageQueryService,
     FleetPageViewModel,
     FleetRowViewModel,
     FleetSlotState,
     FleetSlotViewModel,
+    MoraleRowViewModel,
 )
 from module.application.fleet_state import (
     FleetRefreshPolicy,
@@ -68,6 +75,8 @@ from module.application.morale import (
     OUTSIDE_DORM_RECOVERY_CEILING,
     OUTSIDE_DORM_RECOVERY_PER_HOUR,
     MoraleContinuityError,
+    MoraleEventKind,
+    MoraleEventResult,
     MoraleFleetState,
     MoraleKnowledge,
     MoraleLocation,
@@ -77,7 +86,9 @@ from module.application.morale import (
     MoraleSelectionState,
     MoraleService,
     MoraleSlotState,
+    RecordMoraleEvent,
     RecordMoraleObservation,
+    morale_ready_at,
     project_morale,
 )
 from module.application.morale_reconciliation import (
@@ -121,6 +132,7 @@ __all__ = (
     "FleetManualScanExecution",
     "FleetManualScanStatus",
     "FleetManualScanSubmission",
+    "WorkingFleetBinding",
     "FleetPageQueryService",
     "FleetPageViewModel",
     "FleetRefreshPolicy",
@@ -148,6 +160,8 @@ __all__ = (
     "MonthlyAggregate",
     "MonthlyMetric",
     "MoraleContinuityError",
+    "MoraleEventKind",
+    "MoraleEventResult",
     "MoraleFleetState",
     "MoraleKnowledge",
     "MoraleLocation",
@@ -157,11 +171,13 @@ __all__ = (
     "MoraleReconciliationService",
     "MoraleReconciliationUnitOfWork",
     "MoraleRecoveryProfile",
+    "MoraleRowViewModel",
     "MoraleSelectionState",
     "MoraleService",
     "MoraleSlotState",
     "OpsiItemEvent",
     "RecordMoraleObservation",
+    "RecordMoraleEvent",
     "ResourceNotFoundError",
     "ResourceSnapshot",
     "RuntimeState",
@@ -180,6 +196,10 @@ __all__ = (
     "TaskMetadata",
     "TaskOption",
     "TaskSummary",
+    "physical_fleet_index",
+    "working_fleet_bindings",
+    "working_fleet_bindings_from_data",
     "finalize_rehearsal",
+    "morale_ready_at",
     "project_morale",
 )

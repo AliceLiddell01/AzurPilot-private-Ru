@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -10,14 +11,17 @@ import pytest
 from module.application.fleet_state import FleetStateObservation
 from module.application.morale import (
     MoraleContinuityError,
+    MoraleEventKind,
     MoraleKnowledge,
     MoraleObservation,
     MoraleRecoveryProfile,
     MoraleService,
+    RecordMoraleEvent,
     RecordMoraleObservation,
     project_morale,
 )
 from module.application.storage_models import InstanceIdentity
+from module.combat.emotion import Emotion
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
     FleetSelection,
@@ -177,6 +181,17 @@ class _MoraleRepository:
                 latest[key] = item
         return tuple(latest[key] for key in sorted(latest, key=lambda value: (value[0], value[1].value, value[2])))
 
+    def contains_idempotency(self, instance_id, keys):
+        return frozenset(
+            key
+            for key in keys
+            if any(
+                observation.instance_id == instance_id
+                and observation.idempotency_key == key
+                for observation in self.observations
+            )
+        )
+
 
 class _Uow:
     def __init__(self, instances, fleet_state, morale):
@@ -329,6 +344,119 @@ def test_repeat_record_returns_the_persisted_idempotent_observation():
 
     assert repeated == first
     assert len(morale.observations) == 1
+
+
+def test_battle_event_is_per_slot_and_idempotent_on_retry():
+    now = datetime(2026, 8, 27, 10, tzinfo=UTC)
+    event_at = now + timedelta(minutes=1)
+    instances, fleets, morale, service = _service(clock=lambda: event_at)
+    _seed_fleet(instances, fleets, "profile", 1, observed_at=now)
+    service.record("profile", _command(observed_at=now, baseline=Decimal(50)))
+    command = RecordMoraleEvent(
+        fleet_index=1,
+        kind=MoraleEventKind.BATTLE,
+        cost=Decimal(2),
+        source="test:battle",
+        event_key="battle:one",
+        observed_at=event_at,
+    )
+
+    first = service.apply_event("profile", command)
+    repeated = service.apply_event("profile", command)
+
+    assert first.applied and first.applied_slots == 1
+    assert first.exact_slots == 1 and first.unknown_slots == 0
+    assert repeated.applied is False
+    assert repeated.skipped_slots == 1
+    assert len(morale.observations) == 2
+    assert service.fleet("profile", 1, at=event_at).slots[0].current == Decimal(48)
+
+
+def test_warning_invalidates_exact_morale_without_inventing_a_value():
+    now = datetime(2026, 8, 27, 10, tzinfo=UTC)
+    instances, fleets, morale, service = _service(clock=lambda: now)
+    _seed_fleet(
+        instances,
+        fleets,
+        "profile",
+        1,
+        observed_at=now - timedelta(minutes=2),
+    )
+    service.record(
+        "profile",
+        _command(observed_at=now - timedelta(minutes=1), baseline=Decimal(50)),
+    )
+
+    result = service.record_warning(
+        "profile",
+        fleet_index=1,
+        event_key="warning:one",
+        observed_at=now,
+    )
+    state = service.fleet("profile", 1, at=now)
+
+    assert result.applied and result.unknown_slots == 1
+    assert len(morale.observations) == 2
+    assert state.slots[0].knowledge is MoraleKnowledge.UNKNOWN
+    assert state.slots[0].current is None
+    assert state.slots[0].recovery == MoraleRecoveryProfile.outside_dorm_base()
+
+
+def test_combat_emotion_facade_uses_logical_to_physical_mapping_and_no_double_write():
+    now = datetime(2026, 8, 27, 10, tzinfo=UTC)
+    event_at = now + timedelta(minutes=1)
+    instances, fleets, morale, service = _service(clock=lambda: event_at)
+    _seed_fleet(instances, fleets, "profile", 3, observed_at=now)
+    service.record(
+        "profile",
+        _command(fleet_index=3, observed_at=now, baseline=Decimal(50)),
+    )
+    config = SimpleNamespace(
+        config_name="profile",
+        Campaign_Name="test-campaign",
+        Campaign_Use2xBook=False,
+        Emotion_Mode="calculate_ignore",
+        Emotion_Fleet1Control="prevent_red_face",
+        Emotion_Fleet2Control="prevent_red_face",
+        Fleet_Fleet1=3,
+        Fleet_Fleet2=4,
+        Fleet_FleetOrder="fleet1_all_fleet2_standby",
+        PublicEmotion_Enable=False,
+        PublicEmotion_Tasks=None,
+        Scheduler_NextRun="test-run",
+        task=SimpleNamespace(command="Main"),
+    )
+    emotion = Emotion(config, morale_service=service)
+    emotion.begin_event("combat:test")
+
+    first = emotion.reduce(1)
+    repeated = emotion.reduce(1)
+
+    assert first.applied and first.fleet_index == 3
+    assert repeated.applied is False
+    assert emotion.total_reduced == 2
+    assert service.fleet("profile", 3, at=event_at).slots[0].current == Decimal(48)
+    assert len(morale.observations) == 2
+
+
+def test_combat_event_key_is_scoped_to_scheduler_run():
+    config = SimpleNamespace(
+        Scheduler_NextRun="run-a",
+        PublicEmotion_Enable=False,
+        Emotion_Fleet1Control="prevent_red_face",
+        Emotion_Fleet2Control="prevent_red_face",
+    )
+    emotion = Emotion(config)
+
+    emotion.begin_event("combat:campaign:0:1")
+    first = emotion._event_key(1, MoraleEventKind.BATTLE)
+    config.Scheduler_NextRun = "run-b"
+    emotion.begin_event("combat:campaign:0:1")
+    second = emotion._event_key(1, MoraleEventKind.BATTLE)
+
+    assert first != second
+    assert len(first) <= 96
+    assert len(second) <= 96
 
 
 def test_record_rejects_future_observation_against_injected_clock():

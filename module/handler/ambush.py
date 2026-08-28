@@ -83,12 +83,12 @@ class AmbushHandler(Combat):
             logger.attr('Уклонение от засады', 'Успешно')
         elif TEMPLATE_AMBUSH_EVADE_FAILED.match(image):
             logger.attr('Уклонение от засады', 'Неудачно')
-            self.combat(expected_end='no_searching', fleet_index=self.fleet_show_index)
+            self.combat(expected_end='no_searching', fleet_index=self.fleet_current_index)
         else:
             logger.warning('[Карта — засада] Не удалось распознать результат уклонения от засады')
             self.ensure_no_info_bar()
             if self.combat_appear():
-                self.combat(fleet_index=self.fleet_show_index)
+                self.combat(fleet_index=self.fleet_current_index)
 
     def _handle_ambush_attack(self):
         """处理伏击迎击事件。"""
@@ -117,7 +117,7 @@ class AmbushHandler(Combat):
 
         # 进入战斗
         logger.attr('Уклонение от засады', 'Вступить в бой')
-        self.combat(expected_end='no_searching', fleet_index=self.fleet_show_index)
+        self.combat(expected_end='no_searching', fleet_index=self.fleet_current_index)
 
     def _handle_ambush(self):
         """根据配置选择回避或迎击。"""

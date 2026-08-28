@@ -76,6 +76,39 @@ WAR_ARCHIVES = ['WarArchives']
 COALITIONS = ['Coalition', 'CoalitionSp', 'CoalitionScuttle']
 MARITIME_ESCORTS = ['MaritimeEscort']
 HOSPITAL = ['Hospital', 'HospitalEvent']
+_LEGACY_EMOTION_STATE_FIELDS = frozenset(
+    {
+        'FleetValue',
+        'FleetRecord',
+        'FleetRecover',
+        'FleetOath',
+        'FleetOnsen',
+        'Fleet1Value',
+        'Fleet1Record',
+        'Fleet1Recover',
+        'Fleet1Oath',
+        'Fleet1Onsen',
+        'Fleet2Value',
+        'Fleet2Record',
+        'Fleet2Recover',
+        'Fleet2Oath',
+        'Fleet2Onsen',
+    }
+)
+
+
+def legacy_emotion_state_present(data: object) -> bool:
+    """Проверить наличие старого numeric morale state в profile data."""
+
+    if not isinstance(data, dict):
+        return False
+    for group, value in data.items():
+        if group in {'Emotion', 'PublicEmotion'} and isinstance(value, dict):
+            if any(key in value for key in _LEGACY_EMOTION_STATE_FIELDS):
+                return True
+        if legacy_emotion_state_present(value):
+            return True
+    return False
 
 
 def fleet_autoscan_mode_to_scheduler_enable(value):
@@ -907,18 +940,13 @@ class ConfigUpdater:
         配置保存时的回调函数，用于联动更新相关配置项。
 
         Args:
-            key: 配置 JSON 中的键路径，例如 "Main.Emotion.Fleet1Value"。
-            value: 用户设置的值，例如 "98"。
+            key: 配置 JSON 中的键路径。
+            value: 用户设置的值。
 
         Yields:
-            str: 需要设置的配置 JSON 键路径，例如 "Main.Emotion.Fleet1Record"。
-            any: 需要设置的值，例如 "2020-01-01 00:00:00"。
+            str: 需要联动更新的配置 JSON 键路径。
+            any: 需要联动写入的值。
         """
-        if "Emotion" in key and "Value" in key:
-            key = key.split(".")
-            key[-1] = key[-1].replace("Value", "Record")
-            yield ".".join(key), datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
         # 智能调度与侵蚀1配置双向同步
         # 当修改智能调度的黄币保留时，同步到侵蚀1
         if key == 'OpsiScheduling.OpsiScheduling.OperationCoinsPreserve':

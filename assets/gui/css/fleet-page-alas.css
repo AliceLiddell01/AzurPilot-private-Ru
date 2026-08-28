@@ -98,7 +98,8 @@ div[style*="--fleet-page--"] [style*="--fleet-workspace--"] {
 
 div[style*="--fleet-page--"] [style*="--fleet-scheduler-card--"],
 div[style*="--fleet-page--"] [style*="--fleet-manual-card--"],
-div[style*="--fleet-page--"] [style*="--fleet-state-card--"] {
+div[style*="--fleet-page--"] [style*="--fleet-state-card--"],
+div[style*="--fleet-page--"] [style*="--fleet-morale-card--"] {
     min-width: 0;
     border: 1px solid var(--fleet-border);
     border-radius: var(--fleet-radius);
@@ -113,6 +114,10 @@ div[style*="--fleet-page--"] [style*="--fleet-scheduler-card--"] {
 }
 
 div[style*="--fleet-page--"] [style*="--fleet-state-card--"] {
+    margin-top: 12px;
+}
+
+div[style*="--fleet-page--"] [style*="--fleet-morale-card--"] {
     margin-top: 12px;
 }
 
@@ -237,6 +242,20 @@ div[style*="--fleet-page--"] #pywebio-scope-fleet_state_table {
     overscroll-behavior-inline: contain;
 }
 
+div[style*="--fleet-page--"] #pywebio-scope-fleet_morale_table {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--fleet-divider);
+    border-radius: 11px;
+    background: var(--fleet-surface-strong);
+    overscroll-behavior-inline: contain;
+}
+
+div[style*="--fleet-page--"] #pywebio-scope-fleet_morale_table table {
+    min-width: 1240px;
+}
+
 div[style*="--fleet-page--"] table {
     display: table !important;
     width: 100%;
@@ -317,6 +336,17 @@ div[style*="--fleet-page--"] [style*="--fleet-slot-complete--"] {
     font-weight: 680;
 }
 
+div[style*="--fleet-page--"] [style*="--fleet-slot-exact--"],
+div[style*="--fleet-page--"] [style*="--fleet-slot-projected--"] {
+    color: var(--fleet-success);
+    font-weight: 650;
+}
+
+div[style*="--fleet-page--"] [style*="--fleet-slot-unknown--"] {
+    color: var(--fleet-warning);
+    font-weight: 650;
+}
+
 @media (max-width: 1120px) {
     div[style*="--fleet-page--"] [style*="--fleet-workspace--"] {
         display: grid !important;
@@ -344,7 +374,8 @@ div[style*="--fleet-page--"] [style*="--fleet-slot-complete--"] {
 
     div[style*="--fleet-page--"] [style*="--fleet-scheduler-card--"],
     div[style*="--fleet-page--"] [style*="--fleet-manual-card--"],
-    div[style*="--fleet-page--"] [style*="--fleet-state-card--"] {
+    div[style*="--fleet-page--"] [style*="--fleet-state-card--"],
+    div[style*="--fleet-page--"] [style*="--fleet-morale-card--"] {
         padding: 13px;
     }
 }

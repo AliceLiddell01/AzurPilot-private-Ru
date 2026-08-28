@@ -79,6 +79,11 @@ class CoalitionCombat(CoalitionUI, CampaignBase):
         try:
             while 1:
                 logger.hr(f'{self.FUNCTION_NAME_BASE}{self.battle_count}', level=2)
+                self._morale_fleet_index = 1
+                begin_event = getattr(self.emotion, "begin_event", None)
+                if callable(begin_event):
+                    campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
+                    begin_event(f"coalition:{campaign}:{self.battle_count}")
                 self.auto_search_combat_execute(
                     emotion_reduce=self.battle_count == 0 or self.config.Coalition_Fleet == 'single',
                     fleet_index=1,

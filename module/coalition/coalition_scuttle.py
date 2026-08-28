@@ -136,6 +136,11 @@ class CoalitionScuttleCombat(CoalitionCombat):
                 logger.hr(f'{self.FUNCTION_NAME_BASE}{self.battle_count}', level=2)
                 self._is_shipwreck = False
                 self._is_s_rank = False
+                self._morale_fleet_index = 1
+                begin_event = getattr(self.emotion, "begin_event", None)
+                if callable(begin_event):
+                    campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
+                    begin_event(f"coalition-scuttle:{campaign}:{self.battle_count}")
                 # 仅第一场战斗扣减2心情（关卡进入代价），后续战斗不再扣减
                 self.auto_search_combat_execute(
                     emotion_reduce=self.battle_count == 0,
@@ -262,7 +267,7 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
 
         沉船任务中牺牲船必然低心情，红脸弹窗出现时点击确认继续出击。
         """
-        return self.handle_popup_confirm('IGNORE_LOW_EMOTION')
+        return self._handle_low_morale_warning(allow_confirm=True)
 
     def coalition_execute_once(self, event, stage, fleet):
         """执行一次联盟沉船战斗。

@@ -353,7 +353,7 @@ class Fleet(Camera, AmbushHandler):
                 if self.combat_appear():
                     self.combat(
                         expected_end=self._expected_end(expected),
-                        fleet_index=self.fleet_show_index,
+                        fleet_index=self.fleet_current_index,
                         submarine_mode=self._submarine_mode(expected)
                     )
                     self.hp_get()

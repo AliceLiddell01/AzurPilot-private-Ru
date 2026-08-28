@@ -9,16 +9,18 @@ from pathlib import Path
 from threading import Lock
 from zoneinfo import ZoneInfo
 
-from module.application.fleet_state import (
-    FleetScanService,
-    FleetStateService,
-    FormationFleetScanController,
-)
 from module.application.fleet_manual_scan import (
     FleetManualScanCommandService,
     FleetManualScanCoordinator,
 )
 from module.application.fleet_page import FleetPageQueryService
+from module.application.fleet_state import (
+    FleetScanService,
+    FleetStateService,
+    FormationFleetScanController,
+)
+from module.application.morale import MoraleService
+from module.application.morale_reconciliation import MoraleReconciliationService
 from module.application.runtime_storage import (
     RuntimeStorageService,
     clear_runtime_storage_provider,
@@ -41,6 +43,7 @@ _lock = Lock()
 _service: RuntimeStorageService | None = None
 _engine: LazyEngine | None = None
 _runtime_timezone: ZoneInfo | None = None
+_morale_service: MoraleService | None = None
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -58,6 +61,7 @@ class RuntimeFleetPageContext:
 
     query_service: FleetPageQueryService
     command_service: FleetManualScanCommandService
+    morale_service: MoraleService
     runtime_timezone: ZoneInfo
 
 
@@ -66,6 +70,15 @@ class RuntimeFleetManualScanContext:
     """Координатор рабочего процесса с ленивой привязкой к устройству планировщика."""
 
     coordinator: FleetManualScanCoordinator
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeMoraleContext:
+    """Per-ship Morale и Dorm reconciliation поверх общего Engine."""
+
+    morale_service: MoraleService
+    reconciliation_service: MoraleReconciliationService
+    runtime_timezone: ZoneInfo
 
 
 def bootstrap_runtime_storage(
@@ -162,9 +175,70 @@ def build_runtime_fleet_page_context(
     if engine is None or runtime_timezone is None:
         raise RuntimeError("Точка сборки Fleet page не инициализирована.")
     uow_factory = lambda: PostgresUnitOfWork(engine)
+    morale_service = build_runtime_morale_service(
+        clock=clock,
+        require_ready=False,
+    )
     return RuntimeFleetPageContext(
-        query_service=FleetPageQueryService(uow_factory),
+        query_service=FleetPageQueryService(
+            uow_factory,
+            morale_service=morale_service,
+        ),
         command_service=FleetManualScanCommandService(
+            uow_factory,
+            clock=clock,
+        ),
+        morale_service=morale_service,
+        runtime_timezone=runtime_timezone,
+    )
+
+
+def build_runtime_morale_service(
+    *,
+    clock: Callable[[], datetime] | None = None,
+    require_ready: bool = True,
+) -> MoraleService:
+    """Вернуть общий application Morale service без создания второго Engine."""
+
+    global _morale_service
+    bootstrap_runtime_storage(require_ready=require_ready)
+    with _lock:
+        engine = _engine
+    if engine is None:
+        raise RuntimeError("Точка сборки Morale не инициализирована.")
+    if clock is not None:
+        return MoraleService(
+            lambda: PostgresUnitOfWork(engine),
+            clock=clock,
+        )
+    with _lock:
+        if _morale_service is None:
+            _morale_service = MoraleService(
+                lambda: PostgresUnitOfWork(engine),
+            )
+        return _morale_service
+
+
+def build_runtime_morale_context(
+    *,
+    clock: Callable[[], datetime] | None = None,
+    require_ready: bool = True,
+) -> RuntimeMoraleContext:
+    """Собрать Morale и Dorm boundary на том же storage composition root."""
+
+    morale_service = build_runtime_morale_service(
+        clock=clock,
+        require_ready=require_ready,
+    )
+    with _lock:
+        engine = _engine
+        runtime_timezone = _runtime_timezone
+    if engine is None or runtime_timezone is None:
+        raise RuntimeError("Точка сборки Morale не инициализирована.")
+    uow_factory = lambda: PostgresUnitOfWork(engine)
+    return RuntimeMoraleContext(
+        morale_service=morale_service,
+        reconciliation_service=MoraleReconciliationService(
             uow_factory,
             clock=clock,
         ),
@@ -206,13 +280,14 @@ def runtime_health() -> None:
 
 
 def dispose_runtime_storage() -> None:
-    global _engine, _runtime_timezone, _service
+    global _engine, _runtime_timezone, _service, _morale_service
     with _lock:
         if _engine is not None:
             _engine.dispose()
         _engine = None
         _runtime_timezone = None
         _service = None
+        _morale_service = None
         clear_runtime_storage_provider()
 
 
@@ -220,10 +295,13 @@ __all__ = [
     "RuntimeFleetManualScanContext",
     "RuntimeFleetPageContext",
     "RuntimeFleetStateContext",
+    "RuntimeMoraleContext",
     "bootstrap_runtime_storage",
     "build_runtime_fleet_manual_scan_context",
     "build_runtime_fleet_page_context",
     "build_runtime_fleet_state_context",
+    "build_runtime_morale_context",
+    "build_runtime_morale_service",
     "dispose_runtime_storage",
     "runtime_health",
 ]

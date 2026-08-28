@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from decimal import Decimal
+from datetime import UTC, datetime, timedelta
+from decimal import ROUND_CEILING, Decimal
 from enum import StrEnum
 from types import TracebackType
 from typing import Protocol, Self, TypeVar
@@ -84,6 +84,15 @@ class MoraleContinuityError(ValueError):
     """Fleet State не доказывает occupant, к которому относится observation."""
 
 
+class MoraleEventKind(StrEnum):
+    """Тип изменения morale, зафиксированного после подтверждённого UI-события."""
+
+    BATTLE = "battle"
+    SHIPWRECK = "shipwreck"
+    ADDITIONAL = "additional"
+    WARNING = "warning"
+
+
 @dataclass(frozen=True, slots=True)
 class MoraleRecoveryProfile:
     recovery_per_hour: Decimal
@@ -154,6 +163,49 @@ class RecordMoraleObservation:
         _bounded(self.idempotency_key, field="idempotency_key", maximum=128)
         if self.observed_at is not None:
             _aware(self.observed_at, field="observed_at")
+
+
+@dataclass(frozen=True, slots=True)
+class RecordMoraleEvent:
+    """Команда идемпотентного combat/warning event для одного физического флота."""
+
+    fleet_index: int
+    kind: MoraleEventKind
+    cost: Decimal
+    source: str
+    event_key: str
+    observed_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        validate_surface_fleet_index(self.fleet_index)
+        if not isinstance(self.kind, MoraleEventKind):
+            raise TypeError("kind должен быть MoraleEventKind")
+        _decimal(self.cost, field="cost", minimum=MORALE_MIN, maximum=MORALE_MAX)
+        if self.kind is MoraleEventKind.WARNING and self.cost != MORALE_MIN:
+            raise ValueError("Warning event не должен списывать morale")
+        _bounded(self.source, field="source", maximum=64)
+        _bounded(self.event_key, field="event_key", maximum=96)
+        if self.observed_at is not None:
+            _aware(self.observed_at, field="observed_at")
+
+
+@dataclass(frozen=True, slots=True)
+class MoraleEventResult:
+    """Результат применения event без раскрытия внутренних storage-деталей."""
+
+    event_key: str
+    kind: MoraleEventKind
+    fleet_index: int
+    observed_at: datetime
+    formation_observation_id: UUID
+    applied_slots: int
+    exact_slots: int
+    unknown_slots: int
+    skipped_slots: int
+
+    @property
+    def applied(self) -> bool:
+        return self.applied_slots > 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +317,49 @@ def project_morale(observation: MoraleObservation, *, at: datetime) -> MoralePro
             MoraleKnowledge.EXACT if elapsed_ticks == 0 else MoraleKnowledge.PROJECTED
         ),
         elapsed_ticks=elapsed_ticks,
+    )
+
+
+def morale_ready_at(
+    slot: MoraleSlotState,
+    *,
+    target: Decimal,
+    at: datetime,
+) -> datetime | None:
+    """Вернуть первый подтверждённый tick, когда известный слот достигнет target.
+
+    Для UNKNOWN нельзя вычислять время восстановления: ``None`` означает отсутствие
+    доказательства, а не нулевую или предполагаемую мораль.
+    """
+
+    if not isinstance(slot, MoraleSlotState):
+        raise TypeError("slot должен быть MoraleSlotState")
+    at = _aware(at, field="at")
+    _decimal(target, field="target", minimum=MORALE_MIN, maximum=MORALE_MAX)
+    if (
+        slot.knowledge is MoraleKnowledge.UNKNOWN
+        or slot.baseline is None
+        or slot.current is None
+        or slot.recovery is None
+        or slot.observed_at is None
+    ):
+        return None
+    if slot.current >= target:
+        return at
+    if target > slot.recovery.recovery_ceiling:
+        return None
+    if slot.recovery.recovery_per_hour <= MORALE_MIN:
+        return None
+    required = (target - slot.baseline) * _TICKS_PER_HOUR
+    ticks = int(
+        (required / slot.recovery.recovery_per_hour).to_integral_value(
+            rounding=ROUND_CEILING
+        )
+    )
+    return max(
+        at,
+        slot.observed_at
+        + timedelta(minutes=6 * max(ticks, 0)),
     )
 
 
@@ -381,6 +476,12 @@ class MoraleRepository(Protocol):
         selection: FleetSelection,
     ) -> tuple[MoraleObservation, ...]: ...
 
+    def contains_idempotency(
+        self,
+        instance_id: UUID,
+        keys: tuple[str, ...],
+    ) -> frozenset[str]: ...
+
 
 class MoraleUnitOfWork(StorageUnitOfWork, Protocol):
     fleet_state: FleetStateRepository
@@ -412,6 +513,11 @@ class MoraleService:
 
     def _now(self) -> datetime:
         return _aware(self._clock(), field="clock")
+
+    def now(self) -> datetime:
+        """Вернуть единые часы application projection для потребителей чтения."""
+
+        return self._now()
 
     def _transaction(
         self,
@@ -473,6 +579,196 @@ class MoraleService:
 
         return self._transaction(instance, operation)
 
+    def apply_event(
+        self,
+        instance: str,
+        command: RecordMoraleEvent,
+    ) -> MoraleEventResult:
+        """Применить одно подтверждённое событие к каждому текущему ship slot.
+
+        Observation ledger одновременно хранит доказательство события и новое
+        состояние. Повторная доставка того же ``event_key`` не создаёт новую
+        deduction: уникальный slot-scoped idempotency key проверяется в той же
+        транзакции до append.
+        """
+
+        if not isinstance(command, RecordMoraleEvent):
+            raise TypeError("command должен быть RecordMoraleEvent")
+        now = self._now()
+        observed_at = command.observed_at or now
+        if observed_at.astimezone(UTC) > now.astimezone(UTC):
+            raise ValueError("observed_at не должен находиться в будущем")
+        selection = FleetSelection.one(command.fleet_index)
+
+        def operation(uow: MoraleUnitOfWork, instance_id: UUID) -> MoraleEventResult:
+            formations = uow.fleet_state.latest(instance_id, selection)
+            if not formations:
+                raise MoraleContinuityError(
+                    "Для morale event отсутствует сохранённый Fleet State"
+                )
+            formation = formations[0]
+            if observed_at.astimezone(UTC) < formation.observed_at.astimezone(UTC):
+                raise MoraleContinuityError(
+                    "Morale event предшествует доказанному Fleet State"
+                )
+
+            latest = uow.morale.latest(instance_id, selection)
+            latest_by_slot = {
+                (item.fleet_index, item.side, item.position): item
+                for item in latest
+            }
+            current_slots = tuple(
+                slot
+                for slot in formation.snapshot.slots
+                if slot.occupied and slot.identity_status is IdentityStatus.MATCHED
+            )
+            slot_keys = tuple(
+                self._event_idempotency_key(command, slot)
+                for slot in current_slots
+            )
+            existing_keys = self._contains_idempotency(
+                uow.morale,
+                instance_id,
+                slot_keys,
+            )
+            applied_slots = 0
+            exact_slots = 0
+            unknown_slots = 0
+            skipped_slots = 0
+            for slot, slot_key in zip(current_slots, slot_keys, strict=True):
+                previous = latest_by_slot.get(
+                    (command.fleet_index, slot.side, slot.position)
+                )
+                if slot_key in existing_keys or (
+                    previous is not None and previous.idempotency_key == slot_key
+                ):
+                    skipped_slots += 1
+                    continue
+                observation = self._event_observation(
+                    command,
+                    formation,
+                    slot,
+                    previous,
+                    instance_id=instance_id,
+                    observed_at=observed_at,
+                    idempotency_key=slot_key,
+                )
+                stored = uow.morale.append(observation)
+                if stored.id != observation.id:
+                    skipped_slots += 1
+                    continue
+                applied_slots += 1
+                if observation.knowledge is MoraleKnowledge.EXACT:
+                    exact_slots += 1
+                else:
+                    unknown_slots += 1
+
+            return MoraleEventResult(
+                event_key=command.event_key,
+                kind=command.kind,
+                fleet_index=command.fleet_index,
+                observed_at=observed_at,
+                formation_observation_id=formation.id,
+                applied_slots=applied_slots,
+                exact_slots=exact_slots,
+                unknown_slots=unknown_slots,
+                skipped_slots=skipped_slots,
+            )
+
+        return self._transaction(instance, operation)
+
+    def record_warning(
+        self,
+        instance: str,
+        *,
+        fleet_index: int,
+        event_key: str,
+        observed_at: datetime | None = None,
+    ) -> MoraleEventResult:
+        """Зафиксировать low-morale evidence и инвалидировать exact projection."""
+
+        return self.apply_event(
+            instance,
+            RecordMoraleEvent(
+                fleet_index=fleet_index,
+                kind=MoraleEventKind.WARNING,
+                cost=MORALE_MIN,
+                source="combat:low_morale_warning",
+                event_key=event_key,
+                observed_at=observed_at,
+            ),
+        )
+
+    @staticmethod
+    def _event_idempotency_key(
+        command: RecordMoraleEvent,
+        slot: FormationFleetSlotObservation,
+    ) -> str:
+        return (
+            f"morale-event-v1:{command.event_key}:{command.fleet_index}:"
+            f"{slot.side.value}:{slot.position}"
+        )
+
+    @staticmethod
+    def _contains_idempotency(
+        repository: MoraleRepository,
+        instance_id: UUID,
+        keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        if not keys:
+            return frozenset()
+        contains = getattr(repository, "contains_idempotency", None)
+        if callable(contains):
+            return frozenset(contains(instance_id, keys))
+        # Совместимость с минимальными in-memory repository doubles старых тестов.
+        return frozenset()
+
+    def _event_observation(
+        self,
+        command: RecordMoraleEvent,
+        formation: FleetStateObservation,
+        slot: FormationFleetSlotObservation,
+        previous: MoraleObservation | None,
+        *,
+        instance_id: UUID,
+        observed_at: datetime,
+        idempotency_key: str,
+    ) -> MoraleObservation:
+        recovery = MoraleRecoveryProfile.outside_dorm_base()
+        baseline: Decimal | None = None
+        knowledge = MoraleKnowledge.UNKNOWN
+        if (
+            command.kind is not MoraleEventKind.WARNING
+            and previous is not None
+            and previous.knowledge is MoraleKnowledge.EXACT
+            and previous.baseline is not None
+            and previous.observed_at.astimezone(UTC)
+            <= observed_at.astimezone(UTC)
+            and previous.canonical_identity == slot.canonical_identity
+            and previous.ship_form is slot.ship_form
+        ):
+            projection = project_morale(previous, at=observed_at)
+            baseline = max(MORALE_MIN, projection.value - command.cost)
+            knowledge = MoraleKnowledge.EXACT
+
+        return MoraleObservation(
+            id=self._id_factory(),
+            formation_snapshot_id=formation.id,
+            instance_id=instance_id,
+            fleet_index=formation.fleet_index,
+            side=slot.side,
+            position=slot.position,
+            canonical_identity=slot.canonical_identity,
+            ship_form=slot.ship_form,
+            baseline=baseline,
+            observed_at=observed_at,
+            recovery=recovery,
+            source=command.source,
+            idempotency_key=idempotency_key,
+            knowledge=knowledge,
+            location=MoraleLocation.UNKNOWN,
+        )
+
     @staticmethod
     def _require_current_occupant(
         slot: FormationFleetSlotObservation,
@@ -512,24 +808,66 @@ class MoraleService:
         projected_at = self._now() if at is None else _aware(at, field="at")
 
         def operation(uow: MoraleUnitOfWork, instance_id: UUID) -> MoraleSelectionState:
-            formations = uow.fleet_state.latest(instance_id, selection)
-            morale = uow.morale.latest(instance_id, selection)
-            formation_by_fleet = {item.fleet_index: item for item in formations}
-            morale_by_slot = {
-                (item.fleet_index, item.side, item.position): item for item in morale
-            }
-            fleets = tuple(
-                self._fleet_state(
-                    fleet_index,
-                    formation_by_fleet.get(fleet_index),
-                    morale_by_slot,
-                    projected_at,
-                )
-                for fleet_index in selection.fleet_indices
+            return self.state_in_uow(
+                uow,
+                instance_id,
+                selection,
+                at=projected_at,
             )
-            return MoraleSelectionState(selection, fleets, projected_at)
 
         return self._transaction(instance, operation)
+
+    def state_in_uow(
+        self,
+        uow: MoraleUnitOfWork,
+        instance_id: UUID,
+        selection: FleetSelection,
+        *,
+        at: datetime | None = None,
+    ) -> MoraleSelectionState:
+        """Прочитать projection в уже открытой транзакции приложения."""
+
+        if not isinstance(selection, FleetSelection):
+            raise TypeError("selection должен быть FleetSelection")
+        if not isinstance(instance_id, UUID):
+            raise TypeError("instance_id должен быть UUID")
+        projected_at = self._now() if at is None else _aware(at, field="at")
+        formations = uow.fleet_state.latest(instance_id, selection)
+        morale = uow.morale.latest(instance_id, selection)
+        return self.state_from_observations(
+            selection,
+            formations,
+            morale,
+            at=projected_at,
+        )
+
+    def state_from_observations(
+        self,
+        selection: FleetSelection,
+        formations: tuple[FleetStateObservation, ...],
+        morale: tuple[MoraleObservation, ...],
+        *,
+        at: datetime | None = None,
+    ) -> MoraleSelectionState:
+        """Собрать projection из уже выполненных set-based repository reads."""
+
+        if not isinstance(selection, FleetSelection):
+            raise TypeError("selection должен быть FleetSelection")
+        projected_at = self._now() if at is None else _aware(at, field="at")
+        formation_by_fleet = {item.fleet_index: item for item in formations}
+        morale_by_slot = {
+            (item.fleet_index, item.side, item.position): item for item in morale
+        }
+        fleets = tuple(
+            self._fleet_state(
+                fleet_index,
+                formation_by_fleet.get(fleet_index),
+                morale_by_slot,
+                projected_at,
+            )
+            for fleet_index in selection.fleet_indices
+        )
+        return MoraleSelectionState(selection, fleets, projected_at)
 
     @staticmethod
     def _fleet_state(
@@ -627,6 +965,8 @@ __all__ = (
     "OUTSIDE_DORM_RECOVERY_CEILING",
     "OUTSIDE_DORM_RECOVERY_PER_HOUR",
     "MoraleContinuityError",
+    "MoraleEventKind",
+    "MoraleEventResult",
     "MoraleFleetState",
     "MoraleKnowledge",
     "MoraleLocation",
@@ -636,6 +976,8 @@ __all__ = (
     "MoraleSelectionState",
     "MoraleService",
     "MoraleSlotState",
+    "RecordMoraleEvent",
     "RecordMoraleObservation",
+    "morale_ready_at",
     "project_morale",
 )
