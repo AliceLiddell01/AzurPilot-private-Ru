@@ -46,7 +46,7 @@ class CoalitionScuttleCombat(CoalitionCombat):
         # 联盟沉船仅在第一场战斗时扣减2心情（关卡进入代价）
         # 后续战斗（2/3/4队）不再扣减，与游戏服务端行为一致
         if emotion_reduce:
-            self.emotion.reduce(fleet_index)
+            self.emotion.reduce(fleet_index, battle=self.battle_count)
 
         auto = self.config.Fleet_Fleet1Mode if fleet_index == 1 else self.config.Fleet_Fleet2Mode
         confirm_timer = Timer(10)
@@ -140,7 +140,8 @@ class CoalitionScuttleCombat(CoalitionCombat):
                 begin_event = getattr(self.emotion, "begin_event", None)
                 if callable(begin_event):
                     campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
-                    begin_event(f"coalition-scuttle:{campaign}:{self.battle_count}")
+                    execution_id = f"coalition-scuttle:{campaign}:{self.battle_count}"
+                    begin_event(execution_id, execution_id=execution_id)
                 # 仅第一场战斗扣减2心情（关卡进入代价），后续战斗不再扣减
                 self.auto_search_combat_execute(
                     emotion_reduce=self.battle_count == 0,

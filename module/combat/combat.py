@@ -762,11 +762,15 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
                 submarine_mode = self.config.Submarine_Mode
         self.battle_status_click_interval = 7 if save_get_items else 0
         self._morale_fleet_index = fleet_index
+        battle_id = getattr(self, "battle_count", None)
+        if battle_id is None:
+            battle_id = getattr(self, "run_count", 0)
+        self._morale_battle_id = battle_id
         begin_event = getattr(self.emotion, "begin_event", None)
         if callable(begin_event):
             campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
-            battle = str(getattr(self, "battle_count", 0))[:12]
-            begin_event(f"combat:{campaign}:{battle}:{fleet_index}")
+            execution_id = f"combat:{campaign}:{battle_id}:{fleet_index}"
+            begin_event(execution_id, execution_id=execution_id)
 
         with self.stat.new(
                 genre=self.config.campaign_name, method=self.config.DropRecord_CombatRecord

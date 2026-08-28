@@ -83,10 +83,12 @@ class CoalitionCombat(CoalitionUI, CampaignBase):
                 begin_event = getattr(self.emotion, "begin_event", None)
                 if callable(begin_event):
                     campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
-                    begin_event(f"coalition:{campaign}:{self.battle_count}")
+                    execution_id = f"coalition:{campaign}:{self.battle_count}"
+                    begin_event(execution_id, execution_id=execution_id)
                 self.auto_search_combat_execute(
                     emotion_reduce=self.battle_count == 0 or self.config.Coalition_Fleet == 'single',
                     fleet_index=1,
+                    battle=self.battle_count,
                     expected_end=self.auto_search_combat_end
                 )
                 self.coalition_combat_re_enter()

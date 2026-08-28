@@ -111,7 +111,14 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
             if pause:
                 logger.attr('Боевой интерфейс', pause)
                 if emotion_reduce:
-                    self.emotion.reduce(fleet_index)
+                    self.emotion.reduce(
+                        fleet_index,
+                        battle=getattr(
+                            self,
+                            '_morale_battle_id',
+                            getattr(self, 'run_count', 0),
+                        ),
+                    )
                 break
 
     in_clue_confirm = Timer(0.5, count=2)

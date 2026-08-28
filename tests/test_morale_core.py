@@ -379,6 +379,23 @@ def test_emotion_event_identity_is_stable_across_restart_and_changes_per_run():
     assert third._active_event_key != retry_key
 
 
+def test_emotion_execution_id_separates_same_coordinate_within_scheduler_run():
+    config = _emotion_config(run="run-a")
+    emotion = Emotion(config)
+
+    emotion.begin_event(
+        "combat:campaign:0:1",
+        execution_id="combat:campaign:0:1:attempt-1",
+    )
+    first = emotion._active_event_key
+    emotion.begin_event(
+        "combat:campaign:0:1",
+        execution_id="combat:campaign:0:1:attempt-2",
+    )
+
+    assert emotion._active_event_key != first
+
+
 def test_projection_has_exact_decimal_arithmetic_and_long_interval_ceiling():
     recovery = MoraleRecoveryProfile(Decimal(1), Decimal(119), "test:one-per-hour")
     observation = _morale_observation(baseline=Decimal("0.1"), recovery=recovery)
@@ -981,6 +998,36 @@ def test_active_event_keys_include_logical_fleet_and_event_kind():
     assert len(fleet_two) <= 96
     assert len(shipwreck) <= 96
     assert len({fleet_one, fleet_two, shipwreck}) == 3
+
+
+def test_fallback_event_key_uses_explicit_battle_coordinate():
+    config = _emotion_config(run="run-a")
+    emotion = Emotion(config)
+
+    first = emotion._event_key(1, MoraleEventKind.BATTLE, battle=0)
+    second = emotion._event_key(1, MoraleEventKind.BATTLE, battle=1)
+
+    assert first != second
+    assert len(first) <= 96
+    assert len(second) <= 96
+
+
+def test_fallback_reduce_uses_explicit_battle_coordinate_without_begin_event():
+    now = datetime(2026, 8, 27, 10, tzinfo=UTC)
+    event_at = now + timedelta(minutes=1)
+    clock_values = iter((now, now + timedelta(seconds=1), event_at))
+    instances, fleets, morale, service = _service(clock=lambda: next(clock_values))
+    _seed_fleet(instances, fleets, "profile", 1, observed_at=now)
+    service.record("profile", _command(observed_at=now, baseline=Decimal(50)))
+    emotion = Emotion(_emotion_config(run="run-a"), morale_service=service)
+
+    first = emotion.reduce(1, battle=0)
+    second = emotion.reduce(1, battle=1)
+
+    assert first.applied is True
+    assert second.applied is True
+    assert len(morale.observations) == 3
+    assert service.fleet("profile", 1, at=event_at).slots[0].current == Decimal(46)
 
 
 def test_new_emotion_object_retries_same_durable_event_without_double_deduction():

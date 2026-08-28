@@ -314,18 +314,36 @@ class Emotion:
             logger.attr("Ожидание до", recovered)
             sleep(60)
 
-    def begin_event(self, event_key: str) -> None:
+    def begin_event(
+        self,
+        event_key: str,
+        *,
+        execution_id: str | None = None,
+    ) -> None:
         if not isinstance(event_key, str) or not event_key.strip() or len(event_key) > 80:
             raise ValueError("event_key должен быть непустой строкой длиной до 80 символов")
-        # Scheduler.NextRun — persisted boundary текущего task run. Он остаётся
-        # тем же после нового Emotion object/restart и меняется при следующем
-        # scheduler запуске; process-local random token здесь недопустим.
+        if execution_id is None:
+            execution_id = event_key
+        if (
+            not isinstance(execution_id, str)
+            or not execution_id.strip()
+            or len(execution_id) > 96
+        ):
+            raise ValueError(
+                "execution_id должен быть непустой строкой длиной до 96 символов"
+            )
+        # Scheduler.NextRun — persisted boundary текущего task run. Вместе с
+        # caller-owned execution coordinate он остаётся тем же после нового
+        # Emotion object/restart и меняется при следующем scheduler запуске;
+        # process-local random token здесь недопустим.
         run_token = self._durable_run_token()
-        run_digest = hashlib.sha256(run_token.encode("utf-8")).hexdigest()[:16]
+        execution_digest = hashlib.sha256(
+            f"{run_token}:{execution_id}".encode("utf-8")
+        ).hexdigest()[:16]
         if len(event_key) > 67:
             event_digest = hashlib.sha256(event_key.encode("utf-8")).hexdigest()[:16]
             event_key = f"{event_key[:48]}:{event_digest}"
-        self._active_event_key = f"{event_key}:run:{run_digest}"
+        self._active_event_key = f"{event_key}:exec:{execution_digest}"
 
     def _durable_run_token(self) -> str:
         run = getattr(self.config, "Scheduler_NextRun", None)
@@ -336,15 +354,24 @@ class Emotion:
         task = getattr(getattr(self.config, "task", None), "command", "unknown")
         return f"{task}:{run}"
 
-    def _event_key(self, logical_fleet_index: int, kind: MoraleEventKind) -> str:
+    def _event_key(
+        self,
+        logical_fleet_index: int,
+        kind: MoraleEventKind,
+        *,
+        battle: object | None = None,
+    ) -> str:
         if self._active_event_key:
             raw = f"{self._active_event_key}:{logical_fleet_index}:{kind.value}"
             if len(raw) <= 96:
                 return raw
             digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
             return f"morale-event:{logical_fleet_index}:{kind.value}:{digest}"
+        if battle is None:
+            raise RequestHumanTakeover(
+                "Для morale event без begin_event не передан battle coordinate."
+            )
         campaign = getattr(self.config, "Campaign_Name", "unknown")
-        battle = getattr(self, "battle_count", 0)
         run_digest = hashlib.sha256(
             self._durable_run_token().encode("utf-8")
         ).hexdigest()[:16]
@@ -366,7 +393,14 @@ class Emotion:
             event_key=key,
         )
 
-    def reduce(self, fleet_index, shipwreck=False, *, casualty_slot=None):
+    def reduce(
+        self,
+        fleet_index,
+        shipwreck=False,
+        *,
+        casualty_slot=None,
+        battle: object | None = None,
+    ):
         """Зафиксировать ровно одно battle или shipwreck event."""
 
         kind = MoraleEventKind.SHIPWRECK if shipwreck else MoraleEventKind.BATTLE
@@ -379,7 +413,7 @@ class Emotion:
                 kind=kind,
                 cost=Decimal(cost),
                 source=f"combat:{kind.value}",
-                event_key=self._event_key(fleet_index, kind),
+                event_key=self._event_key(fleet_index, kind, battle=battle),
                 target_side=(casualty_slot[0] if casualty_slot is not None else None),
                 target_position=(
                     casualty_slot[1] if casualty_slot is not None else None

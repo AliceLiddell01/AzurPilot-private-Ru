@@ -279,7 +279,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         self.device.stuck_record_clear()
         self.device.click_record_clear()
         if emotion_reduce:
-            self.emotion.reduce(fleet_index)
+            self.emotion.reduce(fleet_index, battle=battle)
         auto = self.config.Fleet_Fleet1Mode if fleet_index == 1 else self.config.Fleet_Fleet2Mode
 
         confirm_timer = Timer(10)
@@ -397,7 +397,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         self.fleet_alive_multiple = False
         return True
 
-    def auto_search_combat_status(self):
+    def auto_search_combat_status(self, *, battle=None):
         """
         Pages:
             in: any
@@ -521,7 +521,11 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             if self.appear(OPTS_INFO_D, offset=(30, 30)):
                 logger.info('[Автопоиск — результаты] Обнаружено окно потери корабля; перехожу к обработке отступления')
                 if self._auto_search_emotion_reduce and not self._shipwreck_emotion_reduced:
-                    self.emotion.reduce(self._auto_search_fleet_index, shipwreck=True)
+                    self.emotion.reduce(
+                        self._auto_search_fleet_index,
+                        shipwreck=True,
+                        battle=battle,
+                    )
                     self._shipwreck_emotion_reduced = True
                 self._withdraw = True
                 continue
@@ -558,8 +562,9 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         if callable(begin_event):
             campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
             battle_text = str(battle if battle is not None else getattr(self, "battle_count", 0))[:16]
-            begin_event(f"auto:{campaign}:{battle_text}:{fleet_index}")
+            execution_id = f"auto:{campaign}:{battle_text}:{fleet_index}"
+            begin_event(execution_id, execution_id=execution_id)
         self.auto_search_combat_execute(emotion_reduce=emotion_reduce, fleet_index=fleet_index, battle=battle)
-        self.auto_search_combat_status()
+        self.auto_search_combat_status(battle=battle)
 
         logger.info('[Автопоиск — бой] Бой завершён')
