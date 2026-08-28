@@ -497,8 +497,9 @@ class FleetPageMixin(WebUIMixinBase):
         instance = self.alas_name
         if not instance:
             return
-        self._fleet_page_refresh_registered = False
         self.init_menu(name=_PAGE_NAME)
+        # init_menu() removes the previous pending-delete handler before a new mount.
+        self._fleet_page_refresh_registered = False
         self.set_title(t("Gui.FleetPage.Title"))
         put_scope("fleet_page_root").style("--fleet-page--")
         with use_scope("fleet_page_root"):

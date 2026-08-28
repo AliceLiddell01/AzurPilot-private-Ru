@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from module.application.low_morale import LowMoraleWarningDetector
+from module.campaign.gems_farming import GemsFarming
 from module.exception import ScriptEnd
 from module.handler.info_handler import InfoHandler
 
@@ -158,3 +159,25 @@ def test_handler_does_not_guess_fleet_when_context_is_missing(monkeypatch):
         handler._handle_low_morale_warning()
 
     assert actions == ["cancel"]
+
+
+def test_handler_prefers_current_logical_fleet_over_stale_context():
+    handler = object.__new__(InfoHandler)
+    handler.fleet_current_index = 2
+    handler._morale_fleet_index = 1
+    handler._auto_search_fleet_index = 1
+
+    assert handler._logical_morale_fleet_index() == 2
+
+
+def test_gems_morale_compatibility_read_returns_safe_lower_bound_on_error():
+    farming = object.__new__(GemsFarming)
+    farming.config = SimpleNamespace(Fleet_FleetOrder="fleet1_all_fleet2_standby")
+    farming.campaign = SimpleNamespace(
+        config=SimpleNamespace(Fleet_Fleet1=2),
+        emotion=SimpleNamespace(
+            _service=lambda: (_ for _ in ()).throw(RuntimeError("projection unavailable"))
+        ),
+    )
+
+    assert farming.get_emotion() == 0

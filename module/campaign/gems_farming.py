@@ -19,9 +19,9 @@
 - Retirement：退役与船坞管理
 """
 
-from module.base.decorator import cached_property
 from module.application.fleet_mapping import physical_fleet_index
 from module.application.morale import MoraleKnowledge
+from module.base.decorator import cached_property
 from module.campaign.assets import CHAPTER_NEXT, CHAPTER_PREV
 from module.campaign.campaign_base import CampaignBase
 from module.campaign.run import CampaignRun
@@ -1068,9 +1068,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             )
         except Exception as exc:
             logger.exception(exc)
-            raise RequestHumanTakeover(
-                'Не удалось прочитать morale projection для GemsFarming.'
-            ) from exc
+            logger.warning(
+                '[Фарм самоцветов] Morale projection недоступна; используется нижняя граница 0'
+            )
+            return 0
         values = [
             slot.current
             for slot in state.slots

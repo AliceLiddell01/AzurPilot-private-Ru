@@ -267,9 +267,9 @@ class InfoHandler(ModuleBase):
 
     def _logical_morale_fleet_index(self) -> int | None:
         for attribute in (
+            "fleet_current_index",
             "_morale_fleet_index",
             "_auto_search_fleet_index",
-            "fleet_current_index",
         ):
             value = getattr(self, attribute, None)
             if type(value) is int and value in (1, 2):

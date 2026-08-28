@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from decimal import Decimal
 from time import sleep
+from uuid import uuid4
 
 from module.application.fleet_mapping import physical_fleet_index
 from module.application.morale import (
@@ -81,6 +82,7 @@ class Emotion:
         self.map_is_2x_book = False
         self.total_reduced = 0
         self._active_event_key: str | None = None
+        self._event_session_key = uuid4().hex[:16]
 
     def _handle_public(self) -> bool:
         """Сохранить старую task policy, не создавая общий числовой pool."""
@@ -274,7 +276,10 @@ class Emotion:
             raise ValueError("event_key должен быть непустой строкой длиной до 80 символов")
         # Scheduler.NextRun отличает одинаковый battle index в следующих запусках
         # задачи, а digest не раскрывает raw scheduler data в observation key.
-        run_token = str(getattr(self.config, "Scheduler_NextRun", "unknown"))
+        run_token = (
+            f"{getattr(self.config, 'Scheduler_NextRun', 'unknown')}"
+            f":{self._event_session_key}"
+        )
         run_digest = hashlib.sha256(run_token.encode("utf-8")).hexdigest()[:16]
         if len(event_key) > 67:
             event_digest = hashlib.sha256(event_key.encode("utf-8")).hexdigest()[:16]

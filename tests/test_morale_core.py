@@ -281,6 +281,28 @@ def test_projection_uses_completed_six_minute_ticks_and_base_20_per_hour():
     assert one_hour.value == Decimal(70)
 
 
+def test_emotion_event_session_keeps_retry_key_stable_and_run_keys_distinct():
+    config = SimpleNamespace(
+        Emotion_Fleet1Control="prevent_green_face",
+        Emotion_Fleet2Control="prevent_green_face",
+        PublicEmotion_Enable=False,
+        PublicEmotion_Tasks=None,
+        Scheduler_NextRun=datetime(2026, 8, 27, tzinfo=UTC),
+        task=SimpleNamespace(command="Main"),
+    )
+    first = Emotion(config)
+    second = Emotion(config)
+
+    first.begin_event("coalition-scuttle:unknown:0")
+    retry_key = first._active_event_key
+    first.begin_event("coalition-scuttle:unknown:0")
+
+    assert first._active_event_key == retry_key
+    assert second._active_event_key is None
+    second.begin_event("coalition-scuttle:unknown:0")
+    assert second._active_event_key != retry_key
+
+
 def test_projection_has_exact_decimal_arithmetic_and_long_interval_ceiling():
     recovery = MoraleRecoveryProfile(Decimal(1), Decimal(119), "test:one-per-hour")
     observation = _morale_observation(baseline=Decimal("0.1"), recovery=recovery)
