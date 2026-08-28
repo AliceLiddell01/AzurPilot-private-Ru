@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+_POLICY_STORAGE_KEY = "MoraleRescan"
+
 
 def _non_negative_int(raw: object, *, name: str, default: int) -> int:
     if raw is None or raw == "":
@@ -21,7 +23,7 @@ def _non_negative_int(raw: object, *, name: str, default: int) -> int:
 
 @dataclass(frozen=True, slots=True)
 class MoraleRescanPolicy:
-    """Политика из config; `0` отключает соответствующий periodic trigger."""
+    """Политика из task config; `0` отключает соответствующий trigger."""
 
     runs: int = 10
     minutes: int = 60
@@ -34,17 +36,29 @@ class MoraleRescanPolicy:
 
     @classmethod
     def from_config(cls, config) -> "MoraleRescanPolicy":
-        """Прочитать operational policy из штатного config contract."""
+        """Прочитать cadence из штатного per-task `Storage.Storage`."""
+
+        storage = getattr(config, "Storage_Storage", None)
+        if storage is None:
+            raw_policy = {}
+        elif not isinstance(storage, dict):
+            raise ValueError("Storage.Storage должен быть объектом")
+        else:
+            raw_policy = storage.get(_POLICY_STORAGE_KEY, {})
+        if raw_policy is None:
+            raw_policy = {}
+        if not isinstance(raw_policy, dict):
+            raise ValueError("Storage.Storage.MoraleRescan должен быть объектом")
 
         return cls(
             runs=_non_negative_int(
-                getattr(config, "Optimization_MoraleRescanRuns", 10),
-                name="Optimization.MoraleRescanRuns",
+                raw_policy.get("Runs"),
+                name="Storage.Storage.MoraleRescan.Runs",
                 default=10,
             ),
             minutes=_non_negative_int(
-                getattr(config, "Optimization_MoraleRescanMinutes", 60),
-                name="Optimization.MoraleRescanMinutes",
+                raw_policy.get("Minutes"),
+                name="Storage.Storage.MoraleRescan.Minutes",
                 default=60,
             ),
         )
