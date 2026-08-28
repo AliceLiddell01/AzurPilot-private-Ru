@@ -84,7 +84,7 @@ class FleetRowViewModel:
 
 @dataclass(frozen=True, slots=True)
 class MoraleRowViewModel:
-    """Строка только для чтения с моралью каждого корабля рабочего флота."""
+    """Строка только для чтения с моралью одного физического Fleet slot."""
 
     task: str
     role: str
@@ -101,6 +101,7 @@ class MoraleRowViewModel:
     location: MoraleLocation
     source: str | None
     last_sync: datetime | None
+    last_known: bool = False
 
     def __post_init__(self) -> None:
         if not self.canonical_identity.strip():
@@ -115,6 +116,8 @@ class MoraleRowViewModel:
             raise ValueError("UNKNOWN morale row не должен содержать current")
         if self.knowledge is not MoraleKnowledge.UNKNOWN and self.current is None:
             raise ValueError("Known morale row требует current")
+        if type(self.last_known) is not bool:
+            raise TypeError("last_known должен быть bool")
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +156,7 @@ def _slot_view(slot: FormationFleetSlotObservation) -> FleetSlotViewModel:
         state = FleetSlotState.UNRESOLVED
     elif slot.identity_status is IdentityStatus.AMBIGUOUS:
         state = FleetSlotState.AMBIGUOUS
-    else:  # Проверка доменной модели должна делать эту ветку недостижимой.
+    else:
         raise ValueError("Занятый Fleet slot содержит неизвестное identity state")
     return FleetSlotViewModel(
         side=slot.side,
@@ -220,8 +223,37 @@ def _morale_row(
     )
 
 
+def _last_known_morale_row(slot: MoraleSlotState) -> MoraleRowViewModel:
+    if (
+        slot.canonical_identity is None
+        or slot.canonical_name is None
+        or slot.ship_form is None
+    ):
+        raise ValueError("Last-known morale row требует MATCHED slot")
+    return MoraleRowViewModel(
+        task="",
+        role="",
+        logical_fleet_index=0,
+        physical_fleet_index=slot.fleet_index,
+        side=slot.side,
+        position=slot.position,
+        canonical_identity=slot.canonical_identity.key,
+        ship_name=slot.canonical_name,
+        ship_form=slot.ship_form,
+        knowledge=slot.knowledge,
+        current=slot.current,
+        recovery_per_hour=(
+            slot.recovery.recovery_per_hour if slot.recovery is not None else None
+        ),
+        location=slot.location,
+        source=slot.source,
+        last_sync=slot.observed_at,
+        last_known=True,
+    )
+
+
 class FleetPageQueryService:
-    """Загружает состав и мораль каждого корабля одной транзакцией."""
+    """Загружает состав и morale одним set-based чтением на страницу."""
 
     def __init__(
         self,
@@ -248,10 +280,14 @@ class FleetPageQueryService:
             instance_id = resolve_runtime_instance(uow, instance)
             observations = uow.fleet_state.latest(instance_id, FleetSelection.all())
             command = uow.fleet_scan_commands.latest(instance_id)
+            selection = (
+                FleetSelection.several(*physical_indices)
+                if physical_indices
+                else FleetSelection.all()
+            )
+            morale_observations = uow.morale.latest(instance_id, selection)
             morale_state = None
-            if physical_indices:
-                selection = FleetSelection.several(*physical_indices)
-                morale_observations = uow.morale.latest(instance_id, selection)
+            if morale_observations or physical_indices:
                 morale_state = self._morale_service.state_from_observations(
                     selection,
                     observations,
@@ -259,18 +295,36 @@ class FleetPageQueryService:
                     at=self._morale_service.now(),
                 )
             uow.commit()
+
         by_index = {item.fleet_index: item for item in observations}
         morale_by_index = (
             {item.fleet_index: item for item in morale_state.fleets}
             if morale_state is not None
             else {}
         )
-        morale_rows = tuple(
-            _morale_row(binding, slot)
-            for binding in working_fleets
-            for slot in morale_by_index.get(binding.physical_fleet_index, ()).slots
-            if slot.occupied and slot.identity_status is IdentityStatus.MATCHED
-        )
+        if working_fleets:
+            morale_rows = tuple(
+                _morale_row(binding, slot)
+                for binding in working_fleets
+                for slot in morale_by_index.get(binding.physical_fleet_index, ()).slots
+                if slot.occupied and slot.identity_status is IdentityStatus.MATCHED
+            )
+        else:
+            persisted_keys = {
+                (item.fleet_index, item.side, item.position)
+                for item in morale_observations
+            }
+            morale_rows = tuple(
+                _last_known_morale_row(slot)
+                for fleet in morale_state.fleets
+                for slot in fleet.slots
+                if (
+                    slot.occupied
+                    and slot.identity_status is IdentityStatus.MATCHED
+                    and (fleet.fleet_index, slot.side, slot.position) in persisted_keys
+                )
+            ) if morale_state is not None else ()
+
         return FleetPageViewModel(
             instance=instance,
             rows=tuple(
