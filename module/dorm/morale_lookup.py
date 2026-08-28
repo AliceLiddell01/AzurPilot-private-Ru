@@ -60,6 +60,7 @@ class TargetedMoraleLookupLayout:
     frame_width: int = 1280
     frame_height: int = 720
     search_button: tuple[int, int, int, int] = (648, 3, 704, 51)
+    search_input: tuple[int, int, int, int] = (720, 8, 970, 46)
     home_button: tuple[int, int, int, int] = (1206, 0, 1279, 72)
 
     def cards(self) -> tuple[TargetedMoraleCardGeometry, ...]:
@@ -424,9 +425,16 @@ class TargetedMoraleLookupController(UI):
     def lookup(self, target: TargetedMoraleLookupTarget) -> TargetedMoraleLookupObservation:
         if not isinstance(target, TargetedMoraleLookupTarget):
             raise TypeError("target должен быть TargetedMoraleLookupTarget")
-        frame = self.activate_search()
-        # Android text-input abstraction очищает прошлый запрос; координатной
-        # автоматизации виртуальной клавиатуры здесь намеренно нет.
+        self.activate_search()
+        # Лупа только раскрывает Search. Для Android input поле нужно отдельно
+        # сфокусировать безопасным кликом внутри подтверждённой текстовой области.
+        self.device.click(
+            self._button(
+                self.targeted_morale_layout.search_input,
+                "MORALE_LOOKUP_SEARCH_INPUT",
+            )
+        )
+        self._capture()
         self.device.text_input_and_confirm(target.search_query, clear=True)
         last_error: TargetedMoraleLookupError | None = None
         for _ in range(5):
