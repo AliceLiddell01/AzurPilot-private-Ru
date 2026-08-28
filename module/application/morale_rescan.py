@@ -21,7 +21,7 @@ def _non_negative_int(raw: object, *, name: str, default: int) -> int:
 
 @dataclass(frozen=True, slots=True)
 class MoraleRescanPolicy:
-    """Config-driven policy; `0` отключает соответствующий periodic trigger."""
+    """Политика из config; `0` отключает соответствующий periodic trigger."""
 
     runs: int = 10
     minutes: int = 60
@@ -38,13 +38,13 @@ class MoraleRescanPolicy:
 
         return cls(
             runs=_non_negative_int(
-                getattr(config, "MoraleRescan_Runs", 10),
-                name="MoraleRescan.Runs",
+                getattr(config, "Optimization_MoraleRescanRuns", 10),
+                name="Optimization.MoraleRescanRuns",
                 default=10,
             ),
             minutes=_non_negative_int(
-                getattr(config, "MoraleRescan_Minutes", 60),
-                name="MoraleRescan.Minutes",
+                getattr(config, "Optimization_MoraleRescanMinutes", 60),
+                name="Optimization.MoraleRescanMinutes",
                 default=60,
             ),
         )
