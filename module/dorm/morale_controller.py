@@ -20,7 +20,7 @@ from module.dorm.morale_model import (
     DormMoraleScanResult,
 )
 from module.dorm.morale_scanner import DormMoraleInputError, DormMoraleScanner
-from module.ui.page import page_dorm
+from module.ui.page import page_dorm, page_main
 from module.ui.ui import UI
 
 
@@ -277,12 +277,12 @@ class DormMoraleController(UI):
         frame = self._capture()
         close_requested = False
         for attempt in range(15):
+            if self.ui_page_appear(page_main, offset=(20, 20)):
+                return frame
             if self.dorm_train_state.dorm_home_visible(frame):
                 return frame
             modal_visible = self.dorm_train_state.selected_floor(frame) is not None
-            if modal_visible and (
-                not close_requested or attempt % 5 == 0
-            ):
+            if modal_visible and (not close_requested or attempt % 5 == 0):
                 self.device.click(
                     self._button(
                         self.dorm_train_layout.close_button,
@@ -327,7 +327,10 @@ class DormMoraleController(UI):
                 "Targeted Search требует хотя бы одного доказанного Train occupant."
             )
         ordinal = floor_1.snapshot.observations[0].ordinal
-        if type(ordinal) is not int or not 0 <= ordinal < len(self.dorm_train_layout.train_card_buttons):
+        if (
+            type(ordinal) is not int
+            or not 1 <= ordinal <= len(self.dorm_train_layout.train_card_buttons)
+        ):
             raise DormMoraleControllerError(
                 "Ordinal Train occupant не соответствует подтверждённой геометрии 1F."
             )
@@ -342,7 +345,7 @@ class DormMoraleController(UI):
         from module.retire.assets import DOCK_CHECK
 
         button = self._button(
-            self.dorm_train_layout.train_card_buttons[ordinal],
+            self.dorm_train_layout.train_card_buttons[ordinal - 1],
             "DORM_MORALE_EXISTING_TRAIN_OCCUPANT",
         )
         for attempt in range(8):
@@ -380,6 +383,21 @@ class DormMoraleController(UI):
             snapshot=snapshot,
         )
 
+    def _finalize_campaign_scan(
+        self,
+        result: DormMoraleScanResult,
+    ) -> DormMoraleScanResult:
+        if not result.source.startswith("campaign:"):
+            return result
+        from module.application.morale_bootstrap import CampaignMoraleBootstrapper
+
+        filtered, _summary = CampaignMoraleBootstrapper(
+            self.config,
+            self.device,
+            self,
+        ).run(result)
+        return filtered
+
     def scan_both_floors(self, *, source: str) -> DormMoraleScanResult:
         if not isinstance(source, str) or not source.strip() or len(source) > 64:
             raise ValueError(
@@ -408,7 +426,7 @@ class DormMoraleController(UI):
                 )
             )
             finished_at = self._now()
-            return DormMoraleScanResult(
+            result = DormMoraleScanResult(
                 id=scan_id,
                 started_at=started_at,
                 finished_at=finished_at,
@@ -416,6 +434,7 @@ class DormMoraleController(UI):
                 source=source,
                 idempotency_key=f"dorm-morale-scan-v1:{scan_id}",
             )
+            return self._finalize_campaign_scan(result)
 
         try:
             _frame, floor_2 = self._scan_floor(frame, DormFloor.FLOOR_2)
@@ -429,7 +448,7 @@ class DormMoraleController(UI):
                 )
             )
         finished_at = self._now()
-        return DormMoraleScanResult(
+        result = DormMoraleScanResult(
             id=scan_id,
             started_at=started_at,
             finished_at=finished_at,
@@ -437,6 +456,7 @@ class DormMoraleController(UI):
             source=source,
             idempotency_key=f"dorm-morale-scan-v1:{scan_id}",
         )
+        return self._finalize_campaign_scan(result)
 
 
 __all__ = (
