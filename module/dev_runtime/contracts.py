@@ -140,8 +140,11 @@ class ProcessIdentity:
             return False
         if not _paths_equivalent(self.cwd, root):
             return False
-        if not _paths_equivalent(self.executable, expected_python):
-            return False
+        # На Windows venv может запускаться через redirector: argv[0] остаётся
+        # project Python, а image executable, который возвращает Process API,
+        # может указывать на базовый интерпретатор. Фактический executable всё
+        # равно фиксируется в ProcessIdentity и затем сравнивается при PID-reuse
+        # проверках; принадлежность DevSession доказывает точный argv/cwd/token.
         return True
 
     @classmethod
