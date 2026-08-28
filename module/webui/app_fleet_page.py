@@ -292,6 +292,16 @@ class FleetPageMixin(WebUIMixinBase):
         }
         return t(f"Gui.FleetPage.{keys[row.location]}")
 
+    @staticmethod
+    def _morale_task_text(row: MoraleRowViewModel) -> str:
+        return "last-known" if row.last_known else row.task
+
+    @staticmethod
+    def _morale_role_text(row: MoraleRowViewModel) -> str:
+        if row.last_known:
+            return "—"
+        return t(f"Gui.FleetPage.MoraleRole{row.role.capitalize()}")
+
     def _morale_row_outputs(self, row: MoraleRowViewModel) -> list[Any]:
         form_key = (
             "MoraleRetrofit" if row.ship_form.value == "retrofit" else "MoraleBase"
@@ -300,11 +310,14 @@ class FleetPageMixin(WebUIMixinBase):
         location = self._morale_location_text(row)
         if row.source:
             location = f"{location} · {row.source}"
+        if row.last_known:
+            location = f"last-known · {location}"
         return [
-            self._table_cell(row.task),
             self._table_cell(
-                t(f"Gui.FleetPage.MoraleRole{row.role.capitalize()}")
+                self._morale_task_text(row),
+                state="last-known" if row.last_known else None,
             ),
+            self._table_cell(self._morale_role_text(row)),
             self._table_cell(
                 f"{row.physical_fleet_index} · {self._morale_side_text(row)}"
             ),
