@@ -80,7 +80,9 @@ def test_capture_accepts_redirector_image_for_just_launched_exact_command(
 
     assert captured is not None
     assert captured.executable == str(actual_image)
-    assert captured.command_line == tuple(ProcessBackend.expected_command(environment, session_id))
+    assert captured.command_line == tuple(
+        ProcessBackend.expected_command(environment, session_id)
+    )
 
 
 def test_actual_image_still_participates_in_pid_reuse_detection(tmp_path: Path) -> None:
