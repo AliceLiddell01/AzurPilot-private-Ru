@@ -317,9 +317,9 @@ class DevDiagnosticsMixin:
         version_ok = (3, 14, 6) <= sys.version_info[:3] < (3, 15, 0)
         venv = self.environment.repository_root / ".venv"
         try:
-            python_ok = self.environment.python_executable.resolve().is_relative_to(
-                venv.resolve()
-            )
+            executable = self.environment.python_executable.resolve()
+            python_ok = executable.is_relative_to(venv.resolve())
+            python_ok = python_ok and executable == Path(sys.executable).resolve()
         except (OSError, RuntimeError):
             python_ok = False
         return version_ok and python_ok
@@ -522,5 +522,9 @@ def _default_storage_probe(environment: DevEnvironment) -> tuple[bool, str]:
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"Проверка готовности PostgreSQL не выполнена: {type(exc).__name__}"
     if completed.returncode != 0:
-        return False, "Проверка готовности PostgreSQL завершилась ошибкой"
+        return (
+            False,
+            "Проверка готовности PostgreSQL завершилась ошибкой "
+            f"(код возврата {completed.returncode})",
+        )
     return True, "Готовность PostgreSQL подтверждена"
