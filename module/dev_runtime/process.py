@@ -16,6 +16,9 @@ from module.dev_runtime.contracts import DEV_PROFILE, DevEnvironment, ProcessIde
 class ProcessBackend:
     """Системная граница запуска и точной проверки процесса DevSession."""
 
+    def __init__(self) -> None:
+        self._launch_expectations: dict[int, tuple[DevEnvironment, str]] = {}
+
     def launch(self, environment: DevEnvironment, session_id: str) -> int:
         command = self.expected_command(environment, session_id)
         environment.log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -35,7 +38,9 @@ class ProcessBackend:
             process = subprocess.Popen(command, **kwargs)
         finally:
             log_handle.close()
-        return int(process.pid)
+        pid = int(process.pid)
+        self._launch_expectations[pid] = (environment, session_id)
+        return pid
 
     @staticmethod
     def expected_command(environment: DevEnvironment, session_id: str) -> list[str]:
@@ -52,18 +57,48 @@ class ProcessBackend:
             DEV_PROFILE,
         ]
 
+    @staticmethod
+    def identity_belongs_to_session(
+        environment: DevEnvironment,
+        session_id: str,
+        identity: ProcessIdentity,
+    ) -> bool:
+        return identity.matches_dev_contract(
+            environment.repository_root,
+            session_id,
+            environment.python_executable,
+        )
+
+    def _identity_is_destructively_trusted(self, identity: ProcessIdentity) -> bool:
+        expectation = self._launch_expectations.get(identity.pid)
+        if expectation is not None:
+            environment, session_id = expectation
+            return self.identity_belongs_to_session(environment, session_id, identity)
+        session_id = identity.command_session_id()
+        if session_id is None:
+            return False
+        return identity.matches_dev_contract(Path(identity.cwd), session_id)
+
     def capture(self, pid: int) -> ProcessIdentity | None:
         try:
             process = psutil.Process(pid)
             if process.status() == psutil.STATUS_ZOMBIE:
                 return None
-            return ProcessIdentity(
+            identity = ProcessIdentity(
                 pid=pid,
                 created_at=float(process.create_time()),
-                executable=str(Path(process.exe()).resolve()),
+                executable=str(Path(process.exe()).absolute()),
                 command_line=tuple(process.cmdline()),
-                cwd=str(Path(process.cwd()).resolve()),
+                cwd=str(Path(process.cwd()).absolute()),
             )
+            expectation = self._launch_expectations.get(pid)
+            if expectation is not None:
+                environment, session_id = expectation
+                if not self.identity_belongs_to_session(
+                    environment, session_id, identity
+                ):
+                    return None
+            return identity
         except psutil.NoSuchProcess:
             return None
         except Exception as exc:
@@ -72,6 +107,8 @@ class ProcessBackend:
             ) from exc
 
     def matches(self, identity: ProcessIdentity) -> bool | None:
+        if not self._identity_is_destructively_trusted(identity):
+            return False
         current = self.capture(identity.pid)
         if current is None:
             return None
@@ -86,8 +123,6 @@ class ProcessBackend:
     def find_by_session(
         self, environment: DevEnvironment, session_id: str
     ) -> tuple[ProcessIdentity, ...]:
-        expected_gui = str((environment.repository_root / "gui.py").resolve())
-        expected_python = str(environment.python_executable.resolve())
         found: list[ProcessIdentity] = []
         try:
             for process in psutil.process_iter(
@@ -101,42 +136,48 @@ class ProcessBackend:
                     index = cmdline.index("--dev-session-id")
                     if index + 1 >= len(cmdline) or cmdline[index + 1] != session_id:
                         continue
+
                     raw_executable = info.get("exe")
                     raw_cwd = info.get("cwd")
                     if not raw_executable or not raw_cwd:
                         raise RuntimeError(
-                            "Найден процесс с идентификатором DevSession, но его executable/cwd нельзя подтвердить"
+                            "Найден процесс с идентификатором DevSession, но его "
+                            "executable/cwd нельзя подтвердить"
                         )
                     try:
                         pid = int(info["pid"])
                         created_at = float(info["create_time"])
                     except (KeyError, TypeError, ValueError) as exc:
                         raise RuntimeError(
-                            "Найден процесс с идентификатором DevSession, но его PID/create time нельзя подтвердить"
+                            "Найден процесс с идентификатором DevSession, но его "
+                            "PID/create time нельзя подтвердить"
                         ) from exc
-                    executable = str(Path(str(raw_executable)).resolve())
-                    cwd = str(Path(str(raw_cwd)).resolve())
-                    command_python = cmdline[0] if cmdline else ""
-                    if not (
-                        _same_path(executable, expected_python)
-                        or _same_path(command_python, expected_python)
-                    ):
-                        continue
-                    if not _same_path(cwd, str(environment.repository_root)):
-                        continue
-                    if not any(_same_path(item, expected_gui) for item in cmdline):
-                        continue
-                    found.append(
-                        ProcessIdentity(
-                            pid=pid,
-                            created_at=created_at,
-                            executable=executable,
-                            command_line=cmdline,
-                            cwd=cwd,
-                        )
+
+                    identity = ProcessIdentity(
+                        pid=pid,
+                        created_at=created_at,
+                        executable=str(Path(str(raw_executable)).absolute()),
+                        command_line=cmdline,
+                        cwd=str(Path(str(raw_cwd)).absolute()),
                     )
-                except (psutil.AccessDenied, psutil.NoSuchProcess, TypeError, ValueError):
+                    if not self.identity_belongs_to_session(
+                        environment, session_id, identity
+                    ):
+                        raise RuntimeError(
+                            "Найден процесс с идентификатором DevSession, но его "
+                            "полная process identity не соответствует ожидаемой сигнатуре"
+                        )
+                    found.append(identity)
+                except (
+                    psutil.AccessDenied,
+                    psutil.NoSuchProcess,
+                ):
                     continue
+                except (OSError, TypeError, ValueError) as exc:
+                    raise RuntimeError(
+                        "Найден процесс с идентификатором DevSession, но его "
+                        "process identity нельзя безопасно проверить"
+                    ) from exc
         except Exception as exc:
             raise RuntimeError(
                 f"Не удалось найти процесс DevSession по идентификатору сессии: {exc}"
@@ -145,7 +186,10 @@ class ProcessBackend:
 
     def is_descendant(self, child_pid: int, parent: ProcessIdentity) -> bool:
         if child_pid == parent.pid:
-            return self.matches(parent) is True
+            try:
+                return self.matches(parent) is True
+            except RuntimeError:
+                return False
         try:
             process = psutil.Process(child_pid)
             for ancestor in process.parents():
@@ -175,21 +219,26 @@ class ProcessBackend:
             return False
 
     def request_stop(self, identity: ProcessIdentity) -> bool:
-        if self.matches(identity) is not True:
+        if not self._identity_is_destructively_trusted(identity):
             return False
         try:
+            if self.matches(identity) is not True:
+                return False
             if os.name == "nt":
                 os.kill(identity.pid, signal.CTRL_BREAK_EVENT)
             else:
                 os.kill(identity.pid, signal.SIGINT)
             return True
-        except (OSError, ValueError):
+        except (OSError, RuntimeError, ValueError):
             return False
 
     def wait_exit(self, identity: ProcessIdentity, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
         while True:
-            matches = self.matches(identity)
+            try:
+                matches = self.matches(identity)
+            except RuntimeError:
+                return False
             if matches is None:
                 return True
             if matches is False:
@@ -200,9 +249,11 @@ class ProcessBackend:
             time.sleep(min(0.1, remaining))
 
     def force_stop(self, identity: ProcessIdentity) -> bool:
-        if self.matches(identity) is not True:
+        if not self._identity_is_destructively_trusted(identity):
             return False
         try:
+            if self.matches(identity) is not True:
+                return False
             root = psutil.Process(identity.pid)
             children = root.children(recursive=True)
             if self.matches(identity) is not True:
@@ -215,22 +266,25 @@ class ProcessBackend:
             try:
                 root.kill()
             except psutil.NoSuchProcess:
-                return True
+                pass
             _, alive = psutil.wait_procs([root, *children], timeout=5)
-            return not alive or self.matches(identity) is None
+            if alive:
+                return False
+            return self.matches(identity) is None
         except Exception:
             return False
 
 
 def _same_path(left: str, right: str) -> bool:
     try:
-        return os.path.normcase(str(Path(left).resolve())) == os.path.normcase(
-            str(Path(right).resolve())
-        )
-    except (OSError, RuntimeError):
-        return os.path.normcase(os.path.abspath(left)) == os.path.normcase(
-            os.path.abspath(right)
-        )
+        return os.path.samefile(left, right)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+        try:
+            return os.path.normcase(os.path.abspath(left)) == os.path.normcase(
+                os.path.abspath(right)
+            )
+        except (OSError, RuntimeError, ValueError):
+            return False
 
 
 def _normalized_command_line(command_line: tuple[str, ...]) -> tuple[str, ...]:
@@ -240,9 +294,9 @@ def _normalized_command_line(command_line: tuple[str, ...]) -> tuple[str, ...]:
             ("python.exe", "pythonw.exe", "python")
         ) or item.casefold().endswith("gui.py"):
             try:
-                normalized.append(os.path.normcase(str(Path(item).resolve())))
+                normalized.append(os.path.normcase(os.path.abspath(item)))
                 continue
-            except (OSError, RuntimeError):
+            except (OSError, RuntimeError, ValueError):
                 pass
         normalized.append(item)
     return tuple(normalized)

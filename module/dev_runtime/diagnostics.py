@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -307,6 +308,9 @@ class DevDiagnosticsMixin:
                 return False, "рабочий процесс профиля ap ещё не зарегистрирован"
             if worker_registry.process_matches(worker) is not True:
                 return False, "рабочий процесс профиля ap не подтверждён"
+            worker_pid = int(worker["pid"])
+            if not self.process_backend.is_descendant(worker_pid, identity):
+                return False, "рабочий процесс профиля ap не принадлежит дереву DevSession"
         except Exception as exc:
             return False, f"реестр рабочих процессов не готов: {type(exc).__name__}"
         if not _http_ready(environment.host, environment.port):
@@ -315,12 +319,16 @@ class DevDiagnosticsMixin:
 
     def _project_python_is_supported(self) -> bool:
         version_ok = (3, 14, 6) <= sys.version_info[:3] < (3, 15, 0)
-        venv = self.environment.repository_root / ".venv"
         try:
-            executable = self.environment.python_executable.resolve()
-            python_ok = executable.is_relative_to(venv.resolve())
-            python_ok = python_ok and executable == Path(sys.executable).resolve()
-        except (OSError, RuntimeError):
+            venv = Path(os.path.abspath(self.environment.repository_root / ".venv"))
+            executable = Path(os.path.abspath(self.environment.python_executable))
+            current = Path(os.path.abspath(sys.executable))
+            python_ok = executable.is_relative_to(venv)
+            python_ok = python_ok and current.is_relative_to(venv)
+            python_ok = python_ok and os.path.normcase(str(executable)) == os.path.normcase(
+                str(current)
+            )
+        except (OSError, RuntimeError, ValueError):
             python_ok = False
         return version_ok and python_ok
 

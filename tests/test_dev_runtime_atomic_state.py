@@ -44,4 +44,6 @@ def test_failed_state_write_removes_owned_temporary_file(
         manager._write_session(session)
 
     assert not environment.state_file.exists()
-    assert tuple(environment.state_file.parent.glob("dev-session.json.*.tmp")) == ()
+    assert tuple(
+        environment.state_file.parent.glob(f"{environment.state_file.name}.*.tmp")
+    ) == ()

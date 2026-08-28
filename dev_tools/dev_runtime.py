@@ -15,8 +15,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "command",
-        choices=("preflight", "doctor", "status", "start", "stop", "recover", "smoke"),
-        help="Операция над фиксированной dev-сессией профиля ap",
+        choices=("preflight", "doctor", "status", "smoke"),
+        help="Диагностика или lifecycle smoke фиксированной dev-сессии профиля ap",
     )
     return parser
 

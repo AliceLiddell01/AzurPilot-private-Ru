@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import os
 import sys
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
@@ -13,6 +15,21 @@ DEV_PORT = 25549
 STATE_SCHEMA_VERSION = 1
 DEFAULT_READY_TIMEOUT = 120.0
 DEFAULT_STOP_TIMEOUT = 20.0
+
+
+def _absolute_path(path: str | os.PathLike[str]) -> str:
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _paths_equivalent(left: str | os.PathLike[str], right: str | os.PathLike[str]) -> bool:
+    try:
+        return os.path.samefile(left, right)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+        try:
+            return _absolute_path(left) == _absolute_path(right)
+        except (OSError, RuntimeError, ValueError):
+            return False
+
 
 class DevSessionState(StrEnum):
     CREATED = "created"
@@ -66,6 +83,67 @@ class ProcessIdentity:
             "cwd": self.cwd,
         }
 
+    def command_session_id(self) -> str | None:
+        if self.command_line.count("--dev-session-id") != 1:
+            return None
+        index = self.command_line.index("--dev-session-id")
+        if index + 1 >= len(self.command_line):
+            return None
+        session_id = self.command_line[index + 1]
+        return session_id if session_id else None
+
+    def matches_dev_contract(
+        self,
+        repository_root: Path,
+        session_id: str,
+        python_executable: Path | None = None,
+    ) -> bool:
+        """Проверить полную сигнатуру процесса одной DevSession."""
+
+        if self.pid <= 0 or not math.isfinite(self.created_at) or self.created_at <= 0:
+            return False
+        if not session_id or "\x00" in session_id:
+            return False
+
+        try:
+            root = Path(os.path.abspath(repository_root))
+            expected_python = (
+                Path(os.path.abspath(python_executable))
+                if python_executable is not None
+                else root
+                / ".venv"
+                / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            )
+            expected_gui = root / "gui.py"
+            expected = (
+                str(expected_python),
+                str(expected_gui),
+                "--dev-session-id",
+                session_id,
+                "--host",
+                DEV_HOST,
+                "--port",
+                str(DEV_PORT),
+                "--run",
+                DEV_PROFILE,
+            )
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+        if len(self.command_line) != len(expected):
+            return False
+        if not _paths_equivalent(self.command_line[0], expected[0]):
+            return False
+        if not _paths_equivalent(self.command_line[1], expected[1]):
+            return False
+        if self.command_line[2:] != expected[2:]:
+            return False
+        if not _paths_equivalent(self.cwd, root):
+            return False
+        if not _paths_equivalent(self.executable, expected_python):
+            return False
+        return True
+
     @classmethod
     def from_dict(cls, payload: object) -> ProcessIdentity:
         if not isinstance(payload, dict):
@@ -82,10 +160,16 @@ class ProcessIdentity:
             cwd = payload["cwd"]
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("process содержит некорректные обязательные поля") from exc
-        if not isinstance(executable, str) or not executable:
-            raise ValueError("executable должен быть непустой строкой")
-        if not isinstance(cwd, str) or not cwd:
-            raise ValueError("cwd должен быть непустой строкой")
+        if pid <= 0:
+            raise ValueError("pid должен быть положительным")
+        if not math.isfinite(created_at) or created_at <= 0:
+            raise ValueError("created_at должен быть положительным конечным числом")
+        if not isinstance(executable, str) or not executable or "\x00" in executable:
+            raise ValueError("executable должен быть непустой безопасной строкой")
+        if not isinstance(cwd, str) or not cwd or "\x00" in cwd:
+            raise ValueError("cwd должен быть непустой безопасной строкой")
+        if any("\x00" in item for item in command_line):
+            raise ValueError("command_line содержит недопустимый нулевой байт")
         return cls(
             pid=pid,
             created_at=created_at,
@@ -138,6 +222,10 @@ class DevSession:
         process = (
             None if process_payload is None else ProcessIdentity.from_dict(process_payload)
         )
+        if process is not None:
+            process_session_id = process.command_session_id()
+            if process_session_id is not None and process_session_id != session_id:
+                raise ValueError("process принадлежит другой DevSession")
         try:
             state = DevSessionState(str(payload["state"]))
         except (KeyError, ValueError) as exc:
@@ -192,5 +280,6 @@ class DevEnvironment:
         )
         return cls(
             repository_root=root,
-            python_executable=Path(sys.executable).resolve(),
+            # Не resolve(): POSIX venv обычно использует symlink на базовый Python.
+            python_executable=Path(os.path.abspath(sys.executable)),
         )
