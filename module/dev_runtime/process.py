@@ -8,6 +8,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import psutil
+
 from module.dev_runtime.contracts import DEV_PROFILE, DevEnvironment, ProcessIdentity
 
 
@@ -52,8 +54,6 @@ class ProcessBackend:
 
     def capture(self, pid: int) -> ProcessIdentity | None:
         try:
-            import psutil
-
             process = psutil.Process(pid)
             if process.status() == psutil.STATUS_ZOMBIE:
                 return None
@@ -64,14 +64,9 @@ class ProcessBackend:
                 command_line=tuple(process.cmdline()),
                 cwd=str(Path(process.cwd()).resolve()),
             )
+        except psutil.NoSuchProcess:
+            return None
         except Exception as exc:
-            try:
-                import psutil
-
-                if isinstance(exc, psutil.NoSuchProcess):
-                    return None
-            except ImportError:
-                pass
             raise RuntimeError(
                 f"Не удалось получить идентичность процесса DevSession PID {pid}: {exc}"
             ) from exc
@@ -95,8 +90,6 @@ class ProcessBackend:
         expected_python = str(environment.python_executable.resolve())
         found: list[ProcessIdentity] = []
         try:
-            import psutil
-
             for process in psutil.process_iter(
                 attrs=["pid", "create_time", "exe", "cmdline", "cwd"]
             ):
@@ -108,8 +101,12 @@ class ProcessBackend:
                     index = cmdline.index("--dev-session-id")
                     if index + 1 >= len(cmdline) or cmdline[index + 1] != session_id:
                         continue
-                    executable = str(Path(str(info.get("exe") or "")).resolve())
-                    cwd = str(Path(str(info.get("cwd") or "")).resolve())
+                    raw_executable = info.get("exe")
+                    raw_cwd = info.get("cwd")
+                    if not raw_executable or not raw_cwd:
+                        continue
+                    executable = str(Path(str(raw_executable)).resolve())
+                    cwd = str(Path(str(raw_cwd)).resolve())
                     command_python = cmdline[0] if cmdline else ""
                     if not (
                         _same_path(executable, expected_python)
@@ -141,8 +138,6 @@ class ProcessBackend:
         if child_pid == parent.pid:
             return self.matches(parent) is True
         try:
-            import psutil
-
             process = psutil.Process(child_pid)
             for ancestor in process.parents():
                 if ancestor.pid != parent.pid:
@@ -158,8 +153,6 @@ class ProcessBackend:
     def listens_on(self, pid: int, host: str, port: int) -> bool:
         """Подтвердить, что конкретный владелец WebUI слушает локальный порт."""
         try:
-            import psutil
-
             process = psutil.Process(pid)
             for connection in process.net_connections(kind="inet"):
                 if connection.status != psutil.CONN_LISTEN or not connection.laddr:
@@ -201,8 +194,6 @@ class ProcessBackend:
         if self.matches(identity) is not True:
             return False
         try:
-            import psutil
-
             root = psutil.Process(identity.pid)
             children = root.children(recursive=True)
             if self.matches(identity) is not True:
