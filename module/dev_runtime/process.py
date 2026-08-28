@@ -18,6 +18,7 @@ class ProcessBackend:
 
     def __init__(self) -> None:
         self._launch_expectations: dict[int, tuple[DevEnvironment, str]] = {}
+        self._launch_handles: dict[int, subprocess.Popen] = {}
 
     def launch(self, environment: DevEnvironment, session_id: str) -> int:
         command = self.expected_command(environment, session_id)
@@ -40,6 +41,7 @@ class ProcessBackend:
             log_handle.close()
         pid = int(process.pid)
         self._launch_expectations[pid] = (environment, session_id)
+        self._launch_handles[pid] = process
         return pid
 
     @staticmethod
@@ -79,10 +81,29 @@ class ProcessBackend:
             return False
         return identity.matches_dev_contract(Path(identity.cwd), session_id)
 
+    def _abort_unverified_launch(self, pid: int) -> bool:
+        """Остановить только что созданный процесс через принадлежащий нам Popen handle."""
+        process = self._launch_handles.pop(pid, None)
+        if process is None:
+            return False
+        try:
+            if process.poll() is not None:
+                return True
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=3)
+            return process.poll() is not None
+        except (OSError, subprocess.SubprocessError):
+            return False
+
     def capture(self, pid: int) -> ProcessIdentity | None:
         try:
             process = psutil.Process(pid)
             if process.status() == psutil.STATUS_ZOMBIE:
+                self._launch_handles.pop(pid, None)
                 return None
             identity = ProcessIdentity(
                 pid=pid,
@@ -97,11 +118,16 @@ class ProcessBackend:
                 if not self.identity_belongs_to_session(
                     environment, session_id, identity
                 ):
+                    self._abort_unverified_launch(pid)
                     return None
+            self._launch_handles.pop(pid, None)
             return identity
         except psutil.NoSuchProcess:
+            self._launch_handles.pop(pid, None)
             return None
         except Exception as exc:
+            if pid in self._launch_handles:
+                self._abort_unverified_launch(pid)
             raise RuntimeError(
                 f"Не удалось получить идентичность процесса DevSession PID {pid}: {exc}"
             ) from exc
