@@ -23,7 +23,7 @@ def _non_negative_int(raw: object, *, name: str, default: int) -> int:
 
 @dataclass(frozen=True, slots=True)
 class MoraleRescanPolicy:
-    """Политика из task config; `0` отключает соответствующий trigger."""
+    """Periodic policy из task config; `0` отключает соответствующий trigger."""
 
     runs: int = 10
     minutes: int = 60
@@ -36,7 +36,11 @@ class MoraleRescanPolicy:
 
     @classmethod
     def from_config(cls, config) -> "MoraleRescanPolicy":
-        """Прочитать cadence из штатного per-task `Storage.Storage`."""
+        """Прочитать cadence из штатного per-task `Storage.Storage.MoraleRescan`.
+
+        Значения хранятся вместе с task config, а не в environment и не в
+        отдельной Scheduler-задаче. Отсутствующий объект сохраняет defaults 10/60.
+        """
 
         storage = getattr(config, "Storage_Storage", None)
         if storage is None:
