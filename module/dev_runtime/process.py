@@ -104,7 +104,16 @@ class ProcessBackend:
                     raw_executable = info.get("exe")
                     raw_cwd = info.get("cwd")
                     if not raw_executable or not raw_cwd:
-                        continue
+                        raise RuntimeError(
+                            "Найден процесс с идентификатором DevSession, но его executable/cwd нельзя подтвердить"
+                        )
+                    try:
+                        pid = int(info["pid"])
+                        created_at = float(info["create_time"])
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise RuntimeError(
+                            "Найден процесс с идентификатором DevSession, но его PID/create time нельзя подтвердить"
+                        ) from exc
                     executable = str(Path(str(raw_executable)).resolve())
                     cwd = str(Path(str(raw_cwd)).resolve())
                     command_python = cmdline[0] if cmdline else ""
@@ -119,8 +128,8 @@ class ProcessBackend:
                         continue
                     found.append(
                         ProcessIdentity(
-                            pid=int(info["pid"]),
-                            created_at=float(info["create_time"]),
+                            pid=pid,
+                            created_at=created_at,
                             executable=executable,
                             command_line=cmdline,
                             cwd=cwd,

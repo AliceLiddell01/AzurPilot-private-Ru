@@ -46,7 +46,7 @@ def test_cli_converts_manager_value_error_to_structured_json(
     assert "ValueError" in payload["message"]
 
 
-def test_find_by_session_rejects_candidate_without_exe_or_cwd(
+def test_find_by_session_fails_closed_when_token_identity_is_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -70,7 +70,8 @@ def test_find_by_session_rejects_candidate_without_exe_or_cwd(
     )
     monkeypatch.setattr(process_module.psutil, "process_iter", lambda attrs: [fake])
 
-    assert ProcessBackend().find_by_session(environment, session_id) == ()
+    with pytest.raises(RuntimeError, match="executable/cwd"):
+        ProcessBackend().find_by_session(environment, session_id)
 
 
 def test_project_python_check_requires_same_supported_interpreter(
