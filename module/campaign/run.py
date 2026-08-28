@@ -213,7 +213,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             return True
         # Балансировщик задач в автоматическом поиске.
         if self.config.TaskBalancer_Enable and self.campaign.auto_search_coin_limit_triggered:
-            logger.hr('Сработало условие остановки: лимит монет в автопоиске')
+            logger.hr('Сработало условие остановки: лимит монет')
             self.handle_task_balancer()
             return True
         # Обычный балансировщик задач.
@@ -465,7 +465,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.campaign.emotion.log_working_fleets(f"after_map_{self.run_count}")
         callback = getattr(self, "morale_campaign_clear_callback", None)
         if callable(callback):
-            policy = MoraleRescanPolicy.from_environment()
+            policy = MoraleRescanPolicy.from_config(self.config)
             now = time.monotonic()
             last_scan = getattr(self, "_morale_rescan_last_at", now)
             due, reason = policy.due(
@@ -478,10 +478,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
                     f"reason={reason}; completed_runs={self.run_count}; "
                     f"policy_runs={policy.runs}; policy_minutes={policy.minutes}"
                 )
-                # Legacy scheduler callback сам выполняет безопасную Formation+Dorm
-                # сверку. Маркер 10 активирует существующий periodic branch; реальная
-                # policy и фактический run_count зафиксированы логом выше.
-                callback(10)
+                callback(self.run_count)
                 self._morale_rescan_last_at = time.monotonic()
 
     def handle_commission_notice(self):
