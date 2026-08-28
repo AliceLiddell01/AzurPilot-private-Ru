@@ -11,6 +11,7 @@ from module.dorm.morale_lookup import (
     TargetedMoraleLocationHint,
     TargetedMoraleLookupController,
     TargetedMoraleLookupError,
+    TargetedMoraleLookupLayout,
     TargetedMoraleLookupScanner,
 )
 from module.formation.model import FormationFleetSide
@@ -88,6 +89,13 @@ def _scanner(target, *, names, morale="150", fleet=(), state=()):
         text_ocr=_TextOcr(fleet=fleet, state=state),
         resolver=_Resolver(target),
     )
+
+
+def test_search_morale_crop_matches_dock_digit_geometry():
+    # Первый реальный card после REMOVE — col=1,row=0. Узкий crop должен
+    # совпадать с проверенной CARD_EMOTION_GRIDS и не захватывать иконку/арт.
+    card = TargetedMoraleLookupLayout().cards()[0]
+    assert card.morale_area == (281, 105, 306, 128)
 
 
 def test_one_filtered_result_reads_exact_150_without_fake_119():
