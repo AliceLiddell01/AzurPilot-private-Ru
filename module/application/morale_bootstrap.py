@@ -119,11 +119,9 @@ def _filter_scan_for_targets(
     compatible_by_card: dict[
         tuple[object, int], tuple[MoraleSlotState, ...]
     ] = {}
-    observations: dict[tuple[object, int], DormMoraleObservation] = {}
 
     for observation in scan.observations:
         card_key = (observation.floor, observation.ordinal)
-        observations[card_key] = observation
         if (
             observation.identity_status is not IdentityStatus.MATCHED
             or observation.canonical_identity is None
@@ -267,7 +265,7 @@ class CampaignMoraleBootstrapper:
         self.dorm_controller.ui_ensure(page_main)
 
     def _arm_task_level_failure(self, error: CampaignMoraleBootstrapError) -> None:
-        """Отложить только campaign task и подавить один внешний Restart request."""
+        """Отложить только campaign task и подавить внешний Restart request."""
 
         self.config.task_delay(success=False)
         original_task_call = self.config.task_call
@@ -281,6 +279,8 @@ class CampaignMoraleBootstrapper:
                 return False
             return original_task_call(task, force_call=force_call)
 
+        # Guard живёт только на текущем cached config object. После обработки
+        # исключения scheduler перечитает конфигурацию, поэтому global policy не меняется.
         self.config.task_call = guarded_task_call
 
     def _fail_safely(
@@ -304,7 +304,10 @@ class CampaignMoraleBootstrapper:
         self._arm_task_level_failure(error)
         raise error
 
-    def run(self, scan: DormMoraleScanResult) -> tuple[DormMoraleScanResult, CampaignMoraleBootstrapSummary]:
+    def run(
+        self,
+        scan: DormMoraleScanResult,
+    ) -> tuple[DormMoraleScanResult, CampaignMoraleBootstrapSummary]:
         if not isinstance(scan, DormMoraleScanResult):
             raise TypeError("scan должен быть DormMoraleScanResult")
 
@@ -399,7 +402,9 @@ class CampaignMoraleBootstrapper:
         targeted_outside = 0
         if reconciliation.lookup_targets:
             try:
-                self.dorm_controller.open_candidate_selection(filtered.scan)
+                # Для открытия candidate-selection нужен именно raw Train occupant.
+                # Отфильтрованный scan намеренно не содержит unrelated Dorm cards.
+                self.dorm_controller.open_candidate_selection(scan)
                 lookup = self._lookup_factory(self.config, device=self.device)
                 for target in reconciliation.lookup_targets:
                     try:
@@ -412,7 +417,7 @@ class CampaignMoraleBootstrapper:
                             f"location=unknown; error={exc.error_code}"
                         )
                         raise CampaignMoraleBootstrapError(
-                            f"lookup_{exc.error_code}",
+                            f"lookup_{exc.error_code}"[:64],
                             str(exc),
                             target=target,
                         ) from exc
@@ -474,6 +479,7 @@ class CampaignMoraleBootstrapper:
                 and slot.current is not None
                 and slot.recovery is not None
                 and slot.location is not MoraleLocation.UNKNOWN
+                and slot.dorm_scan_id == filtered.scan.id
             )
         )
         projected = tuple(
@@ -495,7 +501,8 @@ class CampaignMoraleBootstrapper:
             self._fail_safely(
                 CampaignMoraleBootstrapError(
                     "final_exact_incomplete",
-                    "Не каждый occupied target получил exact current и recovery context.",
+                    "Не каждый occupied target получил exact current и recovery context "
+                    "с provenance текущего bootstrap scan.",
                 ),
                 lookup=lookup,
             )
