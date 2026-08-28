@@ -20,7 +20,7 @@ from module.dorm.morale_model import (
     DormMoraleScanResult,
 )
 from module.dorm.morale_scanner import DormMoraleInputError, DormMoraleScanner
-from module.ui.page import page_dorm, page_main
+from module.ui.page import page_dorm, page_main, page_main_white
 from module.ui.ui import UI
 
 
@@ -277,7 +277,10 @@ class DormMoraleController(UI):
         frame = self._capture()
         close_requested = False
         for attempt in range(15):
-            if self.ui_page_appear(page_main, offset=(20, 20)):
+            if self.ui_page_appear(page_main, offset=(20, 20)) or self.ui_page_appear(
+                page_main_white,
+                offset=(20, 20),
+            ):
                 return frame
             if self.dorm_train_state.dorm_home_visible(frame):
                 return frame
