@@ -15,6 +15,7 @@ from module.application.morale import (
 )
 from module.application.morale_reconciliation import TargetedMoraleLookupTarget
 from module.dock_inventory.model import IdentityStatus
+from module.dorm.morale_composition import build_campaign_morale_context
 from module.dorm.morale_lookup import (
     TargetedMoraleLocationHint,
     TargetedMoraleLookupController,
@@ -27,7 +28,6 @@ from module.dorm.morale_model import (
 )
 from module.formation.model import FleetSelection
 from module.logger import logger
-from module.persistence.runtime import build_runtime_morale_context
 from module.ui.page import page_main
 
 
@@ -186,7 +186,7 @@ class CampaignMoraleBootstrapper:
         device,
         dorm_controller,
         *,
-        context_factory: Callable = build_runtime_morale_context,
+        context_factory: Callable = build_campaign_morale_context,
         lookup_factory: Callable = TargetedMoraleLookupController,
     ) -> None:
         self.config = config
