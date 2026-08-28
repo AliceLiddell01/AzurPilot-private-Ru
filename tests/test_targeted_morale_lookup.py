@@ -146,9 +146,10 @@ def test_duplicate_copies_fail_closed_when_fleet_badge_is_not_unique():
         fleet=("", ""),
         state=("", ""),
     )
-    with pytest.raises(TargetedMoraleLookupError, match="physical copies") as exc:
+    with pytest.raises(TargetedMoraleLookupError) as exc:
         scanner.scan(_frame(scanner, (0, 1)), target, observed_at=NOW)
     assert exc.value.error_code == "duplicate_ambiguous"
+    assert "неоднозначны" in str(exc.value)
 
 
 def test_no_result_fails_closed():
