@@ -19,6 +19,29 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     return DevEnvironment(repository_root=root, python_executable=python)
 
 
+class _LaunchHandle:
+    def __init__(self) -> None:
+        self.running = True
+        self.terminate_count = 0
+        self.kill_count = 0
+
+    def poll(self):
+        return None if self.running else 0
+
+    def terminate(self) -> None:
+        self.terminate_count += 1
+        self.running = False
+
+    def kill(self) -> None:
+        self.kill_count += 1
+        self.running = False
+
+    def wait(self, timeout: float):
+        if self.running:
+            raise process_module.subprocess.TimeoutExpired("synthetic", timeout)
+        return 0
+
+
 def test_windows_redirector_image_is_allowed_when_exact_argv_identifies_project_python(
     tmp_path: Path,
 ) -> None:
@@ -75,6 +98,8 @@ def test_capture_accepts_redirector_image_for_just_launched_exact_command(
 
     backend = ProcessBackend()
     backend._launch_expectations[pid] = (environment, session_id)
+    handle = _LaunchHandle()
+    backend._launch_handles[pid] = handle
 
     captured = backend.capture(pid)
 
@@ -83,14 +108,45 @@ def test_capture_accepts_redirector_image_for_just_launched_exact_command(
     assert captured.command_line == tuple(
         ProcessBackend.expected_command(environment, session_id)
     )
+    assert handle.terminate_count == 0
+    assert pid not in backend._launch_handles
+
+
+def test_unverified_just_launched_process_is_stopped_through_owned_handle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    session_id = "unverified-launch"
+    pid = 8126
+    command = ProcessBackend.expected_command(environment, session_id)
+    command[-1] = "foreign-profile"
+    fake = SimpleNamespace(
+        status=lambda: "running",
+        create_time=lambda: 15.5,
+        exe=lambda: str(environment.repository_root / "base-python" / "python.exe"),
+        cmdline=lambda: command,
+        cwd=lambda: str(environment.repository_root),
+    )
+    monkeypatch.setattr(process_module.psutil, "Process", lambda _pid: fake)
+
+    backend = ProcessBackend()
+    backend._launch_expectations[pid] = (environment, session_id)
+    handle = _LaunchHandle()
+    backend._launch_handles[pid] = handle
+
+    assert backend.capture(pid) is None
+    assert handle.terminate_count == 1
+    assert handle.running is False
+    assert pid not in backend._launch_handles
 
 
 def test_actual_image_still_participates_in_pid_reuse_detection(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     session_id = "image-reuse"
     stored = ProcessIdentity(
-        pid=8126,
-        created_at=15.5,
+        pid=8127,
+        created_at=16.5,
         executable=str(environment.repository_root / "base-python-a" / "python.exe"),
         command_line=tuple(ProcessBackend.expected_command(environment, session_id)),
         cwd=str(environment.repository_root),
