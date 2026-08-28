@@ -41,6 +41,7 @@ DIC_RECOVER_MAX = {
     "dormitory_floor_1": 150,
     "dormitory_floor_2": 150,
 }
+_MORALE_EXECUTION_STORAGE_KEY = "MoraleCombatExecution"
 
 
 class FleetEmotion:
@@ -79,6 +80,7 @@ class Emotion:
         self.map_is_2x_book = False
         self.total_reduced = 0
         self._active_event_key: str | None = None
+        self._active_execution_storage: tuple[str, str, int] | None = None
 
     @property
     def is_calculate(self):
@@ -353,6 +355,100 @@ class Emotion:
             logger.attr("Ожидание до", recovered)
             sleep(60)
 
+    def _execution_storage(self) -> dict[str, object] | None:
+        """Вернуть скрытый persisted task Storage для generation morale event."""
+
+        storage = getattr(self.config, "Storage_Storage", None)
+        if storage is None:
+            # Упрощённые unit-test config doubles исторически не имеют Storage.
+            return None
+        if not isinstance(storage, dict):
+            raise RequestHumanTakeover(
+                "Persisted Storage morale event имеет некорректный формат."
+            )
+        return storage
+
+    def _durable_execution_sequence(
+        self,
+        execution_id: str,
+        run_token: str,
+    ) -> int | None:
+        storage = self._execution_storage()
+        if storage is None:
+            self._active_execution_storage = None
+            return None
+
+        raw_state = storage.get(_MORALE_EXECUTION_STORAGE_KEY)
+        if raw_state is None:
+            state: dict[str, object] = {}
+        elif isinstance(raw_state, dict):
+            state = raw_state
+        else:
+            raise RequestHumanTakeover(
+                "Persisted coordinate morale event имеет некорректный формат."
+            )
+
+        sequence = state.get("sequence", 0)
+        if type(sequence) is not int or sequence < 0:
+            raise RequestHumanTakeover(
+                "Persisted sequence morale event имеет некорректное значение."
+            )
+        applied = state.get("applied", False)
+        if type(applied) is not bool:
+            raise RequestHumanTakeover(
+                "Persisted applied marker morale event имеет некорректное значение."
+            )
+
+        run_digest = hashlib.sha256(run_token.encode("utf-8")).hexdigest()[:16]
+        caller_digest = hashlib.sha256(execution_id.encode("utf-8")).hexdigest()[:16]
+        retry = (
+            sequence > 0
+            and state.get("run") == run_digest
+            and state.get("caller") == caller_digest
+            and not applied
+        )
+        current = sequence if retry else sequence + 1
+        persisted = {
+            "run": run_digest,
+            "caller": caller_digest,
+            "sequence": current,
+            "applied": False,
+        }
+        updated = dict(storage)
+        updated[_MORALE_EXECUTION_STORAGE_KEY] = persisted
+        self.config.Storage_Storage = updated
+        self._active_execution_storage = (run_digest, caller_digest, current)
+        return current
+
+    def _mark_execution_applied(self) -> None:
+        marker = self._active_execution_storage
+        if marker is None:
+            return
+        storage = self._execution_storage()
+        if storage is None:
+            return
+        raw_state = storage.get(_MORALE_EXECUTION_STORAGE_KEY)
+        if not isinstance(raw_state, dict):
+            raise RequestHumanTakeover(
+                "Persisted coordinate morale event потерян после применения."
+            )
+        run_digest, caller_digest, sequence = marker
+        if (
+            raw_state.get("run") != run_digest
+            or raw_state.get("caller") != caller_digest
+            or raw_state.get("sequence") != sequence
+        ):
+            raise RequestHumanTakeover(
+                "Persisted coordinate morale event изменён конкурентно."
+            )
+        if raw_state.get("applied") is True:
+            return
+        persisted = dict(raw_state)
+        persisted["applied"] = True
+        updated = dict(storage)
+        updated[_MORALE_EXECUTION_STORAGE_KEY] = persisted
+        self.config.Storage_Storage = updated
+
     def begin_event(
         self,
         event_key: str,
@@ -371,13 +467,17 @@ class Emotion:
             raise ValueError(
                 "execution_id должен быть непустой строкой длиной до 96 символов"
             )
-        # Scheduler.NextRun — persisted boundary текущего task run. Вместе с
-        # caller-owned execution coordinate он остаётся тем же после нового
-        # Emotion object/restart и меняется при следующем scheduler запуске;
-        # process-local random token здесь недопустим.
+        # Scheduler.NextRun задаёт durable boundary task run. Внутри него hidden
+        # Storage хранит generation caller coordinate: retry до фактического
+        # apply_event повторяет ключ, а следующий уже применённый бой получает
+        # новую generation даже после перезапуска Python-процесса.
         run_token = self._durable_run_token()
+        sequence = self._durable_execution_sequence(execution_id, run_token)
+        durable_coordinate = execution_id
+        if sequence is not None:
+            durable_coordinate = f"{execution_id}:generation:{sequence}"
         execution_digest = hashlib.sha256(
-            f"{run_token}:{execution_id}".encode("utf-8")
+            f"{run_token}:{durable_coordinate}".encode("utf-8")
         ).hexdigest()[:16]
         if len(event_key) > 67:
             event_digest = hashlib.sha256(event_key.encode("utf-8")).hexdigest()[:16]
@@ -436,11 +536,13 @@ class Emotion:
             MoraleEventKind.WARNING,
             battle=battle,
         )
-        return self._service().record_warning(
+        result = self._service().record_warning(
             self._instance(),
             fleet_index=physical,
             event_key=key,
         )
+        self._mark_execution_applied()
+        return result
 
     def reduce(
         self,
@@ -469,6 +571,7 @@ class Emotion:
                 ),
             ),
         )
+        self._mark_execution_applied()
         if result.exact_slots:
             self.total_reduced += cost
         logger.info(
