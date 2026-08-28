@@ -58,7 +58,7 @@ def _empty_slot(fleet, side, position):
     )
 
 
-def _target_slot(fleet=6, *, exact=False):
+def _target_slot(fleet=6, *, exact=False, dorm_scan_id=None):
     kwargs = {}
     if exact:
         kwargs = {
@@ -70,7 +70,7 @@ def _target_slot(fleet=6, *, exact=False):
             "source": "targeted_search:exact",
             "morale_observation_id": uuid4(),
             "location": MoraleLocation.OUTSIDE_DORM,
-            "dorm_scan_id": uuid4(),
+            "dorm_scan_id": dorm_scan_id or uuid4(),
         }
     else:
         kwargs = {"knowledge": MoraleKnowledge.UNKNOWN}
@@ -121,7 +121,9 @@ def _dorm_observation(
         morale=morale,
         recovery_per_hour=Decimal(40),
         canonical_identity=_identity(ship) if matched else None,
-        canonical_name="Argus" if ship == 1 and matched else (f"Ship {ship}" if matched else None),
+        canonical_name=(
+            "Argus" if ship == 1 and matched else (f"Ship {ship}" if matched else None)
+        ),
         ship_form=ShipForm.BASE if matched else None,
     )
 
@@ -271,7 +273,7 @@ def _bootstrap(
 ):
     config = _Config()
     before = before or _state(_target_slot())
-    after = after or _state(_target_slot(exact=True))
+    after = after or _state(_target_slot(exact=True, dorm_scan_id=scan.id))
     morale = _MoraleService(before, after)
     reconciliation = _Reconciliation(lookup_targets)
     context = SimpleNamespace(morale_service=morale, reconciliation_service=reconciliation)
