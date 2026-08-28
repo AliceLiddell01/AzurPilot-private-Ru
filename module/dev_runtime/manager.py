@@ -540,9 +540,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             return True
         if matches is not True:
             return False
-        self.process_backend.request_stop(identity)
-        if self.process_backend.wait_exit(identity, self.stop_timeout):
-            return True
+        try:
+            self.process_backend.request_stop(identity)
+            if self.process_backend.wait_exit(identity, self.stop_timeout):
+                return True
+        except RuntimeError:
+            return False
         try:
             matches = self.process_backend.matches(identity)
         except RuntimeError:
@@ -551,9 +554,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             return True
         if matches is not True:
             return False
-        if not self.process_backend.force_stop(identity):
+        try:
+            if not self.process_backend.force_stop(identity):
+                return False
+            return self.process_backend.wait_exit(identity, 5.0)
+        except RuntimeError:
             return False
-        return self.process_backend.wait_exit(identity, 5.0)
 
     def _read_session(self) -> DevSession | None:
         try:

@@ -26,7 +26,7 @@ def main() -> int:
     manager = DevSessionManager()
     try:
         result = getattr(manager, args.command)()
-    except (OSError, TimeoutError, ValueError) as exc:
+    except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         result = DevResult(
             ok=False,
             code="DEV_CLI_FAILED",
