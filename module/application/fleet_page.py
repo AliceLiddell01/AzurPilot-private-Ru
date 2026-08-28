@@ -84,7 +84,7 @@ class FleetRowViewModel:
 
 @dataclass(frozen=True, slots=True)
 class MoraleRowViewModel:
-    """Read-only строка per-ship morale для реально работающего флота."""
+    """Строка только для чтения с моралью каждого корабля рабочего флота."""
 
     task: str
     role: str
@@ -221,7 +221,7 @@ def _morale_row(
 
 
 class FleetPageQueryService:
-    """Загружает composition и per-ship morale одной транзакцией."""
+    """Загружает состав и мораль каждого корабля одной транзакцией."""
 
     def __init__(
         self,

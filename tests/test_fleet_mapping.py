@@ -61,3 +61,19 @@ def test_working_mapping_rejects_duplicate_physical_fleet():
             },
             "Main",
         )
+
+
+def test_working_mapping_rejects_zero_for_active_second_fleet():
+    with pytest.raises(ValueError, match=r"диапазоне 1\.\.6"):
+        working_fleet_bindings_from_data(
+            {
+                "Main": {
+                    "Fleet": {
+                        "Fleet1": 5,
+                        "Fleet2": 0,
+                        "FleetOrder": "fleet1_standby_fleet2_all",
+                    }
+                }
+            },
+            "Main",
+        )

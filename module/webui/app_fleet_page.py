@@ -364,7 +364,7 @@ class FleetPageMixin(WebUIMixinBase):
                 self.alas_config.load()
                 self.alas_config.get_next_task()
                 running = self.alas_config.pending_task[:1]
-            except Exception as exc:  # noqa: BLE001 - page must fail closed when scheduler state is unavailable.
+            except Exception as exc:  # noqa: BLE001 — при недоступном состоянии планировщика страница безопасно скрывает данные.
                 logger.warning(f"[FleetPage] Не удалось определить текущую task: {exc}")
                 return ()
             if not running:
@@ -498,7 +498,7 @@ class FleetPageMixin(WebUIMixinBase):
         if not instance:
             return
         self.init_menu(name=_PAGE_NAME)
-        # init_menu() removes the previous pending-delete handler before a new mount.
+        # init_menu() удаляет предыдущий обработчик отложенного удаления перед новым монтированием.
         self._fleet_page_refresh_registered = False
         self.set_title(t("Gui.FleetPage.Title"))
         put_scope("fleet_page_root").style("--fleet-page--")

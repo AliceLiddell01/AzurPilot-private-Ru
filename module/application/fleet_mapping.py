@@ -69,9 +69,6 @@ def working_fleet_bindings(config: Any, *, task: str | None = None) -> tuple[Wor
     )
     bindings: list[WorkingFleetBinding] = []
     for logical_index in logical_indices:
-        raw = getattr(config, f"Fleet_Fleet{logical_index}", None)
-        if logical_index == 2 and raw == 0:
-            continue
         physical = physical_fleet_index(config, logical_index)
         bindings.append(
             WorkingFleetBinding(
@@ -113,8 +110,6 @@ def working_fleet_bindings_from_data(
     bindings: list[WorkingFleetBinding] = []
     for logical_index in logical_indices:
         raw = fleet.get(f"Fleet{logical_index}")
-        if logical_index == 2 and raw == 0:
-            continue
         physical = validate_surface_fleet_index(raw)
         bindings.append(
             WorkingFleetBinding(

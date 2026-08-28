@@ -100,7 +100,7 @@ class GemsCampaignOverride(CampaignBase):
         if self.config.GemsFarming_IgnoreEmotionWarning or self.config.GemsFarming_ChangeVanguard == 'disabled':
             result = self._handle_low_morale_warning(allow_confirm=True)
             if result:
-                # 避免点击 AUTO_SEARCH_MAP_OPTION_OFF
+                # Не допускаем нажатия AUTO_SEARCH_MAP_OPTION_OFF.
                 self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)
                 if self.config.GemsFarming_IgnoreEmotionWarning and self.config.GemsFarming_ChangeVanguard != 'disabled':
                     self.config.GEMS_EMOTION_TRIGGERED = True

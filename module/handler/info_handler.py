@@ -391,7 +391,7 @@ class InfoHandler(ModuleBase):
                 ) from exc
         try:
             result = self._reconcile_morale_after_warning(logical_fleet_index)
-        except Exception as exc:  # noqa: BLE001 - reconciliation failure is a clean scheduler stop.
+        except Exception as exc:  # noqa: BLE001 — сбой сверки безопасно завершает планировщик.
             logger.exception(exc)
             raise ScriptEnd(
                 "[Настроение — popup] Предупреждение отменено, "

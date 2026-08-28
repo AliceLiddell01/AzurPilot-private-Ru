@@ -48,17 +48,6 @@ def _payload(observation: MoraleObservation) -> dict[str, object]:
     }
 
 
-def _storage_idempotency_key(observation: MoraleObservation) -> str:
-    """Namespace caller idempotency внутри app instance без расширения DB field."""
-
-    return payload_digest(
-        {
-            "instance_id": observation.instance_id,
-            "idempotency_key": observation.idempotency_key,
-        }
-    )
-
-
 def _storage_idempotency_for(instance_id: UUID, key: str) -> str:
     """Получить storage key для caller key без раскрытия raw key в БД."""
 
@@ -67,6 +56,15 @@ def _storage_idempotency_for(instance_id: UUID, key: str) -> str:
             "instance_id": instance_id,
             "idempotency_key": key,
         }
+    )
+
+
+def _storage_idempotency_key(observation: MoraleObservation) -> str:
+    """Namespace caller idempotency внутри app instance без расширения DB field."""
+
+    return _storage_idempotency_for(
+        observation.instance_id,
+        observation.idempotency_key,
     )
 
 
@@ -94,7 +92,7 @@ class PostgresMoraleRepository:
                 if existing["payload_digest"] == digest:
                     try:
                         hydrated = self._hydrate(existing)
-                    except KeyError, TypeError, ValueError:
+                    except (KeyError, TypeError, ValueError):
                         raise StorageInvalidDataError(
                             "PostgreSQL содержит некорректное Morale observation."
                         ) from None
@@ -215,7 +213,7 @@ class PostgresMoraleRepository:
             raise translate_database_error(exc) from None
         try:
             return tuple(self._hydrate(row) for row in rows)
-        except KeyError, TypeError, ValueError:
+        except (KeyError, TypeError, ValueError):
             raise StorageInvalidDataError(
                 "PostgreSQL содержит некорректное Morale observation."
             ) from None

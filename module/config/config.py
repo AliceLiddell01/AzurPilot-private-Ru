@@ -217,13 +217,13 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         if recovery_migration or legacy_emotion_migration:
             if legacy_emotion_migration:
                 logger.info(
-                    "[Конфигурация] Legacy morale state удалён из profile data; "
-                    "источник morale теперь MoraleService"
+                    "[Конфигурация] Устаревшее состояние морали удалено из данных профиля; "
+                    "источником морали теперь является MoraleService"
                 )
             if recovery_migration:
                 logger.info(
-                    "[Конфигурация] Stage 3: unattended emulator recovery включён "
-                    "для существующего профиля; migration marker сохранён"
+                    "[Конфигурация] Этап 3: автоматическое восстановление эмулятора включено "
+                    "для существующего профиля; маркер миграции сохранён"
                 )
             self.write_file(self.config_name, data=self.data)
         self.config_override()
