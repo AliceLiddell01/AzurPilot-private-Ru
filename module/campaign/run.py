@@ -19,6 +19,7 @@ import random
 import time
 
 from campaign import _adapt_generated_campaign_ui
+from module.application.morale_bootstrap import CampaignMoraleBootstrapError
 from module.application.morale_rescan import MoraleRescanPolicy
 from module.campaign.campaign_base import CampaignBase
 from module.campaign.campaign_event import CampaignEvent
@@ -213,7 +214,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             return True
         # Балансировщик задач в автоматическом поиске.
         if self.config.TaskBalancer_Enable and self.campaign.auto_search_coin_limit_triggered:
-            logger.hr('Сработало условие остановки: лимит монет')
+            logger.hr('Сработало условие остановки: лимит монет в автопоиске')
             self.handle_task_balancer()
             return True
         # Обычный балансировщик задач.
@@ -478,8 +479,16 @@ class CampaignRun(CampaignEvent, ShopStatus):
                     f"reason={reason}; completed_runs={self.run_count}; "
                     f"policy_runs={policy.runs}; policy_minutes={policy.minutes}"
                 )
-                callback(self.run_count)
+                try:
+                    callback(self.run_count)
+                except CampaignMoraleBootstrapError as error:
+                    logger.warning(
+                        "[Настроение] Periodic bootstrap безопасно остановил "
+                        f"текущую campaign task: stage={error.code}"
+                    )
+                    return False
                 self._morale_rescan_last_at = time.monotonic()
+        return True
 
     def handle_commission_notice(self):
         """Обработать уведомление о завершившейся комиссии.
@@ -606,7 +615,8 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
-            self.after_campaign_run()
+            if not self.after_campaign_run():
+                break
             # Условия завершения после запуска.
             if self.triggered_stop_condition(oil_check=False):
                 break
