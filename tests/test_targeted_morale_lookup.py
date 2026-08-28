@@ -200,11 +200,11 @@ class _Controller(TargetedMoraleLookupController):
         return self.device.image
 
 
-def test_lookup_reuses_device_text_input_and_never_clicks_result_or_confirm():
+def test_lookup_focuses_search_input_and_never_clicks_result_or_confirm():
     target = _target()
     device = _Device()
     controller = _Controller(device)
     result = controller.lookup(target)
     assert result.target is target
     assert device.inputs == [("Argus", True)]
-    assert device.clicks == []
+    assert device.clicks == ["MORALE_LOOKUP_SEARCH_INPUT"]
