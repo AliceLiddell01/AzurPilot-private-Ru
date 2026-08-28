@@ -7,15 +7,18 @@ from module.application.morale_rescan import MoraleRescanPolicy
 from module.campaign.run import CampaignRun
 
 
-def _config(*, runs=10, minutes=60):
-    return SimpleNamespace(
-        Optimization_MoraleRescanRuns=runs,
-        Optimization_MoraleRescanMinutes=minutes,
-    )
+def _config(*, runs=10, minutes=60, include_policy=True):
+    storage = {}
+    if include_policy:
+        storage["MoraleRescan"] = {
+            "Runs": runs,
+            "Minutes": minutes,
+        }
+    return SimpleNamespace(Storage_Storage=storage)
 
 
 def test_default_rescan_policy_is_ten_runs_or_sixty_minutes():
-    policy = MoraleRescanPolicy.from_config(_config())
+    policy = MoraleRescanPolicy.from_config(_config(include_policy=False))
 
     assert policy.runs == 10
     assert policy.minutes == 60
@@ -24,7 +27,7 @@ def test_default_rescan_policy_is_ten_runs_or_sixty_minutes():
     assert policy.due(completed_runs=3, elapsed_seconds=3600) == (True, "time")
 
 
-def test_custom_rescan_policy_uses_config_values():
+def test_custom_rescan_policy_uses_task_storage_values():
     policy = MoraleRescanPolicy.from_config(_config(runs=3, minutes=7))
 
     assert policy.runs == 3
@@ -42,8 +45,12 @@ def test_zero_disables_each_periodic_trigger():
 @pytest.mark.parametrize(
     ("config", "message"),
     (
-        (_config(runs=-1), "Optimization.MoraleRescanRuns"),
-        (_config(minutes="abc"), "Optimization.MoraleRescanMinutes"),
+        (_config(runs=-1), "Storage.Storage.MoraleRescan.Runs"),
+        (_config(minutes="abc"), "Storage.Storage.MoraleRescan.Minutes"),
+        (
+            SimpleNamespace(Storage_Storage={"MoraleRescan": "broken"}),
+            "Storage.Storage.MoraleRescan",
+        ),
     ),
 )
 def test_invalid_rescan_policy_fails_closed(config, message):
