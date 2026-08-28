@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from alas import AzurLaneAutoScript
+from module.application.morale_bootstrap import CampaignMoraleBootstrapError
 from module.config.time_source import now as current_time
 from module.persistence import runtime as persistence_runtime
 
@@ -142,7 +143,29 @@ def test_prepare_boundary_scans_campaign_morale_after_manual_command() -> None:
     ]
 
 
-def test_campaign_morale_rescan_is_not_run_after_every_clear(monkeypatch) -> None:
+def test_prepare_boundary_bootstrap_failure_stops_only_current_task() -> None:
+    events = []
+    script = _script()
+    script.config.Emotion_Mode = "calculate"
+    script.fleet_manual_scan = _ManualCoordinator(events)
+
+    def fail_bootstrap(task, *, source):
+        events.append(("morale", task, source))
+        raise CampaignMoraleBootstrapError(
+            "target_lookup_failed",
+            "synthetic target evidence failure",
+        )
+
+    script._scan_campaign_morale = fail_bootstrap
+
+    assert script._prepare_task_boundary("Main") is False
+    assert events == [
+        ("manual", "profile-a"),
+        ("morale", "Main", "campaign:first_run"),
+    ]
+
+
+def test_campaign_morale_periodic_callback_executes_without_second_gate() -> None:
     script = _script()
     script._morale_scan_state = {
         "Main": {"last_scan": 100.0, "completed_runs": 0}
@@ -151,30 +174,24 @@ def test_campaign_morale_rescan_is_not_run_after_every_clear(monkeypatch) -> Non
     script._scan_campaign_morale = (
         lambda task, *, source: calls.append((task, source))
     )
-    monkeypatch.setattr("alas.time.monotonic", lambda: 101.0)
 
-    for completed_runs in range(1, 10):
-        script._campaign_morale_after_clear("Main", completed_runs)
-    assert calls == []
+    script._campaign_morale_after_clear("Main", 3)
+
+    assert calls == [("Main", "campaign:periodic_3")]
+    assert script._morale_scan_state["Main"]["completed_runs"] == 3
+
+
+def test_campaign_morale_periodic_callback_scans_when_state_is_missing() -> None:
+    script = _script()
+    script._morale_scan_state = {}
+    calls = []
+    script._scan_campaign_morale = (
+        lambda task, *, source: calls.append((task, source))
+    )
 
     script._campaign_morale_after_clear("Main", 10)
-    assert calls == [("Main", "campaign:periodic_runs")]
 
-
-def test_campaign_morale_rescan_runs_after_one_hour(monkeypatch) -> None:
-    script = _script()
-    script._morale_scan_state = {
-        "Main": {"last_scan": 100.0, "completed_runs": 0}
-    }
-    calls = []
-    script._scan_campaign_morale = (
-        lambda task, *, source: calls.append((task, source))
-    )
-    monkeypatch.setattr("alas.time.monotonic", lambda: 3700.0)
-
-    script._campaign_morale_after_clear("Main", 1)
-
-    assert calls == [("Main", "campaign:periodic_time")]
+    assert calls == [("Main", "campaign:periodic_10")]
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:
