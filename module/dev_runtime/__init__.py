@@ -13,6 +13,21 @@ from module.dev_runtime.contracts import (
 )
 from module.dev_runtime.process import ProcessBackend
 from module.dev_runtime.manager import DevSessionManager
+from module.dev_runtime.task_sandbox import (
+    SCHEDULER_RESET_TIME,
+    TASK_POLICY_FILE_ENV,
+    TASK_POLICY_ROOT_ENV,
+    TASK_POLICY_SESSION_ENV,
+    TaskAuthorization,
+    TaskCatalog,
+    TaskDescriptor,
+    TaskPlan,
+    TaskPolicy,
+    TaskPolicyContext,
+    TaskPolicyStore,
+    TaskProvenance,
+    TaskSandboxError,
+)
 
 __all__ = [
     "DEV_HOST",
@@ -26,4 +41,17 @@ __all__ = [
     "DevStatusKind",
     "ProcessBackend",
     "ProcessIdentity",
+    "SCHEDULER_RESET_TIME",
+    "TASK_POLICY_FILE_ENV",
+    "TASK_POLICY_ROOT_ENV",
+    "TASK_POLICY_SESSION_ENV",
+    "TaskAuthorization",
+    "TaskCatalog",
+    "TaskDescriptor",
+    "TaskPlan",
+    "TaskPolicy",
+    "TaskPolicyContext",
+    "TaskPolicyStore",
+    "TaskProvenance",
+    "TaskSandboxError",
 ]

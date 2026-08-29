@@ -11,6 +11,11 @@ from pathlib import Path
 import psutil
 
 from module.dev_runtime.contracts import DEV_PROFILE, DevEnvironment, ProcessIdentity
+from module.dev_runtime.task_sandbox import (
+    TASK_POLICY_FILE_ENV,
+    TASK_POLICY_ROOT_ENV,
+    TASK_POLICY_SESSION_ENV,
+)
 
 _WINDOWS_REDIRECTOR_SETTLE_TIMEOUT = 1.0
 _WINDOWS_REDIRECTOR_POLL_INTERVAL = 0.02
@@ -36,6 +41,25 @@ class ProcessBackend:
             "stderr": subprocess.STDOUT,
             "close_fds": True,
         }
+        child_environment = os.environ.copy()
+        for variable in (
+            TASK_POLICY_SESSION_ENV,
+            TASK_POLICY_ROOT_ENV,
+            TASK_POLICY_FILE_ENV,
+        ):
+            child_environment.pop(variable, None)
+        try:
+            policy_path = environment.task_policy_file
+            policy_present = policy_path.is_file() and not policy_path.is_symlink()
+            if policy_present and hasattr(policy_path, "is_junction"):
+                policy_present = not policy_path.is_junction()
+        except OSError:
+            policy_present = False
+        if policy_present:
+            child_environment[TASK_POLICY_SESSION_ENV] = session_id
+            child_environment[TASK_POLICY_ROOT_ENV] = str(environment.repository_root)
+            child_environment[TASK_POLICY_FILE_ENV] = str(environment.task_policy_file)
+        kwargs["env"] = child_environment
         if os.name == "nt":
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         else:
@@ -130,7 +154,9 @@ class ProcessBackend:
                 launcher = psutil.Process(launcher_pid)
                 children = launcher.children(recursive=True)
             except psutil.NoSuchProcess:
-                return None
+                return self._find_windows_redirected_child(
+                    launcher_pid, environment, session_id
+                )
             except psutil.AccessDenied as exc:
                 raise RuntimeError(
                     "Нельзя безопасно перечислить дочерние процессы Windows venv launcher"
@@ -156,11 +182,47 @@ class ProcessBackend:
 
             handle = self._launch_handles.get(launcher_pid)
             if handle is None or handle.poll() is not None:
-                return None
+                return self._find_windows_redirected_child(
+                    launcher_pid, environment, session_id
+                )
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return None
+                return self._find_windows_redirected_child(
+                    launcher_pid, environment, session_id
+                )
             time.sleep(min(_WINDOWS_REDIRECTOR_POLL_INTERVAL, remaining))
+
+    def _find_windows_redirected_child(
+        self,
+        launcher_pid: int,
+        environment: DevEnvironment,
+        session_id: str,
+    ) -> ProcessIdentity | None:
+        """Найти child с exact signature после выхода короткоживущего launcher."""
+
+        candidates: list[ProcessIdentity] = []
+        try:
+            processes = psutil.process_iter(
+                ["pid", "ppid", "create_time", "exe", "cmdline", "cwd"]
+            )
+        except (psutil.AccessDenied, OSError) as exc:
+            raise RuntimeError(
+                "Нельзя безопасно перечислить процессы после выхода Windows venv launcher"
+            ) from exc
+        for process in processes:
+            try:
+                if process.info.get("ppid") != launcher_pid:
+                    continue
+                identity = self._identity_from_process(process)
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                continue
+            if self.identity_belongs_to_session(environment, session_id, identity):
+                candidates.append(identity)
+        if len(candidates) > 1:
+            raise RuntimeError(
+                "Windows venv launcher оставил несколько процессов с полной сигнатурой DevSession"
+            )
+        return candidates[0] if candidates else None
 
     def capture(self, pid: int) -> ProcessIdentity | None:
         try:
@@ -172,9 +234,16 @@ class ProcessBackend:
             expectation = self._launch_expectations.get(pid)
             if expectation is not None:
                 environment, session_id = expectation
-                if not self.identity_belongs_to_session(
+                exact_identity = self.identity_belongs_to_session(
                     environment, session_id, identity
-                ):
+                )
+                redirector_launcher = (
+                    _IS_WINDOWS
+                    and self._is_redirector_launcher_signature(
+                        environment, session_id, identity
+                    )
+                )
+                if not exact_identity and not redirector_launcher:
                     self._abort_unverified_launch(pid)
                     return None
                 if (
@@ -195,6 +264,9 @@ class ProcessBackend:
                         )
                         self._launch_handles.pop(pid, None)
                         return redirected
+                    if redirector_launcher and not exact_identity:
+                        self._abort_unverified_launch(pid)
+                        return None
             self._launch_handles.pop(pid, None)
             return identity
         except psutil.NoSuchProcess:
@@ -206,6 +278,25 @@ class ProcessBackend:
             raise RuntimeError(
                 f"Не удалось получить идентичность процесса DevSession PID {pid}: {exc}"
             ) from exc
+
+    @staticmethod
+    def _is_redirector_launcher_signature(
+        environment: DevEnvironment,
+        session_id: str,
+        identity: ProcessIdentity,
+    ) -> bool:
+        """Проверить argv Windows venv launcher до adoption exact runtime-child."""
+
+        expected = ProcessBackend.expected_command(environment, session_id)
+        if identity.pid <= 0 or len(identity.command_line) != len(expected):
+            return False
+        if not _same_path(identity.executable, expected[0]):
+            return False
+        if not _same_path(identity.command_line[0], expected[0]):
+            return False
+        if not _same_path(identity.command_line[1], expected[1]):
+            return False
+        return identity.command_line[2:] == tuple(expected[2:])
 
     def matches(self, identity: ProcessIdentity) -> bool | None:
         if not self._identity_is_destructively_trusted(identity):
@@ -349,13 +440,15 @@ class ProcessBackend:
             return None
         if not _same_path(launcher_identity.executable, str(expected_python)):
             return None
-        if not launcher_identity.matches_dev_contract(
-            root,
+        # Windows venv redirector может сообщить собственный transient cwd,
+        # отличающийся от cwd репозитория. Child уже подтверждает contract
+        # repository/cwd/session, поэтому для group owner проверяем exact
+        # executable и argv launcher.
+        if not self._is_redirector_launcher_signature(
+            DevEnvironment(repository_root=root, python_executable=expected_python),
             session_id,
-            expected_python,
+            launcher_identity,
         ):
-            return None
-        if not _same_path(launcher_identity.command_line[0], str(expected_python)):
             return None
         return launcher_identity.pid
 

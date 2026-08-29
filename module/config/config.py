@@ -324,8 +324,28 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         now = current_time()
         if AzurLaneConfig.is_hoarding_task:
             now -= self.hoarding
-        for func in self.data.values():
-            func = Function(func)
+        from module.dev_runtime.task_sandbox import task_policy_context
+
+        policy_context = task_policy_context(self.config_name)
+        policy = policy_context.policy
+        sandbox_enforced = policy_context.enforced
+        for section, raw_task in self.data.items():
+            if sandbox_enforced and (
+                policy is None
+                or policy.state != "active"
+                or not isinstance(section, str)
+            ):
+                continue
+            func = Function(raw_task)
+            if sandbox_enforced and (
+                policy is None
+                or func.command != section
+                or func.command not in policy.allowed_tasks
+                or func.enable is not True
+            ):
+                continue
+            if sandbox_enforced and not isinstance(func.next_run, datetime):
+                continue
             if not func.enable:
                 continue
             if not isinstance(func.next_run, datetime):
@@ -690,7 +710,21 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         if deep_get(self.data, keys=f"{task}.Scheduler.NextRun", default=None) is None:
             raise ScriptError(f"[Конфигурация] Вызываемая задача `{task}` отсутствует в пользовательской конфигурации")
 
+        from module.dev_runtime.task_sandbox import (
+            authorize_task_call,
+            register_task_dependency,
+        )
+
+        caller = getattr(getattr(self, "task", None), "command", None)
+        authorization = authorize_task_call(self.config_name, caller, task)
+        if authorization is not None and not authorization.allowed:
+            logger.warning(
+                f"[Dev Runtime] Вызов задачи `{task}` заблокирован task sandbox: {authorization.code}"
+            )
+            return False
+
         if force_call or self.is_task_enabled(task):
+            dependency = None
             logger.info(f"[Конфигурация] Вызов задачи: {task}")
             self.modified[f"{task}.Scheduler.NextRun"] = current_time().replace(
                 microsecond=0
@@ -698,6 +732,24 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             self.modified[f"{task}.Scheduler.Enable"] = True
             if self.auto_update:
                 self.update()
+            if authorization is not None and authorization.new_dependency:
+                dependency = register_task_dependency(
+                    self.config_name,
+                    caller=caller,
+                    target=task,
+                    timestamp=current_time().isoformat(),
+                )
+                if dependency is None or not dependency.allowed:
+                    logger.warning(
+                        f"[Dev Runtime] Provenance вызова `{task}` не зафиксирована: "
+                        f"{dependency.code if dependency is not None else 'DEV_TASK_POLICY_INACTIVE'}"
+                    )
+                    return False
+            if dependency is not None and dependency.reason == "dependency_override":
+                logger.info(
+                    f"[Dev Runtime] Задача `{task}` исключена root-политикой, "
+                    f"но временно разрешена как зависимость `{caller}`"
+                )
             return True
         else:
             logger.info(f"[Конфигурация] Вызов задачи: {task} (пропущен: задача отключена пользователем)")

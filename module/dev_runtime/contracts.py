@@ -302,6 +302,18 @@ class DevEnvironment:
     def log_file(self) -> Path:
         return self.repository_root / "config" / "state" / "dev-runtime-gui.log"
 
+    @property
+    def profile_file(self) -> Path:
+        return self.repository_root / "config" / f"{DEV_PROFILE}.json"
+
+    @property
+    def task_policy_file(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-task-policy.json"
+
+    @property
+    def task_policy_lock_file(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-task-policy.lock"
+
     @classmethod
     def current(cls, repository_root: Path | None = None) -> DevEnvironment:
         root = (
