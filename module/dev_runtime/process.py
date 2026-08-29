@@ -12,6 +12,10 @@ import psutil
 
 from module.dev_runtime.contracts import DEV_PROFILE, DevEnvironment, ProcessIdentity
 
+_WINDOWS_REDIRECTOR_SETTLE_TIMEOUT = 1.0
+_WINDOWS_REDIRECTOR_POLL_INTERVAL = 0.02
+_IS_WINDOWS = os.name == "nt"
+
 
 class ProcessBackend:
     """Системная граница запуска и точной проверки процесса DevSession."""
@@ -99,19 +103,71 @@ class ProcessBackend:
         except (OSError, subprocess.SubprocessError):
             return False
 
+    @staticmethod
+    def _identity_from_process(
+        process: psutil.Process, *, pid: int | None = None
+    ) -> ProcessIdentity:
+        process_pid = int(process.pid if pid is None else pid)
+        return ProcessIdentity(
+            pid=process_pid,
+            created_at=float(process.create_time()),
+            executable=str(Path(process.exe()).absolute()),
+            command_line=tuple(process.cmdline()),
+            cwd=str(Path(process.cwd()).absolute()),
+        )
+
+    def _capture_windows_redirected_child(
+        self,
+        launcher_pid: int,
+        environment: DevEnvironment,
+        session_id: str,
+    ) -> ProcessIdentity | None:
+        """Усыновить runtime-child стандартного Windows venv redirector."""
+        deadline = time.monotonic() + _WINDOWS_REDIRECTOR_SETTLE_TIMEOUT
+        while True:
+            try:
+                launcher = psutil.Process(launcher_pid)
+                children = launcher.children(recursive=True)
+            except psutil.NoSuchProcess:
+                return None
+            except psutil.AccessDenied as exc:
+                raise RuntimeError(
+                    "Нельзя безопасно перечислить дочерние процессы Windows venv launcher"
+                ) from exc
+
+            candidates: list[ProcessIdentity] = []
+            for child in children:
+                try:
+                    if child.status() == psutil.STATUS_ZOMBIE:
+                        continue
+                    identity = self._identity_from_process(child)
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    continue
+                if self.identity_belongs_to_session(environment, session_id, identity):
+                    candidates.append(identity)
+
+            if len(candidates) > 1:
+                raise RuntimeError(
+                    "Windows venv launcher создал несколько процессов с полной сигнатурой DevSession"
+                )
+            if len(candidates) == 1:
+                return candidates[0]
+
+            handle = self._launch_handles.get(launcher_pid)
+            if handle is None or handle.poll() is not None:
+                return None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            time.sleep(min(_WINDOWS_REDIRECTOR_POLL_INTERVAL, remaining))
+
     def capture(self, pid: int) -> ProcessIdentity | None:
         try:
             process = psutil.Process(pid)
             if process.status() == psutil.STATUS_ZOMBIE:
                 self._launch_handles.pop(pid, None)
                 return None
-            identity = ProcessIdentity(
-                pid=pid,
-                created_at=float(process.create_time()),
-                executable=str(Path(process.exe()).absolute()),
-                command_line=tuple(process.cmdline()),
-                cwd=str(Path(process.cwd()).absolute()),
-            )
+            identity = self._identity_from_process(process, pid=pid)
             expectation = self._launch_expectations.get(pid)
             if expectation is not None:
                 environment, session_id = expectation
@@ -120,6 +176,24 @@ class ProcessBackend:
                 ):
                     self._abort_unverified_launch(pid)
                     return None
+                if (
+                    _IS_WINDOWS
+                    and pid in self._launch_handles
+                    and _same_path(identity.executable, str(environment.python_executable))
+                ):
+                    redirected = self._capture_windows_redirected_child(
+                        pid,
+                        environment,
+                        session_id,
+                    )
+                    if redirected is not None:
+                        self._launch_expectations.pop(pid, None)
+                        self._launch_expectations[redirected.pid] = (
+                            environment,
+                            session_id,
+                        )
+                        self._launch_handles.pop(pid, None)
+                        return redirected
             self._launch_handles.pop(pid, None)
             return identity
         except psutil.NoSuchProcess:
@@ -171,7 +245,7 @@ class ProcessBackend:
                             "executable/cwd нельзя подтвердить"
                         )
                     try:
-                        pid = int(info["pid"])
+                        process_pid = int(info["pid"])
                         created_at = float(info["create_time"])
                     except (KeyError, TypeError, ValueError) as exc:
                         raise RuntimeError(
@@ -180,7 +254,7 @@ class ProcessBackend:
                         ) from exc
 
                     identity = ProcessIdentity(
-                        pid=pid,
+                        pid=process_pid,
                         created_at=created_at,
                         executable=str(Path(str(raw_executable)).absolute()),
                         command_line=cmdline,
