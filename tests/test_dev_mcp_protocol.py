@@ -8,7 +8,7 @@ import pytest
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from module.dev_mcp.adapter import DevMcpAdapter
+from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter
 from module.dev_mcp.server import (
     DEV_MCP_ARGS,
     DEV_MCP_COMMAND,
@@ -42,7 +42,7 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
     tools = tool_definitions()
     names = [tool.name for tool in tools]
 
-    assert names == [
+    expected_names = [
         "dev_preflight",
         "dev_doctor",
         "dev_list_tasks",
@@ -53,12 +53,27 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         "dev_cleanup",
         "dev_recover",
     ]
+    assert names == expected_names
+    assert tuple(names) == DEV_MCP_TOOL_NAMES
     assert len(names) == len(set(names))
+    assert set(names) == set(expected_names)
+    mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover"}
     for tool in tools:
+        assert tool.description
+        assert tool.annotations is not None
         assert not _FORBIDDEN_INPUT_FIELDS.intersection(tool.inputSchema.get("properties", {}))
         assert tool.inputSchema["additionalProperties"] is False
         assert tool.outputSchema is not None
         assert tool.outputSchema["additionalProperties"] is False
+        assert tool.annotations.readOnlyHint is (tool.name not in mutating)
+        assert tool.annotations.destructiveHint is (tool.name in mutating)
+        if tool.name not in {
+            "dev_plan_session",
+            "dev_start_session",
+            "dev_stop_session",
+        }:
+            assert tool.inputSchema["properties"] == {}
+            assert "required" not in tool.inputSchema
 
     task_schema = next(tool for tool in tools if tool.name == "dev_plan_session").inputSchema
     assert task_schema["required"] == ["root_tasks"]

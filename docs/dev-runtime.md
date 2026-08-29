@@ -47,6 +47,16 @@ instance, path, config setter или shell command. Входные схемы с
 запрещают неизвестные свойства. Ответ проходит отдельную allowlist-сериализацию
 полей `DevResult`; пути, команды, окружение, secrets и traceback не выдаются.
 
+Публичный output contract сохраняет top-level `DevResult` (`ok`, `code`,
+`message`, `state`, `session_id`, `details`) и известные machine-readable
+вложенные структуры. В частности, `preflight.checks` сохраняет `name`, `ok`,
+`code`, `message`; nested `DevResult` в `doctor` сохраняет свои поля; `status`
+сохраняет `task_lifecycle` (`mode`, `phase`, `cleanup_required`,
+`policy_expected`) и безопасный `task_policy` snapshot (`present`, `valid`,
+`state`, `session_id`, `profile`, selectors и provenance dependencies).
+Каждый контекст использует собственный allowlist: неизвестные поля удаляются
+на любой вложенности, а значения проходят bounded depth/items/text и redaction.
+
 Для stdio stdout зарезервирован JSON-RPC протоколом и не содержит operator logs,
 banner или debug output. Диагностические сообщения идут только в stderr.
 
