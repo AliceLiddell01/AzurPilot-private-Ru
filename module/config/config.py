@@ -769,14 +769,18 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                         )
                     raise
             if dependency_timestamp is not None:
-                from module.dev_runtime.hooks import record_dependency_registered
+                try:
+                    from module.dev_runtime.hooks import record_dependency_registered
 
-                record_dependency_registered(
-                    self.config_name,
-                    caller=caller,
-                    target=task,
-                    timestamp=dependency_timestamp,
-                )
+                    record_dependency_registered(
+                        self.config_name,
+                        caller=caller,
+                        target=task,
+                        timestamp=dependency_timestamp,
+                    )
+                except Exception:
+                    # Диагностика не должна блокировать штатный вызов задачи.
+                    pass
             if dependency is not None and dependency.reason == "dependency_override":
                 logger.info(
                     f"[Dev Runtime] Задача `{task}` исключена root-политикой, "

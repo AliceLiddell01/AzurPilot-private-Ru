@@ -2025,7 +2025,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             yield
 
     def _timestamp(self) -> str:
-        return self.now().isoformat()
+        timestamp = self.now()
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        else:
+            timestamp = timestamp.astimezone(UTC)
+        return timestamp.isoformat()
 
     @staticmethod
     def _session_result(

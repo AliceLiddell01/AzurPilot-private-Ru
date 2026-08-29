@@ -493,6 +493,7 @@ def capture_git_snapshot(
             shell=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         captured = bytearray()
 
@@ -1192,7 +1193,7 @@ def _frame_error(
             pass
     return {
         "type": redact_text(type(exception).__name__, max_length=128),
-        "message": redact_text(str(exception), max_length=MAX_SANITIZED_TEXT),
+        "message": redact_text(str(exception), max_length=MAX_SANITIZED_TEXT) or type(exception).__name__,
         "phase": redact_text(phase, max_length=128),
         "task": safe_task,
         "timestamp": timestamp,

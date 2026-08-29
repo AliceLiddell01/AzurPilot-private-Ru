@@ -279,6 +279,9 @@ def test_structured_error_has_safe_relative_frames_and_redacted_message(tmp_path
     assert all("locals" not in frame for frame in error["frames"])
     assert all("C:\\" not in json.dumps(frame) for frame in error["frames"])
 
+    store.record_error(ValueError(), phase="task", task="RootTask", timestamp=_TIME)
+    assert store.summary()["last_error"]["message"] == "ValueError"
+
 
 @dataclass
 class _GitResult:

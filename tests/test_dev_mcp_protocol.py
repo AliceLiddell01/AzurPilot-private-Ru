@@ -147,6 +147,7 @@ def test_screenshot_response_uses_mcp_image_content_without_json_base64() -> Non
     assert base64.b64decode(response.content[0].data) == image_data
     assert response.content[1].type == "text"
     assert "base64" not in response.content[1].text
+    assert response.content[0].data not in response.content[1].text
 
 
 def test_pinned_mcp_client_initializes_and_calls_server() -> None:
