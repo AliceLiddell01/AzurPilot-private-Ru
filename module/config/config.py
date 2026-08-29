@@ -329,24 +329,25 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         policy_context = task_policy_context(self.config_name)
         policy = policy_context.policy
         sandbox_enforced = policy_context.enforced
+        if sandbox_enforced and (policy is None or policy.state != "active"):
+            # Fail-closed: без подтверждённой active policy задачи не планируются.
+            self.pending_task = []
+            self.waiting_task = []
+            return
+        allowed_tasks = set(policy.allowed_tasks) if sandbox_enforced and policy is not None else None
         for section, raw_task in self.data.items():
-            if sandbox_enforced and (
-                policy is None
-                or policy.state != "active"
-                or not isinstance(section, str)
-            ):
+            if sandbox_enforced and not isinstance(section, str):
                 continue
             func = Function(raw_task)
             if sandbox_enforced and (
-                policy is None
-                or func.command != section
-                or func.command not in policy.allowed_tasks
+                func.command != section
+                or func.command not in allowed_tasks
                 or func.enable is not True
             ):
                 continue
             if sandbox_enforced and not isinstance(func.next_run, datetime):
                 continue
-            if not func.enable:
+            if not sandbox_enforced and not func.enable:
                 continue
             if not isinstance(func.next_run, datetime):
                 error.append(func)

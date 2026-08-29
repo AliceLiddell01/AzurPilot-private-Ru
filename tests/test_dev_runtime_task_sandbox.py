@@ -528,6 +528,30 @@ def test_scheduler_filter_blocks_enabled_unrelated_tasks_under_active_policy(
     assert [item.command for item in config.pending_task] == ["RootTask"]
 
 
+def test_scheduler_filter_clears_queues_for_invalid_enforced_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.config.config import AzurLaneConfig
+
+    config = object.__new__(AzurLaneConfig)
+    object.__setattr__(config, "data", {})
+    object.__setattr__(config, "config_name", "ap")
+    object.__setattr__(config, "pending_task", ["stale pending"])
+    object.__setattr__(config, "waiting_task", ["stale waiting"])
+    monkeypatch.setattr(
+        task_sandbox,
+        "task_policy_context",
+        lambda _name: task_sandbox.TaskPolicyContext(
+            True, None, "DEV_TASK_POLICY_CONTEXT_INCOMPLETE"
+        ),
+    )
+
+    config.get_next_task()
+
+    assert config.pending_task == []
+    assert config.waiting_task == []
+
+
 def test_scheduler_is_unchanged_without_active_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
