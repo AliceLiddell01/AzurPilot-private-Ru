@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from module.config.utils import DEFAULT_TIME
+from module.config.constants import DEFAULT_TIME
 
 
 LEGACY_DEFAULT_TIME = datetime(2020, 1, 1, 0, 0)
