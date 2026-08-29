@@ -15,6 +15,7 @@ DEV_PORT = 25549
 STATE_SCHEMA_VERSION = 1
 DEFAULT_READY_TIMEOUT = 120.0
 DEFAULT_STOP_TIMEOUT = 20.0
+_IS_WINDOWS = os.name == "nt"
 
 
 def _absolute_path(path: str | os.PathLike[str]) -> str:
@@ -29,6 +30,29 @@ def _paths_equivalent(left: str | os.PathLike[str], right: str | os.PathLike[str
             return _absolute_path(left) == _absolute_path(right)
         except (OSError, RuntimeError, ValueError):
             return False
+
+
+def _allowed_command_python_paths(expected_python: Path) -> tuple[Path, ...]:
+    """Вернуть допустимые argv[0] для project venv и его Windows base runtime."""
+
+    allowed = [expected_python]
+    if not _IS_WINDOWS:
+        return tuple(allowed)
+
+    try:
+        current_python = Path(os.path.abspath(sys.executable))
+        if not _paths_equivalent(current_python, expected_python):
+            return tuple(allowed)
+        base_executable = getattr(sys, "_base_executable", None)
+        if not isinstance(base_executable, str) or not base_executable:
+            return tuple(allowed)
+        base_python = Path(os.path.abspath(base_executable))
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return tuple(allowed)
+
+    if not any(_paths_equivalent(base_python, candidate) for candidate in allowed):
+        allowed.append(base_python)
+    return tuple(allowed)
 
 
 class DevSessionState(StrEnum):
@@ -114,6 +138,7 @@ class ProcessIdentity:
                 / ".venv"
                 / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
             )
+            allowed_python_paths = _allowed_command_python_paths(expected_python)
             expected_gui = root / "gui.py"
             expected = (
                 str(expected_python),
@@ -132,7 +157,10 @@ class ProcessIdentity:
 
         if len(self.command_line) != len(expected):
             return False
-        if not _paths_equivalent(self.command_line[0], expected[0]):
+        if not any(
+            _paths_equivalent(self.command_line[0], candidate)
+            for candidate in allowed_python_paths
+        ):
             return False
         if not _paths_equivalent(self.command_line[1], expected[1]):
             return False
@@ -140,11 +168,11 @@ class ProcessIdentity:
             return False
         if not _paths_equivalent(self.cwd, root):
             return False
-        # На Windows venv может запускаться через redirector: argv[0] остаётся
-        # project Python, а image executable, который возвращает Process API,
-        # может указывать на базовый интерпретатор. Фактический executable всё
-        # равно фиксируется в ProcessIdentity и затем сравнивается при PID-reuse
-        # проверках; принадлежность DevSession доказывает точный argv/cwd/token.
+        # Windows venv redirector запускает base runtime как дочерний процесс:
+        # у runtime-child argv[0] уже может быть sys._base_executable. Разрешаем
+        # этот путь только когда текущий CLI сам запущен из ожидаемого project
+        # .venv. Остальные argv/cwd/token остаются exact. Фактический executable
+        # фиксируется в ProcessIdentity и затем сравнивается при PID-reuse.
         return True
 
     @classmethod
