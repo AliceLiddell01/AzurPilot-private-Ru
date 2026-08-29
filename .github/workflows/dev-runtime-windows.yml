@@ -1,0 +1,171 @@
+name: Dev Runtime Windows
+
+on:
+  pull_request:
+    branches:
+      - personal/stable
+    paths:
+      - "module/dev_runtime/**"
+      - "tests/test_dev_runtime_windows_*.py"
+      - ".github/workflows/dev-runtime-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-runtime-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-dev-runtime:
+    name: Windows Dev Runtime
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Получить exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Проверить exact head
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
+          $gitExecutable = $gitCommand.Path
+          $gitArguments = @(
+              'rev-parse'
+              'HEAD'
+          )
+          $actualHead = & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+
+          if ($gitExitCode -ne 0) {
+              throw ('git rev-parse завершился с кодом {0}.' -f $gitExitCode)
+          }
+
+          $expectedHead = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $actualHeadValue = [string]($actualHead | Select-Object -Last 1)
+
+          if ($actualHeadValue -ne $expectedHead) {
+              throw ('Получен неожиданный HEAD: {0}' -f $actualHeadValue)
+          }
+
+      - name: Установить uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+          version: "0.11.32"
+
+      - name: Установить Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.6"
+
+      - name: Подготовить project venv
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $uvCommand = Get-Command uv -CommandType Application -ErrorAction Stop | Select-Object -First 1
+          $uvExecutable = $uvCommand.Path
+          $uvArguments = @(
+              'sync'
+              '--locked'
+              '--group'
+              'ci'
+          )
+          & $uvExecutable @uvArguments
+          $uvExitCode = $LASTEXITCODE
+
+          if ($uvExitCode -ne 0) {
+              throw ('uv sync завершился с кодом {0}.' -f $uvExitCode)
+          }
+
+          $projectPython = Join-Path -Path $PWD -ChildPath '.venv/Scripts/python.exe'
+
+          if (-not (Test-Path -LiteralPath $projectPython -PathType Leaf)) {
+              throw ('Project Python не найден: {0}' -f $projectPython)
+          }
+
+      - name: Проверить Dev Runtime на настоящем Windows venv
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $projectPython = Join-Path -Path $PWD -ChildPath '.venv/Scripts/python.exe'
+          $pytestArguments = @(
+              '-m'
+              'pytest'
+              '-q'
+              'tests/test_dev_runtime_windows_venv_redirector.py'
+              'tests/test_dev_runtime_windows_process_group_stop.py'
+              'tests/test_dev_runtime_windows_ci.py'
+          )
+          & $projectPython @pytestArguments
+          $pytestExitCode = $LASTEXITCODE
+
+          if ($pytestExitCode -ne 0) {
+              throw ('Windows Dev Runtime regressions завершились с кодом {0}.' -f $pytestExitCode)
+          }
+
+      - name: Проверить чистоту рабочего дерева
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
+          $gitExecutable = $gitCommand.Path
+
+          $diffArguments = @(
+              'diff'
+              '--exit-code'
+          )
+          & $gitExecutable @diffArguments
+          $diffExitCode = $LASTEXITCODE
+
+          if ($diffExitCode -ne 0) {
+              throw ('git diff --exit-code завершился с кодом {0}.' -f $diffExitCode)
+          }
+
+          $checkArguments = @(
+              'diff'
+              '--check'
+          )
+          & $gitExecutable @checkArguments
+          $checkExitCode = $LASTEXITCODE
+
+          if ($checkExitCode -ne 0) {
+              throw ('git diff --check завершился с кодом {0}.' -f $checkExitCode)
+          }
+
+          $statusArguments = @(
+              'status'
+              '--porcelain'
+          )
+          $statusOutput = @(& $gitExecutable @statusArguments)
+          $statusExitCode = $LASTEXITCODE
+
+          if ($statusExitCode -ne 0) {
+              throw ('git status завершился с кодом {0}.' -f $statusExitCode)
+          }
+
+          if ($statusOutput.Count -gt 0) {
+              $statusText = $statusOutput -join [Environment]::NewLine
+              throw "Рабочее дерево изменено тестами:`n$statusText"
+          }

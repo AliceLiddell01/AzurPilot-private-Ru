@@ -15,6 +15,7 @@ from module.dev_runtime.contracts import DEV_PROFILE, DevEnvironment, ProcessIde
 _WINDOWS_REDIRECTOR_SETTLE_TIMEOUT = 1.0
 _WINDOWS_REDIRECTOR_POLL_INTERVAL = 0.02
 _IS_WINDOWS = os.name == "nt"
+_WINDOWS_CTRL_BREAK_EVENT = getattr(signal, "CTRL_BREAK_EVENT", None)
 
 
 class ProcessBackend:
@@ -325,31 +326,38 @@ class ProcessBackend:
             return None
         root = Path(identity.cwd)
         expected_python = root / ".venv" / "Scripts" / "python.exe"
+        if not identity.matches_dev_contract(root, session_id, expected_python):
+            return None
 
-        if _same_path(identity.command_line[0], str(expected_python)):
+        if (
+            _same_path(identity.executable, str(expected_python))
+            and _same_path(identity.command_line[0], str(expected_python))
+        ):
             return identity.pid
 
         try:
             process = psutil.Process(identity.pid)
-            parents = process.parents()
+            parent = process.parent()
         except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
             return None
+        if parent is None:
+            return None
 
-        for parent in parents:
-            try:
-                launcher_identity = self._identity_from_process(parent)
-            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, ValueError):
-                continue
-            if not launcher_identity.matches_dev_contract(
-                root,
-                session_id,
-                expected_python,
-            ):
-                continue
-            if not _same_path(launcher_identity.command_line[0], str(expected_python)):
-                continue
-            return launcher_identity.pid
-        return None
+        try:
+            launcher_identity = self._identity_from_process(parent)
+        except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, ValueError):
+            return None
+        if not _same_path(launcher_identity.executable, str(expected_python)):
+            return None
+        if not launcher_identity.matches_dev_contract(
+            root,
+            session_id,
+            expected_python,
+        ):
+            return None
+        if not _same_path(launcher_identity.command_line[0], str(expected_python)):
+            return None
+        return launcher_identity.pid
 
     def request_stop(self, identity: ProcessIdentity) -> bool:
         if not self._identity_is_destructively_trusted(identity):
@@ -358,10 +366,12 @@ class ProcessBackend:
             if self.matches(identity) is not True:
                 return False
             if _IS_WINDOWS:
+                if _WINDOWS_CTRL_BREAK_EVENT is None:
+                    return False
                 process_group_id = self._windows_process_group_id(identity)
                 if process_group_id is None:
                     return False
-                os.kill(process_group_id, signal.CTRL_BREAK_EVENT)
+                os.kill(process_group_id, _WINDOWS_CTRL_BREAK_EVENT)
             else:
                 os.kill(identity.pid, signal.SIGINT)
             return True

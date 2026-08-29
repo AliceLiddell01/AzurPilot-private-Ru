@@ -9,6 +9,9 @@ from module.dev_runtime import DevEnvironment, ProcessBackend, ProcessIdentity
 from module.dev_runtime import process as process_module
 
 
+_TEST_CTRL_BREAK_EVENT = 0x7FFF
+
+
 def _environment(tmp_path: Path) -> DevEnvironment:
     root = tmp_path.resolve()
     (root / "module").mkdir(parents=True)
@@ -33,7 +36,6 @@ def test_windows_redirected_child_stop_targets_launcher_process_group(
 
     launcher_command = ProcessBackend.expected_command(environment, session_id)
     child_command = list(launcher_command)
-    child_command[0] = str(base_python)
 
     identity = ProcessIdentity(
         pid=child_pid,
@@ -51,10 +53,15 @@ def test_windows_redirected_child_stop_targets_launcher_process_group(
     )
     child = SimpleNamespace(
         pid=child_pid,
-        parents=lambda: [launcher],
+        parent=lambda: launcher,
     )
 
     monkeypatch.setattr(process_module, "_IS_WINDOWS", True)
+    monkeypatch.setattr(
+        process_module,
+        "_WINDOWS_CTRL_BREAK_EVENT",
+        _TEST_CTRL_BREAK_EVENT,
+    )
     monkeypatch.setattr(
         process_module.psutil,
         "Process",
@@ -73,7 +80,7 @@ def test_windows_redirected_child_stop_targets_launcher_process_group(
     monkeypatch.setattr(backend, "matches", lambda _identity: True)
 
     assert backend.request_stop(identity) is True
-    assert killed == [(launcher_pid, process_module.signal.CTRL_BREAK_EVENT)]
+    assert killed == [(launcher_pid, _TEST_CTRL_BREAK_EVENT)]
 
 
 def test_windows_redirected_child_stop_fails_closed_without_exact_launcher(
@@ -88,7 +95,6 @@ def test_windows_redirected_child_stop_fails_closed_without_exact_launcher(
     base_python.write_text("", encoding="utf-8")
 
     child_command = ProcessBackend.expected_command(environment, session_id)
-    child_command[0] = str(base_python)
     identity = ProcessIdentity(
         pid=child_pid,
         created_at=92.02,
@@ -108,10 +114,15 @@ def test_windows_redirected_child_stop_fails_closed_without_exact_launcher(
     )
     child = SimpleNamespace(
         pid=child_pid,
-        parents=lambda: [foreign_parent],
+        parent=lambda: foreign_parent,
     )
 
     monkeypatch.setattr(process_module, "_IS_WINDOWS", True)
+    monkeypatch.setattr(
+        process_module,
+        "_WINDOWS_CTRL_BREAK_EVENT",
+        _TEST_CTRL_BREAK_EVENT,
+    )
     monkeypatch.setattr(process_module.psutil, "Process", lambda _pid: child)
 
     killed: list[tuple[int, int]] = []
