@@ -324,9 +324,30 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         now = current_time()
         if AzurLaneConfig.is_hoarding_task:
             now -= self.hoarding
-        for func in self.data.values():
-            func = Function(func)
-            if not func.enable:
+        from module.dev_runtime.task_sandbox import task_policy_context
+
+        policy_context = task_policy_context(self.config_name)
+        policy = policy_context.policy
+        sandbox_enforced = policy_context.enforced
+        if sandbox_enforced and (policy is None or policy.state != "active"):
+            # Fail-closed: без подтверждённой active policy задачи не планируются.
+            self.pending_task = []
+            self.waiting_task = []
+            return
+        allowed_tasks = set(policy.allowed_tasks) if sandbox_enforced and policy is not None else None
+        for section, raw_task in self.data.items():
+            if sandbox_enforced and not isinstance(section, str):
+                continue
+            func = Function(raw_task)
+            if sandbox_enforced and (
+                func.command != section
+                or func.command not in allowed_tasks
+                or func.enable is not True
+            ):
+                continue
+            if sandbox_enforced and not isinstance(func.next_run, datetime):
+                continue
+            if not sandbox_enforced and not func.enable:
                 continue
             if not isinstance(func.next_run, datetime):
                 error.append(func)
@@ -674,30 +695,84 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         self.update()
 
     def task_call(self, task, force_call=True):
-        """调用另一个任务运行。
+        """Запланировать запуск другой задачи.
 
-        该任务会在当前任务完成后运行，但可能不会实际执行，因为：
-        - 其他任务可能根据 SCHEDULER_PRIORITY 优先执行
-        - 任务可能被用户禁用
+        Задача будет запущена после завершения текущей, но фактический запуск
+        может не произойти, если:
+        - другая задача имеет более высокий приоритет в SCHEDULER_PRIORITY;
+        - задача отключена пользователем.
 
         Args:
-            task (str): 要调用的任务名称，如 `Restart`。
-            force_call (bool): 是否强制调用。
+            task (str): имя вызываемой задачи, например `Restart`.
+            force_call (bool): принудительно запланировать вызов.
 
         Returns:
-            bool: 是否成功调用。
+            bool: удалось ли запланировать вызов.
         """
         if deep_get(self.data, keys=f"{task}.Scheduler.NextRun", default=None) is None:
             raise ScriptError(f"[Конфигурация] Вызываемая задача `{task}` отсутствует в пользовательской конфигурации")
 
-        if force_call or self.is_task_enabled(task):
-            logger.info(f"[Конфигурация] Вызов задачи: {task}")
-            self.modified[f"{task}.Scheduler.NextRun"] = current_time().replace(
-                microsecond=0
+        from module.dev_runtime.task_sandbox import (
+            authorize_task_call,
+            register_task_dependency,
+            rollback_task_dependency,
+        )
+
+        caller = getattr(getattr(self, "task", None), "command", None)
+        authorization = authorize_task_call(self.config_name, caller, task)
+        if authorization is not None and not authorization.allowed:
+            logger.warning(
+                f"[Dev Runtime] Вызов задачи `{task}` заблокирован task sandbox: {authorization.code}"
             )
-            self.modified[f"{task}.Scheduler.Enable"] = True
-            if self.auto_update:
-                self.update()
+            return False
+
+        if force_call or self.is_task_enabled(task):
+            dependency = None
+            dependency_timestamp = None
+            if authorization is not None and authorization.new_dependency:
+                dependency_timestamp = current_time().isoformat()
+                dependency = register_task_dependency(
+                    self.config_name,
+                    caller=caller,
+                    target=task,
+                    timestamp=dependency_timestamp,
+                )
+                if dependency is None or not dependency.allowed:
+                    logger.warning(
+                        f"[Dev Runtime] Provenance вызова `{task}` не зафиксирована: "
+                        f"{dependency.code if dependency is not None else 'DEV_TASK_POLICY_INACTIVE'}"
+                    )
+                    return False
+            logger.info(f"[Конфигурация] Вызов задачи: {task}")
+            try:
+                self.modified[f"{task}.Scheduler.NextRun"] = current_time().replace(
+                    microsecond=0
+                )
+                self.modified[f"{task}.Scheduler.Enable"] = True
+                if self.auto_update:
+                    self.update()
+            except Exception:
+                if dependency_timestamp is not None:
+                    rolled_back = rollback_task_dependency(
+                        self.config_name,
+                        caller=caller,
+                        target=task,
+                        timestamp=dependency_timestamp,
+                    )
+                    if rolled_back is None or not rolled_back.rolled_back:
+                        logger.error(
+                            f"[Dev Runtime] Не удалось откатить provenance вызова `{task}` "
+                            f"после ошибки записи профиля: "
+                            f"{rolled_back.code if rolled_back is not None else 'DEV_TASK_POLICY_INACTIVE'}; "
+                            f"cleanup_pending="
+                            f"{rolled_back.policy_marked_cleanup_pending if rolled_back is not None else False}"
+                        )
+                raise
+            if dependency is not None and dependency.reason == "dependency_override":
+                logger.info(
+                    f"[Dev Runtime] Задача `{task}` исключена root-политикой, "
+                    f"но временно разрешена как зависимость `{caller}`"
+                )
             return True
         else:
             logger.info(f"[Конфигурация] Вызов задачи: {task} (пропущен: задача отключена пользователем)")

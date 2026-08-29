@@ -65,6 +65,21 @@ class DevSessionState(StrEnum):
     STALE = "stale"
 
 
+class DevTaskMode(StrEnum):
+    NONE = "none"
+    TASK_AWARE = "task_aware"
+
+
+class DevTaskPhase(StrEnum):
+    NONE = "none"
+    PREPARING = "preparing"
+    PREPARED = "prepared"
+    RUNNING = "running"
+    PRESERVED = "preserved"
+    CLEANUP_PENDING = "cleanup_pending"
+    CLEAN = "clean"
+
+
 class DevStatusKind(StrEnum):
     NO_SESSION = "no_session"
     STARTING = "starting"
@@ -220,6 +235,26 @@ class DevSession:
     process: ProcessIdentity | None = None
     last_code: str | None = None
     last_message: str | None = None
+    task_mode: DevTaskMode = DevTaskMode.NONE
+    task_phase: DevTaskPhase = DevTaskPhase.NONE
+    task_cleanup_required: bool = False
+    task_policy_expected: bool = False
+
+    @property
+    def is_task_aware(self) -> bool:
+        return self.task_mode == DevTaskMode.TASK_AWARE
+
+    @property
+    def task_cleanup_needed(self) -> bool:
+        return self.is_task_aware and self.task_cleanup_required
+
+    def task_lifecycle_as_dict(self) -> dict[str, object]:
+        return {
+            "mode": self.task_mode.value,
+            "phase": self.task_phase.value,
+            "cleanup_required": self.task_cleanup_required,
+            "policy_expected": self.task_policy_expected,
+        }
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -232,6 +267,10 @@ class DevSession:
             "process": self.process.as_dict() if self.process is not None else None,
             "last_code": self.last_code,
             "last_message": self.last_message,
+            "task_mode": self.task_mode.value,
+            "task_phase": self.task_phase.value,
+            "task_cleanup_required": self.task_cleanup_required,
+            "task_policy_expected": self.task_policy_expected,
         }
 
     @classmethod
@@ -267,6 +306,35 @@ class DevSession:
             raise ValueError("last_code должен быть строкой или null")
         if last_message is not None and not isinstance(last_message, str):
             raise ValueError("last_message должен быть строкой или null")
+        try:
+            task_mode = DevTaskMode(str(payload.get("task_mode", DevTaskMode.NONE.value)))
+            task_phase = DevTaskPhase(
+                str(payload.get("task_phase", DevTaskPhase.NONE.value))
+            )
+        except ValueError as exc:
+            raise ValueError("маркер содержит некорректный task lifecycle") from exc
+        task_cleanup_required = payload.get("task_cleanup_required", False)
+        task_policy_expected = payload.get("task_policy_expected", False)
+        if not isinstance(task_cleanup_required, bool) or not isinstance(
+            task_policy_expected, bool
+        ):
+            raise ValueError("task lifecycle flags должны быть boolean")
+        if task_mode == DevTaskMode.NONE:
+            if (
+                task_phase != DevTaskPhase.NONE
+                or task_cleanup_required
+                or task_policy_expected
+            ):
+                raise ValueError("обычная DevSession не может содержать task lifecycle")
+        elif (
+            task_phase == DevTaskPhase.NONE
+            or task_cleanup_required is not True
+            or task_policy_expected is not True
+        ) and task_phase != DevTaskPhase.CLEAN:
+            raise ValueError("незавершённый task lifecycle требует cleanup и policy")
+        if task_mode == DevTaskMode.TASK_AWARE and task_phase == DevTaskPhase.CLEAN:
+            if task_cleanup_required or task_policy_expected:
+                raise ValueError("clean task lifecycle не должен требовать cleanup")
         return cls(
             session_id=session_id,
             state=state,
@@ -276,6 +344,10 @@ class DevSession:
             process=process,
             last_code=last_code,
             last_message=last_message,
+            task_mode=task_mode,
+            task_phase=task_phase,
+            task_cleanup_required=task_cleanup_required,
+            task_policy_expected=task_policy_expected,
         )
 
 
@@ -301,6 +373,18 @@ class DevEnvironment:
     @property
     def log_file(self) -> Path:
         return self.repository_root / "config" / "state" / "dev-runtime-gui.log"
+
+    @property
+    def profile_file(self) -> Path:
+        return self.repository_root / "config" / f"{DEV_PROFILE}.json"
+
+    @property
+    def task_policy_file(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-task-policy.json"
+
+    @property
+    def task_policy_lock_file(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-task-policy.lock"
 
     @classmethod
     def current(cls, repository_root: Path | None = None) -> DevEnvironment:

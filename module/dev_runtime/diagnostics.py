@@ -22,6 +22,15 @@ from module.dev_runtime.contracts import (
 )
 
 _REGISTRY_MAX_BYTES = 1024 * 1024
+_TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
+    {
+        "DEV_TASK_POLICY_MISSING",
+        "DEV_TASK_POLICY_NOT_ACTIVE",
+        "DEV_TASK_STATE_PRESERVED",
+        "DEV_TASK_CLEANUP_REQUIRED",
+        "DEV_SESSION_RECOVERY_REQUIRED",
+    }
+)
 
 
 class DevDiagnosticsMixin:
@@ -78,20 +87,48 @@ class DevDiagnosticsMixin:
             stored_session = self._read_session()
         except (OSError, ValueError):
             stored_session = None
+        task_cleanup_recoverable = (
+            stored_session is not None
+            and stored_session.task_cleanup_needed
+            and state.state
+            in {
+                DevStatusKind.STARTING.value,
+                DevStatusKind.STOPPED.value,
+                DevStatusKind.FAILED.value,
+                DevStatusKind.STALE.value,
+            }
+            and state.code in _TASK_CLEANUP_RECOVERABLE_CODES
+        )
+        task_state_invalid = (
+            state.code.startswith("DEV_TASK_POLICY_")
+            or state.code.startswith("DEV_TASK_STATE_")
+            or state.code
+            in {"DEV_TASK_STATE_PRESERVED", "DEV_TASK_CLEANUP_REQUIRED"}
+        )
+        if task_state_invalid and not task_cleanup_recoverable:
+            add(
+                "task_policy",
+                False,
+                state.code,
+                "Task policy или task lifecycle нельзя безопасно подтвердить",
+            )
         failed_without_process = (
             state.state == DevStatusKind.FAILED.value
             and stored_session is not None
             and stored_session.process is None
+            and not task_state_invalid
         )
         safely_recoverable_stale = (
             state.state == DevStatusKind.STALE.value
             and state.code == "DEV_SESSION_STALE"
         )
         state_ok = (
-            state.state
+            state.ok
+            and state.state
             in {DevStatusKind.NO_SESSION.value, DevStatusKind.STOPPED.value}
             or failed_without_process
             or safely_recoverable_stale
+            or task_cleanup_recoverable
         )
         add(
             "session",
@@ -136,7 +173,7 @@ class DevDiagnosticsMixin:
         status = self.status()
         after = self._raw_state_bytes()
         read_only = before == after
-        ok = preflight.ok and read_only
+        ok = preflight.ok and status.ok and read_only
         return DevResult(
             ok=ok,
             code="DEV_DOCTOR_OK" if ok else "DEV_DOCTOR_ISSUES",
