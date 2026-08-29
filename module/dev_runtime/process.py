@@ -318,14 +318,50 @@ class ProcessBackend:
         except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, ValueError):
             return False
 
+    def _windows_process_group_id(self, identity: ProcessIdentity) -> int | None:
+        """Найти отдельную process group, созданную project venv launcher."""
+        session_id = identity.command_session_id()
+        if session_id is None:
+            return None
+        root = Path(identity.cwd)
+        expected_python = root / ".venv" / "Scripts" / "python.exe"
+
+        if _same_path(identity.command_line[0], str(expected_python)):
+            return identity.pid
+
+        try:
+            process = psutil.Process(identity.pid)
+            parents = process.parents()
+        except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+            return None
+
+        for parent in parents:
+            try:
+                launcher_identity = self._identity_from_process(parent)
+            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, ValueError):
+                continue
+            if not launcher_identity.matches_dev_contract(
+                root,
+                session_id,
+                expected_python,
+            ):
+                continue
+            if not _same_path(launcher_identity.command_line[0], str(expected_python)):
+                continue
+            return launcher_identity.pid
+        return None
+
     def request_stop(self, identity: ProcessIdentity) -> bool:
         if not self._identity_is_destructively_trusted(identity):
             return False
         try:
             if self.matches(identity) is not True:
                 return False
-            if os.name == "nt":
-                os.kill(identity.pid, signal.CTRL_BREAK_EVENT)
+            if _IS_WINDOWS:
+                process_group_id = self._windows_process_group_id(identity)
+                if process_group_id is None:
+                    return False
+                os.kill(process_group_id, signal.CTRL_BREAK_EVENT)
             else:
                 os.kill(identity.pid, signal.SIGINT)
             return True
