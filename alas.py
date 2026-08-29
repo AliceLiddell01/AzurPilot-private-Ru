@@ -381,6 +381,13 @@ class AzurLaneAutoScript:
         try:
             from module.dev_runtime.hooks import record_runtime_error
 
+            canonical_task = getattr(
+                getattr(self.__dict__.get("config"), "task", None),
+                "command",
+                None,
+            )
+            if isinstance(canonical_task, str):
+                task = canonical_task
             record_runtime_error(
                 self.config_name,
                 exception,

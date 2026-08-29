@@ -1898,6 +1898,11 @@ class EvidenceStore:
         """Обработать на стороне рабочего процесса уже созданный явный запрос."""
 
         try:
+            if not self.request_path.exists():
+                return
+        except OSError:
+            return
+        try:
             with _exclusive_lock(self.lock_path, self.environment.repository_root):
                 manifest = self._manifest_locked()
                 session_state = manifest.get("stopped_at")

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
-import numpy as np
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from module.dev_mcp.adapter import DevMcpAdapter, serialize_dev_result
@@ -414,6 +415,7 @@ def test_serializer_keeps_depth_and_json_safety_bounds() -> None:
         ('failed {"cookie": "secret-cookie"}', "secret-cookie"),
         ("failed private_key=secret-private-key", "secret-private-key"),
         ("failed openai_api_key=secret-openai", "secret-openai"),
+        ('failed {"password":"secret\\"quoted"}', 'secret\\"quoted'),
         ("failed https://user:password@example.invalid/", "password"),
         ("failed https://example.invalid/?api_key=secret-query", "secret-query"),
     ],
@@ -562,6 +564,12 @@ def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: 
         assert evidence["details"]["logs"]["available"] is True
         assert evidence["details"]["current_task"] is None
         assert "cleanup" in evidence["details"]
+        assert set(evidence["details"]["cleanup"]) == {
+            "status",
+            "confirmed",
+            "preserved",
+            "updated_at",
+        }
 
         store = EvidenceStore.for_session(manager.environment, started["session_id"])
         store.record_task("RootTask", timestamp="2026-08-29T00:00:00+00:00")
@@ -593,6 +601,9 @@ def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: 
         assert screenshot.mime_type == "image/png"
         assert screenshot.image
         assert "screenshot" in screenshot.structured["details"]
+        metadata = screenshot.structured["details"]["screenshot"]
+        assert metadata["byte_size"] == len(screenshot.image)
+        assert metadata["sha256"] == hashlib.sha256(screenshot.image).hexdigest()
         assert "base64" not in json.dumps(screenshot.structured, ensure_ascii=False)
     finally:
         stopped = adapter.call("dev_stop_session")

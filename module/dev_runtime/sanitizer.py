@@ -31,7 +31,7 @@ _SENSITIVE_QUOTED_ASSIGNMENT = re.compile(
     (?P<separator>\s*[:=]\s*)
     (?P<value_quote>["'])
     (?P<bearer>bearer\s+)?
-    (?P<value>.*?)
+    (?P<value>(?:\\.|(?!(?P=value_quote)).)*?)
     (?P=value_quote)
     """
 )
@@ -41,7 +41,7 @@ _SENSITIVE_QUOTED_VALUE = re.compile(
     (?P<separator>\s*[:=]\s*)
     (?P<value_quote>["'])
     (?P<bearer>bearer\s+)?
-    (?P<value>.*?)
+    (?P<value>(?:\\.|(?!(?P=value_quote)).)*?)
     (?P=value_quote)
     """
 )

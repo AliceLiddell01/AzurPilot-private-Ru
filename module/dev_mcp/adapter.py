@@ -318,6 +318,7 @@ _SCHEMA_KEYS = {
     "event_fields": _SAFE_EVENT_FIELDS_KEYS,
     "lifecycle": _SAFE_LIFECYCLE_KEYS,
     "dependency_summary": _SAFE_DEPENDENCY_SUMMARY_KEYS,
+    "cleanup_summary": _SAFE_CLEANUP_SUMMARY_KEYS,
     "log_summary": _SAFE_LOG_SUMMARY_KEYS,
     "log_page": _SAFE_LOG_PAGE_KEYS,
     "log_item": _SAFE_LOG_ITEM_KEYS,
