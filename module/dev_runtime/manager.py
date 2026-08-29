@@ -742,7 +742,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                         state=DevStatusKind.RUNNING_OWNED,
                     )
             if session is not None and session.is_task_aware:
-                self._evidence_event("cleanup_started", {"preserved": True}, store=evidence_store)
+                self._evidence_event("cleanup_started", {"preserved": False}, store=evidence_store)
             cleanup = self._cleanup_task_state_locked(
                 expected_session_id=session.session_id if session is not None else None,
                 session=session,

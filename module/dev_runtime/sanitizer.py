@@ -21,6 +21,7 @@ _CREDENTIAL_NAME = (
     r"authorization|access[_-]?token|x[_-]?api[_-]?key|api[_-]?key|"
     r"token|password|passwd|secret|cookie|session(?:[_-]?id)?|private[_-]?key|credential"
 )
+_CREDENTIAL_BOUNDARY = r"(?<![A-Za-z0-9])"
 _BEARER = re.compile(r"(?i)(\bbearer\s+)[^\s,;\]}]+")
 _SENSITIVE_QUOTED_ASSIGNMENT = re.compile(
     rf"""(?ix)
@@ -36,7 +37,7 @@ _SENSITIVE_QUOTED_ASSIGNMENT = re.compile(
 )
 _SENSITIVE_QUOTED_VALUE = re.compile(
     rf"""(?ix)
-    \b(?P<key>{_CREDENTIAL_NAME})
+    {_CREDENTIAL_BOUNDARY}(?P<key>{_CREDENTIAL_NAME})
     (?P<separator>\s*[:=]\s*)
     (?P<value_quote>["'])
     (?P<bearer>bearer\s+)?
@@ -45,7 +46,7 @@ _SENSITIVE_QUOTED_VALUE = re.compile(
     """
 )
 _SENSITIVE_ASSIGNMENT = re.compile(
-    rf"(?i)\b(?P<key>{_CREDENTIAL_NAME})"
+    rf"(?i){_CREDENTIAL_BOUNDARY}(?P<key>{_CREDENTIAL_NAME})"
     r"(?P<separator>\s*[:=]\s*)"
     r"(?P<bearer>bearer\s+)?"
     r"(?P<value>[^\s,;}\]]+)"

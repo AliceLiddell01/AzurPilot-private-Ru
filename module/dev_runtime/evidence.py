@@ -1045,7 +1045,7 @@ def _validate_manifest(value: object, expected_session_id: str) -> dict[str, obj
         raise EvidenceCorrupt("DEV_EVIDENCE_FOREIGN_SESSION", "Манифест принадлежит другой сессии или профилю")
     validate_session_id(value.get("session_id"))
     timestamps = {
-        field_name: _utc_timestamp(value.get(field_name), allow_none=field_name != "created_at")
+        field_name: _utc_timestamp(value.get(field_name), allow_none=field_name == "stopped_at")
         for field_name in ("created_at", "started_at", "stopped_at")
     }
     created_at = datetime.fromisoformat(timestamps["created_at"])

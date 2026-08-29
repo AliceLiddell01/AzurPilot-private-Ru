@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import numpy as np
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -161,7 +162,11 @@ class _SyntheticProcessBackend:
         return self.request_stop(identity)
 
 
-def _real_runtime_manager(tmp_path: Path) -> tuple[DevSessionManager, _SyntheticProcessBackend]:
+def _real_runtime_manager(
+    tmp_path: Path,
+    *,
+    screenshot_provider: Callable[[str], object] | None = None,
+) -> tuple[DevSessionManager, _SyntheticProcessBackend]:
     root = tmp_path.resolve()
     (root / "module").mkdir()
     (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
@@ -194,6 +199,7 @@ def _real_runtime_manager(tmp_path: Path) -> tuple[DevSessionManager, _Synthetic
         readiness_probe=lambda _environment, _identity: (True, "ready"),
         now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
         session_id_factory=lambda: "sandbox-session",
+        screenshot_provider=screenshot_provider,
         ready_timeout=0.01,
         stop_timeout=0.01,
     )
@@ -407,6 +413,7 @@ def test_serializer_keeps_depth_and_json_safety_bounds() -> None:
         ("failed Bearer secret-bearer-standalone", "secret-bearer-standalone"),
         ('failed {"cookie": "secret-cookie"}', "secret-cookie"),
         ("failed private_key=secret-private-key", "secret-private-key"),
+        ("failed openai_api_key=secret-openai", "secret-openai"),
         ("failed https://user:password@example.invalid/", "password"),
         ("failed https://example.invalid/?api_key=secret-query", "secret-query"),
     ],
@@ -539,8 +546,10 @@ def test_real_status_preserves_task_lifecycle_and_policy_snapshot(tmp_path: Path
 
 
 def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: Path) -> None:
-    manager, _backend = _real_runtime_manager(tmp_path)
-    manager.screenshot_provider = lambda _session_id: np.zeros((2, 3, 3), dtype=np.uint8)
+    manager, _backend = _real_runtime_manager(
+        tmp_path,
+        screenshot_provider=lambda _session_id: np.zeros((2, 3, 3), dtype=np.uint8),
+    )
     adapter = DevMcpAdapter(lambda: manager)
 
     started = adapter.call("dev_start_session", {"root_tasks": ["RootTask"]})

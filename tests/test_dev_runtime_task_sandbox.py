@@ -660,10 +660,12 @@ def test_task_aware_readiness_failure_and_stale_recovery_cleanup(
     assert failed.code == "DEV_READINESS_FAILED"
     assert failed.details["task_cleanup"]["details"]["cleanup_confirmed"] is True
     assert not environment.task_policy_file.exists()
-    evidence = EvidenceStore.for_session(environment, failed.session_id).summary()
+    assert failed.session_id == "sandbox-session"
+    store = EvidenceStore.for_session(environment, failed.session_id)
+    evidence = store.summary()
     assert evidence["cleanup"]["status"] == "complete"
     assert evidence["lifecycle"]["duration_seconds"] == 0
-    timeline = EvidenceStore.for_session(environment, failed.session_id).timeline_page(limit=100)
+    timeline = store.timeline_page(limit=100)
     assert "session_stopped" in [event["type"] for event in timeline["events"]]
 
     backend = _Backend()

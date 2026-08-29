@@ -97,7 +97,7 @@ def test_evidence_store_rejects_unsafe_identity_and_corrupt_manifest(tmp_path: P
 
     with pytest.raises(EvidenceCorrupt):
         store.summary()
-    with pytest.raises(EvidenceError, match="уже существует"):
+    with pytest.raises(EvidenceError) as error:
         EvidenceStore.create(
             store.environment,
             session_id="session-1",
@@ -105,6 +105,7 @@ def test_evidence_store_rejects_unsafe_identity_and_corrupt_manifest(tmp_path: P
             excluded_tasks=[],
             timestamp=_TIME,
         )
+    assert error.value.code == "DEV_EVIDENCE_SESSION_EXISTS"
 
 
 def test_evidence_store_rejects_corrupt_event_and_false_complete_health(tmp_path: Path) -> None:
@@ -157,8 +158,9 @@ def test_evidence_logs_use_boundary_cursor_and_sanitization(tmp_path: Path) -> N
     assert [item["text"] for item in second["items"]] == ["second", "invalid-utf8-�"]
     assert second["next_cursor"] is None
 
-    with pytest.raises(EvidenceError, match="Курсор"):
+    with pytest.raises(EvidenceError) as error:
         store.logs_page(cursor="not-a-valid-cursor", limit=1)
+    assert error.value.code == "DEV_EVIDENCE_CURSOR_INVALID"
 
     malformed_cursor = base64.urlsafe_b64encode(
         json.dumps(
@@ -169,13 +171,15 @@ def test_evidence_logs_use_boundary_cursor_and_sanitization(tmp_path: Path) -> N
             }
         ).encode("utf-8")
     ).decode("ascii")
-    with pytest.raises(EvidenceError, match="Курсор"):
+    with pytest.raises(EvidenceError) as error:
         store.logs_page(cursor=malformed_cursor, limit=1)
+    assert error.value.code == "DEV_EVIDENCE_CURSOR_INVALID"
     assert store.summary()["evidence_health"]["status"] != "corrupt"
 
     store.environment.log_file.write_bytes(b"rotated\n")
-    with pytest.raises(EvidenceError, match="заменён или обрезан"):
+    with pytest.raises(EvidenceError) as error:
         store.logs_page(limit=1)
+    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
 
 
 def test_evidence_logs_respect_hard_page_byte_bound(tmp_path: Path) -> None:
@@ -202,7 +206,7 @@ def test_evidence_create_does_not_overwrite_nonempty_session_directory(tmp_path:
     marker = collision / "unrelated.txt"
     marker.write_text("сохранить", encoding="utf-8")
 
-    with pytest.raises(EvidenceError, match="уже существует"):
+    with pytest.raises(EvidenceError) as error:
         EvidenceStore.create(
             environment,
             session_id="session-1",
@@ -210,6 +214,7 @@ def test_evidence_create_does_not_overwrite_nonempty_session_directory(tmp_path:
             excluded_tasks=[],
             timestamp=_TIME,
         )
+    assert error.value.code == "DEV_EVIDENCE_SESSION_EXISTS"
 
     assert marker.read_text(encoding="utf-8") == "сохранить"
     assert not (collision / "manifest.json").exists()
@@ -238,8 +243,9 @@ def test_screenshot_metadata_is_bounded_and_self_verified(tmp_path: Path) -> Non
 
     screenshot_path = store.screenshot_dir / f"{metadata['screenshot_id']}.png"
     screenshot_path.unlink()
-    with pytest.raises(EvidenceCorrupt, match="Файл снимка экрана отсутствует"):
+    with pytest.raises(EvidenceCorrupt) as error:
         store.summary()
+    assert error.value.code == "DEV_EVIDENCE_CORRUPT"
 
 
 def test_screenshot_bytes_must_be_png(tmp_path: Path) -> None:
@@ -354,7 +360,7 @@ def test_dependency_rejects_unknown_reason_without_mutating_evidence(tmp_path: P
     before_manifest = store.manifest_path.read_bytes()
     before_timeline = store.timeline_path.read_bytes()
 
-    with pytest.raises(EvidenceError, match="Причина зависимости неизвестна"):
+    with pytest.raises(EvidenceError) as error:
         store.record_dependency(
             {
                 "task": "DependencyTask",
@@ -368,6 +374,7 @@ def test_dependency_rejects_unknown_reason_without_mutating_evidence(tmp_path: P
 
     assert store.manifest_path.read_bytes() == before_manifest
     assert store.timeline_path.read_bytes() == before_timeline
+    assert error.value.code == "DEV_EVIDENCE_DEPENDENCY_INVALID"
 
 
 def test_timeline_truncation_remains_readable_and_is_reported(tmp_path: Path, monkeypatch) -> None:

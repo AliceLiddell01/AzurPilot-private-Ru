@@ -3,14 +3,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import io
 import json
-import struct
-import zlib
 from pathlib import Path
 
 import pytest
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from PIL import Image
 
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
 from module.dev_mcp.server import (
@@ -111,16 +111,9 @@ def test_server_bootstrap_does_not_construct_runtime_manager() -> None:
 
 
 def test_screenshot_response_uses_mcp_image_content_without_json_base64() -> None:
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        body = kind + data
-        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
-
-    image_data = (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x7f\xff"))
-        + chunk(b"IEND", b"")
-    )
+    output = io.BytesIO()
+    Image.new("RGBA", (1, 1), (0, 127, 255, 255)).save(output, format="PNG")
+    image_data = output.getvalue()
     response = _screenshot_call_result(
         DevMcpResponse(
             {
@@ -242,7 +235,7 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
                 {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             )
             assert listed["id"] == 2
-            assert len(listed["result"]["tools"]) == 13
+            assert len(listed["result"]["tools"]) == len(DEV_MCP_TOOL_NAMES)
 
             preflight = await _raw_request(
                 process,

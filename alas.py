@@ -1771,10 +1771,17 @@ class AzurLaneAutoScript:
 
             # 捕获全局异常并执行重启
             except Exception as e:
+                scheduler_task = getattr(
+                    getattr(self.__dict__.get("config"), "task", None),
+                    "command",
+                    None,
+                )
+                if not isinstance(scheduler_task, str):
+                    scheduler_task = None
                 record_dev_runtime_error(
                     e,
                     phase="scheduler",
-                    task=getattr(getattr(self, "config", None), "task", None),
+                    task=scheduler_task,
                 )
                 consecutive_global_failures += 1
                 self.is_first_task = False
