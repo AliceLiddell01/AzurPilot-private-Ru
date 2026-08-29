@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter
+from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
 from module.dev_mcp.server import (
     DEV_MCP_ARGS,
     DEV_MCP_COMMAND,
     SERVER_NAME,
     create_server,
+    _screenshot_call_result,
     tool_definitions,
 )
 
@@ -52,6 +57,10 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         "dev_stop_session",
         "dev_cleanup",
         "dev_recover",
+        "dev_get_evidence",
+        "dev_get_timeline",
+        "dev_get_logs",
+        "dev_get_screenshot",
     ]
     assert names == expected_names
     assert tuple(names) == DEV_MCP_TOOL_NAMES
@@ -71,6 +80,9 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
             "dev_plan_session",
             "dev_start_session",
             "dev_stop_session",
+            "dev_get_evidence",
+            "dev_get_timeline",
+            "dev_get_logs",
         }:
             assert tool.inputSchema["properties"] == {}
             assert "required" not in tool.inputSchema
@@ -78,6 +90,12 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
     task_schema = next(tool for tool in tools if tool.name == "dev_plan_session").inputSchema
     assert task_schema["required"] == ["root_tasks"]
     assert task_schema["properties"]["root_tasks"]["minItems"] == 1
+    evidence_schema = next(tool for tool in tools if tool.name == "dev_get_evidence").inputSchema
+    assert set(evidence_schema["properties"]) == {"session_id"}
+    timeline_schema = next(tool for tool in tools if tool.name == "dev_get_timeline").inputSchema
+    assert timeline_schema["properties"]["limit"]["maximum"] == 200
+    logs_schema = next(tool for tool in tools if tool.name == "dev_get_logs").inputSchema
+    assert logs_schema["properties"]["cursor"]["maxLength"] == 2048
 
 
 def test_server_bootstrap_does_not_construct_runtime_manager() -> None:
@@ -90,6 +108,52 @@ def test_server_bootstrap_does_not_construct_runtime_manager() -> None:
     create_server(DevMcpAdapter(factory))
 
     assert factory_calls == []
+
+
+def test_screenshot_response_uses_mcp_image_content_without_json_base64() -> None:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    image_data = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x7f\xff"))
+        + chunk(b"IEND", b"")
+    )
+    response = _screenshot_call_result(
+        DevMcpResponse(
+            {
+                "ok": True,
+                "code": "DEV_SCREENSHOT_READY",
+                "message": "Снимок экрана готов",
+                "state": "running_owned",
+                "session_id": "session-1",
+                "details": {
+                    "screenshot": {
+                        "screenshot_id": "shot-1",
+                        "timestamp": "2026-08-30T00:00:00+00:00",
+                        "mime": "image/png",
+                        "width": 1,
+                        "height": 1,
+                        "byte_size": len(image_data),
+                        "sha256": hashlib.sha256(image_data).hexdigest(),
+                    }
+                },
+            },
+            image_data,
+            "image/png",
+        )
+    )
+
+    assert response.isError is False
+    assert response.structuredContent is not None
+    assert response.structuredContent["details"]["screenshot"]["mime"] == "image/png"
+    assert response.content[0].type == "image"
+    assert response.content[0].mimeType == "image/png"
+    assert base64.b64decode(response.content[0].data) == image_data
+    assert response.content[1].type == "text"
+    assert "base64" not in response.content[1].text
 
 
 def test_pinned_mcp_client_initializes_and_calls_server() -> None:
@@ -111,6 +175,10 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
                 "dev_stop_session",
                 "dev_cleanup",
                 "dev_recover",
+                "dev_get_evidence",
+                "dev_get_timeline",
+                "dev_get_logs",
+                "dev_get_screenshot",
             }
             result = await session.call_tool("dev_list_tasks", {})
             assert result.structuredContent is not None
@@ -174,7 +242,7 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
                 {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             )
             assert listed["id"] == 2
-            assert len(listed["result"]["tools"]) == 9
+            assert len(listed["result"]["tools"]) == 13
 
             preflight = await _raw_request(
                 process,

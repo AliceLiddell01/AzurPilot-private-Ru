@@ -1,4 +1,4 @@
-"""Тонкая безопасная граница между MCP tools и Dev Runtime.
+"""Тонкая безопасная граница между инструментами MCP и Dev Runtime.
 
 Этот модуль намеренно не создаёт ``DevSessionManager`` при импорте. Единственная
 точка, где выбирается runtime, находится в локальном ``_default_manager`` и
@@ -15,9 +15,13 @@ import sys
 import threading
 from collections.abc import Callable, Mapping
 from contextlib import redirect_stdout
+from dataclasses import dataclass
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
+from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,10 @@ DEV_MCP_TOOL_NAMES = (
     "dev_stop_session",
     "dev_cleanup",
     "dev_recover",
+    "dev_get_evidence",
+    "dev_get_timeline",
+    "dev_get_logs",
+    "dev_get_screenshot",
 )
 
 _NO_ARGUMENT_TOOLS = frozenset(
@@ -41,55 +49,14 @@ _NO_ARGUMENT_TOOLS = frozenset(
         "dev_status",
         "dev_cleanup",
         "dev_recover",
+        "dev_get_screenshot",
     }
 )
 
-_MAX_RESULT_TEXT = 4096
+_MAX_RESULT_TEXT = MAX_SANITIZED_TEXT
 _MAX_RESULT_KEY = 128
 _MAX_RESULT_DEPTH = 8
 _MAX_RESULT_ITEMS = 256
-_ABSOLUTE_PATH = re.compile(
-    r"(?<![A-Za-z0-9_:/])(?:[A-Za-z]:[\\/]|\\\\|/(?!/))[^\s,;)\]}]+"
-)
-_FILE_URI_PATH = re.compile(r"(?i)\bfile:///[^\s,;)\]}]+")
-_URL_USERINFO = re.compile(r"(?P<scheme>\b[a-z][a-z0-9+.-]*://)[^/\s@]+@", re.IGNORECASE)
-_SENSITIVE_QUERY = re.compile(
-    r"(?i)([?&](?:authorization|access[_-]?token|x[_-]?api[_-]?key|api[_-]?key|"
-    r"token|password|passwd|secret)=)[^&#\s]+"
-)
-_CREDENTIAL_NAME = (
-    r"authorization|access[_-]?token|x[_-]?api[_-]?key|api[_-]?key|"
-    r"token|password|passwd|secret"
-)
-_SENSITIVE_QUOTED_ASSIGNMENT = re.compile(
-    rf"""(?ix)
-    (?P<key_quote>["'])
-    (?P<key>{_CREDENTIAL_NAME})
-    (?P=key_quote)
-    (?P<separator>\s*[:=]\s*)
-    (?P<value_quote>["'])
-    (?P<bearer>bearer\s+)?
-    (?P<value>.*?)
-    (?P=value_quote)
-    """
-)
-_SENSITIVE_QUOTED_VALUE = re.compile(
-    rf"""(?ix)
-    \b(?P<key>{_CREDENTIAL_NAME})
-    (?P<separator>\s*[:=]\s*)
-    (?P<value_quote>["'])
-    (?P<bearer>bearer\s+)?
-    (?P<value>.*?)
-    (?P=value_quote)
-    """
-)
-_SENSITIVE_ASSIGNMENT = re.compile(
-    rf"(?i)\b(?P<key>{_CREDENTIAL_NAME})"
-    r"(?P<separator>\s*[:=]\s*)"
-    r"(?P<bearer>bearer\s+)?"
-    r"(?P<value>[^\s,;}\]]+)"
-)
-
 _SAFE_DETAIL_KEYS = frozenset(
     {
         "allowed",
@@ -109,6 +76,7 @@ _SAFE_DETAIL_KEYS = frozenset(
         "field",
         "host",
         "items",
+        "lifecycle",
         "lifecycle_marked_cleanup_pending",
         "log",
         "message",
@@ -156,11 +124,77 @@ _SAFE_DETAIL_KEYS = frozenset(
         "mode",
         "phase",
         "cleanup_required",
+        "cleanup_summary",
+        "created_at",
+        "started_at",
+        "stopped_at",
+        "roots",
+        "excluded",
+        "current_task",
+        "dependency_summary",
+        "duration_seconds",
+        "evidence",
+        "git_snapshot",
+        "evidence_health",
+        "timeline",
+        "logs",
+        "screenshots",
+        "last_error",
+        "events",
+        "next_after_sequence",
+        "more",
+        "truncated",
+        "health",
+        "next_cursor",
+        "text",
+        "screenshot",
+        "screenshot_id",
+        "mime",
+        "width",
+        "height",
+        "byte_size",
+        "sha256",
+        "available",
+        "changed_paths",
+        "head",
+        "branch",
+        "detached",
+        "dirty",
+        "reasons",
+        "count",
+        "latest",
+        "source",
+        "relative_file",
+        "event_count",
+        "first_sequence",
+        "last_sequence",
+        "last_timestamp",
+        "fields",
+        "confirmed",
+        "preserved",
+        "updated_at",
+        "frames",
+        "line",
+        "function",
+        "module",
+        "exception_type",
+        "outcome",
     }
 )
 
 _SAFE_RESULT_KEYS = frozenset(
-    {"ok", "code", "message", "state", "session_id", "details"}
+    {
+        "ok",
+        "code",
+        "message",
+        "state",
+        "status",
+        "session_id",
+        "details",
+        "confirmed",
+        "preserved",
+        "updated_at",
+    }
 )
 _SAFE_PREFLIGHT_CHECK_KEYS = frozenset({"name", "ok", "code", "message"})
 _SAFE_TASK_LIFECYCLE_KEYS = frozenset(
@@ -196,6 +230,74 @@ _SAFE_TASK_PLAN_KEYS = frozenset(
 )
 _SAFE_ERROR_KEYS = frozenset({"type", "code", "message", "field", "tasks"})
 
+_SAFE_EVIDENCE_HEALTH_KEYS = frozenset({"status", "reasons"})
+_SAFE_GIT_SNAPSHOT_KEYS = frozenset(
+    {"head", "branch", "detached", "dirty", "changed_paths", "available", "reason"}
+)
+_SAFE_TIMELINE_METADATA_KEYS = frozenset(
+    {"relative_file", "event_count", "first_sequence", "last_sequence", "last_timestamp", "truncated"}
+)
+_SAFE_TIMELINE_EVENT_KEYS = frozenset({"sequence", "timestamp", "type", "fields"})
+_SAFE_EVENT_FIELDS_KEYS = frozenset(
+    {
+        "code",
+        "confirmed",
+        "current_task",
+        "dependency_sequence",
+        "exception_type",
+        "mode",
+        "outcome",
+        "phase",
+        "policy_state",
+        "preserved",
+        "profile",
+        "reason",
+        "reason_code",
+        "required_by",
+        "root",
+        "source",
+        "state",
+        "task",
+        "task_mode",
+        "type",
+    }
+)
+_SAFE_LIFECYCLE_KEYS = frozenset({"created_at", "started_at", "stopped_at", "duration_seconds"})
+_SAFE_DEPENDENCY_SUMMARY_KEYS = frozenset({"count", "last"})
+_SAFE_CLEANUP_SUMMARY_KEYS = frozenset({"status", "confirmed", "preserved", "updated_at"})
+_SAFE_LOG_SUMMARY_KEYS = frozenset({"available", "source", "truncated"})
+_SAFE_SCREENSHOT_METADATA_KEYS = frozenset(
+    {"screenshot_id", "timestamp", "mime", "width", "height", "byte_size", "sha256"}
+)
+_SAFE_SCREENSHOT_SUMMARY_KEYS = frozenset({"count", "latest"})
+_SAFE_LOG_ITEM_KEYS = frozenset({"text", "truncated"})
+_SAFE_LOG_PAGE_KEYS = frozenset({"session_id", "items", "next_cursor", "more", "truncated", "health"})
+_SAFE_TIMELINE_PAGE_KEYS = frozenset(
+    {"session_id", "events", "next_after_sequence", "more", "truncated", "health"}
+)
+_SAFE_FRAME_KEYS = frozenset({"path", "line", "function", "module"})
+_SAFE_STRUCTURED_ERROR_KEYS = frozenset(
+    {"type", "message", "phase", "task", "timestamp", "sequence", "frames"}
+)
+_SAFE_EVIDENCE_SUMMARY_KEYS = frozenset(
+    {
+        "session_id",
+        "profile",
+        "lifecycle",
+        "roots",
+        "excluded",
+        "current_task",
+        "dependency_summary",
+        "git_snapshot",
+        "evidence_health",
+        "timeline",
+        "logs",
+        "screenshots",
+        "last_error",
+        "cleanup",
+    }
+)
+
 _SCHEMA_KEYS = {
     "details": _SAFE_DETAIL_KEYS,
     "result": _SAFE_RESULT_KEYS,
@@ -207,33 +309,82 @@ _SCHEMA_KEYS = {
     "task_catalog": _SAFE_TASK_CATALOG_KEYS,
     "task_plan": _SAFE_TASK_PLAN_KEYS,
     "error": _SAFE_ERROR_KEYS,
+    "evidence_summary": _SAFE_EVIDENCE_SUMMARY_KEYS,
+    "evidence_health": _SAFE_EVIDENCE_HEALTH_KEYS,
+    "git_snapshot": _SAFE_GIT_SNAPSHOT_KEYS,
+    "timeline_metadata": _SAFE_TIMELINE_METADATA_KEYS,
+    "timeline_page": _SAFE_TIMELINE_PAGE_KEYS,
+    "timeline_event": _SAFE_TIMELINE_EVENT_KEYS,
+    "event_fields": _SAFE_EVENT_FIELDS_KEYS,
+    "lifecycle": _SAFE_LIFECYCLE_KEYS,
+    "dependency_summary": _SAFE_DEPENDENCY_SUMMARY_KEYS,
+    "log_summary": _SAFE_LOG_SUMMARY_KEYS,
+    "log_page": _SAFE_LOG_PAGE_KEYS,
+    "log_item": _SAFE_LOG_ITEM_KEYS,
+    "screenshot_summary": _SAFE_SCREENSHOT_SUMMARY_KEYS,
+    "screenshot_metadata": _SAFE_SCREENSHOT_METADATA_KEYS,
+    "structured_error": _SAFE_STRUCTURED_ERROR_KEYS,
+    "frame": _SAFE_FRAME_KEYS,
 }
 
 _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "allowed": "bool",
     "allowed_tasks": "string_list",
+    "available": "bool",
     "blockers": "string_list",
+    "branch": "string",
+    "byte_size": "int",
     "catalog": "catalog",
+    "changed_paths": "string_list",
     "checks": "preflight_checks",
     "cleanup": "result",
     "cleanup_confirmed": "bool",
+    "cleanup_summary": "cleanup_summary",
     "code": "string",
     "command": "string",
+    "count": "int",
+    "created_at": "string",
+    "current_task": "string",
     "dependencies": "task_provenance_list",
+    "dependency_summary": "dependency_summary",
     "details": "details",
+    "detached": "bool",
+    "dirty": "bool",
     "enabled": "bool",
     "error": "error",
+    "events": "timeline_events",
+    "evidence": "evidence_summary",
+    "evidence_health": "evidence_health",
+    "excluded": "string_list",
     "excluded_tasks": "string_list",
     "field": "string",
+    "fields": "event_fields",
+    "first_sequence": "int",
+    "frames": "frame_list",
+    "git_snapshot": "git_snapshot",
+    "head": "string",
+    "health": "evidence_health",
+    "height": "int",
     "host": "string",
-    "items": "generic_list",
+    "items": "log_items",
+    "last_error": "structured_error",
+    "last_sequence": "int",
+    "last_timestamp": "string",
+    "latest": "screenshot_metadata",
+    "lifecycle": "lifecycle",
     "lifecycle_marked_cleanup_pending": "bool",
     "log": "string",
+    "logs": "log_summary",
     "message": "string",
+    "mime": "string",
+    "more": "bool",
     "name": "string",
     "new_dependency": "bool",
+    "next_after_sequence": "int",
+    "next_cursor": "string",
     "next_run": "string",
     "observed_code": "string",
+    "outcome": "string",
     "plan": "task_plan",
     "policy_expected": "bool",
     "policy_marked": "bool",
@@ -248,28 +399,42 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "profile": "string",
     "read_only": "bool",
     "reason": "string",
+    "reasons": "string_list",
+    "relative_file": "string",
     "relative_log": "string",
     "required_by": "string",
     "root": "string",
+    "roots": "string_list",
     "root_tasks": "string_list",
     "safe": None,
+    "screenshot": "screenshot_metadata",
+    "screenshots": "screenshot_summary",
     "section": "string",
     "sequence": "int",
-    "session_id": "string",
+    "session_id": "session_id",
+    "sha256": "string",
+    "screenshot_id": "string",
+    "source": "string",
+    "started_at": "string",
     "state": "string",
     "status": "result",
     "steps": "result_list",
+    "stopped_at": "string",
     "task": "string",
     "task_cleanup": "result",
     "task_lifecycle": "task_lifecycle",
     "task_policy": "task_policy",
     "tasks": "task_descriptor_list",
     "tasks_reset": "int",
+    "text": "string",
     "timestamp": "string",
+    "timeline": "timeline_metadata",
     "tool": "string",
+    "truncated": "bool",
     "type": "string",
     "valid": "bool",
     "validation": "string",
+    "width": "int",
 }
 
 _RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -277,8 +442,12 @@ _RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
     "code": "string",
     "message": "string",
     "state": "string",
-    "session_id": "string",
+    "status": "string",
+    "session_id": "session_id",
     "details": "details",
+    "confirmed": "bool",
+    "preserved": "bool",
+    "updated_at": "string",
 }
 
 _TASK_POLICY_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -287,7 +456,7 @@ _TASK_POLICY_CHILD_SCHEMAS: dict[str, str | None] = {
     "valid": "bool",
     "code": "string",
     "state": "string",
-    "session_id": "string",
+    "session_id": "session_id",
     "profile": "string",
     "root_tasks": "string_list",
     "excluded_tasks": "string_list",
@@ -334,6 +503,157 @@ _ERROR_CHILD_SCHEMAS: dict[str, str | None] = {
     "tasks": "string_list",
 }
 
+_EVIDENCE_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
+    "session_id": "session_id",
+    "profile": "string",
+    "lifecycle": "lifecycle",
+    "roots": "string_list",
+    "excluded": "string_list",
+    "current_task": "string",
+    "dependency_summary": "dependency_summary",
+    "git_snapshot": "git_snapshot",
+    "evidence_health": "evidence_health",
+    "timeline": "timeline_metadata",
+    "logs": "log_summary",
+    "screenshots": "screenshot_summary",
+    "last_error": "structured_error",
+    "cleanup": "cleanup_summary",
+}
+
+_EVIDENCE_HEALTH_CHILD_SCHEMAS: dict[str, str | None] = {
+    "status": "string",
+    "reasons": "string_list",
+}
+
+_GIT_SNAPSHOT_CHILD_SCHEMAS: dict[str, str | None] = {
+    "head": "string",
+    "branch": "string",
+    "detached": "bool",
+    "dirty": "bool",
+    "changed_paths": "string_list",
+    "available": "bool",
+    "reason": "string",
+}
+
+_TIMELINE_METADATA_CHILD_SCHEMAS: dict[str, str | None] = {
+    "relative_file": "string",
+    "event_count": "int",
+    "first_sequence": "int",
+    "last_sequence": "int",
+    "last_timestamp": "string",
+    "truncated": "bool",
+}
+
+_TIMELINE_PAGE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "session_id": "session_id",
+    "events": "timeline_events",
+    "next_after_sequence": "int",
+    "more": "bool",
+    "truncated": "bool",
+    "health": "evidence_health",
+}
+
+_TIMELINE_EVENT_CHILD_SCHEMAS: dict[str, str | None] = {
+    "sequence": "int",
+    "timestamp": "string",
+    "type": "string",
+    "fields": "event_fields",
+}
+
+_EVENT_FIELDS_CHILD_SCHEMAS: dict[str, str | None] = {
+    "code": "string",
+    "confirmed": "bool",
+    "current_task": "string",
+    "dependency_sequence": "int",
+    "exception_type": "string",
+    "mode": "string",
+    "outcome": "string",
+    "phase": "string",
+    "policy_state": "string",
+    "preserved": "bool",
+    "profile": "string",
+    "reason": "string",
+    "reason_code": "string",
+    "required_by": "string",
+    "root": "string",
+    "source": "string",
+    "state": "string",
+    "task": "string",
+    "task_mode": "string",
+    "type": "string",
+}
+
+_LIFECYCLE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "created_at": "string",
+    "started_at": "string",
+    "stopped_at": "string",
+    "duration_seconds": "int",
+}
+
+_DEPENDENCY_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
+    "count": "int",
+    "last": "task_provenance",
+}
+
+_CLEANUP_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
+    "status": "string",
+    "confirmed": "bool",
+    "preserved": "bool",
+    "updated_at": "string",
+}
+
+_LOG_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
+    "available": "bool",
+    "source": "string",
+    "truncated": "bool",
+}
+
+_LOG_PAGE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "session_id": "session_id",
+    "items": "log_items",
+    "next_cursor": "string",
+    "more": "bool",
+    "truncated": "bool",
+    "health": "evidence_health",
+}
+
+_LOG_ITEM_CHILD_SCHEMAS: dict[str, str | None] = {
+    "text": "string",
+    "truncated": "bool",
+}
+
+_SCREENSHOT_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
+    "count": "int",
+    "latest": "screenshot_metadata",
+}
+
+_SCREENSHOT_METADATA_CHILD_SCHEMAS: dict[str, str | None] = {
+    "screenshot_id": "string",
+    "timestamp": "string",
+    "mime": "string",
+    "width": "int",
+    "height": "int",
+    "byte_size": "int",
+    "sha256": "string",
+}
+
+_STRUCTURED_ERROR_CHILD_SCHEMAS: dict[str, str | None] = {
+    "type": "string",
+    "message": "string",
+    "phase": "string",
+    "task": "string",
+    "timestamp": "string",
+    "sequence": "int",
+    "frames": "frame_list",
+}
+
+_FRAME_CHILD_SCHEMAS: dict[str, str | None] = {
+    "path": "string",
+    "line": "int",
+    "function": "string",
+    "module": "string",
+}
+
 _SCHEMA_CHILD_SCHEMAS = {
     "details": _DETAIL_CHILD_SCHEMAS,
     "result": _RESULT_CHILD_SCHEMAS,
@@ -349,11 +669,28 @@ _SCHEMA_CHILD_SCHEMAS = {
     "task_catalog": _TASK_CATALOG_CHILD_SCHEMAS,
     "task_plan": _TASK_PLAN_CHILD_SCHEMAS,
     "error": _ERROR_CHILD_SCHEMAS,
+    "evidence_summary": _EVIDENCE_SUMMARY_CHILD_SCHEMAS,
+    "evidence_health": _EVIDENCE_HEALTH_CHILD_SCHEMAS,
+    "git_snapshot": _GIT_SNAPSHOT_CHILD_SCHEMAS,
+    "timeline_metadata": _TIMELINE_METADATA_CHILD_SCHEMAS,
+    "timeline_page": _TIMELINE_PAGE_CHILD_SCHEMAS,
+    "timeline_event": _TIMELINE_EVENT_CHILD_SCHEMAS,
+    "event_fields": _EVENT_FIELDS_CHILD_SCHEMAS,
+    "lifecycle": _LIFECYCLE_CHILD_SCHEMAS,
+    "dependency_summary": _DEPENDENCY_SUMMARY_CHILD_SCHEMAS,
+    "cleanup_summary": _CLEANUP_SUMMARY_CHILD_SCHEMAS,
+    "log_summary": _LOG_SUMMARY_CHILD_SCHEMAS,
+    "log_page": _LOG_PAGE_CHILD_SCHEMAS,
+    "log_item": _LOG_ITEM_CHILD_SCHEMAS,
+    "screenshot_summary": _SCREENSHOT_SUMMARY_CHILD_SCHEMAS,
+    "screenshot_metadata": _SCREENSHOT_METADATA_CHILD_SCHEMAS,
+    "structured_error": _STRUCTURED_ERROR_CHILD_SCHEMAS,
+    "frame": _FRAME_CHILD_SCHEMAS,
 }
 
 
 class DevRuntimeManager(Protocol):
-    """Минимальный protocol, нужный adapter-у и его unit tests."""
+    """Минимальный протокол, нужный адаптеру и его модульным тестам."""
 
     def preflight(self) -> object: ...
 
@@ -373,9 +710,29 @@ class DevRuntimeManager(Protocol):
 
     def recover(self) -> object: ...
 
+    def get_evidence(self, *, session_id: str | None = None) -> object: ...
+
+    def get_timeline(
+        self,
+        *,
+        session_id: str | None = None,
+        after_sequence: int = 0,
+        limit: int = 100,
+    ) -> object: ...
+
+    def get_logs(
+        self,
+        *,
+        session_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> object: ...
+
+    def get_screenshot(self) -> EvidenceScreenshot: ...
+
 
 def _default_manager() -> DevRuntimeManager:
-    """Лениво импортировать composition root существующего Dev Runtime."""
+    """Лениво импортировать корень сборки существующего Dev Runtime."""
 
     from module.dev_runtime import DevSessionManager
 
@@ -386,14 +743,14 @@ _LEGACY_LOGGER_LOCK = threading.Lock()
 
 
 def _ensure_legacy_logger_stderr() -> None:
-    """Изолировать legacy Rich logger от stdio MCP при необходимости."""
+    """При необходимости изолировать унаследованный Rich logger от stdio MCP."""
 
     with _LEGACY_LOGGER_LOCK:
         legacy_logger = sys.modules.get("module.logger")
-        # Legacy ``module.logger`` emits a startup banner during import and
-        # binds RichHandler to the current stdout. Import the legacy logging
-        # modules only on an explicit runtime call, redirecting that output to
-        # stderr before diagnostics can import WebUI packages.
+        # Унаследованный ``module.logger`` выводит начальный баннер при импорте
+        # и привязывает RichHandler к текущему stdout. Импортируем унаследованные
+        # модули только при явном вызове выполнения и перенаправляем этот вывод
+        # в stderr до импорта пакетов WebUI диагностическим контуром.
         with redirect_stdout(sys.stderr):
             if legacy_logger is None:
                 legacy_logger = importlib.import_module("module.logger")
@@ -427,6 +784,34 @@ class _StopArguments(BaseModel):
     preserve_task_state: bool = False
 
 
+_SESSION_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+
+
+class _SessionArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    session_id: str | None = Field(default=None, pattern=_SESSION_ID_PATTERN)
+
+
+class _TimelineArguments(_SessionArguments):
+    after_sequence: int = Field(default=0, ge=0, le=10**12)
+    limit: int = Field(default=100, ge=1, le=200)
+
+
+class _LogsArguments(_SessionArguments):
+    cursor: str | None = Field(default=None, min_length=1, max_length=2048)
+    limit: int = Field(default=100, ge=1, le=200)
+
+
+@dataclass(frozen=True, slots=True)
+class DevMcpResponse:
+    """Безопасный ответ адаптера с отдельным вложением изображения MCP."""
+
+    structured: dict[str, object]
+    image: bytes
+    mime_type: str
+
+
 def _field(result: object, name: str, default: object = None) -> object:
     if isinstance(result, Mapping):
         return result.get(name, default)
@@ -436,40 +821,7 @@ def _field(result: object, name: str, default: object = None) -> object:
         return default
 
 
-def _redact_quoted_assignment(match: re.Match[str]) -> str:
-    return (
-        f"{match.group('key_quote')}{match.group('key')}{match.group('key_quote')}"
-        f"{match.group('separator')}{match.group('value_quote')}"
-        f"{match.group('bearer') or ''}***{match.group('value_quote')}"
-    )
-
-
-def _redact_quoted_value(match: re.Match[str]) -> str:
-    return (
-        f"{match.group('key')}{match.group('separator')}"
-        f"{match.group('value_quote')}{match.group('bearer') or ''}***"
-        f"{match.group('value_quote')}"
-    )
-
-
-def _redact_assignment(match: re.Match[str]) -> str:
-    return (
-        f"{match.group('key')}{match.group('separator')}"
-        f"{match.group('bearer') or ''}***"
-    )
-
-
-def _redact_text(value: str) -> str:
-    value = _URL_USERINFO.sub(r"\g<scheme>***@", value)
-    value = _SENSITIVE_QUERY.sub(r"\1***", value)
-    value = _SENSITIVE_QUOTED_ASSIGNMENT.sub(_redact_quoted_assignment, value)
-    value = _SENSITIVE_QUOTED_VALUE.sub(_redact_quoted_value, value)
-    value = _SENSITIVE_ASSIGNMENT.sub(_redact_assignment, value)
-    value = _FILE_URI_PATH.sub("file:///[путь скрыт]", value)
-    value = _ABSOLUTE_PATH.sub("[путь скрыт]", value)
-    if len(value) > _MAX_RESULT_TEXT:
-        return value[:_MAX_RESULT_TEXT] + "…"
-    return value
+_redact_text = redact_text
 
 
 def _safe_schema_key(key: object, allowed_keys: frozenset[str]) -> str | None:
@@ -533,6 +885,11 @@ def _safe_value(
         return "[вложенность скрыта]"
     if schema == "string":
         return _redact_text(value) if isinstance(value, str) else None
+    if schema == "session_id":
+        try:
+            return validate_session_id(value)
+        except (TypeError, ValueError):
+            return None
     if schema == "bool":
         return value if isinstance(value, bool) else None
     if schema == "int":
@@ -568,6 +925,9 @@ def _safe_value(
             "string_list": "string",
             "task_descriptor_list": "task_descriptor",
             "task_provenance_list": "task_provenance",
+            "frame_list": "frame",
+            "log_items": "log_item",
+            "timeline_events": "timeline_event",
         }.get(schema)
         if schema not in {
             "generic_list",
@@ -576,6 +936,9 @@ def _safe_value(
             "string_list",
             "task_descriptor_list",
             "task_provenance_list",
+            "frame_list",
+            "log_items",
+            "timeline_events",
         }:
             return []
         return _safe_sequence(value, item_schema=item_schema, depth=depth)
@@ -583,7 +946,7 @@ def _safe_value(
 
 
 def serialize_dev_result(result: object) -> dict[str, object]:
-    """Сериализовать только публичные поля DevResult через allowlist."""
+    """Сериализовать только публичные поля DevResult через разрешённый список."""
 
     raw_ok = _field(result, "ok", False)
     raw_code = _field(result, "code", "DEV_MCP_INVALID_RESULT")
@@ -600,11 +963,10 @@ def serialize_dev_result(result: object) -> dict[str, object]:
         else "Результат Dev Runtime имеет некорректную форму"
     )
     state = _redact_text(raw_state) if isinstance(raw_state, str) else "failed"
-    session_id = (
-        _redact_text(raw_session_id)
-        if isinstance(raw_session_id, str) and len(raw_session_id) <= 128
-        else None
-    )
+    try:
+        session_id = validate_session_id(raw_session_id) if raw_session_id is not None else None
+    except (TypeError, ValueError):
+        session_id = None
     details = _safe_value(raw_details, schema="details")
     if not isinstance(details, dict):
         details = {}
@@ -652,7 +1014,7 @@ def _internal_error() -> dict[str, object]:
 
 
 class DevMcpAdapter:
-    """Dispatch MCP tools к одному лениво создаваемому Dev Runtime manager."""
+    """Передавать MCP-инструменты одному лениво создаваемому Dev Runtime manager."""
 
     def __init__(
         self,
@@ -686,7 +1048,15 @@ class DevMcpAdapter:
         self,
         tool_name: str,
         arguments: Mapping[str, object] | None,
-    ) -> _EmptyArguments | _TaskArguments | _StopArguments | None:
+    ) -> (
+        _EmptyArguments
+        | _TaskArguments
+        | _StopArguments
+        | _SessionArguments
+        | _TimelineArguments
+        | _LogsArguments
+        | None
+    ):
         try:
             raw = self._arguments(arguments)
             if tool_name in _NO_ARGUMENT_TOOLS:
@@ -695,16 +1065,26 @@ class DevMcpAdapter:
                 return _TaskArguments.model_validate(raw, strict=True)
             if tool_name == "dev_stop_session":
                 return _StopArguments.model_validate(raw, strict=True)
+            if tool_name == "dev_get_evidence":
+                parsed = _SessionArguments.model_validate(raw, strict=True)
+            elif tool_name == "dev_get_timeline":
+                parsed = _TimelineArguments.model_validate(raw, strict=True)
+            elif tool_name == "dev_get_logs":
+                parsed = _LogsArguments.model_validate(raw, strict=True)
+            else:
+                return None
+            if parsed.session_id is not None:
+                validate_session_id(parsed.session_id)
+            return parsed
         except (TypeError, ValueError, ValidationError):
             return None
-        return None
 
     def call(
         self,
         tool_name: str,
         arguments: Mapping[str, object] | None = None,
-    ) -> dict[str, object]:
-        """Выполнить один разрешённый tool без dynamic getattr или path input."""
+    ) -> dict[str, object] | DevMcpResponse:
+        """Выполнить разрешённый инструмент без динамического доступа и входных путей."""
 
         if tool_name not in DEV_MCP_TOOL_NAMES:
             return _unknown_tool_error(tool_name)
@@ -741,12 +1121,39 @@ class DevMcpAdapter:
                 result = manager.stop(preserve_task_state=parsed.preserve_task_state)
             elif tool_name == "dev_cleanup":
                 result = manager.cleanup()
-            else:
-                assert tool_name == "dev_recover"
+            elif tool_name == "dev_recover":
                 result = manager.recover()
-        except Exception as exc:  # noqa: BLE001 - boundary must sanitize runtime failures
+            elif tool_name == "dev_get_evidence":
+                assert isinstance(parsed, _SessionArguments)
+                result = manager.get_evidence(session_id=parsed.session_id)
+            elif tool_name == "dev_get_timeline":
+                assert isinstance(parsed, _TimelineArguments)
+                result = manager.get_timeline(
+                    session_id=parsed.session_id,
+                    after_sequence=parsed.after_sequence,
+                    limit=parsed.limit,
+                )
+            elif tool_name == "dev_get_logs":
+                assert isinstance(parsed, _LogsArguments)
+                result = manager.get_logs(
+                    session_id=parsed.session_id,
+                    cursor=parsed.cursor,
+                    limit=parsed.limit,
+                )
+            else:
+                assert tool_name == "dev_get_screenshot"
+                screenshot = manager.get_screenshot()
+                safe_result = serialize_dev_result(screenshot.result)
+                if (
+                    screenshot.image is not None
+                    and screenshot.mime_type == "image/png"
+                    and len(screenshot.image) > 0
+                ):
+                    return DevMcpResponse(safe_result, screenshot.image, screenshot.mime_type)
+                return safe_result
+        except Exception as exc:  # noqa: BLE001 — граница обязана очищать ошибки выполнения
             logger.error(
-                "[Dev MCP] tool %s завершился неожиданной ошибкой: %s",
+                "[Dev MCP] инструмент %s завершился неожиданной ошибкой: %s",
                 tool_name,
                 type(exc).__name__,
             )
@@ -754,4 +1161,9 @@ class DevMcpAdapter:
         return serialize_dev_result(result)
 
 
-__all__ = ["DEV_MCP_TOOL_NAMES", "DevMcpAdapter", "serialize_dev_result"]
+__all__ = [
+    "DEV_MCP_TOOL_NAMES",
+    "DevMcpAdapter",
+    "DevMcpResponse",
+    "serialize_dev_result",
+]

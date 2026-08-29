@@ -386,6 +386,18 @@ class DevEnvironment:
     def task_policy_lock_file(self) -> Path:
         return self.repository_root / "config" / "state" / "dev-runtime-task-policy.lock"
 
+    @property
+    def evidence_root(self) -> Path:
+        """Изолированный ignored root для диагностических артефактов сессий."""
+
+        return self.repository_root / "config" / "state" / "dev-runtime-runs"
+
+    @property
+    def evidence_lock_file(self) -> Path:
+        """Межпроцессная блокировка хранилища диагностики текущей рабочей копии."""
+
+        return self.repository_root / "config" / "state" / "dev-runtime-evidence.lock"
+
     @classmethod
     def current(cls, repository_root: Path | None = None) -> DevEnvironment:
         root = (

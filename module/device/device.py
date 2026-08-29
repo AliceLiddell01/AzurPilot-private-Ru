@@ -4,6 +4,7 @@
 # 此文件定义了 Device 类，是脚本与设备交互的综合管理入口。
 # 负责整合截图、点击、输入功能，并由于内置了防卡死检测和点击频率控制，能有效提高脚本自动化运行的稳定性。
 import collections
+import os
 import sys
 
 import cv2
@@ -298,6 +299,10 @@ class Device(Screenshot, Control, AppControl, Input):
             super().screenshot()
 
         self._check_image_stuck()
+        if os.environ.get("AZURPILOT_DEV_SESSION_ID"):
+            from module.dev_runtime.hooks import serve_pending_screenshot
+
+            serve_pending_screenshot(self.image)
         return self.image
 
     def dump_hierarchy(self) -> etree._Element:

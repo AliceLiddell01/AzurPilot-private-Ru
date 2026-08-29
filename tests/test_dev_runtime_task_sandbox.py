@@ -10,6 +10,7 @@ import pytest
 from module.dev_runtime import (
     SCHEDULER_RESET_TIME,
     DevEnvironment,
+    EvidenceStore,
     DevSession,
     DevSessionManager,
     DevSessionState,
@@ -659,6 +660,11 @@ def test_task_aware_readiness_failure_and_stale_recovery_cleanup(
     assert failed.code == "DEV_READINESS_FAILED"
     assert failed.details["task_cleanup"]["details"]["cleanup_confirmed"] is True
     assert not environment.task_policy_file.exists()
+    evidence = EvidenceStore.for_session(environment, failed.session_id).summary()
+    assert evidence["cleanup"]["status"] == "complete"
+    assert evidence["lifecycle"]["duration_seconds"] == 0
+    timeline = EvidenceStore.for_session(environment, failed.session_id).timeline_page(limit=100)
+    assert "session_stopped" in [event["type"] for event in timeline["events"]]
 
     backend = _Backend()
     manager = _manager(environment, backend)
@@ -692,6 +698,9 @@ def test_readiness_failure_with_unconfirmed_stop_marks_policy_pending(tmp_path: 
     pending = TaskPolicyStore(environment).read()
     assert pending is not None
     assert pending.state == "cleanup_pending"
+    evidence = EvidenceStore.for_session(environment, failed.session_id).summary()
+    assert evidence["lifecycle"]["stopped_at"] is None
+    assert evidence["cleanup"]["status"] == "pending"
 
 
 def test_cleanup_failure_is_not_reported_as_clean_stop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

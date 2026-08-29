@@ -1,8 +1,10 @@
-"""Canonical local stdio server для AzurPilot Dev MCP."""
+"""Канонический локальный stdio-сервер для AzurPilot Dev MCP."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
 import sys
 from typing import Any
@@ -10,9 +12,9 @@ from typing import Any
 import anyio
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, ToolAnnotations
+from mcp.types import CallToolResult, ImageContent, TextContent, Tool, ToolAnnotations
 
-from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter
+from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
 
 SERVER_NAME = "azurpilot-dev"
 SERVER_VERSION = "1"
@@ -26,6 +28,7 @@ _NO_ARGUMENT_TOOLS = frozenset(
         "dev_status",
         "dev_cleanup",
         "dev_recover",
+        "dev_get_screenshot",
     }
 )
 
@@ -42,6 +45,34 @@ _TASK_INPUT = {
 _STOP_INPUT = {
     "type": "object",
     "properties": {"preserve_task_state": {"type": "boolean"}},
+    "additionalProperties": False,
+}
+_SESSION_ID = {
+    "type": ["string", "null"],
+    "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+    "maxLength": 128,
+}
+_SESSION_INPUT = {
+    "type": "object",
+    "properties": {"session_id": _SESSION_ID},
+    "additionalProperties": False,
+}
+_TIMELINE_INPUT = {
+    "type": "object",
+    "properties": {
+        "session_id": _SESSION_ID,
+        "after_sequence": {"type": "integer", "minimum": 0, "maximum": 10**12},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+    },
+    "additionalProperties": False,
+}
+_LOGS_INPUT = {
+    "type": "object",
+    "properties": {
+        "session_id": _SESSION_ID,
+        "cursor": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+    },
     "additionalProperties": False,
 }
 _OUTPUT = {
@@ -87,27 +118,34 @@ def _tool(
 
 
 def tool_definitions() -> list[Tool]:
-    """Вернуть явный и стабильный публичный набор tools."""
+    """Вернуть явный и стабильный публичный набор инструментов."""
 
     descriptions = {
-        "dev_preflight": "Read-only preflight фиксированного Dev Runtime профиля ap.",
-        "dev_doctor": "Read-only диагностика фиксированного Dev Runtime профиля ap.",
-        "dev_list_tasks": "Read-only динамический каталог schedulable tasks профиля ap.",
-        "dev_plan_session": "Сформировать read-only task-aware план для профиля ap.",
-        "dev_start_session": "Запустить task-aware DevSession только для выбранных tasks профиля ap.",
-        "dev_status": "Read-only статус DevSession и task policy профиля ap.",
+        "dev_preflight": "Предварительная проверка только для чтения фиксированного профиля Dev Runtime ap.",
+        "dev_doctor": "Диагностика только для чтения фиксированного профиля Dev Runtime ap.",
+        "dev_list_tasks": "Динамический каталог планируемых задач профиля ap только для чтения.",
+        "dev_plan_session": "Сформировать план задач только для чтения для профиля ap.",
+        "dev_start_session": "Запустить DevSession с учётом задач только для выбранных задач профиля ap.",
+        "dev_status": "Статус DevSession и политики задач профиля ap только для чтения.",
         "dev_stop_session": (
-            "Остановить DevSession профиля ap; preserve_task_state=true оставляет scheduler-state "
-            "и требует последующего cleanup."
+            "Остановить DevSession профиля ap; preserve_task_state=true оставляет состояние "
+            "планировщика и требует последующей очистки."
         ),
-        "dev_cleanup": "Очистить task-aware scheduler-state профиля ap без запуска новой сессии.",
+        "dev_cleanup": "Очистить состояние планировщика профиля ap без запуска новой сессии.",
         "dev_recover": "Выполнить существующее exact-owned безопасное восстановление профиля ap.",
+        "dev_get_evidence": "Получить ограниченную сводку диагностики указанной DevSession.",
+        "dev_get_timeline": "Получить ограниченную каноническую хронологию выполнения указанной DevSession.",
+        "dev_get_logs": "Получить ограниченный журнал указанной DevSession только в пределах её сессии.",
+        "dev_get_screenshot": "Получить текущий кадр активной DevSession как вложение изображения MCP.",
     }
     schemas = {
         **{name: _EMPTY_INPUT for name in _NO_ARGUMENT_TOOLS},
         "dev_plan_session": _TASK_INPUT,
         "dev_start_session": _TASK_INPUT,
         "dev_stop_session": _STOP_INPUT,
+        "dev_get_evidence": _SESSION_INPUT,
+        "dev_get_timeline": _TIMELINE_INPUT,
+        "dev_get_logs": _LOGS_INPUT,
     }
     mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover"}
     return [
@@ -121,8 +159,27 @@ def tool_definitions() -> list[Tool]:
     ]
 
 
+def _screenshot_call_result(response: DevMcpResponse) -> CallToolResult:
+    """Собрать официальный ответ MCP с вложением изображения и метаданными."""
+
+    image = ImageContent(
+        type="image",
+        data=base64.b64encode(response.image).decode("ascii"),
+        mimeType=response.mime_type,
+    )
+    summary = TextContent(
+        type="text",
+        text=json.dumps(response.structured, ensure_ascii=False, separators=(",", ":")),
+    )
+    return CallToolResult(
+        content=[image, summary],
+        structuredContent=response.structured,
+        isError=not bool(response.structured.get("ok")),
+    )
+
+
 def create_server(adapter: DevMcpAdapter | None = None) -> Server:
-    """Создать low-level MCP server без runtime side effects."""
+    """Создать низкоуровневый сервер MCP без побочных эффектов выполнения."""
 
     server = Server(SERVER_NAME, version=SERVER_VERSION)
     bound_adapter = adapter if adapter is not None else DevMcpAdapter()
@@ -132,14 +189,20 @@ def create_server(adapter: DevMcpAdapter | None = None) -> Server:
         return tool_definitions()
 
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> dict[str, object]:
-        return await anyio.to_thread.run_sync(bound_adapter.call, name, arguments)
+    async def handle_call_tool(
+        name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, object] | CallToolResult:
+        response = await anyio.to_thread.run_sync(bound_adapter.call, name, arguments)
+        if not isinstance(response, DevMcpResponse):
+            return response
+        return _screenshot_call_result(response)
 
     return server
 
 
 async def run_server(adapter: DevMcpAdapter | None = None) -> None:
-    """Запустить единственный transport — локальный stdio."""
+    """Запустить единственный транспорт — локальный stdio."""
 
     server = create_server(adapter)
     async with stdio_server() as (read_stream, write_stream):

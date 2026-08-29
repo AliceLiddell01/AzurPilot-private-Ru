@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import numpy as np
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from module.dev_runtime import (
     DevResult,
     DevSessionManager,
     DevStatusKind,
+    EvidenceScreenshot,
+    EvidenceStore,
     ProcessBackend,
     ProcessIdentity,
 )
@@ -67,6 +70,34 @@ class _FakeManager:
     def recover(self) -> DevResult:
         self.calls.append(("recover", None))
         return _result("DEV_RECOVERY_NOT_NEEDED")
+
+    def get_evidence(self, *, session_id: str | None = None) -> DevResult:
+        self.calls.append(("get_evidence", session_id))
+        return _result("DEV_EVIDENCE_READY")
+
+    def get_timeline(
+        self,
+        *,
+        session_id: str | None = None,
+        after_sequence: int = 0,
+        limit: int = 100,
+    ) -> DevResult:
+        self.calls.append(("get_timeline", (session_id, after_sequence, limit)))
+        return _result("DEV_TIMELINE_READY")
+
+    def get_logs(
+        self,
+        *,
+        session_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> DevResult:
+        self.calls.append(("get_logs", (session_id, cursor, limit)))
+        return _result("DEV_LOGS_READY")
+
+    def get_screenshot(self):
+        self.calls.append(("get_screenshot", None))
+        return EvidenceScreenshot(_result("DEV_SCREENSHOT_READY"))
 
 
 def _adapter_with_factory() -> tuple[DevMcpAdapter, _FakeManager, list[int]]:
@@ -133,7 +164,7 @@ class _SyntheticProcessBackend:
 def _real_runtime_manager(tmp_path: Path) -> tuple[DevSessionManager, _SyntheticProcessBackend]:
     root = tmp_path.resolve()
     (root / "module").mkdir()
-    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
     config_dir = root / "config"
     config_dir.mkdir()
     profile = {
@@ -192,6 +223,16 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
     assert adapter.call("dev_stop_session", {"preserve_task_state": True})["ok"] is True
     assert adapter.call("dev_cleanup", {})["ok"] is True
     assert adapter.call("dev_recover", {})["ok"] is True
+    assert adapter.call("dev_get_evidence", {})["ok"] is True
+    assert adapter.call(
+        "dev_get_timeline",
+        {"session_id": "session-1", "after_sequence": 2, "limit": 3},
+    )["ok"] is True
+    assert adapter.call(
+        "dev_get_logs",
+        {"session_id": "session-1", "cursor": "cursor", "limit": 4},
+    )["ok"] is True
+    assert adapter.call("dev_get_screenshot", {})["ok"] is True
 
     assert len(factory_calls) == 1
     assert manager.calls == [
@@ -205,6 +246,10 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         ("stop", True),
         ("cleanup", None),
         ("recover", None),
+        ("get_evidence", None),
+        ("get_timeline", ("session-1", 2, 3)),
+        ("get_logs", ("session-1", "cursor", 4)),
+        ("get_screenshot", None),
     ]
 
 
@@ -222,6 +267,11 @@ def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation()
         ("dev_plan_session", {"root_tasks": ["RootTask"], "excluded_tasks": None}),
         ("dev_stop_session", {"preserve_task_state": "false"}),
         ("dev_status", {"instance": "alas"}),
+        ("dev_get_evidence", {"session_id": "../foreign"}),
+        ("dev_get_timeline", {"after_sequence": -1}),
+        ("dev_get_timeline", {"limit": 201}),
+        ("dev_get_logs", {"cursor": ""}),
+        ("dev_get_logs", {"path": "C:\\private\\logs"}),
     ]
 
     for tool_name, arguments in invalid_calls:
@@ -354,6 +404,9 @@ def test_serializer_keeps_depth_and_json_safety_bounds() -> None:
         ("failed {'authorization': 'Bearer secret-dict-bearer'}", "secret-dict-bearer"),
         ("failed password=secret-assignment", "secret-assignment"),
         ("failed token: secret-colon", "secret-colon"),
+        ("failed Bearer secret-bearer-standalone", "secret-bearer-standalone"),
+        ('failed {"cookie": "secret-cookie"}', "secret-cookie"),
+        ("failed private_key=secret-private-key", "secret-private-key"),
         ("failed https://user:password@example.invalid/", "password"),
         ("failed https://example.invalid/?api_key=secret-query", "secret-query"),
     ],
@@ -373,6 +426,27 @@ def test_serializer_redacts_quoted_credentials_and_common_secret_forms(
     assert secret not in result["message"]
     assert "***" in result["message"]
     assert "failed" in result["message"]
+
+
+def test_serializer_rejects_invalid_session_id_in_public_fields() -> None:
+    result = serialize_dev_result(
+        DevResult(
+            ok=True,
+            code="DEV_OK",
+            message="готово",
+            state="stopped",
+            session_id="../foreign",
+            details={
+                "evidence": {
+                    "session_id": "../foreign",
+                    "profile": "ap",
+                }
+            },
+        )
+    )
+
+    assert result["session_id"] is None
+    assert result["details"] == {"evidence": {"session_id": None, "profile": "ap"}}
 
 
 @pytest.mark.parametrize(
@@ -464,6 +538,100 @@ def test_real_status_preserves_task_lifecycle_and_policy_snapshot(tmp_path: Path
         assert stopped["ok"] is True
 
 
+def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: Path) -> None:
+    manager, _backend = _real_runtime_manager(tmp_path)
+    manager.screenshot_provider = lambda _session_id: np.zeros((2, 3, 3), dtype=np.uint8)
+    adapter = DevMcpAdapter(lambda: manager)
+
+    started = adapter.call("dev_start_session", {"root_tasks": ["RootTask"]})
+    assert started["ok"] is True
+    try:
+        evidence = adapter.call("dev_get_evidence")
+        assert evidence["ok"] is True
+        assert evidence["details"]["profile"] == "ap"
+        assert evidence["details"]["git_snapshot"]["available"] is False
+        assert evidence["details"]["logs"]["available"] is True
+        assert evidence["details"]["current_task"] is None
+        assert "cleanup" in evidence["details"]
+
+        store = EvidenceStore.for_session(manager.environment, started["session_id"])
+        store.record_task("RootTask", timestamp="2026-08-29T00:00:00+00:00")
+        active_evidence = adapter.call("dev_get_evidence")
+        assert active_evidence["details"]["current_task"] == "RootTask"
+
+        timeline = adapter.call("dev_get_timeline", {"limit": 100})
+        event_types = [event["type"] for event in timeline["details"]["events"]]
+        assert event_types[:4] == [
+            "session_created",
+            "policy_prepared",
+            "process_started",
+            "session_ready",
+        ]
+        assert timeline["details"]["more"] is False
+
+        manager.environment.log_file.write_text(
+            "новая запись password=секрет\n",
+            encoding="utf-8",
+        )
+        logs = adapter.call("dev_get_logs", {"limit": 10})
+        assert logs["ok"] is True
+        assert logs["details"]["items"] == [
+            {"text": "новая запись password=***", "truncated": False}
+        ]
+
+        screenshot = adapter.call("dev_get_screenshot")
+        assert screenshot.structured["ok"] is True
+        assert screenshot.mime_type == "image/png"
+        assert screenshot.image
+        assert "screenshot" in screenshot.structured["details"]
+        assert "base64" not in json.dumps(screenshot.structured, ensure_ascii=False)
+    finally:
+        stopped = adapter.call("dev_stop_session")
+        assert stopped["ok"] is True
+
+    after_stop = adapter.call("dev_get_evidence")
+    assert after_stop["ok"] is True
+    assert after_stop["details"]["current_task"] is None
+    assert after_stop["details"]["cleanup"]["confirmed"] is True
+    assert after_stop["details"]["lifecycle"]["duration_seconds"] == 0
+
+
+def test_historical_evidence_lookup_does_not_replace_active_store(tmp_path: Path) -> None:
+    manager, _backend = _real_runtime_manager(tmp_path)
+    adapter = DevMcpAdapter(lambda: manager)
+
+    started = adapter.call("dev_start_session", {"root_tasks": ["RootTask"]})
+    assert started["ok"] is True
+    try:
+        historical = EvidenceStore.create(
+            manager.environment,
+            session_id="historical-session",
+            root_tasks=["RootTask"],
+            excluded_tasks=[],
+            timestamp="2026-08-29T00:00:00+00:00",
+        )
+        historical.finalize(
+            stopped_at="2026-08-29T00:00:00+00:00",
+            cleanup_confirmed=True,
+        )
+        selected = adapter.call(
+            "dev_get_evidence",
+            {"session_id": "historical-session"},
+        )
+        assert selected["ok"] is True
+    finally:
+        assert adapter.call("dev_stop_session")["ok"] is True
+
+    active_events = EvidenceStore.for_session(
+        manager.environment, started["session_id"]
+    ).timeline_page(limit=100)["events"]
+    historical_events = EvidenceStore.for_session(
+        manager.environment, "historical-session"
+    ).timeline_page(limit=100)["events"]
+    assert "process_stopped" in [event["type"] for event in active_events]
+    assert historical_events == []
+
+
 def test_serializer_drops_unknown_fields_in_known_nested_structures() -> None:
     result = serialize_dev_result(
         {
@@ -534,7 +702,7 @@ def test_serializer_drops_unknown_fields_in_known_nested_structures() -> None:
 def test_read_only_tools_leave_profile_and_runtime_state_unchanged(tmp_path: Path) -> None:
     root = tmp_path.resolve()
     (root / "module").mkdir()
-    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
     config_dir = root / "config"
     config_dir.mkdir()
     profile = {

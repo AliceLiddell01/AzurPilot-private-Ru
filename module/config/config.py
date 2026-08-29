@@ -767,7 +767,16 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                             f"cleanup_pending="
                             f"{rolled_back.policy_marked_cleanup_pending if rolled_back is not None else False}"
                         )
-                raise
+                    raise
+            if dependency_timestamp is not None:
+                from module.dev_runtime.hooks import record_dependency_registered
+
+                record_dependency_registered(
+                    self.config_name,
+                    caller=caller,
+                    target=task,
+                    timestamp=dependency_timestamp,
+                )
             if dependency is not None and dependency.reason == "dependency_override":
                 logger.info(
                     f"[Dev Runtime] Задача `{task}` исключена root-политикой, "
