@@ -8,6 +8,8 @@ from module.dev_runtime.contracts import (
     DevResult,
     DevSession,
     DevSessionState,
+    DevTaskMode,
+    DevTaskPhase,
     DevStatusKind,
     ProcessIdentity,
 )
@@ -40,6 +42,8 @@ __all__ = [
     "DevSession",
     "DevSessionManager",
     "DevSessionState",
+    "DevTaskMode",
+    "DevTaskPhase",
     "DevStatusKind",
     "ProcessBackend",
     "ProcessIdentity",

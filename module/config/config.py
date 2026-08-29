@@ -695,18 +695,19 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         self.update()
 
     def task_call(self, task, force_call=True):
-        """调用另一个任务运行。
+        """Запланировать запуск другой задачи.
 
-        该任务会在当前任务完成后运行，但可能不会实际执行，因为：
-        - 其他任务可能根据 SCHEDULER_PRIORITY 优先执行
-        - 任务可能被用户禁用
+        Задача будет запущена после завершения текущей, но фактический запуск
+        может не произойти, если:
+        - другая задача имеет более высокий приоритет в SCHEDULER_PRIORITY;
+        - задача отключена пользователем.
 
         Args:
-            task (str): 要调用的任务名称，如 `Restart`。
-            force_call (bool): 是否强制调用。
+            task (str): имя вызываемой задачи, например `Restart`.
+            force_call (bool): принудительно запланировать вызов.
 
         Returns:
-            bool: 是否成功调用。
+            bool: удалось ли запланировать вызов.
         """
         if deep_get(self.data, keys=f"{task}.Scheduler.NextRun", default=None) is None:
             raise ScriptError(f"[Конфигурация] Вызываемая задача `{task}` отсутствует в пользовательской конфигурации")

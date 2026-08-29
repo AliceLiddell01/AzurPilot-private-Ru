@@ -33,6 +33,13 @@ safe start очищают scheduler-state всех текущих schedulable ta
 значение. Остальные поля профиля не изменяются. Cleanup атомарен, проверяется
 повторным чтением и идемпотентен.
 
+Task-aware `DevSession` записывает durable lifecycle marker до первой мутации
+`config/ap.json`. Маркер различает подготовку, активную сессию, явный preserve,
+ожидающий cleanup и подтверждённое чистое состояние. Если отдельный policy-файл
+потерян или повреждён, recovery не считает cleanup ненужным: каталог текущего
+профиля перечитывается, scheduler-state сбрасывается и результат проверяется.
+`status`, `preflight` и `doctor` fail closed для неподтверждённого policy state.
+
 `stop(preserve_task_state=True)` — явный диагностический opt-out. Он оставляет
 policy в состоянии `preserved`, сообщает об этом в result и предупреждении, а
 последующий `cleanup()` или новый safe start возвращает обычное чистое состояние.

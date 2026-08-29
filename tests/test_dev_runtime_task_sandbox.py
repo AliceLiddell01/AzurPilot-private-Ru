@@ -13,6 +13,8 @@ from module.dev_runtime import (
     DevSession,
     DevSessionManager,
     DevSessionState,
+    DevTaskMode,
+    DevTaskPhase,
     ProcessBackend,
     ProcessIdentity,
     TaskCatalog,
@@ -78,10 +80,14 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     )
 
 
-def _write_session(environment: DevEnvironment, session_id: str = "sandbox-session") -> None:
+def _write_session(
+    environment: DevEnvironment,
+    session_id: str = "sandbox-session",
+    state: DevSessionState = DevSessionState.RUNNING,
+) -> None:
     session = DevSession(
         session_id=session_id,
-        state=DevSessionState.RUNNING,
+        state=state,
         repository_root=str(environment.repository_root),
         created_at="2026-08-29T00:00:00+00:00",
         updated_at="2026-08-29T00:00:00+00:00",
@@ -335,6 +341,229 @@ def test_task_aware_start_and_default_stop_reset_only_scheduler_fields(tmp_path:
         assert cleaned[task]["Gameplay"] == original[task]["Gameplay"]
 
 
+def test_task_aware_lifecycle_marker_is_clean_after_default_stop(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+
+    assert manager.start(root_tasks=["RootTask"]).ok is True
+    prepared = DevSession.from_dict(
+        json.loads(environment.state_file.read_text(encoding="utf-8"))
+    )
+    assert prepared.task_mode is DevTaskMode.TASK_AWARE
+    assert prepared.task_phase is DevTaskPhase.RUNNING
+    assert prepared.task_cleanup_required is True
+    assert prepared.task_policy_expected is True
+
+    stopped = manager.stop()
+    cleaned = DevSession.from_dict(
+        json.loads(environment.state_file.read_text(encoding="utf-8"))
+    )
+    assert stopped.ok is True
+    assert cleaned.task_phase is DevTaskPhase.CLEAN
+    assert cleaned.task_cleanup_required is False
+    assert cleaned.task_policy_expected is False
+
+
+def test_missing_policy_before_stop_still_cleans_scheduler_state(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+    assert manager.start(root_tasks=["RootTask"]).ok is True
+    environment.task_policy_file.unlink()
+
+    stopped = manager.stop()
+    payload = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+
+    assert stopped.ok is True
+    assert stopped.details["cleanup_confirmed"] is True
+    assert stopped.code == "DEV_SESSION_STOPPED"
+    assert not environment.task_policy_file.exists()
+    assert all(
+        item["Scheduler"]["Enable"] is False
+        and item["Scheduler"]["NextRun"] == SCHEDULER_RESET_TIME
+        for item in payload.values()
+        if isinstance(item, dict) and "Scheduler" in item
+    )
+
+
+def test_missing_policy_before_recovery_still_cleans_scheduler_state(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    backend = _Backend()
+    manager = _manager(environment, backend)
+    assert manager.start(root_tasks=["RootTask"]).ok is True
+    environment.task_policy_file.unlink()
+    backend.alive = False
+
+    recovered = manager.recover()
+    payload = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+
+    assert recovered.ok is True
+    assert recovered.details["cleanup_confirmed"] is True
+    assert recovered.code == "DEV_STALE_RECOVERED"
+    assert not environment.task_policy_file.exists()
+    assert all(
+        item["Scheduler"]["Enable"] is False
+        and item["Scheduler"]["NextRun"] == SCHEDULER_RESET_TIME
+        for item in payload.values()
+        if isinstance(item, dict) and "Scheduler" in item
+    )
+
+
+def test_new_start_cleans_stopped_task_marker_without_policy(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    backend = _Backend()
+    manager = _manager(environment, backend)
+    assert manager.start(root_tasks=["RootTask"]).ok is True
+    backend.alive = False
+    session = DevSession.from_dict(
+        json.loads(environment.state_file.read_text(encoding="utf-8"))
+    )
+    session.state = DevSessionState.STOPPED
+    session.process = None
+    manager._write_session(session)
+    environment.task_policy_file.unlink()
+
+    next_manager = _manager(environment, _Backend())
+    started = next_manager.start(root_tasks=["DependencyTask"])
+
+    assert started.ok is True
+    payload = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+    assert payload["RootTask"]["Scheduler"]["Enable"] is False
+    assert payload["DependencyTask"]["Scheduler"]["Enable"] is True
+    assert next_manager.stop().ok is True
+
+
+def test_interrupted_preparation_recovers_from_durable_task_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+
+    def interrupt_policy_creation(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        task_sandbox.TaskPolicyStore,
+        "create",
+        interrupt_policy_creation,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        manager.start(root_tasks=["RootTask"])
+
+    interrupted = DevSession.from_dict(
+        json.loads(environment.state_file.read_text(encoding="utf-8"))
+    )
+    assert interrupted.task_mode is DevTaskMode.TASK_AWARE
+    assert interrupted.task_phase is DevTaskPhase.PREPARED
+    assert interrupted.task_cleanup_required is True
+    assert interrupted.task_policy_expected is True
+
+    recovered = _manager(environment, _Backend()).recover()
+    payload = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+
+    assert recovered.ok is True
+    assert recovered.code == "DEV_STALE_RECOVERED"
+    assert recovered.code != "DEV_TASK_CLEANUP_NOT_NEEDED"
+    assert recovered.details["cleanup_confirmed"] is True
+    assert all(
+        item["Scheduler"]["Enable"] is False
+        and item["Scheduler"]["NextRun"] == SCHEDULER_RESET_TIME
+        for item in payload.values()
+        if isinstance(item, dict) and "Scheduler" in item
+    )
+
+
+def test_running_task_aware_session_with_missing_policy_is_not_healthy(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+    assert manager.start(root_tasks=["RootTask"]).ok is True
+    environment.task_policy_file.unlink()
+
+    status = manager.status()
+
+    assert status.ok is False
+    assert status.code == "DEV_TASK_POLICY_MISSING"
+    assert status.state == "running_owned"
+
+
+def test_stage1_session_keeps_legacy_task_lifecycle_defaults(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+
+    started = manager.start()
+    session = DevSession.from_dict(
+        json.loads(environment.state_file.read_text(encoding="utf-8"))
+    )
+
+    assert started.ok is True
+    assert session.task_mode is DevTaskMode.NONE
+    assert session.task_phase is DevTaskPhase.NONE
+    assert session.task_cleanup_required is False
+    assert session.task_policy_expected is False
+    assert manager.stop().ok is True
+
+
+def test_legacy_stage1_marker_without_task_fields_remains_compatible(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    legacy = DevSession(
+        session_id="legacy-session",
+        state=DevSessionState.STOPPED,
+        repository_root=str(environment.repository_root),
+        created_at="2026-08-29T00:00:00+00:00",
+        updated_at="2026-08-29T00:00:00+00:00",
+    ).as_dict()
+    for field in (
+        "task_mode",
+        "task_phase",
+        "task_cleanup_required",
+        "task_policy_expected",
+    ):
+        legacy.pop(field)
+
+    restored = DevSession.from_dict(legacy)
+
+    assert restored.task_mode is DevTaskMode.NONE
+    assert restored.task_phase is DevTaskPhase.NONE
+    assert restored.task_cleanup_required is False
+    assert restored.task_policy_expected is False
+
+
+def test_preflight_blocks_corrupt_task_policy_without_task_session(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+    environment.task_policy_file.parent.mkdir(parents=True, exist_ok=True)
+    environment.task_policy_file.write_text("{broken", encoding="utf-8")
+
+    result = manager.preflight()
+
+    assert result.ok is False
+    assert "DEV_TASK_STATE_CORRUPT" in result.details["blockers"]
+
+
+def test_doctor_blocks_corrupt_task_policy_for_stopped_session(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+    _write_session(environment, state=DevSessionState.STOPPED)
+    environment.task_policy_file.parent.mkdir(parents=True, exist_ok=True)
+    environment.task_policy_file.write_text("{broken", encoding="utf-8")
+
+    result = manager.doctor()
+
+    assert result.ok is False
+    assert result.details["status"]["code"] == "DEV_TASK_STATE_CORRUPT"
+    assert "DEV_TASK_STATE_CORRUPT" in result.details["preflight"]["details"]["blockers"]
+
+
+def test_absent_policy_without_task_state_remains_normal(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+
+    preflight = manager.preflight()
+    doctor = manager.doctor()
+
+    assert preflight.ok is True
+    assert doctor.ok is True
+
+
 def test_task_aware_launch_failure_cleans_scheduler_state(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     backend = _Backend()
@@ -366,6 +595,9 @@ def test_preserve_is_explicit_and_cleanup_remains_recoverable(tmp_path: Path) ->
     assert preserved.code == "DEV_SESSION_STOPPED_PRESERVED"
     assert preserved.details["cleanup_confirmed"] is False
     assert payload["RootTask"]["Scheduler"]["Enable"] is True
+    status = manager.status()
+    assert status.ok is False
+    assert status.code == "DEV_TASK_STATE_PRESERVED"
 
     cleanup = manager.cleanup()
     payload = json.loads(environment.profile_file.read_text(encoding="utf-8"))

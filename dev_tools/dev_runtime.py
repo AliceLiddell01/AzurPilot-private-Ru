@@ -33,26 +33,26 @@ def _parser() -> argparse.ArgumentParser:
             "plan",
             "task-smoke",
         ),
-        help="Диагностика, task plan или lifecycle smoke фиксированной dev-сессии профиля ap",
+        help="Диагностика, план задач или проверка жизненного цикла фиксированной dev-сессии профиля ap",
     )
     parser.add_argument(
         "--task",
         dest="tasks",
         action="append",
         default=[],
-        help="Root task command; параметр можно повторять для task-aware команд",
+        help="Корневая задача; параметр можно указывать несколько раз в task-aware командах",
     )
     parser.add_argument(
         "--exclude-task",
         dest="excluded_tasks",
         action="append",
         default=[],
-        help="Исключаемый task command; параметр можно повторять",
+        help="Исключаемая задача; параметр можно указывать несколько раз",
     )
     parser.add_argument(
         "--preserve-task-state",
         action="store_true",
-        help="Явно не сбрасывать scheduler-state после task-aware smoke",
+        help="Явно сохранить scheduler-state после проверки task-aware режима",
     )
     return parser
 

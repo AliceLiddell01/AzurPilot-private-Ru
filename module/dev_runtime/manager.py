@@ -21,6 +21,8 @@ from module.dev_runtime.contracts import (
     DevResult,
     DevSession,
     DevSessionState,
+    DevTaskMode,
+    DevTaskPhase,
     DevStatusKind,
     ProcessIdentity,
 )
@@ -33,6 +35,7 @@ from module.dev_runtime.process import ProcessBackend, _same_path
 from module.dev_runtime.task_sandbox import (
     SCHEDULER_RESET_TIME,
     TASK_POLICY_ACTIVE,
+    TASK_POLICY_PRESERVED,
     TaskCatalog,
     TaskPlan,
     TaskPolicyStore,
@@ -98,14 +101,42 @@ class DevSessionManager(DevDiagnosticsMixin):
 
         result = super().status()
         try:
-            policy_present = self.environment.task_policy_file.exists() or self.environment.task_policy_file.is_symlink()
-        except OSError:
-            policy_present = True
-        if not policy_present:
+            session = self._read_session()
+        except (OSError, ValueError):
+            # Базовый status уже вернул machine-readable ошибку marker.
             return result
         details = dict(result.details)
+        if session is not None:
+            details["task_lifecycle"] = session.task_lifecycle_as_dict()
         task_policy = TaskPolicyStore(self.environment).inspect()
+        if task_policy.get("present") is not True:
+            if session is not None and session.task_cleanup_needed:
+                return DevResult(
+                    ok=False,
+                    code="DEV_TASK_POLICY_MISSING",
+                    message="Task-aware lifecycle требует policy до подтверждённого cleanup",
+                    state=result.state,
+                    session_id=result.session_id,
+                    details=details,
+                )
+            return DevResult(
+                ok=result.ok,
+                code=result.code,
+                message=result.message,
+                state=result.state,
+                session_id=result.session_id,
+                details=details,
+            )
         details["task_policy"] = task_policy
+        if session is not None and session.task_cleanup_needed and task_policy.get("valid") is not True:
+            return DevResult(
+                ok=False,
+                code=str(task_policy.get("code", "DEV_TASK_POLICY_INVALID")),
+                message="Task policy невозможно безопасно подтвердить",
+                state=result.state,
+                session_id=result.session_id,
+                details=details,
+            )
         if task_policy.get("valid") is False:
             code = str(task_policy.get("code", "DEV_TASK_POLICY_INVALID"))
             return DevResult(
@@ -116,6 +147,35 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session_id=result.session_id,
                 details=details,
             )
+        if session is not None and session.task_cleanup_needed:
+            policy_state = task_policy.get("state")
+            if policy_state == TASK_POLICY_PRESERVED:
+                return DevResult(
+                    ok=False,
+                    code="DEV_TASK_STATE_PRESERVED",
+                    message="Task-aware scheduler-state сохранён по явному запросу; требуется cleanup",
+                    state=result.state,
+                    session_id=result.session_id,
+                    details=details,
+                )
+            if policy_state != TASK_POLICY_ACTIVE:
+                return DevResult(
+                    ok=False,
+                    code="DEV_TASK_POLICY_NOT_ACTIVE",
+                    message="Task-aware policy не находится в active состоянии",
+                    state=result.state,
+                    session_id=result.session_id,
+                    details=details,
+                )
+            if result.state == DevStatusKind.STOPPED.value:
+                return DevResult(
+                    ok=False,
+                    code="DEV_TASK_CLEANUP_REQUIRED",
+                    message="Task-aware scheduler-state ещё не подтверждён очищенным",
+                    state=result.state,
+                    session_id=result.session_id,
+                    details=details,
+                )
         return DevResult(
             ok=result.ok,
             code=result.code,
@@ -287,7 +347,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                         state=DevStatusKind.RUNNING_OWNED,
                     )
             cleanup = self._cleanup_task_state_locked(
-                expected_session_id=session.session_id if session is not None else None
+                expected_session_id=session.session_id if session is not None else None,
+                session=session,
             )
             if not cleanup.ok:
                 if session is not None:
@@ -357,9 +418,15 @@ class DevSessionManager(DevDiagnosticsMixin):
         store = TaskPolicyStore(self.environment)
         try:
             policy = store.read()
+            session = self._read_session()
         except TaskSandboxError as exc:
             return self._task_error(exc)
-        if policy is None:
+        except ValueError as exc:
+            return self._task_error(
+                TaskSandboxError("DEV_STATE_CORRUPT", f"Нельзя проверить leftover state: {exc}")
+            )
+        task_cleanup_required = session is not None and session.task_cleanup_needed
+        if policy is None and not task_cleanup_required:
             return DevResult(
                 ok=True,
                 code="DEV_TASK_CLEANUP_NOT_NEEDED",
@@ -367,26 +434,30 @@ class DevSessionManager(DevDiagnosticsMixin):
                 state=DevStatusKind.NO_SESSION.value,
                 details={"cleanup_confirmed": True},
             )
-        try:
-            session = self._read_session()
-        except ValueError as exc:
-            return self._task_error(
-                TaskSandboxError("DEV_STATE_CORRUPT", f"Нельзя проверить leftover policy: {exc}")
-            )
         expected_session_id = (
             session.session_id
             if session is not None
-            and session.state not in {DevSessionState.STOPPED, DevSessionState.FAILED}
+            and (
+                session.task_cleanup_needed
+                or session.state not in {DevSessionState.STOPPED, DevSessionState.FAILED}
+            )
             else None
         )
-        if expected_session_id is not None and policy.session_id != expected_session_id:
+        if (
+            policy is not None
+            and expected_session_id is not None
+            and policy.session_id != expected_session_id
+        ):
             return self._task_error(
                 TaskSandboxError(
                     "DEV_TASK_POLICY_CONTEXT_MISMATCH",
                     "leftover task policy не соответствует DevSession",
                 )
             )
-        return self._cleanup_task_state_locked(expected_session_id=expected_session_id)
+        return self._cleanup_task_state_locked(
+            expected_session_id=expected_session_id,
+            session=session,
+        )
 
     def _prepare_task_session_locked(
         self, task_plan: TaskPlan, session: DevSession
@@ -409,12 +480,14 @@ class DevSessionManager(DevDiagnosticsMixin):
                 task_plan,
                 next_run=next_run,
             )
+            # Факт вызова записи уже означает, что mutation могла завершиться
+            # до исключения; durable task marker был записан до этого места.
+            mutation_started = True
             write_profile_payload(
                 self.environment.profile_file,
                 planned_payload,
                 repository_root=self.environment.repository_root,
             )
-            mutation_started = True
             verified_catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
@@ -439,6 +512,9 @@ class DevSessionManager(DevDiagnosticsMixin):
                     "DEV_TASK_PREPARE_UNCONFIRMED",
                     "Применённый task plan не прошёл повторную проверку",
                 )
+            session.task_phase = DevTaskPhase.PREPARED
+            session.updated_at = self._timestamp()
+            self._write_session(session)
             store = TaskPolicyStore(self.environment)
             store.create(
                 task_plan,
@@ -472,6 +548,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 self._cleanup_task_state_locked(
                     expected_session_id=session.session_id,
                     catalog=catalog,
+                    session=session,
                 )
                 if mutation_started
                 else DevResult(
@@ -511,6 +588,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         *,
         expected_session_id: str | None,
         catalog: TaskCatalog | None = None,
+        session: DevSession | None = None,
         preserve_task_state: bool = False,
     ) -> DevResult:
         store = TaskPolicyStore(self.environment)
@@ -529,9 +607,17 @@ class DevSessionManager(DevDiagnosticsMixin):
                     "task policy не соответствует текущей DevSession",
                 )
             )
+        task_cleanup_required = session is not None and session.task_cleanup_needed
         if preserve_task_state:
             try:
                 marked = store.mark_preserved(timestamp=self._timestamp())
+                if session is not None and session.is_task_aware:
+                    self._set_task_lifecycle_locked(
+                        session,
+                        phase=DevTaskPhase.PRESERVED,
+                        cleanup_required=True,
+                        policy_expected=True,
+                    )
             except (OSError, RuntimeError, ValueError) as exc:
                 return DevResult(
                     ok=False,
@@ -556,7 +642,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     "policy_marked": marked is not None,
                 },
             )
-        if policy is None and catalog is None:
+        if policy is None and catalog is None and not task_cleanup_required:
             return DevResult(
                 ok=True,
                 code="DEV_TASK_CLEANUP_NOT_NEEDED",
@@ -565,6 +651,13 @@ class DevSessionManager(DevDiagnosticsMixin):
                 details={"cleanup_confirmed": True, "policy_removed": False},
             )
         try:
+            if task_cleanup_required:
+                self._set_task_lifecycle_locked(
+                    session,
+                    phase=DevTaskPhase.CLEANUP_PENDING,
+                    cleanup_required=True,
+                    policy_expected=True,
+                )
             fresh_catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
@@ -607,6 +700,13 @@ class DevSessionManager(DevDiagnosticsMixin):
                 )
             if policy is not None:
                 store.remove()
+            if session is not None and session.is_task_aware:
+                self._set_task_lifecycle_locked(
+                    session,
+                    phase=DevTaskPhase.CLEAN,
+                    cleanup_required=False,
+                    policy_expected=False,
+                )
             return DevResult(
                 ok=True,
                 code="DEV_TASK_CLEANUP_COMPLETED",
@@ -627,6 +727,18 @@ class DevSessionManager(DevDiagnosticsMixin):
                     )
                 except (OSError, RuntimeError, ValueError):
                     pending = False
+            lifecycle_pending = False
+            if session is not None and session.is_task_aware:
+                try:
+                    self._set_task_lifecycle_locked(
+                        session,
+                        phase=DevTaskPhase.CLEANUP_PENDING,
+                        cleanup_required=True,
+                        policy_expected=True,
+                    )
+                    lifecycle_pending = True
+                except (OSError, RuntimeError, ValueError):
+                    lifecycle_pending = False
             return DevResult(
                 ok=False,
                 code="DEV_CLEANUP_FAILED",
@@ -635,11 +747,33 @@ class DevSessionManager(DevDiagnosticsMixin):
                 details={
                     "cleanup_confirmed": False,
                     "policy_marked_cleanup_pending": pending,
+                    "lifecycle_marked_cleanup_pending": lifecycle_pending,
                     "error": {"type": type(exc).__name__, "message": str(exc)},
                 },
             )
 
-    def _task_cleanup_unconfirmed_locked(self, *, message: str) -> DevResult:
+    def _set_task_lifecycle_locked(
+        self,
+        session: DevSession,
+        *,
+        phase: DevTaskPhase,
+        cleanup_required: bool,
+        policy_expected: bool,
+    ) -> None:
+        if not session.is_task_aware:
+            return
+        session.task_phase = phase
+        session.task_cleanup_required = cleanup_required
+        session.task_policy_expected = policy_expected
+        session.updated_at = self._timestamp()
+        self._write_session(session)
+
+    def _task_cleanup_unconfirmed_locked(
+        self,
+        *,
+        message: str,
+        session: DevSession | None = None,
+    ) -> DevResult:
         """Заблокировать policy, если ownership процесса нельзя подтвердить."""
 
         pending = False
@@ -652,6 +786,18 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
         except (OSError, RuntimeError, ValueError):
             pending = False
+        lifecycle_pending = False
+        if session is not None and session.is_task_aware:
+            try:
+                self._set_task_lifecycle_locked(
+                    session,
+                    phase=DevTaskPhase.CLEANUP_PENDING,
+                    cleanup_required=True,
+                    policy_expected=True,
+                )
+                lifecycle_pending = True
+            except (OSError, RuntimeError, ValueError):
+                lifecycle_pending = False
         return DevResult(
             ok=False,
             code="DEV_CLEANUP_FAILED",
@@ -660,6 +806,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             details={
                 "cleanup_confirmed": False,
                 "policy_marked_cleanup_pending": pending,
+                "lifecycle_marked_cleanup_pending": lifecycle_pending,
             },
         )
 
@@ -675,6 +822,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         session.process = None
         cleanup = self._cleanup_task_state_locked(
             expected_session_id=session.session_id,
+            session=session,
             preserve_task_state=preserve_task_state,
         )
         if not cleanup.ok:
@@ -737,6 +885,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             current = self.status()
             if current.state not in {
                 DevStatusKind.NO_SESSION.value,
+                DevStatusKind.STARTING.value,
                 DevStatusKind.STOPPED.value,
                 DevStatusKind.FAILED.value,
                 DevStatusKind.STALE.value,
@@ -749,6 +898,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     session_id=current.session_id,
                 )
             if current.state in {
+                DevStatusKind.STARTING.value,
                 DevStatusKind.FAILED.value,
                 DevStatusKind.STALE.value,
             }:
@@ -769,6 +919,18 @@ class DevSessionManager(DevDiagnosticsMixin):
                 updated_at=timestamp,
                 last_code="DEV_SESSION_CREATED",
                 last_message="DevSession создана",
+                task_mode=(
+                    DevTaskMode.TASK_AWARE
+                    if task_plan is not None
+                    else DevTaskMode.NONE
+                ),
+                task_phase=(
+                    DevTaskPhase.PREPARING
+                    if task_plan is not None
+                    else DevTaskPhase.NONE
+                ),
+                task_cleanup_required=task_plan is not None,
+                task_policy_expected=task_plan is not None,
             )
             self._write_session(session)
             if task_plan is not None:
@@ -824,10 +986,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                         self._cleanup_task_state_locked(
                             expected_session_id=session.session_id,
                             catalog=task_plan.catalog,
+                            session=session,
                         )
                         if process_cleanup_confirmed
                         else self._task_cleanup_unconfirmed_locked(
-                            message="После ошибки запуска процесс не удалось безопасно завершить"
+                            message="После ошибки запуска процесс не удалось безопасно завершить",
+                            session=session,
                         )
                     )
                     failure_details = {"cleanup": task_cleanup.as_dict()}
@@ -891,10 +1055,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                         self._cleanup_task_state_locked(
                             expected_session_id=latest.session_id,
                             catalog=task_plan.catalog,
+                            session=latest,
                         )
                         if cleanup
                         else self._task_cleanup_unconfirmed_locked(
-                            message="После сбоя готовности процесс не удалось безопасно завершить"
+                            message="После сбоя готовности процесс не удалось безопасно завершить",
+                            session=latest,
                         )
                     )
                     failure_details["task_cleanup"] = task_cleanup.as_dict()
@@ -929,6 +1095,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             latest.state = DevSessionState.RUNNING
+            if latest.is_task_aware:
+                latest.task_phase = DevTaskPhase.RUNNING
             latest.updated_at = self._timestamp()
             latest.last_code = "DEV_SESSION_READY"
             latest.last_message = "Dev-сессия готова"
@@ -1028,6 +1196,16 @@ class DevSessionManager(DevDiagnosticsMixin):
                     preserve_task_state=preserve_task_state,
                 )
             latest.state = DevSessionState.STALE
+            if latest.is_task_aware:
+                try:
+                    self._set_task_lifecycle_locked(
+                        latest,
+                        phase=DevTaskPhase.CLEANUP_PENDING,
+                        cleanup_required=True,
+                        policy_expected=True,
+                    )
+                except (OSError, RuntimeError, ValueError):
+                    pass
             latest.updated_at = self._timestamp()
             latest.last_code = "DEV_STOP_UNCONFIRMED"
             latest.last_message = "Не удалось безопасно подтвердить завершение DevSession"
