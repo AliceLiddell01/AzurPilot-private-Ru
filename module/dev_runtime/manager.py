@@ -194,10 +194,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         steps.append(stopped.as_dict())
         final_status = self.status()
         steps.append(final_status.as_dict())
-        ok = stopped.ok and (
-            final_status.state == DevStatusKind.STOPPED.value
-            or preserve_task_state
-        )
+        ok = stopped.ok and final_status.state == DevStatusKind.STOPPED.value
         return DevResult(
             ok=ok,
             code="DEV_TASK_SMOKE_PASS" if ok else "DEV_TASK_SMOKE_STOP_FAILED",
@@ -634,6 +631,30 @@ class DevSessionManager(DevDiagnosticsMixin):
                 },
             )
 
+    def _task_cleanup_unconfirmed_locked(self, *, message: str) -> DevResult:
+        """Заблокировать policy, если ownership процесса нельзя подтвердить."""
+
+        pending = False
+        try:
+            pending = (
+                TaskPolicyStore(self.environment).mark_cleanup_pending(
+                    timestamp=self._timestamp()
+                )
+                is not None
+            )
+        except (OSError, RuntimeError, ValueError):
+            pending = False
+        return DevResult(
+            ok=False,
+            code="DEV_CLEANUP_FAILED",
+            message=message,
+            state=DevStatusKind.FAILED.value,
+            details={
+                "cleanup_confirmed": False,
+                "policy_marked_cleanup_pending": pending,
+            },
+        )
+
     def _finish_stopped_locked(
         self,
         session: DevSession,
@@ -776,7 +797,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session.updated_at = self._timestamp()
                 self._write_session(session)
             except Exception as exc:
-                process_cleanup_confirmed = True
+                process_cleanup_confirmed = pid is None
                 if pid is not None:
                     identity = launched_identity
                     if identity is None:
@@ -786,6 +807,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                             identity = None
                     if identity is not None:
                         process_cleanup_confirmed = self.process_backend.force_stop(identity)
+                    else:
+                        process_cleanup_confirmed = False
                 failure_code = "DEV_LAUNCH_FAILED"
                 failure_details: dict[str, object] = {}
                 if task_plan is not None:
@@ -795,12 +818,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                             catalog=task_plan.catalog,
                         )
                         if process_cleanup_confirmed
-                        else DevResult(
-                            ok=False,
-                            code="DEV_CLEANUP_FAILED",
-                            message="После ошибки запуска процесс не удалось безопасно завершить",
-                            state=DevStatusKind.FAILED.value,
-                            details={"cleanup_confirmed": False},
+                        else self._task_cleanup_unconfirmed_locked(
+                            message="После ошибки запуска процесс не удалось безопасно завершить"
                         )
                     )
                     failure_details = {"cleanup": task_cleanup.as_dict()}

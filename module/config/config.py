@@ -713,6 +713,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         from module.dev_runtime.task_sandbox import (
             authorize_task_call,
             register_task_dependency,
+            rollback_task_dependency,
         )
 
         caller = getattr(getattr(self, "task", None), "command", None)
@@ -725,19 +726,14 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
         if force_call or self.is_task_enabled(task):
             dependency = None
-            logger.info(f"[Конфигурация] Вызов задачи: {task}")
-            self.modified[f"{task}.Scheduler.NextRun"] = current_time().replace(
-                microsecond=0
-            )
-            self.modified[f"{task}.Scheduler.Enable"] = True
-            if self.auto_update:
-                self.update()
+            dependency_timestamp = None
             if authorization is not None and authorization.new_dependency:
+                dependency_timestamp = current_time().isoformat()
                 dependency = register_task_dependency(
                     self.config_name,
                     caller=caller,
                     target=task,
-                    timestamp=current_time().isoformat(),
+                    timestamp=dependency_timestamp,
                 )
                 if dependency is None or not dependency.allowed:
                     logger.warning(
@@ -745,6 +741,28 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                         f"{dependency.code if dependency is not None else 'DEV_TASK_POLICY_INACTIVE'}"
                     )
                     return False
+            logger.info(f"[Конфигурация] Вызов задачи: {task}")
+            try:
+                self.modified[f"{task}.Scheduler.NextRun"] = current_time().replace(
+                    microsecond=0
+                )
+                self.modified[f"{task}.Scheduler.Enable"] = True
+                if self.auto_update:
+                    self.update()
+            except Exception:
+                if dependency_timestamp is not None:
+                    rolled_back = rollback_task_dependency(
+                        self.config_name,
+                        caller=caller,
+                        target=task,
+                        timestamp=dependency_timestamp,
+                    )
+                    if rolled_back is not True:
+                        logger.error(
+                            f"[Dev Runtime] Не удалось откатить provenance вызова `{task}` "
+                            "после ошибки записи профиля; policy переведена в fail-closed состояние"
+                        )
+                raise
             if dependency is not None and dependency.reason == "dependency_override":
                 logger.info(
                     f"[Dev Runtime] Задача `{task}` исключена root-политикой, "

@@ -177,10 +177,19 @@ def test_find_by_session_rejects_same_token_with_wrong_signature(
         ProcessBackend().find_by_session(environment, session_id)
 
 
-def test_acceptance_cli_exposes_only_diagnostics_and_smoke() -> None:
+def test_acceptance_cli_exposes_diagnostics_task_commands_and_cleanup() -> None:
     parser = cli_module._parser()
 
-    for command in ("preflight", "doctor", "status", "smoke"):
+    for command in (
+        "preflight",
+        "doctor",
+        "status",
+        "smoke",
+        "cleanup",
+        "list",
+        "plan",
+        "task-smoke",
+    ):
         assert parser.parse_args([command]).command == command
     for command in ("start", "stop", "recover"):
         with pytest.raises(SystemExit):

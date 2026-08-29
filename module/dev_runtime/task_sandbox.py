@@ -874,6 +874,44 @@ class TaskPolicyStore:
             _atomic_json_write(path, updated.as_dict())
             return authorization
 
+    def rollback_dependency(
+        self,
+        *,
+        session_id: str,
+        caller: str,
+        target: str,
+        timestamp: str,
+    ) -> bool:
+        """Удалить только последнюю provenance после неудачного config update."""
+
+        path, lock_path = self._scoped_paths()
+        caller = _safe_selector(caller, field="provenance.required_by")
+        target = _safe_selector(target, field="provenance.task")
+        timestamp = _safe_timestamp(timestamp, field="provenance.timestamp")
+        with _policy_thread_lock, _exclusive_policy_lock(lock_path):
+            policy = self.read()
+            if (
+                policy is None
+                or policy.session_id != session_id
+                or policy.state != TASK_POLICY_ACTIVE
+                or not policy.dependencies
+            ):
+                return False
+            dependency = policy.dependencies[-1]
+            if (
+                dependency.required_by != caller
+                or dependency.task != target
+                or dependency.timestamp != timestamp
+            ):
+                return False
+            updated = replace(
+                policy,
+                dependencies=policy.dependencies[:-1],
+                updated_at=timestamp,
+            )
+            _atomic_json_write(path, updated.as_dict())
+            return True
+
 
 def _read_session(environment: DevEnvironment) -> DevSession | None:
     state_path = _ensure_scoped_path(
@@ -905,19 +943,19 @@ def _active_policy_context(config_name: object) -> TaskPolicyContext:
         return TaskPolicyContext(False, None, "DEV_TASK_POLICY_NO_CONTEXT")
     session_id, root_value, policy_value = env_values
     if not all(isinstance(value, str) and value for value in env_values):
-        return TaskPolicyContext(False, None, "DEV_TASK_POLICY_CONTEXT_INCOMPLETE")
+        return TaskPolicyContext(True, None, "DEV_TASK_POLICY_CONTEXT_INCOMPLETE")
     try:
         environment = DevEnvironment.current()
         _safe_session_id(session_id)
         if not _same_path(root_value, environment.repository_root):
-            return TaskPolicyContext(False, None, "DEV_TASK_POLICY_FOREIGN_REPOSITORY")
+            return TaskPolicyContext(True, None, "DEV_TASK_POLICY_FOREIGN_REPOSITORY")
         if not _same_path(policy_value, environment.task_policy_file):
-            return TaskPolicyContext(False, None, "DEV_TASK_POLICY_FOREIGN_PATH")
+            return TaskPolicyContext(True, None, "DEV_TASK_POLICY_FOREIGN_PATH")
         session = _read_session(environment)
         if session is None or session.session_id != session_id:
-            return TaskPolicyContext(False, None, "DEV_TASK_SESSION_NOT_ACTIVE")
+            return TaskPolicyContext(True, None, "DEV_TASK_SESSION_NOT_ACTIVE")
         if session.state.value not in {"starting", "running", "stopping"}:
-            return TaskPolicyContext(False, None, "DEV_TASK_SESSION_NOT_ACTIVE")
+            return TaskPolicyContext(True, None, "DEV_TASK_SESSION_NOT_ACTIVE")
         policy = TaskPolicyStore(environment).read()
     except TaskSandboxError as exc:
         return TaskPolicyContext(True, None, exc.code)
@@ -977,6 +1015,39 @@ def register_task_dependency(
         )
     except TaskSandboxError as exc:
         return TaskAuthorization(False, False, exc.code)
+
+
+def rollback_task_dependency(
+    config_name: object,
+    *,
+    caller: str,
+    target: str,
+    timestamp: str,
+) -> bool | None:
+    """Отменить последнюю provenance после неудачного сохранения профиля."""
+
+    context = _active_policy_context(config_name)
+    if not context.enforced:
+        return None
+    if context.policy is None:
+        return False
+    store = TaskPolicyStore(DevEnvironment.current())
+    try:
+        rolled_back = store.rollback_dependency(
+            session_id=context.policy.session_id,
+            caller=caller,
+            target=target,
+            timestamp=timestamp,
+        )
+        if rolled_back:
+            return True
+        store.mark_cleanup_pending(timestamp=timestamp)
+    except (OSError, RuntimeError, ValueError):
+        try:
+            store.mark_cleanup_pending(timestamp=timestamp)
+        except (OSError, RuntimeError, ValueError):
+            pass
+    return False
 
 
 def scheduler_time_text(value: datetime) -> str:
@@ -1063,6 +1134,7 @@ __all__ = [
     "authorize_task_call",
     "read_profile_payload",
     "register_task_dependency",
+    "rollback_task_dependency",
     "reset_scheduler_state",
     "scheduler_state",
     "scheduler_time_text",

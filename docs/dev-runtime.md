@@ -43,7 +43,9 @@ policy в состоянии `preserved`, сообщает об этом в resu
 uv run --locked python dev_tools/dev_runtime.py list
 uv run --locked python dev_tools/dev_runtime.py plan --task <TaskCommand>
 uv run --locked python dev_tools/dev_runtime.py task-smoke --task <TaskCommand>
+uv run --locked python dev_tools/dev_runtime.py cleanup
 ```
 
-Команды печатают UTF-8 JSON и не выводят полный `ap` config. MCP transport,
+`cleanup` сбрасывает task-aware scheduler-state после явно сохранённого
+`preserve_task_state` и не останавливает живой процесс. Команды печатают UTF-8 JSON и не выводят полный `ap` config. MCP transport,
 generic profile management и PowerShell launcher в Stage 2 не добавляются.

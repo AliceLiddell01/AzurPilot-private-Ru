@@ -46,6 +46,26 @@ def test_cli_converts_manager_value_error_to_structured_json(
     assert "ValueError" in payload["message"]
 
 
+def test_cli_rejects_task_arguments_for_non_task_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "DevSessionManager",
+        lambda: pytest.fail("manager must not be constructed for invalid arguments"),
+    )
+    monkeypatch.setattr(sys, "argv", ["dev_runtime.py", "smoke", "--task", "RootTask"])
+
+    exit_code = cli_module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["code"] == "DEV_CLI_ARGUMENTS_INVALID"
+    assert payload["state"] == "failed"
+
+
 def test_find_by_session_fails_closed_when_token_identity_is_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

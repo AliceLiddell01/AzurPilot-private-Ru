@@ -546,6 +546,7 @@ def test_scheduler_is_unchanged_without_active_policy(
     object.__setattr__(config, "config_name", "ap")
     object.__setattr__(config, "pending_task", [])
     object.__setattr__(config, "waiting_task", [])
+    monkeypatch.setattr(AzurLaneConfig, "is_hoarding_task", False)
     monkeypatch.setattr(
         AzurLaneConfig,
         "SCHEDULER_PRIORITY",
@@ -668,6 +669,54 @@ def test_task_call_does_not_leave_provenance_when_config_update_fails(
     assert persisted.dependencies == ()
 
 
+def test_task_call_does_not_mutate_profile_when_provenance_registration_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from module.config.config import AzurLaneConfig, Function
+
+    environment = _environment(tmp_path)
+    original_profile = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+    _write_session(environment)
+    catalog = TaskCatalog.from_path(environment.profile_file)
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"])
+    store = TaskPolicyStore(environment)
+    store.create(plan, session_id="sandbox-session", timestamp="2026-08-29T00:00:00+00:00")
+    policy = store.read()
+    assert policy is not None
+    monkeypatch.setattr(task_sandbox.DevEnvironment, "current", lambda: environment)
+    monkeypatch.setattr(
+        task_sandbox,
+        "_active_policy_context",
+        lambda _name: task_sandbox.TaskPolicyContext(True, policy, "DEV_TASK_POLICY_ACTIVE"),
+    )
+    monkeypatch.setattr(
+        task_sandbox,
+        "register_task_dependency",
+        lambda *_args, **_kwargs: task_sandbox.TaskAuthorization(
+            False, False, "DEV_TASK_POLICY_WRITE_FAILED"
+        ),
+    )
+
+    config = object.__new__(AzurLaneConfig)
+    object.__setattr__(
+        config,
+        "data",
+        {"RootTask": _profile()["RootTask"], "ExcludedTask": _profile()["ExcludedTask"]},
+    )
+    object.__setattr__(config, "config_name", "ap")
+    object.__setattr__(config, "modified", {})
+    object.__setattr__(config, "auto_update", True)
+    object.__setattr__(config, "task", Function(_profile()["RootTask"]))
+
+    assert config.task_call("ExcludedTask", force_call=True) is False
+    assert config.modified == {}
+    persisted_profile = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+    assert persisted_profile == original_profile
+    persisted_policy = store.read()
+    assert persisted_policy is not None
+    assert persisted_policy.dependencies == ()
+
+
 def test_policy_context_requires_exact_session_and_is_neutral_for_production(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -694,3 +743,9 @@ def test_policy_context_requires_exact_session_and_is_neutral_for_production(
     assert context.enforced is True
     assert context.policy is None
     assert context.code == "DEV_TASK_STATE_CORRUPT"
+
+    monkeypatch.delenv(task_sandbox.TASK_POLICY_FILE_ENV)
+    incomplete = task_sandbox.task_policy_context("ap")
+    assert incomplete.enforced is True
+    assert incomplete.policy is None
+    assert incomplete.code == "DEV_TASK_POLICY_CONTEXT_INCOMPLETE"

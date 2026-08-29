@@ -168,7 +168,7 @@ class ProcessBackend:
                     if child.status() == psutil.STATUS_ZOMBIE:
                         continue
                     identity = self._identity_from_process(child)
-                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, TypeError, ValueError):
                     continue
                 if self.identity_belongs_to_session(environment, session_id, identity):
                     candidates.append(identity)
@@ -214,7 +214,7 @@ class ProcessBackend:
                 if process.info.get("ppid") != launcher_pid:
                     continue
                 identity = self._identity_from_process(process)
-            except (psutil.AccessDenied, psutil.NoSuchProcess):
+            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, TypeError, ValueError):
                 continue
             if self.identity_belongs_to_session(environment, session_id, identity):
                 candidates.append(identity)
