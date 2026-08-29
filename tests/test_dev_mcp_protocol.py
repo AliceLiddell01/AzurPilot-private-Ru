@@ -111,6 +111,7 @@ def test_server_bootstrap_does_not_construct_runtime_manager() -> None:
 
 
 def test_screenshot_response_uses_mcp_image_content_without_json_base64() -> None:
+    Image.init()
     output = io.BytesIO()
     Image.new("RGBA", (1, 1), (0, 127, 255, 255)).save(output, format="PNG")
     image_data = output.getvalue()
