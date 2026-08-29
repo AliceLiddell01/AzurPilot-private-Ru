@@ -182,11 +182,14 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
             "details": {
                 "profile": "ap",
                 "relative_log": "config/state/dev-runtime-gui.log",
-                "repository_root": "C:\\private\\repo",
-                "policy_file": "C:\\private\\policy.json",
-                "command_line": ["python", "gui.py"],
-                "nested": {"token": "secret", "value": 3},
-            },
+            "repository_root": "C:\\private\\repo",
+            "policy_file": "C:\\private\\policy.json",
+            "command_line": ["python", "gui.py"],
+            "api_key": "secret-api-key",
+            "apiKey": "secret-api-key",
+            "x-api-key": "secret-api-key",
+            "nested": {"token": "secret", "value": 3},
+        },
             "unexpected": "must not cross boundary",
         }
     )
@@ -197,6 +200,9 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
         "relative_log": "config/state/dev-runtime-gui.log",
         "nested": {"value": 3},
     }
+    assert "api_key" not in result["details"]
+    assert "apiKey" not in result["details"]
+    assert "x-api-key" not in result["details"]
     assert "unexpected" not in result
 
 

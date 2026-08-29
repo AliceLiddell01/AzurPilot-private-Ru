@@ -59,29 +59,68 @@ _SENSITIVE_ASSIGNMENT = re.compile(
     r"(?i)\b(authorization|access[_-]?token|api[_-]?key|token|password|passwd|secret)"
     r"\s*([:=])\s*(?:bearer\s+)?[^\s,;]+"
 )
-_SENSITIVE_KEYS = frozenset(
+
+_SAFE_DETAIL_KEYS = frozenset(
     {
-        "authorization",
-        "command_line",
-        "config",
-        "config_path",
-        "cookie",
-        "credentials",
-        "cwd",
-        "env",
-        "environment",
-        "executable",
-        "headers",
-        "passfile",
-        "password",
-        "policy_file",
-        "raw",
-        "repository_root",
-        "root_path",
-        "state_file",
-        "token",
-        "traceback",
-        "worker_registry",
+        "allowed",
+        "allowed_tasks",
+        "blockers",
+        "catalog",
+        "checks",
+        "cleanup",
+        "cleanup_confirmed",
+        "code",
+        "command",
+        "dependencies",
+        "details",
+        "enabled",
+        "error",
+        "excluded_tasks",
+        "field",
+        "host",
+        "items",
+        "lifecycle_marked_cleanup_pending",
+        "log",
+        "message",
+        "name",
+        "nested",
+        "new_dependency",
+        "next_run",
+        "observed_code",
+        "plan",
+        "policy_marked",
+        "policy_marked_cleanup_pending",
+        "policy_removed",
+        "policy_state",
+        "port",
+        "preflight",
+        "preserve_task_state",
+        "preserved_task_state",
+        "profile",
+        "read_only",
+        "reason",
+        "relative_log",
+        "required_by",
+        "root",
+        "root_tasks",
+        "safe",
+        "section",
+        "sequence",
+        "session_id",
+        "state",
+        "status",
+        "steps",
+        "task",
+        "task_cleanup",
+        "task_lifecycle",
+        "tasks",
+        "tasks_reset",
+        "timestamp",
+        "tool",
+        "type",
+        "valid",
+        "validation",
+        "value",
     }
 )
 
@@ -180,16 +219,9 @@ def _redact_text(value: str) -> str:
     return value
 
 
-def _sensitive_key(key: str) -> bool:
-    normalized = key.casefold().replace("-", "_")
-    return (
-        normalized in _SENSITIVE_KEYS
-        or normalized.endswith("_path")
-        or any(
-            marker in normalized
-            for marker in ("secret", "token", "password", "credential", "cookie")
-        )
-    )
+def _safe_detail_key(key: str) -> str | None:
+    normalized = re.sub(r"[^a-z0-9]+", "_", key.casefold()).strip("_")
+    return normalized if normalized in _SAFE_DETAIL_KEYS else None
 
 
 def _safe_value(value: object, *, depth: int = 0) -> object:
@@ -210,7 +242,7 @@ def _safe_value(value: object, *, depth: int = 0) -> object:
                 break
             if not isinstance(raw_key, str) or not raw_key or len(raw_key) > _MAX_RESULT_KEY:
                 continue
-            if _sensitive_key(raw_key):
+            if _safe_detail_key(raw_key) is None:
                 continue
             safe[raw_key] = _safe_value(raw_value, depth=depth + 1)
         return safe
