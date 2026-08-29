@@ -292,7 +292,9 @@ class Emotion:
             logger.info(
                 "[Настроение — задержка] Текущая задача отложена до доказанного recovery"
             )
-            self.config.task_delay(target=recovered)
+            # Scheduler хранит local-naive datetime, а morale domain — timezone-aware.
+            scheduler_target = recovered.astimezone().replace(tzinfo=None)
+            self.config.task_delay(target=scheduler_target)
             raise ScriptEnd("[Настроение — задержка] Контроль настроения")
 
     def wait(self, fleet_index):

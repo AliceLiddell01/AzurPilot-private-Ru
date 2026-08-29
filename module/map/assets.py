@@ -35,7 +35,7 @@ MAP_MODE_SWITCH_HARD5 = Button(area=(340, 579, 372, 615), color=(249, 168, 106),
 MAP_MODE_SWITCH_HARD6 = Button(area=(340, 579, 372, 615), color=(253, 176, 90), button=(340, 579, 372, 615), file='./assets/en/map/MAP_MODE_SWITCH_HARD6.png')
 MAP_MODE_SWITCH_NORMAL = Button(area=(214, 584, 255, 615), color=(185, 201, 236), button=(214, 584, 255, 615), file='./assets/en/map/MAP_MODE_SWITCH_NORMAL.png')
 MAP_OFFENSIVE = Button(area=(1147, 652, 1263, 701), color=(234, 183, 108), button=(1147, 652, 1263, 701), file='./assets/en/map/MAP_OFFENSIVE.png')
-MAP_PREPARATION = Button(area=(852, 489, 1054, 553), color=(234, 179, 93), button=(852, 489, 1054, 553), file='./assets/en/map/MAP_PREPARATION.png')
+MAP_PREPARATION = Button(area=(978, 504, 1090, 523), color=(247, 219, 141), button=(978, 504, 1090, 523), file='./assets/en/map/MAP_PREPARATION.png')
 MAP_PREPARATION_CANCEL = Button(area=(234, 12, 278, 47), color=(45, 46, 69), button=(234, 12, 278, 47), file='./assets/en/map/MAP_PREPARATION_CANCEL.png')
 RECOMMEND_A = Button(area=(1019, 190, 1085, 251), color=(205, 164, 106), button=(1019, 190, 1085, 251), file='./assets/en/map/RECOMMEND_A.png')
 RECOMMEND_B = Button(area=(1019, 304, 1085, 365), color=(205, 164, 105), button=(1019, 304, 1085, 365), file='./assets/en/map/RECOMMEND_B.png')
