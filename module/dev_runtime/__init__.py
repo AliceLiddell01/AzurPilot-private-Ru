@@ -26,6 +26,7 @@ from module.dev_runtime.task_sandbox import (
     TaskPolicyContext,
     TaskPolicyStore,
     TaskProvenance,
+    TaskRollbackResult,
     TaskSandboxError,
     rollback_task_dependency,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "TaskPolicyContext",
     "TaskPolicyStore",
     "TaskProvenance",
+    "TaskRollbackResult",
     "TaskSandboxError",
     "rollback_task_dependency",
 ]

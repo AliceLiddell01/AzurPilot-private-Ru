@@ -310,6 +310,12 @@ def test_task_aware_start_and_default_stop_reset_only_scheduler_fields(tmp_path:
     running = json.loads(environment.profile_file.read_text(encoding="utf-8"))
     assert started.ok is True
     assert running["RootTask"]["Scheduler"]["Enable"] is True
+    expected_local = datetime.fromtimestamp(
+        datetime(2026, 8, 29, tzinfo=UTC).timestamp()
+    ).replace(microsecond=0)
+    assert running["RootTask"]["Scheduler"]["NextRun"] == expected_local.strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
     assert running["UnrelatedTask"]["Scheduler"]["Enable"] is False
     assert running["ExcludedTask"]["Scheduler"]["Enable"] is False
     assert running["RootTask"]["Gameplay"] == original["RootTask"]["Gameplay"]
@@ -437,6 +443,23 @@ def test_task_aware_readiness_failure_and_stale_recovery_cleanup(
         for item in payload.values()
         if isinstance(item, dict) and "Scheduler" in item
     )
+
+
+def test_readiness_failure_with_unconfirmed_stop_marks_policy_pending(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    backend = _Backend()
+    backend.fail_stop = True
+    manager = _manager(environment, backend)
+    manager.readiness_probe = lambda _environment, _identity: (False, "synthetic not ready")
+
+    failed = manager.start(root_tasks=["RootTask"])
+
+    assert failed.ok is False
+    assert failed.code == "DEV_CLEANUP_FAILED"
+    assert failed.details["task_cleanup"]["details"]["cleanup_confirmed"] is False
+    pending = TaskPolicyStore(environment).read()
+    assert pending is not None
+    assert pending.state == "cleanup_pending"
 
 
 def test_cleanup_failure_is_not_reported_as_clean_stop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

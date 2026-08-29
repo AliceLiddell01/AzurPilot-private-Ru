@@ -188,7 +188,11 @@ class DevSessionManager(DevDiagnosticsMixin):
                 message="Task-aware smoke не подтвердил рабочее состояние и владение",
                 state=observed.state,
                 session_id=started.session_id,
-                details={"steps": steps},
+                details={
+                    "steps": steps,
+                    "preserve_task_state": preserve_task_state,
+                    "cleanup_required": preserve_task_state,
+                },
             )
         stopped = self.stop(preserve_task_state=preserve_task_state)
         steps.append(stopped.as_dict())
@@ -205,7 +209,11 @@ class DevSessionManager(DevDiagnosticsMixin):
             ),
             state=final_status.state,
             session_id=started.session_id,
-            details={"steps": steps, "preserve_task_state": preserve_task_state},
+            details={
+                "steps": steps,
+                "preserve_task_state": preserve_task_state,
+                "cleanup_required": preserve_task_state,
+            },
         )
 
     def cleanup(self) -> DevResult:
@@ -878,10 +886,16 @@ class DevSessionManager(DevDiagnosticsMixin):
                 if cleanup:
                     latest.process = None
                 failure_details: dict[str, object] = {"cleanup_confirmed": cleanup}
-                if task_plan is not None and cleanup:
-                    task_cleanup = self._cleanup_task_state_locked(
-                        expected_session_id=latest.session_id,
-                        catalog=task_plan.catalog,
+                if task_plan is not None:
+                    task_cleanup = (
+                        self._cleanup_task_state_locked(
+                            expected_session_id=latest.session_id,
+                            catalog=task_plan.catalog,
+                        )
+                        if cleanup
+                        else self._task_cleanup_unconfirmed_locked(
+                            message="После сбоя готовности процесс не удалось безопасно завершить"
+                        )
                     )
                     failure_details["task_cleanup"] = task_cleanup.as_dict()
                     if not task_cleanup.ok:

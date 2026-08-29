@@ -758,10 +758,13 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                         target=task,
                         timestamp=dependency_timestamp,
                     )
-                    if rolled_back is not True:
+                    if rolled_back is None or not rolled_back.rolled_back:
                         logger.error(
                             f"[Dev Runtime] Не удалось откатить provenance вызова `{task}` "
-                            "после ошибки записи профиля; policy переведена в fail-closed состояние"
+                            f"после ошибки записи профиля: "
+                            f"{rolled_back.code if rolled_back is not None else 'DEV_TASK_POLICY_INACTIVE'}; "
+                            f"cleanup_pending="
+                            f"{rolled_back.policy_marked_cleanup_pending if rolled_back is not None else False}"
                         )
                 raise
             if dependency is not None and dependency.reason == "dependency_override":

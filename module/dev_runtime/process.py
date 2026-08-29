@@ -205,19 +205,19 @@ class ProcessBackend:
             processes = psutil.process_iter(
                 ["pid", "ppid", "create_time", "exe", "cmdline", "cwd"]
             )
+            for process in processes:
+                try:
+                    if process.info.get("ppid") != launcher_pid:
+                        continue
+                    identity = self._identity_from_process(process)
+                except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, TypeError, ValueError):
+                    continue
+                if self.identity_belongs_to_session(environment, session_id, identity):
+                    candidates.append(identity)
         except (psutil.AccessDenied, OSError) as exc:
             raise RuntimeError(
                 "Нельзя безопасно перечислить процессы после выхода Windows venv launcher"
             ) from exc
-        for process in processes:
-            try:
-                if process.info.get("ppid") != launcher_pid:
-                    continue
-                identity = self._identity_from_process(process)
-            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, TypeError, ValueError):
-                continue
-            if self.identity_belongs_to_session(environment, session_id, identity):
-                candidates.append(identity)
         if len(candidates) > 1:
             raise RuntimeError(
                 "Windows venv launcher оставил несколько процессов с полной сигнатурой DevSession"

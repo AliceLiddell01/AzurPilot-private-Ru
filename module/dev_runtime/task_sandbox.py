@@ -546,6 +546,15 @@ class TaskAuthorization:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskRollbackResult:
+    """Результат rollback provenance и попытки блокировки policy."""
+
+    rolled_back: bool
+    policy_marked_cleanup_pending: bool
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
 class TaskPolicy:
     session_id: str
     repository_root: str
@@ -1023,14 +1032,14 @@ def rollback_task_dependency(
     caller: str,
     target: str,
     timestamp: str,
-) -> bool | None:
+) -> TaskRollbackResult | None:
     """Отменить последнюю provenance после неудачного сохранения профиля."""
 
     context = _active_policy_context(config_name)
     if not context.enforced:
         return None
     if context.policy is None:
-        return False
+        return TaskRollbackResult(False, False, context.code)
     store = TaskPolicyStore(DevEnvironment.current())
     try:
         rolled_back = store.rollback_dependency(
@@ -1040,21 +1049,23 @@ def rollback_task_dependency(
             timestamp=timestamp,
         )
         if rolled_back:
-            return True
-        store.mark_cleanup_pending(timestamp=timestamp)
+            return TaskRollbackResult(True, False, "DEV_TASK_PROVENANCE_ROLLED_BACK")
+        marked = store.mark_cleanup_pending(timestamp=timestamp)
+        return TaskRollbackResult(False, marked is not None, "DEV_TASK_ROLLBACK_CONFLICT")
     except (OSError, RuntimeError, ValueError):
         try:
-            store.mark_cleanup_pending(timestamp=timestamp)
+            marked = store.mark_cleanup_pending(timestamp=timestamp)
         except (OSError, RuntimeError, ValueError):
-            pass
-    return False
+            return TaskRollbackResult(False, False, "DEV_TASK_POLICY_PENDING_FAILED")
+        return TaskRollbackResult(False, marked is not None, "DEV_TASK_ROLLBACK_FAILED")
 
 
 def scheduler_time_text(value: datetime) -> str:
     """Сформатировать scheduler timestamp в persisted config style проекта."""
 
     if value.tzinfo is not None:
-        value = value.replace(tzinfo=None)
+        # Профиль хранит наивное локальное время, поэтому переводим зону.
+        value = value.astimezone().replace(tzinfo=None)
     return value.replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -1128,6 +1139,7 @@ __all__ = [
     "TaskPolicyContext",
     "TaskPolicyStore",
     "TaskProvenance",
+    "TaskRollbackResult",
     "TaskSandboxError",
     "active_task_policy",
     "apply_task_plan",
