@@ -44,6 +44,12 @@ MCP-инструменты делятся на read-only и меняющие с�
 - необработанные логи с identifiers;
 - screenshot с чувствительными данными.
 
+Dev MCP для локальной Codex-интеграции находится в `module/dev_mcp` и работает
+только через stdio. Это отдельный тонкий adapter к существующему
+`DevSessionManager` с фиксированным профилем `ap`; он не добавляет HTTP listener,
+generic shell/config tools или управление production profiles. Production MCP
+и его transport остаются независимыми.
+
 ## Статистика
 
 Статистика schema v1 хранится только в production PostgreSQL через

@@ -27,6 +27,7 @@ import module.config.server as server_
 from deploy.atomic import atomic_read_text, atomic_read_bytes, atomic_write
 from module.submodule.utils import *
 from module.base.decorator import run_once
+from module.config.constants import DEFAULT_TIME
 from module.config.time_source import now as current_time, timestamp as current_timestamp
 from module.logger import logger
 
@@ -40,7 +41,6 @@ from module.config.profile import discover_profile_configs, discover_profile_nam
 SERVER_TO_TIMEZONE = {
     'en': timedelta(hours=-7),
 }
-DEFAULT_TIME = datetime(2023, 1, 1, 0, 0)
 DEFAULT_CONFIG_NAME = 'ap'
 
 

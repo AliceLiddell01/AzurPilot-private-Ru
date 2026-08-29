@@ -134,6 +134,13 @@ MCP не должен становиться обходом конфигурац
 - доступ к screenshot, логам и пользовательским данным;
 - отключаемость интеграции.
 
+`module/dev_mcp` — отдельный dev-only stdio adapter поверх
+`DevSessionManager`. Он использует только фиксированный профиль `ap`, создаёт
+manager лениво и не связан с production `mcp_server_sse.py`. Startup не должен
+читать profile или запускать runtime; schema и safe serialization остаются
+границей adapter-а, а ownership, task policy и cleanup принадлежат
+`DevSessionManager`.
+
 Не фиксировать в документации точное количество инструментов: оно меняется. Источник истины — регистрация tools в текущем коде.
 
 ## Основа хранения

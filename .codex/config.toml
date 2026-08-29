@@ -2,3 +2,12 @@ approval_policy = "never"
 sandbox_mode = "danger-full-access"
 web_search = "live"
 model_reasoning_summary = "concise"
+
+[mcp_servers.azurpilot-dev]
+command = "uv"
+args = ["run", "--locked", "--no-sync", "python", "-m", "module.dev_mcp"]
+cwd = "."
+enabled = true
+required = false
+startup_timeout_sec = 5
+tool_timeout_sec = 180
