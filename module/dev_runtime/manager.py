@@ -476,7 +476,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         return store.request_screenshot(timeout=self.screenshot_timeout)
 
     def get_historical_screenshot(self, *, session_id: str, screenshot_id: str) -> EvidenceScreenshot:
-        """Прочитать сохранённый снимок Stage 4 по двум проверенным идентификаторам."""
+        """Прочитать сохранённый снимок Evidence API по двум проверенным идентификаторам."""
 
         try:
             target_id = validate_session_id(session_id)
@@ -503,7 +503,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         return store.read_persisted_screenshot(screenshot_id)
 
     def _get_smoke_manager(self):
-        """Лениво создать Stage 5 facade, не меняя startup обычного runtime."""
+        """Лениво создать Smoke facade, не меняя startup обычного runtime."""
 
         smoke_manager = self._smoke_manager
         if smoke_manager is not None:
@@ -560,7 +560,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         )
 
     def status(self) -> DevResult:
-        """Вернуть статус Stage 1 и безопасный снимок политики задач только для чтения."""
+        """Вернуть статус Dev Runtime и безопасный снимок политики задач только для чтения."""
 
         result = super().status()
         try:
@@ -666,7 +666,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         excluded_tasks: Iterable[str] | str | None = None,
         preserve_task_state: bool = False,
     ) -> DevResult:
-        """Запустить проверку жизненного цикла Stage 2 через штатный путь Dev Runtime."""
+        """Запустить проверку жизненного цикла Task Sandbox через штатный путь Dev Runtime."""
 
         steps: list[dict[str, object]] = []
         planned = self.plan(root_tasks=root_tasks, excluded_tasks=excluded_tasks)
@@ -1885,7 +1885,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             ok=ok,
             code="DEV_SMOKE_PASS" if ok else "DEV_SMOKE_STOP_FAILED",
             message=(
-                "Проверка жизненного цикла Stage 1 пройдена"
+                "Проверка жизненного цикла Dev Runtime пройдена"
                 if ok
                 else "Проверка жизненного цикла не подтвердила безопасную остановку"
             ),

@@ -478,6 +478,43 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
     }
 
 
+def test_serializer_preserves_canonical_smoke_evaluation_source_only() -> None:
+    result = serialize_dev_result(
+        {
+            "ok": True,
+            "code": "DEV_SMOKE_PASS",
+            "message": "готово",
+            "state": "finished",
+            "details": {
+                "external_verdict": {
+                    "source": "mcp_client",
+                    "external_agent": "Codex",
+                    "assertion_id": "visual",
+                    "screenshot_id": "shot-1",
+                    "screenshot_sha256": "a" * 64,
+                    "spec_hash": "b" * 64,
+                    "rubric_hash": "c" * 64,
+                    "verdict": "pass",
+                    "rationale": "Проверено",
+                    "submitted_at": "2026-08-30T00:00:00+00:00",
+                }
+            },
+        }
+    )
+
+    assert result["details"]["external_verdict"] == {
+        "source": "mcp_client",
+        "assertion_id": "visual",
+        "screenshot_id": "shot-1",
+        "screenshot_sha256": "a" * 64,
+        "spec_hash": "b" * 64,
+        "rubric_hash": "c" * 64,
+        "verdict": "pass",
+        "rationale": "Проверено",
+        "submitted_at": "2026-08-30T00:00:00+00:00",
+    }
+
+
 def test_serializer_redacts_credentials_from_public_text_and_bounds_collections() -> None:
     result = serialize_dev_result(
         {

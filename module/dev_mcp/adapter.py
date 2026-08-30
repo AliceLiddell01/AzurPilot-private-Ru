@@ -214,7 +214,6 @@ _SAFE_DETAIL_KEYS = frozenset(
         "primary_failure",
         "harness_failure",
         "external_verdict",
-        "external_agent",
         "verdict",
         "rationale",
         "submitted_at",
@@ -370,7 +369,7 @@ _SAFE_SMOKE_PENDING_KEYS = frozenset(
     {"assertion_id", "screenshot_id", "screenshot_sha256", "rubric", "rubric_hash", "spec_hash", "session_id", "submitted"}
 )
 _SAFE_SMOKE_VERDICT_KEYS = frozenset(
-    {"external_agent", "assertion_id", "screenshot_id", "screenshot_sha256", "spec_hash", "rubric_hash", "verdict", "rationale", "submitted_at"}
+    {"source", "assertion_id", "screenshot_id", "screenshot_sha256", "spec_hash", "rubric_hash", "verdict", "rationale", "submitted_at"}
 )
 _SAFE_SMOKE_ISSUE_KEYS = frozenset({"code", "message"})
 _SAFE_SMOKE_FIELD_KEYS = frozenset({"name", "value_type", "required", "minimum", "maximum", "enum_values"})
@@ -560,7 +559,6 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "primary_failure": "smoke_failure",
     "harness_failure": "smoke_failure",
     "external_verdict": "smoke_verdict",
-    "external_agent": "string",
     "verdict": "string",
     "rationale": "string",
     "submitted_at": "string",
@@ -870,7 +868,7 @@ _SMOKE_PENDING_CHILD_SCHEMAS: dict[str, str | None] = {
     "submitted": "bool",
 }
 _SMOKE_VERDICT_CHILD_SCHEMAS: dict[str, str | None] = {
-    "external_agent": "string",
+    "source": "string",
     "assertion_id": "string",
     "screenshot_id": "string",
     "screenshot_sha256": "string",

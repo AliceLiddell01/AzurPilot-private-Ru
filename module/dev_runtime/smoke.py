@@ -1,7 +1,7 @@
 """Универсальный декларативный Smoke Harness для Dev Runtime.
 
-Smoke Harness намеренно остаётся отдельным слоем над Stage 4. Он не знает о
-конкретных обработчиках игрового процесса и не исполняет команды из ``SmokeSpec``.
+Smoke Harness остаётся отдельным слоем над существующим Dev Runtime. Он не
+знает о конкретных обработчиках игрового процесса и не исполняет команды из ``SmokeSpec``.
 Спецификация описывает только наблюдаемые условия, а supervisor использует уже существующие
 DevSession, Task Sandbox и Evidence API.
 """
@@ -49,6 +49,7 @@ from module.dev_runtime.contracts import (
     DevStatusKind,
 )
 from module.dev_runtime.evidence import (
+    EVIDENCE_EVENT_TYPES,
     EVIDENCE_HEALTH_COMPLETE,
     EVIDENCE_HEALTH_CORRUPT,
     EVIDENCE_HEALTH_DEGRADED,
@@ -101,8 +102,19 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_CONFIG_PATH = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}(?:\.[A-Za-z][A-Za-z0-9_-]{0,63}){2,4}$")
 _SAFE_EVENT = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _SAFE_SHA = re.compile(r"^[0-9a-f]{64}$")
-_FORBIDDEN_CONFIG_PARTS = frozenset(
+_CONFIG_DEFENSE_BLOCK_TOKENS = frozenset(
     {
+        "api_key",
+        "apikey",
+        "credential",
+        "credentials",
+        "key",
+        "llm",
+        "private_key",
+        "privatekey",
+        "public_key",
+        "publickey",
+        "remote",
         "scheduler",
         "state",
         "storage",
@@ -116,30 +128,10 @@ _FORBIDDEN_CONFIG_PARTS = frozenset(
         "path",
         "command",
         "serial",
+        "ssh",
+        "runtime",
     }
 )
-
-try:
-    from module.dev_runtime.evidence import _EVENT_TYPES as _EVIDENCE_EVENT_TYPES
-except ImportError:  # pragma: no cover — совместимость с неполной копией Stage 4
-    _EVIDENCE_EVENT_TYPES = frozenset(
-        {
-            "session_created",
-            "policy_prepared",
-            "process_started",
-            "session_ready",
-            "task_started",
-            "task_finished",
-            "dependency_registered",
-            "runtime_warning",
-            "runtime_error",
-            "stop_requested",
-            "process_stopped",
-            "cleanup_started",
-            "cleanup_completed",
-            "session_stopped",
-        }
-    )
 
 
 type ScalarValue = StrictBool | StrictInt | StrictFloat | StrictStr | None
@@ -224,8 +216,8 @@ def _safe_task(value: str, *, field_name: str) -> str:
 
 def _safe_event(value: str, *, field_name: str = "event_type") -> str:
     value = _text(value, field_name=field_name, maximum=64)
-    if value not in _EVIDENCE_EVENT_TYPES or not _SAFE_EVENT.fullmatch(value):
-        raise ValueError(f"{field_name} отсутствует в каноническом реестре событий Stage 4")
+    if value not in EVIDENCE_EVENT_TYPES or not _SAFE_EVENT.fullmatch(value):
+        raise ValueError(f"{field_name} отсутствует в каноническом реестре событий Evidence API")
     return value
 
 
@@ -268,9 +260,6 @@ class SmokeConfigOverride(_StrictModel):
         value = _text(value, field_name="config_overrides.path", maximum=SMOKE_MAX_CONFIG_PATH)
         if not _SAFE_CONFIG_PATH.fullmatch(value):
             raise ValueError("config_overrides.path должен быть каноническим точечным путём конфигурации")
-        parts = {part.casefold() for part in value.split(".")}
-        if parts & _FORBIDDEN_CONFIG_PARTS:
-            raise ValueError("config_overrides.path находится в запрещённой зоне")
         return value
 
     @field_validator("value")
@@ -843,7 +832,7 @@ class SmokePendingEvaluation(_StrictModel):
 
 
 class SmokeExternalVerdict(_StrictModel):
-    external_agent: str
+    source: Literal["mcp_client"] = "mcp_client"
     assertion_id: str
     screenshot_id: str
     screenshot_sha256: str
@@ -853,7 +842,7 @@ class SmokeExternalVerdict(_StrictModel):
     rationale: str
     submitted_at: str
 
-    @field_validator("external_agent", "assertion_id", "screenshot_id")
+    @field_validator("assertion_id", "screenshot_id")
     @classmethod
     def validate_identity(cls, value: str, info: object) -> str:
         return _identifier(value, field_name=getattr(info, "field_name", "verdict"))
@@ -1122,6 +1111,7 @@ class ConfigRegistry:
     """Безопасный реестр обычных пользовательских параметров текущей схемы."""
 
     _ALLOWED_TYPES = frozenset({"checkbox", "select", "input", "textarea", "datetime"})
+    _CAPABILITY_KEY = "smoke_override"
 
     def __init__(self, environment: DevEnvironment):
         self.environment = environment
@@ -1147,11 +1137,7 @@ class ConfigRegistry:
                 return
             if len(parts) >= 3 and isinstance(value.get("type"), str) and "value" in value:
                 path = ".".join(parts)
-                if (
-                    value["type"] in self._ALLOWED_TYPES
-                    and value.get("display") not in {"hide", "disabled"}
-                    and not ({part.casefold() for part in parts} & _FORBIDDEN_CONFIG_PARTS)
-                ):
+                if value["type"] in self._ALLOWED_TYPES and value.get("display") not in {"hide", "disabled"}:
                     leaves[path] = dict(value)
                 return
             if len(parts) >= 5:
@@ -1165,11 +1151,25 @@ class ConfigRegistry:
             raise SmokeStoreError("DEV_SMOKE_CONFIG_SCHEMA_INVALID", "В реестре нет допустимых листовых параметров конфигурации")
         return leaves
 
-    def leaf(self, path: str) -> dict[str, object]:
+    def _known_leaf(self, path: str) -> dict[str, object]:
         try:
             return self._leaves[path]
         except KeyError as exc:
             raise SmokeStoreError("DEV_SMOKE_CONFIG_PATH_UNSUPPORTED", "путь конфигурации отсутствует в текущем реестре") from exc
+
+    @staticmethod
+    def _defense_blocked(path: str) -> bool:
+        parts = [part.casefold().replace("_", "") for part in path.split(".")]
+        tokens = {token.casefold().replace("_", "") for token in _CONFIG_DEFENSE_BLOCK_TOKENS}
+        return any(token in part for part in parts for token in tokens)
+
+    def leaf(self, path: str) -> dict[str, object]:
+        metadata = self._known_leaf(path)
+        if self._defense_blocked(path):
+            raise SmokeStoreError("DEV_SMOKE_CONFIG_PATH_UNSUPPORTED", "путь конфигурации находится в защищённой зоне")
+        if metadata.get(self._CAPABILITY_KEY) is not True:
+            raise SmokeStoreError("DEV_SMOKE_CONFIG_CAPABILITY_REQUIRED", "путь конфигурации не разрешён для Smoke override")
+        return metadata
 
     @staticmethod
     def _same_scalar_type(value: object, expected: object) -> bool:
@@ -1208,7 +1208,13 @@ class ConfigRegistry:
                 raise SmokeStoreError("DEV_SMOKE_CONFIG_VALUE_INVALID", "переопределение конфигурации не соответствует типу текущего значения")
 
     def allowed_paths(self) -> tuple[str, ...]:
-        return tuple(sorted(self._leaves))
+        return tuple(
+            sorted(
+                path
+                for path, metadata in self._leaves.items()
+                if metadata.get(self._CAPABILITY_KEY) is True and not self._defense_blocked(path)
+            )
+        )
 
 
 def _deep_get(payload: object, path: str, default: object = None) -> object:
@@ -1548,13 +1554,13 @@ def _eval_event_occurred(assertion: EventOccurredAssertion, ctx: SmokeObservatio
             SmokeAssertionStatus.PENDING,
             "canonical_timeline",
             f"Событие {assertion.event_type} ещё не наблюдалось",
-            (_ref("canonical_timeline", "event-observation", "Текущая ограниченная timeline Stage 4"),),
+            (_ref("canonical_timeline", "event-observation", "Текущая ограниченная timeline Evidence API"),),
         )
     return CapabilityEvaluation(
         SmokeAssertionStatus.PASS,
         "canonical_timeline",
         f"Событие {assertion.event_type} наблюдалось",
-        (_ref("canonical_timeline", f"sequence:{event.sequence}", "Каноническое событие Stage 4"),),
+        (_ref("canonical_timeline", f"sequence:{event.sequence}", "Каноническое событие Evidence API"),),
     )
 
 
@@ -1572,13 +1578,13 @@ def _eval_event_not_occurred(assertion: EventNotOccurredAssertion, ctx: SmokeObs
             SmokeAssertionStatus.PENDING,
             "canonical_timeline",
             "Окно отрицательного наблюдения ещё не закрыто",
-            (_ref("canonical_timeline", "observation-window", "Текущее ограниченное окно timeline Stage 4"),),
+            (_ref("canonical_timeline", "observation-window", "Текущее ограниченное окно timeline Evidence API"),),
         )
     return CapabilityEvaluation(
         SmokeAssertionStatus.PASS,
         "canonical_timeline",
         "Нежелательное событие отсутствовало после закрытия окна наблюдения",
-        (_ref("canonical_timeline", "observation-window", "Закрытое ограниченное окно timeline Stage 4"),),
+        (_ref("canonical_timeline", "observation-window", "Закрытое ограниченное окно timeline Evidence API"),),
     )
 
 
@@ -1589,7 +1595,7 @@ def _eval_task_started(assertion: TaskStartedAssertion, ctx: SmokeObservationCon
             SmokeAssertionStatus.PENDING,
             "canonical_timeline",
             "Task ещё не запускалась",
-            (_ref("canonical_timeline", "task-observation", "Текущая ограниченная timeline Stage 4"),),
+            (_ref("canonical_timeline", "task-observation", "Текущая ограниченная timeline Evidence API"),),
         )
     return CapabilityEvaluation(
         SmokeAssertionStatus.PASS,
@@ -1613,13 +1619,13 @@ def _eval_task_not_started(assertion: TaskNotStartedAssertion, ctx: SmokeObserva
             SmokeAssertionStatus.PENDING,
             "canonical_timeline",
             "Окно наблюдения ещё не закрыто",
-            (_ref("canonical_timeline", "observation-window", "Текущее ограниченное окно timeline Stage 4"),),
+            (_ref("canonical_timeline", "observation-window", "Текущее ограниченное окно timeline Evidence API"),),
         )
     return CapabilityEvaluation(
         SmokeAssertionStatus.PASS,
         "canonical_timeline",
         "Task не запускалась после закрытия окна наблюдения",
-        (_ref("canonical_timeline", "observation-window", "Закрытое ограниченное окно timeline Stage 4"),),
+        (_ref("canonical_timeline", "observation-window", "Закрытое ограниченное окно timeline Evidence API"),),
     )
 
 
@@ -1636,7 +1642,7 @@ def _eval_dependency(assertion: DependencyOccurredAssertion, ctx: SmokeObservati
         SmokeAssertionStatus.PENDING,
         "task_policy",
         "Зависимость с подтверждённым происхождением ещё не наблюдалась",
-        (_ref("task_policy", "dependency-observation", "Текущая проверка происхождения зависимости Stage 4"),),
+        (_ref("task_policy", "dependency-observation", "Текущая проверка происхождения зависимости Evidence API"),),
     )
 
 
@@ -1692,7 +1698,7 @@ def _eval_evidence_health(assertion: EvidenceHealthAssertion, ctx: SmokeObservat
         status,
         "runtime_state",
         f"Состояние evidence: {ctx.evidence_health}",
-        (_ref("runtime_state", "evidence_health", "Полнота подтверждающих данных Stage 4"),),
+        (_ref("runtime_state", "evidence_health", "Полнота подтверждающих данных Evidence API"),),
     )
 
 
@@ -1702,7 +1708,7 @@ def _eval_runtime_state(assertion: RuntimeStateAssertion, ctx: SmokeObservationC
         status,
         "runtime_state",
         f"Состояние среды выполнения: {ctx.runtime_state}",
-        (_ref("runtime_state", "status", "Stage 4 runtime status"),),
+        (_ref("runtime_state", "status", "Наблюдаемое состояние Dev Runtime"),),
     )
 
 
@@ -1712,7 +1718,7 @@ def _eval_port_state(assertion: DevPortStateAssertion, ctx: SmokeObservationCont
             SmokeAssertionStatus.UNAVAILABLE,
             "runtime_state",
             "Состояние фиксированного Dev port неизвестно",
-            (_ref("runtime_state", "dev-port", "Проверка фиксированного Dev port через Stage 4"),),
+            (_ref("runtime_state", "dev-port", "Проверка фиксированного Dev port через Evidence API"),),
         )
     actual = "listening" if ctx.port_listening else "free"
     status = SmokeAssertionStatus.PASS if actual == assertion.expected_state else SmokeAssertionStatus.FAIL
@@ -1720,7 +1726,7 @@ def _eval_port_state(assertion: DevPortStateAssertion, ctx: SmokeObservationCont
         status,
         "runtime_state",
         f"Dev port: {actual}",
-        (_ref("runtime_state", "dev-port", "Проверка фиксированного Dev port через Stage 4"),),
+        (_ref("runtime_state", "dev-port", "Проверка фиксированного Dev port через Evidence API"),),
     )
 
 
@@ -1771,20 +1777,20 @@ def _eval_duration(assertion: DurationWithinBoundAssertion, ctx: SmokeObservatio
             SmokeAssertionStatus.FAIL,
             "runtime_state",
             "Smoke превысил ограничение длительности",
-            (_ref("runtime_state", "duration", "Длительность жизненного цикла Stage 4"),),
+            (_ref("runtime_state", "duration", "Длительность жизненного цикла Dev Runtime"),),
         )
     if not ctx.completed and ctx.elapsed_seconds < float(assertion.minimum_seconds):
         return CapabilityEvaluation(
             SmokeAssertionStatus.PENDING,
             "runtime_state",
             "Минимальная длительность ещё не достигнута",
-            (_ref("runtime_state", "duration", "Длительность жизненного цикла Stage 4"),),
+            (_ref("runtime_state", "duration", "Длительность жизненного цикла Dev Runtime"),),
         )
     return CapabilityEvaluation(
         SmokeAssertionStatus.PASS,
         "runtime_state",
         "Duration находится в заданных границах",
-        (_ref("runtime_state", "duration", "Длительность жизненного цикла Stage 4"),),
+        (_ref("runtime_state", "duration", "Длительность жизненного цикла Dev Runtime"),),
     )
 
 
@@ -1794,20 +1800,20 @@ def _eval_log_contains(assertion: SessionLogContainsAssertion, ctx: SmokeObserva
             SmokeAssertionStatus.UNAVAILABLE,
             "session_log",
             "Журнал сессии недоступен",
-            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Stage 4"),),
+            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
         )
     if any(assertion.literal in line for line in ctx.logs):
         return CapabilityEvaluation(
             SmokeAssertionStatus.PASS,
             "session_log",
             "Журнал сессии содержит заданный фрагмент",
-            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Stage 4"),),
+            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
         )
     return CapabilityEvaluation(
         SmokeAssertionStatus.PENDING if not ctx.completed else SmokeAssertionStatus.FAIL,
         "session_log",
         "Заданный фрагмент в журнале сессии не найден",
-        (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Stage 4"),),
+        (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
     )
 
 
@@ -1817,27 +1823,27 @@ def _eval_log_not_contains(assertion: SessionLogNotContainsAssertion, ctx: Smoke
             SmokeAssertionStatus.UNAVAILABLE,
             "session_log",
             "Журнал сессии недоступен",
-            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Stage 4"),),
+            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
         )
     if any(assertion.literal in line for line in ctx.logs):
         return CapabilityEvaluation(
             SmokeAssertionStatus.FAIL,
             "session_log",
             "Запрещённый фрагмент найден в журнале сессии",
-            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Stage 4"),),
+            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
         )
     if ctx.elapsed_seconds < float(assertion.observation_window_seconds):
         return CapabilityEvaluation(
             SmokeAssertionStatus.PENDING,
             "session_log",
             "Окно проверки журнала ещё не закрыто",
-            (_ref("session_log", "observation-window", "Текущее ограниченное окно журнала сессии Stage 4"),),
+            (_ref("session_log", "observation-window", "Текущее ограниченное окно журнала сессии Evidence API"),),
         )
     return CapabilityEvaluation(
         SmokeAssertionStatus.PASS,
         "session_log",
         "Запрещённый literal отсутствовал после закрытия окна",
-        (_ref("session_log", "observation-window", "Закрытое ограниченное окно журнала сессии Stage 4"),),
+        (_ref("session_log", "observation-window", "Закрытое ограниченное окно журнала сессии Evidence API"),),
     )
 
 
@@ -1863,14 +1869,14 @@ class SmokeCapabilityRegistry:
         text_field = _field("assertion_id", "safe_identifier", True)
         required_field = _field("required", "boolean", False)
         definitions = [
-            ("event_occurred", "assertion", "canonical_timeline", True, False, "Подтвердить наличие канонического события", _eval_event_occurred, _capability_fields(text_field, required_field, _field("event_type", "event_type", True, enum_values=sorted(_EVIDENCE_EVENT_TYPES)))),
+            ("event_occurred", "assertion", "canonical_timeline", True, False, "Подтвердить наличие канонического события", _eval_event_occurred, _capability_fields(text_field, required_field, _field("event_type", "event_type", True, enum_values=sorted(EVIDENCE_EVENT_TYPES)))),
             ("event_not_occurred", "assertion", "canonical_timeline", True, False, "Подтвердить отсутствие события после окна наблюдения", _eval_event_not_occurred, _capability_fields(text_field, required_field, _field("event_type", "event_type", True), _field("observation_window_seconds", "duration", False, minimum=0.1, maximum=SMOKE_MAX_OBSERVATION_SECONDS))),
             ("task_started", "assertion", "canonical_timeline", True, False, "Подтвердить запуск task через timeline", _eval_task_started, _capability_fields(text_field, required_field, _field("task", "task_selector", True))),
             ("task_not_started", "assertion", "canonical_timeline", True, False, "Подтвердить отсутствие запуска task после окна наблюдения", _eval_task_not_started, _capability_fields(text_field, required_field, _field("task", "task_selector", True), _field("observation_window_seconds", "duration", False, minimum=0.1, maximum=SMOKE_MAX_OBSERVATION_SECONDS))),
             ("dependency_occurred", "assertion", "task_policy", True, False, "Подтвердить зарегистрированную зависимость с происхождением", _eval_dependency, _capability_fields(text_field, required_field, _field("task", "task_selector", True), _field("required_by", "task_selector", True))),
             ("no_runtime_error", "assertion", "structured_error", True, False, "Подтвердить отсутствие необъявленной ошибки выполнения", _eval_no_runtime_error, _capability_fields(text_field, required_field, _field("observation_window_seconds", "duration", False, minimum=0.1, maximum=SMOKE_MAX_OBSERVATION_SECONDS))),
             ("expected_safe_error", "assertion", "structured_error", True, False, "Подтвердить заранее объявленную безопасную ошибку", _eval_expected_error, _capability_fields(text_field, required_field, _field("error_type", "string", False), _field("error_code", "string", False))),
-            ("evidence_health", "assertion", "runtime_state", True, False, "Проверить полноту подтверждающих данных Stage 4", _eval_evidence_health, _capability_fields(text_field, required_field, _field("expected_status", "enum", False, enum_values=[EVIDENCE_HEALTH_COMPLETE, EVIDENCE_HEALTH_DEGRADED, EVIDENCE_HEALTH_CORRUPT, EVIDENCE_HEALTH_UNAVAILABLE]))),
+            ("evidence_health", "assertion", "runtime_state", True, False, "Проверить полноту подтверждающих данных Evidence API", _eval_evidence_health, _capability_fields(text_field, required_field, _field("expected_status", "enum", False, enum_values=[EVIDENCE_HEALTH_COMPLETE, EVIDENCE_HEALTH_DEGRADED, EVIDENCE_HEALTH_CORRUPT, EVIDENCE_HEALTH_UNAVAILABLE]))),
             ("runtime_state", "assertion", "runtime_state", True, False, "Проверить наблюдаемое состояние Dev Runtime", _eval_runtime_state, _capability_fields(text_field, required_field, _field("expected_state", "enum", True, enum_values=["running", "stopped", "starting", "failed"]))),
             ("dev_port_state", "assertion", "runtime_state", True, False, "Проверить фиксированный Dev port", _eval_port_state, _capability_fields(text_field, required_field, _field("expected_state", "enum", True, enum_values=["listening", "free"]))),
             ("config_value", "assertion", "config", True, False, "Проверить безопасно наблюдаемое значение config", _eval_config_value, _capability_fields(text_field, required_field, _field("path", "canonical_config_path", True), _field("expected_value", "scalar", True))),
@@ -1887,7 +1893,7 @@ class SmokeCapabilityRegistry:
             deterministic=False,
             external=True,
             available=True,
-            description="Сохранить объявленный screenshot Stage 4 для внешней оценки после cleanup",
+            description="Сохранить объявленный screenshot Evidence API для внешней оценки после cleanup",
         )
         self._definitions: dict[str, _CapabilityDefinition] = {}
         for capability_id, kind, source, deterministic, external, description, evaluator, schema in definitions:
@@ -1910,7 +1916,7 @@ class SmokeCapabilityRegistry:
                 SmokeAssertionStatus.PENDING,
                 "external_visual",
                 "Ожидается внешняя оценка",
-                (_ref("external_visual", "screenshot-pending", "Ожидание точного screenshot Stage 4"),),
+                (_ref("external_visual", "screenshot-pending", "Ожидание точного screenshot Evidence API"),),
             ),
         )
 
@@ -2573,7 +2579,7 @@ class SmokeRunManager:
                 issues.append(
                     SmokeValidationIssue(
                         code=str(getattr(planned, "code", "DEV_SMOKE_TASK_PLAN_FAILED")),
-                        message="Область задач не прошла существующую проверку политики Stage 2",
+                        message="Область задач не прошла существующую проверку политики Task Sandbox",
                     )
                 )
             if check_runtime_conflict:
@@ -2780,7 +2786,7 @@ class SmokeRunManager:
         except Exception as exc:  # noqa: BLE001 — публичная граница не раскрывает детали реализации
             return EvidenceScreenshot(self._result(ok=False, code="DEV_SMOKE_EVALUATION_UNAVAILABLE", message=f"Сохранённый снимок экрана недоступен: {type(exc).__name__}", state=record.state.value, smoke_id=smoke_id, session_id=record.session_id))
         if screenshot.image is None or not _result_ok(screenshot.result):
-            return EvidenceScreenshot(self._result(ok=False, code="DEV_SMOKE_EVIDENCE_INCOMPLETE", message="Сохранённый снимок экрана не прошёл проверку Stage 4", state=SmokeState.AWAITING_EXTERNAL_EVALUATION.value, smoke_id=smoke_id, session_id=record.session_id))
+            return EvidenceScreenshot(self._result(ok=False, code="DEV_SMOKE_EVIDENCE_INCOMPLETE", message="Сохранённый снимок экрана не прошёл проверку Evidence API", state=SmokeState.AWAITING_EXTERNAL_EVALUATION.value, smoke_id=smoke_id, session_id=record.session_id))
         metadata = _result_details(screenshot.result).get("screenshot")
         if not isinstance(metadata, Mapping) or metadata.get("sha256") != pending.screenshot_sha256:
             return EvidenceScreenshot(self._result(ok=False, code="DEV_SMOKE_SCREENSHOT_HASH_MISMATCH", message="SHA снимка экрана не совпал с замороженной ссылкой оценки", state=SmokeState.AWAITING_EXTERNAL_EVALUATION.value, smoke_id=smoke_id, session_id=record.session_id))
@@ -2826,7 +2832,7 @@ class SmokeRunManager:
         if not isinstance(metadata, Mapping) or metadata.get("sha256") != pending.screenshot_sha256:
             return self._result(ok=False, code="DEV_SMOKE_SCREENSHOT_HASH_MISMATCH", message="Несовпадение SHA снимка экрана отклонено", state=record.state.value, smoke_id=smoke_id, session_id=record.session_id)
         external = SmokeExternalVerdict(
-            external_agent="Codex",
+            source="mcp_client",
             assertion_id=assertion_id,
             screenshot_id=pending.screenshot_id,
             screenshot_sha256=pending.screenshot_sha256,
@@ -2953,7 +2959,7 @@ class SmokeRunManager:
             observed = self._observe(runtime, session_id, spec, transaction, completed=False)
             if not observed.evidence_ok:
                 primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
-                primary_failure = SmokeFailure(code="DEV_SMOKE_EVIDENCE_INCOMPLETE", message=observed.evidence_reason or "Данные evidence Stage 4 неполны")
+                primary_failure = SmokeFailure(code="DEV_SMOKE_EVIDENCE_INCOMPLETE", message=observed.evidence_reason or "Данные Evidence API неполны")
                 break
             isolation_failure = self._unexpected_task_failure(spec, observed.context)
             if isolation_failure is not None:
@@ -3004,7 +3010,7 @@ class SmokeRunManager:
             primary_failure = SmokeFailure(code=cleanup_failure.code, message=str(cleanup_failure))
         if not final_observed.evidence_ok and primary_failure is None:
             primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
-            primary_failure = SmokeFailure(code="DEV_SMOKE_EVIDENCE_INCOMPLETE", message=final_observed.evidence_reason or "Итоговые данные evidence Stage 4 неполны")
+            primary_failure = SmokeFailure(code="DEV_SMOKE_EVIDENCE_INCOMPLETE", message=final_observed.evidence_reason or "Итоговые данные Evidence API неполны")
         if self._has_unexpected_runtime_error(spec, final_observed.context) and primary_failure is None:
             primary_outcome = SmokeOutcome.PRODUCT_FAILED
             primary_failure = SmokeFailure(code="DEV_SMOKE_UNEXPECTED_RUNTIME_ERROR", message="Необработанная структурированная ошибка выполнения исключает PASS")
@@ -3061,7 +3067,7 @@ class SmokeRunManager:
         try:
             evidence = runtime.get_evidence(session_id=session_id)
             if not _result_ok(evidence):
-                return _RuntimeObservation(self._empty_context(session_id, completed), _source_snapshot(capture_git_snapshot(self.environment.repository_root)), False, "Stage 4 evidence API вернул ошибку")
+                return _RuntimeObservation(self._empty_context(session_id, completed), _source_snapshot(capture_git_snapshot(self.environment.repository_root)), False, "Evidence API вернул ошибку")
             summary = _result_details(evidence)
             health_payload = summary.get("evidence_health")
             health = health_payload.get("status") if isinstance(health_payload, Mapping) else EVIDENCE_HEALTH_UNAVAILABLE
@@ -3107,7 +3113,7 @@ class SmokeRunManager:
             )
             return _RuntimeObservation(context, _source_snapshot(capture_git_snapshot(self.environment.repository_root)), health == EVIDENCE_HEALTH_COMPLETE, None if health == EVIDENCE_HEALTH_COMPLETE else f"evidence health={health}")
         except Exception as exc:  # noqa: BLE001 — ошибка наблюдения означает сбой Harness или evidence
-            return _RuntimeObservation(self._empty_context(session_id, completed), _source_snapshot(capture_git_snapshot(self.environment.repository_root)), False, f"Наблюдение Stage 4 завершилось ошибкой: {type(exc).__name__}")
+            return _RuntimeObservation(self._empty_context(session_id, completed), _source_snapshot(capture_git_snapshot(self.environment.repository_root)), False, f"Наблюдение Evidence API завершилось ошибкой: {type(exc).__name__}")
 
     @staticmethod
     def _empty_context(session_id: str, completed: bool) -> SmokeObservationContext:
@@ -3121,11 +3127,11 @@ class SmokeRunManager:
         for _ in range(12):
             result = runtime.get_timeline(session_id=session_id, after_sequence=after, limit=200)
             if not _result_ok(result):
-                raise SmokeStoreError("DEV_SMOKE_TIMELINE_UNAVAILABLE", "Stage 4 timeline API вернул ошибку")
+                raise SmokeStoreError("DEV_SMOKE_TIMELINE_UNAVAILABLE", "Timeline Evidence API вернул ошибку")
             details = _result_details(result)
             raw_events = details.get("events", [])
             if not isinstance(raw_events, list):
-                raise SmokeStoreError("DEV_SMOKE_TIMELINE_CORRUPT", "Stage 4 timeline имеет некорректную структуру")
+                raise SmokeStoreError("DEV_SMOKE_TIMELINE_CORRUPT", "Timeline Evidence API имеет некорректную структуру")
             for raw in raw_events:
                 if not isinstance(raw, Mapping) or not isinstance(raw.get("sequence"), int) or not isinstance(raw.get("type"), str):
                     continue
@@ -3244,7 +3250,7 @@ class SmokeRunManager:
             if event.event_type == "dependency_registered" and isinstance(event.fields.get("task"), str):
                 allowed.add(event.fields["task"])
             if event.event_type == "task_started" and isinstance(event.fields.get("task"), str) and event.fields["task"] not in allowed:
-                return SmokeFailure(code="DEV_SMOKE_UNEXPECTED_TASK", message="Хронология содержит задачу вне замороженного происхождения Stage 2", assertion_id=None)
+                return SmokeFailure(code="DEV_SMOKE_UNEXPECTED_TASK", message="Хронология содержит задачу вне замороженного происхождения Task Sandbox", assertion_id=None)
         return None
 
     @staticmethod
@@ -3523,7 +3529,7 @@ def _outcome_message(outcome: SmokeOutcome) -> str:
         SmokeOutcome.PRODUCT_FAILED: "Проверка продукта не пройдена",
         SmokeOutcome.PRECONDITION_FAILED: "Предварительные условия или запуск DevSession не пройдены",
         SmokeOutcome.HARNESS_FAILED: "Smoke Harness не подтвердил безопасное завершение",
-        SmokeOutcome.EVIDENCE_INCOMPLETE: "Подтверждающих данных Stage 4 недостаточно для PASS",
+        SmokeOutcome.EVIDENCE_INCOMPLETE: "Подтверждающих данных Evidence API недостаточно для PASS",
         SmokeOutcome.TIMEOUT: "SmokeRun завершён по замороженному крайнему сроку",
         SmokeOutcome.INVALIDATED: "SmokeRun признан недействительным из-за изменения source",
         SmokeOutcome.CANCELLED: "SmokeRun отменён",

@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -51,6 +52,13 @@ class ConfigGenerationTests(unittest.TestCase):
             with self.subTest(relative=relative):
                 data = yaml.safe_load((ROOT / relative).read_text(encoding="utf-8"))
                 self.assertEqual(data["Deploy"]["Webui"]["Language"], UI_LOCALE)
+
+    def test_smoke_override_capability_is_carried_into_generated_args(self) -> None:
+        source = yaml.safe_load((ROOT / "module/config/argument/argument.yaml").read_text(encoding="utf-8"))
+        generated = json.loads((ROOT / "module/config/argument/args.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(source["Reward"]["CollectMission"]["smoke_override"])
+        self.assertTrue(generated["Reward"]["Reward"]["CollectMission"]["smoke_override"])
 
 
 if __name__ == "__main__":

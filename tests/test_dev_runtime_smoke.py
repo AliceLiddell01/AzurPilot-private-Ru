@@ -23,9 +23,35 @@ def _environment(tmp_path: Path) -> DevEnvironment:
         json.dumps(
             {
                 "Reward": {
-                    "Reward": {"Enable": {"type": "checkbox", "value": False}},
-                    "Unsafe": {"path": {"type": "input", "value": "x"}},
-                }
+                    "Reward": {
+                        "CollectMission": {
+                            "type": "checkbox",
+                            "value": False,
+                            "option": [True, False],
+                            "smoke_override": True,
+                        },
+                        "CollectMode": {
+                            "type": "select",
+                            "value": "daily",
+                            "option": ["daily", "weekly"],
+                            "smoke_override": True,
+                        },
+                        "SensitiveToggle": {
+                            "type": "checkbox",
+                            "value": False,
+                            "option": [True, False],
+                        },
+                    },
+                    "Scheduler": {"Enable": {"type": "checkbox", "value": False}},
+                },
+                "Alas": {
+                    "Error": {"LlmApiKey": {"type": "textarea", "value": ""}},
+                    "EmulatorInfo": {
+                        "RemoteSSHPublicKey": {"type": "textarea", "value": ""},
+                        "RemoteStartCommand": {"type": "textarea", "value": ""},
+                        "RemoteStopCommand": {"type": "textarea", "value": ""},
+                    },
+                },
             }
         ),
         encoding="utf-8",
@@ -35,13 +61,25 @@ def _environment(tmp_path: Path) -> DevEnvironment:
         json.dumps(
             {
                 "Reward": {
-                    "Reward": {"Enable": False},
+                    "Reward": {
+                        "CollectMission": False,
+                        "CollectMode": "daily",
+                        "SensitiveToggle": False,
+                    },
                     "Scheduler": {
                         "Enable": False,
                         "Command": "Reward",
                         "NextRun": "2020-01-01 00:00:00",
                     },
-                }
+                },
+                "Alas": {
+                    "Error": {"LlmApiKey": ""},
+                    "EmulatorInfo": {
+                        "RemoteSSHPublicKey": "",
+                        "RemoteStartCommand": "",
+                        "RemoteStopCommand": "",
+                    },
+                },
             }
         ),
         encoding="utf-8",
@@ -222,7 +260,7 @@ def _manager(tmp_path: Path, runtime: _Runtime) -> smoke.SmokeRunManager:
 
 def _spec(**kwargs: object) -> smoke.SmokeSpec:
     values: dict[str, object] = {
-        "name": "stage5-test",
+        "name": "smoke-test",
         "objective": "Проверить Smoke Harness",
         "timeout_seconds": 30.0,
         "session": smoke.SmokeSessionSpec(root_tasks=["Reward"]),
@@ -231,7 +269,7 @@ def _spec(**kwargs: object) -> smoke.SmokeSpec:
     return smoke.SmokeSpec(**values)
 
 
-def test_smoke_spec_is_strict_canonical_and_rejects_forbidden_paths() -> None:
+def test_smoke_spec_is_strict_canonical_and_rejects_malformed_paths() -> None:
     spec = _spec(
         assertions=[
             smoke.EventOccurredAssertion(
@@ -257,19 +295,17 @@ def test_smoke_spec_is_strict_canonical_and_rejects_forbidden_paths() -> None:
     with pytest.raises(ValueError):
         smoke.SmokeSpec.model_validate({**spec.canonical_dict(), "unexpected": True}, strict=True)
     with pytest.raises(ValueError):
-        smoke.SmokeConfigOverride(path="Reward.Scheduler.Enable", value=True)
-    with pytest.raises(ValueError):
-        smoke.SmokeConfigOverride(path="Reward.Unsafe.path", value="x")
+        smoke.SmokeConfigOverride(path="Reward..Enable", value=True)
 
 
 def test_profile_digest_accepts_materialized_registered_defaults(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     registry = smoke.ConfigRegistry(environment)
     missing = {"Reward": {"Reward": {}}}
-    materialized = {"Reward": {"Reward": {"Enable": False}}}
+    materialized = {"Reward": {"Reward": {"CollectMission": False}}}
 
     assert smoke._semantic_profile_digest(missing, registry) == smoke._semantic_profile_digest(materialized, registry)
-    changed = {"Reward": {"Reward": {"Enable": True}}}
+    changed = {"Reward": {"Reward": {"CollectMission": True}}}
     assert smoke._semantic_profile_digest(missing, registry) != smoke._semantic_profile_digest(changed, registry)
 
 
@@ -309,7 +345,7 @@ def test_smoke_run_passes_and_restores_declared_override(tmp_path: Path, clean_s
     manager = _manager(tmp_path, runtime)
     spec = _spec(
         setup=smoke.SmokeSetupSpec(
-            config_overrides=[smoke.SmokeConfigOverride(path="Reward.Reward.Enable", value=True)]
+            config_overrides=[smoke.SmokeConfigOverride(path="Reward.Reward.CollectMission", value=True)]
         ),
         assertions=[
             smoke.EventOccurredAssertion(
@@ -328,7 +364,7 @@ def test_smoke_run_passes_and_restores_declared_override(tmp_path: Path, clean_s
     assert result.outcome is smoke.SmokeOutcome.PASS
     assert runtime.stop_calls == 1
     profile = json.loads((tmp_path / "config" / "ap.json").read_text(encoding="utf-8"))
-    assert profile["Reward"]["Reward"]["Enable"] is False
+    assert profile["Reward"]["Reward"]["CollectMission"] is False
     assert result.cleanup.confirmed is True
 
 
@@ -379,6 +415,9 @@ def test_visual_evaluation_is_pending_only_after_cleanup_and_submit_is_immutable
     final = manager.store.load_result(smoke_id)
     assert final is not None
     assert final.outcome is smoke.SmokeOutcome.PASS
+    assert final.external_verdict is not None
+    assert final.external_verdict.source == "mcp_client"
+    assert "external_agent" not in final.external_verdict.model_dump()
     duplicate = manager.submit_smoke_evaluation(smoke_id, "visual", "pass", "Повтор")
     assert duplicate.ok is False
 
@@ -504,7 +543,7 @@ def test_active_run_conflict_is_fail_closed(tmp_path: Path, clean_source: None) 
 def test_config_registry_rejects_wrong_type_and_unknown_path(tmp_path: Path, clean_source: None) -> None:
     manager = _manager(tmp_path, _Runtime())
     wrong_type = manager.validate_smoke(
-        _spec(setup=smoke.SmokeSetupSpec(config_overrides=[smoke.SmokeConfigOverride(path="Reward.Reward.Enable", value="да")]))
+        _spec(setup=smoke.SmokeSetupSpec(config_overrides=[smoke.SmokeConfigOverride(path="Reward.Reward.CollectMission", value="да")]))
     )
     unknown_path = manager.validate_smoke(
         _spec(setup=smoke.SmokeSetupSpec(config_overrides=[smoke.SmokeConfigOverride(path="Reward.Reward.Missing", value=True)]))
@@ -514,6 +553,74 @@ def test_config_registry_rejects_wrong_type_and_unknown_path(tmp_path: Path, cle
     assert wrong_type.details["issues"][0]["code"] == "DEV_SMOKE_CONFIG_VALUE_INVALID"
     assert unknown_path.ok is False
     assert unknown_path.details["issues"][0]["code"] == "DEV_SMOKE_CONFIG_PATH_UNSUPPORTED"
+
+
+def test_config_registry_requires_explicit_capability_for_normal_fields(tmp_path: Path, clean_source: None) -> None:
+    manager = _manager(tmp_path, _Runtime())
+    registry = manager._config_registry()
+
+    assert registry.allowed_paths() == (
+        "Reward.Reward.CollectMission",
+        "Reward.Reward.CollectMode",
+    )
+    denied = manager.validate_smoke(
+        _spec(
+            setup=smoke.SmokeSetupSpec(
+                config_overrides=[
+                    smoke.SmokeConfigOverride(path="Reward.Reward.SensitiveToggle", value=True)
+                ]
+            )
+        )
+    )
+
+    assert denied.ok is False
+    assert denied.details["issues"][0]["code"] == "DEV_SMOKE_CONFIG_CAPABILITY_REQUIRED"
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("Alas.Error.LlmApiKey", "secret-value-must-not-appear"),
+        ("Alas.EmulatorInfo.RemoteSSHPublicKey", "ssh-public-key"),
+        ("Alas.EmulatorInfo.RemoteStartCommand", "start-command"),
+        ("Alas.EmulatorInfo.RemoteStopCommand", "stop-command"),
+        ("Reward.Scheduler.Enable", True),
+    ],
+)
+def test_config_registry_rejects_sensitive_and_scheduler_paths_without_secret_leak(
+    tmp_path: Path,
+    clean_source: None,
+    path: str,
+    value: smoke.ScalarValue,
+) -> None:
+    manager = _manager(tmp_path, _Runtime())
+    result = manager.validate_smoke(
+        _spec(
+            setup=smoke.SmokeSetupSpec(
+                config_overrides=[smoke.SmokeConfigOverride(path=path, value=value)]
+            )
+        )
+    )
+
+    assert result.ok is False
+    assert result.details["issues"][0]["code"] == "DEV_SMOKE_CONFIG_PATH_UNSUPPORTED"
+    assert str(value) not in json.dumps(result.as_dict(), ensure_ascii=False)
+
+
+def test_config_registry_rejects_select_value_outside_options(tmp_path: Path, clean_source: None) -> None:
+    manager = _manager(tmp_path, _Runtime())
+    result = manager.validate_smoke(
+        _spec(
+            setup=smoke.SmokeSetupSpec(
+                config_overrides=[
+                    smoke.SmokeConfigOverride(path="Reward.Reward.CollectMode", value="monthly")
+                ]
+            )
+        )
+    )
+
+    assert result.ok is False
+    assert result.details["issues"][0]["code"] == "DEV_SMOKE_CONFIG_VALUE_INVALID"
 
 
 def test_capability_registry_rejects_duplicate_registration() -> None:
@@ -539,3 +646,10 @@ def test_capability_registry_rejects_duplicate_registration() -> None:
         registry.register(descriptor, evaluator)
     assert error.value.code == "DEV_SMOKE_CAPABILITY_CONFLICT"
     assert "future_capability" in {item.capability_id for item in registry.descriptors()}
+
+
+def test_smoke_implementation_types_are_not_package_level_api() -> None:
+    import module.dev_runtime as dev_runtime
+
+    assert "SmokeRunManager" not in dev_runtime.__all__
+    assert not hasattr(dev_runtime, "SmokeRunManager")

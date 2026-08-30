@@ -83,7 +83,7 @@ _SAFE_EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _SAFE_SHA = re.compile(r"^[0-9a-fA-F]{7,128}$")
 _SAFE_SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
-_EVENT_TYPES = frozenset(
+EVIDENCE_EVENT_TYPES = frozenset(
     {
         "session_created",
         "policy_prepared",
@@ -712,7 +712,7 @@ def _validate_event(value: object) -> TimelineEvent:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Порядковый номер хронологии имеет некорректный формат")
     if not isinstance(event_type, str) or not _SAFE_EVENT_TYPE.fullmatch(event_type):
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Тип события хронологии имеет некорректный формат")
-    if event_type not in _EVENT_TYPES:
+    if event_type not in EVIDENCE_EVENT_TYPES:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Хронология содержит неизвестный тип события")
     timestamp = _utc_timestamp(value.get("timestamp"))
     assert isinstance(timestamp, str)
@@ -1568,7 +1568,7 @@ class EvidenceStore:
         fields: Mapping[str, object],
         timestamp: str,
     ) -> tuple[TimelineEvent, list[TimelineEvent], bool]:
-        if event_type not in _EVENT_TYPES or not _SAFE_EVENT_TYPE.fullmatch(event_type):
+        if event_type not in EVIDENCE_EVENT_TYPES or not _SAFE_EVENT_TYPE.fullmatch(event_type):
             raise EvidenceError("DEV_EVIDENCE_EVENT_INVALID", "Неизвестное событие хронологии")
         if manifest.get("timeline") != _timeline_metadata(events, truncated=truncated):
             raise EvidenceCorrupt(
@@ -2790,6 +2790,7 @@ def serve_pending_screenshot(image: object) -> None:
 
 
 __all__ = [
+    "EVIDENCE_EVENT_TYPES",
     "EVIDENCE_HEALTH_COMPLETE",
     "EVIDENCE_HEALTH_CORRUPT",
     "EVIDENCE_HEALTH_DEGRADED",

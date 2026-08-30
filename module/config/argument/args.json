@@ -10715,7 +10715,8 @@
       },
       "CollectMission": {
         "type": "checkbox",
-        "value": true
+        "value": true,
+        "smoke_override": true
       },
       "CollectWeeklyMission": {
         "type": "checkbox",
