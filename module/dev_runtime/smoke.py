@@ -3296,7 +3296,11 @@ class SmokeRunManager:
                 cleanup_result = runtime.cleanup()
                 task_clean = _result_ok(cleanup_result) or _result_state(cleanup_result) in {DevStatusKind.NO_SESSION.value, DevStatusKind.STOPPED.value}
                 final_status = runtime.status()
-                no_orphan = _runtime_state(_result_state(final_status)) not in {"running", "starting"} and (_result_session_id(final_status) in {None, session_id})
+                final_runtime_state = _runtime_state(_result_state(final_status))
+                final_session_id = _result_session_id(final_status)
+                no_orphan = final_runtime_state not in {"running", "starting"} and (
+                    session_id is None or final_session_id in {None, session_id}
+                )
                 final_details = _result_details(final_status)
                 lifecycle = final_details.get("task_lifecycle")
                 task_clean = task_clean and (not isinstance(lifecycle, Mapping) or lifecycle.get("phase") in {"clean", "none"})

@@ -69,10 +69,17 @@ class _Backend(smoke.SmokeSupervisorBackend):
 
 
 class _Runtime:
-    def __init__(self, *, error: bool = False, visual: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        error: bool = False,
+        visual: bool = False,
+        stopped_session_id: str | None = None,
+    ) -> None:
         self.active = False
         self.error = error
         self.visual = visual
+        self.stopped_session_id = stopped_session_id
         self.stop_calls = 0
         self.screenshot = EvidenceScreenshot(
             DevResult(
@@ -110,7 +117,7 @@ class _Runtime:
             "DEV_STATUS",
             "Статус",
             "running_owned" if self.active else "stopped",
-            "session-1" if self.active else None,
+            "session-1" if self.active else self.stopped_session_id,
             {"task_lifecycle": {"phase": "running" if self.active else "clean"}},
         )
 
@@ -447,6 +454,25 @@ def test_timeout_finishes_with_timeout_outcome_and_cleanup(tmp_path: Path, clean
     assert result.primary_failure is not None
     assert result.primary_failure.code == "DEV_SMOKE_TIMEOUT"
     assert result.cleanup.confirmed is True
+
+
+def test_recovery_without_new_session_accepts_previous_stopped_marker(tmp_path: Path, clean_source: None) -> None:
+    runtime = _Runtime(stopped_session_id="previous-session")
+    manager = _manager(tmp_path, runtime)
+    started = manager.start_smoke(_spec())
+    record = manager.store.load(started.details["smoke_id"])
+    transaction = smoke.SmokeOverrideTransaction(
+        manager.environment,
+        manager._config_registry(),
+        (),
+        save_state=lambda _value: None,
+    )
+
+    cleanup, failure = manager._cleanup_runtime(runtime, None, transaction, record)
+
+    assert failure is None
+    assert cleanup.confirmed is True
+    assert cleanup.no_owned_orphan is True
 
 
 def test_active_run_conflict_is_fail_closed(tmp_path: Path, clean_source: None) -> None:
