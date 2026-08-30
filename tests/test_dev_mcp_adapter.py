@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from module.dev_mcp.adapter import DevMcpAdapter, serialize_dev_result
+from module.dev_mcp.adapter import DevMcpAdapter, DevMcpResponse, serialize_dev_result
 from module.dev_runtime import (
     DevEnvironment,
     DevResult,
@@ -21,6 +21,7 @@ from module.dev_runtime import (
     ProcessBackend,
     ProcessIdentity,
 )
+from module.dev_runtime.smoke import SmokeSpec
 
 
 def _result(code: str = "DEV_SYNTHETIC_OK") -> DevResult:
@@ -100,6 +101,40 @@ class _FakeManager:
     def get_screenshot(self):
         self.calls.append(("get_screenshot", None))
         return EvidenceScreenshot(_result("DEV_SCREENSHOT_READY"))
+
+    def get_historical_screenshot(self, *, session_id: str, screenshot_id: str):
+        self.calls.append(("get_historical_screenshot", (session_id, screenshot_id)))
+        return EvidenceScreenshot(_result("DEV_SCREENSHOT_READY"))
+
+    def list_smoke_capabilities(self) -> DevResult:
+        self.calls.append(("list_smoke_capabilities", None))
+        return _result("DEV_SMOKE_CAPABILITIES_READY")
+
+    def validate_smoke(self, spec: object) -> DevResult:
+        assert isinstance(spec, SmokeSpec)
+        self.calls.append(("validate_smoke", spec.name))
+        return _result("DEV_SMOKE_VALID")
+
+    def start_smoke(self, spec: object) -> DevResult:
+        assert isinstance(spec, SmokeSpec)
+        self.calls.append(("start_smoke", spec.name))
+        return _result("DEV_SMOKE_STARTED")
+
+    def get_smoke(self, smoke_id: str) -> DevResult:
+        self.calls.append(("get_smoke", smoke_id))
+        return _result("DEV_SMOKE_RESULT_READY")
+
+    def cancel_smoke(self, smoke_id: str) -> DevResult:
+        self.calls.append(("cancel_smoke", smoke_id))
+        return _result("DEV_SMOKE_CANCELLED")
+
+    def get_smoke_evaluation(self, smoke_id: str):
+        self.calls.append(("get_smoke_evaluation", smoke_id))
+        return EvidenceScreenshot(_result("DEV_SMOKE_EVALUATION_READY"), b"image", "image/png")
+
+    def submit_smoke_evaluation(self, smoke_id: str, assertion_id: str, verdict: str, rationale: str) -> DevResult:
+        self.calls.append(("submit_smoke_evaluation", (smoke_id, assertion_id, verdict, rationale)))
+        return _result("DEV_SMOKE_PASS")
 
 
 def _adapter_with_factory() -> tuple[DevMcpAdapter, _FakeManager, list[int]]:
@@ -240,6 +275,35 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         {"session_id": "session-1", "cursor": "cursor", "limit": 4},
     )["ok"] is True
     assert adapter.call("dev_get_screenshot", {})["ok"] is True
+    smoke_spec = {
+        "name": "adapter-smoke",
+        "objective": "Проверить MCP adapter",
+        "session": {"root_tasks": ["RootTask"]},
+        "assertions": [
+            {
+                "assertion_id": "ready",
+                "capability_id": "event_occurred",
+                "event_type": "session_ready",
+            }
+        ],
+    }
+    assert adapter.call("dev_list_smoke_capabilities", {})["ok"] is True
+    assert adapter.call("dev_validate_smoke", smoke_spec)["ok"] is True
+    assert adapter.call("dev_start_smoke", smoke_spec)["ok"] is True
+    assert adapter.call("dev_get_smoke", {"smoke_id": "smoke-1"})["ok"] is True
+    assert adapter.call("dev_cancel_smoke", {"smoke_id": "smoke-1"})["ok"] is True
+    evaluation = adapter.call("dev_get_smoke_evaluation", {"smoke_id": "smoke-1"})
+    assert isinstance(evaluation, DevMcpResponse)
+    assert evaluation.image == b"image"
+    assert adapter.call(
+        "dev_submit_smoke_evaluation",
+        {
+            "smoke_id": "smoke-1",
+            "assertion_id": "visual",
+            "verdict": "pass",
+            "rationale": "Проверено",
+        },
+    )["ok"] is True
 
     assert len(factory_calls) == 1
     assert manager.calls == [
@@ -257,6 +321,13 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         ("get_timeline", ("session-1", 2, 3)),
         ("get_logs", ("session-1", "cursor", 4)),
         ("get_screenshot", None),
+        ("list_smoke_capabilities", None),
+        ("validate_smoke", "adapter-smoke"),
+        ("start_smoke", "adapter-smoke"),
+        ("get_smoke", "smoke-1"),
+        ("cancel_smoke", "smoke-1"),
+        ("get_smoke_evaluation", "smoke-1"),
+        ("submit_smoke_evaluation", ("smoke-1", "visual", "pass", "Проверено")),
     ]
 
 
@@ -279,6 +350,28 @@ def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation()
         ("dev_get_timeline", {"limit": 201}),
         ("dev_get_logs", {"cursor": ""}),
         ("dev_get_logs", {"path": "C:\\private\\logs"}),
+        ("dev_validate_smoke", {"name": "bad", "objective": "bad", "profile": "ap"}),
+        (
+            "dev_validate_smoke",
+            {
+                "name": "bad",
+                "objective": "bad",
+                "session": {"root_tasks": ["RootTask"]},
+                "assertions": [
+                    {
+                        "assertion_id": "x",
+                        "capability_id": "event_occurred",
+                        "event_type": "session_ready",
+                        "path": "x",
+                    }
+                ],
+            },
+        ),
+        ("dev_get_smoke", {"smoke_id": "../foreign"}),
+        (
+            "dev_submit_smoke_evaluation",
+            {"smoke_id": "smoke-1", "assertion_id": "visual", "verdict": "pass"},
+        ),
     ]
 
     for tool_name, arguments in invalid_calls:

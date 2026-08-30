@@ -15,6 +15,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ImageContent, TextContent, Tool, ToolAnnotations
 
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
+from module.dev_runtime.smoke import SmokeSpec
 
 SERVER_NAME = "azurpilot-dev"
 SERVER_VERSION = "1"
@@ -29,6 +30,7 @@ _NO_ARGUMENT_TOOLS = frozenset(
         "dev_cleanup",
         "dev_recover",
         "dev_get_screenshot",
+        "dev_list_smoke_capabilities",
     }
 )
 
@@ -73,6 +75,36 @@ _LOGS_INPUT = {
         "cursor": {"type": "string", "minLength": 1, "maxLength": 2048},
         "limit": {"type": "integer", "minimum": 1, "maximum": 200},
     },
+    "additionalProperties": False,
+}
+_SMOKE_INPUT = SmokeSpec.model_json_schema()
+_SMOKE_ID_INPUT = {
+    "type": "object",
+    "properties": {
+        "smoke_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        }
+    },
+    "required": ["smoke_id"],
+    "additionalProperties": False,
+}
+_SMOKE_EVALUATION_INPUT = {
+    "type": "object",
+    "properties": {
+        "smoke_id": _SMOKE_ID_INPUT["properties"]["smoke_id"],
+        "assertion_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        },
+        "verdict": {"type": "string", "enum": ["pass", "fail"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 1024},
+    },
+    "required": ["smoke_id", "assertion_id", "verdict", "rationale"],
     "additionalProperties": False,
 }
 _OUTPUT = {
@@ -138,11 +170,18 @@ def tool_definitions() -> list[Tool]:
             "планировщика и требует последующей очистки."
         ),
         "dev_cleanup": "Очистить состояние планировщика профиля ap без запуска новой сессии.",
-        "dev_recover": "Выполнить существующее exact-owned безопасное восстановление профиля ap.",
+        "dev_recover": "Выполнить существующее безопасное восстановление профиля ap с проверкой владения.",
         "dev_get_evidence": "Получить ограниченную сводку диагностики указанной DevSession.",
         "dev_get_timeline": "Получить ограниченную каноническую хронологию выполнения указанной DevSession.",
         "dev_get_logs": "Получить ограниченный журнал указанной DevSession только в пределах её сессии.",
         "dev_get_screenshot": "Получить текущий кадр активной DevSession как вложение изображения MCP.",
+        "dev_list_smoke_capabilities": "Получить реестр поддерживаемых возможностей SmokeSpec только для чтения.",
+        "dev_validate_smoke": "Проверить строгий SmokeSpec и предварительные условия без создания SmokeRun.",
+        "dev_start_smoke": "Создать замороженный SmokeRun и быстро передать длительное выполнение независимому supervisor.",
+        "dev_get_smoke": "Получить ограниченные состояние, ход выполнения, утверждения и сводку целостности SmokeRun.",
+        "dev_cancel_smoke": "Сохранить проверенный запрос отмены для конкретного SmokeRun и его supervisor.",
+        "dev_get_smoke_evaluation": "Получить замороженную визуальную рубрику и точный сохранённый снимок экрана для внешней оценки.",
+        "dev_submit_smoke_evaluation": "Добавить один неизменяемый внешний вердикт к ожидающему SmokeRun.",
     }
     schemas = {
         **{name: _EMPTY_INPUT for name in _NO_ARGUMENT_TOOLS},
@@ -152,9 +191,15 @@ def tool_definitions() -> list[Tool]:
         "dev_get_evidence": _SESSION_INPUT,
         "dev_get_timeline": _TIMELINE_INPUT,
         "dev_get_logs": _LOGS_INPUT,
+        "dev_validate_smoke": _SMOKE_INPUT,
+        "dev_start_smoke": _SMOKE_INPUT,
+        "dev_get_smoke": _SMOKE_ID_INPUT,
+        "dev_cancel_smoke": _SMOKE_ID_INPUT,
+        "dev_get_smoke_evaluation": _SMOKE_ID_INPUT,
+        "dev_submit_smoke_evaluation": _SMOKE_EVALUATION_INPUT,
     }
-    mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover"}
-    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot"}
+    mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover", "dev_cancel_smoke", "dev_start_smoke"}
+    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
     return [
         _tool(
             name,

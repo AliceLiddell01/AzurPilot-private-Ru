@@ -179,3 +179,73 @@ uv run --locked python dev_tools/dev_runtime.py cleanup
 `cleanup` сбрасывает состояние планировщика после явно сохранённого
 `preserve_task_state` и не останавливает живой процесс. Команды печатают UTF-8 JSON и не выводят полную конфигурацию `ap`. Транспорт MCP,
 общее управление профилями и PowerShell-запускатель в Stage 2 не добавляются.
+
+## Stage 5: Universal Smoke Harness
+
+Stage 5 добавляет поверх Stage 1–4 декларативные `SmokeSpec` и
+`SmokeRun`. Спецификация описывает только наблюдаемые условия: фиксированную
+область задач `ap`, ограниченные переопределения конфигурации и типизированные
+утверждения. Это не DSL: запрещены shell, Python/eval, произвольные пути,
+HTTP/SQL, ADB, ввод, `sleep`, повторные попытки и patch. Неизвестные поля
+запрещены, значения и массивы ограничены; после нормализации сохраняются
+`spec.json` и SHA-256 `spec_hash`. После создания API не позволяет менять spec,
+timeout, область задач или override.
+
+Перед созданием запуска проверяются доступность политики Stage 2, чистота
+отслеживаемого дерева source и точный снимок Git (`HEAD`, branch/detached,
+fingerprint). Во время выполнения тот же снимок Stage 4 проверяется на переходах
+состояния и heartbeat; drift переводит запуск в `INVALIDATED` и запрещает PASS.
+Игнорируемое runtime state не считается изменением source.
+
+`SmokeRun` хранится в игнорируемом каталоге
+`config/state/dev-runtime-smoke/<smoke-id>/` в отдельных ограниченных JSON-файлах
+`spec.json`, `state.json`, `result.json` и `control.json`. Записи защищены
+межпроцессной блокировкой, атомарной записью, проверкой схемы и защитой от
+symlink/junction. Состояния выполнения (`created`, `preparing`, `running`,
+`evaluating`, `cleaning_up`, `awaiting_external_evaluation`, `finished`)
+отделены от итогов `PASS`, `PRODUCT_FAILED`, `PRECONDITION_FAILED`,
+`HARNESS_FAILED`, `EVIDENCE_INCOMPLETE`, `TIMEOUT`, `INVALIDATED` и
+`CANCELLED`. Одновременно разрешён только один активный запуск.
+
+Длительная часть запускается отдельным Python проекта через
+`module.dev_runtime.smoke_supervisor`; команда, рабочий каталог и личность
+исполняемого файла проверяются точно. Supervisor вызывает обычный
+`DevSessionManager.start()` с Task Sandbox и читает runtime только через
+публичные API Stage 4 `evidence`, `timeline`, `logs`, `status` и снимка экрана.
+Он не вызывает gameplay handlers, `Device`, production MCP или raw scheduler.
+После ошибки сначала сохраняется первичная ошибка продукта, затем выполняются
+stop, очистка Task Sandbox, сброс scheduler, восстановление только объявленных
+overrides и проверки orphan/source.
+
+Встроенный `SmokeCapabilityRegistry` предоставляет типизированные условия:
+наличие/отсутствие события, запуск/отсутствие task, зависимость с provenance,
+ошибка выполнения и ожидаемая безопасная ошибка, полнота evidence, состояние
+runtime/port, значение и восстановление config, длительность и ограниченный
+фрагмент журнала сессии. Каждый результат содержит `PASS`/`FAIL`/`PENDING`/
+`UNAVAILABLE` и явные ссылки на evidence Stage 4. Negative assertions не
+проходят до закрытия окна наблюдения; необъявленная structured runtime error и
+неполная evidence health блокируют PASS.
+
+Переопределения config разрешены только для существующих обычных листовых
+параметров, доступных пользователю в текущем `args.json`. До apply сохраняются
+только объявленные исходные значения; после run выполняются read-back, restore
+и semantic mutation guard. Scheduler, runtime state/policy/evidence, secrets,
+credentials, executable/path и arbitrary config paths запрещены. Harness не
+выполняет auto-repair и auto-retry.
+
+Для UI допускается одно замороженное утверждение `external_visual` за run.
+Stage 4 сохраняет точный PNG по `screenshot_id` и SHA-256 после объявленного
+события или task trigger, затем run полностью очищает runtime и переходит в
+`awaiting_external_evaluation`. `dev_get_smoke_evaluation` возвращает
+замороженные rubric, hashes и metadata вместе с PNG через MCP `ImageContent`;
+только один `dev_submit_smoke_evaluation` может добавить неизменяемый внешний
+verdict с provenance.
+
+Stage 5 расширяет локальный stdio Dev MCP ровно следующими инструментами:
+`dev_list_smoke_capabilities`, `dev_validate_smoke`, `dev_start_smoke`,
+`dev_get_smoke`, `dev_cancel_smoke`, `dev_get_smoke_evaluation` и
+`dev_submit_smoke_evaluation`. `dev_start_smoke` быстро возвращает `smoke_id`,
+не удерживая MCP request; результат читается через polling `dev_get_smoke`.
+Сервер остаётся без побочных действий при startup и сохраняет stdout только для
+MCP protocol. Production `mcp_server_sse.py`, MCP SDK и обычный gameplay path
+не изменяются.

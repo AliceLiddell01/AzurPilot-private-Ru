@@ -1831,6 +1831,50 @@ class EvidenceStore:
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Размеры снимка экрана не совпадают")
         return dict(raw), data
 
+    def read_persisted_screenshot(self, screenshot_id: str) -> EvidenceScreenshot:
+        """Безопасно вернуть исторический снимок экрана по проверенному идентификатору.
+
+        Метод не принимает путь и повторно проверяет метаданные, размер, PNG и SHA
+        перед тем, как вернуть байты внешнему слою. Это единственная публичная
+        граница для чтения кадра после остановки DevSession.
+        """
+
+        try:
+            with _exclusive_lock(self.lock_path, self.environment.repository_root):
+                metadata, data = self._read_screenshot_metadata_locked(screenshot_id)
+            return EvidenceScreenshot(
+                DevResult(
+                    True,
+                    "DEV_SCREENSHOT_READY",
+                    "Сохранённый кадр прочитан из диагностических данных",
+                    DevSessionState.STOPPED.value,
+                    self.session_id,
+                    {"screenshot": metadata},
+                ),
+                data,
+                "image/png",
+            )
+        except EvidenceError as exc:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    exc.code,
+                    str(exc),
+                    DevSessionState.STOPPED.value,
+                    self.session_id,
+                )
+            )
+        except ValueError:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_SCREENSHOT_ID_INVALID",
+                    "screenshot_id имеет недопустимый формат",
+                    DevSessionState.STOPPED.value,
+                    self.session_id,
+                )
+            )
+
     def _persist_screenshot_bytes_locked(
         self,
         manifest: dict[str, object],

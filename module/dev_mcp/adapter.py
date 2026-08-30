@@ -16,12 +16,13 @@ import threading
 from collections.abc import Callable, Mapping
 from contextlib import redirect_stdout
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
+from module.dev_runtime.smoke import SmokeSpec
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,13 @@ DEV_MCP_TOOL_NAMES = (
     "dev_get_timeline",
     "dev_get_logs",
     "dev_get_screenshot",
+    "dev_list_smoke_capabilities",
+    "dev_validate_smoke",
+    "dev_start_smoke",
+    "dev_get_smoke",
+    "dev_cancel_smoke",
+    "dev_get_smoke_evaluation",
+    "dev_submit_smoke_evaluation",
 )
 
 _NO_ARGUMENT_TOOLS = frozenset(
@@ -50,6 +58,7 @@ _NO_ARGUMENT_TOOLS = frozenset(
         "dev_cleanup",
         "dev_recover",
         "dev_get_screenshot",
+        "dev_list_smoke_capabilities",
     }
 )
 
@@ -179,6 +188,46 @@ _SAFE_DETAIL_KEYS = frozenset(
         "module",
         "exception_type",
         "outcome",
+        "smoke_id",
+        "spec_hash",
+        "deadline_at",
+        "finished_at",
+        "source_snapshot",
+        "scope",
+        "config_override_count",
+        "assertion_count",
+        "visual_assertion_count",
+        "issues",
+        "progress",
+        "assertions",
+        "pending_evaluation",
+        "rubric",
+        "rubric_hash",
+        "screenshot_sha256",
+        "overrides",
+        "persisted",
+        "applied",
+        "restored",
+        "verified",
+        "primary_failure",
+        "harness_failure",
+        "external_verdict",
+        "external_agent",
+        "verdict",
+        "rationale",
+        "submitted_at",
+        "capabilities",
+        "capability_id",
+        "kind",
+        "config_schema",
+        "value_type",
+        "required",
+        "minimum",
+        "maximum",
+        "enum_values",
+        "deterministic",
+        "external",
+        "description",
     }
 )
 
@@ -297,6 +346,39 @@ _SAFE_EVIDENCE_SUMMARY_KEYS = frozenset(
         "cleanup",
     }
 )
+_SAFE_SMOKE_SOURCE_KEYS = frozenset(
+    {"head", "branch", "detached", "dirty", "changed_paths", "available", "fingerprint"}
+)
+_SAFE_SMOKE_SCOPE_KEYS = frozenset(
+    {"root_tasks", "excluded_tasks", "config_override_count", "assertion_count", "visual_assertion_count"}
+)
+_SAFE_SMOKE_PROGRESS_KEYS = frozenset(
+    {"passed", "failed", "pending", "unavailable", "elapsed_seconds", "current_task", "evidence_health"}
+)
+_SAFE_SMOKE_ASSERTION_KEYS = frozenset(
+    {"assertion_id", "capability_id", "required", "status", "evidence_source", "evidence_refs", "message"}
+)
+_SAFE_SMOKE_EVIDENCE_REF_KEYS = frozenset({"source", "reference", "description"})
+_SAFE_SMOKE_FAILURE_KEYS = frozenset({"code", "message", "assertion_id"})
+_SAFE_SMOKE_CLEANUP_KEYS = frozenset(
+    {"attempted", "session_stopped", "task_cleanup_confirmed", "scheduler_clean", "overrides_restored", "source_unchanged", "no_owned_orphan", "port_free", "confirmed", "failure_code"}
+)
+_SAFE_SMOKE_OVERRIDES_KEYS = frozenset({"persisted", "applied", "restored", "verified", "baseline_digest"})
+_SAFE_SMOKE_PENDING_KEYS = frozenset(
+    {"assertion_id", "screenshot_id", "screenshot_sha256", "rubric", "rubric_hash", "spec_hash", "session_id", "submitted"}
+)
+_SAFE_SMOKE_VERDICT_KEYS = frozenset(
+    {"external_agent", "assertion_id", "screenshot_id", "screenshot_sha256", "spec_hash", "rubric_hash", "verdict", "rationale", "submitted_at"}
+)
+_SAFE_SMOKE_ISSUE_KEYS = frozenset({"code", "message"})
+_SAFE_SMOKE_FIELD_KEYS = frozenset({"name", "value_type", "required", "minimum", "maximum", "enum_values"})
+_SAFE_SMOKE_SCHEMA_KEYS = frozenset({"fields"})
+_SAFE_SMOKE_CAPABILITY_KEYS = frozenset(
+    {"capability_id", "kind", "config_schema", "evidence_source", "deterministic", "external", "available", "description"}
+)
+_SAFE_SMOKE_RESULT_KEYS = frozenset(
+    {"schema_version", "smoke_id", "spec_hash", "outcome", "code", "message", "source", "session_id", "assertions", "cleanup", "primary_failure", "harness_failure", "external_verdict", "finished_at"}
+)
 
 _SCHEMA_KEYS = {
     "details": _SAFE_DETAIL_KEYS,
@@ -326,6 +408,21 @@ _SCHEMA_KEYS = {
     "screenshot_metadata": _SAFE_SCREENSHOT_METADATA_KEYS,
     "structured_error": _SAFE_STRUCTURED_ERROR_KEYS,
     "frame": _SAFE_FRAME_KEYS,
+    "smoke_source": _SAFE_SMOKE_SOURCE_KEYS,
+    "smoke_scope": _SAFE_SMOKE_SCOPE_KEYS,
+    "smoke_progress": _SAFE_SMOKE_PROGRESS_KEYS,
+    "smoke_assertion": _SAFE_SMOKE_ASSERTION_KEYS,
+    "smoke_evidence_ref": _SAFE_SMOKE_EVIDENCE_REF_KEYS,
+    "smoke_failure": _SAFE_SMOKE_FAILURE_KEYS,
+    "smoke_cleanup": _SAFE_SMOKE_CLEANUP_KEYS,
+    "smoke_overrides": _SAFE_SMOKE_OVERRIDES_KEYS,
+    "smoke_pending": _SAFE_SMOKE_PENDING_KEYS,
+    "smoke_verdict": _SAFE_SMOKE_VERDICT_KEYS,
+    "smoke_issue": _SAFE_SMOKE_ISSUE_KEYS,
+    "smoke_field": _SAFE_SMOKE_FIELD_KEYS,
+    "smoke_schema": _SAFE_SMOKE_SCHEMA_KEYS,
+    "smoke_capability": _SAFE_SMOKE_CAPABILITY_KEYS,
+    "smoke_result": _SAFE_SMOKE_RESULT_KEYS,
 }
 
 _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -338,7 +435,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "catalog": "catalog",
     "changed_paths": "string_list",
     "checks": "preflight_checks",
-    "cleanup": "result",
+    "cleanup": "cleanup_or_result",
     "cleanup_confirmed": "bool",
     "cleanup_summary": "cleanup_summary",
     "code": "string",
@@ -415,7 +512,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "session_id": "session_id",
     "sha256": "string",
     "screenshot_id": "string",
-    "source": "string",
+    "source": "smoke_or_string",
     "started_at": "string",
     "state": "string",
     "status": "result",
@@ -436,6 +533,47 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "valid": "bool",
     "validation": "string",
     "width": "int",
+    "smoke_id": "session_id",
+    "spec_hash": "string",
+    "deadline_at": "string",
+    "finished_at": "string",
+    "source_snapshot": "smoke_source",
+    "scope": "smoke_scope",
+    "config_override_count": "int",
+    "assertion_count": "int",
+    "visual_assertion_count": "int",
+    "issues": "smoke_issue_list",
+    "progress": "smoke_progress",
+    "assertions": "smoke_assertion_list",
+    "pending_evaluation": "smoke_pending",
+    "rubric": "string",
+    "rubric_hash": "string",
+    "screenshot_sha256": "string",
+    "overrides": "smoke_overrides",
+    "persisted": "bool",
+    "applied": "bool",
+    "restored": "bool",
+    "verified": "bool",
+    "primary_failure": "smoke_failure",
+    "harness_failure": "smoke_failure",
+    "external_verdict": "smoke_verdict",
+    "external_agent": "string",
+    "verdict": "string",
+    "rationale": "string",
+    "submitted_at": "string",
+    "capabilities": "smoke_capability_list",
+    "capability_id": "string",
+    "kind": "string",
+    "config_schema": "smoke_schema",
+    "value_type": "string",
+    "required": "bool",
+    "minimum": "number",
+    "maximum": "number",
+    "enum_values": "string_list",
+    "deterministic": "bool",
+    "external": "bool",
+    "description": "string",
+    "result": "result_or_smoke",
 }
 
 _RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -655,6 +793,126 @@ _FRAME_CHILD_SCHEMAS: dict[str, str | None] = {
     "module": "string",
 }
 
+_SMOKE_SOURCE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "head": "string",
+    "branch": "string",
+    "detached": "bool",
+    "dirty": "bool",
+    "changed_paths": "string_list",
+    "available": "bool",
+    "fingerprint": "string",
+}
+_SMOKE_SCOPE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "root_tasks": "string_list",
+    "excluded_tasks": "string_list",
+    "config_override_count": "int",
+    "assertion_count": "int",
+    "visual_assertion_count": "int",
+}
+_SMOKE_PROGRESS_CHILD_SCHEMAS: dict[str, str | None] = {
+    "passed": "int",
+    "failed": "int",
+    "pending": "int",
+    "unavailable": "int",
+    "elapsed_seconds": "number",
+    "current_task": "string",
+    "evidence_health": "string",
+}
+_SMOKE_EVIDENCE_REF_CHILD_SCHEMAS: dict[str, str | None] = {
+    "source": "string",
+    "reference": "string",
+    "description": "string",
+}
+_SMOKE_ASSERTION_CHILD_SCHEMAS: dict[str, str | None] = {
+    "assertion_id": "string",
+    "capability_id": "string",
+    "required": "bool",
+    "status": "string",
+    "evidence_source": "string",
+    "evidence_refs": "smoke_evidence_ref_list",
+    "message": "string",
+}
+_SMOKE_FAILURE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "code": "string",
+    "message": "string",
+    "assertion_id": "string",
+}
+_SMOKE_CLEANUP_CHILD_SCHEMAS: dict[str, str | None] = {
+    "attempted": "bool",
+    "session_stopped": "bool",
+    "task_cleanup_confirmed": "bool",
+    "scheduler_clean": "bool",
+    "overrides_restored": "bool",
+    "source_unchanged": "bool",
+    "no_owned_orphan": "bool",
+    "port_free": "bool",
+    "confirmed": "bool",
+    "failure_code": "string",
+}
+_SMOKE_OVERRIDES_CHILD_SCHEMAS: dict[str, str | None] = {
+    "persisted": "bool",
+    "applied": "bool",
+    "restored": "bool",
+    "verified": "bool",
+    "baseline_digest": "string",
+}
+_SMOKE_PENDING_CHILD_SCHEMAS: dict[str, str | None] = {
+    "assertion_id": "string",
+    "screenshot_id": "string",
+    "screenshot_sha256": "string",
+    "rubric": "string",
+    "rubric_hash": "string",
+    "spec_hash": "string",
+    "session_id": "session_id",
+    "submitted": "bool",
+}
+_SMOKE_VERDICT_CHILD_SCHEMAS: dict[str, str | None] = {
+    "external_agent": "string",
+    "assertion_id": "string",
+    "screenshot_id": "string",
+    "screenshot_sha256": "string",
+    "spec_hash": "string",
+    "rubric_hash": "string",
+    "verdict": "string",
+    "rationale": "string",
+    "submitted_at": "string",
+}
+_SMOKE_FIELD_CHILD_SCHEMAS: dict[str, str | None] = {
+    "name": "string",
+    "value_type": "string",
+    "required": "bool",
+    "minimum": "number",
+    "maximum": "number",
+    "enum_values": "string_list",
+}
+_SMOKE_SCHEMA_CHILD_SCHEMAS: dict[str, str | None] = {"fields": "smoke_field_list"}
+_SMOKE_CAPABILITY_CHILD_SCHEMAS: dict[str, str | None] = {
+    "capability_id": "string",
+    "kind": "string",
+    "config_schema": "smoke_schema",
+    "evidence_source": "string",
+    "deterministic": "bool",
+    "external": "bool",
+    "available": "bool",
+    "description": "string",
+}
+_SMOKE_RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
+    "schema_version": "int",
+    "smoke_id": "session_id",
+    "spec_hash": "string",
+    "outcome": "string",
+    "code": "string",
+    "message": "string",
+    "source": "smoke_source",
+    "session_id": "session_id",
+    "assertions": "smoke_assertion_list",
+    "cleanup": "smoke_cleanup",
+    "primary_failure": "smoke_failure",
+    "harness_failure": "smoke_failure",
+    "external_verdict": "smoke_verdict",
+    "finished_at": "string",
+}
+
 _SCHEMA_CHILD_SCHEMAS = {
     "details": _DETAIL_CHILD_SCHEMAS,
     "result": _RESULT_CHILD_SCHEMAS,
@@ -687,6 +945,20 @@ _SCHEMA_CHILD_SCHEMAS = {
     "screenshot_metadata": _SCREENSHOT_METADATA_CHILD_SCHEMAS,
     "structured_error": _STRUCTURED_ERROR_CHILD_SCHEMAS,
     "frame": _FRAME_CHILD_SCHEMAS,
+    "smoke_source": _SMOKE_SOURCE_CHILD_SCHEMAS,
+    "smoke_scope": _SMOKE_SCOPE_CHILD_SCHEMAS,
+    "smoke_progress": _SMOKE_PROGRESS_CHILD_SCHEMAS,
+    "smoke_evidence_ref": _SMOKE_EVIDENCE_REF_CHILD_SCHEMAS,
+    "smoke_assertion": _SMOKE_ASSERTION_CHILD_SCHEMAS,
+    "smoke_failure": _SMOKE_FAILURE_CHILD_SCHEMAS,
+    "smoke_cleanup": _SMOKE_CLEANUP_CHILD_SCHEMAS,
+    "smoke_overrides": _SMOKE_OVERRIDES_CHILD_SCHEMAS,
+    "smoke_pending": _SMOKE_PENDING_CHILD_SCHEMAS,
+    "smoke_verdict": _SMOKE_VERDICT_CHILD_SCHEMAS,
+    "smoke_field": _SMOKE_FIELD_CHILD_SCHEMAS,
+    "smoke_schema": _SMOKE_SCHEMA_CHILD_SCHEMAS,
+    "smoke_capability": _SMOKE_CAPABILITY_CHILD_SCHEMAS,
+    "smoke_result": _SMOKE_RESULT_CHILD_SCHEMAS,
 }
 
 
@@ -730,6 +1002,28 @@ class DevRuntimeManager(Protocol):
     ) -> object: ...
 
     def get_screenshot(self) -> EvidenceScreenshot: ...
+
+    def get_historical_screenshot(self, *, session_id: str, screenshot_id: str) -> EvidenceScreenshot: ...
+
+    def list_smoke_capabilities(self) -> object: ...
+
+    def validate_smoke(self, spec: object) -> object: ...
+
+    def start_smoke(self, spec: object) -> object: ...
+
+    def get_smoke(self, smoke_id: str) -> object: ...
+
+    def cancel_smoke(self, smoke_id: str) -> object: ...
+
+    def get_smoke_evaluation(self, smoke_id: str) -> EvidenceScreenshot: ...
+
+    def submit_smoke_evaluation(
+        self,
+        smoke_id: str,
+        assertion_id: str,
+        verdict: str,
+        rationale: str,
+    ) -> object: ...
 
 
 def _default_manager() -> DevRuntimeManager:
@@ -802,6 +1096,18 @@ class _TimelineArguments(_SessionArguments):
 class _LogsArguments(_SessionArguments):
     cursor: str | None = Field(default=None, min_length=1, max_length=2048)
     limit: int = Field(default=100, ge=1, le=200)
+
+
+class _SmokeIdArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    smoke_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
+
+
+class _SmokeEvaluationArguments(_SmokeIdArguments):
+    assertion_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
+    verdict: Literal["pass", "fail"]
+    rationale: str = Field(min_length=1, max_length=1024)
 
 
 @dataclass(frozen=True, slots=True)
@@ -886,6 +1192,25 @@ def _safe_value(
         return "[вложенность скрыта]"
     if schema == "string":
         return _redact_text(value) if isinstance(value, str) else None
+    if schema == "smoke_or_string":
+        if isinstance(value, Mapping):
+            return _safe_mapping(value, schema="smoke_source", depth=depth)
+        return _redact_text(value) if isinstance(value, str) else None
+    if schema == "cleanup_or_result":
+        if isinstance(value, Mapping):
+            if "ok" in value:
+                child_schema = "result"
+            elif "attempted" in value or "scheduler_clean" in value:
+                child_schema = "smoke_cleanup"
+            else:
+                child_schema = "cleanup_summary"
+            return _safe_mapping(value, schema=child_schema, depth=depth)
+        return None
+    if schema == "result_or_smoke":
+        if isinstance(value, Mapping):
+            child_schema = "result" if "ok" in value else "smoke_result"
+            return _safe_mapping(value, schema=child_schema, depth=depth)
+        return None
     if schema == "session_id":
         try:
             return validate_session_id(value)
@@ -911,6 +1236,8 @@ def _safe_value(
     if isinstance(value, str):
         return _redact_text(value)
     if isinstance(value, Mapping):
+        if schema == "cleanup":
+            schema = "result" if "ok" in value else "smoke_cleanup"
         if schema == "catalog":
             return _safe_mapping(value, schema="task_catalog", depth=depth)
         if schema is None:
@@ -929,6 +1256,11 @@ def _safe_value(
             "frame_list": "frame",
             "log_items": "log_item",
             "timeline_events": "timeline_event",
+            "smoke_capability_list": "smoke_capability",
+            "smoke_issue_list": "smoke_issue",
+            "smoke_assertion_list": "smoke_assertion",
+            "smoke_evidence_ref_list": "smoke_evidence_ref",
+            "smoke_field_list": "smoke_field",
         }.get(schema)
         if schema not in {
             "generic_list",
@@ -940,6 +1272,11 @@ def _safe_value(
             "frame_list",
             "log_items",
             "timeline_events",
+            "smoke_capability_list",
+            "smoke_issue_list",
+            "smoke_assertion_list",
+            "smoke_evidence_ref_list",
+            "smoke_field_list",
         }:
             return []
         return _safe_sequence(value, item_schema=item_schema, depth=depth)
@@ -1056,12 +1393,21 @@ class DevMcpAdapter:
         | _SessionArguments
         | _TimelineArguments
         | _LogsArguments
+        | _SmokeIdArguments
+        | _SmokeEvaluationArguments
+        | SmokeSpec
         | None
     ):
         try:
             raw = self._arguments(arguments)
             if tool_name in _NO_ARGUMENT_TOOLS:
                 return _EmptyArguments.model_validate(raw, strict=True)
+            if tool_name in {"dev_validate_smoke", "dev_start_smoke"}:
+                return SmokeSpec.model_validate(raw, strict=True)
+            if tool_name in {"dev_get_smoke", "dev_cancel_smoke", "dev_get_smoke_evaluation"}:
+                return _SmokeIdArguments.model_validate(raw, strict=True)
+            if tool_name == "dev_submit_smoke_evaluation":
+                return _SmokeEvaluationArguments.model_validate(raw, strict=True)
             if tool_name in {"dev_plan_session", "dev_start_session"}:
                 return _TaskArguments.model_validate(raw, strict=True)
             if tool_name == "dev_stop_session":
@@ -1140,6 +1486,39 @@ class DevMcpAdapter:
                     session_id=parsed.session_id,
                     cursor=parsed.cursor,
                     limit=parsed.limit,
+                )
+            elif tool_name == "dev_list_smoke_capabilities":
+                result = manager.list_smoke_capabilities()
+            elif tool_name == "dev_validate_smoke":
+                assert isinstance(parsed, SmokeSpec)
+                result = manager.validate_smoke(parsed)
+            elif tool_name == "dev_start_smoke":
+                assert isinstance(parsed, SmokeSpec)
+                result = manager.start_smoke(parsed)
+            elif tool_name == "dev_get_smoke":
+                assert isinstance(parsed, _SmokeIdArguments)
+                result = manager.get_smoke(parsed.smoke_id)
+            elif tool_name == "dev_cancel_smoke":
+                assert isinstance(parsed, _SmokeIdArguments)
+                result = manager.cancel_smoke(parsed.smoke_id)
+            elif tool_name == "dev_get_smoke_evaluation":
+                assert isinstance(parsed, _SmokeIdArguments)
+                screenshot = manager.get_smoke_evaluation(parsed.smoke_id)
+                safe_result = serialize_dev_result(screenshot.result)
+                if (
+                    screenshot.image is not None
+                    and screenshot.mime_type == "image/png"
+                    and len(screenshot.image) > 0
+                ):
+                    return DevMcpResponse(safe_result, screenshot.image, screenshot.mime_type)
+                return safe_result
+            elif tool_name == "dev_submit_smoke_evaluation":
+                assert isinstance(parsed, _SmokeEvaluationArguments)
+                result = manager.submit_smoke_evaluation(
+                    parsed.smoke_id,
+                    parsed.assertion_id,
+                    parsed.verdict,
+                    parsed.rationale,
                 )
             else:
                 assert tool_name == "dev_get_screenshot"
