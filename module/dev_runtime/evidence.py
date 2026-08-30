@@ -500,6 +500,7 @@ def capture_git_snapshot(
             command,
             cwd=str(root),
             shell=False,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,

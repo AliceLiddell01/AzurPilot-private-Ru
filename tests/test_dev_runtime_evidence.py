@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import subprocess
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -504,6 +505,46 @@ def test_git_snapshot_degrades_on_timeout_or_nonzero(tmp_path: Path) -> None:
     failed_snapshot = capture_git_snapshot(root, runner=failed_runner)
     assert failed_snapshot.available is False
     assert failed_snapshot.reason == "git_snapshot_nonzero"
+
+
+def test_git_snapshot_does_not_inherit_mcp_stdin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = (tmp_path / "checkout").resolve()
+    root.mkdir()
+    popen_calls: list[dict[str, object]] = []
+
+    class FakeStdout:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def read(self, _size: int) -> bytes:
+            payload, self.payload = self.payload, b""
+            return payload
+
+    class FakeProcess:
+        def __init__(self, payload: bytes) -> None:
+            self.stdout = FakeStdout(payload)
+            self.returncode = 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            return self.returncode
+
+    def fake_popen(command: list[str], **kwargs: object) -> FakeProcess:
+        popen_calls.append(kwargs)
+        payload = {
+            "rev-parse": b"a" * 40 + b"\n",
+            "symbolic-ref": b"codex/stage4\n",
+            "status": b"",
+        }[command[1]]
+        return FakeProcess(payload)
+
+    monkeypatch.setattr(evidence_module.subprocess, "Popen", fake_popen)
+
+    snapshot = capture_git_snapshot(root)
+
+    assert snapshot.available is True
+    assert len(popen_calls) == 3
+    assert all(call["stdin"] is subprocess.DEVNULL for call in popen_calls)
 
 
 def test_timeline_sequence_allocation_is_safe_for_concurrent_writers(tmp_path: Path) -> None:
