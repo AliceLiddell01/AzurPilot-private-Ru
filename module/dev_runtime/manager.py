@@ -90,6 +90,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         self.stop_timeout = stop_timeout
         self.screenshot_timeout = screenshot_timeout
         self._evidence_store: EvidenceStore | None = None
+        self._smoke_manager = None
 
     def _evidence_for_session(self, session_id: str) -> EvidenceStore | None:
         try:
@@ -474,6 +475,72 @@ class DevSessionManager(DevDiagnosticsMixin):
                 )
         return store.request_screenshot(timeout=self.screenshot_timeout)
 
+    def get_historical_screenshot(self, *, session_id: str, screenshot_id: str) -> EvidenceScreenshot:
+        """Прочитать сохранённый снимок Evidence API по двум проверенным идентификаторам."""
+
+        try:
+            target_id = validate_session_id(session_id)
+        except ValueError:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_SCREENSHOT_SESSION_INVALID",
+                    "session_id имеет недопустимый формат",
+                    DevStatusKind.FAILED.value,
+                )
+            )
+        store = self._evidence_for_session(target_id)
+        if store is None:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_EVIDENCE_NOT_COLLECTED",
+                    "Для этой DevSession диагностические данные отсутствуют",
+                    DevStatusKind.STOPPED.value,
+                    target_id,
+                )
+            )
+        return store.read_persisted_screenshot(screenshot_id)
+
+    def _get_smoke_manager(self):
+        """Лениво создать Smoke facade, не меняя startup обычного runtime."""
+
+        smoke_manager = self._smoke_manager
+        if smoke_manager is not None:
+            return smoke_manager
+        from module.dev_runtime.smoke import SmokeRunManager
+
+        smoke_manager = SmokeRunManager(environment=self.environment, now=self.now)
+        self._smoke_manager = smoke_manager
+        return smoke_manager
+
+    def list_smoke_capabilities(self) -> DevResult:
+        return self._get_smoke_manager().list_capabilities()
+
+    def validate_smoke(self, spec: object) -> DevResult:
+        return self._get_smoke_manager().validate_smoke(spec)
+
+    def start_smoke(self, spec: object) -> DevResult:
+        return self._get_smoke_manager().start_smoke(spec)
+
+    def get_smoke(self, smoke_id: str) -> DevResult:
+        return self._get_smoke_manager().get_smoke(smoke_id)
+
+    def cancel_smoke(self, smoke_id: str) -> DevResult:
+        return self._get_smoke_manager().cancel_smoke(smoke_id)
+
+    def get_smoke_evaluation(self, smoke_id: str) -> EvidenceScreenshot:
+        return self._get_smoke_manager().get_smoke_evaluation(smoke_id)
+
+    def submit_smoke_evaluation(
+        self,
+        smoke_id: str,
+        assertion_id: str,
+        verdict: str,
+        rationale: str,
+    ) -> DevResult:
+        return self._get_smoke_manager().submit_smoke_evaluation(smoke_id, assertion_id, verdict, rationale)
+
     def list_tasks(self) -> DevResult:
         """Вернуть каталог из исходного профиля без изменения состояния."""
 
@@ -493,7 +560,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         )
 
     def status(self) -> DevResult:
-        """Вернуть статус Stage 1 и безопасный снимок политики задач только для чтения."""
+        """Вернуть статус Dev Runtime и безопасный снимок политики задач только для чтения."""
 
         result = super().status()
         try:
@@ -599,7 +666,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         excluded_tasks: Iterable[str] | str | None = None,
         preserve_task_state: bool = False,
     ) -> DevResult:
-        """Запустить проверку жизненного цикла Stage 2 через штатный путь Dev Runtime."""
+        """Запустить проверку жизненного цикла Task Sandbox через штатный путь Dev Runtime."""
 
         steps: list[dict[str, object]] = []
         planned = self.plan(root_tasks=root_tasks, excluded_tasks=excluded_tasks)
@@ -1818,7 +1885,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             ok=ok,
             code="DEV_SMOKE_PASS" if ok else "DEV_SMOKE_STOP_FAILED",
             message=(
-                "Проверка жизненного цикла Stage 1 пройдена"
+                "Проверка жизненного цикла Dev Runtime пройдена"
                 if ok
                 else "Проверка жизненного цикла не подтвердила безопасную остановку"
             ),

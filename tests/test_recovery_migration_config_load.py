@@ -18,7 +18,7 @@ def _make_config(data):
     object.__setattr__(config, 'bound', {})
     object.__setattr__(config, 'modified', {})
     object.__setattr__(config, 'overridden', {})
-    object.__setattr__(config, 'config_name', 'stage3-test')
+    object.__setattr__(config, 'config_name', 'migration-test')
     object.__setattr__(config, 'is_template_config', False)
     object.__setattr__(config, 'read_file', Mock(return_value=data))
     object.__setattr__(config, 'write_file', Mock())
@@ -45,7 +45,7 @@ def test_existing_profile_is_persisted_once_with_marker_and_default_on_values():
     config = _make_config(_legacy_data())
 
     with tempfile.TemporaryDirectory() as tmp:
-        existing = Path(tmp) / 'stage3-test.json'
+        existing = Path(tmp) / 'migration-test.json'
         existing.write_text('{}', encoding='utf-8')
         with patch('module.config.config.filepath_config', return_value=str(existing)):
             config.load()
@@ -54,14 +54,14 @@ def test_existing_profile_is_persisted_once_with_marker_and_default_on_values():
     assert deep_get(config.data, 'Alas.Error.AdbOfflineRestart') is True
     storage = deep_get(config.data, RECOVERY_DEFAULT_ON_STORAGE_PATH)
     assert storage[RECOVERY_DEFAULT_ON_MIGRATION_KEY] == RECOVERY_DEFAULT_ON_MIGRATION_VERSION
-    config.write_file.assert_called_once_with('stage3-test', data=config.data)
+    config.write_file.assert_called_once_with('migration-test', data=config.data)
 
 
 def test_post_migration_user_opt_out_does_not_trigger_another_write():
     config = _make_config(_legacy_data(marker=True, game_stuck=False, adb_offline=False))
 
     with tempfile.TemporaryDirectory() as tmp:
-        existing = Path(tmp) / 'stage3-test.json'
+        existing = Path(tmp) / 'migration-test.json'
         existing.write_text('{}', encoding='utf-8')
         with patch('module.config.config.filepath_config', return_value=str(existing)):
             config.load()

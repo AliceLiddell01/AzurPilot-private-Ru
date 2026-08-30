@@ -83,7 +83,7 @@ _SAFE_EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _SAFE_SHA = re.compile(r"^[0-9a-fA-F]{7,128}$")
 _SAFE_SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
-_EVENT_TYPES = frozenset(
+EVIDENCE_EVENT_TYPES = frozenset(
     {
         "session_created",
         "policy_prepared",
@@ -712,7 +712,7 @@ def _validate_event(value: object) -> TimelineEvent:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Порядковый номер хронологии имеет некорректный формат")
     if not isinstance(event_type, str) or not _SAFE_EVENT_TYPE.fullmatch(event_type):
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Тип события хронологии имеет некорректный формат")
-    if event_type not in _EVENT_TYPES:
+    if event_type not in EVIDENCE_EVENT_TYPES:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Хронология содержит неизвестный тип события")
     timestamp = _utc_timestamp(value.get("timestamp"))
     assert isinstance(timestamp, str)
@@ -1568,7 +1568,7 @@ class EvidenceStore:
         fields: Mapping[str, object],
         timestamp: str,
     ) -> tuple[TimelineEvent, list[TimelineEvent], bool]:
-        if event_type not in _EVENT_TYPES or not _SAFE_EVENT_TYPE.fullmatch(event_type):
+        if event_type not in EVIDENCE_EVENT_TYPES or not _SAFE_EVENT_TYPE.fullmatch(event_type):
             raise EvidenceError("DEV_EVIDENCE_EVENT_INVALID", "Неизвестное событие хронологии")
         if manifest.get("timeline") != _timeline_metadata(events, truncated=truncated):
             raise EvidenceCorrupt(
@@ -1830,6 +1830,56 @@ class EvidenceStore:
         if (decoded_width, decoded_height) != (width, height):
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Размеры снимка экрана не совпадают")
         return dict(raw), data
+
+    def read_persisted_screenshot(self, screenshot_id: str) -> EvidenceScreenshot:
+        """Безопасно вернуть исторический снимок экрана по проверенному идентификатору.
+
+        Метод не принимает путь и повторно проверяет метаданные, размер, PNG и SHA
+        перед тем, как вернуть байты внешнему слою. Это единственная публичная
+        граница для чтения кадра после остановки DevSession.
+        """
+
+        try:
+            with _exclusive_lock(self.lock_path, self.environment.repository_root):
+                manifest = self._manifest_locked()
+                if manifest.get("stopped_at") is None:
+                    raise EvidenceUnavailable(
+                        "DEV_EVIDENCE_NOT_FINALIZED",
+                        "Исторический снимок экрана доступен только после остановки DevSession",
+                    )
+                metadata, data = self._read_screenshot_metadata_locked(screenshot_id)
+            return EvidenceScreenshot(
+                DevResult(
+                    True,
+                    "DEV_SCREENSHOT_READY",
+                    "Сохранённый кадр прочитан из диагностических данных",
+                    DevSessionState.STOPPED.value,
+                    self.session_id,
+                    {"screenshot": metadata},
+                ),
+                data,
+                "image/png",
+            )
+        except EvidenceError as exc:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    exc.code,
+                    str(exc),
+                    DevSessionState.STOPPED.value,
+                    self.session_id,
+                )
+            )
+        except ValueError:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_SCREENSHOT_ID_INVALID",
+                    "screenshot_id имеет недопустимый формат",
+                    DevSessionState.STOPPED.value,
+                    self.session_id,
+                )
+            )
 
     def _persist_screenshot_bytes_locked(
         self,
@@ -2740,6 +2790,7 @@ def serve_pending_screenshot(image: object) -> None:
 
 
 __all__ = [
+    "EVIDENCE_EVENT_TYPES",
     "EVIDENCE_HEALTH_COMPLETE",
     "EVIDENCE_HEALTH_CORRUPT",
     "EVIDENCE_HEALTH_DEGRADED",

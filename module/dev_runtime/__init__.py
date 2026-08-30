@@ -16,6 +16,7 @@ from module.dev_runtime.contracts import (
 from module.dev_runtime.process import ProcessBackend
 from module.dev_runtime.manager import DevSessionManager
 from module.dev_runtime.evidence import (
+    EVIDENCE_EVENT_TYPES,
     EVIDENCE_HEALTH_COMPLETE,
     EVIDENCE_HEALTH_CORRUPT,
     EVIDENCE_HEALTH_DEGRADED,
@@ -45,7 +46,6 @@ from module.dev_runtime.task_sandbox import (
     TaskSandboxError,
     rollback_task_dependency,
 )
-
 __all__ = [
     "DEV_HOST",
     "DEV_PORT",
@@ -60,6 +60,7 @@ __all__ = [
     "DevStatusKind",
     "ProcessBackend",
     "ProcessIdentity",
+    "EVIDENCE_EVENT_TYPES",
     "EVIDENCE_HEALTH_COMPLETE",
     "EVIDENCE_HEALTH_CORRUPT",
     "EVIDENCE_HEALTH_DEGRADED",

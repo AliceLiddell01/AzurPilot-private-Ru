@@ -1,12 +1,12 @@
 # Dev Runtime: Task Sandbox
 
-Stage 1 запускает только штатный `gui.py --run ap` с фиксированными локальными
-параметрами и точным владением процессом. Stage 2 добавляет API с учётом задач поверх
+Dev Runtime запускает только штатный `gui.py --run ap` с фиксированными локальными
+параметрами и точным владением процессом. Task Sandbox добавляет API с учётом задач поверх
 этого жизненного цикла, не меняя транспорт MCP и обычный рабочий планировщик.
 
 ## Dev MCP для Codex
 
-Stage 3 добавляет отдельный адаптер только для разработки без собственного runtime:
+Dev MCP добавляет отдельный адаптер только для разработки без собственного runtime:
 
 ```text
 Codex
@@ -35,7 +35,7 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
-Публичные инструменты: `dev_preflight`, `dev_doctor`, `dev_list_tasks`,
+Базовые инструменты Dev Runtime (без Smoke Harness): `dev_preflight`, `dev_doctor`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
 `dev_get_logs` и `dev_get_screenshot`. Только для чтения работают `preflight`,
@@ -46,6 +46,8 @@ tool_timeout_sec = 180
 состояние планировщика, а
 `preserve_task_state=true` является явным диагностическим исключением и требует
 последующего `dev_cleanup`.
+
+Инструменты Universal Smoke Harness описаны в отдельном разделе ниже.
 
 Каждый инструмент использует только фиксированный `ap`: MCP не принимает
 `profile`, `instance`, `path`, установщик конфигурации или команду оболочки. Входные схемы строгие и
@@ -86,7 +88,7 @@ tool_timeout_sec = 180
 
 Хронология записывается только на канонических границах выполнения: создание и
 готовность `session`, подготовка `policy`, запуск процесса, начало/возврат `task`,
-данные о зависимостях из Stage 2, предупреждение/ошибка выполнения, `stop` и очистка. Каждое
+данные о зависимостях из Task Sandbox, предупреждение/ошибка выполнения, `stop` и очистка. Каждое
 событие имеет возрастающий `sequence`, временную метку UTC и ограниченные поля. Текущее
 задание сообщается только для активной сессии с подтверждённым владением; после `stop` оно равно
 `none`, а последняя задача остаётся в хронологии.
@@ -114,7 +116,7 @@ API `DevSessionManager`. Чтение артефактов, Git, журнала,
 делается внутри слоя выполнения и диагностики. В обычном рабочем процессе перехватчики —
 лёгкая пустая операция; рабочий `mcp_server_sse.py`, транспорт и база данных не меняются.
 
-Stage 4 не добавляет `run_task_smoke`, автоматическую оценку игрового PASS/FAIL,
+Evidence API не добавляет `run_task_smoke`, автоматическую оценку игрового PASS/FAIL,
 координацию повторов и ожидания, периодические снимки, произвольную оболочку,
 универсальный читатель файлов, OCR или редактор конфигурации. `Handshake` и `tools/list` не зависят от
 наличия профиля, эмулятора и PostgreSQL; проверка жизненного цикла runtime выполняется
@@ -178,4 +180,77 @@ uv run --locked python dev_tools/dev_runtime.py cleanup
 
 `cleanup` сбрасывает состояние планировщика после явно сохранённого
 `preserve_task_state` и не останавливает живой процесс. Команды печатают UTF-8 JSON и не выводят полную конфигурацию `ap`. Транспорт MCP,
-общее управление профилями и PowerShell-запускатель в Stage 2 не добавляются.
+общее управление профилями и PowerShell-запускатель в Task Sandbox не добавляются.
+
+## Universal Smoke Harness
+
+Smoke Harness предоставляет декларативные `SmokeSpec` и
+`SmokeRun`. Спецификация описывает только наблюдаемые условия: фиксированную
+область задач `ap`, ограниченные переопределения конфигурации и типизированные
+утверждения. Это не DSL: запрещены shell, Python/eval, произвольные пути,
+HTTP/SQL, ADB, ввод, `sleep`, повторные попытки и patch. Неизвестные поля
+запрещены, значения и массивы ограничены; после нормализации сохраняются
+`spec.json` и SHA-256 `spec_hash`. После создания API не позволяет менять spec,
+timeout, область задач или override.
+
+Перед созданием запуска проверяются доступность политики Task Sandbox, чистота
+отслеживаемого дерева source и точный снимок Git (`HEAD`, branch/detached,
+fingerprint). Во время выполнения тот же снимок Evidence API проверяется на переходах
+состояния и heartbeat; drift переводит запуск в `INVALIDATED` и запрещает PASS.
+Игнорируемое runtime state не считается изменением source.
+
+`SmokeRun` хранится в игнорируемом каталоге
+`config/state/dev-runtime-smoke/<smoke-id>/` в отдельных ограниченных JSON-файлах
+`spec.json`, `state.json`, `result.json` и `control.json`. Записи защищены
+межпроцессной блокировкой, атомарной записью, проверкой схемы и защитой от
+symlink/junction. Состояния выполнения (`created`, `preparing`, `running`,
+`evaluating`, `cleaning_up`, `awaiting_external_evaluation`, `finished`)
+отделены от итогов `PASS`, `PRODUCT_FAILED`, `PRECONDITION_FAILED`,
+`HARNESS_FAILED`, `EVIDENCE_INCOMPLETE`, `TIMEOUT`, `INVALIDATED` и
+`CANCELLED`. Одновременно разрешён только один активный запуск.
+
+Длительная часть запускается отдельным Python проекта через
+`module.dev_runtime.smoke_supervisor`; команда, рабочий каталог и личность
+исполняемого файла проверяются точно. Supervisor вызывает обычный
+`DevSessionManager.start()` с Task Sandbox и читает runtime только через
+публичные API Evidence API `evidence`, `timeline`, `logs`, `status` и снимка экрана.
+Он не вызывает gameplay handlers, `Device`, production MCP или raw scheduler.
+После ошибки сначала сохраняется первичная ошибка продукта, затем выполняются
+stop, очистка Task Sandbox, сброс scheduler, восстановление только объявленных
+overrides и проверки orphan/source.
+
+Встроенный `SmokeCapabilityRegistry` предоставляет типизированные условия:
+наличие/отсутствие события, запуск/отсутствие task, зависимость с provenance,
+ошибка выполнения и ожидаемая безопасная ошибка, полнота evidence, состояние
+runtime/port, значение и восстановление config, длительность и ограниченный
+фрагмент журнала сессии. Каждый результат содержит `PASS`/`FAIL`/`PENDING`/
+`UNAVAILABLE` и явные ссылки на Evidence API. Negative assertions не
+проходят до закрытия окна наблюдения; необъявленная structured runtime error и
+неполная evidence health блокируют PASS.
+
+Переопределения config разрешены только для существующих обычных листовых
+параметров, которым canonical `argument.yaml` явно присваивает
+`smoke_override: true`; generator переносит этот capability в `args.json`.
+GUI type сам по себе разрешением не является. До apply сохраняются только
+объявленные исходные значения; после run выполняются read-back, restore и
+semantic mutation guard. Scheduler, runtime state/policy/evidence, secrets,
+credentials, executable/path и arbitrary config paths запрещены, включая
+защитную проверку имён как второй слой. Harness не выполняет auto-repair и
+auto-retry.
+
+Для UI допускается одно замороженное утверждение `external_visual` за run.
+Evidence API сохраняет точный PNG по `screenshot_id` и SHA-256 после объявленного
+события или task trigger, затем run полностью очищает runtime и переходит в
+`awaiting_external_evaluation`. `dev_get_smoke_evaluation` возвращает
+замороженные rubric, hashes и metadata вместе с PNG через MCP `ImageContent`;
+только один `dev_submit_smoke_evaluation` может добавить неизменяемый внешний
+verdict с provenance.
+
+Smoke Harness расширяет локальный stdio Dev MCP ровно следующими инструментами:
+`dev_list_smoke_capabilities`, `dev_validate_smoke`, `dev_start_smoke`,
+`dev_get_smoke`, `dev_cancel_smoke`, `dev_get_smoke_evaluation` и
+`dev_submit_smoke_evaluation`. `dev_start_smoke` быстро возвращает `smoke_id`,
+не удерживая MCP request; результат читается через polling `dev_get_smoke`.
+Сервер остаётся без побочных действий при startup и сохраняет stdout только для
+MCP protocol. Production `mcp_server_sse.py`, MCP SDK и обычный gameplay path
+не изменяются.

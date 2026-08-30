@@ -147,8 +147,8 @@ def test_full_rehearsal_requires_exact_disposable_guard_before_network(tmp_path)
     environment.update(
         AZURPILOT_POSTGRES_HOST="127.0.0.1",
         AZURPILOT_POSTGRES_PORT="65432",
-        AZURPILOT_POSTGRES_DATABASE="synthetic_stage3",
-        AZURPILOT_POSTGRES_USER="synthetic_stage3",
+        AZURPILOT_POSTGRES_DATABASE="synthetic_ci",
+        AZURPILOT_POSTGRES_USER="synthetic_ci",
         AZURPILOT_POSTGRES_SSLMODE="disable",
     )
     for name in tuple(environment):
@@ -173,8 +173,8 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
     settings = DatabaseSettings(
         host="127.0.0.1",
         port=5432,
-        database="stage3_source",
-        user="stage3",
+        database="ci_source",
+        user="ci_user",
         password="disposable-test-value",
         sslmode="disable",
     )
@@ -186,7 +186,7 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
     )
 
     restored = postgresql_migration._dump_restore(
-        settings, "stage3_restore", tmp_path / "stage3.dump"
+        settings, "ci_restore", tmp_path / "migration-rehearsal.dump"
     )
 
     restore_arguments = calls[-1][1]
@@ -194,7 +194,7 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
     assert "--clean" in restore_arguments
     assert "--if-exists" in restore_arguments
     assert restore_arguments.index("--clean") < restore_arguments.index("--dbname")
-    assert restored.database == "stage3_restore"
+    assert restored.database == "ci_restore"
 
 
 def test_pg_timeout_returns_bounded_storage_error(monkeypatch):
@@ -214,7 +214,7 @@ def test_pg_timeout_returns_bounded_storage_error(monkeypatch):
     ) as exc_info:
         postgresql_migration._run_pg(
             "pg_restore",
-            ["--dbname", "azurpilot_restore_stage4"],
+            ["--dbname", "azurpilot_restore"],
         )
 
     assert observed["timeout"] == 180

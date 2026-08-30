@@ -753,7 +753,9 @@ Reward:
   CollectOil: true
   CollectCoin: true
   CollectExp: true
-  CollectMission: true
+  CollectMission:
+    value: true
+    smoke_override: true
   CollectWeeklyMission: false
 Awaken:
   LevelCap:

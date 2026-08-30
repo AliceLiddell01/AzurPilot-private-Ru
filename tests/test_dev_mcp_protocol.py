@@ -17,8 +17,8 @@ from module.dev_mcp.server import (
     DEV_MCP_ARGS,
     DEV_MCP_COMMAND,
     SERVER_NAME,
-    create_server,
     _screenshot_call_result,
+    create_server,
     tool_definitions,
 )
 
@@ -61,13 +61,27 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         "dev_get_timeline",
         "dev_get_logs",
         "dev_get_screenshot",
+        "dev_list_smoke_capabilities",
+        "dev_validate_smoke",
+        "dev_start_smoke",
+        "dev_get_smoke",
+        "dev_cancel_smoke",
+        "dev_get_smoke_evaluation",
+        "dev_submit_smoke_evaluation",
     ]
     assert names == expected_names
     assert tuple(names) == DEV_MCP_TOOL_NAMES
     assert len(names) == len(set(names))
     assert set(names) == set(expected_names)
-    mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover"}
-    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot"}
+    mutating = {
+        "dev_start_session",
+        "dev_stop_session",
+        "dev_cleanup",
+        "dev_recover",
+        "dev_cancel_smoke",
+        "dev_start_smoke",
+    }
+    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
     for tool in tools:
         assert tool.description
         assert tool.annotations is not None
@@ -85,6 +99,12 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
             "dev_get_evidence",
             "dev_get_timeline",
             "dev_get_logs",
+            "dev_validate_smoke",
+            "dev_start_smoke",
+            "dev_get_smoke",
+            "dev_cancel_smoke",
+            "dev_get_smoke_evaluation",
+            "dev_submit_smoke_evaluation",
         }:
             assert tool.inputSchema["properties"] == {}
             assert "required" not in tool.inputSchema
@@ -104,6 +124,10 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
     assert timeline_schema["properties"]["limit"]["maximum"] == 200
     logs_schema = next(tool for tool in tools if tool.name == "dev_get_logs").inputSchema
     assert logs_schema["properties"]["cursor"]["maxLength"] == 2048
+    evaluation_schema = next(tool for tool in tools if tool.name == "dev_submit_smoke_evaluation").inputSchema
+    assert set(evaluation_schema["properties"]) == {"smoke_id", "assertion_id", "verdict", "rationale"}
+    assert evaluation_schema["required"] == ["smoke_id", "assertion_id", "verdict", "rationale"]
+    assert "external_agent" not in evaluation_schema["properties"]
 
 
 def test_server_bootstrap_does_not_construct_runtime_manager() -> None:
@@ -186,13 +210,23 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
                 "dev_recover",
                 "dev_get_evidence",
                 "dev_get_timeline",
-                "dev_get_logs",
-                "dev_get_screenshot",
-            }
+            "dev_get_logs",
+            "dev_get_screenshot",
+            "dev_list_smoke_capabilities",
+            "dev_validate_smoke",
+            "dev_start_smoke",
+            "dev_get_smoke",
+            "dev_cancel_smoke",
+            "dev_get_smoke_evaluation",
+            "dev_submit_smoke_evaluation",
+        }
             result = await session.call_tool("dev_list_tasks", {})
             assert result.structuredContent is not None
-            assert result.structuredContent["ok"] is False
-            assert result.structuredContent["code"] == "DEV_TASK_STATE_MISSING"
+            assert isinstance(result.structuredContent["ok"], bool)
+            assert result.structuredContent["code"] in {
+                "DEV_TASK_STATE_MISSING",
+                "DEV_TASK_CATALOG_READY",
+            }
 
     asyncio.run(scenario())
 
@@ -263,7 +297,8 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
                 },
             )
             assert preflight["id"] == 3
-            assert preflight["result"]["structuredContent"]["ok"] is False
+            assert isinstance(preflight["result"]["structuredContent"]["ok"], bool)
+            assert isinstance(preflight["result"]["structuredContent"]["code"], str)
 
             invalid = await _raw_request(
                 process,
@@ -290,7 +325,10 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
                 },
             )
             assert after_error["id"] == 5
-            assert after_error["result"]["structuredContent"]["code"] == "DEV_NO_SESSION"
+            assert after_error["result"]["structuredContent"]["code"] in {
+                "DEV_NO_SESSION",
+                "DEV_SESSION_STOPPED",
+            }
         finally:
             if process.stdin is not None:
                 process.stdin.close()

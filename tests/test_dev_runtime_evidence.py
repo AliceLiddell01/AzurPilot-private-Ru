@@ -16,6 +16,7 @@ import pytest
 from module.dev_runtime import evidence as evidence_module
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.evidence import (
+    EVIDENCE_EVENT_TYPES,
     EvidenceCorrupt,
     EvidenceError,
     EvidenceStore,
@@ -27,6 +28,17 @@ from module.dev_runtime.contracts import DevEnvironment
 
 
 _TIME = "2026-08-30T00:00:00+00:00"
+
+
+def test_event_registry_is_public_and_single_source(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+
+    assert "session_ready" in EVIDENCE_EVENT_TYPES
+    assert "runtime_error" in EVIDENCE_EVENT_TYPES
+    assert not hasattr(evidence_module, "_EVENT_TYPES")
+    with pytest.raises(EvidenceError) as error:
+        store.append_event("unknown_event", {}, timestamp=_TIME)
+    assert error.value.code == "DEV_EVIDENCE_EVENT_INVALID"
 
 
 def _environment(tmp_path: Path) -> DevEnvironment:
@@ -418,6 +430,21 @@ def test_screenshot_metadata_is_bounded_and_self_verified(tmp_path: Path) -> Non
     assert error.value.code == "DEV_EVIDENCE_CORRUPT"
 
 
+def test_historical_screenshot_requires_stopped_session(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    screenshot = store.persist_screenshot(np.zeros((1, 1, 3), dtype=np.uint8), timestamp=_TIME)
+    screenshot_id = screenshot.result.details["screenshot"]["screenshot_id"]
+
+    before_stop = store.read_persisted_screenshot(screenshot_id)
+    assert before_stop.result.ok is False
+    assert before_stop.result.code == "DEV_EVIDENCE_NOT_FINALIZED"
+
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    after_stop = store.read_persisted_screenshot(screenshot_id)
+    assert after_stop.result.ok is True
+    assert after_stop.image == screenshot.image
+
+
 def test_screenshot_bytes_must_be_png(tmp_path: Path) -> None:
     store = _store(tmp_path)
     from PIL import Image
@@ -471,14 +498,14 @@ def test_git_snapshot_uses_fixed_local_commands_and_ignores_untracked_content(tm
         if command[1] == "rev-parse":
             return _GitResult(0, head + "\n")
         if command[1] == "symbolic-ref":
-            return _GitResult(0, "codex/stage4\n")
+            return _GitResult(0, "codex/dev-runtime-review\n")
         return _GitResult(0, " M config/ap.json\n")
 
     snapshot = capture_git_snapshot(root, runner=runner)
 
     assert snapshot.available is True
     assert snapshot.head == head
-    assert snapshot.branch == "codex/stage4"
+    assert snapshot.branch == "codex/dev-runtime-review"
     assert snapshot.dirty is True
     assert snapshot.changed_paths == ("config/ap.json",)
     assert calls == [
@@ -533,7 +560,7 @@ def test_git_snapshot_does_not_inherit_mcp_stdin(tmp_path: Path, monkeypatch: py
         popen_calls.append(kwargs)
         payload = {
             "rev-parse": b"a" * 40 + b"\n",
-            "symbolic-ref": b"codex/stage4\n",
+            "symbolic-ref": b"codex/dev-runtime-review\n",
             "status": b"",
         }[command[1]]
         return FakeProcess(payload)
@@ -760,4 +787,4 @@ def test_hooks_are_noop_without_active_dev_session(monkeypatch) -> None:
 def test_old_session_without_evidence_is_reported_as_unavailable(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     with pytest.raises(EvidenceUnavailable):
-        EvidenceStore.for_session(environment, "old-stage3").summary()
+        EvidenceStore.for_session(environment, "old-session-without-evidence").summary()
