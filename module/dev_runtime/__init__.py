@@ -15,6 +15,19 @@ from module.dev_runtime.contracts import (
 )
 from module.dev_runtime.process import ProcessBackend
 from module.dev_runtime.manager import DevSessionManager
+from module.dev_runtime.evidence import (
+    EVIDENCE_HEALTH_COMPLETE,
+    EVIDENCE_HEALTH_CORRUPT,
+    EVIDENCE_HEALTH_DEGRADED,
+    EVIDENCE_HEALTH_UNAVAILABLE,
+    EvidenceCorrupt,
+    EvidenceError,
+    EvidenceScreenshot,
+    EvidenceStore,
+    EvidenceUnavailable,
+    GitSnapshot,
+    TimelineEvent,
+)
 from module.dev_runtime.task_sandbox import (
     SCHEDULER_RESET_TIME,
     TASK_POLICY_FILE_ENV,
@@ -47,6 +60,17 @@ __all__ = [
     "DevStatusKind",
     "ProcessBackend",
     "ProcessIdentity",
+    "EVIDENCE_HEALTH_COMPLETE",
+    "EVIDENCE_HEALTH_CORRUPT",
+    "EVIDENCE_HEALTH_DEGRADED",
+    "EVIDENCE_HEALTH_UNAVAILABLE",
+    "EvidenceCorrupt",
+    "EvidenceError",
+    "EvidenceScreenshot",
+    "EvidenceStore",
+    "EvidenceUnavailable",
+    "GitSnapshot",
+    "TimelineEvent",
     "SCHEDULER_RESET_TIME",
     "TASK_POLICY_FILE_ENV",
     "TASK_POLICY_ROOT_ENV",

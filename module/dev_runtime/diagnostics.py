@@ -12,6 +12,7 @@ import urllib.request
 from pathlib import Path
 
 from module.config.profile import ProfileDiscoveryError, classify_profile_config
+from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.contracts import (
     DEV_PROFILE,
     DevEnvironment,
@@ -452,13 +453,13 @@ def _read_registry_file(path: Path) -> object | None:
             hasattr(path, "is_junction") and path.is_junction()
         ):
             raise RuntimeError("worker registry не должен быть ссылкой или junction")
-        raw = path.read_bytes()
+        raw = read_bounded_bytes(path, max_bytes=_REGISTRY_MAX_BYTES)
     except FileNotFoundError:
         return None
+    except BoundedReadTooLarge as exc:
+        raise RuntimeError("worker registry превышает допустимый размер") from exc
     except OSError as exc:
         raise RuntimeError("worker registry невозможно безопасно прочитать") from exc
-    if len(raw) > _REGISTRY_MAX_BYTES:
-        raise RuntimeError("worker registry превышает допустимый размер")
     try:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:

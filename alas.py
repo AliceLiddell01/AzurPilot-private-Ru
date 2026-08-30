@@ -374,6 +374,51 @@ class AzurLaneAutoScript:
         )
         exit(1)
 
+    def _record_dev_runtime_error(self, exception, *, phase, task=None):
+        """Передать ошибку во внутренний перехватчик диагностики без изменения пути восстановления."""
+        if not os.environ.get("AZURPILOT_DEV_SESSION_ID"):
+            return
+        try:
+            from module.dev_runtime.hooks import record_runtime_error
+
+            canonical_task = getattr(
+                getattr(self.__dict__.get("config"), "task", None),
+                "command",
+                None,
+            )
+            if isinstance(canonical_task, str):
+                task = canonical_task
+            record_runtime_error(
+                self.config_name,
+                exception,
+                phase=phase,
+                task=task,
+            )
+        except Exception:
+            return
+
+    def _record_dev_runtime_task_started(self, task):
+        """Зафиксировать начало задачи только на канонической границе планировщика."""
+        if not os.environ.get("AZURPILOT_DEV_SESSION_ID"):
+            return
+        try:
+            from module.dev_runtime.hooks import record_task_started
+
+            record_task_started(self.config_name, task)
+        except Exception:
+            return
+
+    def _record_dev_runtime_task_finished(self, task):
+        """Зафиксировать возврат штатного исполнителя задачи без заключения PASS/FAIL."""
+        if not os.environ.get("AZURPILOT_DEV_SESSION_ID"):
+            return
+        try:
+            from module.dev_runtime.hooks import record_task_finished
+
+            record_task_finished(self.config_name, task)
+        except Exception:
+            return
+
     def _try_restart_game(self):
         """Перезапустить только Azur Lane и подтвердить восстановление через login/UI flow."""
         from module.handler.login import LoginHandler
@@ -415,6 +460,11 @@ class AzurLaneAutoScript:
                 False — 不可恢复的失败，计入连续失败限制。
                 'recoverable' — 可恢复的失败，不计入连续失败限制。
         """
+        record_dev_runtime_error = getattr(
+            self,
+            "_record_dev_runtime_error",
+            lambda *_args, **_kwargs: None,
+        )
         try:
             if not skip_first_screenshot:
                 self.device.screenshot()
@@ -423,6 +473,7 @@ class AzurLaneAutoScript:
         except TaskEnd:
             return True
         except GameNotRunningError as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             # 游戏未运行，调度 Restart 任务自动恢复
             logger.error_context(
                 title='Игровой процесс не запущен',
@@ -448,6 +499,7 @@ class AzurLaneAutoScript:
             self.config.task_call('Restart')
             return 'recoverable'
         except (GameStuckError, GameTooManyClickError) as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             logger.error_context(
                 title='Игра не отвечает на действия',
                 reason='Изображение не меняется в течение допустимого времени либо одна кнопка нажата слишком много раз.',
@@ -542,6 +594,7 @@ class AzurLaneAutoScript:
             )
             return False
         except GameBugError as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             # 游戏客户端 bug，重启游戏修复
             logger.error_context(
                 title='Ошибка игрового клиента',
@@ -568,6 +621,7 @@ class AzurLaneAutoScript:
             self.device.sleep(10)
             return 'recoverable'
         except GamePageUnknownError as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             logger.info('[Alas] Возможны техническое обслуживание сервера или разрыв сети; проверяется состояние сервера')
             self.checker.check_now()
             if self.checker.is_available():
@@ -595,6 +649,7 @@ class AzurLaneAutoScript:
                 self.checker.wait_until_available()
                 return False
         except ScriptError as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             logger.exception_context(
                 title='Ошибка выполнения сценария задачи', exc=e,
                 impact='Текущую задачу продолжить невозможно; планировщик завершит работу и сохранит данные об ошибке.',
@@ -613,6 +668,7 @@ class AzurLaneAutoScript:
             )
             raise
         except EmulatorNotRunningError as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             # 模拟器离线或死机，尝试自动重启
             logger.error_context(
                 title='Соединение с эмулятором потеряно',
@@ -657,7 +713,8 @@ class AzurLaneAutoScript:
                     content=f"Причина: EmulatorNotRunningError",
                 )
                 exit(1)
-        except RequestHumanTakeover:
+        except RequestHumanTakeover as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             logger.error_context(
                 title='Требуется вмешательство пользователя',
                 reason='Автоматизация не может безопасно определить или исправить текущее состояние.',
@@ -677,6 +734,7 @@ class AzurLaneAutoScript:
             )
             exit(1)
         except AutoSearchSetError as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             logger.error_context(
                 title='Не удалось настроить автоматический поиск',
                 reason='Игру не удалось переключить в требуемый режим автоматического поиска.',
@@ -687,6 +745,7 @@ class AzurLaneAutoScript:
             )
             exit(1)
         except Exception as e:
+            record_dev_runtime_error(e, phase="task", task=command)
             logger.exception_context(
                 title=f'Необработанная ошибка при выполнении задачи ({command})', exc=e,
                 impact='Результат текущей задачи невозможно определить; планировщик сохранит данные об ошибке и завершит работу.',
@@ -1536,6 +1595,21 @@ class AzurLaneAutoScript:
     def loop(self):
         logger.set_file_logger(self.config_name)
         logger.info(f'[Alas] Запуск цикла планировщика: {self.config_name}')
+        record_dev_runtime_error = getattr(
+            self,
+            "_record_dev_runtime_error",
+            lambda *_args, **_kwargs: None,
+        )
+        record_dev_runtime_task_started = getattr(
+            self,
+            "_record_dev_runtime_task_started",
+            lambda *_args, **_kwargs: None,
+        )
+        record_dev_runtime_task_finished = getattr(
+            self,
+            "_record_dev_runtime_task_finished",
+            lambda *_args, **_kwargs: None,
+        )
 
         from module.config.utils import is_oobe_needed
 
@@ -1607,10 +1681,12 @@ class AzurLaneAutoScript:
 
                 # 运行
                 logger.info(f'[Alas] Планировщик: запуск задачи `{task}`')
+                record_dev_runtime_task_started(task)
                 self.device.stuck_record_clear()
                 self.device.click_record_clear()
                 logger.hr(task, level=0)
                 success = self.run(inflection.underscore(task))
+                record_dev_runtime_task_finished(task)
                 logger.info(f'[Alas] Планировщик: завершение задачи `{task}`')
                 self.is_first_task = False
 
@@ -1702,6 +1778,18 @@ class AzurLaneAutoScript:
 
             # 捕获全局异常并执行重启
             except Exception as e:
+                scheduler_task = getattr(
+                    getattr(self.__dict__.get("config"), "task", None),
+                    "command",
+                    None,
+                )
+                if not isinstance(scheduler_task, str):
+                    scheduler_task = None
+                record_dev_runtime_error(
+                    e,
+                    phase="scheduler",
+                    task=scheduler_task,
+                )
                 consecutive_global_failures += 1
                 self.is_first_task = False
                 import traceback

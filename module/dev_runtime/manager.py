@@ -26,10 +26,18 @@ from module.dev_runtime.contracts import (
     DevStatusKind,
     ProcessIdentity,
 )
+from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.diagnostics import (
     DevDiagnosticsMixin,
     _default_storage_probe,
     _port_is_listening,
+)
+from module.dev_runtime.evidence import (
+    EvidenceCorrupt,
+    EvidenceError,
+    EvidenceScreenshot,
+    EvidenceStore,
+    validate_session_id,
 )
 from module.dev_runtime.process import ProcessBackend, _same_path
 from module.dev_runtime.task_sandbox import (
@@ -65,8 +73,10 @@ class DevSessionManager(DevDiagnosticsMixin):
         | None = None,
         now: Callable[[], datetime] | None = None,
         session_id_factory: Callable[[], str] | None = None,
+        screenshot_provider: Callable[[str], object] | None = None,
         ready_timeout: float = DEFAULT_READY_TIMEOUT,
         stop_timeout: float = DEFAULT_STOP_TIMEOUT,
+        screenshot_timeout: float = 5.0,
     ):
         self.environment = environment or DevEnvironment.current()
         self.process_backend = process_backend or ProcessBackend()
@@ -75,11 +85,397 @@ class DevSessionManager(DevDiagnosticsMixin):
         self.readiness_probe = readiness_probe or self._default_readiness_probe
         self.now = now or (lambda: datetime.now(UTC))
         self.session_id_factory = session_id_factory or (lambda: str(uuid.uuid4()))
+        self.screenshot_provider = screenshot_provider
         self.ready_timeout = ready_timeout
         self.stop_timeout = stop_timeout
+        self.screenshot_timeout = screenshot_timeout
+        self._evidence_store: EvidenceStore | None = None
+
+    def _evidence_for_session(self, session_id: str) -> EvidenceStore | None:
+        try:
+            store = EvidenceStore.for_session(self.environment, session_id)
+        except (EvidenceError, ValueError):
+            return None
+        if not store.exists:
+            return None
+        return store
+
+    def _evidence_store_for_current_session(self) -> EvidenceStore | None:
+        try:
+            session = self._read_session()
+        except (OSError, ValueError):
+            return None
+        if session is None or not session.is_task_aware:
+            return None
+        cached = self._evidence_store
+        if cached is not None and cached.session_id == session.session_id:
+            return cached
+        return self._evidence_for_session(session.session_id)
+
+    def _evidence_event(
+        self,
+        event_type: str,
+        fields: dict[str, object] | None = None,
+        *,
+        store: EvidenceStore | None = None,
+    ) -> None:
+        active_store = store if store is not None else self._evidence_store_for_current_session()
+        if active_store is None:
+            return
+        try:
+            active_store.append_event(event_type, fields or {}, timestamp=self._timestamp())
+        except Exception:
+            active_store.mark_degraded("timeline_write_failed")
+
+    def _evidence_error(
+        self,
+        exception: BaseException,
+        *,
+        phase: str,
+        store: EvidenceStore | None = None,
+    ) -> None:
+        active_store = store if store is not None else self._evidence_store_for_current_session()
+        if active_store is None:
+            return
+        try:
+            active_store.record_error(exception, phase=phase)
+        except Exception:
+            active_store.mark_degraded("error_record_failed")
+
+    def _finish_failed_evidence(
+        self,
+        session: DevSession,
+        *,
+        process_started: bool,
+        process_stopped: bool,
+        cleanup_attempted: bool,
+        cleanup_confirmed: bool,
+        reason: str,
+    ) -> None:
+        """Закрыть диагностические данные после неуспешного запуска, не скрывая неопределённость."""
+
+        store = self._evidence_store
+        if store is None and session.is_task_aware:
+            store = self._evidence_for_session(session.session_id)
+        if store is None:
+            return
+        if process_started:
+            self._evidence_event(
+                "process_stopped",
+                {"confirmed": process_stopped, "reason": reason},
+                store=store,
+            )
+        if cleanup_attempted:
+            self._evidence_event("cleanup_started", {"preserved": False}, store=store)
+            if cleanup_confirmed:
+                self._evidence_event(
+                    "cleanup_completed",
+                    {"confirmed": True, "preserved": False},
+                    store=store,
+                )
+            else:
+                self._evidence_event(
+                    "runtime_warning",
+                    {"code": "DEV_CLEANUP_FAILED", "phase": "cleanup"},
+                    store=store,
+                )
+        if (not process_started or process_stopped) and cleanup_confirmed:
+            self._evidence_event(
+                "session_stopped",
+                {"state": session.state.value},
+                store=store,
+            )
+            try:
+                store.finalize(
+                    stopped_at=session.updated_at,
+                    cleanup_confirmed=True,
+                )
+            except Exception:
+                store.mark_degraded("timeline_write_failed")
+        elif not process_started or process_stopped:
+            try:
+                store.finalize(
+                    stopped_at=session.updated_at,
+                    cleanup_confirmed=False,
+                )
+            except Exception:
+                store.mark_degraded("timeline_write_failed")
+
+    def _initialize_evidence(self, session: DevSession, task_plan: TaskPlan) -> None:
+        try:
+            store = EvidenceStore.create(
+                self.environment,
+                session_id=session.session_id,
+                root_tasks=task_plan.root_tasks,
+                excluded_tasks=task_plan.excluded_tasks,
+                timestamp=session.created_at,
+                now=self.now,
+            )
+            self._evidence_store = store
+            self._evidence_event(
+                "session_created",
+                {"profile": DEV_PROFILE, "task_mode": "task_aware"},
+                store=store,
+            )
+            if not EvidenceStore.prune(
+                self.environment,
+                active_session_id=session.session_id,
+                now=self.now,
+            ):
+                store.mark_degraded("retention_failed")
+        except Exception:
+            # Сбой диагностических данных не должен скрывать обычный путь жизненного цикла.
+            self._evidence_store = None
+
+    def _evidence_target(
+        self,
+        session_id: str | None,
+    ) -> tuple[DevSession | None, EvidenceStore | None, DevResult | None]:
+        try:
+            current = self._read_session()
+        except ValueError as exc:
+            return None, None, DevResult(
+                False,
+                "DEV_STATE_CORRUPT",
+                f"Маркер DevSession повреждён: {exc}",
+                DevStatusKind.CORRUPT.value,
+            )
+        if session_id is None:
+            if current is None:
+                return None, None, DevResult(
+                    False,
+                    "DEV_EVIDENCE_NOT_COLLECTED",
+                    "Известная DevSession отсутствует",
+                    DevStatusKind.NO_SESSION.value,
+                    details={
+                        "evidence_health": {
+                            "status": "unavailable",
+                            "reasons": ["not_collected"],
+                        }
+                    },
+                )
+            target_id = current.session_id
+        else:
+            try:
+                target_id = validate_session_id(session_id)
+            except ValueError:
+                return None, None, DevResult(
+                    False,
+                    "DEV_EVIDENCE_SESSION_INVALID",
+                    "session_id имеет недопустимый формат",
+                    DevStatusKind.FAILED.value,
+                )
+        store = self._evidence_for_session(target_id)
+        if store is None:
+            return current, None, DevResult(
+                False,
+                "DEV_EVIDENCE_NOT_COLLECTED",
+                "Для этой DevSession диагностические данные ещё не собирались",
+                current.state.value if current is not None and current.session_id == target_id else DevStatusKind.STOPPED.value,
+                target_id,
+                {
+                    "evidence_health": {
+                        "status": "unavailable",
+                        "reasons": ["not_collected"],
+                    }
+                },
+            )
+        return current, store, None
+
+    def get_evidence(self, *, session_id: str | None = None) -> DevResult:
+        current, store, error = self._evidence_target(session_id)
+        if error is not None:
+            return error
+        assert store is not None
+        active_owned = False
+        if current is not None and current.session_id == store.session_id:
+            if current.state is DevSessionState.RUNNING and current.process is not None:
+                try:
+                    active_owned = self.process_backend.matches(current.process) is True
+                except RuntimeError:
+                    active_owned = False
+        try:
+            summary = store.summary(active_owned=active_owned)
+        except EvidenceCorrupt as exc:
+            store.mark_corrupt("evidence_corrupt")
+            return DevResult(
+                False,
+                exc.code,
+                str(exc),
+                DevStatusKind.CORRUPT.value,
+                store.session_id,
+                {"evidence_health": {"status": "corrupt", "reasons": ["evidence_corrupt"]}},
+            )
+        except EvidenceError as exc:
+            return DevResult(
+                False,
+                exc.code,
+                str(exc),
+                DevStatusKind.CORRUPT.value,
+                store.session_id,
+                {"evidence_health": {"status": "corrupt", "reasons": ["read_failed"]}},
+            )
+        return DevResult(
+            True,
+            "DEV_EVIDENCE_READY",
+            "Сводка диагностики готова",
+            current.state.value if current is not None and current.session_id == store.session_id else DevStatusKind.STOPPED.value,
+            store.session_id,
+            summary,
+        )
+
+    def get_timeline(
+        self,
+        *,
+        session_id: str | None = None,
+        after_sequence: int = 0,
+        limit: int = 100,
+    ) -> DevResult:
+        current, store, error = self._evidence_target(session_id)
+        if error is not None:
+            return error
+        assert store is not None
+        try:
+            page = store.timeline_page(after_sequence=after_sequence, limit=limit)
+        except EvidenceCorrupt as exc:
+            store.mark_corrupt("timeline_corrupt")
+            return DevResult(
+                False,
+                exc.code,
+                str(exc),
+                DevStatusKind.CORRUPT.value,
+                store.session_id,
+                {"evidence_health": {"status": "corrupt", "reasons": ["timeline_corrupt"]}},
+            )
+        except EvidenceError as exc:
+            return DevResult(False, exc.code, str(exc), "failed", store.session_id)
+        return DevResult(
+            True,
+            "DEV_TIMELINE_READY",
+            "Каноническая хронология выполнения прочитана",
+            current.state.value if current is not None and current.session_id == store.session_id else DevStatusKind.STOPPED.value,
+            store.session_id,
+            page,
+        )
+
+    def get_logs(
+        self,
+        *,
+        session_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> DevResult:
+        current, store, error = self._evidence_target(session_id)
+        if error is not None:
+            return error
+        assert store is not None
+        active_owned = False
+        if current is not None and current.session_id == store.session_id:
+            if current.state is DevSessionState.RUNNING and current.process is not None:
+                try:
+                    active_owned = self.process_backend.matches(current.process) is True
+                except RuntimeError:
+                    active_owned = False
+        try:
+            page = store.logs_page(cursor=cursor, limit=limit, active_owned=active_owned)
+        except EvidenceCorrupt as exc:
+            store.mark_corrupt("log_corrupt")
+            return DevResult(
+                False,
+                exc.code,
+                str(exc),
+                DevStatusKind.CORRUPT.value,
+                store.session_id,
+                {"evidence_health": {"status": "corrupt", "reasons": ["log_corrupt"]}},
+            )
+        except EvidenceError as exc:
+            return DevResult(False, exc.code, str(exc), "failed", store.session_id)
+        return DevResult(
+            True,
+            "DEV_LOGS_READY",
+            "Журнал в пределах сессии прочитан",
+            current.state.value if current is not None and current.session_id == store.session_id else DevStatusKind.STOPPED.value,
+            store.session_id,
+            page,
+        )
+
+    def get_screenshot(self) -> EvidenceScreenshot:
+        try:
+            session = self._read_session()
+        except ValueError as exc:
+            return EvidenceScreenshot(
+                DevResult(False, "DEV_STATE_CORRUPT", str(exc), DevStatusKind.CORRUPT.value)
+            )
+        if session is None:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_SCREENSHOT_NO_SESSION",
+                    "Нет активной DevSession для наблюдения за снимком экрана",
+                    DevStatusKind.NO_SESSION.value,
+                )
+            )
+        if session.state is not DevSessionState.RUNNING or session.process is None:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_SCREENSHOT_SESSION_NOT_ACTIVE",
+                    "Снимок экрана разрешён только для активной DevSession",
+                    session.state.value,
+                    session.session_id,
+                )
+            )
+        try:
+            owned = self.process_backend.matches(session.process)
+        except RuntimeError as exc:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_SCREENSHOT_OWNERSHIP_UNKNOWN",
+                    f"Владение DevSession невозможно подтвердить: {exc}",
+                    DevStatusKind.OWNERSHIP_MISMATCH.value,
+                    session.session_id,
+                )
+            )
+        if owned is not True:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_SCREENSHOT_OWNERSHIP_MISMATCH",
+                    "Снимок экрана не привязывается к неизвестному или чужому процессу",
+                    DevStatusKind.OWNERSHIP_MISMATCH.value,
+                    session.session_id,
+                )
+            )
+        store = self._evidence_for_session(session.session_id)
+        if store is None:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_EVIDENCE_NOT_COLLECTED",
+                    "Для активной DevSession отсутствует хранилище диагностики",
+                    DevStatusKind.FAILED.value,
+                    session.session_id,
+                )
+            )
+        if self.screenshot_provider is not None:
+            try:
+                return store.persist_screenshot(self.screenshot_provider(session.session_id))
+            except Exception as exc:
+                store.mark_degraded("screenshot_failed")
+                return EvidenceScreenshot(
+                    DevResult(
+                        False,
+                        "DEV_SCREENSHOT_PROVIDER_FAILED",
+                        f"Источник снимка экрана завершился: {type(exc).__name__}",
+                        "failed",
+                        session.session_id,
+                    )
+                )
+        return store.request_screenshot(timeout=self.screenshot_timeout)
 
     def list_tasks(self) -> DevResult:
-        """Вернуть каталог из raw profile без изменения состояния."""
+        """Вернуть каталог из исходного профиля без изменения состояния."""
 
         try:
             catalog = TaskCatalog.from_path(
@@ -91,19 +487,19 @@ class DevSessionManager(DevDiagnosticsMixin):
         return DevResult(
             ok=True,
             code="DEV_TASK_CATALOG_READY",
-            message="Каталог schedulable tasks профиля ap прочитан",
+            message="Каталог планируемых задач профиля ap прочитан",
             state=DevStatusKind.NO_SESSION.value,
             details=catalog.as_dict(),
         )
 
     def status(self) -> DevResult:
-        """Вернуть Stage 1 status и безопасный read-only снимок task policy."""
+        """Вернуть статус Stage 1 и безопасный снимок политики задач только для чтения."""
 
         result = super().status()
         try:
             session = self._read_session()
         except (OSError, ValueError):
-            # Базовый status уже вернул machine-readable ошибку marker.
+            # Базовый status уже вернул машиночитаемую ошибку маркера.
             return result
         details = dict(result.details)
         if session is not None:
@@ -114,7 +510,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 return DevResult(
                     ok=False,
                     code="DEV_TASK_POLICY_MISSING",
-                    message="Task-aware lifecycle требует policy до подтверждённого cleanup",
+                    message="Жизненный цикл с учётом задач требует политики до подтверждённой очистки",
                     state=result.state,
                     session_id=result.session_id,
                     details=details,
@@ -132,7 +528,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=False,
                 code=str(task_policy.get("code", "DEV_TASK_POLICY_INVALID")),
-                message="Task policy невозможно безопасно подтвердить",
+                message="Политику задач невозможно безопасно подтвердить",
                 state=result.state,
                 session_id=result.session_id,
                 details=details,
@@ -142,7 +538,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=False,
                 code=code,
-                message="Task policy невозможно безопасно подтвердить",
+                message="Политику задач невозможно безопасно подтвердить",
                 state=result.state,
                 session_id=result.session_id,
                 details=details,
@@ -153,7 +549,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 return DevResult(
                     ok=False,
                     code="DEV_TASK_STATE_PRESERVED",
-                    message="Task-aware scheduler-state сохранён по явному запросу; требуется cleanup",
+                    message="Состояние планировщика сохранено по явному запросу; требуется очистка",
                     state=result.state,
                     session_id=result.session_id,
                     details=details,
@@ -162,7 +558,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 return DevResult(
                     ok=False,
                     code="DEV_TASK_POLICY_NOT_ACTIVE",
-                    message="Task-aware policy не находится в active состоянии",
+                    message="Политика с учётом задач не находится в активном состоянии",
                     state=result.state,
                     session_id=result.session_id,
                     details=details,
@@ -171,7 +567,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 return DevResult(
                     ok=False,
                     code="DEV_TASK_CLEANUP_REQUIRED",
-                    message="Task-aware scheduler-state ещё не подтверждён очищенным",
+                    message="Состояние планировщика с учётом задач ещё не подтверждено очищенным",
                     state=result.state,
                     session_id=result.session_id,
                     details=details,
@@ -191,7 +587,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         root_tasks: Iterable[str] | str | None,
         excluded_tasks: Iterable[str] | str | None = None,
     ) -> DevResult:
-        """Сформировать read-only task plan для будущей task-aware session."""
+        """Сформировать план задач только для чтения будущей сессии с учётом задач."""
 
         _plan, result = self._build_task_plan(root_tasks, excluded_tasks)
         return result
@@ -203,7 +599,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         excluded_tasks: Iterable[str] | str | None = None,
         preserve_task_state: bool = False,
     ) -> DevResult:
-        """Запустить Stage 2 lifecycle smoke через штатный Dev Runtime path."""
+        """Запустить проверку жизненного цикла Stage 2 через штатный путь Dev Runtime."""
 
         steps: list[dict[str, object]] = []
         planned = self.plan(root_tasks=root_tasks, excluded_tasks=excluded_tasks)
@@ -212,7 +608,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=False,
                 code="DEV_TASK_SMOKE_PLAN_FAILED",
-                message="Task-aware smoke остановлен на проверке плана",
+                message="Проверка с учётом задач остановлена на проверке плана",
                 state=planned.state,
                 details={"steps": steps},
             )
@@ -222,7 +618,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=False,
                 code="DEV_TASK_SMOKE_PREFLIGHT_FAILED",
-                message="Task-aware smoke остановлен на предварительной проверке",
+                message="Проверка с учётом задач остановлена на предварительной проверке",
                 state=preflight.state,
                 details={"steps": steps},
             )
@@ -232,7 +628,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=False,
                 code="DEV_TASK_SMOKE_START_FAILED",
-                message="Task-aware smoke не смог запустить DevSession",
+                message="Проверка с учётом задач не смогла запустить DevSession",
                 state=started.state,
                 session_id=started.session_id,
                 details={"steps": steps},
@@ -245,7 +641,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=False,
                 code="DEV_TASK_SMOKE_STATUS_FAILED",
-                message="Task-aware smoke не подтвердил рабочее состояние и владение",
+                message="Проверка с учётом задач не подтвердила рабочее состояние и владение",
                 state=observed.state,
                 session_id=started.session_id,
                 details={
@@ -265,7 +661,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             message=(
                 "Проверка task sandbox и lifecycle пройдена"
                 if ok
-                else "Task-aware smoke не подтвердил безопасное завершение"
+                else "Проверка с учётом задач не подтвердила безопасное завершение"
             ),
             state=final_status.state,
             session_id=started.session_id,
@@ -277,7 +673,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         )
 
     def cleanup(self) -> DevResult:
-        """Явно завершить scheduler cleanup, не останавливая live process."""
+        """Явно завершить очистку планировщика, не останавливая рабочий процесс."""
 
         with self._locked_state():
             try:
@@ -289,6 +685,11 @@ class DevSessionManager(DevDiagnosticsMixin):
                     message=f"Маркер повреждён; cleanup запрещен: {exc}",
                     state=DevStatusKind.CORRUPT.value,
                 )
+            evidence_store = (
+                self._evidence_for_session(session.session_id)
+                if session is not None and session.is_task_aware
+                else None
+            )
             if session is not None and session.process is not None:
                 try:
                     matches = self.process_backend.matches(session.process)
@@ -346,6 +747,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                         message="Найден принадлежащий DevSession процесс; сначала безопасно остановите его",
                         state=DevStatusKind.RUNNING_OWNED,
                     )
+            if session is not None and session.is_task_aware:
+                self._evidence_event("cleanup_started", {"preserved": False}, store=evidence_store)
             cleanup = self._cleanup_task_state_locked(
                 expected_session_id=session.session_id if session is not None else None,
                 session=session,
@@ -357,6 +760,11 @@ class DevSessionManager(DevDiagnosticsMixin):
                     session.last_code = "DEV_CLEANUP_FAILED"
                     session.last_message = cleanup.message
                     self._write_session(session)
+                    self._evidence_event(
+                        "runtime_warning",
+                        {"code": "DEV_CLEANUP_FAILED", "phase": "cleanup"},
+                        store=evidence_store,
+                    )
                     return self._session_result(
                         session,
                         ok=False,
@@ -372,8 +780,26 @@ class DevSessionManager(DevDiagnosticsMixin):
             session.process = None
             session.updated_at = self._timestamp()
             session.last_code = "DEV_TASK_CLEANUP_COMPLETED"
-            session.last_message = "Scheduler-state профиля ap очищен"
+            session.last_message = "Состояние планировщика профиля ap очищено"
             self._write_session(session)
+            self._evidence_event(
+                "cleanup_completed",
+                {"confirmed": True, "preserved": False},
+                store=evidence_store,
+            )
+            self._evidence_event(
+                "session_stopped",
+                {"state": DevSessionState.STOPPED.value},
+                store=evidence_store,
+            )
+            if evidence_store is not None:
+                try:
+                    evidence_store.finalize(
+                        stopped_at=session.updated_at,
+                        cleanup_confirmed=True,
+                    )
+                except Exception:
+                    evidence_store.mark_degraded("timeline_write_failed")
             return self._session_result(
                 session,
                 ok=True,
@@ -399,7 +825,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         return plan, DevResult(
             ok=True,
             code="DEV_TASK_PLAN_READY",
-            message="Task-aware план профиля ap сформирован",
+            message="План профиля ap с учётом задач сформирован",
             state=DevStatusKind.NO_SESSION.value,
             details={"plan": plan.as_dict()},
         )
@@ -430,7 +856,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=True,
                 code="DEV_TASK_CLEANUP_NOT_NEEDED",
-                message="Безопасный leftover task policy отсутствует",
+                    message="Безопасная оставшаяся политика задач отсутствует",
                 state=DevStatusKind.NO_SESSION.value,
                 details={"cleanup_confirmed": True},
             )
@@ -451,7 +877,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return self._task_error(
                 TaskSandboxError(
                     "DEV_TASK_POLICY_CONTEXT_MISMATCH",
-                    "leftover task policy не соответствует DevSession",
+                    "Оставшаяся политика задач не соответствует DevSession",
                 )
             )
         return self._cleanup_task_state_locked(
@@ -480,8 +906,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                 task_plan,
                 next_run=next_run,
             )
-            # Факт вызова записи уже означает, что mutation могла завершиться
-            # до исключения; durable task marker был записан до этого места.
+            # Факт вызова записи уже означает, что изменение могло завершиться
+            # до исключения; постоянный маркер задачи записан до этого места.
             mutation_started = True
             write_profile_payload(
                 self.environment.profile_file,
@@ -529,7 +955,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             ):
                 raise TaskSandboxError(
                     "DEV_TASK_POLICY_UNCONFIRMED",
-                    "Сохранённый task policy не прошёл повторную проверку",
+                    "Сохранённая политика задач не прошла повторную проверку",
                 )
             return DevResult(
                 ok=True,
@@ -554,7 +980,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 else DevResult(
                     ok=True,
                     code="DEV_TASK_CLEANUP_NOT_NEEDED",
-                    message="Изменение scheduler-state не начиналось",
+                    message="Изменение состояния планировщика не начиналось",
                     state=DevStatusKind.NO_SESSION.value,
                 )
             )
@@ -604,7 +1030,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return self._task_error(
                 TaskSandboxError(
                     "DEV_TASK_POLICY_CONTEXT_MISMATCH",
-                    "task policy не соответствует текущей DevSession",
+                    "Политика задач не соответствует текущей DevSession",
                 )
             )
         task_cleanup_required = session is not None and session.task_cleanup_needed
@@ -629,12 +1055,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             from module.logger import logger
 
             logger.warning(
-                "[Dev Runtime] preserve_task_state=True: scheduler-state профиля ap оставлен без cleanup"
+                "[Dev Runtime] preserve_task_state=True: состояние планировщика профиля ap оставлено без очистки"
             )
             return DevResult(
                 ok=True,
                 code="DEV_TASK_STATE_PRESERVED",
-                message="Scheduler-state оставлен по явному preserve_task_state",
+                message="Состояние планировщика оставлено по явному preserve_task_state",
                 state=DevStatusKind.STOPPED.value,
                 details={
                     "cleanup_confirmed": False,
@@ -646,7 +1072,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=True,
                 code="DEV_TASK_CLEANUP_NOT_NEEDED",
-                message="Task policy отсутствует; cleanup не требуется",
+                message="Политика задач отсутствует; очистка не требуется",
                 state=DevStatusKind.STOPPED.value,
                 details={"cleanup_confirmed": True, "policy_removed": False},
             )
@@ -696,7 +1122,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             ):
                 raise TaskSandboxError(
                     "DEV_CLEANUP_UNCONFIRMED",
-                    "Scheduler-state не подтверждён сброшенным",
+                    "Состояние планировщика не подтверждено сброшенным",
                 )
             if policy is not None:
                 store.remove()
@@ -710,7 +1136,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=True,
                 code="DEV_TASK_CLEANUP_COMPLETED",
-                message="Scheduler-state всех schedulable tasks профиля ap сброшен",
+                message="Состояние планировщика всех доступных ему задач профиля ap сброшено",
                 state=DevStatusKind.STOPPED.value,
                 details={
                     "cleanup_confirmed": True,
@@ -742,7 +1168,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=False,
                 code="DEV_CLEANUP_FAILED",
-                message="Scheduler-state cleanup не подтверждён",
+                message="Очистка состояния планировщика не подтверждена",
                 state=DevStatusKind.FAILED.value,
                 details={
                     "cleanup_confirmed": False,
@@ -774,7 +1200,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         message: str,
         session: DevSession | None = None,
     ) -> DevResult:
-        """Заблокировать policy, если ownership процесса нельзя подтвердить."""
+        """Заблокировать политику, если владение процессом нельзя подтвердить."""
 
         pending = False
         try:
@@ -818,6 +1244,21 @@ class DevSessionManager(DevDiagnosticsMixin):
         message: str,
         preserve_task_state: bool,
     ) -> DevResult:
+        was_stopped = session.state is DevSessionState.STOPPED and session.process is None
+        evidence_store = self._evidence_store
+        if evidence_store is None and session.is_task_aware:
+            evidence_store = self._evidence_for_session(session.session_id)
+        if not was_stopped:
+            self._evidence_event(
+                "process_stopped",
+                {
+                    "confirmed": code != "DEV_STALE_RECOVERED",
+                    "reason": code,
+                },
+                store=evidence_store,
+            )
+        if session.is_task_aware and not was_stopped:
+            self._evidence_event("cleanup_started", {"preserved": preserve_task_state}, store=evidence_store)
         session.state = DevSessionState.STOPPED
         session.process = None
         cleanup = self._cleanup_task_state_locked(
@@ -831,6 +1272,11 @@ class DevSessionManager(DevDiagnosticsMixin):
             session.last_code = "DEV_CLEANUP_FAILED"
             session.last_message = cleanup.message
             self._write_session(session)
+            self._evidence_event(
+                "runtime_warning",
+                {"code": "DEV_CLEANUP_FAILED", "phase": "cleanup"},
+                store=evidence_store,
+            )
             return self._session_result(
                 session,
                 ok=False,
@@ -847,6 +1293,29 @@ class DevSessionManager(DevDiagnosticsMixin):
         self._write_session(session)
         details = dict(cleanup.details)
         details.setdefault("cleanup_confirmed", not preserve_task_state)
+        if session.is_task_aware and not was_stopped:
+            self._evidence_event(
+                "cleanup_completed",
+                {
+                    "confirmed": not preserve_task_state,
+                    "preserved": preserve_task_state,
+                },
+                store=evidence_store,
+            )
+            self._evidence_event(
+                "session_stopped",
+                {"state": DevSessionState.STOPPED.value},
+                store=evidence_store,
+            )
+            if evidence_store is not None:
+                try:
+                    evidence_store.finalize(
+                        stopped_at=session.updated_at,
+                        cleanup_confirmed=not preserve_task_state,
+                        preserved=preserve_task_state,
+                    )
+                except Exception:
+                    evidence_store.mark_degraded("timeline_write_failed")
         return self._session_result(
             session,
             ok=True,
@@ -910,6 +1379,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             if not previous_cleanup.ok:
                 return previous_cleanup
 
+            self._evidence_store = None
             timestamp = self._timestamp()
             session = DevSession(
                 session_id=self.session_id_factory(),
@@ -934,13 +1404,29 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
             self._write_session(session)
             if task_plan is not None:
+                self._initialize_evidence(session, task_plan)
+            if task_plan is not None:
                 preparation = self._prepare_task_session_locked(task_plan, session)
                 if not preparation.ok:
+                    self._evidence_event(
+                        "runtime_warning",
+                        {"code": preparation.code, "phase": "task_prepare"},
+                    )
                     session.state = DevSessionState.FAILED
                     session.updated_at = self._timestamp()
                     session.last_code = preparation.code
                     session.last_message = preparation.message
                     self._write_session(session)
+                    cleanup_details = preparation.details.get("cleanup")
+                    cleanup_confirmed = isinstance(cleanup_details, dict) and cleanup_details.get("ok") is True
+                    self._finish_failed_evidence(
+                        session,
+                        process_started=False,
+                        process_stopped=True,
+                        cleanup_attempted=True,
+                        cleanup_confirmed=cleanup_confirmed,
+                        reason=preparation.code,
+                    )
                     return self._session_result(
                         session,
                         ok=False,
@@ -949,6 +1435,15 @@ class DevSessionManager(DevDiagnosticsMixin):
                         state=DevStatusKind.FAILED,
                         details=preparation.details,
                     )
+                self._evidence_event(
+                    "policy_prepared",
+                    {"profile": DEV_PROFILE, "state": TASK_POLICY_ACTIVE},
+                )
+                try:
+                    if self._evidence_store is not None:
+                        self._evidence_store.capture_log_boundary()
+                except EvidenceError:
+                    pass
             session.state = DevSessionState.STARTING
             session.updated_at = self._timestamp()
             session.last_code = "DEV_SESSION_STARTING"
@@ -966,7 +1461,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session.process = identity
                 session.updated_at = self._timestamp()
                 self._write_session(session)
+                self._evidence_event(
+                    "process_started",
+                    {"state": DevSessionState.STARTING.value},
+                )
             except Exception as exc:
+                self._evidence_error(exc, phase="session_start")
                 process_cleanup_confirmed = pid is None
                 if pid is not None:
                     identity = launched_identity
@@ -1002,8 +1502,23 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session.last_code = failure_code
                 session.last_message = f"Не удалось запустить DevSession: {type(exc).__name__}"
                 if failure_code == "DEV_CLEANUP_FAILED":
-                    session.last_message += "; scheduler-state не подтверждён очищенным"
+                    session.last_message += "; состояние планировщика не подтверждено очищенным"
                 self._write_session(session)
+                cleanup_confirmed = (
+                    task_plan is None
+                    or (
+                        isinstance(failure_details.get("cleanup"), dict)
+                        and failure_details["cleanup"].get("ok") is True
+                    )
+                )
+                self._finish_failed_evidence(
+                    session,
+                    process_started=pid is not None,
+                    process_stopped=process_cleanup_confirmed,
+                    cleanup_attempted=task_plan is not None,
+                    cleanup_confirmed=cleanup_confirmed and process_cleanup_confirmed,
+                    reason=failure_code,
+                )
                 return self._session_result(
                     session,
                     ok=False,
@@ -1042,6 +1557,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                     details={"observed_code": observed.code},
                 )
             if not ready:
+                self._evidence_event(
+                    "runtime_warning",
+                    {"code": "DEV_READINESS_FAILED", "reason": reason, "phase": "readiness"},
+                )
                 cleanup = self._stop_owned_process(latest.process)
                 latest.state = DevSessionState.FAILED
                 latest.updated_at = self._timestamp()
@@ -1066,9 +1585,27 @@ class DevSessionManager(DevDiagnosticsMixin):
                     failure_details["task_cleanup"] = task_cleanup.as_dict()
                     if not task_cleanup.ok:
                         failure_code = "DEV_CLEANUP_FAILED"
-                        latest.last_message += "; scheduler-state не подтверждён очищенным"
+                        latest.last_message += "; состояние планировщика не подтверждено очищенным"
                 latest.last_code = failure_code
                 self._write_session(latest)
+                cleanup_confirmed = (
+                    cleanup
+                    and (
+                        task_plan is None
+                        or (
+                            isinstance(failure_details.get("task_cleanup"), dict)
+                            and failure_details["task_cleanup"].get("ok") is True
+                        )
+                    )
+                )
+                self._finish_failed_evidence(
+                    latest,
+                    process_started=True,
+                    process_stopped=cleanup,
+                    cleanup_attempted=task_plan is not None,
+                    cleanup_confirmed=cleanup_confirmed,
+                    reason=failure_code,
+                )
                 return self._session_result(
                     latest,
                     ok=False,
@@ -1082,6 +1619,10 @@ class DevSessionManager(DevDiagnosticsMixin):
             except RuntimeError:
                 owned = False
             if owned is not True:
+                self._evidence_event(
+                    "runtime_warning",
+                    {"code": "DEV_OWNERSHIP_LOST", "phase": "readiness"},
+                )
                 latest.state = DevSessionState.STALE
                 latest.updated_at = self._timestamp()
                 latest.last_code = "DEV_OWNERSHIP_LOST"
@@ -1101,6 +1642,10 @@ class DevSessionManager(DevDiagnosticsMixin):
             latest.last_code = "DEV_SESSION_READY"
             latest.last_message = "Dev-сессия готова"
             self._write_session(latest)
+            self._evidence_event(
+                "session_ready",
+                {"state": DevSessionState.RUNNING.value, "profile": DEV_PROFILE},
+            )
             return self._session_result(
                 latest,
                 ok=True,
@@ -1176,6 +1721,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             session.last_code = "DEV_SESSION_STOPPING"
             session.last_message = "Останавливается принадлежащая DevSession"
             self._write_session(session)
+            self._evidence_event("stop_requested", {"state": DevSessionState.STOPPING.value})
 
         stopped = self._stop_owned_process(identity)
         with self._locked_state():
@@ -1210,6 +1756,11 @@ class DevSessionManager(DevDiagnosticsMixin):
             latest.last_code = "DEV_STOP_UNCONFIRMED"
             latest.last_message = "Не удалось безопасно подтвердить завершение DevSession"
             self._write_session(latest)
+            self._evidence_event(
+                "runtime_warning",
+                {"code": "DEV_STOP_UNCONFIRMED", "phase": "stop"},
+                store=self._evidence_store,
+            )
             return self._session_result(
                 latest,
                 ok=False,
@@ -1436,14 +1987,14 @@ class DevSessionManager(DevDiagnosticsMixin):
 
     def _read_session(self) -> DevSession | None:
         try:
-            raw = self.environment.state_file.read_text(encoding="utf-8")
+            raw = read_bounded_bytes(self.environment.state_file, max_bytes=64 * 1024)
         except FileNotFoundError:
             return None
-        if len(raw) > 64 * 1024:
-            raise ValueError("маркер превышает допустимый размер")
+        except BoundedReadTooLarge as exc:
+            raise ValueError("маркер превышает допустимый размер") from exc
         try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("маркер содержит некорректный JSON") from exc
         session = DevSession.from_dict(payload)
         if not _same_path(session.repository_root, str(self.environment.repository_root)):
@@ -1464,13 +2015,15 @@ class DevSessionManager(DevDiagnosticsMixin):
             except FileNotFoundError:
                 pass
             except OSError:
-                # Сбой best-effort cleanup не должен скрывать исходную ошибку записи.
+                # Сбой предварительной очистки не должен скрывать исходную ошибку записи.
                 pass
 
     def _raw_state_bytes(self) -> bytes | None:
         try:
-            return self.environment.state_file.read_bytes()
+            return read_bounded_bytes(self.environment.state_file, max_bytes=64 * 1024)
         except FileNotFoundError:
+            return None
+        except (BoundedReadTooLarge, OSError):
             return None
 
     @contextmanager
@@ -1480,7 +2033,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             yield
 
     def _timestamp(self) -> str:
-        return self.now().isoformat()
+        timestamp = self.now()
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        else:
+            timestamp = timestamp.astimezone(UTC)
+        return timestamp.isoformat()
 
     @staticmethod
     def _session_result(

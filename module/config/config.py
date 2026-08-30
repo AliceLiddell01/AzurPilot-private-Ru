@@ -753,21 +753,41 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                     self.update()
             except Exception:
                 if dependency_timestamp is not None:
-                    rolled_back = rollback_task_dependency(
+                    try:
+                        rolled_back = rollback_task_dependency(
+                            self.config_name,
+                            caller=caller,
+                            target=task,
+                            timestamp=dependency_timestamp,
+                        )
+                    except Exception as rollback_error:
+                        logger.error(
+                            f"[Dev Runtime] Откат provenance вызова `{task}` завершился ошибкой: "
+                            f"{type(rollback_error).__name__}"
+                        )
+                    else:
+                        if rolled_back is None or not rolled_back.rolled_back:
+                            logger.error(
+                                f"[Dev Runtime] Не удалось откатить provenance вызова `{task}` "
+                                f"после ошибки записи профиля: "
+                                f"{rolled_back.code if rolled_back is not None else 'DEV_TASK_POLICY_INACTIVE'}; "
+                                f"cleanup_pending="
+                                f"{rolled_back.policy_marked_cleanup_pending if rolled_back is not None else False}"
+                            )
+                raise
+            if dependency_timestamp is not None:
+                try:
+                    from module.dev_runtime.hooks import record_dependency_registered
+
+                    record_dependency_registered(
                         self.config_name,
                         caller=caller,
                         target=task,
                         timestamp=dependency_timestamp,
                     )
-                    if rolled_back is None or not rolled_back.rolled_back:
-                        logger.error(
-                            f"[Dev Runtime] Не удалось откатить provenance вызова `{task}` "
-                            f"после ошибки записи профиля: "
-                            f"{rolled_back.code if rolled_back is not None else 'DEV_TASK_POLICY_INACTIVE'}; "
-                            f"cleanup_pending="
-                            f"{rolled_back.policy_marked_cleanup_pending if rolled_back is not None else False}"
-                        )
-                raise
+                except Exception:
+                    # Диагностика не должна блокировать штатный вызов задачи.
+                    pass
             if dependency is not None and dependency.reason == "dependency_override":
                 logger.info(
                     f"[Dev Runtime] Задача `{task}` исключена root-политикой, "
