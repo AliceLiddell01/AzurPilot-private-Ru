@@ -416,6 +416,16 @@ def test_cancel_request_finishes_with_confirmed_cleanup(tmp_path: Path, clean_so
     assert manager.cancel_smoke(smoke_id).code == "DEV_SMOKE_ALREADY_FINISHED"
 
 
+def test_cancel_smoke_returns_request_for_live_supervisor(tmp_path: Path, clean_source: None) -> None:
+    manager = _manager(tmp_path, _Runtime())
+    started = manager.start_smoke(_spec())
+
+    response = manager.cancel_smoke(started.details["smoke_id"])
+
+    assert response.ok is True
+    assert response.code == "DEV_SMOKE_CANCEL_REQUESTED"
+
+
 def test_timeout_finishes_with_timeout_outcome_and_cleanup(tmp_path: Path, clean_source: None) -> None:
     runtime = _Runtime()
     environment = _environment(tmp_path)

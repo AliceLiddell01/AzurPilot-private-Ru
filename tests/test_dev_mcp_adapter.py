@@ -452,6 +452,32 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
     assert "unexpected" not in result
 
 
+def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
+    result = serialize_dev_result(
+        {
+            "ok": False,
+            "code": "DEV_SMOKE_ACTIVE_CONFLICT",
+            "message": "Новый SmokeRun отклонён",
+            "state": "preparing",
+            "details": {
+                "conflict_state": "running",
+                "result": {
+                    "schema_version": 1,
+                    "smoke_id": "smoke-1",
+                    "outcome": "PASS",
+                },
+            },
+        }
+    )
+
+    assert result["details"]["conflict_state"] == "running"
+    assert result["details"]["result"] == {
+        "schema_version": 1,
+        "smoke_id": "smoke-1",
+        "outcome": "PASS",
+    }
+
+
 def test_serializer_redacts_credentials_from_public_text_and_bounds_collections() -> None:
     result = serialize_dev_result(
         {

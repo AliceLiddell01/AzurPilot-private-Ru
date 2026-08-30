@@ -2755,7 +2755,7 @@ class SmokeRunManager:
         if record.supervisor is None or self.supervisor_backend.matches(self.environment, smoke_id, record.supervisor) is not True:
             record = self._recover_crashed(record, "DEV_SMOKE_CANCEL_RECOVERY")
             return self._result(ok=record.state is SmokeState.FINISHED, code="DEV_SMOKE_CANCELLED" if record.outcome is SmokeOutcome.CANCELLED else "DEV_SMOKE_CANCEL_RECOVERY_FAILED", message="Отмена обработана безопасным восстановлением" if record.outcome is SmokeOutcome.CANCELLED else "Отмена не смогла подтвердить очистку", state=record.state.value, smoke_id=smoke_id, session_id=record.session_id)
-            return self._result(ok=True, code="DEV_SMOKE_CANCEL_REQUESTED", message="Проверенный запрос отмены сохранён для supervisor", state=record.state.value, smoke_id=smoke_id, session_id=record.session_id)
+        return self._result(ok=True, code="DEV_SMOKE_CANCEL_REQUESTED", message="Проверенный запрос отмены сохранён для supervisor", state=record.state.value, smoke_id=smoke_id, session_id=record.session_id)
 
     def get_smoke_evaluation(self, smoke_id: str) -> EvidenceScreenshot:
         try:
