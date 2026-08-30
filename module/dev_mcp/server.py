@@ -100,6 +100,12 @@ _MUTATING = ToolAnnotations(
     idempotentHint=False,
     openWorldHint=False,
 )
+_ADDITIVE = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=False,
+    openWorldHint=False,
+)
 
 
 def _tool(
@@ -148,12 +154,13 @@ def tool_definitions() -> list[Tool]:
         "dev_get_logs": _LOGS_INPUT,
     }
     mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover"}
+    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot"}
     return [
         _tool(
             name,
             descriptions[name],
             schemas[name],
-            _MUTATING if name in mutating else _READ_ONLY,
+            _MUTATING if name in mutating else _ADDITIVE if name in additive else _READ_ONLY,
         )
         for name in DEV_MCP_TOOL_NAMES
     ]

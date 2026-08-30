@@ -15,6 +15,7 @@ from pathlib import Path
 
 from deploy.atomic import atomic_remove, file_write, replace_tmp, to_tmp_file
 from module.config.time_sentinel import LEGACY_DEFAULT_TIME
+from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.contracts import DEV_PROFILE, DevEnvironment, DevSession
 
 TASK_POLICY_SCHEMA_VERSION = 1
@@ -153,17 +154,17 @@ def _read_json(path: Path, *, max_bytes: int, missing_ok: bool) -> object | None
             "DEV_TASK_STATE_UNSAFE_PATH", "Состояние Dev Runtime не должно быть ссылкой или junction"
         )
     try:
-        raw = path.read_bytes()
+        raw = read_bounded_bytes(path, max_bytes=max_bytes)
     except FileNotFoundError:
         if missing_ok:
             return None
         raise TaskSandboxError("DEV_TASK_STATE_MISSING", f"Файл состояния отсутствует: {path.name}")
+    except BoundedReadTooLarge as exc:
+        raise TaskSandboxError("DEV_TASK_STATE_TOO_LARGE", "Файл состояния превышает допустимый размер") from exc
     except OSError as exc:
         raise TaskSandboxError(
             "DEV_TASK_STATE_UNREADABLE", "Файл состояния невозможно прочитать"
         ) from exc
-    if len(raw) > max_bytes:
-        raise TaskSandboxError("DEV_TASK_STATE_TOO_LARGE", "Файл состояния превышает допустимый размер")
     try:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:

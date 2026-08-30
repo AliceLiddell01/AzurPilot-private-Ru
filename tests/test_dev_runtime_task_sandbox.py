@@ -959,6 +959,80 @@ def test_task_call_does_not_leave_provenance_when_config_update_fails(
     assert persisted.dependencies == ()
 
 
+def test_task_call_reraises_update_failure_without_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.config.config import AzurLaneConfig, Function
+
+    monkeypatch.setattr(
+        task_sandbox,
+        "_active_policy_context",
+        lambda _name: task_sandbox.TaskPolicyContext(False, None, "DEV_TASK_POLICY_NO_CONTEXT"),
+    )
+    config = object.__new__(AzurLaneConfig)
+    object.__setattr__(
+        config,
+        "data",
+        {"RootTask": _profile()["RootTask"]},
+    )
+    object.__setattr__(config, "config_name", "ap")
+    object.__setattr__(config, "modified", {})
+    object.__setattr__(config, "auto_update", True)
+    object.__setattr__(config, "task", Function(_profile()["RootTask"]))
+    object.__setattr__(
+        config,
+        "update",
+        lambda: (_ for _ in ()).throw(OSError("synthetic update failure without dependency")),
+    )
+
+    with pytest.raises(OSError, match="without dependency"):
+        config.task_call("RootTask", force_call=True)
+
+
+def test_task_call_preserves_update_failure_when_provenance_rollback_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from module.config.config import AzurLaneConfig, Function
+
+    environment = _environment(tmp_path)
+    _write_session(environment)
+    catalog = TaskCatalog.from_path(environment.profile_file)
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"])
+    store = TaskPolicyStore(environment)
+    store.create(plan, session_id="sandbox-session", timestamp="2026-08-29T00:00:00+00:00")
+    policy = store.read()
+    assert policy is not None
+    monkeypatch.setattr(task_sandbox.DevEnvironment, "current", lambda: environment)
+    monkeypatch.setattr(
+        task_sandbox,
+        "_active_policy_context",
+        lambda _name: task_sandbox.TaskPolicyContext(True, policy, "DEV_TASK_POLICY_ACTIVE"),
+    )
+
+    def fail_rollback(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("synthetic rollback failure")
+
+    monkeypatch.setattr(task_sandbox, "rollback_task_dependency", fail_rollback)
+    config = object.__new__(AzurLaneConfig)
+    object.__setattr__(
+        config,
+        "data",
+        {"RootTask": _profile()["RootTask"], "ExcludedTask": _profile()["ExcludedTask"]},
+    )
+    object.__setattr__(config, "config_name", "ap")
+    object.__setattr__(config, "modified", {})
+    object.__setattr__(config, "auto_update", True)
+    object.__setattr__(config, "task", Function(_profile()["RootTask"]))
+    object.__setattr__(
+        config,
+        "update",
+        lambda: (_ for _ in ()).throw(OSError("synthetic update failure")),
+    )
+
+    with pytest.raises(OSError, match="synthetic update failure"):
+        config.task_call("ExcludedTask", force_call=True)
+
+
 def test_task_call_does_not_mutate_profile_when_provenance_registration_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

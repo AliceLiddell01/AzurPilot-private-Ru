@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from module.dev_runtime import evidence as evidence_module
+from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.evidence import (
     EvidenceCorrupt,
     EvidenceError,
@@ -197,6 +199,136 @@ def test_evidence_logs_respect_hard_page_byte_bound(tmp_path: Path) -> None:
     assert sum(len(item["text"].encode("utf-8")) for item in page["items"]) <= 64 * 1024
     assert page["more"] is True
     assert page["next_cursor"]
+
+
+def test_evidence_logs_do_not_split_oversized_physical_lines_or_cursors(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)
+    store.environment.log_file.write_bytes("до сессии\n".encode("utf-8"))
+    store.capture_log_boundary()
+    with store.environment.log_file.open("ab") as handle:
+        handle.write(
+            b"password=" + b"s" * evidence_module._MAX_LOG_LINE_BYTES + b" secret-after-limit\n"
+        )
+        handle.write("следующая физическая строка\n".encode("utf-8"))
+
+    page = store.logs_page(limit=200)
+
+    assert len(page["items"]) == 2
+    assert page["items"][0]["truncated"] is True
+    assert page["items"][1]["text"] == "следующая физическая строка"
+    assert page["more"] is False
+    assert "secret-after-limit" not in json.dumps(page, ensure_ascii=False)
+
+    logs = store._manifest_locked()["logs"]
+    assert isinstance(logs, dict)
+    identity = evidence_module._FileIdentity.from_value(logs["boundary_identity"])
+    assert identity is not None
+    bad_cursor = store._cursor(offset=logs["boundary_offset"] + 1, identity=identity)
+    with pytest.raises(EvidenceError) as error:
+        store.logs_page(cursor=bad_cursor, limit=1)
+    assert error.value.code == "DEV_EVIDENCE_CURSOR_INVALID"
+
+
+def test_evidence_logs_finalize_with_end_boundary_and_fail_closed_after_loss(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)
+    store.environment.log_file.write_bytes("до сессии\n".encode("utf-8"))
+    store.capture_log_boundary()
+    with store.environment.log_file.open("ab") as handle:
+        handle.write("только эта строка\n".encode("utf-8"))
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    with store.environment.log_file.open("ab") as handle:
+        handle.write("следующая сессия\n".encode("utf-8"))
+
+    page = store.logs_page(limit=200)
+
+    assert [item["text"] for item in page["items"]] == ["только эта строка"]
+    assert page["more"] is False
+    assert page["next_cursor"] is None
+
+    store.environment.log_file.write_bytes("обрезано\n".encode("utf-8"))
+    with pytest.raises(EvidenceError) as error:
+        store.logs_page(limit=1)
+    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
+
+
+def test_evidence_reads_reject_oversized_files_before_buffering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store(tmp_path / "manifest")
+    store.manifest_path.write_bytes(b"x" * (evidence_module._MAX_MANIFEST_BYTES + 1))
+    with pytest.raises(EvidenceCorrupt) as manifest_error:
+        store.summary()
+    assert manifest_error.value.code == "DEV_EVIDENCE_TOO_LARGE"
+
+    timeline_store = _store(tmp_path / "timeline")
+    timeline_store.timeline_path.write_bytes(b"x" * (evidence_module._MAX_TIMELINE_BYTES + 1))
+    with pytest.raises(EvidenceCorrupt) as timeline_error:
+        timeline_store.timeline_page()
+    assert timeline_error.value.code == "DEV_EVIDENCE_TOO_LARGE"
+
+    screenshot_store = _store(tmp_path / "screenshot")
+    monkeypatch.setattr(evidence_module, "_MAX_IMAGE_BYTES", 8)
+    screenshot_metadata = {
+        "screenshot_id": "shot-1",
+        "timestamp": _TIME,
+        "mime": "image/png",
+        "width": 1,
+        "height": 1,
+        "byte_size": 8,
+        "sha256": "0" * 64,
+    }
+    screenshot_store.screenshot_dir.mkdir(parents=True, exist_ok=True)
+    (screenshot_store.screenshot_dir / "shot-1.json").write_text(
+        json.dumps(screenshot_metadata),
+        encoding="utf-8",
+    )
+    (screenshot_store.screenshot_dir / "shot-1.png").write_bytes(b"x" * 9)
+    screenshot_manifest = json.loads(screenshot_store.manifest_path.read_text(encoding="utf-8"))
+    screenshot_manifest["screenshots"] = {"count": 1, "latest": screenshot_metadata}
+    screenshot_store.manifest_path.write_text(
+        json.dumps(screenshot_manifest),
+        encoding="utf-8",
+    )
+    with pytest.raises(EvidenceCorrupt) as screenshot_error:
+        screenshot_store.summary()
+    assert screenshot_error.value.code == "DEV_EVIDENCE_TOO_LARGE"
+
+    active_environment = _environment(tmp_path / "active")
+    active_environment.state_file.parent.mkdir(parents=True, exist_ok=True)
+    active_environment.state_file.write_bytes(b"x" * (64 * 1024 + 1))
+    assert evidence_module._read_active_session(active_environment) is None
+
+
+def test_bounded_read_requests_only_limit_plus_one_bytes() -> None:
+    reads: list[int] = []
+
+    class Reader:
+        def __enter__(self) -> "Reader":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            reads.append(size)
+            return b"x" * size
+
+    class FakePath:
+        def open(self, mode: str) -> Reader:
+            assert mode == "rb"
+            return Reader()
+
+    with pytest.raises(BoundedReadTooLarge):
+        read_bounded_bytes(FakePath(), max_bytes=8)
+
+    assert reads == [9]
 
 
 def test_evidence_create_does_not_overwrite_nonempty_session_directory(tmp_path: Path) -> None:
@@ -392,6 +524,30 @@ def test_timeline_truncation_remains_readable_and_is_reported(tmp_path: Path, mo
     assert store.summary()["evidence_health"]["status"] == "degraded"
 
 
+def test_dependency_count_survives_timeline_retention(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("module.dev_runtime.evidence._MAX_TIMELINE_EVENTS", 2)
+    store = _store(tmp_path)
+    for index in range(3):
+        store.record_dependency(
+            {
+                "task": "DependencyTask",
+                "required_by": "RootTask",
+                "root": "RootTask",
+                "reason": "dependency",
+                "sequence": index + 1,
+                "timestamp": _TIME,
+            }
+        )
+
+    summary = store.summary()
+
+    assert summary["dependency_summary"]["count"] == 3
+    assert summary["dependency_summary"]["last"]["sequence"] == 3
+    assert summary["timeline"]["event_count"] == 2
+    assert summary["timeline"]["truncated"] is True
+    assert summary["evidence_health"]["status"] == "degraded"
+
+
 def test_retention_keeps_active_session_and_ignores_foreign_directory(tmp_path: Path, monkeypatch) -> None:
     environment = _environment(tmp_path)
     monkeypatch.setattr("module.dev_runtime.evidence._MAX_RETENTION_SESSIONS", 1)
@@ -420,6 +576,91 @@ def test_retention_keeps_active_session_and_ignores_foreign_directory(tmp_path: 
     assert active.root.exists()
     assert not old.root.exists()
     assert (foreign / "do-not-touch.txt").exists()
+
+
+def test_retention_evicts_oldest_session_when_bytes_exceed_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    newest = EvidenceStore.create(
+        environment,
+        session_id="newest",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    oldest = EvidenceStore.create(
+        environment,
+        session_id="oldest",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    (oldest.root / "large.bin").write_bytes(b"x" * 4096)
+    newest_time = datetime(2026, 8, 30, tzinfo=UTC).timestamp()
+    oldest_time = datetime(2026, 8, 29, tzinfo=UTC).timestamp()
+    os.utime(newest.root, (newest_time, newest_time))
+    os.utime(oldest.root, (oldest_time, oldest_time))
+    monkeypatch.setattr(
+        evidence_module,
+        "_MAX_RETENTION_BYTES",
+        evidence_module._safe_tree_size(newest.root, environment.repository_root) + 1,
+    )
+
+    assert EvidenceStore.prune(environment, now=lambda: datetime(2026, 8, 30, tzinfo=UTC)) is True
+    assert newest.root.exists()
+    assert not oldest.root.exists()
+
+
+def test_retention_keeps_active_session_even_when_budget_is_impossible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    active = EvidenceStore.create(
+        environment,
+        session_id="active-budget",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    old = EvidenceStore.create(
+        environment,
+        session_id="old-budget",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    (active.root / "large.bin").write_bytes(b"x" * 4096)
+    old_time = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
+    os.utime(old.root, (old_time, old_time))
+    monkeypatch.setattr(evidence_module, "_MAX_RETENTION_BYTES", 1)
+
+    assert EvidenceStore.prune(environment, active_session_id=active.session_id) is False
+    assert active.root.exists()
+    assert not old.root.exists()
+
+
+def test_retention_leaves_corrupt_session_untouched_and_reports_failure(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    corrupt = EvidenceStore.create(
+        environment,
+        session_id="corrupt",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    manifest = json.loads(corrupt.manifest_path.read_text(encoding="utf-8"))
+    manifest["unexpected"] = "повреждение"
+    corrupt.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    old_time = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
+    os.utime(corrupt.root, (old_time, old_time))
+
+    assert EvidenceStore.prune(environment, now=lambda: datetime(2026, 8, 30, tzinfo=UTC)) is False
+    assert corrupt.root.exists()
 
 
 def test_hooks_are_noop_without_active_dev_session(monkeypatch) -> None:

@@ -67,6 +67,7 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
     assert len(names) == len(set(names))
     assert set(names) == set(expected_names)
     mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover"}
+    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot"}
     for tool in tools:
         assert tool.description
         assert tool.annotations is not None
@@ -74,8 +75,9 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         assert tool.inputSchema["additionalProperties"] is False
         assert tool.outputSchema is not None
         assert tool.outputSchema["additionalProperties"] is False
-        assert tool.annotations.readOnlyHint is (tool.name not in mutating)
+        assert tool.annotations.readOnlyHint is (tool.name not in (mutating | additive))
         assert tool.annotations.destructiveHint is (tool.name in mutating)
+        assert tool.annotations.idempotentHint is (tool.name not in (mutating | additive))
         if tool.name not in {
             "dev_plan_session",
             "dev_start_session",
@@ -86,6 +88,12 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         }:
             assert tool.inputSchema["properties"] == {}
             assert "required" not in tool.inputSchema
+
+    for name in additive:
+        tool = next(tool for tool in tools if tool.name == name)
+        assert tool.annotations.readOnlyHint is False
+        assert tool.annotations.destructiveHint is False
+        assert tool.annotations.idempotentHint is False
 
     task_schema = next(tool for tool in tools if tool.name == "dev_plan_session").inputSchema
     assert task_schema["required"] == ["root_tasks"]

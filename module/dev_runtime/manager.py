@@ -26,6 +26,7 @@ from module.dev_runtime.contracts import (
     DevStatusKind,
     ProcessIdentity,
 )
+from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.diagnostics import (
     DevDiagnosticsMixin,
     _default_storage_probe,
@@ -370,8 +371,15 @@ class DevSessionManager(DevDiagnosticsMixin):
         if error is not None:
             return error
         assert store is not None
+        active_owned = False
+        if current is not None and current.session_id == store.session_id:
+            if current.state is DevSessionState.RUNNING and current.process is not None:
+                try:
+                    active_owned = self.process_backend.matches(current.process) is True
+                except RuntimeError:
+                    active_owned = False
         try:
-            page = store.logs_page(cursor=cursor, limit=limit)
+            page = store.logs_page(cursor=cursor, limit=limit, active_owned=active_owned)
         except EvidenceCorrupt as exc:
             store.mark_corrupt("log_corrupt")
             return DevResult(
@@ -1981,14 +1989,14 @@ class DevSessionManager(DevDiagnosticsMixin):
 
     def _read_session(self) -> DevSession | None:
         try:
-            raw = self.environment.state_file.read_text(encoding="utf-8")
+            raw = read_bounded_bytes(self.environment.state_file, max_bytes=64 * 1024)
         except FileNotFoundError:
             return None
-        if len(raw) > 64 * 1024:
-            raise ValueError("маркер превышает допустимый размер")
+        except BoundedReadTooLarge as exc:
+            raise ValueError("маркер превышает допустимый размер") from exc
         try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("маркер содержит некорректный JSON") from exc
         session = DevSession.from_dict(payload)
         if not _same_path(session.repository_root, str(self.environment.repository_root)):
@@ -2014,8 +2022,10 @@ class DevSessionManager(DevDiagnosticsMixin):
 
     def _raw_state_bytes(self) -> bytes | None:
         try:
-            return self.environment.state_file.read_bytes()
+            return read_bounded_bytes(self.environment.state_file, max_bytes=64 * 1024)
         except FileNotFoundError:
+            return None
+        except (BoundedReadTooLarge, OSError):
             return None
 
     @contextmanager
