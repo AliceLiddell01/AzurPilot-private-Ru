@@ -313,7 +313,8 @@ S256 и выдавать короткоживущий подписанный acc
 Resource server проверяет RS256 signature через зафиксированный JWKS, issuer,
 audience/resource, subject, expiry и scope на каждом `/mcp` request. Query-token,
 wildcard Host/Origin и `ALLOW_NO_AUTH` не поддерживаются. Well-known protected
-resource metadata публикуется без auth и указывает на внешний issuer; сам
+resource metadata публикуется без auth и указывает на внешний issuer; он
+намеренно не проходит через `OAuthBearerMiddleware`, тогда как каждый запрос к
 `/mcp` всегда требует auth.
 
 Для remote HTTP transport request deadline остаётся bounded даже для blocking

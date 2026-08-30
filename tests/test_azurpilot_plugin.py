@@ -83,11 +83,15 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("contract_schema_version", 2),
+        ("product_family", "OtherProduct"),
         ("dev_mcp_api_version", 0),
+        ("smoke_spec_schema_version", 2),
         ("smoke_result_schema_version", 2),
+        ("profile", "alas"),
     ],
 )
-def test_incompatible_api_versions_fail_closed(field: str, value: int) -> None:
+def test_incompatible_contract_values_fail_closed(field: str, value: object) -> None:
     compatibility = _json(_COMPATIBILITY_PATH)
     runtime = contract_payload()
     runtime[field] = value

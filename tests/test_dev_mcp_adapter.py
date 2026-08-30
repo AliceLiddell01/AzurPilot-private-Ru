@@ -22,6 +22,7 @@ from module.dev_runtime import (
     ProcessIdentity,
 )
 from module.dev_runtime.smoke import SmokeSpec
+from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
 
 
 def _result(code: str = "DEV_SYNTHETIC_OK") -> DevResult:
@@ -155,31 +156,7 @@ def test_contract_is_static_safe_and_does_not_construct_runtime_manager() -> Non
 
     assert result["ok"] is True
     assert result["code"] == "DEV_MCP_CONTRACT_READY"
-    assert result["details"]["contract"] == {
-        "contract_schema_version": 1,
-        "product_family": "AzurPilot",
-        "dev_mcp_api_version": 1,
-        "smoke_spec_schema_version": 1,
-        "smoke_result_schema_version": 1,
-        "profile": "ap",
-        "feature_flags": {
-            "task_sandbox": True,
-            "evidence_api": True,
-            "universal_smoke_harness": True,
-            "external_visual_evaluation": True,
-        },
-        "capability_families": ["diagnostics", "evidence", "lifecycle", "smoke"],
-        "result_outcomes": [
-            "PASS",
-            "PRODUCT_FAILED",
-            "PRECONDITION_FAILED",
-            "HARNESS_FAILED",
-            "EVIDENCE_INCOMPLETE",
-            "TIMEOUT",
-            "INVALIDATED",
-            "CANCELLED",
-        ],
-    }
+    assert result["details"]["contract"] == EXPECTED_CONTRACT
     assert factory_calls == []
     assert manager.calls == []
 

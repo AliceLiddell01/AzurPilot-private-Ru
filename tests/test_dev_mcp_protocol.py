@@ -22,6 +22,7 @@ from module.dev_mcp.server import (
     create_server,
     tool_definitions,
 )
+from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _FORBIDDEN_INPUT_FIELDS = {
@@ -234,31 +235,7 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
             contract = await session.call_tool("dev_get_contract", {})
             assert contract.structuredContent is not None
             assert contract.structuredContent["ok"] is True
-            assert contract.structuredContent["details"]["contract"] == {
-                "contract_schema_version": 1,
-                "product_family": "AzurPilot",
-                "dev_mcp_api_version": 1,
-                "smoke_spec_schema_version": 1,
-                "smoke_result_schema_version": 1,
-                "profile": "ap",
-                "feature_flags": {
-                    "task_sandbox": True,
-                    "evidence_api": True,
-                    "universal_smoke_harness": True,
-                    "external_visual_evaluation": True,
-                },
-                "capability_families": ["diagnostics", "evidence", "lifecycle", "smoke"],
-                "result_outcomes": [
-                    "PASS",
-                    "PRODUCT_FAILED",
-                    "PRECONDITION_FAILED",
-                    "HARNESS_FAILED",
-                    "EVIDENCE_INCOMPLETE",
-                    "TIMEOUT",
-                    "INVALIDATED",
-                    "CANCELLED",
-                ],
-            }
+            assert contract.structuredContent["details"]["contract"] == EXPECTED_CONTRACT
 
     asyncio.run(scenario())
 
