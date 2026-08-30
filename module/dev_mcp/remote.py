@@ -84,12 +84,12 @@ def _header_values(scope: Scope, name: str) -> list[str]:
 
 def _parse_https_url(name: str, value: str, *, exact_path: str | None = None) -> SplitResult:
     if not value:
-        raise RemoteConfigError(f"{name} is required")
+        raise RemoteConfigError(f"{name}: значение обязательно")
     try:
         parsed = urlsplit(value)
         port = parsed.port
     except ValueError as exc:
-        raise RemoteConfigError(f"{name} is invalid") from exc
+        raise RemoteConfigError(f"{name}: некорректный URL") from exc
     if (
         parsed.scheme.lower() != "https"
         or not parsed.hostname
@@ -99,9 +99,9 @@ def _parse_https_url(name: str, value: str, *, exact_path: str | None = None) ->
         or parsed.fragment
         or (exact_path is not None and parsed.path != exact_path)
     ):
-        raise RemoteConfigError(f"{name} must be an HTTPS URL without credentials or fragments")
+        raise RemoteConfigError(f"{name}: требуется HTTPS URL без credentials и fragment")
     if exact_path is not None and port is not None:
-        raise RemoteConfigError(f"{name} must use the public HTTPS port through the reverse proxy")
+        raise RemoteConfigError(f"{name}: требуется публичный HTTPS-порт через reverse proxy")
     return parsed
 
 
@@ -110,7 +110,7 @@ def _validate_origin(value: str) -> None:
         parsed = urlsplit(value)
         parsed_port = parsed.port
     except ValueError as exc:
-        raise RemoteConfigError("allowed origins must be valid URLs") from exc
+        raise RemoteConfigError("Разрешённые Origin должны быть корректными URL") from exc
     if (
         parsed.scheme.lower() != "https"
         or not parsed.hostname
@@ -121,9 +121,11 @@ def _validate_origin(value: str) -> None:
         or parsed.fragment
         or "*" in value
     ):
-        raise RemoteConfigError("allowed origins must be exact HTTPS origins without wildcards")
+        raise RemoteConfigError(
+            "Разрешённые Origin должны быть точными HTTPS origin без подстановочных символов"
+        )
     if parsed_port is not None and not 1 <= parsed_port <= 65535:
-        raise RemoteConfigError("allowed origins must use a valid port")
+        raise RemoteConfigError("Разрешённые Origin должны использовать корректный порт")
 
 
 def _canonical_host(parsed: SplitResult) -> str:
@@ -159,31 +161,31 @@ class RemoteConfig:
 
     def __post_init__(self) -> None:
         if self.bind_host != "127.0.0.1":
-            raise RemoteConfigError("remote MCP backend must bind to 127.0.0.1")
+            raise RemoteConfigError("Backend remote MCP должен прослушивать только 127.0.0.1")
         if not 1024 <= self.port <= 65535:
-            raise RemoteConfigError("remote MCP port must be between 1024 and 65535")
+            raise RemoteConfigError("Порт remote MCP должен быть от 1024 до 65535")
         public = _parse_https_url("public_url", self.public_url, exact_path=MCP_PATH)
         _parse_https_url("oauth_issuer", self.oauth_issuer)
         _parse_https_url("oauth_jwks_url", self.oauth_jwks_url)
         if not self.oauth_audience or len(self.oauth_audience) > 512:
-            raise RemoteConfigError("oauth_audience must be a non-empty bounded value")
+            raise RemoteConfigError("oauth_audience должен быть непустым ограниченным значением")
         if not self.oauth_subject or len(self.oauth_subject) > 256:
-            raise RemoteConfigError("oauth_subject must be a non-empty bounded value")
+            raise RemoteConfigError("oauth_subject должен быть непустым ограниченным значением")
         if (
             not self.oauth_scope
             or len(self.oauth_scope) > 128
             or any(character.isspace() for character in self.oauth_scope)
             or "," in self.oauth_scope
         ):
-            raise RemoteConfigError("oauth_scope must contain exactly one bounded scope name")
+            raise RemoteConfigError("oauth_scope должен содержать одно ограниченное имя scope")
         if not self.allowed_origins:
-            raise RemoteConfigError("at least one exact allowed origin is required")
+            raise RemoteConfigError("Нужен хотя бы один точный разрешённый Origin")
         for origin in self.allowed_origins:
             _validate_origin(origin)
         if self.max_request_body_bytes < 1024 or self.max_request_body_bytes > 8 * 1024 * 1024:
-            raise RemoteConfigError("max_request_body_bytes is outside the safe bound")
+            raise RemoteConfigError("max_request_body_bytes выходит за безопасное ограничение")
         if not 1 <= self.max_concurrent_requests <= 64:
-            raise RemoteConfigError("max_concurrent_requests is outside the safe bound")
+            raise RemoteConfigError("max_concurrent_requests выходит за безопасное ограничение")
         for name, value, upper_bound in (
             ("request_timeout_seconds", self.request_timeout_seconds, 900.0),
             ("body_read_timeout_seconds", self.body_read_timeout_seconds, 60.0),
@@ -191,9 +193,9 @@ class RemoteConfig:
             ("token_verification_timeout_seconds", self.token_verification_timeout_seconds, 30.0),
         ):
             if not 0 < value <= upper_bound:
-                raise RemoteConfigError(f"{name} is outside the safe bound")
+                raise RemoteConfigError(f"{name} выходит за безопасное ограничение")
         if public.path != MCP_PATH:
-            raise RemoteConfigError("public_url must end with /mcp")
+            raise RemoteConfigError("public_url должен заканчиваться на /mcp")
 
     @property
     def mcp_path(self) -> str:
@@ -217,7 +219,7 @@ class RemoteConfig:
         def required(name: str) -> str:
             value = os.environ.get(name, "").strip()
             if not value:
-                raise RemoteConfigError(f"{name} is required")
+                raise RemoteConfigError(f"Обязательная переменная {name} не задана")
             return value
 
         def integer(name: str, default: int) -> int:
@@ -227,7 +229,7 @@ class RemoteConfig:
             try:
                 return int(raw)
             except ValueError as exc:
-                raise RemoteConfigError(f"{name} must be an integer") from exc
+                raise RemoteConfigError(f"{name} должен быть целым числом") from exc
 
         raw_origins = os.environ.get("AZURPILOT_DEV_MCP_ALLOWED_ORIGINS")
         origins = (
@@ -288,7 +290,7 @@ class OIDCTokenVerifier:
                         algorithms=list(_JWT_ALGORITHMS),
                         audience=self._config.oauth_audience,
                         issuer=self._config.oauth_issuer,
-                        options={"require": ["exp", "iss", "sub"]},
+                        options={"require": ["aud", "exp", "iss", "sub"]},
                         leeway=0,
                     ),
                     abandon_on_cancel=True,
@@ -552,11 +554,14 @@ class RequestTimeoutMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         response_started = False
+        response_completed = False
 
         async def guarded_send(message: Message) -> None:
-            nonlocal response_started
+            nonlocal response_started, response_completed
             if message["type"] == "http.response.start":
                 response_started = True
+            elif message["type"] == "http.response.body" and not message.get("more_body", False):
+                response_completed = True
             await send(message)
 
         try:
@@ -565,6 +570,9 @@ class RequestTimeoutMiddleware:
         except TimeoutError:
             if not response_started:
                 await _send_error(send, 504, "request_timeout")
+            elif not response_completed:
+                logger.warning("Истёк timeout remote MCP после начала HTTP-ответа")
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
 
 
 class FailSafeMiddleware:

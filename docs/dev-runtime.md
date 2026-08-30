@@ -295,12 +295,18 @@ AZURPILOT_DEV_MCP_OAUTH_AUDIENCE=<resource-audience>
 AZURPILOT_DEV_MCP_OAUTH_JWKS_URL=https://<oauth-issuer>/<jwks-path>
 AZURPILOT_DEV_MCP_OAUTH_SUBJECT=<single-operator-subject>
 AZURPILOT_DEV_MCP_OAUTH_SCOPE=azurpilot:dev
+AZURPILOT_DEV_MCP_ALLOWED_ORIGINS=https://chatgpt.com,https://chat.openai.com
 AZURPILOT_DEV_MCP_PORT=8765
 ```
 
+`AZURPILOT_DEV_MCP_ALLOWED_ORIGINS` задаёт разделённый запятыми список точных
+HTTPS Origin и заменяет набор по умолчанию `https://chatgpt.com` и
+`https://chat.openai.com`.
+
 Issuer должен публиковать OAuth/OIDC discovery, authorization-code flow с PKCE
-S256 и выдавать короткоживущий подписанный access token с `iss`, `aud` или
-`resource`, `exp`, при необходимости `nbf`, `sub` и scope `azurpilot:dev`.
+S256 и выдавать короткоживущий подписанный access token с `iss`, `aud`, `exp`,
+`sub`, при необходимости `nbf` и `resource`, и scope `azurpilot:dev`. Claim
+`aud` обязателен; `resource` проверяется дополнительно, если он присутствует.
 Resource server проверяет RS256 signature через зафиксированный JWKS, issuer,
 audience/resource, subject, expiry и scope на каждом `/mcp` request. Query-token,
 wildcard Host/Origin и `ALLOW_NO_AUTH` не поддерживаются. Well-known protected

@@ -145,7 +145,7 @@ def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
         try:
             text = raw.decode("utf-8")
         except UnicodeDecodeError:
-            # Keep ASCII secret patterns visible even in binary/non-UTF-8 files.
+            # Сохраняем видимость ASCII-паттернов секретов даже в бинарных и не-UTF-8 файлах.
             text = raw.decode("latin-1")
         assert not absolute_path.search(text), path
         assert not re.search(

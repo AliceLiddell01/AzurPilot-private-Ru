@@ -177,9 +177,9 @@ def _png_1x1() -> bytes:
 def test_remote_config_is_https_loopback_and_oauth_fail_closed() -> None:
     with pytest.raises(RemoteConfigError, match="127.0.0.1"):
         _config(bind_host="0.0.0.0")
-    with pytest.raises(RemoteConfigError, match="public HTTPS port"):
+    with pytest.raises(RemoteConfigError, match="публичный HTTPS-порт"):
         _config(public_url="https://mcp.example.test:8443/mcp")
-    with pytest.raises(RemoteConfigError, match="wildcards"):
+    with pytest.raises(RemoteConfigError, match="подстановочных символов"):
         _config(allowed_origins=("*",))
 
 
@@ -419,6 +419,7 @@ def test_remote_auth_host_origin_body_and_malformed_request_fail_closed() -> Non
             healthy = await client.post("/mcp", headers=_headers(), json=_initialize_payload(9))
             assert healthy.status_code == 200
 
+            # Host и Origin проверяются до токена, а токен — до разбора body.
             assert verifier.tokens == [
                 "wrong-token",
                 "valid-token",
@@ -475,6 +476,28 @@ def test_remote_request_bounds_cover_concurrency_and_timeout() -> None:
             timed_out = await client.get("/")
             assert timed_out.status_code == 504
             assert timed_out.json() == {"error": "request_timeout"}
+
+        async def started_hanging(scope: Any, receive: Any, send: Any) -> None:
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await asyncio.Event().wait()
+
+        started_timeout_app = RequestTimeoutMiddleware(
+            started_hanging,
+            _config(request_timeout_seconds=0.01),
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=started_timeout_app),
+            base_url=_BASE_URL,
+        ) as client:
+            completed = await client.get("/")
+            assert completed.status_code == 200
+            assert completed.content == b""
 
     asyncio.run(scenario())
 
@@ -568,6 +591,7 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
 
         for invalid in (
             token(aud="https://other.example.test"),
+            token(aud=None),
             token(iss="https://other.example.test"),
             token(exp=now - 1),
             token(nbf=now + 100),
