@@ -604,7 +604,7 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
         assert valid is not None
         assert valid.token == ""
         assert valid.client_id == "user-1"
-        assert valid.scopes == ["azurpilot:dev"]
+        assert valid.scopes == [DEV_MCP_REQUIRED_SCOPE]
         assert valid.resource == _AUDIENCE
 
         for invalid in (
