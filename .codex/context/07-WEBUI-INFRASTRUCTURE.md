@@ -50,6 +50,25 @@ Dev MCP для локальной Codex-интеграции находится 
 generic shell/config tools или управление production profiles. Production MCP
 и его transport остаются независимыми.
 
+## Canonical Plugin AzurPilot
+
+`plugins/azurpilot/` — source-controlled package, сгенерированный текущим
+Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
+`AzurPilot`; внутри разрешён только capability `Development` и один
+`azurpilot-development` skill. Пакет не содержит ChatGPT app state, tunnel
+profile, credentials, screenshots, archives или runtime cache и не регистрирует
+второй MCP implementation.
+
+Codex использует project-scoped `azurpilot-dev` через прямой local stdio и
+`module.dev_mcp`. ChatGPT подключается к этому же stdio command через Secure
+MCP Tunnel; отдельный HTTP listener, public endpoint и custom OAuth не являются
+частью репозитория. `module.dev_mcp.contract` публикует read-only boundary с
+версиями API/Smoke schemas, профилем `ap`, feature flags и capability families.
+Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
+любом несовпадении.
+
+Stage 6 не добавляет capability `Game` или игровую production-интеграцию.
+
 ## Статистика
 
 Статистика schema v1 хранится только в production PostgreSQL через

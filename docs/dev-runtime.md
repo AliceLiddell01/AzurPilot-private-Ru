@@ -35,7 +35,7 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
-Базовые инструменты Dev Runtime (без Smoke Harness): `dev_preflight`, `dev_doctor`, `dev_list_tasks`,
+Базовые инструменты Dev Runtime (без Smoke Harness): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
 `dev_get_logs` и `dev_get_screenshot`. Только для чтения работают `preflight`,
@@ -64,6 +64,13 @@ tool_timeout_sec = 180
 Каждый контекст использует собственный разрешённый список: неизвестные поля удаляются
 на любой вложенности, а значения проходят ограничение глубины, числа элементов и длины текста,
 после чего очищаются от чувствительных данных.
+
+`dev_get_contract` — read-only граница совместимости для canonical-пакета
+`AzurPilot`. Она возвращает только `contract_schema_version`, семейство продукта,
+версии Dev MCP/Smoke schemas, фиксированный профиль `ap`, feature flags и
+capability families. В контракте нет путей, секретов или сведений об окружении;
+плагин сравнивает его с `plugins/azurpilot/compatibility.json` и при любом
+несовпадении останавливается с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls.
 
 Для stdio stdout зарезервирован JSON-RPC протоколом и не содержит журналов оператора,
 баннеров или отладочного вывода. Диагностические сообщения идут только в stderr.
@@ -254,3 +261,27 @@ Smoke Harness расширяет локальный stdio Dev MCP ровно с�
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для
 MCP protocol. Production `mcp_server_sse.py`, MCP SDK и обычный gameplay path
 не изменяются.
+
+## Canonical Plugin AzurPilot
+
+Canonical Plugin Creator package находится в `plugins/azurpilot/`; его
+machine-readable ID — `azurpilot`, а отображаемое имя — `AzurPilot`. Пакет
+содержит ровно один Development skill и не регистрирует `.app.json` или
+`.mcp.json`: Codex использует этот stdio Dev MCP напрямую, а ChatGPT должен
+подключаться к тому же command через Secure MCP Tunnel. Tunnel profile и его
+credentials хранятся вне Git; публичный HTTP endpoint, custom OAuth и второй
+MCP implementation запрещены.
+
+Основной workflow skill: `dev_get_contract` →
+`dev_list_smoke_capabilities` → строгий `SmokeSpec` → `dev_validate_smoke` →
+exact source snapshot → `dev_start_smoke` → polling `dev_get_smoke` → при
+необходимости замороженная внешняя visual evaluation. PASS допустим только при
+PASS-result, exact source, подтверждённой очистке и полной evidence. Результаты
+`PRODUCT_FAILED`, `HARNESS_FAILED`, `EVIDENCE_INCOMPLETE`, `TIMEOUT`,
+`INVALIDATED`, `CANCELLED` и `PRECONDITION_FAILED` не превращаются в auto-retry
+или успех.
+
+На Stage 6 capability `Game`, игровые tools/app/skill и production-интеграция
+не добавляются. Ограничения ChatGPT Developer Mode или текущего плана на write
+tools фиксируются как `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`, а не
+обходятся новым transport или auth server.
