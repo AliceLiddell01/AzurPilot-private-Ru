@@ -36,6 +36,7 @@ PaddleOCR
 docs/
 # Local public HTTPS endpoint config contains operator host/OAuth values.
 docs/dev-mcp/Caddyfile
+.tools/caddy/
 # Created by .ignore support plugin (hsz.mobi)
 
 ### JetBrains template
