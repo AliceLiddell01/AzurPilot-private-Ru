@@ -130,7 +130,9 @@ def test_skill_is_single_development_skill_with_fail_closed_workflow() -> None:
 
 
 def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
-    absolute_path = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]|\\\\")
+    absolute_path = re.compile(
+        r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|/(?:home|Users)/)"
+    )
     forbidden_tokens = (
         "Bearer ",
         "CONTROL_PLANE_API_KEY=",

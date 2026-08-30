@@ -54,7 +54,8 @@ tools управляются текущим ChatGPT Developer Mode/UI.
 `dev_get_contract`; любое несовпадение даёт `PLUGIN_RUNTIME_INCOMPATIBLE` и
 запрещает mutating calls.
 
-Основной workflow — `dev_list_smoke_capabilities` → строгий `SmokeSpec` →
+Основной workflow — `dev_get_contract` → `dev_list_smoke_capabilities` → строгий
+`SmokeSpec` →
 `dev_validate_smoke` → exact source snapshot → `dev_start_smoke` → polling
 `dev_get_smoke` → при необходимости замороженная внешняя visual evaluation.
 Диагностические tools не являются обходом Harness. Evidence не исполняется
