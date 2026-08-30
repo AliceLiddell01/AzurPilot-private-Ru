@@ -1,6 +1,6 @@
 # Регламент автономной работы Codex с Git для AzurPilot Private RU
 
-Версия: **2.1**
+Версия: **2.2**
 Репозиторий: `AliceLiddell01/AzurPilot-private-Ru`
 Upstream: `wess09/AzurPilot`
 Модель ответственности: **Codex выполняет 100% технического цикла; пользователь не используется как ручной CI, Git-оператор или тестировщик.**
@@ -15,6 +15,14 @@ Upstream: `wess09/AzurPilot`
 - rate limit/cooldown обязательного reviewer завершает текущий прогон с сохранением состояния вместо ожидания;
 - дорогие suites/gates повторяются только после существенного relevant diff или для диагностики;
 - контекст загружается по необходимости; routine tool-call narration запрещён.
+
+### 2.2
+
+- основной Windows checkout `C:\AzurPilot` закреплён как обычная рабочая копия для последовательной разработки;
+- добавлена безопасная preflight-проверка состояния main checkout перед сменой ветки;
+- disposable clone/worktree оставлены только для обоснованной параллельной, опасной или несовместимой работы;
+- WSL2 review clone отделён от implementation checkout и используется только для независимого CodeRabbit review;
+- после публикации feature-ветки checkout остаётся на ней до финального review/merge.
 
 ### 2.0
 
@@ -39,9 +47,10 @@ Upstream: `wess09/AzurPilot`
 
 ```text
 задача
-→ минимальный preflight + base SHA
+→ безопасный preflight main checkout + base SHA
 → релевантный контекст
 → план
+→ для новой задачи: fetch origin → personal/stable → FF-only → codex/<task>
 → реализация логическими слоями
 → targeted checks
 → Codex adversarial self-review
@@ -144,6 +153,16 @@ AzurPilot Private RU наследует upstream, но содержит отде
 - завершить прогон как `blocked`.
 
 Не создавать инфраструктурный issue автоматически из-за одной transient-ошибки; делать это только при устойчивой проблеме или если task contract требует tracking.
+
+Перед любой сменой branch в основном checkout Codex самостоятельно подтверждает:
+
+- ожидаемый путь репозитория, `git rev-parse --show-toplevel` и `origin`;
+- current branch и tracking/upstream;
+- `git status`, staged, unstaged и untracked files;
+- локальные commits, отсутствующие на upstream, и ahead/behind/divergence;
+- существование целевой remote branch.
+
+Если обнаружены локальные изменения, unpublished commits или divergence, происхождение состояния устанавливается до смены branch. Нельзя автоматически stash/drop, reset, rebase, merge, force-push или удалять неизвестные файлы.
 
 ## 7. Классы задач
 
@@ -267,19 +286,25 @@ Fork-only diff должен отсутствовать. Merge/squash/rebase comm
 5. проверить migration/rollback;
 6. пройти расширенный pipeline отдельным PR.
 
-## 11. Изолированная рабочая среда
+## 11. Основной checkout и дополнительная изоляция
 
-Не изменять основной пользовательский checkout.
+Для последовательной разработки основной Windows checkout проекта `C:\AzurPilot` является обычной рабочей копией Codex. Перед началом новой задачи:
 
-Использовать disposable clone или отдельный worktree.
+```text
+fetch origin
+→ switch personal/stable
+→ fast-forward only до origin/personal/stable
+→ создать codex/<task>
+→ работать в C:\AzurPilot
+```
 
-- base SHA фиксируется до изменений;
-- пользовательские config/secrets не копируются без необходимости;
-- временные artifacts отделены;
-- полезный долговременный результат — commits/PR;
-- после завершения удаляются только ресурсы текущей задачи.
+Если в checkout уже открыта однозначно относящаяся к незавершённой задаче `codex/*` branch, продолжать её после проверки exact head. После публикации feature-ветки оставлять checkout на ней, пока PR ожидает review; автоматически возвращаться на `personal/stable` не нужно.
 
-Destructive Git внутри disposable среды регулируется разделом 22; предпочтительно удалить весь disposable worktree.
+Disposable clone/worktree допустим только при реальной необходимости: параллельная разработка, опасный reproduction/experiment, несовместимое состояние зависимостей/runtime, destructive recovery testing или явный запрос пользователя. Он не является default и не должен использоваться для переноса обычного diff.
+
+Для review разрешён отдельный WSL2 Arch clone, но он не является implementation checkout: он получает exact branch/head, выполняет независимый CodeRabbit review, а все подтверждённые fixes вносятся в `C:\AzurPilot`.
+
+В любой дополнительной среде base SHA фиксируется до изменений, пользовательские config/secrets не копируются без необходимости, временные artifacts отделяются, а после завершения удаляются только ресурсы текущей задачи. Destructive Git внутри disposable среды регулируется разделом 22.
 
 ## 12. Рабочий цикл
 
@@ -540,7 +565,7 @@ git gc --prune=now
 Задача готова, когда:
 
 - base branch/SHA и scope зафиксированы;
-- работа выполнена в изолированной среде;
+- работа выполнена в основном checkout либо в явно обоснованной дополнительной среде;
 - diff минимален и без scope creep;
 - релевантные local gates выполнены;
 - tests обновлены там, где менялось поведение;
