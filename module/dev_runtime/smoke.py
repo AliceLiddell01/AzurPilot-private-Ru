@@ -2481,7 +2481,7 @@ class SmokeRunManager:
         return self._result(
             ok=True,
             code="DEV_SMOKE_CAPABILITIES_READY",
-            message="Реестр capabilities Smoke готов",
+            message="Реестр возможностей Smoke готов",
             state=SmokeState.CREATED.value,
             details={"capabilities": [_safe_model_json(item) for item in self.capabilities.descriptors()]},
         )
