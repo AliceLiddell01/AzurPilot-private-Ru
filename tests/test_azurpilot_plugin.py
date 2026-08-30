@@ -143,7 +143,11 @@ def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
             continue
         text = path.read_text(encoding="utf-8")
         assert not absolute_path.search(text), path
-        assert not re.search(r"(?i)\b(?:sk|rk|ghp|github_pat|xox[baprs])-[A-Za-z0-9_-]{12,}", text), path
+        assert not re.search(
+            r"(?i)(?:\b(?:sk|rk|xox[baprs])-[A-Za-z0-9_-]{12,}|"
+            r"\b(?:ghp|github_pat)_[A-Za-z0-9_]{12,})",
+            text,
+        ), path
         for token in forbidden_tokens:
             assert token not in text, (path, token)
 
