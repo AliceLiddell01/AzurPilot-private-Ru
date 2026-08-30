@@ -76,15 +76,17 @@ HTTP, SQL, ADB/input, искусственных sleep/retry, patch-команд
 
 В Codex используй project-scoped `azurpilot-dev` через прямой local stdio:
 `uv run --locked --no-sync python -m module.dev_mcp`. Это тот же существующий
-Dev MCP и профиль `ap`; Tunnel для Codex не нужен. Git, source snapshot и
+Dev MCP и профиль `ap`; public HTTPS для Codex не нужен. Git, source snapshot и
 проверки выполняй по правилам репозитория.
 
-В ChatGPT используй приложение `AzurPilot Development`, подключённое через
-Secure MCP Tunnel к тому же stdio Dev MCP. Tunnel — transport boundary, а не
-вторая реализация MCP. Если текущая подписка или UI не позволяют write tools,
-зафиксируй точную причину `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`;
-read-only contract/diagnostics при этом остаются действительным результатом.
-Не создавай custom OAuth, публичный HTTP endpoint или новый auth server.
+В ChatGPT используй приложение `AzurPilot Development`, подключённое к
+authenticated public HTTPS endpoint `https://<public-host>/mcp`. Endpoint
+работает через Caddy и внешний OAuth/OIDC provider; не добавляй custom auth
+server, Tunnel profile или второй MCP implementation. Сначала выполни
+`dev_get_contract` → `dev_preflight` → `dev_list_smoke_capabilities`. Если
+текущая подписка или UI не позволяют write tools, зафиксируй точную причину
+`CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`; read-only
+contract/diagnostics при этом остаются действительным результатом.
 
 ## Будущий Game boundary
 

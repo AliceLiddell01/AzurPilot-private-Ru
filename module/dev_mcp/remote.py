@@ -1,0 +1,765 @@
+"""Публичный HTTPS Streamable HTTP entrypoint для AzurPilot Dev MCP.
+
+Модуль намеренно отделён от локального stdio entrypoint и production MCP.
+Он запускается только с loopback bind, принимает внешний HTTPS через reverse
+proxy и проверяет OAuth/OIDC access token как resource server.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hmac
+import json
+import logging
+import os
+import shutil
+import sys
+import time
+from collections.abc import Callable, Mapping
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import Any
+from urllib.parse import SplitResult, urlsplit
+
+import anyio
+import jwt
+import uvicorn
+from jwt import PyJWKClient
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+from starlette.routing import Route
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from module.dev_mcp.server import DEV_MCP_REQUIRED_SCOPE, create_server
+
+logger = logging.getLogger(__name__)
+
+MCP_PATH = "/mcp"
+DEFAULT_PORT = 8765
+DEFAULT_MAX_REQUEST_BODY_BYTES = 1024 * 1024
+DEFAULT_MAX_CONCURRENT_REQUESTS = 8
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 180.0
+DEFAULT_BODY_READ_TIMEOUT_SECONDS = 10.0
+DEFAULT_CONCURRENCY_ACQUIRE_TIMEOUT_SECONDS = 2.0
+DEFAULT_VERIFICATION_TIMEOUT_SECONDS = 5.0
+DEFAULT_ALLOWED_ORIGINS = (
+    "https://chatgpt.com",
+    "https://chat.openai.com",
+)
+_JWT_ALGORITHMS = ("RS256",)
+
+
+class RemoteConfigError(ValueError):
+    """Конфигурация public remote entrypoint не соответствует контракту."""
+
+
+class _ExpectedStreamCloseFilter(logging.Filter):
+    """Скрыть известный нормальный close race в pinned MCP SDK 1.23.0."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.getMessage() != "Error in message router" or not record.exc_info:
+            return True
+        exception = record.exc_info[1]
+        return not isinstance(exception, anyio.ClosedResourceError)
+
+
+def _install_expected_stream_close_filter() -> None:
+    sdk_logger = logging.getLogger("mcp.server.streamable_http")
+    if not any(isinstance(item, _ExpectedStreamCloseFilter) for item in sdk_logger.filters):
+        sdk_logger.addFilter(_ExpectedStreamCloseFilter())
+
+
+def _header_values(scope: Scope, name: str) -> list[str]:
+    expected = name.lower().encode("ascii")
+    return [
+        value.decode("latin-1")
+        for header_name, value in scope.get("headers", [])
+        if header_name.lower() == expected
+    ]
+
+
+def _parse_https_url(name: str, value: str, *, exact_path: str | None = None) -> SplitResult:
+    if not value:
+        raise RemoteConfigError(f"{name} is required")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise RemoteConfigError(f"{name} is invalid") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or (exact_path is not None and parsed.path != exact_path)
+    ):
+        raise RemoteConfigError(f"{name} must be an HTTPS URL without credentials or fragments")
+    if exact_path is not None and port is not None:
+        raise RemoteConfigError(f"{name} must use the public HTTPS port through the reverse proxy")
+    return parsed
+
+
+def _validate_origin(value: str) -> None:
+    try:
+        parsed = urlsplit(value)
+        parsed_port = parsed.port
+    except ValueError as exc:
+        raise RemoteConfigError("allowed origins must be valid URLs") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or "*" in value
+    ):
+        raise RemoteConfigError("allowed origins must be exact HTTPS origins without wildcards")
+    if parsed_port is not None and not 1 <= parsed_port <= 65535:
+        raise RemoteConfigError("allowed origins must use a valid port")
+
+
+def _canonical_host(parsed: SplitResult) -> str:
+    hostname = parsed.hostname
+    assert hostname is not None
+    host = hostname.casefold()
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    return host
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteConfig:
+    """Fail-closed configuration for the public resource server."""
+
+    public_url: str
+    oauth_issuer: str
+    oauth_audience: str
+    oauth_jwks_url: str
+    oauth_subject: str
+    oauth_scope: str = DEV_MCP_REQUIRED_SCOPE
+    bind_host: str = "127.0.0.1"
+    port: int = DEFAULT_PORT
+    allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS
+    max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES
+    max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS
+    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
+    body_read_timeout_seconds: float = DEFAULT_BODY_READ_TIMEOUT_SECONDS
+    concurrency_acquire_timeout_seconds: float = DEFAULT_CONCURRENCY_ACQUIRE_TIMEOUT_SECONDS
+    token_verification_timeout_seconds: float = DEFAULT_VERIFICATION_TIMEOUT_SECONDS
+
+    def __post_init__(self) -> None:
+        if self.bind_host != "127.0.0.1":
+            raise RemoteConfigError("remote MCP backend must bind to 127.0.0.1")
+        if not 1024 <= self.port <= 65535:
+            raise RemoteConfigError("remote MCP port must be between 1024 and 65535")
+        public = _parse_https_url("public_url", self.public_url, exact_path=MCP_PATH)
+        _parse_https_url("oauth_issuer", self.oauth_issuer)
+        _parse_https_url("oauth_jwks_url", self.oauth_jwks_url)
+        if not self.oauth_audience or len(self.oauth_audience) > 512:
+            raise RemoteConfigError("oauth_audience must be a non-empty bounded value")
+        if not self.oauth_subject or len(self.oauth_subject) > 256:
+            raise RemoteConfigError("oauth_subject must be a non-empty bounded value")
+        if (
+            not self.oauth_scope
+            or len(self.oauth_scope) > 128
+            or any(character.isspace() for character in self.oauth_scope)
+            or "," in self.oauth_scope
+        ):
+            raise RemoteConfigError("oauth_scope must contain exactly one bounded scope name")
+        if not self.allowed_origins:
+            raise RemoteConfigError("at least one exact allowed origin is required")
+        for origin in self.allowed_origins:
+            _validate_origin(origin)
+        if self.max_request_body_bytes < 1024 or self.max_request_body_bytes > 8 * 1024 * 1024:
+            raise RemoteConfigError("max_request_body_bytes is outside the safe bound")
+        if not 1 <= self.max_concurrent_requests <= 64:
+            raise RemoteConfigError("max_concurrent_requests is outside the safe bound")
+        for name, value, upper_bound in (
+            ("request_timeout_seconds", self.request_timeout_seconds, 900.0),
+            ("body_read_timeout_seconds", self.body_read_timeout_seconds, 60.0),
+            ("concurrency_acquire_timeout_seconds", self.concurrency_acquire_timeout_seconds, 30.0),
+            ("token_verification_timeout_seconds", self.token_verification_timeout_seconds, 30.0),
+        ):
+            if not 0 < value <= upper_bound:
+                raise RemoteConfigError(f"{name} is outside the safe bound")
+        if public.path != MCP_PATH:
+            raise RemoteConfigError("public_url must end with /mcp")
+
+    @property
+    def mcp_path(self) -> str:
+        return MCP_PATH
+
+    @property
+    def public_host(self) -> str:
+        return _canonical_host(urlsplit(self.public_url))
+
+    @property
+    def resource_metadata_path(self) -> str:
+        return f"/.well-known/oauth-protected-resource{self.mcp_path}"
+
+    @property
+    def resource_metadata_url(self) -> str:
+        parsed = urlsplit(self.public_url)
+        return f"{parsed.scheme}://{parsed.netloc}{self.resource_metadata_path}"
+
+    @classmethod
+    def from_env(cls) -> RemoteConfig:
+        def required(name: str) -> str:
+            value = os.environ.get(name, "").strip()
+            if not value:
+                raise RemoteConfigError(f"{name} is required")
+            return value
+
+        def integer(name: str, default: int) -> int:
+            raw = os.environ.get(name)
+            if raw is None or not raw.strip():
+                return default
+            try:
+                return int(raw)
+            except ValueError as exc:
+                raise RemoteConfigError(f"{name} must be an integer") from exc
+
+        raw_origins = os.environ.get("AZURPILOT_DEV_MCP_ALLOWED_ORIGINS")
+        origins = (
+            DEFAULT_ALLOWED_ORIGINS
+            if raw_origins is None
+            else tuple(value.strip() for value in raw_origins.split(",") if value.strip())
+        )
+        return cls(
+            public_url=required("AZURPILOT_DEV_MCP_PUBLIC_URL"),
+            oauth_issuer=required("AZURPILOT_DEV_MCP_OAUTH_ISSUER"),
+            oauth_audience=required("AZURPILOT_DEV_MCP_OAUTH_AUDIENCE"),
+            oauth_jwks_url=required("AZURPILOT_DEV_MCP_OAUTH_JWKS_URL"),
+            oauth_subject=required("AZURPILOT_DEV_MCP_OAUTH_SUBJECT"),
+            oauth_scope=os.environ.get("AZURPILOT_DEV_MCP_OAUTH_SCOPE", DEV_MCP_REQUIRED_SCOPE).strip()
+            or DEV_MCP_REQUIRED_SCOPE,
+            port=integer("AZURPILOT_DEV_MCP_PORT", DEFAULT_PORT),
+            allowed_origins=origins,
+        )
+
+
+class OIDCTokenVerifier:
+    """Проверить подписанный access token внешнего OAuth/OIDC провайдера."""
+
+    def __init__(
+        self,
+        config: RemoteConfig,
+        *,
+        jwk_client: Any | None = None,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        self._config = config
+        self._clock = clock
+        self._jwk_client = jwk_client or PyJWKClient(
+            config.oauth_jwks_url,
+            cache_keys=True,
+            cache_jwk_set=True,
+            lifespan=300,
+            timeout=config.token_verification_timeout_seconds,
+        )
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if not isinstance(token, str) or not token or len(token.encode("utf-8")) > 16 * 1024:
+            return None
+        try:
+            header = jwt.get_unverified_header(token)
+            if header.get("alg") not in _JWT_ALGORITHMS:
+                return None
+            with anyio.fail_after(self._config.token_verification_timeout_seconds):
+                signing_key = await anyio.to_thread.run_sync(
+                    self._jwk_client.get_signing_key_from_jwt,
+                    token,
+                    abandon_on_cancel=True,
+                )
+                claims = await anyio.to_thread.run_sync(
+                    lambda: jwt.decode(
+                        token,
+                        signing_key.key,
+                        algorithms=list(_JWT_ALGORITHMS),
+                        audience=self._config.oauth_audience,
+                        issuer=self._config.oauth_issuer,
+                        options={"require": ["exp", "iss", "sub"]},
+                        leeway=0,
+                    ),
+                    abandon_on_cancel=True,
+                )
+        except TimeoutError:
+            logger.debug("Проверка OIDC-токена превысила ограничение времени")
+            return None
+        except (jwt.PyJWTError, OSError, ValueError, TypeError, AttributeError, RuntimeError) as exc:
+            logger.debug("OIDC-токен отклонён при проверке: %s", type(exc).__name__)
+            return None
+
+        if not isinstance(claims, Mapping):
+            return None
+        subject = claims.get("sub")
+        if not isinstance(subject, str) or not hmac.compare_digest(subject, self._config.oauth_subject):
+            return None
+        resource = claims.get("resource")
+        if resource is not None and (
+            not isinstance(resource, str)
+            or not hmac.compare_digest(resource, self._config.public_url)
+        ):
+            return None
+        expires_at = claims.get("exp")
+        if isinstance(expires_at, bool) or not isinstance(expires_at, (int, float)):
+            return None
+        expires_at_int = int(expires_at)
+        if expires_at_int <= int(self._clock()):
+            return None
+        scopes = self._scopes(claims.get("scope"))
+        if scopes is None or self._config.oauth_scope not in scopes:
+            return None
+        return AccessToken(
+            token="",
+            client_id=subject,
+            scopes=scopes,
+            expires_at=expires_at_int,
+            resource=self._config.public_url,
+        )
+
+    @staticmethod
+    def _scopes(value: object) -> list[str] | None:
+        if isinstance(value, str):
+            scopes = value.split()
+        elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+            scopes = value
+        else:
+            return None
+        if any(not item or len(item) > 128 for item in scopes):
+            return None
+        return list(dict.fromkeys(scopes))
+
+
+async def _send_error(
+    send: Send,
+    status_code: int,
+    error: str,
+    *,
+    extra_headers: Mapping[str, str] | None = None,
+) -> None:
+    body = json.dumps({"error": error}, separators=(",", ":")).encode("utf-8")
+    headers = [
+        (b"content-type", b"application/json"),
+        (b"cache-control", b"no-store"),
+        (b"content-length", str(len(body)).encode("ascii")),
+    ]
+    for name, value in (extra_headers or {}).items():
+        headers.append((name.lower().encode("ascii"), value.encode("latin-1")))
+    await send({"type": "http.response.start", "status": status_code, "headers": headers})
+    await send({"type": "http.response.body", "body": body})
+
+
+class StrictHostOriginMiddleware:
+    """Проверить только канонический Host и явно разрешённые Origin."""
+
+    def __init__(self, app: ASGIApp, config: RemoteConfig) -> None:
+        self.app = app
+        self.expected_host = config.public_host.casefold()
+        self.allowed_origins = frozenset(origin.casefold() for origin in config.allowed_origins)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        hosts = _header_values(scope, "host")
+        if len(hosts) != 1 or hosts[0].casefold() != self.expected_host:
+            await _send_error(send, 421, "invalid_host")
+            return
+        origins = _header_values(scope, "origin")
+        if len(origins) > 1 or (origins and origins[0].casefold() not in self.allowed_origins):
+            await _send_error(send, 403, "invalid_origin")
+            return
+        await self.app(scope, receive, send)
+
+
+class OAuthBearerMiddleware:
+    """Проверить Bearer access token до запуска любого MCP request."""
+
+    def __init__(self, app: ASGIApp, config: RemoteConfig, verifier: TokenVerifier) -> None:
+        self.app = app
+        self.config = config
+        self.verifier = verifier
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http" or scope.get("path") != self.config.mcp_path:
+            await self.app(scope, receive, send)
+            return
+        token = self._extract_token(scope)
+        if token is None:
+            await self._unauthorized(send)
+            return
+        try:
+            access_token = await self.verifier.verify_token(token)
+        except Exception as exc:  # noqa: BLE001 - authentication must fail closed
+            logger.debug("Ошибка проверки Bearer-токена: %s", type(exc).__name__)
+            access_token = None
+        if access_token is None or (
+            access_token.expires_at is not None and access_token.expires_at <= int(time.time())
+        ):
+            await self._unauthorized(send)
+            return
+        if self.config.oauth_scope not in access_token.scopes:
+            await _send_error(
+                send,
+                403,
+                "forbidden",
+                extra_headers={"WWW-Authenticate": self._challenge("insufficient_scope")},
+            )
+            return
+        child_scope = dict(scope)
+        child_scope["azurpilot.access_token"] = access_token
+        await self.app(child_scope, receive, send)
+
+    @staticmethod
+    def _extract_token(scope: Scope) -> str | None:
+        values = _header_values(scope, "authorization")
+        if len(values) != 1:
+            return None
+        scheme, separator, token = values[0].partition(" ")
+        if (
+            not separator
+            or scheme.casefold() != "bearer"
+            or not token
+            or any(character.isspace() for character in token)
+        ):
+            return None
+        if len(token.encode("utf-8")) > 16 * 1024:
+            return None
+        return token
+
+    def _challenge(self, error: str | None = None) -> str:
+        parts = [f'resource_metadata="{self.config.resource_metadata_url}"']
+        if error:
+            parts.append(f'error="{error}"')
+        parts.append(f'scope="{self.config.oauth_scope}"')
+        return f"Bearer {', '.join(parts)}"
+
+    async def _unauthorized(self, send: Send) -> None:
+        await _send_error(
+            send,
+            401,
+            "unauthorized",
+            extra_headers={"WWW-Authenticate": self._challenge()},
+        )
+
+
+class ConcurrencyLimitMiddleware:
+    """Ограничить число одновременно обрабатываемых HTTP запросов."""
+
+    def __init__(self, app: ASGIApp, config: RemoteConfig) -> None:
+        self.app = app
+        self._limiter = anyio.CapacityLimiter(config.max_concurrent_requests)
+        self._acquire_timeout = config.concurrency_acquire_timeout_seconds
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        acquired = False
+        try:
+            with anyio.fail_after(self._acquire_timeout):
+                await self._limiter.acquire()
+            acquired = True
+        except TimeoutError:
+            await _send_error(send, 503, "server_busy")
+            return
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            if acquired:
+                self._limiter.release()
+
+
+class RequestBodyLimitMiddleware:
+    """Буферизовать и ограничить HTTP body до передачи его MCP SDK."""
+
+    def __init__(self, app: ASGIApp, config: RemoteConfig) -> None:
+        self.app = app
+        self.max_body_bytes = config.max_request_body_bytes
+        self.read_timeout = config.body_read_timeout_seconds
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http" or scope.get("path") != MCP_PATH:
+            await self.app(scope, receive, send)
+            return
+        content_lengths = _header_values(scope, "content-length")
+        if len(content_lengths) > 1:
+            await _send_error(send, 400, "bad_request")
+            return
+        if content_lengths:
+            try:
+                content_length = int(content_lengths[0])
+            except ValueError:
+                await _send_error(send, 400, "bad_request")
+                return
+            if content_length < 0 or content_length > self.max_body_bytes:
+                await _send_error(send, 413, "request_too_large")
+                return
+            if scope.get("method") != "POST":
+                await self.app(scope, receive, send)
+                return
+        if scope.get("method") != "POST":
+            await self.app(scope, receive, send)
+            return
+
+        body = bytearray()
+        try:
+            with anyio.fail_after(self.read_timeout):
+                while True:
+                    message = await receive()
+                    if message["type"] == "http.disconnect":
+                        await _send_error(send, 400, "bad_request")
+                        return
+                    if message["type"] != "http.request":
+                        await _send_error(send, 400, "bad_request")
+                        return
+                    body.extend(message.get("body", b""))
+                    if len(body) > self.max_body_bytes:
+                        await _send_error(send, 413, "request_too_large")
+                        return
+                    if not message.get("more_body", False):
+                        break
+        except TimeoutError:
+            await _send_error(send, 408, "request_timeout")
+            return
+
+        replayed = False
+
+        async def replay() -> Message:
+            nonlocal replayed
+            if replayed:
+                return {"type": "http.disconnect"}
+            replayed = True
+            return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+        await self.app(scope, replay, send)
+
+
+class RequestTimeoutMiddleware:
+    """Ограничить время MCP request без утечки traceback клиенту."""
+
+    def __init__(self, app: ASGIApp, config: RemoteConfig) -> None:
+        self.app = app
+        self.timeout = config.request_timeout_seconds
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        response_started = False
+
+        async def guarded_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            with anyio.fail_after(self.timeout):
+                await self.app(scope, receive, guarded_send)
+        except TimeoutError:
+            if not response_started:
+                await _send_error(send, 504, "request_timeout")
+
+
+class FailSafeMiddleware:
+    """Вернуть безопасную generic ошибку вместо необработанного traceback."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        response_started = False
+
+        async def guarded_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, guarded_send)
+        except Exception as exc:  # noqa: BLE001 - HTTP boundary must not leak tracebacks
+            logger.error("Ошибка обработки remote MCP-запроса: %s", type(exc).__name__)
+            if not response_started:
+                await _send_error(send, 500, "server_error")
+
+
+class _StreamableHTTPASGIApp:
+    def __init__(self, session_manager: StreamableHTTPSessionManager) -> None:
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.session_manager.handle_request(scope, receive, send)
+
+
+def _metadata_headers(request: Request, config: RemoteConfig) -> dict[str, str]:
+    origin = request.headers.get("origin")
+    headers = {"cache-control": "no-store", "vary": "Origin"}
+    if origin is not None and origin.casefold() in {item.casefold() for item in config.allowed_origins}:
+        headers.update(
+            {
+                "access-control-allow-origin": origin,
+                "access-control-allow-methods": "GET, OPTIONS",
+                "access-control-allow-headers": "Authorization, Content-Type, MCP-Protocol-Version",
+                "access-control-max-age": "300",
+            }
+        )
+    return headers
+
+
+def create_remote_app(
+    adapter: Any | None = None,
+    *,
+    config: RemoteConfig | None = None,
+    token_verifier: TokenVerifier | None = None,
+) -> Starlette:
+    """Создать remote ASGI app; импорт и startup не создают DevSession."""
+
+    remote_config = config or RemoteConfig.from_env()
+    verifier = token_verifier or OIDCTokenVerifier(remote_config)
+    _install_expected_stream_close_filter()
+    server = create_server(adapter)
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        json_response=True,
+        stateless=True,
+        security_settings=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[remote_config.public_host],
+            allowed_origins=list(remote_config.allowed_origins),
+        ),
+    )
+
+    async def metadata(request: Request) -> Response:
+        hosts = _header_values(request.scope, "host")
+        if len(hosts) != 1 or hosts[0].casefold() != remote_config.public_host.casefold():
+            return JSONResponse({"error": "invalid_host"}, status_code=421)
+        origins = _header_values(request.scope, "origin")
+        if len(origins) > 1 or (
+            origins
+            and origins[0].casefold() not in {item.casefold() for item in remote_config.allowed_origins}
+        ):
+            return JSONResponse({"error": "invalid_origin"}, status_code=403)
+        if request.method == "OPTIONS":
+            return Response(status_code=204, headers=_metadata_headers(request, remote_config))
+        return JSONResponse(
+            {
+                "resource": remote_config.public_url,
+                "authorization_servers": [remote_config.oauth_issuer],
+                "scopes_supported": [remote_config.oauth_scope],
+                "bearer_methods_supported": ["header"],
+            },
+            headers=_metadata_headers(request, remote_config),
+        )
+
+    mcp_endpoint: ASGIApp = _StreamableHTTPASGIApp(session_manager)
+    mcp_endpoint = RequestTimeoutMiddleware(mcp_endpoint, remote_config)
+    mcp_endpoint = RequestBodyLimitMiddleware(mcp_endpoint, remote_config)
+    mcp_endpoint = ConcurrencyLimitMiddleware(mcp_endpoint, remote_config)
+    mcp_endpoint = OAuthBearerMiddleware(mcp_endpoint, remote_config, verifier)
+    mcp_endpoint = StrictHostOriginMiddleware(mcp_endpoint, remote_config)
+    mcp_endpoint = FailSafeMiddleware(mcp_endpoint)
+
+    @asynccontextmanager
+    async def lifespan(_: Starlette):
+        async with session_manager.run():
+            yield
+
+    app = Starlette(
+        debug=False,
+        routes=[
+            Route(remote_config.mcp_path, endpoint=mcp_endpoint, methods=["GET", "POST", "DELETE"]),
+            Route(remote_config.resource_metadata_path, endpoint=metadata, methods=["GET", "OPTIONS"]),
+        ],
+        lifespan=lifespan,
+    )
+    app.state.remote_config = remote_config
+    app.state.session_manager = session_manager
+    return app
+
+
+def run_remote_server(adapter: Any | None = None, config: RemoteConfig | None = None) -> None:
+    remote_config = config or RemoteConfig.from_env()
+    app = create_remote_app(adapter, config=remote_config)
+    uvicorn.run(
+        app,
+        host=remote_config.bind_host,
+        port=remote_config.port,
+        proxy_headers=False,
+        access_log=False,
+        server_header=False,
+        date_header=False,
+        log_level="warning",
+        timeout_keep_alive=5,
+    )
+
+
+def doctor() -> int:
+    try:
+        config = RemoteConfig.from_env()
+    except RemoteConfigError as exc:
+        print(
+            json.dumps(
+                {"ok": False, "code": "REMOTE_CONFIG_INVALID", "message": str(exc)},
+                ensure_ascii=False,
+            )
+        )
+        return 1
+    caddy_available = shutil.which("caddy") is not None
+    print(
+        json.dumps(
+            {
+                "ok": caddy_available,
+                "code": "REMOTE_CONFIG_READY" if caddy_available else "CADDY_NOT_AVAILABLE",
+                "bind_host_loopback": config.bind_host == "127.0.0.1",
+                "public_https_path": config.public_url.endswith(MCP_PATH),
+                "oauth_configured": True,
+                "caddy_available": caddy_available,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0 if caddy_available else 1
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="AzurPilot public Dev MCP entrypoint")
+    parser.add_argument("command", nargs="?", choices=("serve", "doctor"), default="serve")
+    args = parser.parse_args()
+    if args.command == "doctor":
+        raise SystemExit(doctor())
+    try:
+        run_remote_server()
+    except RemoteConfigError as exc:
+        print(
+            json.dumps(
+                {"ok": False, "code": "REMOTE_CONFIG_INVALID", "message": str(exc)},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from None
+
+
+__all__ = [
+    "DEFAULT_ALLOWED_ORIGINS",
+    "DEFAULT_PORT",
+    "MCP_PATH",
+    "OIDCTokenVerifier",
+    "RemoteConfig",
+    "RemoteConfigError",
+    "create_remote_app",
+    "doctor",
+    "main",
+    "run_remote_server",
+]
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

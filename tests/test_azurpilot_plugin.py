@@ -31,7 +31,7 @@ def test_plugin_manifest_and_generated_marketplace_are_canonical() -> None:
     assert isinstance(interface, dict)
 
     assert manifest["name"] == "azurpilot"
-    assert manifest["version"] == "0.1.0"
+    assert re.fullmatch(r"0\.1\.0\+codex\.\d{14}", manifest["version"])
     assert manifest["skills"] == "./skills/"
     assert "apps" not in manifest
     assert "mcpServers" not in manifest

@@ -22,6 +22,7 @@ SERVER_NAME = "azurpilot-dev"
 SERVER_VERSION = str(DEV_MCP_API_VERSION)
 DEV_MCP_COMMAND = "uv"
 DEV_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.dev_mcp")
+DEV_MCP_REQUIRED_SCOPE = "azurpilot:dev"
 _NO_ARGUMENT_TOOLS = frozenset(
     {
         "dev_preflight",
@@ -154,6 +155,7 @@ def _tool(
         inputSchema=input_schema,
         outputSchema=_OUTPUT,
         annotations=annotations,
+        securitySchemes=[{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}],
     )
 
 
@@ -285,6 +287,7 @@ def main() -> None:
 __all__ = [
     "DEV_MCP_ARGS",
     "DEV_MCP_COMMAND",
+    "DEV_MCP_REQUIRED_SCOPE",
     "SERVER_NAME",
     "SERVER_VERSION",
     "create_server",

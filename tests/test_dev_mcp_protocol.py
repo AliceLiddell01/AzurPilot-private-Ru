@@ -89,6 +89,7 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         assert not _FORBIDDEN_INPUT_FIELDS.intersection(tool.inputSchema.get("properties", {}))
         assert tool.inputSchema["additionalProperties"] is False
         assert tool.outputSchema is not None
+        assert tool.securitySchemes == [{"type": "oauth2", "scopes": ["azurpilot:dev"]}]
         assert tool.outputSchema["additionalProperties"] is False
         assert tool.annotations.readOnlyHint is (tool.name not in (mutating | additive))
         assert tool.annotations.destructiveHint is (tool.name in mutating)

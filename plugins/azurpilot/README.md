@@ -12,35 +12,40 @@ human-facing display name остаётся `AzurPilot`. В пакете ровн
 
 - Codex вызывает project-scoped `azurpilot-dev` напрямую через local stdio:
   `uv run --locked --no-sync python -m module.dev_mcp`.
-- ChatGPT использует приложение `AzurPilot Development` и Secure MCP Tunnel,
-  который запускает тот же stdio command через `MCP_COMMAND`.
-- Второй MCP implementation, `mcp_server_sse.py`, HTTP listener, public
-  endpoint и custom OAuth в Stage 6 не добавляются.
+- ChatGPT использует приложение `AzurPilot Development` через authenticated
+  public HTTPS URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC
+  provider; это тот же adapter, а не второй runtime.
+- `mcp_server_sse.py` остаётся отдельным production MCP и не используется этим
+  приложением.
 
 Публикуемые данные должны оставаться Development-only. Не добавляй в checkout
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,
 cookies или локальный runtime cache.
 
-## Установка и Tunnel
+## Установка и public HTTPS
 
 Marketplace создаётся Plugin Creator в `.agents/plugins/marketplace.json`.
 Подключи этот marketplace к Codex и установи `azurpilot`; затем проверь
 активный skill через текущий Codex UI.
 
-Для ChatGPT Secure MCP Tunnel используй официальный `tunnel-client` и профиль,
-хранящийся вне репозитория. Сначала проверь актуальный quickstart для
-установленной версии, затем выполни эквивалентную проверку:
+Для ChatGPT public HTTPS используй внешний OAuth/OIDC provider и Caddy reverse
+proxy. Конфигурация и credentials хранятся вне репозитория. Сначала проверь
+локальный remote entrypoint:
 
 ```text
-MCP_COMMAND="uv run --locked --no-sync python -m module.dev_mcp"
-tunnel-client doctor --profile <profile> --explain
-tunnel-client run --profile <profile>
+uv run --locked --no-sync python -m module.dev_mcp.remote doctor
+uv run --locked --no-sync python -m module.dev_mcp.remote
+caddy validate --config docs/dev-mcp/Caddyfile
+caddy run --config docs/dev-mcp/Caddyfile
 ```
 
-`<profile>` и control-plane credentials — локальная конфигурация оператора;
-не записывай их в этот файл или Git. Ключ управления Tunnel не является
-auth-настройкой ChatGPT app. App permissions, approval и доступность write
-tools управляются текущим ChatGPT Developer Mode/UI.
+В `AzurPilot Development` укажи `https://<public-host>/mcp` в URL mode и выбери
+OAuth. Backend принимает только loopback, а наружу должны быть доступны только
+443 и, для ACME/redirect, 80; его внутренний порт, Caddy admin, WebUI,
+PostgreSQL, ADB и emulator не публикуются. Обязательные переменные и Caddy
+шаблон описаны в `docs/dev-runtime.md` и
+`docs/dev-mcp/Caddyfile.example`; перед запуском сохрани локальную копию
+`docs/dev-mcp/Caddyfile` с собственным host.
 
 Если write tools недоступны по плану или политике продукта, это не повод
 создавать небезопасный fallback: верни

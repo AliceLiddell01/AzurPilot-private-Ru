@@ -2,7 +2,8 @@
 
 Dev Runtime запускает только штатный `gui.py --run ap` с фиксированными локальными
 параметрами и точным владением процессом. Task Sandbox добавляет API с учётом задач поверх
-этого жизненного цикла, не меняя транспорт MCP и обычный рабочий планировщик.
+этого жизненного цикла, не меняя обычный рабочий планировщик. Для Codex и ChatGPT
+предусмотрены разные transport boundaries поверх одного adapter.
 
 ## Dev MCP для Codex
 
@@ -15,9 +16,10 @@ Codex
   → фиксированный профиль ap
 ```
 
-Dev MCP использует только локальный транспорт stdio. Рабочий MCP в
-`mcp_server_sse.py` остаётся отдельным и не импортируется адаптером; MCP SDK и
-рабочий транспорт не изменяются. Запуск сервера не создаёт
+Dev MCP для Codex использует локальный транспорт stdio. Для ChatGPT существует
+отдельный `module.dev_mcp.remote` с authenticated HTTPS Streamable HTTP на `/mcp`;
+он не переиспользует `mcp_server_sse.py`. Production MCP остаётся отдельным и
+не импортируется адаптером. Запуск обоих Dev MCP entrypoint-ов не создаёт
 `DevSessionManager`, не читает `config/ap.json`, не запускает WebUI и не требует
 PostgreSQL, эмулятор или ADB. Менеджер создаётся лениво при первом вызове инструмента.
 
@@ -260,17 +262,86 @@ Smoke Harness расширяет локальный stdio Dev MCP ровно с�
 не удерживая MCP request; результат читается через polling `dev_get_smoke`.
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для
 MCP protocol. Production `mcp_server_sse.py`, MCP SDK и обычный gameplay path
-не изменяются.
+не изменяются. Remote entrypoint использует зафиксированный в проекте `mcp==1.23.0`
+и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
+HTTP request повторно проходит auth и не оставляет серверных session records.
+
+## Public HTTPS для ChatGPT
+
+Публичный путь заменяет недоступный для этой personal organization Secure MCP
+Tunnel:
+
+```text
+ChatGPT app AzurPilot Development
+  → HTTPS :443 /mcp
+  → Caddy с автоматическим сертификатом
+  → 127.0.0.1:8765 remote Dev MCP
+  → тот же DevMcpAdapter и профиль ap
+```
+
+Backend намеренно принимает только `127.0.0.1` и не должен публиковаться через
+firewall/router. Наружу разрешаются только TCP `443` и, при необходимости для
+ACME/redirect Caddy, TCP `80`. Порты `8765`, `2019`, `5432`, ADB/emulator,
+production WebUI и `mcp_server_sse.py` наружу не пробрасываются.
+
+Внешний OAuth/OIDC provider является authorization server; AzurPilot не
+реализует собственный auth server. Production запуск fail-closed и требует все
+параметры:
+
+```text
+AZURPILOT_DEV_MCP_PUBLIC_URL=https://<public-host>/mcp
+AZURPILOT_DEV_MCP_OAUTH_ISSUER=https://<oauth-issuer>
+AZURPILOT_DEV_MCP_OAUTH_AUDIENCE=<resource-audience>
+AZURPILOT_DEV_MCP_OAUTH_JWKS_URL=https://<oauth-issuer>/<jwks-path>
+AZURPILOT_DEV_MCP_OAUTH_SUBJECT=<single-operator-subject>
+AZURPILOT_DEV_MCP_OAUTH_SCOPE=azurpilot:dev
+AZURPILOT_DEV_MCP_PORT=8765
+```
+
+Issuer должен публиковать OAuth/OIDC discovery, authorization-code flow с PKCE
+S256 и выдавать короткоживущий подписанный access token с `iss`, `aud` или
+`resource`, `exp`, при необходимости `nbf`, `sub` и scope `azurpilot:dev`.
+Resource server проверяет RS256 signature через зафиксированный JWKS, issuer,
+audience/resource, subject, expiry и scope на каждом `/mcp` request. Query-token,
+wildcard Host/Origin и `ALLOW_NO_AUTH` не поддерживаются. Well-known protected
+resource metadata публикуется без auth и указывает на внешний issuer; сам
+`/mcp` всегда требует auth.
+
+Подготовь Caddy по шаблону
+[`docs/dev-mcp/Caddyfile.example`](dev-mcp/Caddyfile.example), замени только
+placeholder host на собственное DNS-имя, сохрани локальную копию как
+`docs/dev-mcp/Caddyfile` и направь его A/AAAA record на машину.
+Запусти backend отдельно:
+
+```text
+uv run --locked --no-sync python -m module.dev_mcp.remote doctor
+uv run --locked --no-sync python -m module.dev_mcp.remote
+caddy validate --config docs/dev-mcp/Caddyfile
+caddy run --config docs/dev-mcp/Caddyfile
+```
+
+Первые команды выполняются с OAuth-переменными в защищённом окружении; значения
+не записываются в Git. Перед подключением проверь без секрета: `GET
+https://<public-host>/.well-known/oauth-protected-resource/mcp` возвращает
+metadata, а `POST https://<public-host>/mcp` без auth возвращает `401` с
+`WWW-Authenticate` и ссылкой на metadata. В приложении `AzurPilot Development`
+используй URL mode `https://<public-host>/mcp` и OAuth, затем обнови app после
+изменения tool descriptors. Сначала выполняются только read-only
+`dev_get_contract`, `dev_preflight` и `dev_list_smoke_capabilities`.
+
+Безопасный rollback: остановить remote backend, остановить Caddy, удалить только
+созданное для этого endpoint правило firewall/router, отозвать или ротировать
+OAuth credentials и отключить app в ChatGPT. Системный network reset не нужен.
 
 ## Canonical Plugin AzurPilot
 
 Canonical Plugin Creator package находится в `plugins/azurpilot/`; его
 machine-readable ID — `azurpilot`, а отображаемое имя — `AzurPilot`. Пакет
 содержит ровно один Development skill и не регистрирует `.app.json` или
-`.mcp.json`: Codex использует этот stdio Dev MCP напрямую, а ChatGPT должен
-подключаться к тому же command через Secure MCP Tunnel. Tunnel profile и его
-credentials хранятся вне Git; публичный HTTP endpoint, custom OAuth и второй
-MCP implementation запрещены.
+`.mcp.json`: Codex использует этот stdio Dev MCP напрямую, а ChatGPT подключается
+к тому же adapter через authenticated public HTTPS `/mcp`. OAuth/OIDC provider,
+Caddy config и credentials хранятся вне Git; второй MCP implementation и
+production `mcp_server_sse.py` не используются.
 
 Основной workflow skill: `dev_get_contract` →
 `dev_list_smoke_capabilities` → строгий `SmokeSpec` → `dev_validate_smoke` →
