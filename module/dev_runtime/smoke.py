@@ -2391,11 +2391,17 @@ class SmokeStateStore:
                 run_dir = self._run_dir(record.smoke_id)
                 if _is_reparse_point(run_dir):
                     continue
-                for child in run_dir.iterdir():
-                    if _is_reparse_point(child) or child.is_dir():
-                        continue
-                    child.unlink(missing_ok=True)
-                run_dir.rmdir()
+                try:
+                    for child in run_dir.iterdir():
+                        if _is_reparse_point(child) or child.is_dir():
+                            continue
+                        child.unlink(missing_ok=True)
+                    run_dir.rmdir()
+                except OSError as exc:
+                    raise SmokeStoreError(
+                        "DEV_SMOKE_RETENTION_CLEANUP_FAILED",
+                        "Старый каталог SmokeRun невозможно безопасно удалить",
+                    ) from exc
                 removed += 1
         return removed
 

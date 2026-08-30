@@ -35,7 +35,7 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
-Публичные инструменты: `dev_preflight`, `dev_doctor`, `dev_list_tasks`,
+Базовые инструменты Dev Runtime (без Smoke Harness): `dev_preflight`, `dev_doctor`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
 `dev_get_logs` и `dev_get_screenshot`. Только для чтения работают `preflight`,
@@ -46,6 +46,8 @@ tool_timeout_sec = 180
 состояние планировщика, а
 `preserve_task_state=true` является явным диагностическим исключением и требует
 последующего `dev_cleanup`.
+
+Инструменты Universal Smoke Harness описаны в отдельном разделе ниже.
 
 Каждый инструмент использует только фиксированный `ap`: MCP не принимает
 `profile`, `instance`, `path`, установщик конфигурации или команду оболочки. Входные схемы строгие и

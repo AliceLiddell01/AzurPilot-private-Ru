@@ -437,6 +437,36 @@ def test_smoke_state_store_persists_and_rejects_immutable_changes(tmp_path: Path
     assert error.value.code == "DEV_SMOKE_STATE_IMMUTABLE"
 
 
+def test_smoke_state_store_prune_converts_cleanup_oserror(
+    tmp_path: Path, clean_source: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment = _environment(tmp_path)
+    store = smoke.SmokeStateStore(environment, now=lambda: _NOW)
+    run = store.create(
+        _spec(),
+        smoke._source_snapshot(_source()),
+        created_at="2020-01-01T00:00:00+00:00",
+        deadline_at="2020-01-01T00:00:30+00:00",
+        smoke_id="expired",
+    )
+    finished = run.model_copy(update={"state": smoke.SmokeState.FINISHED, "outcome": smoke.SmokeOutcome.PASS})
+    monkeypatch.setattr(store, "list_records_unlocked", lambda: [finished])
+    run_dir = store._run_dir("expired")
+    original_rmdir = Path.rmdir
+
+    def fail_rmdir(path: Path) -> None:
+        if path == run_dir:
+            raise OSError("synthetic locked directory")
+        original_rmdir(path)
+
+    monkeypatch.setattr(Path, "rmdir", fail_rmdir)
+
+    with pytest.raises(smoke.SmokeStoreError) as error:
+        store.prune(now=_NOW)
+
+    assert error.value.code == "DEV_SMOKE_RETENTION_CLEANUP_FAILED"
+
+
 def test_source_drift_invalidates_run_before_runtime_start(tmp_path: Path, clean_source: None, monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = _Runtime()
     manager = _manager(tmp_path, runtime)
