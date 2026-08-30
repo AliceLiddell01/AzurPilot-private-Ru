@@ -139,9 +139,14 @@ def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
         "config/ap.json",
     )
     for path in _PLUGIN_ROOT.rglob("*"):
-        if not path.is_file() or path.name.startswith("."):
+        if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8")
+        raw = path.read_bytes()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            # Keep ASCII secret patterns visible even in binary/non-UTF-8 files.
+            text = raw.decode("latin-1")
         assert not absolute_path.search(text), path
         assert not re.search(
             r"(?i)(?:\b(?:sk|rk|xox[baprs])-[A-Za-z0-9_-]{12,}|"

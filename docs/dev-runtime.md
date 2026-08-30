@@ -307,10 +307,19 @@ wildcard Host/Origin и `ALLOW_NO_AUTH` не поддерживаются. Well-
 resource metadata публикуется без auth и указывает на внешний issuer; сам
 `/mcp` всегда требует auth.
 
+Для remote HTTP transport request deadline остаётся bounded даже для blocking
+adapter call: при истечении timeout HTTP-клиент получает `504`, а abandoned
+worker может завершить уже начатую mutating operation. Такой timeout считается
+неопределённым результатом: клиент не повторяет mutating request автоматически,
+а перед следующей мутацией сначала читает `dev_status` или соответствующий
+smoke/evidence state.
+
 Подготовь Caddy по шаблону
 [`docs/dev-mcp/Caddyfile.example`](dev-mcp/Caddyfile.example), замени только
 placeholder host на собственное DNS-имя, сохрани локальную копию как
-`docs/dev-mcp/Caddyfile` и направь его A/AAAA record на машину.
+`docs/dev-mcp/Caddyfile` и направь его A/AAAA record на машину. Эта локальная
+копия явно исключена из Git правилом `.gitignore`; не добавляй её через `git
+add -f`.
 Запусти backend отдельно:
 
 ```text

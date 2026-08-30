@@ -139,7 +139,7 @@ def _canonical_host(parsed: SplitResult) -> str:
 
 @dataclass(frozen=True, slots=True)
 class RemoteConfig:
-    """Fail-closed configuration for the public resource server."""
+    """Fail-closed конфигурация публичного resource server."""
 
     public_url: str
     oauth_issuer: str
@@ -624,7 +624,7 @@ def create_remote_app(
     remote_config = config or RemoteConfig.from_env()
     verifier = token_verifier or OIDCTokenVerifier(remote_config)
     _install_expected_stream_close_filter()
-    server = create_server(adapter)
+    server = create_server(adapter, abandon_on_cancel=True)
     session_manager = StreamableHTTPSessionManager(
         app=server,
         json_response=True,

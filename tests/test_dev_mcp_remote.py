@@ -32,7 +32,12 @@ from module.dev_mcp.remote import (
     RequestTimeoutMiddleware,
     create_remote_app,
 )
-from module.dev_mcp.server import DEV_MCP_ARGS, DEV_MCP_COMMAND, tool_definitions
+from module.dev_mcp.server import (
+    DEV_MCP_ARGS,
+    DEV_MCP_COMMAND,
+    DEV_MCP_TOOL_NAMES,
+    tool_definitions,
+)
 
 _BASE_URL = "https://mcp.example.test"
 _HOST = "mcp.example.test"
@@ -229,7 +234,7 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
             )
             assert listed.status_code == 200
             tools = listed.json()["result"]["tools"]
-            assert len(tools) == 21
+            assert len(tools) == len(DEV_MCP_TOOL_NAMES)
             assert tools == [tool.model_dump(by_alias=True, exclude_none=True) for tool in tool_definitions()]
             assert all(
                 tool["securitySchemes"] == [{"type": "oauth2", "scopes": ["azurpilot:dev"]}]

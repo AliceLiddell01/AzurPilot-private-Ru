@@ -235,8 +235,19 @@ def _screenshot_call_result(response: DevMcpResponse) -> CallToolResult:
     )
 
 
-def create_server(adapter: DevMcpAdapter | None = None) -> Server:
-    """Создать низкоуровневый сервер MCP без побочных эффектов выполнения."""
+def create_server(
+    adapter: DevMcpAdapter | None = None,
+    *,
+    abandon_on_cancel: bool = False,
+) -> Server:
+    """Создать низкоуровневый сервер MCP без побочных эффектов выполнения.
+
+    Remote transport передаёт `abandon_on_cancel=True`, чтобы его HTTP deadline
+    не зависел от блокирующего adapter call. Если такой вызов уже начал
+    mutating operation, worker может завершить её после ответа `504`; клиент не
+    должен повторять неопределённый вызов и обязан сначала перечитать state.
+    Local stdio сохраняет ожидание worker по умолчанию.
+    """
 
     server = Server(SERVER_NAME, version=SERVER_VERSION)
     bound_adapter = adapter if adapter is not None else DevMcpAdapter()
@@ -250,7 +261,12 @@ def create_server(adapter: DevMcpAdapter | None = None) -> Server:
         name: str,
         arguments: dict[str, Any],
     ) -> dict[str, object] | CallToolResult:
-        response = await anyio.to_thread.run_sync(bound_adapter.call, name, arguments)
+        response = await anyio.to_thread.run_sync(
+            bound_adapter.call,
+            name,
+            arguments,
+            abandon_on_cancel=abandon_on_cancel,
+        )
         if not isinstance(response, DevMcpResponse):
             return response
         return _screenshot_call_result(response)
