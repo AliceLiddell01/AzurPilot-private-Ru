@@ -17,6 +17,9 @@ from module.dev_runtime import (
     DevSession,
     DevSessionManager,
     DevSessionState,
+    DevTaskMode,
+    DevTaskPhase,
+    EvidenceStore,
     DevStatusKind,
     ProcessBackend,
     ProcessIdentity,
@@ -161,6 +164,42 @@ def test_public_runtime_is_ap_only_and_loopback_only(tmp_path: Path) -> None:
         DevEnvironment(environment.repository_root, environment.python_executable, host="0.0.0.0")
     with pytest.raises(ValueError):
         DevEnvironment(environment.repository_root, environment.python_executable, port=DEV_PORT + 1)
+
+
+def test_evidence_hooks_rebind_cached_store_to_current_session(tmp_path: Path) -> None:
+    manager, _backend = _manager(tmp_path)
+    session_a = EvidenceStore.create(
+        manager.environment,
+        session_id="session-a",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp="2026-08-29T00:00:00+00:00",
+    )
+    session_b = EvidenceStore.create(
+        manager.environment,
+        session_id="session-b",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp="2026-08-29T00:00:00+00:00",
+    )
+    current = _session(
+        manager.environment,
+        state=DevSessionState.CREATED,
+        session_id="session-b",
+    )
+    current.task_mode = DevTaskMode.TASK_AWARE
+    current.task_phase = DevTaskPhase.PREPARING
+    current.task_cleanup_required = True
+    current.task_policy_expected = True
+    manager._write_session(current)
+    manager._evidence_store = session_a
+
+    manager._evidence_event("runtime_warning", {"code": "SESSION_B_EVENT"})
+    manager._evidence_error(ValueError("SESSION_B_ERROR"), phase="test")
+
+    assert session_a.timeline_page(limit=10)["events"] == []
+    events = session_b.timeline_page(limit=10)["events"]
+    assert [event["type"] for event in events] == ["runtime_warning", "runtime_error"]
 
 
 def test_profile_check_accepts_only_structural_local_ap(tmp_path: Path) -> None:

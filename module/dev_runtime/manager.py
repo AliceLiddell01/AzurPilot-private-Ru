@@ -100,6 +100,18 @@ class DevSessionManager(DevDiagnosticsMixin):
             return None
         return store
 
+    def _evidence_store_for_current_session(self) -> EvidenceStore | None:
+        try:
+            session = self._read_session()
+        except (OSError, ValueError):
+            return None
+        if session is None or not session.is_task_aware:
+            return None
+        cached = self._evidence_store
+        if cached is not None and cached.session_id == session.session_id:
+            return cached
+        return self._evidence_for_session(session.session_id)
+
     def _evidence_event(
         self,
         event_type: str,
@@ -107,14 +119,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         *,
         store: EvidenceStore | None = None,
     ) -> None:
-        active_store = store or self._evidence_store
-        if active_store is None:
-            try:
-                session = self._read_session()
-            except (OSError, ValueError):
-                session = None
-            if session is not None and session.is_task_aware:
-                active_store = self._evidence_for_session(session.session_id)
+        active_store = store if store is not None else self._evidence_store_for_current_session()
         if active_store is None:
             return
         try:
@@ -129,14 +134,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         phase: str,
         store: EvidenceStore | None = None,
     ) -> None:
-        active_store = store or self._evidence_store
-        if active_store is None:
-            try:
-                session = self._read_session()
-            except (OSError, ValueError):
-                session = None
-            if session is not None and session.is_task_aware:
-                active_store = self._evidence_for_session(session.session_id)
+        active_store = store if store is not None else self._evidence_store_for_current_session()
         if active_store is None:
             return
         try:
