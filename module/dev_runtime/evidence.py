@@ -1841,6 +1841,12 @@ class EvidenceStore:
 
         try:
             with _exclusive_lock(self.lock_path, self.environment.repository_root):
+                manifest = self._manifest_locked()
+                if manifest.get("stopped_at") is None:
+                    raise EvidenceUnavailable(
+                        "DEV_EVIDENCE_NOT_FINALIZED",
+                        "Исторический снимок экрана доступен только после остановки DevSession",
+                    )
                 metadata, data = self._read_screenshot_metadata_locked(screenshot_id)
             return EvidenceScreenshot(
                 DevResult(

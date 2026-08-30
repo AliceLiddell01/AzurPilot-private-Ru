@@ -418,6 +418,21 @@ def test_screenshot_metadata_is_bounded_and_self_verified(tmp_path: Path) -> Non
     assert error.value.code == "DEV_EVIDENCE_CORRUPT"
 
 
+def test_historical_screenshot_requires_stopped_session(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    screenshot = store.persist_screenshot(np.zeros((1, 1, 3), dtype=np.uint8), timestamp=_TIME)
+    screenshot_id = screenshot.result.details["screenshot"]["screenshot_id"]
+
+    before_stop = store.read_persisted_screenshot(screenshot_id)
+    assert before_stop.result.ok is False
+    assert before_stop.result.code == "DEV_EVIDENCE_NOT_FINALIZED"
+
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    after_stop = store.read_persisted_screenshot(screenshot_id)
+    assert after_stop.result.ok is True
+    assert after_stop.image == screenshot.image
+
+
 def test_screenshot_bytes_must_be_png(tmp_path: Path) -> None:
     store = _store(tmp_path)
     from PIL import Image
