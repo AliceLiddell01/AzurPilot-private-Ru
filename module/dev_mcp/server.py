@@ -15,16 +15,19 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ImageContent, TextContent, Tool, ToolAnnotations
 
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
+from module.dev_mcp.contract import DEV_MCP_API_VERSION
 from module.dev_runtime.smoke import SmokeSpec
 
 SERVER_NAME = "azurpilot-dev"
-SERVER_VERSION = "1"
+SERVER_VERSION = str(DEV_MCP_API_VERSION)
 DEV_MCP_COMMAND = "uv"
 DEV_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.dev_mcp")
+DEV_MCP_REQUIRED_SCOPE = "azurpilot:dev"
 _NO_ARGUMENT_TOOLS = frozenset(
     {
         "dev_preflight",
         "dev_doctor",
+        "dev_get_contract",
         "dev_list_tasks",
         "dev_status",
         "dev_cleanup",
@@ -152,6 +155,7 @@ def _tool(
         inputSchema=input_schema,
         outputSchema=_OUTPUT,
         annotations=annotations,
+        securitySchemes=[{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}],
     )
 
 
@@ -161,6 +165,7 @@ def tool_definitions() -> list[Tool]:
     descriptions = {
         "dev_preflight": "Предварительная проверка только для чтения фиксированного профиля Dev Runtime ap.",
         "dev_doctor": "Диагностика только для чтения фиксированного профиля Dev Runtime ap.",
+        "dev_get_contract": "Получить стабильный read-only контракт совместимости AzurPilot Dev MCP.",
         "dev_list_tasks": "Динамический каталог планируемых задач профиля ap только для чтения.",
         "dev_plan_session": "Сформировать план задач только для чтения для профиля ap.",
         "dev_start_session": "Запустить DevSession с учётом задач только для выбранных задач профиля ap.",
@@ -230,8 +235,19 @@ def _screenshot_call_result(response: DevMcpResponse) -> CallToolResult:
     )
 
 
-def create_server(adapter: DevMcpAdapter | None = None) -> Server:
-    """Создать низкоуровневый сервер MCP без побочных эффектов выполнения."""
+def create_server(
+    adapter: DevMcpAdapter | None = None,
+    *,
+    abandon_on_cancel: bool = False,
+) -> Server:
+    """Создать низкоуровневый сервер MCP без побочных эффектов выполнения.
+
+    Remote transport передаёт `abandon_on_cancel=True`, чтобы его HTTP deadline
+    не зависел от блокирующего adapter call. Если такой вызов уже начал
+    mutating operation, worker может завершить её после ответа `504`; клиент не
+    должен повторять неопределённый вызов и обязан сначала перечитать state.
+    Local stdio сохраняет ожидание worker по умолчанию.
+    """
 
     server = Server(SERVER_NAME, version=SERVER_VERSION)
     bound_adapter = adapter if adapter is not None else DevMcpAdapter()
@@ -245,7 +261,12 @@ def create_server(adapter: DevMcpAdapter | None = None) -> Server:
         name: str,
         arguments: dict[str, Any],
     ) -> dict[str, object] | CallToolResult:
-        response = await anyio.to_thread.run_sync(bound_adapter.call, name, arguments)
+        response = await anyio.to_thread.run_sync(
+            bound_adapter.call,
+            name,
+            arguments,
+            abandon_on_cancel=abandon_on_cancel,
+        )
         if not isinstance(response, DevMcpResponse):
             return response
         return _screenshot_call_result(response)
@@ -282,6 +303,7 @@ def main() -> None:
 __all__ = [
     "DEV_MCP_ARGS",
     "DEV_MCP_COMMAND",
+    "DEV_MCP_REQUIRED_SCOPE",
     "SERVER_NAME",
     "SERVER_VERSION",
     "create_server",

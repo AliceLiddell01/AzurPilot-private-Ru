@@ -45,10 +45,34 @@ MCP-инструменты делятся на read-only и меняющие с�
 - screenshot с чувствительными данными.
 
 Dev MCP для локальной Codex-интеграции находится в `module/dev_mcp` и работает
-только через stdio. Это отдельный тонкий adapter к существующему
-`DevSessionManager` с фиксированным профилем `ap`; он не добавляет HTTP listener,
-generic shell/config tools или управление production profiles. Production MCP
-и его transport остаются независимыми.
+через stdio. Для ChatGPT есть отдельный `module.dev_mcp.remote` с HTTPS
+Streamable HTTP `/mcp`; оба entrypoint-а используют один тонкий adapter к
+существующему `DevSessionManager` с фиксированным профилем `ap`. Remote backend
+bind-ится только на `127.0.0.1`, требует внешний OAuth/OIDC access token и не
+добавляет generic shell/config tools или управление production profiles.
+Production MCP и его transport остаются независимыми.
+
+## Canonical Plugin AzurPilot
+
+`plugins/azurpilot/` — source-controlled package, сгенерированный текущим
+Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
+`AzurPilot`; текущий пакет публикует capability `Development` и
+`azurpilot-development` skill. Пакет не содержит ChatGPT app state, tunnel
+profile, credentials, screenshots, archives или runtime cache и не регистрирует
+второй MCP implementation.
+
+Codex использует project-scoped `azurpilot-dev` через прямой local stdio и
+`module.dev_mcp`. ChatGPT использует подключённое приложение с
+authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy и
+внешним OAuth/OIDC provider; custom authorization server и Secure MCP Tunnel
+для этого пути не требуются. `module.dev_mcp.contract` публикует read-only boundary с
+версиями API/Smoke schemas, профилем `ap`, required feature flags, capability
+families и result outcomes.
+Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
+любом несовпадении.
+
+Текущий Development package не предоставляет capability `Game` или игровую
+production-интеграцию.
 
 ## Статистика
 

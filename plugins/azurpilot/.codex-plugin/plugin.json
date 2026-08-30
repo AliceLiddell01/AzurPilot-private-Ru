@@ -1,0 +1,34 @@
+{
+  "name": "azurpilot",
+  "version": "0.1.0+codex.20260830153249",
+  "description": "Кросс-поверхностный Development workflow для локального Dev Runtime AzurPilot.",
+  "author": {
+    "name": "AzurPilot",
+    "url": "https://github.com/AliceLiddell01/AzurPilot-private-Ru"
+  },
+  "homepage": "https://github.com/AliceLiddell01/AzurPilot-private-Ru",
+  "repository": "https://github.com/AliceLiddell01/AzurPilot-private-Ru",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "AzurPilot",
+    "Dev Runtime",
+    "MCP",
+    "Smoke Harness"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "AzurPilot",
+    "shortDescription": "Безопасная Development-проверка Dev Runtime.",
+    "longDescription": "AzurPilot предоставляет Development workflow поверх существующего Dev MCP и Universal Smoke Harness. В Codex используется local stdio; ChatGPT подключается к authenticated public HTTPS MCP endpoint через Caddy и внешний OAuth/OIDC. Game capability в этом пакете отсутствует.",
+    "developerName": "AzurPilot",
+    "category": "Developer tools",
+    "capabilities": [
+      "Development"
+    ],
+    "defaultPrompt": [
+      "Проверь контракт AzurPilot Dev MCP без запуска Smoke.",
+      "Подготовь безопасный Smoke Harness для изменения Dev Runtime.",
+      "Разбери результат SmokeRun и объясни следующий шаг."
+    ]
+  }
+}

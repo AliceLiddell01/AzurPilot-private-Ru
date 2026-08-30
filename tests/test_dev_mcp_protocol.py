@@ -16,11 +16,13 @@ from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResp
 from module.dev_mcp.server import (
     DEV_MCP_ARGS,
     DEV_MCP_COMMAND,
+    DEV_MCP_REQUIRED_SCOPE,
     SERVER_NAME,
     _screenshot_call_result,
     create_server,
     tool_definitions,
 )
+from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _FORBIDDEN_INPUT_FIELDS = {
@@ -50,6 +52,7 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
     expected_names = [
         "dev_preflight",
         "dev_doctor",
+        "dev_get_contract",
         "dev_list_tasks",
         "dev_plan_session",
         "dev_start_session",
@@ -88,6 +91,7 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         assert not _FORBIDDEN_INPUT_FIELDS.intersection(tool.inputSchema.get("properties", {}))
         assert tool.inputSchema["additionalProperties"] is False
         assert tool.outputSchema is not None
+        assert tool.securitySchemes == [{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}]
         assert tool.outputSchema["additionalProperties"] is False
         assert tool.annotations.readOnlyHint is (tool.name not in (mutating | additive))
         assert tool.annotations.destructiveHint is (tool.name in mutating)
@@ -201,6 +205,7 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
             assert {tool.name for tool in tools.tools} == {
                 "dev_preflight",
                 "dev_doctor",
+                "dev_get_contract",
                 "dev_list_tasks",
                 "dev_plan_session",
                 "dev_start_session",
@@ -227,6 +232,10 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
                 "DEV_TASK_STATE_MISSING",
                 "DEV_TASK_CATALOG_READY",
             }
+            contract = await session.call_tool("dev_get_contract", {})
+            assert contract.structuredContent is not None
+            assert contract.structuredContent["ok"] is True
+            assert contract.structuredContent["details"]["contract"] == EXPECTED_CONTRACT
 
     asyncio.run(scenario())
 

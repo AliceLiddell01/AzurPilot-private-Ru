@@ -22,6 +22,7 @@ from module.dev_runtime import (
     ProcessIdentity,
 )
 from module.dev_runtime.smoke import SmokeSpec
+from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
 
 
 def _result(code: str = "DEV_SYNTHETIC_OK") -> DevResult:
@@ -146,6 +147,18 @@ def _adapter_with_factory() -> tuple[DevMcpAdapter, _FakeManager, list[int]]:
         return manager
 
     return DevMcpAdapter(factory), manager, factory_calls
+
+
+def test_contract_is_static_safe_and_does_not_construct_runtime_manager() -> None:
+    adapter, manager, factory_calls = _adapter_with_factory()
+
+    result = adapter.call("dev_get_contract", {})
+
+    assert result["ok"] is True
+    assert result["code"] == "DEV_MCP_CONTRACT_READY"
+    assert result["details"]["contract"] == EXPECTED_CONTRACT
+    assert factory_calls == []
+    assert manager.calls == []
 
 
 class _SyntheticProcessBackend:

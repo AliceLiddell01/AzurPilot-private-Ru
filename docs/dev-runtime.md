@@ -2,7 +2,8 @@
 
 Dev Runtime запускает только штатный `gui.py --run ap` с фиксированными локальными
 параметрами и точным владением процессом. Task Sandbox добавляет API с учётом задач поверх
-этого жизненного цикла, не меняя транспорт MCP и обычный рабочий планировщик.
+этого жизненного цикла, не меняя обычный рабочий планировщик. Для Codex и ChatGPT
+предусмотрены разные transport boundaries поверх одного adapter.
 
 ## Dev MCP для Codex
 
@@ -15,9 +16,10 @@ Codex
   → фиксированный профиль ap
 ```
 
-Dev MCP использует только локальный транспорт stdio. Рабочий MCP в
-`mcp_server_sse.py` остаётся отдельным и не импортируется адаптером; MCP SDK и
-рабочий транспорт не изменяются. Запуск сервера не создаёт
+Dev MCP для Codex использует локальный транспорт stdio. Для ChatGPT существует
+отдельный `module.dev_mcp.remote` с authenticated HTTPS Streamable HTTP на `/mcp`;
+он не переиспользует `mcp_server_sse.py`. Production MCP остаётся отдельным и
+не импортируется адаптером. Запуск обоих Dev MCP entrypoint-ов не создаёт
 `DevSessionManager`, не читает `config/ap.json`, не запускает WebUI и не требует
 PostgreSQL, эмулятор или ADB. Менеджер создаётся лениво при первом вызове инструмента.
 
@@ -35,7 +37,7 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
-Базовые инструменты Dev Runtime (без Smoke Harness): `dev_preflight`, `dev_doctor`, `dev_list_tasks`,
+Базовые инструменты Dev Runtime (без Smoke Harness): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
 `dev_get_logs` и `dev_get_screenshot`. Только для чтения работают `preflight`,
@@ -64,6 +66,14 @@ tool_timeout_sec = 180
 Каждый контекст использует собственный разрешённый список: неизвестные поля удаляются
 на любой вложенности, а значения проходят ограничение глубины, числа элементов и длины текста,
 после чего очищаются от чувствительных данных.
+
+`dev_get_contract` — read-only граница совместимости для canonical-пакета
+`AzurPilot`. Она возвращает только `contract_schema_version`, семейство продукта,
+версии Dev MCP/Smoke schemas, фиксированный профиль `ap`, feature flags,
+capability families и result outcomes. В контракте нет путей, секретов или
+сведений об окружении;
+плагин сравнивает его с `plugins/azurpilot/compatibility.json` и при любом
+несовпадении останавливается с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls.
 
 Для stdio stdout зарезервирован JSON-RPC протоколом и не содержит журналов оператора,
 баннеров или отладочного вывода. Диагностические сообщения идут только в stderr.
@@ -253,4 +263,116 @@ Smoke Harness расширяет локальный stdio Dev MCP ровно с�
 не удерживая MCP request; результат читается через polling `dev_get_smoke`.
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для
 MCP protocol. Production `mcp_server_sse.py`, MCP SDK и обычный gameplay path
-не изменяются.
+не изменяются. Remote entrypoint использует зафиксированный в проекте `mcp==1.29.1`
+и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
+HTTP request повторно проходит auth и не оставляет серверных session records.
+
+## Public HTTPS для ChatGPT
+
+Публичный путь заменяет недоступный для этой personal organization Secure MCP
+Tunnel:
+
+```text
+подключённое ChatGPT-приложение
+  → HTTPS :443 /mcp
+  → Caddy с автоматическим сертификатом
+  → 127.0.0.1:8765 remote Dev MCP
+  → тот же DevMcpAdapter и профиль ap
+```
+
+Backend намеренно принимает только `127.0.0.1` и не должен публиковаться через
+firewall/router. Наружу разрешаются только TCP `443` и, при необходимости для
+ACME/redirect Caddy, TCP `80`. Порты `8765`, `2019`, `5432`, ADB/emulator,
+production WebUI и `mcp_server_sse.py` наружу не пробрасываются.
+
+Внешний OAuth/OIDC provider является authorization server; AzurPilot не
+реализует собственный auth server. Production запуск fail-closed и требует все
+параметры:
+
+```text
+AZURPILOT_DEV_MCP_PUBLIC_URL=https://<public-host>/mcp
+AZURPILOT_DEV_MCP_OAUTH_ISSUER=https://<oauth-issuer>
+AZURPILOT_DEV_MCP_OAUTH_AUDIENCE=<resource-audience>
+AZURPILOT_DEV_MCP_OAUTH_JWKS_URL=https://<oauth-issuer>/<jwks-path>
+AZURPILOT_DEV_MCP_OAUTH_SUBJECT=<single-operator-subject>
+AZURPILOT_DEV_MCP_ALLOWED_ORIGINS=https://chatgpt.com,https://chat.openai.com
+```
+
+`AZURPILOT_DEV_MCP_ALLOWED_ORIGINS` задаёт разделённый запятыми список точных
+HTTPS Origin и заменяет набор по умолчанию `https://chatgpt.com` и
+`https://chat.openai.com`.
+
+OAuth scope `azurpilot:dev` является стабильным протокольным инвариантом и не
+задаётся через окружение. Backend remote MCP всегда слушает фиксированный
+loopback-порт `8765`; Caddy должен проксировать на `127.0.0.1:8765`.
+
+Issuer должен публиковать OAuth/OIDC discovery, authorization-code flow с PKCE
+S256 и выдавать короткоживущий подписанный access token с `iss`, `aud`, `exp`,
+`sub`, при необходимости `nbf` и `resource`, и scope `azurpilot:dev`. Claim
+`aud` обязателен; `resource` проверяется дополнительно, если он присутствует.
+Resource server проверяет RS256 signature через зафиксированный JWKS, issuer,
+audience/resource, subject, expiry и scope на каждом `/mcp` request. Query-token,
+wildcard Host/Origin и `ALLOW_NO_AUTH` не поддерживаются. Well-known protected
+resource metadata публикуется без auth и указывает на внешний issuer; он
+намеренно не проходит через `OAuthBearerMiddleware`, тогда как каждый запрос к
+`/mcp` всегда требует auth.
+
+Для remote HTTP transport request deadline остаётся bounded даже для blocking
+adapter call: при истечении timeout HTTP-клиент получает `504`, а abandoned
+worker может завершить уже начатую mutating operation. Такой timeout считается
+неопределённым результатом: клиент не повторяет mutating request автоматически,
+а перед следующей мутацией сначала читает `dev_status` или соответствующий
+smoke/evidence state.
+
+Подготовь Caddy по шаблону
+[`docs/dev-mcp/Caddyfile.example`](dev-mcp/Caddyfile.example), замени только
+placeholder host на собственное DNS-имя, сохрани локальную копию как
+`docs/dev-mcp/Caddyfile` и направь его A/AAAA record на машину. Эта локальная
+копия явно исключена из Git правилом `.gitignore`; не добавляй её через `git
+add -f`.
+Запусти backend отдельно:
+
+```text
+uv run --locked --no-sync python -m module.dev_mcp.remote doctor
+uv run --locked --no-sync python -m module.dev_mcp.remote
+caddy validate --config docs/dev-mcp/Caddyfile
+caddy run --config docs/dev-mcp/Caddyfile
+```
+
+Первые команды выполняются с OAuth-переменными в защищённом окружении; значения
+не записываются в Git. Перед подключением проверь без секрета: `GET
+https://<public-host>/.well-known/oauth-protected-resource/mcp` возвращает
+metadata, а `POST https://<public-host>/mcp` без auth возвращает `401` с
+`WWW-Authenticate` и ссылкой на metadata. В подключённом ChatGPT-приложении
+используй URL mode `https://<public-host>/mcp` и OAuth, затем обнови app после
+изменения tool descriptors. Сначала выполняются только read-only
+`dev_get_contract`, `dev_preflight` и `dev_list_smoke_capabilities`.
+
+Безопасный rollback: остановить remote backend, остановить Caddy, удалить только
+созданное для этого endpoint правило firewall/router, отозвать или ротировать
+OAuth credentials и отключить app в ChatGPT. Системный network reset не нужен.
+
+## Canonical Plugin AzurPilot
+
+Canonical Plugin Creator package находится в `plugins/azurpilot/`; его
+machine-readable ID — `azurpilot`, а отображаемое имя — `AzurPilot`. Пакет
+поставляет Development skill и не регистрирует `.app.json` или
+`.mcp.json`: Codex использует этот stdio Dev MCP напрямую, а ChatGPT подключается
+к тому же adapter через authenticated public HTTPS `/mcp`. OAuth/OIDC provider,
+Caddy config и credentials хранятся вне Git; второй MCP implementation и
+production `mcp_server_sse.py` не используются.
+
+Основной workflow skill: `dev_get_contract` →
+`dev_list_smoke_capabilities` → строгий `SmokeSpec` → `dev_validate_smoke` →
+exact source snapshot → `dev_start_smoke` → polling `dev_get_smoke` → при
+необходимости замороженная внешняя visual evaluation. PASS допустим только при
+PASS-result, exact source, подтверждённой очистке и полной evidence. Результаты
+`PRODUCT_FAILED`, `HARNESS_FAILED`, `EVIDENCE_INCOMPLETE`, `TIMEOUT`,
+`INVALIDATED`, `CANCELLED` и `PRECONDITION_FAILED` не превращаются в auto-retry
+или успех.
+
+Текущий Development package не предоставляет capability `Game`, игровые
+tools/app/skill или production-интеграцию. Ограничения ChatGPT Developer Mode
+или текущего плана на write tools фиксируются как
+`CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`, а не
+обходятся новым transport или auth server.
