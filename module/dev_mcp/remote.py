@@ -661,8 +661,8 @@ def create_remote_app(
     mcp_endpoint: ASGIApp = _StreamableHTTPASGIApp(session_manager)
     mcp_endpoint = RequestTimeoutMiddleware(mcp_endpoint, remote_config)
     mcp_endpoint = RequestBodyLimitMiddleware(mcp_endpoint, remote_config)
-    mcp_endpoint = ConcurrencyLimitMiddleware(mcp_endpoint, remote_config)
     mcp_endpoint = OAuthBearerMiddleware(mcp_endpoint, remote_config, verifier)
+    mcp_endpoint = ConcurrencyLimitMiddleware(mcp_endpoint, remote_config)
     mcp_endpoint = StrictHostOriginMiddleware(mcp_endpoint, remote_config)
     mcp_endpoint = FailSafeMiddleware(mcp_endpoint)
 
@@ -729,7 +729,7 @@ def doctor() -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="AzurPilot public Dev MCP entrypoint")
+    parser = argparse.ArgumentParser(description="Публичная точка входа AzurPilot Dev MCP")
     parser.add_argument("command", nargs="?", choices=("serve", "doctor"), default="serve")
     args = parser.parse_args()
     if args.command == "doctor":
