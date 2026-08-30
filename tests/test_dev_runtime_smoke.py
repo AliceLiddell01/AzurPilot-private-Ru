@@ -262,6 +262,17 @@ def test_smoke_spec_is_strict_canonical_and_rejects_forbidden_paths() -> None:
         smoke.SmokeConfigOverride(path="Reward.Unsafe.path", value="x")
 
 
+def test_profile_digest_accepts_materialized_registered_defaults(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    registry = smoke.ConfigRegistry(environment)
+    missing = {"Reward": {"Reward": {}}}
+    materialized = {"Reward": {"Reward": {"Enable": False}}}
+
+    assert smoke._semantic_profile_digest(missing, registry) == smoke._semantic_profile_digest(materialized, registry)
+    changed = {"Reward": {"Reward": {"Enable": True}}}
+    assert smoke._semantic_profile_digest(missing, registry) != smoke._semantic_profile_digest(changed, registry)
+
+
 def test_capability_registry_evaluates_negative_assertion_only_after_window() -> None:
     registry = smoke.SmokeCapabilityRegistry()
     assertion = smoke.EventNotOccurredAssertion(

@@ -1239,7 +1239,15 @@ def _deep_set(payload: object, path: str, value: ScalarValue) -> None:
 def _semantic_profile_digest(payload: object, registry: ConfigRegistry) -> str:
     if not isinstance(payload, Mapping):
         raise SmokeStoreError("DEV_SMOKE_PROFILE_INVALID", "профиль нельзя наблюдать")
-    values = {path: _deep_get(payload, path) for path in registry.allowed_paths()}
+    values: dict[str, object] = {}
+    missing = object()
+    for path in registry.allowed_paths():
+        value = _deep_get(payload, path, missing)
+        if value is missing:
+            # Обычный загрузчик профиля материализует отсутствующие листы их
+            # текущими значениями по умолчанию при первом сохранении ap.json.
+            value = registry.leaf(path).get("value")
+        values[path] = value
     return hashlib.sha256(
         json.dumps(values, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
