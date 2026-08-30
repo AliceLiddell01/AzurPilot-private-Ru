@@ -51,7 +51,7 @@ ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.skipif(
     any(not os.environ.get(name) for name in REQUIRED_ENV)
     or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
-    reason="требуется явно настроенная disposable PostgreSQL Stage 2 DB",
+    reason="требуется явно настроенная disposable PostgreSQL database",
 )
 
 
@@ -89,7 +89,7 @@ def _instance(database: LazyEngine) -> UUID:
         connection.execute(
             insert(app_instance).values(
                 id=instance_id,
-                name=f"stage2-{instance_id}",
+                name=f"disposable-{instance_id}",
                 created_at=datetime.now(UTC),
             )
         )
@@ -337,7 +337,7 @@ def test_alembic_downgrade_rejects_mismatched_confirmed_target(
 
 
 def test_digest_only_instance_identity_resolution(database: LazyEngine):
-    identity = InstanceIdentity(uuid4(), "stage2-identity")
+    identity = InstanceIdentity(uuid4(), "disposable-identity")
     digest = "c" * 64
     with PostgresUnitOfWork(database) as uow:
         assert uow.instances.register(
