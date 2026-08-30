@@ -169,6 +169,16 @@ def test_contract_is_static_safe_and_does_not_construct_runtime_manager() -> Non
             "external_visual_evaluation": True,
         },
         "capability_families": ["diagnostics", "evidence", "lifecycle", "smoke"],
+        "result_outcomes": [
+            "PASS",
+            "PRODUCT_FAILED",
+            "PRECONDITION_FAILED",
+            "HARNESS_FAILED",
+            "EVIDENCE_INCOMPLETE",
+            "TIMEOUT",
+            "INVALIDATED",
+            "CANCELLED",
+        ],
     }
     assert factory_calls == []
     assert manager.calls == []

@@ -69,8 +69,9 @@ tool_timeout_sec = 180
 
 `dev_get_contract` — read-only граница совместимости для canonical-пакета
 `AzurPilot`. Она возвращает только `contract_schema_version`, семейство продукта,
-версии Dev MCP/Smoke schemas, фиксированный профиль `ap`, feature flags и
-capability families. В контракте нет путей, секретов или сведений об окружении;
+версии Dev MCP/Smoke schemas, фиксированный профиль `ap`, feature flags,
+capability families и result outcomes. В контракте нет путей, секретов или
+сведений об окружении;
 плагин сравнивает его с `plugins/azurpilot/compatibility.json` и при любом
 несовпадении останавливается с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls.
 
@@ -262,7 +263,7 @@ Smoke Harness расширяет локальный stdio Dev MCP ровно с�
 не удерживая MCP request; результат читается через polling `dev_get_smoke`.
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для
 MCP protocol. Production `mcp_server_sse.py`, MCP SDK и обычный gameplay path
-не изменяются. Remote entrypoint использует зафиксированный в проекте `mcp==1.23.0`
+не изменяются. Remote entrypoint использует зафиксированный в проекте `mcp==1.29.1`
 и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
 HTTP request повторно проходит auth и не оставляет серверных session records.
 
@@ -272,7 +273,7 @@ HTTP request повторно проходит auth и не оставляет �
 Tunnel:
 
 ```text
-ChatGPT app AzurPilot Development
+подключённое ChatGPT-приложение
   → HTTPS :443 /mcp
   → Caddy с автоматическим сертификатом
   → 127.0.0.1:8765 remote Dev MCP
@@ -294,14 +295,16 @@ AZURPILOT_DEV_MCP_OAUTH_ISSUER=https://<oauth-issuer>
 AZURPILOT_DEV_MCP_OAUTH_AUDIENCE=<resource-audience>
 AZURPILOT_DEV_MCP_OAUTH_JWKS_URL=https://<oauth-issuer>/<jwks-path>
 AZURPILOT_DEV_MCP_OAUTH_SUBJECT=<single-operator-subject>
-AZURPILOT_DEV_MCP_OAUTH_SCOPE=azurpilot:dev
 AZURPILOT_DEV_MCP_ALLOWED_ORIGINS=https://chatgpt.com,https://chat.openai.com
-AZURPILOT_DEV_MCP_PORT=8765
 ```
 
 `AZURPILOT_DEV_MCP_ALLOWED_ORIGINS` задаёт разделённый запятыми список точных
 HTTPS Origin и заменяет набор по умолчанию `https://chatgpt.com` и
 `https://chat.openai.com`.
+
+OAuth scope `azurpilot:dev` является стабильным протокольным инвариантом и не
+задаётся через окружение. Backend remote MCP всегда слушает фиксированный
+loopback-порт `8765`; Caddy должен проксировать на `127.0.0.1:8765`.
 
 Issuer должен публиковать OAuth/OIDC discovery, authorization-code flow с PKCE
 S256 и выдавать короткоживущий подписанный access token с `iss`, `aud`, `exp`,
@@ -339,7 +342,7 @@ caddy run --config docs/dev-mcp/Caddyfile
 не записываются в Git. Перед подключением проверь без секрета: `GET
 https://<public-host>/.well-known/oauth-protected-resource/mcp` возвращает
 metadata, а `POST https://<public-host>/mcp` без auth возвращает `401` с
-`WWW-Authenticate` и ссылкой на metadata. В приложении `AzurPilot Development`
+`WWW-Authenticate` и ссылкой на metadata. В подключённом ChatGPT-приложении
 используй URL mode `https://<public-host>/mcp` и OAuth, затем обнови app после
 изменения tool descriptors. Сначала выполняются только read-only
 `dev_get_contract`, `dev_preflight` и `dev_list_smoke_capabilities`.
@@ -352,7 +355,7 @@ OAuth credentials и отключить app в ChatGPT. Системный netwo
 
 Canonical Plugin Creator package находится в `plugins/azurpilot/`; его
 machine-readable ID — `azurpilot`, а отображаемое имя — `AzurPilot`. Пакет
-содержит ровно один Development skill и не регистрирует `.app.json` или
+поставляет Development skill и не регистрирует `.app.json` или
 `.mcp.json`: Codex использует этот stdio Dev MCP напрямую, а ChatGPT подключается
 к тому же adapter через authenticated public HTTPS `/mcp`. OAuth/OIDC provider,
 Caddy config и credentials хранятся вне Git; второй MCP implementation и
@@ -367,7 +370,8 @@ PASS-result, exact source, подтверждённой очистке и пол
 `INVALIDATED`, `CANCELLED` и `PRECONDITION_FAILED` не превращаются в auto-retry
 или успех.
 
-На Stage 6 capability `Game`, игровые tools/app/skill и production-интеграция
-не добавляются. Ограничения ChatGPT Developer Mode или текущего плана на write
-tools фиксируются как `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`, а не
+Текущий Development package не предоставляет capability `Game`, игровые
+tools/app/skill или production-интеграцию. Ограничения ChatGPT Developer Mode
+или текущего плана на write tools фиксируются как
+`CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`, а не
 обходятся новым transport или auth server.

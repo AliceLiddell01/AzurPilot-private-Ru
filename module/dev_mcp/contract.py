@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from module.dev_runtime.contracts import DEV_PROFILE
-from module.dev_runtime.smoke import SMOKE_SCHEMA_VERSION, SMOKE_STATE_SCHEMA_VERSION
+from module.dev_runtime.smoke import (
+    SMOKE_SCHEMA_VERSION,
+    SMOKE_STATE_SCHEMA_VERSION,
+    SmokeOutcome,
+)
 
 CONTRACT_SCHEMA_VERSION = 1
 DEV_MCP_API_VERSION = 1
@@ -18,6 +22,7 @@ DEV_MCP_FEATURE_FLAGS = {
     "external_visual_evaluation": True,
 }
 DEV_MCP_CAPABILITY_FAMILIES = ("diagnostics", "evidence", "lifecycle", "smoke")
+DEV_MCP_RESULT_OUTCOMES = tuple(outcome.value for outcome in SmokeOutcome)
 
 
 def contract_payload() -> dict[str, object]:
@@ -32,6 +37,7 @@ def contract_payload() -> dict[str, object]:
         "profile": DEV_PROFILE,
         "feature_flags": dict(DEV_MCP_FEATURE_FLAGS),
         "capability_families": list(DEV_MCP_CAPABILITY_FAMILIES),
+        "result_outcomes": list(DEV_MCP_RESULT_OUTCOMES),
     }
 
 
@@ -86,6 +92,15 @@ def contract_compatibility_issues(
         if missing:
             issues.append("capability_families")
 
+    expected_outcomes = expected.get("result_outcomes")
+    actual_outcomes = actual.get("result_outcomes")
+    if not isinstance(expected_outcomes, (list, tuple)) or not isinstance(actual_outcomes, (list, tuple)):
+        issues.append("result_outcomes")
+    else:
+        missing = [name for name in expected_outcomes if name not in actual_outcomes]
+        if missing:
+            issues.append("result_outcomes")
+
     return tuple(issues)
 
 
@@ -94,6 +109,7 @@ __all__ = [
     "DEV_MCP_API_VERSION",
     "DEV_MCP_CAPABILITY_FAMILIES",
     "DEV_MCP_FEATURE_FLAGS",
+    "DEV_MCP_RESULT_OUTCOMES",
     "PRODUCT_FAMILY",
     "contract_compatibility_issues",
     "contract_payload",

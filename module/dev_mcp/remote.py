@@ -39,7 +39,7 @@ from module.dev_mcp.server import DEV_MCP_REQUIRED_SCOPE, create_server
 logger = logging.getLogger(__name__)
 
 MCP_PATH = "/mcp"
-DEFAULT_PORT = 8765
+DEV_MCP_PORT = 8765
 DEFAULT_MAX_REQUEST_BODY_BYTES = 1024 * 1024
 DEFAULT_MAX_CONCURRENT_REQUESTS = 8
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 180.0
@@ -55,22 +55,6 @@ _JWT_ALGORITHMS = ("RS256",)
 
 class RemoteConfigError(ValueError):
     """Конфигурация public remote entrypoint не соответствует контракту."""
-
-
-class _ExpectedStreamCloseFilter(logging.Filter):
-    """Скрыть известный нормальный close race в pinned MCP SDK 1.23.0."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.getMessage() != "Error in message router" or not record.exc_info:
-            return True
-        exception = record.exc_info[1]
-        return not isinstance(exception, anyio.ClosedResourceError)
-
-
-def _install_expected_stream_close_filter() -> None:
-    sdk_logger = logging.getLogger("mcp.server.streamable_http")
-    if not any(isinstance(item, _ExpectedStreamCloseFilter) for item in sdk_logger.filters):
-        sdk_logger.addFilter(_ExpectedStreamCloseFilter())
 
 
 def _header_values(scope: Scope, name: str) -> list[str]:
@@ -148,9 +132,7 @@ class RemoteConfig:
     oauth_audience: str
     oauth_jwks_url: str
     oauth_subject: str
-    oauth_scope: str = DEV_MCP_REQUIRED_SCOPE
     bind_host: str = "127.0.0.1"
-    port: int = DEFAULT_PORT
     allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES
     max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS
@@ -162,8 +144,6 @@ class RemoteConfig:
     def __post_init__(self) -> None:
         if self.bind_host != "127.0.0.1":
             raise RemoteConfigError("Backend remote MCP должен прослушивать только 127.0.0.1")
-        if not 1024 <= self.port <= 65535:
-            raise RemoteConfigError("Порт remote MCP должен быть от 1024 до 65535")
         public = _parse_https_url("public_url", self.public_url, exact_path=MCP_PATH)
         _parse_https_url("oauth_issuer", self.oauth_issuer)
         _parse_https_url("oauth_jwks_url", self.oauth_jwks_url)
@@ -171,13 +151,6 @@ class RemoteConfig:
             raise RemoteConfigError("oauth_audience должен быть непустым ограниченным значением")
         if not self.oauth_subject or len(self.oauth_subject) > 256:
             raise RemoteConfigError("oauth_subject должен быть непустым ограниченным значением")
-        if (
-            not self.oauth_scope
-            or len(self.oauth_scope) > 128
-            or any(character.isspace() for character in self.oauth_scope)
-            or "," in self.oauth_scope
-        ):
-            raise RemoteConfigError("oauth_scope должен содержать одно ограниченное имя scope")
         if not self.allowed_origins:
             raise RemoteConfigError("Нужен хотя бы один точный разрешённый Origin")
         for origin in self.allowed_origins:
@@ -222,15 +195,6 @@ class RemoteConfig:
                 raise RemoteConfigError(f"Обязательная переменная {name} не задана")
             return value
 
-        def integer(name: str, default: int) -> int:
-            raw = os.environ.get(name)
-            if raw is None or not raw.strip():
-                return default
-            try:
-                return int(raw)
-            except ValueError as exc:
-                raise RemoteConfigError(f"{name} должен быть целым числом") from exc
-
         raw_origins = os.environ.get("AZURPILOT_DEV_MCP_ALLOWED_ORIGINS")
         origins = (
             DEFAULT_ALLOWED_ORIGINS
@@ -243,9 +207,6 @@ class RemoteConfig:
             oauth_audience=required("AZURPILOT_DEV_MCP_OAUTH_AUDIENCE"),
             oauth_jwks_url=required("AZURPILOT_DEV_MCP_OAUTH_JWKS_URL"),
             oauth_subject=required("AZURPILOT_DEV_MCP_OAUTH_SUBJECT"),
-            oauth_scope=os.environ.get("AZURPILOT_DEV_MCP_OAUTH_SCOPE", DEV_MCP_REQUIRED_SCOPE).strip()
-            or DEV_MCP_REQUIRED_SCOPE,
-            port=integer("AZURPILOT_DEV_MCP_PORT", DEFAULT_PORT),
             allowed_origins=origins,
         )
 
@@ -320,7 +281,7 @@ class OIDCTokenVerifier:
         if expires_at_int <= int(self._clock()):
             return None
         scopes = self._scopes(claims.get("scope"))
-        if scopes is None or self._config.oauth_scope not in scopes:
+        if scopes is None or DEV_MCP_REQUIRED_SCOPE not in scopes:
             return None
         return AccessToken(
             token="",
@@ -403,7 +364,7 @@ class OAuthBearerMiddleware:
             return
         try:
             access_token = await self.verifier.verify_token(token)
-        except Exception as exc:  # noqa: BLE001 - authentication must fail closed
+        except Exception as exc:  # noqa: BLE001 - граница аутентификации должна завершаться fail-closed
             logger.debug("Ошибка проверки Bearer-токена: %s", type(exc).__name__)
             access_token = None
         if access_token is None or (
@@ -411,7 +372,7 @@ class OAuthBearerMiddleware:
         ):
             await self._unauthorized(send)
             return
-        if self.config.oauth_scope not in access_token.scopes:
+        if DEV_MCP_REQUIRED_SCOPE not in access_token.scopes:
             await _send_error(
                 send,
                 403,
@@ -444,7 +405,7 @@ class OAuthBearerMiddleware:
         parts = [f'resource_metadata="{self.config.resource_metadata_url}"']
         if error:
             parts.append(f'error="{error}"')
-        parts.append(f'scope="{self.config.oauth_scope}"')
+        parts.append(f'scope="{DEV_MCP_REQUIRED_SCOPE}"')
         return f"Bearer {', '.join(parts)}"
 
     async def _unauthorized(self, send: Send) -> None:
@@ -592,7 +553,7 @@ class FailSafeMiddleware:
 
         try:
             await self.app(scope, receive, guarded_send)
-        except Exception as exc:  # noqa: BLE001 - HTTP boundary must not leak tracebacks
+        except Exception as exc:  # noqa: BLE001 - HTTP-граница не должна возвращать traceback клиенту
             logger.error("Ошибка обработки remote MCP-запроса: %s", type(exc).__name__)
             if not response_started:
                 await _send_error(send, 500, "server_error")
@@ -631,7 +592,6 @@ def create_remote_app(
 
     remote_config = config or RemoteConfig.from_env()
     verifier = token_verifier or OIDCTokenVerifier(remote_config)
-    _install_expected_stream_close_filter()
     server = create_server(adapter, abandon_on_cancel=True)
     session_manager = StreamableHTTPSessionManager(
         app=server,
@@ -660,7 +620,7 @@ def create_remote_app(
             {
                 "resource": remote_config.public_url,
                 "authorization_servers": [remote_config.oauth_issuer],
-                "scopes_supported": [remote_config.oauth_scope],
+                "scopes_supported": [DEV_MCP_REQUIRED_SCOPE],
                 "bearer_methods_supported": ["header"],
             },
             headers=_metadata_headers(request, remote_config),
@@ -698,7 +658,7 @@ def run_remote_server(adapter: Any | None = None, config: RemoteConfig | None = 
     uvicorn.run(
         app,
         host=remote_config.bind_host,
-        port=remote_config.port,
+        port=DEV_MCP_PORT,
         proxy_headers=False,
         access_log=False,
         server_header=False,
@@ -757,7 +717,7 @@ def main() -> None:
 
 __all__ = [
     "DEFAULT_ALLOWED_ORIGINS",
-    "DEFAULT_PORT",
+    "DEV_MCP_PORT",
     "MCP_PATH",
     "OIDCTokenVerifier",
     "RemoteConfig",

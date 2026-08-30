@@ -36,16 +36,20 @@ def test_plugin_manifest_and_generated_marketplace_are_canonical() -> None:
     assert "apps" not in manifest
     assert "mcpServers" not in manifest
     assert interface["displayName"] == "AzurPilot"
-    assert interface["capabilities"] == ["Development"]
+    assert isinstance(interface["capabilities"], list)
+    assert "Development" in interface["capabilities"]
     assert isinstance(interface["defaultPrompt"], list)
-    assert len(interface["defaultPrompt"]) == 3
+    assert interface["defaultPrompt"]
+    assert all(isinstance(prompt, str) and prompt for prompt in interface["defaultPrompt"])
 
     marketplace = _json(_REPOSITORY_ROOT / ".agents" / "plugins" / "marketplace.json")
     assert marketplace["name"] == "personal"
     plugins = marketplace["plugins"]
     assert isinstance(plugins, list)
-    assert len(plugins) == 1
-    entry = plugins[0]
+    entry = next(
+        (item for item in plugins if isinstance(item, dict) and item.get("name") == "azurpilot"),
+        None,
+    )
     assert isinstance(entry, dict)
     assert entry["name"] == "azurpilot"
     assert entry["source"] == {"source": "local", "path": "./plugins/azurpilot"}
@@ -62,8 +66,9 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
     assert compatibility["smoke_spec_schema_version"] == runtime["smoke_spec_schema_version"] == SMOKE_SCHEMA_VERSION
     assert compatibility["smoke_result_schema_version"] == runtime["smoke_result_schema_version"] == SMOKE_STATE_SCHEMA_VERSION
     assert compatibility["profile"] == runtime["profile"] == "ap"
-    assert compatibility["required_feature_flags"] == runtime["feature_flags"]
-    assert compatibility["required_capability_families"] == runtime["capability_families"]
+    assert set(compatibility["required_feature_flags"]).issubset(runtime["feature_flags"])
+    assert set(compatibility["required_capability_families"]).issubset(runtime["capability_families"])
+    assert set(compatibility["result_outcomes"]).issubset(runtime["result_outcomes"])
     assert contract_compatibility_issues(compatibility, runtime) == ()
 
 
@@ -82,7 +87,7 @@ def test_incompatible_api_versions_fail_closed(field: str, value: int) -> None:
     assert contract_compatibility_issues(compatibility, runtime)
 
 
-def test_missing_feature_or_capability_fails_closed() -> None:
+def test_missing_required_contract_values_fail_closed() -> None:
     compatibility = _json(_COMPATIBILITY_PATH)
 
     missing_feature = contract_payload()
@@ -95,14 +100,28 @@ def test_missing_feature_or_capability_fails_closed() -> None:
     missing_family["capability_families"] = ["diagnostics", "evidence", "lifecycle"]
     assert "capability_families" in contract_compatibility_issues(compatibility, missing_family)
 
+    missing_outcome = contract_payload()
+    missing_outcome["result_outcomes"].remove("CANCELLED")
+    assert "result_outcomes" in contract_compatibility_issues(compatibility, missing_outcome)
 
-def test_skill_is_single_development_skill_with_fail_closed_workflow() -> None:
+
+def test_compatibility_allows_additive_runtime_contract_values() -> None:
+    compatibility = _json(_COMPATIBILITY_PATH)
+    runtime = contract_payload()
+    runtime["feature_flags"]["future_flag"] = True
+    runtime["capability_families"].append("future")
+    runtime["result_outcomes"].append("FUTURE")
+
+    assert contract_compatibility_issues(compatibility, runtime) == ()
+
+
+def test_required_development_skill_has_fail_closed_workflow() -> None:
     skill_dirs = [
         path
         for path in (_PLUGIN_ROOT / "skills").iterdir()
         if path.is_dir() and not path.name.startswith(".")
     ]
-    assert [path.name for path in skill_dirs] == ["azurpilot-development"]
+    assert _SKILL_PATH.parent in skill_dirs
     assert _SKILL_PATH.is_file()
 
     skill = _SKILL_PATH.read_text(encoding="utf-8")

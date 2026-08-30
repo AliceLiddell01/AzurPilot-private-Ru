@@ -19,14 +19,14 @@
   "interface": {
     "displayName": "AzurPilot",
     "shortDescription": "Безопасная Development-проверка Dev Runtime.",
-    "longDescription": "AzurPilot предоставляет Development workflow поверх существующего Dev MCP и Universal Smoke Harness. В Codex используется local stdio; ChatGPT подключается к authenticated public HTTPS MCP endpoint через Caddy и внешний OAuth/OIDC. Game capability на этом этапе отсутствует.",
+    "longDescription": "AzurPilot предоставляет Development workflow поверх существующего Dev MCP и Universal Smoke Harness. В Codex используется local stdio; ChatGPT подключается к authenticated public HTTPS MCP endpoint через Caddy и внешний OAuth/OIDC. Game capability в этом пакете отсутствует.",
     "developerName": "AzurPilot",
     "category": "Developer tools",
     "capabilities": [
       "Development"
     ],
     "defaultPrompt": [
-      "Проверь контракт AzurPilot Development без запуска Smoke.",
+      "Проверь контракт AzurPilot Dev MCP без запуска Smoke.",
       "Подготовь безопасный Smoke Harness для изменения Dev Runtime.",
       "Разбери результат SmokeRun и объясни следующий шаг."
     ]

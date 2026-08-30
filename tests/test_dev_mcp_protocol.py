@@ -16,6 +16,7 @@ from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResp
 from module.dev_mcp.server import (
     DEV_MCP_ARGS,
     DEV_MCP_COMMAND,
+    DEV_MCP_REQUIRED_SCOPE,
     SERVER_NAME,
     _screenshot_call_result,
     create_server,
@@ -89,7 +90,7 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         assert not _FORBIDDEN_INPUT_FIELDS.intersection(tool.inputSchema.get("properties", {}))
         assert tool.inputSchema["additionalProperties"] is False
         assert tool.outputSchema is not None
-        assert tool.securitySchemes == [{"type": "oauth2", "scopes": ["azurpilot:dev"]}]
+        assert tool.securitySchemes == [{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}]
         assert tool.outputSchema["additionalProperties"] is False
         assert tool.annotations.readOnlyHint is (tool.name not in (mutating | additive))
         assert tool.annotations.destructiveHint is (tool.name in mutating)
@@ -247,6 +248,16 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
                     "external_visual_evaluation": True,
                 },
                 "capability_families": ["diagnostics", "evidence", "lifecycle", "smoke"],
+                "result_outcomes": [
+                    "PASS",
+                    "PRODUCT_FAILED",
+                    "PRECONDITION_FAILED",
+                    "HARNESS_FAILED",
+                    "EVIDENCE_INCOMPLETE",
+                    "TIMEOUT",
+                    "INVALIDATED",
+                    "CANCELLED",
+                ],
             }
 
     asyncio.run(scenario())

@@ -56,21 +56,23 @@ Production MCP и его transport остаются независимыми.
 
 `plugins/azurpilot/` — source-controlled package, сгенерированный текущим
 Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
-`AzurPilot`; внутри разрешён только capability `Development` и один
+`AzurPilot`; текущий пакет публикует capability `Development` и
 `azurpilot-development` skill. Пакет не содержит ChatGPT app state, tunnel
 profile, credentials, screenshots, archives или runtime cache и не регистрирует
 второй MCP implementation.
 
 Codex использует project-scoped `azurpilot-dev` через прямой local stdio и
-`module.dev_mcp`. ChatGPT использует приложение `AzurPilot Development` с
+`module.dev_mcp`. ChatGPT использует подключённое приложение с
 authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy и
 внешним OAuth/OIDC provider; custom authorization server и Secure MCP Tunnel
 для этого пути не требуются. `module.dev_mcp.contract` публикует read-only boundary с
-версиями API/Smoke schemas, профилем `ap`, feature flags и capability families.
+версиями API/Smoke schemas, профилем `ap`, required feature flags, capability
+families и result outcomes.
 Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
 любом несовпадении.
 
-Stage 6 не добавляет capability `Game` или игровую production-интеграцию.
+Текущий Development package не предоставляет capability `Game` или игровую
+production-интеграцию.
 
 ## Статистика
 

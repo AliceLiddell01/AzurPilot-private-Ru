@@ -3,10 +3,10 @@ name: azurpilot-development
 description: "Безопасный cross-surface workflow для Dev Runtime ap и Universal Smoke Harness AzurPilot."
 ---
 
-# AzurPilot Development
+# AzurPilot Development workflow
 
-Этот skill обслуживает только capability `AzurPilot Development`. Он работает
-с существующим `azurpilot-dev` и не добавляет второй MCP-сервер, игровой
+Этот skill обслуживает Development workflow AzurPilot. Он работает с
+существующим `azurpilot-dev` и не добавляет второй MCP-сервер, игровой
 capability или самостоятельный transport.
 
 ## Граница совместимости
@@ -14,8 +14,10 @@ capability или самостоятельный transport.
 Первым read-only вызовом каждой новой сессии запрашивай `dev_get_contract`.
 Сравнивай `details.contract` с `compatibility.json` этого пакета по следующим
 полям: `product_family`, `dev_mcp_api_version`, `smoke_spec_schema_version`,
-`smoke_result_schema_version`, `profile`, обязательные `feature_flags` и
-`capability_families`. Сверяй также `contract_schema_version`.
+`smoke_result_schema_version`, `profile`, обязательные `feature_flags`,
+`capability_families` и `result_outcomes`. Сверяй также
+`contract_schema_version`. Required values должны быть подмножеством runtime
+contract; дополнительные flags, families и outcomes допустимы.
 
 При отсутствующем поле, неизвестном значении, несовместимой версии или
 отсутствующей обязательной возможности результатом является точная причина
@@ -79,8 +81,9 @@ HTTP, SQL, ADB/input, искусственных sleep/retry, patch-команд
 Dev MCP и профиль `ap`; public HTTPS для Codex не нужен. Git, source snapshot и
 проверки выполняй по правилам репозитория.
 
-В ChatGPT используй приложение `AzurPilot Development`, подключённое к
-authenticated public HTTPS endpoint `https://<public-host>/mcp`. Endpoint
+В ChatGPT используй подключённое приложение, соответствующее этому
+compatibility package, через authenticated public HTTPS endpoint
+`https://<public-host>/mcp`. Endpoint
 работает через Caddy и внешний OAuth/OIDC provider; не добавляй custom auth
 server, Tunnel profile или второй MCP implementation. Сначала выполни
 `dev_get_contract` → `dev_preflight` → `dev_list_smoke_capabilities`. Если
@@ -88,9 +91,9 @@ server, Tunnel profile или второй MCP implementation. Сначала в
 `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`; read-only
 contract/diagnostics при этом остаются действительным результатом.
 
-## Будущий Game boundary
+## Граница Game capability
 
-На Stage 6 нет capability `Game`, game tools, game app, game skill,
-placeholder или production-интеграции. Любой запрос, выходящий за
-`AzurPilot Development`, явно помечай как будущую границу и не подменяй его
-игровой реализацией.
+Текущий Development package не предоставляет capability `Game`, game tools,
+game app, game skill или production-интеграцию. Любой запрос за пределами этого
+Development workflow явно помечай как будущую границу и не подменяй его игровой
+реализацией.

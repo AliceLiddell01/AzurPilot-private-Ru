@@ -260,6 +260,7 @@ _SAFE_CONTRACT_KEYS = frozenset(
         "profile",
         "feature_flags",
         "capability_families",
+        "result_outcomes",
     }
 )
 _SAFE_FEATURE_FLAG_KEYS = frozenset(
@@ -409,6 +410,7 @@ _CONTRACT_CHILD_SCHEMAS: dict[str, str | None] = {
     "profile": "string",
     "feature_flags": "feature_flags",
     "capability_families": "string_list",
+    "result_outcomes": "string_list",
 }
 _FEATURE_FLAG_CHILD_SCHEMAS: dict[str, str | None] = {
     "task_sandbox": "bool",

@@ -1,9 +1,8 @@
 # AzurPilot
 
-Canonical Plugin Creator package для единственного capability `AzurPilot
-Development`. Plugin Creator нормализует machine-readable ID в `azurpilot`, а
-human-facing display name остаётся `AzurPilot`. В пакете ровно один skill:
-`azurpilot-development`.
+Canonical Plugin Creator package для Development workflow `AzurPilot`. Plugin
+Creator нормализует machine-readable ID в `azurpilot`, а human-facing display
+name остаётся `AzurPilot`. Пакет поставляет skill `azurpilot-development`.
 
 ## Архитектура
 
@@ -12,9 +11,9 @@ human-facing display name остаётся `AzurPilot`. В пакете ровн
 
 - Codex вызывает project-scoped `azurpilot-dev` напрямую через local stdio:
   `uv run --locked --no-sync python -m module.dev_mcp`.
-- ChatGPT использует приложение `AzurPilot Development` через authenticated
-  public HTTPS URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC
-  provider; это тот же adapter, а не второй runtime.
+- ChatGPT использует подключённое приложение через authenticated public HTTPS
+  URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC provider; это тот
+  же adapter, а не второй runtime.
 - `mcp_server_sse.py` остаётся отдельным production MCP и не используется этим
   приложением.
 
@@ -39,9 +38,9 @@ caddy validate --config docs/dev-mcp/Caddyfile
 caddy run --config docs/dev-mcp/Caddyfile
 ```
 
-В `AzurPilot Development` укажи `https://<public-host>/mcp` в URL mode и выбери
-OAuth. Backend принимает только loopback, а наружу должны быть доступны только
-443 и, для ACME/redirect, 80; его внутренний порт, Caddy admin, WebUI,
+В подключённом ChatGPT-приложении укажи `https://<public-host>/mcp` в URL mode и
+выбери OAuth. Backend принимает только loopback, а наружу должны быть доступны
+только 443 и, для ACME/redirect, 80; его внутренний порт, Caddy admin, WebUI,
 PostgreSQL, ADB и emulator не публикуются. Обязательные переменные и Caddy
 шаблон описаны в `docs/dev-runtime.md` и
 `docs/dev-mcp/Caddyfile.example`; перед запуском сохрани локальную копию
@@ -55,7 +54,7 @@ PostgreSQL, ADB и emulator не публикуются. Обязательны�
 ## Контракт и smoke
 
 `compatibility.json` фиксирует ожидаемые версии API/Smoke schemas, профиль
-`ap`, feature flags и capability families. Skill сначала вызывает
+`ap`, required feature flags, capability families и result outcomes. Skill сначала вызывает
 `dev_get_contract`; любое несовпадение даёт `PLUGIN_RUNTIME_INCOMPATIBLE` и
 запрещает mutating calls.
 
@@ -72,8 +71,8 @@ PASS требует одновременно PASS-result, exact source, подт
 `PRECONDITION_FAILED` маршрутизируются по skill без auto-retry и без изменения
 исходного SmokeSpec.
 
-## Граница Stage 6
+## Граница Game capability
 
-В этом пакете нет Game capability, Game app, Game skill, игровых tools или
-placeholder. Следующий игровой контур должен быть отдельным явно
-авторизованным изменением с собственной совместимостью и acceptance.
+Текущий Development package не предоставляет Game capability, Game app, Game
+skill или игровые tools. Game boundary должен добавляться отдельным явно
+совместимым расширением с собственной совместимостью и acceptance.

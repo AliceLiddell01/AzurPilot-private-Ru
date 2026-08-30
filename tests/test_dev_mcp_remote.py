@@ -25,16 +25,19 @@ from mcp.server.auth.provider import AccessToken
 from module.dev_mcp.adapter import DevMcpResponse
 from module.dev_mcp.remote import (
     DEFAULT_ALLOWED_ORIGINS,
+    DEV_MCP_PORT,
     ConcurrencyLimitMiddleware,
     OIDCTokenVerifier,
     RemoteConfig,
     RemoteConfigError,
     RequestTimeoutMiddleware,
     create_remote_app,
+    run_remote_server,
 )
 from module.dev_mcp.server import (
     DEV_MCP_ARGS,
     DEV_MCP_COMMAND,
+    DEV_MCP_REQUIRED_SCOPE,
     DEV_MCP_TOOL_NAMES,
     tool_definitions,
 )
@@ -75,7 +78,7 @@ class _StaticVerifier:
         return AccessToken(
             token="",
             client_id="user-1",
-            scopes=["azurpilot:dev"],
+            scopes=[DEV_MCP_REQUIRED_SCOPE],
             expires_at=int(time.time()) + 300,
             resource=self.resource,
         )
@@ -237,7 +240,7 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
             assert len(tools) == len(DEV_MCP_TOOL_NAMES)
             assert tools == [tool.model_dump(by_alias=True, exclude_none=True) for tool in tool_definitions()]
             assert all(
-                tool["securitySchemes"] == [{"type": "oauth2", "scopes": ["azurpilot:dev"]}]
+                tool["securitySchemes"] == [{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}]
                 for tool in tools
             )
 
@@ -365,6 +368,7 @@ def test_remote_auth_host_origin_body_and_malformed_request_fail_closed() -> Non
                 'resource_metadata="https://mcp.example.test/.well-known/oauth-protected-resource/mcp"'
                 in missing.headers["www-authenticate"]
             )
+            assert f'scope="{DEV_MCP_REQUIRED_SCOPE}"' in missing.headers["www-authenticate"]
 
             query_token = await client.post(
                 "/mcp?access_token=valid-token",
@@ -514,7 +518,7 @@ def test_remote_metadata_is_public_but_has_exact_cors_and_no_wildcard() -> None:
             assert metadata.json() == {
                 "resource": _AUDIENCE,
                 "authorization_servers": [_ISSUER],
-                "scopes_supported": ["azurpilot:dev"],
+                "scopes_supported": [DEV_MCP_REQUIRED_SCOPE],
                 "bearer_methods_supported": ["header"],
             }
             assert metadata.headers["access-control-allow-origin"] == "https://chatgpt.com"
@@ -549,6 +553,19 @@ def test_caddy_template_uses_loopback_backend_without_public_admin_or_forbidden_
         assert forbidden_port not in template
 
 
+def test_remote_backend_uses_fixed_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run(_app: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr("module.dev_mcp.remote.uvicorn.run", fake_run)
+    run_remote_server(config=_config())
+
+    assert captured["host"] == "127.0.0.1"
+    assert captured["port"] == DEV_MCP_PORT == 8765
+
+
 def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_and_scope() -> None:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     private_pem = private_key.private_bytes(
@@ -576,7 +593,7 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             "sub": "user-1",
             "exp": now + 1_000,
             "nbf": now - 1,
-            "scope": "azurpilot:dev",
+            "scope": DEV_MCP_REQUIRED_SCOPE,
         }
         values.update(claims)
         return jwt.encode(values, private_pem, algorithm="RS256")
