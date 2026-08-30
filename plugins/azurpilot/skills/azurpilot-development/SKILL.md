@@ -3,7 +3,7 @@ name: azurpilot-development
 description: "Безопасный cross-surface workflow для Dev Runtime ap и Universal Smoke Harness AzurPilot."
 ---
 
-# AzurPilot Development workflow
+# Рабочий процесс разработки AzurPilot
 
 Этот skill обслуживает Development workflow AzurPilot. Он работает с
 существующим `azurpilot-dev` и не добавляет второй MCP-сервер, игровой
@@ -14,10 +14,13 @@ capability или самостоятельный transport.
 Первым read-only вызовом каждой новой сессии запрашивай `dev_get_contract`.
 Сравнивай `details.contract` с `compatibility.json` этого пакета по следующим
 полям: `product_family`, `dev_mcp_api_version`, `smoke_spec_schema_version`,
-`smoke_result_schema_version`, `profile`, обязательные `feature_flags`,
-`capability_families` и `result_outcomes`. Сверяй также
-`contract_schema_version`. Required values должны быть подмножеством runtime
-contract; дополнительные flags, families и outcomes допустимы.
+`smoke_result_schema_version`, `profile` и `contract_schema_version`.
+Сопоставляй `compatibility.json.required_feature_flags` с
+`runtime contract.feature_flags`, `required_capability_families` с
+`runtime contract.capability_families`, а `result_outcomes` с
+`runtime contract.result_outcomes`. Обязательные значения должны быть
+подмножеством runtime contract; дополнительные flags, families и outcomes
+допустимы.
 
 При отсутствующем поле, неизвестном значении, несовместимой версии или
 отсутствующей обязательной возможности результатом является точная причина

@@ -546,6 +546,7 @@ def test_caddy_template_uses_loopback_backend_without_public_admin_or_forbidden_
     assert "admin 127.0.0.1:2019" in template
     assert "reverse_proxy 127.0.0.1:8765" in template
     assert "Cache-Control \"no-store\"" in template
+    assert "response_header_timeout 195s" in template
     assert "header_up Authorization" not in template
     assert "file_server" not in template
     assert "0.0.0.0" not in template
@@ -613,7 +614,9 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             token(exp=now - 1),
             token(nbf=now + 100),
             token(sub="other-user"),
+            token(sub="пользователь"),
             token(resource="https://other.example.test/mcp"),
+            token(resource="https://пример.example/mcp"),
             token(scope="other:scope"),
         ):
             assert await verifier.verify_token(invalid) is None

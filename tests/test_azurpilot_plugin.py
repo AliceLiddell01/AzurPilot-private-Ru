@@ -17,6 +17,12 @@ _PLUGIN_ROOT = _REPOSITORY_ROOT / "plugins" / "azurpilot"
 _MANIFEST_PATH = _PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
 _COMPATIBILITY_PATH = _PLUGIN_ROOT / "compatibility.json"
 _SKILL_PATH = _PLUGIN_ROOT / "skills" / "azurpilot-development" / "SKILL.md"
+_ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|(?<![A-Za-z0-9/:.`])/(?!/))")
+_URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s`]+")
+
+
+def _find_absolute_local_path(value: str) -> re.Match[str] | None:
+    return _ABSOLUTE_LOCAL_PATH.search(_URL.sub("", value))
 
 
 def _json(path: Path) -> dict[str, object]:
@@ -148,10 +154,34 @@ def test_required_development_skill_has_fail_closed_workflow() -> None:
     assert "capability `Game`" in skill
 
 
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/root/.config/azurpilot",
+        "/var/lib/azurpilot",
+        "/tmp/azurpilot.sock",
+        "/etc/azurpilot/config",
+        r"C:\\AzurPilot\\config",
+        r"\\server\share\azurpilot",
+    ),
+)
+def test_absolute_local_path_pattern_detects_local_paths(path: str) -> None:
+    assert _find_absolute_local_path(path)
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://example.invalid/mcp",
+        "http://localhost:8765/mcp",
+        "file:///tmp/azurpilot.sock",
+    ),
+)
+def test_absolute_local_path_pattern_ignores_urls(url: str) -> None:
+    assert _find_absolute_local_path(url) is None
+
+
 def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
-    absolute_path = re.compile(
-        r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|/(?:home|Users)/)"
-    )
     forbidden_tokens = (
         "Bearer ",
         "CONTROL_PLANE_API_KEY=",
@@ -166,7 +196,7 @@ def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
         except UnicodeDecodeError:
             # Сохраняем видимость ASCII-паттернов секретов даже в бинарных и не-UTF-8 файлах.
             text = raw.decode("latin-1")
-        assert not absolute_path.search(text), path
+        assert not _find_absolute_local_path(text), path
         assert not re.search(
             r"(?i)(?:\b(?:sk|rk|xox[baprs])-[A-Za-z0-9_-]{12,}|"
             r"\b(?:ghp|github_pat)_[A-Za-z0-9_]{12,})",

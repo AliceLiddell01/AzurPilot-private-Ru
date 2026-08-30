@@ -266,12 +266,14 @@ class OIDCTokenVerifier:
         if not isinstance(claims, Mapping):
             return None
         subject = claims.get("sub")
-        if not isinstance(subject, str) or not hmac.compare_digest(subject, self._config.oauth_subject):
+        if not isinstance(subject, str) or not hmac.compare_digest(
+            subject.encode("utf-8"), self._config.oauth_subject.encode("utf-8")
+        ):
             return None
         resource = claims.get("resource")
         if resource is not None and (
             not isinstance(resource, str)
-            or not hmac.compare_digest(resource, self._config.public_url)
+            or not hmac.compare_digest(resource.encode("utf-8"), self._config.public_url.encode("utf-8"))
         ):
             return None
         expires_at = claims.get("exp")
@@ -465,9 +467,6 @@ class RequestBodyLimitMiddleware:
                 return
             if content_length < 0 or content_length > self.max_body_bytes:
                 await _send_error(send, 413, "request_too_large")
-                return
-            if scope.get("method") != "POST":
-                await self.app(scope, receive, send)
                 return
         if scope.get("method") != "POST":
             await self.app(scope, receive, send)
