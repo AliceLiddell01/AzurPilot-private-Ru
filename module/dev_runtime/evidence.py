@@ -382,10 +382,17 @@ def _exclusive_lock(path: Path, repository_root: Path) -> Iterator[None]:
     if _is_reparse_point(path):
         raise EvidenceError("DEV_EVIDENCE_UNSAFE_PATH", "Блокировка диагностики не должна быть ссылкой")
     handle = path.open("a+b")
-    if path.stat().st_size == 0:
-        handle.write(b"\0")
-        handle.flush()
-        os.fsync(handle.fileno())
+    try:
+        if path.stat().st_size == 0:
+            handle.write(b"\0")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        try:
+            handle.close()
+        except OSError:
+            pass
+        raise
     deadline = time.monotonic() + _LOCK_TIMEOUT
     acquired = False
     try:

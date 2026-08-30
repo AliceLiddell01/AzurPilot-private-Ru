@@ -331,6 +331,43 @@ def test_bounded_read_requests_only_limit_plus_one_bytes() -> None:
     assert reads == [9]
 
 
+def test_evidence_lock_closes_handle_when_initialization_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    lock_path = environment.evidence_lock_file
+
+    class Handle:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    handle = Handle()
+    original_open = Path.open
+    original_stat = Path.stat
+
+    def fake_open(path: Path, mode: str = "r", *args: object, **kwargs: object) -> object:
+        if path == lock_path and mode == "a+b":
+            return handle
+        return original_open(path, mode, *args, **kwargs)
+
+    def fail_stat(path: Path, *args: object, **kwargs: object) -> object:
+        if path == lock_path:
+            raise OSError("synthetic lock initialization failure")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fake_open)
+    monkeypatch.setattr(Path, "stat", fail_stat)
+
+    with pytest.raises(OSError, match="lock initialization failure"):
+        with evidence_module._exclusive_lock(lock_path, environment.repository_root):
+            pass
+
+    assert handle.closed is True
+
+
 def test_evidence_create_does_not_overwrite_nonempty_session_directory(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     collision = environment.evidence_root / "session-1"
