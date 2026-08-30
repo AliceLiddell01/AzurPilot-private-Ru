@@ -50,6 +50,7 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
     expected_names = [
         "dev_preflight",
         "dev_doctor",
+        "dev_get_contract",
         "dev_list_tasks",
         "dev_plan_session",
         "dev_start_session",
@@ -201,6 +202,7 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
             assert {tool.name for tool in tools.tools} == {
                 "dev_preflight",
                 "dev_doctor",
+                "dev_get_contract",
                 "dev_list_tasks",
                 "dev_plan_session",
                 "dev_start_session",
@@ -226,6 +228,24 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
             assert result.structuredContent["code"] in {
                 "DEV_TASK_STATE_MISSING",
                 "DEV_TASK_CATALOG_READY",
+            }
+            contract = await session.call_tool("dev_get_contract", {})
+            assert contract.structuredContent is not None
+            assert contract.structuredContent["ok"] is True
+            assert contract.structuredContent["details"]["contract"] == {
+                "contract_schema_version": 1,
+                "product_family": "AzurPilot",
+                "dev_mcp_api_version": 1,
+                "smoke_spec_schema_version": 1,
+                "smoke_result_schema_version": 1,
+                "profile": "ap",
+                "feature_flags": {
+                    "task_sandbox": True,
+                    "evidence_api": True,
+                    "universal_smoke_harness": True,
+                    "external_visual_evaluation": True,
+                },
+                "capability_families": ["diagnostics", "evidence", "lifecycle", "smoke"],
             }
 
     asyncio.run(scenario())

@@ -15,16 +15,18 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ImageContent, TextContent, Tool, ToolAnnotations
 
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
+from module.dev_mcp.contract import DEV_MCP_API_VERSION
 from module.dev_runtime.smoke import SmokeSpec
 
 SERVER_NAME = "azurpilot-dev"
-SERVER_VERSION = "1"
+SERVER_VERSION = str(DEV_MCP_API_VERSION)
 DEV_MCP_COMMAND = "uv"
 DEV_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.dev_mcp")
 _NO_ARGUMENT_TOOLS = frozenset(
     {
         "dev_preflight",
         "dev_doctor",
+        "dev_get_contract",
         "dev_list_tasks",
         "dev_status",
         "dev_cleanup",
@@ -161,6 +163,7 @@ def tool_definitions() -> list[Tool]:
     descriptions = {
         "dev_preflight": "Предварительная проверка только для чтения фиксированного профиля Dev Runtime ap.",
         "dev_doctor": "Диагностика только для чтения фиксированного профиля Dev Runtime ap.",
+        "dev_get_contract": "Получить стабильный read-only контракт совместимости AzurPilot Dev MCP.",
         "dev_list_tasks": "Динамический каталог планируемых задач профиля ap только для чтения.",
         "dev_plan_session": "Сформировать план задач только для чтения для профиля ap.",
         "dev_start_session": "Запустить DevSession с учётом задач только для выбранных задач профиля ap.",

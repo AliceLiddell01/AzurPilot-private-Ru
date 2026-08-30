@@ -20,6 +20,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from module.dev_mcp.contract import contract_result
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.smoke import SmokeSpec
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 DEV_MCP_TOOL_NAMES = (
     "dev_preflight",
     "dev_doctor",
+    "dev_get_contract",
     "dev_list_tasks",
     "dev_plan_session",
     "dev_start_session",
@@ -53,6 +55,7 @@ _NO_ARGUMENT_TOOLS = frozenset(
     {
         "dev_preflight",
         "dev_doctor",
+        "dev_get_contract",
         "dev_list_tasks",
         "dev_status",
         "dev_cleanup",
@@ -229,6 +232,7 @@ _SAFE_DETAIL_KEYS = frozenset(
         "deterministic",
         "external",
         "description",
+        "contract",
     }
 )
 
@@ -245,6 +249,21 @@ _SAFE_RESULT_KEYS = frozenset(
         "preserved",
         "updated_at",
     }
+)
+_SAFE_CONTRACT_KEYS = frozenset(
+    {
+        "contract_schema_version",
+        "product_family",
+        "dev_mcp_api_version",
+        "smoke_spec_schema_version",
+        "smoke_result_schema_version",
+        "profile",
+        "feature_flags",
+        "capability_families",
+    }
+)
+_SAFE_FEATURE_FLAG_KEYS = frozenset(
+    {"task_sandbox", "evidence_api", "universal_smoke_harness", "external_visual_evaluation"}
 )
 _SAFE_PREFLIGHT_CHECK_KEYS = frozenset({"name", "ok", "code", "message"})
 _SAFE_TASK_LIFECYCLE_KEYS = frozenset(
@@ -381,9 +400,28 @@ _SAFE_SMOKE_RESULT_KEYS = frozenset(
     {"schema_version", "smoke_id", "spec_hash", "outcome", "code", "message", "source", "session_id", "assertions", "cleanup", "primary_failure", "harness_failure", "external_verdict", "finished_at"}
 )
 
+_CONTRACT_CHILD_SCHEMAS: dict[str, str | None] = {
+    "contract_schema_version": "int",
+    "product_family": "string",
+    "dev_mcp_api_version": "int",
+    "smoke_spec_schema_version": "int",
+    "smoke_result_schema_version": "int",
+    "profile": "string",
+    "feature_flags": "feature_flags",
+    "capability_families": "string_list",
+}
+_FEATURE_FLAG_CHILD_SCHEMAS: dict[str, str | None] = {
+    "task_sandbox": "bool",
+    "evidence_api": "bool",
+    "universal_smoke_harness": "bool",
+    "external_visual_evaluation": "bool",
+}
+
 _SCHEMA_KEYS = {
     "details": _SAFE_DETAIL_KEYS,
     "result": _SAFE_RESULT_KEYS,
+    "contract": _SAFE_CONTRACT_KEYS,
+    "feature_flags": _SAFE_FEATURE_FLAG_KEYS,
     "preflight_check": _SAFE_PREFLIGHT_CHECK_KEYS,
     "task_lifecycle": _SAFE_TASK_LIFECYCLE_KEYS,
     "task_policy": _SAFE_TASK_POLICY_KEYS,
@@ -574,6 +612,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "deterministic": "bool",
     "external": "bool",
     "description": "string",
+    "contract": "contract",
     "result": "result_or_smoke",
 }
 
@@ -917,6 +956,8 @@ _SMOKE_RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
 _SCHEMA_CHILD_SCHEMAS = {
     "details": _DETAIL_CHILD_SCHEMAS,
     "result": _RESULT_CHILD_SCHEMAS,
+    "contract": _CONTRACT_CHILD_SCHEMAS,
+    "feature_flags": _FEATURE_FLAG_CHILD_SCHEMAS,
     "task_lifecycle": {
         "mode": "string",
         "phase": "string",
@@ -1439,6 +1480,8 @@ class DevMcpAdapter:
         parsed = self._validated(tool_name, arguments)
         if parsed is None:
             return _input_error(tool_name)
+        if tool_name == "dev_get_contract":
+            return serialize_dev_result(contract_result())
 
         try:
             if self._uses_default_manager:
