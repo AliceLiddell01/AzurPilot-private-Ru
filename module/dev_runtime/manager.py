@@ -7,13 +7,14 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
+from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.contracts import (
     DEFAULT_READY_TIMEOUT,
     DEFAULT_STOP_TIMEOUT,
@@ -21,12 +22,11 @@ from module.dev_runtime.contracts import (
     DevResult,
     DevSession,
     DevSessionState,
+    DevStatusKind,
     DevTaskMode,
     DevTaskPhase,
-    DevStatusKind,
     ProcessIdentity,
 )
-from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.control import (
     ControlAction,
     ControlStore,
@@ -50,7 +50,12 @@ from module.dev_runtime.evidence import (
     validate_session_id,
 )
 from module.dev_runtime.process import ProcessBackend, _same_path
-from module.dev_runtime.target import DevTarget, DevTargetError, DevTargetRegistry
+from module.dev_runtime.target import (
+    DevTarget,
+    DevTargetError,
+    DevTargetRegistry,
+    target_identity,
+)
 from module.dev_runtime.task_sandbox import (
     SCHEDULER_RESET_TIME,
     TASK_POLICY_ACTIVE,
@@ -70,6 +75,34 @@ from module.dev_runtime.task_sandbox import (
 _LOCK_TIMEOUT = 10.0
 _LOCK_RETRY_INTERVAL = 0.05
 _state_thread_lock = threading.RLock()
+_SAFE_GAME_ERROR_CODES = frozenset(
+    {
+        "DEV_GAME_CAPABILITY_CONFLICT",
+        "DEV_GAME_CAPABILITY_INVALID",
+        "DEV_GAME_CAPABILITY_LIMIT",
+        "DEV_GAME_CAPABILITY_UNAVAILABLE",
+        "DEV_GAME_CHECKPOINT_DUPLICATE",
+        "DEV_GAME_CHECKPOINT_POLICY_INVALID",
+        "DEV_GAME_MORALE_UNKNOWN",
+        "DEV_GAME_OBSERVATION_CHECKSUM_INVALID",
+        "DEV_GAME_OBSERVATION_CHECKSUM_MISMATCH",
+        "DEV_GAME_OBSERVATION_CORRUPT",
+        "DEV_GAME_OBSERVATION_INVALID",
+        "DEV_GAME_OBSERVATION_LIMIT",
+        "DEV_GAME_OBSERVATION_PAYLOAD_INVALID",
+        "DEV_GAME_OBSERVATION_PROVIDER_INVALID",
+        "DEV_GAME_OBSERVATION_PROVIDER_UNAVAILABLE",
+        "DEV_GAME_OBSERVATION_SCHEMA_UNSUPPORTED",
+        "DEV_GAME_OBSERVATION_SCOPE_MISMATCH",
+        "DEV_GAME_OBSERVATION_TARGET_INVALID",
+        "DEV_GAME_OBSERVATION_TARGET_MISMATCH",
+        "DEV_GAME_OBSERVATION_TOO_LARGE",
+        "DEV_GAME_OBSERVATION_UNSAFE_PATH",
+        "DEV_GAME_OBSERVATION_WRITE_FAILED",
+        "DEV_GAME_PARAMETERS_INVALID",
+        "DEV_GAME_PROVIDER_UNAVAILABLE",
+    }
+)
 
 
 class DevSessionManager(DevDiagnosticsMixin):
@@ -88,6 +121,9 @@ class DevSessionManager(DevDiagnosticsMixin):
         ready_timeout: float = DEFAULT_READY_TIMEOUT,
         stop_timeout: float = DEFAULT_STOP_TIMEOUT,
         screenshot_timeout: float = 5.0,
+        target_locked: bool = False,
+        game_bridge_factory: Callable[[DevEnvironment], object] | None = None,
+        database_diagnostics_factory: Callable[[DevEnvironment], object] | None = None,
     ):
         self.environment = environment or DevEnvironment.current()
         self.process_backend = process_backend or ProcessBackend()
@@ -100,13 +136,20 @@ class DevSessionManager(DevDiagnosticsMixin):
         self.ready_timeout = ready_timeout
         self.stop_timeout = stop_timeout
         self.screenshot_timeout = screenshot_timeout
+        self._target_locked = target_locked
+        self._game_bridge_factory = game_bridge_factory
+        self._database_diagnostics_factory = database_diagnostics_factory
         self._evidence_store: EvidenceStore | None = None
         self._smoke_manager = None
         self._control_manager: RuntimeControlManager | None = None
+        self._game_bridge: object | None = None
+        self._database_diagnostics: object | None = None
 
     def _refresh_target(self) -> None:
         """Обновить target перед новым вызовом долгоживущего manager."""
 
+        if self._target_locked:
+            return
         try:
             current_target = DevTargetRegistry.load_for_environment(
                 self.environment.repository_root,
@@ -122,6 +165,8 @@ class DevSessionManager(DevDiagnosticsMixin):
         self._evidence_store = None
         self._smoke_manager = None
         self._control_manager = None
+        self._game_bridge = None
+        self._database_diagnostics = None
 
     def _session_profile_name(self, session: DevSession) -> str | None:
         return session.profile_name or (
@@ -130,7 +175,12 @@ class DevSessionManager(DevDiagnosticsMixin):
 
     def _environment_for_session(self, session: DevSession) -> DevEnvironment:
         profile_name = self._session_profile_name(session)
-        if profile_name is None or profile_name == self.environment.profile_name:
+        if profile_name is None:
+            if session.target_identity is not None:
+                raise TaskSandboxError(
+                    "DEV_TARGET_SESSION_MISMATCH",
+                    "DevSession содержит target identity без profile_name",
+                )
             return self.environment
         try:
             target = DevTarget(profile_name)
@@ -139,6 +189,17 @@ class DevSessionManager(DevDiagnosticsMixin):
                 "DEV_TARGET_INVALID",
                 "Профиль DevSession нельзя безопасно разрешить в development target",
             ) from exc
+        expected_identity = target_identity(target)
+        if (
+            session.target_identity is not None
+            and session.target_identity != expected_identity
+        ):
+            raise TaskSandboxError(
+                "DEV_TARGET_SESSION_MISMATCH",
+                "DevSession не соответствует записанной target identity",
+            )
+        if target == self.environment.dev_target:
+            return self.environment
         return replace(self.environment, dev_target=target)
 
     def _evidence_for_session(
@@ -591,7 +652,11 @@ class DevSessionManager(DevDiagnosticsMixin):
             return smoke_manager
         from module.dev_runtime.smoke import SmokeRunManager
 
-        smoke_manager = SmokeRunManager(environment=self.environment, now=self.now)
+        smoke_manager = SmokeRunManager(
+            environment=self.environment,
+            now=self.now,
+            game_bridge_factory=lambda: self._get_game_bridge(refresh_target=False),
+        )
         self._smoke_manager = smoke_manager
         return smoke_manager
 
@@ -621,6 +686,326 @@ class DevSessionManager(DevDiagnosticsMixin):
         rationale: str,
     ) -> DevResult:
         return self._get_smoke_manager().submit_smoke_evaluation(smoke_id, assertion_id, verdict, rationale)
+
+    def _get_game_bridge(self, *, refresh_target: bool = True) -> object:
+        if refresh_target:
+            self._refresh_target()
+        bridge = self._game_bridge
+        if bridge is not None:
+            return bridge
+        if self._game_bridge_factory is not None:
+            bridge = self._game_bridge_factory(self.environment)
+        else:
+            from module.dev_runtime.game_bridge import build_runtime_game_bridge
+
+            bridge = build_runtime_game_bridge(self.environment, clock=self.now)
+        self._game_bridge = bridge
+        return bridge
+
+    def _get_database_diagnostics(self, *, refresh_target: bool = True) -> object:
+        if refresh_target:
+            self._refresh_target()
+        diagnostics = self._database_diagnostics
+        if diagnostics is not None:
+            return diagnostics
+        if self._database_diagnostics_factory is not None:
+            diagnostics = self._database_diagnostics_factory(self.environment)
+        else:
+            from module.persistence.runtime import build_runtime_database_diagnostics
+
+            diagnostics = build_runtime_database_diagnostics(self.environment)
+        self._database_diagnostics = diagnostics
+        return diagnostics
+
+    def _observation_target(
+        self,
+        session_id: str | None,
+    ) -> tuple[DevEnvironment | None, DevSession | None, DevResult | None]:
+        try:
+            self._refresh_target()
+            current = self._read_session()
+        except TaskSandboxError as exc:
+            return None, None, self._task_error(exc)
+        except (OSError, ValueError) as exc:
+            return (
+                None,
+                None,
+                DevResult(
+                    False,
+                    "DEV_STATE_CORRUPT",
+                    f"Маркер DevSession повреждён: {type(exc).__name__}",
+                    DevStatusKind.CORRUPT.value,
+                ),
+            )
+        if session_id is not None:
+            try:
+                session_id = validate_session_id(session_id)
+            except ValueError:
+                return (
+                    None,
+                    current,
+                    DevResult(
+                        False,
+                        "DEV_SESSION_ID_INVALID",
+                        "session_id имеет недопустимый формат",
+                        DevStatusKind.FAILED.value,
+                    ),
+                )
+            if current is None or current.session_id != session_id:
+                return (
+                    None,
+                    current,
+                    DevResult(
+                        False,
+                        "DEV_SESSION_NOT_FOUND",
+                        "Указанная DevSession не является текущей сессией",
+                        DevStatusKind.NO_SESSION.value,
+                        session_id,
+                    ),
+                )
+        if current is None:
+            return self.environment, None, None
+        try:
+            return self._environment_for_session(current), current, None
+        except TaskSandboxError as exc:
+            return None, current, self._task_error(exc)
+
+    def list_game_observation_capabilities(self) -> DevResult:
+        try:
+            bridge = self._get_game_bridge()
+            descriptors = bridge.descriptors()
+            return DevResult(
+                True,
+                "DEV_GAME_OBSERVATION_CAPABILITIES_READY",
+                "Реестр game observation capabilities прочитан",
+                DevStatusKind.NO_SESSION.value,
+                details={"capabilities": [item.as_dict() for item in descriptors]},
+            )
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
+        except Exception as exc:
+            return DevResult(
+                False,
+                "DEV_GAME_OBSERVATION_UNAVAILABLE",
+                f"Реестр game observations недоступен: {type(exc).__name__}",
+                DevStatusKind.FAILED.value,
+            )
+
+    def get_game_observation(
+        self,
+        capability_id: str,
+        parameters: Mapping[str, object] | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> DevResult:
+        environment, session, error = self._observation_target(session_id)
+        if error is not None:
+            return error
+        assert environment is not None
+        try:
+            from module.dev_runtime.game_bridge import (
+                GameObservationError,
+                GameObservationSnapshot,
+            )
+
+            bridge = self._get_game_bridge(refresh_target=False)
+            snapshot = bridge.capture(
+                environment.dev_target,
+                capability_id,
+                parameters,
+                checkpoint_id="standalone",
+                session_id=session.session_id if session is not None else None,
+                captured_at=self.now(),
+            )
+            expected_target = target_identity(environment.dev_target)
+            expected_session_id = session.session_id if session is not None else None
+            if not isinstance(snapshot, GameObservationSnapshot):
+                raise GameObservationError(
+                    "DEV_GAME_OBSERVATION_PROVIDER_INVALID",
+                    "Bridge вернул некорректный game snapshot",
+                )
+            if (
+                snapshot.profile_name != environment.profile_name
+                or snapshot.target_identity != expected_target
+                or snapshot.session_id != expected_session_id
+            ):
+                raise GameObservationError(
+                    "DEV_GAME_OBSERVATION_TARGET_MISMATCH",
+                    "Bridge вернул observation с другой session или target",
+                )
+            if snapshot.checkpoint_id != "standalone" or snapshot.capability_id != capability_id:
+                raise GameObservationError(
+                    "DEV_GAME_OBSERVATION_PROVIDER_INVALID",
+                    "Bridge вернул observation с другой checkpoint или capability",
+                )
+            known = snapshot.status.value == "known"
+            code = (
+                "DEV_GAME_OBSERVATION_READY"
+                if known
+                else (
+                    "DEV_GAME_OBSERVATION_UNKNOWN"
+                    if snapshot.status.value == "unknown"
+                    else "DEV_GAME_OBSERVATION_UNAVAILABLE"
+                )
+            )
+            return DevResult(
+                known,
+                code,
+                "Game observation прочитано" if known else "Game observation не подтверждено",
+                session.state.value if session is not None else DevStatusKind.NO_SESSION.value,
+                session.session_id if session is not None else None,
+                {"observation": snapshot.as_dict()},
+            )
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
+        except Exception as exc:
+            raw_code = getattr(exc, "code", None)
+            code = (
+                raw_code
+                if isinstance(raw_code, str) and raw_code in _SAFE_GAME_ERROR_CODES
+                else "DEV_GAME_OBSERVATION_UNAVAILABLE"
+            )
+            return DevResult(
+                False,
+                code,
+                f"Game observation недоступно: {type(exc).__name__}",
+                session.state.value if session is not None else DevStatusKind.NO_SESSION.value,
+                session.session_id if session is not None else None,
+            )
+
+    def capture_smoke_game_checkpoint(
+        self,
+        smoke_id: str,
+        checkpoint_id: str,
+    ) -> DevResult:
+        return self._get_smoke_manager().capture_game_checkpoint(
+            smoke_id,
+            checkpoint_id,
+        )
+
+    def get_smoke_game_observations(
+        self,
+        smoke_id: str,
+        checkpoint_id: str | None = None,
+    ) -> DevResult:
+        return self._get_smoke_manager().get_game_observations(
+            smoke_id,
+            checkpoint_id=checkpoint_id,
+        )
+
+    @staticmethod
+    def _database_check_dict(value: object) -> dict[str, object]:
+        as_dict = getattr(value, "as_dict", None)
+        if callable(as_dict):
+            payload = as_dict()
+            if isinstance(payload, dict):
+                return payload
+        return {}
+
+    def get_database_status(self, *, session_id: str | None = None) -> DevResult:
+        environment, session, error = self._observation_target(session_id)
+        if error is not None:
+            return error
+        assert environment is not None
+        state = session.state.value if session is not None else DevStatusKind.NO_SESSION.value
+        resolved_session_id = session.session_id if session is not None else None
+        try:
+            diagnostics = self._get_database_diagnostics(refresh_target=False)
+            snapshot = diagnostics.get_status(environment.profile_name)
+            return DevResult(
+                True,
+                "DEV_DATABASE_STATUS_READY",
+                "Сводка developer-only PostgreSQL diagnostics прочитана",
+                state,
+                resolved_session_id,
+                {"database_status": self._database_check_dict(snapshot)},
+            )
+        except Exception as exc:
+            return DevResult(
+                False,
+                "DEV_DATABASE_DIAGNOSTICS_UNAVAILABLE",
+                f"PostgreSQL diagnostics недоступны: {type(exc).__name__}",
+                DevStatusKind.FAILED.value,
+                resolved_session_id,
+            )
+
+    def list_database_checks(self) -> DevResult:
+        try:
+            diagnostics = self._get_database_diagnostics()
+            checks = diagnostics.list_checks()
+            return DevResult(
+                True,
+                "DEV_DATABASE_CHECKS_READY",
+                "Каталог фиксированных PostgreSQL diagnostics прочитан",
+                DevStatusKind.NO_SESSION.value,
+                details={"database_checks": [self._database_check_dict(item) for item in checks]},
+            )
+        except Exception as exc:
+            return DevResult(
+                False,
+                "DEV_DATABASE_DIAGNOSTICS_UNAVAILABLE",
+                f"Каталог PostgreSQL diagnostics недоступен: {type(exc).__name__}",
+                DevStatusKind.FAILED.value,
+            )
+
+    def run_database_check(
+        self,
+        check_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> DevResult:
+        environment, session, error = self._observation_target(session_id)
+        if error is not None:
+            return error
+        assert environment is not None
+        state = session.state.value if session is not None else DevStatusKind.NO_SESSION.value
+        resolved_session_id = session.session_id if session is not None else None
+        try:
+            diagnostics = self._get_database_diagnostics(refresh_target=False)
+            result = diagnostics.run_check(check_id, environment.profile_name)
+            status = getattr(result, "status", None)
+            status_value = getattr(status, "value", status)
+            ok = status_value == "pass"
+            return DevResult(
+                ok,
+                "DEV_DATABASE_CHECK_PASS" if ok else "DEV_DATABASE_CHECK_NOT_PASS",
+                "PostgreSQL diagnostic check завершён",
+                state,
+                resolved_session_id,
+                {"database_check": self._database_check_dict(result)},
+            )
+        except Exception as exc:
+            return DevResult(
+                False,
+                "DEV_DATABASE_DIAGNOSTICS_UNAVAILABLE",
+                f"PostgreSQL diagnostic check недоступен: {type(exc).__name__}",
+                DevStatusKind.FAILED.value,
+                resolved_session_id,
+            )
+
+    def list_database_repairs(self) -> DevResult:
+        return DevResult(
+            True,
+            "DEV_DATABASE_REPAIRS_READY",
+            "Каталог безопасных database repairs пуст",
+            DevStatusKind.NO_SESSION.value,
+            details={"repairs": []},
+        )
+
+    def preview_database_repair(
+        self,
+        repair_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> DevResult:
+        return DevResult(
+            False,
+            "DEV_DATABASE_REPAIR_UNAVAILABLE",
+            "Для текущего database contract безопасные repairs не зарегистрированы",
+            DevStatusKind.NO_SESSION.value,
+            session_id,
+            {"repair": {"repair_id": repair_id, "available": False}},
+        )
 
     def _get_control_manager(self) -> RuntimeControlManager:
         self._refresh_target()
@@ -1732,6 +2117,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 created_at=timestamp,
                 updated_at=timestamp,
                 profile_name=self.environment.profile_name,
+                target_identity=target_identity(self.environment.dev_target),
                 last_code="DEV_SESSION_CREATED",
                 last_message="DevSession создана",
                 task_mode=(

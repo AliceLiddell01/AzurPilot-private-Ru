@@ -23,6 +23,9 @@ DEV_MCP_FEATURE_FLAGS = {
     "game_lifecycle": True,
     "emulator_lifecycle": True,
     "adb_maintenance": True,
+    "game_observations": True,
+    "database_diagnostics": True,
+    "database_repairs": True,
 }
 DEV_MCP_CAPABILITY_FAMILIES = (
     "diagnostics",
@@ -30,6 +33,8 @@ DEV_MCP_CAPABILITY_FAMILIES = (
     "lifecycle",
     "smoke",
     "runtime_control",
+    "game",
+    "database",
 )
 DEV_MCP_RESULT_OUTCOMES = tuple(outcome.value for outcome in SmokeOutcome)
 

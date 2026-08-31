@@ -43,3 +43,23 @@ def resolve_runtime_instance(
             "Идентификатор экземпляра не совпадает с происхождением миграции."
         )
     return identity.id
+
+
+def resolve_existing_runtime_instance(
+    uow: StorageUnitOfWork,
+    instance: str,
+) -> UUID | None:
+    """Разрешить уже известный runtime-профиль без регистрации или commit."""
+
+    digest, identity_id = runtime_instance_identity(instance)
+    identity = uow.instances.resolve(
+        alias_kind="legacy_instance",
+        alias_digest=digest,
+    )
+    if identity is None:
+        return None
+    if identity.id != identity_id:
+        raise StorageConfigurationError(
+            "Идентификатор экземпляра не совпадает с происхождением миграции."
+        )
+    return identity.id

@@ -1,0 +1,464 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from module.application.game_models import DashboardResource, DashboardResources
+from module.application.morale import (
+    MoraleFleetState,
+    MoraleKnowledge,
+    MoraleSelectionState,
+    MoraleSlotState,
+)
+from module.dev_runtime import DevEnvironment, DevSessionManager, game_bridge
+from module.dev_runtime.game_bridge import (
+    DevGameBridge,
+    GameObservationCapability,
+    GameObservationCapture,
+    GameObservationError,
+    GameObservationRegistry,
+    GameObservationSnapshot,
+    GameObservationStatus,
+    GameObservationStore,
+    MoraleObservationProvider,
+    ObservationParameter,
+    ObservationParameterType,
+)
+from module.dev_runtime.smoke import SmokeRunManager, SmokeSpec
+from module.dev_runtime.target import DevTarget
+from module.formation.model import FleetSelection, FormationFleetSide
+
+_NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+_TARGET = DevTarget("fixture-target")
+
+
+class _SyntheticProvider:
+    capability = GameObservationCapability(
+        capability_id="synthetic",
+        description="Synthetic game projection",
+        source="tests.synthetic",
+        parameters=(
+            ObservationParameter(
+                name="fleet_index",
+                value_type=ObservationParameterType.INTEGER,
+                required=True,
+                minimum=1,
+                maximum=10,
+            ),
+        ),
+    )
+
+    def capture(
+        self,
+        _target: DevTarget,
+        parameters: dict[str, object],
+        *,
+        captured_at: datetime,
+    ) -> GameObservationCapture:
+        return GameObservationCapture(
+            status=GameObservationStatus.KNOWN,
+            source=self.capability.source,
+            provenance={
+                "capability_id": self.capability.capability_id,
+                "owner": "tests",
+                "freshness": "synthetic",
+            },
+            payload={"fleet_index": parameters["fleet_index"], "captured_at": captured_at},
+        )
+
+
+class _ExplodingProvider(_SyntheticProvider):
+    capability = GameObservationCapability(
+        capability_id="exploding",
+        description="Exploding game projection",
+        source="tests.exploding",
+    )
+
+    def capture(
+        self,
+        target: DevTarget,
+        parameters: dict[str, object],
+        *,
+        captured_at: datetime,
+    ) -> GameObservationCapture:
+        raise RuntimeError("private provider detail must not cross the bridge")
+
+
+def _snapshot(
+    *,
+    smoke_id: str = "smoke-1",
+    checkpoint_id: str = "before",
+    session_id: str = "session-1",
+    target: DevTarget = _TARGET,
+    observation_id: str | None = None,
+) -> GameObservationSnapshot:
+    capture = GameObservationCapture(
+        status=GameObservationStatus.KNOWN,
+        source="tests.synthetic",
+        provenance={"capability_id": "synthetic", "owner": "tests"},
+        payload={"value": 7},
+    )
+    return GameObservationSnapshot.create(
+        capture,
+        target=target,
+        checkpoint_id=checkpoint_id,
+        session_id=session_id,
+        smoke_id=smoke_id,
+        captured_at=_NOW,
+        observation_id=observation_id,
+    )
+
+
+def test_registry_is_sorted_strict_and_fail_closed_for_provider_errors() -> None:
+    registry = GameObservationRegistry((_ExplodingProvider(), _SyntheticProvider()))
+
+    # The duplicate id is rejected before a second provider can shadow the first.
+    with pytest.raises(GameObservationError) as duplicate:
+        GameObservationRegistry((_SyntheticProvider(), _SyntheticProvider()))
+    assert duplicate.value.code == "DEV_GAME_CAPABILITY_CONFLICT"
+
+    assert [item.capability_id for item in registry.descriptors()] == ["exploding", "synthetic"]
+    with pytest.raises(GameObservationError) as missing:
+        registry.capture(
+            target=_TARGET,
+            capability_id="unknown",
+            parameters={},
+            captured_at=_NOW,
+        )
+    assert missing.value.code == "DEV_GAME_CAPABILITY_UNAVAILABLE"
+
+    with pytest.raises(GameObservationError) as invalid:
+        registry.capture(
+            target=_TARGET,
+            capability_id="synthetic",
+            parameters={"fleet_index": 7, "unexpected": True},
+            captured_at=_NOW,
+        )
+    assert invalid.value.code == "DEV_GAME_PARAMETERS_INVALID"
+
+    with pytest.raises(GameObservationError) as invalid_key:
+        registry.capture(
+            target=_TARGET,
+            capability_id="synthetic",
+            parameters={1: 7},
+            captured_at=_NOW,
+        )
+    assert invalid_key.value.code == "DEV_GAME_PARAMETERS_INVALID"
+
+    unavailable = GameObservationRegistry((_ExplodingProvider(),)).capture(
+        target=_TARGET,
+        capability_id="exploding",
+        parameters={},
+        captured_at=_NOW,
+    )
+    assert unavailable.status is GameObservationStatus.UNAVAILABLE
+    assert unavailable.payload == {"reason_code": "DEV_GAME_PROVIDER_UNAVAILABLE"}
+
+
+def test_snapshot_checksum_and_target_binding_are_verified() -> None:
+    snapshot = _snapshot()
+    restored = GameObservationSnapshot.from_dict(snapshot.as_dict())
+
+    assert restored == snapshot
+    tampered = snapshot.as_dict()
+    assert isinstance(tampered["payload"], dict)
+    tampered["payload"]["value"] = 8
+    with pytest.raises(GameObservationError) as checksum:
+        GameObservationSnapshot.from_dict(tampered)
+    assert checksum.value.code == "DEV_GAME_OBSERVATION_CHECKSUM_MISMATCH"
+
+    with pytest.raises(GameObservationError) as target_error:
+        GameObservationSnapshot.create(
+            GameObservationCapture(
+                status=GameObservationStatus.KNOWN,
+                source="tests.synthetic",
+                provenance={"capability_id": "synthetic"},
+                payload={},
+            ),
+            target="fixture-target",  # type: ignore[arg-type]
+            checkpoint_id="before",
+            captured_at=_NOW,
+        )
+    assert target_error.value.code == "DEV_GAME_OBSERVATION_TARGET_INVALID"
+
+
+def test_store_is_scoped_atomic_and_has_bounded_duplicate_policy(tmp_path: Path) -> None:
+    environment = SimpleNamespace(repository_root=tmp_path)
+    store = GameObservationStore(environment, "smoke-1")
+    snapshot = _snapshot()
+
+    assert store.append(snapshot) is True
+    assert store.append(snapshot, duplicate_policy="keep_first") is False
+    with pytest.raises(GameObservationError) as duplicate:
+        store.append(snapshot)
+    assert duplicate.value.code == "DEV_GAME_CHECKPOINT_DUPLICATE"
+    assert store.read() == (snapshot,)
+    assert store.read(checkpoint_id="before") == (snapshot,)
+    assert store.summary()["relative_file"] == (
+        "config/state/dev-runtime-smoke/smoke-1/game-observations.json"
+    )
+
+    raw = json.loads(store.path.read_text(encoding="utf-8"))
+    raw["observations"].append(raw["observations"][0])
+    store.path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(GameObservationError) as corrupt_duplicate:
+        store.read()
+    assert corrupt_duplicate.value.code == "DEV_GAME_OBSERVATION_CORRUPT"
+
+    with pytest.raises(GameObservationError) as scope:
+        store.append(_snapshot(smoke_id="other"))
+    assert scope.value.code == "DEV_GAME_OBSERVATION_SCOPE_MISMATCH"
+
+
+def test_store_rejects_corruption_path_traversal_and_snapshot_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = SimpleNamespace(repository_root=tmp_path)
+    store = GameObservationStore(environment, "smoke-1")
+    store.append(_snapshot())
+    store.path.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(GameObservationError) as corruption:
+        store.read()
+    assert corruption.value.code == "DEV_GAME_OBSERVATION_CORRUPT"
+
+    with pytest.raises(GameObservationError) as traversal:
+        GameObservationStore(environment, "../escape")
+    assert traversal.value.code == "DEV_GAME_OBSERVATION_INVALID"
+
+    monkeypatch.setattr(game_bridge, "GAME_OBSERVATION_MAX_SNAPSHOTS", 1)
+    limited_store = GameObservationStore(environment, "limited")
+    limited_store.append(_snapshot(smoke_id="limited", checkpoint_id="first"))
+    with pytest.raises(GameObservationError) as limit:
+        limited_store.append(_snapshot(smoke_id="limited", checkpoint_id="second"))
+    assert limit.value.code == "DEV_GAME_OBSERVATION_LIMIT"
+
+
+def test_smoke_checkpoint_rejects_provider_session_mismatch(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+    bridge = SimpleNamespace(
+        capture=lambda *_args, **_kwargs: _snapshot(session_id="session-1")
+    )
+    manager = SmokeRunManager(environment, game_bridge=bridge, now=lambda: _NOW)
+    spec = SmokeSpec.model_validate(
+        {
+            "name": "game-bridge-smoke",
+            "objective": "Проверить provenance checkpoint",
+            "session": {"root_tasks": ["RootTask"]},
+            "game_observations": {
+                "observations": [{"capability_id": "synthetic"}],
+            },
+        }
+    )
+
+    ok, _details, failure = manager._capture_game_checkpoint(
+        SimpleNamespace(smoke_id="smoke-1"),
+        spec,
+        "before",
+        "session-expected",
+    )
+
+    assert ok is False
+    assert failure is not None
+    assert failure.code == "DEV_GAME_OBSERVATION_TARGET_MISMATCH"
+    assert not GameObservationStore(environment, "smoke-1").path.exists()
+
+
+def test_smoke_checkpoint_exposes_persisted_game_evidence_refs(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+    bridge = SimpleNamespace(
+        capture=lambda *_args, **kwargs: _snapshot(
+            smoke_id=kwargs["smoke_id"],
+            checkpoint_id=kwargs["checkpoint_id"],
+            session_id=kwargs["session_id"],
+            observation_id="observation-1",
+        )
+    )
+    manager = SmokeRunManager(environment, game_bridge=bridge, now=lambda: _NOW)
+    spec = SmokeSpec.model_validate(
+        {
+            "name": "game-bridge-smoke",
+            "objective": "Проверить ссылку на сохранённое observation",
+            "session": {"root_tasks": ["RootTask"]},
+            "game_observations": {
+                "observations": [{"capability_id": "synthetic"}],
+            },
+        }
+    )
+
+    ok, details, failure = manager._capture_game_checkpoint(
+        SimpleNamespace(smoke_id="smoke-1"),
+        spec,
+        "before",
+        "session-1",
+    )
+
+    assert ok is True
+    assert failure is None
+    refs = details["game_observations"]["evidence_refs"]
+    assert len(refs) == 1
+    assert refs[0]["source"] == "game_observation"
+    assert refs[0]["reference"].endswith("#observation-1")
+
+
+def test_manager_rejects_stale_standalone_provider_target(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+    bridge = SimpleNamespace(
+        capture=lambda *_args, **_kwargs: _snapshot(
+            session_id=None,
+            target=DevTarget("stale-target"),
+        )
+    )
+    manager = DevSessionManager(
+        environment,
+        target_locked=True,
+        game_bridge_factory=lambda _environment: bridge,
+        now=lambda: _NOW,
+    )
+
+    result = manager.get_game_observation("synthetic", {})
+
+    assert result.ok is False
+    assert result.code == "DEV_GAME_OBSERVATION_TARGET_MISMATCH"
+
+
+def test_resources_provider_uses_typed_application_projection() -> None:
+    seen: list[str] = []
+
+    class _GameReadService:
+        def get_resources(self, instance: str) -> DashboardResources:
+            seen.append(instance)
+            return DashboardResources(
+                (
+                    DashboardResource(
+                        key="oil",
+                        label="Oil",
+                        value=123,
+                        limit=1000,
+                    ),
+                )
+            )
+
+    bridge = DevGameBridge(
+        game_read_service_factory=_GameReadService,
+        morale_service_factory=None,
+    )
+    snapshot = bridge.capture(
+        _TARGET,
+        "resources",
+        captured_at=_NOW,
+    )
+
+    assert snapshot.status is GameObservationStatus.KNOWN
+    assert seen == ["fixture-target"]
+    assert snapshot.as_dict()["payload"]["items"] == [
+        {
+            "key": "oil",
+            "label": "Oil",
+            "value": 123,
+            "limit": 1000,
+            "total": None,
+            "last_update": None,
+        }
+    ]
+
+
+def test_morale_provider_preserves_typed_unknown_without_inventing_baseline() -> None:
+    slots = tuple(
+        MoraleSlotState(
+            fleet_index=1,
+            side=side,
+            position=position,
+            occupied=None,
+            identity_status=None,
+            canonical_identity=None,
+            canonical_name=None,
+            ship_form=None,
+            knowledge=MoraleKnowledge.UNKNOWN,
+        )
+        for side, position in (
+            (FormationFleetSide.MAIN, 1),
+            (FormationFleetSide.MAIN, 2),
+            (FormationFleetSide.MAIN, 3),
+            (FormationFleetSide.VANGUARD, 1),
+            (FormationFleetSide.VANGUARD, 2),
+            (FormationFleetSide.VANGUARD, 3),
+        )
+    )
+    state = MoraleSelectionState(
+        selection=FleetSelection.one(1),
+        fleets=(MoraleFleetState(1, None, None, slots),),
+        projected_at=_NOW,
+    )
+    calls: list[tuple[str, FleetSelection, datetime]] = []
+
+    class _MoraleService:
+        def state_read_only(
+            self,
+            instance: str,
+            selection: FleetSelection,
+            *,
+            at: datetime,
+        ) -> MoraleSelectionState:
+            calls.append((instance, selection, at))
+            return state
+
+    snapshot = MoraleObservationProvider(lambda: _MoraleService()).capture(
+        _TARGET,
+        {"fleet_indices": [1]},
+        captured_at=_NOW,
+    )
+
+    assert snapshot.status is GameObservationStatus.UNKNOWN
+    assert calls == [("fixture-target", FleetSelection.one(1), _NOW)]
+    payload = snapshot.payload
+    assert payload["selection"] == (1,)
+    assert all(slot["baseline"] is None for slot in payload["fleets"][0]["slots"])
+
+
+def test_smoke_game_observations_have_named_intermediates_and_reserved_boundaries() -> None:
+    spec = SmokeSpec.model_validate(
+        {
+            "name": "game-bridge-smoke",
+            "objective": "Проверить game observation checkpoints",
+            "session": {"root_tasks": ["RootTask"]},
+            "game_observations": {
+                "observations": [{"capability_id": "resources"}],
+                "checkpoints": [
+                    {
+                        "checkpoint_id": "midpoint",
+                        "observations": [{"capability_id": "morale", "parameters": {"fleet_indices": [1]}}],
+                    }
+                ],
+                "duplicate_policy": "keep_first",
+            },
+        },
+        strict=True,
+    )
+    assert spec.game_observations is not None
+    assert spec.game_observations.checkpoints[0].checkpoint_id == "midpoint"
+    assert spec.game_observations.duplicate_policy == "keep_first"
+
+    with pytest.raises(ValueError):
+        SmokeSpec.model_validate(
+            {
+                "name": "reserved-checkpoint",
+                "objective": "invalid",
+                "session": {"root_tasks": ["RootTask"]},
+                "game_observations": {
+                    "observations": [{"capability_id": "resources"}],
+                    "checkpoints": [
+                        {
+                            "checkpoint_id": "before",
+                            "observations": [{"capability_id": "resources"}],
+                        }
+                    ],
+                },
+            },
+            strict=True,
+        )

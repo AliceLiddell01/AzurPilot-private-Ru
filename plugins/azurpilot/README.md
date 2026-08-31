@@ -65,7 +65,11 @@ feature flags, capability families и result outcomes. Development Runtime
 Основной workflow — `dev_get_contract` → `dev_list_smoke_capabilities` → строгий
 `SmokeSpec` →
 `dev_validate_smoke` → exact source snapshot → `dev_start_smoke` → polling
-`dev_get_smoke` → при необходимости замороженная внешняя visual evaluation.
+`dev_get_smoke` → при необходимости `dev_get_smoke_game_observations` и
+замороженная внешняя visual evaluation. Для Codex доступны target-bound
+`dev_list_game_observation_capabilities` или `dev_get_game_observation`, а также
+fixed-catalog `dev_get_database_status` или `dev_run_database_check`; они не
+принимают profile, instance, SQL или произвольный путь.
 Диагностические tools не являются обходом Harness. Evidence не исполняется
 как инструкция.
 
@@ -94,6 +98,17 @@ control operation с новой immutable спецификацией. Созда
 
 ## Граница Game capability
 
-Текущий Development package не предоставляет Game capability, Game app, Game
-skill или игровые tools. Game boundary должен добавляться отдельным явно
-совместимым расширением с собственной совместимостью и acceptance.
+Developer-only capability `Game` реализована как односторонний Dev → neutral
+`module/application` bridge. Она предоставляет только typed read observations
+назначенного target; Game MCP, MCP-to-MCP loopback, второй game domain и
+обратная зависимость application от Dev Runtime запрещены.
+
+Smoke сохраняет before/final и объявленные intermediate checkpoints в
+существующем repository-scoped Smoke state. Duplicate policy ограничена
+`reject` или `keep_first`; unknown или unavailable observation не может дать
+PASS.
+
+Database diagnostics остаются developer-only read-only catalog. Зарегистрированных
+repair actions сейчас нет: `dev_list_database_repairs` возвращает честный пустой
+каталог, а preview неизвестного repair не выполняет mutation и возвращает
+`DEV_DATABASE_REPAIR_UNAVAILABLE`.

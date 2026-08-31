@@ -4,6 +4,14 @@
 Legacy-адаптеры подключаются вызывающей стороной явно.
 """
 
+from module.application.database_diagnostics import (
+    DATABASE_DIAGNOSTICS_SCHEMA_VERSION,
+    DatabaseCheckDescriptor,
+    DatabaseCheckResult,
+    DatabaseCheckStatus,
+    DatabaseDiagnosticsReader,
+    DatabaseStatusSnapshot,
+)
 from module.application.errors import (
     ApplicationError,
     ConfigurationValidationError,
@@ -148,6 +156,12 @@ __all__ = (
     "ConfigUpdateRequest",
     "ConfigUpdateResult",
     "CurrentTaskSnapshot",
+    "DATABASE_DIAGNOSTICS_SCHEMA_VERSION",
+    "DatabaseCheckDescriptor",
+    "DatabaseCheckResult",
+    "DatabaseCheckStatus",
+    "DatabaseDiagnosticsReader",
+    "DatabaseStatusSnapshot",
     "DashboardResource",
     "DashboardResources",
     "DormMoraleRepository",

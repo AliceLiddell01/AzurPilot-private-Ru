@@ -326,6 +326,37 @@ low-level API. Remote entrypoint использует зафиксированн
 и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
 HTTP request повторно проходит auth и не оставляет серверных session records.
 
+## Game Bridge и database diagnostics
+
+Developer-only `Game` capability идёт в одну сторону:
+`Dev MCP → DevSessionManager/SmokeRunManager → нейтральный module/application`.
+Game MCP, MCP-to-MCP loopback, второй game domain и обратная зависимость
+`module.application` от Dev Runtime запрещены. Registry публикует только typed
+capabilities с фиксированными ID и bounded parameters. Сейчас доступны Stage-9
+`GameReadService` для resources и persistence/domain-backed per-ship morale
+projection; unavailable и unknown сохраняются как отдельные состояния и не
+подменяются догадкой.
+
+Game observations target-bound: standalone вызов разрешает только текущий
+configured target, а SmokeRun фиксирует immutable target/profile/session
+provenance. Supervisor автоматически сохраняет `before` и `final`, а также
+только явно объявленные именованные intermediate checkpoints в
+`config/state/dev-runtime-smoke/<smoke-id>/game-observations.json`. Запись
+атомарная, scoped и checksum-проверяемая; duplicate policy ограничена
+`reject`/`keep_first`, а missing, unknown или unavailable required observation
+блокирует `PASS`.
+
+Developer-only PostgreSQL diagnostics используют фиксированный read-only catalog:
+marker, connectivity, app role, Alembic current/head, schema marker, configured
+target resolution, required tables, bounded domain consistency, transaction и
+config mismatch. Вход не принимает SQL, table/column name, dump, secret или
+произвольный путь; Alembic и schema не изменяются через MCP. Каталог repair
+сейчас честно пуст (`dev_list_database_repairs`), а неизвестный repair даёт
+`DEV_DATABASE_REPAIR_UNAVAILABLE` без mutation. Для подключения Codex
+используй project-scoped local stdio:
+`uv run --locked --no-sync python -m module.dev_mcp`; public/Verified app
+относится к ChatGPT и не является backend этого local live-test.
+
 ## Public HTTPS для ChatGPT
 
 Публичный путь заменяет недоступный для этой personal organization Secure MCP
@@ -430,8 +461,9 @@ PASS-result, exact source, подтверждённой очистке и пол
 `INVALIDATED`, `CANCELLED` и `PRECONDITION_FAILED` не превращаются в auto-retry
 или успех.
 
-Текущий Development package не предоставляет capability `Game`, игровые
-tools/app/skill или production-интеграцию. Ограничения ChatGPT Developer Mode
+Текущий Development package предоставляет developer-only capability `Game`
+через typed bridge, но не игровые production tools/app или production-интеграцию.
+Ограничения ChatGPT Developer Mode
 или текущего плана на write tools фиксируются как
 `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`, а не
 обходятся новым transport или auth server.

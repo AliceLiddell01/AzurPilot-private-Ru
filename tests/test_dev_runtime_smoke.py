@@ -22,6 +22,12 @@ from module.dev_runtime import (
     RuntimeSnapshot,
 )
 from module.dev_runtime.evidence import EvidenceScreenshot, GitSnapshot
+from module.dev_runtime.game_bridge import (
+    GameObservationCapture,
+    GameObservationSnapshot,
+    GameObservationStatus,
+    GameObservationStore,
+)
 from module.dev_runtime.target import DevTarget
 
 _NOW = datetime(2026, 8, 30, 9, 0, 1, tzinfo=UTC)
@@ -269,6 +275,40 @@ class _ControlBackend:
             game_foreground=False,
             game_running=False,
             unrelated_adb_devices=False,
+        )
+
+
+class _SmokeGameBridge:
+    def validate_request(self, capability_id: object, parameters: object = None) -> dict[str, object]:
+        if capability_id != "synthetic" or parameters not in (None, {}):
+            raise ValueError("unexpected game observation request")
+        return {}
+
+    def capture(
+        self,
+        target: DevTarget,
+        capability_id: str,
+        parameters: object = None,
+        *,
+        checkpoint_id: str,
+        session_id: str | None,
+        smoke_id: str | None,
+        captured_at: datetime,
+    ) -> GameObservationSnapshot:
+        if capability_id != "synthetic" or parameters not in (None, {}):
+            raise ValueError("unexpected game observation request")
+        return GameObservationSnapshot.create(
+            GameObservationCapture(
+                status=GameObservationStatus.KNOWN,
+                source="tests.synthetic",
+                provenance={"capability_id": capability_id, "owner": "tests"},
+                payload={"checkpoint": checkpoint_id},
+            ),
+            target=target,
+            checkpoint_id=checkpoint_id,
+            session_id=session_id,
+            smoke_id=smoke_id,
+            captured_at=captured_at,
         )
 
 
@@ -539,6 +579,35 @@ def test_cancel_request_finishes_with_confirmed_cleanup(tmp_path: Path, clean_so
     assert result.cleanup.port_free is True
     assert runtime.stop_calls == 1
     assert manager.cancel_smoke(smoke_id).code == "DEV_SMOKE_ALREADY_FINISHED"
+
+
+def test_smoke_captures_automatic_game_boundaries(tmp_path: Path, clean_source: None) -> None:
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: _Runtime(),
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(),
+        now=lambda: _NOW,
+    )
+    started = manager.start_smoke(
+        _spec(
+            game_observations={
+                "observations": [{"capability_id": "synthetic"}],
+            }
+        )
+    )
+    smoke_id = started.details["smoke_id"]
+
+    manager._run_supervisor(smoke_id)
+
+    result = manager.store.load_result(smoke_id)
+    assert result is not None
+    assert result.outcome is smoke.SmokeOutcome.PASS
+    observations = GameObservationStore(manager.environment, smoke_id).read()
+    assert {(item.checkpoint_id, item.capability_id) for item in observations} == {
+        ("before", "synthetic"),
+        ("final", "synthetic"),
+    }
 
 
 def test_cancel_smoke_returns_request_for_live_supervisor(tmp_path: Path, clean_source: None) -> None:

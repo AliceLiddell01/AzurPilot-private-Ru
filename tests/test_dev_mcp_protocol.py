@@ -72,6 +72,15 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_cancel_smoke",
         "dev_get_smoke_evaluation",
         "dev_submit_smoke_evaluation",
+        "dev_list_game_observation_capabilities",
+        "dev_get_game_observation",
+        "dev_capture_smoke_game_checkpoint",
+        "dev_get_smoke_game_observations",
+        "dev_get_database_status",
+        "dev_list_database_checks",
+        "dev_run_database_check",
+        "dev_list_database_repairs",
+        "dev_preview_database_repair",
         "dev_get_runtime_status",
         "dev_start_game",
         "dev_stop_game",
@@ -94,7 +103,7 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_cancel_smoke",
         "dev_start_smoke",
     }
-    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
+    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation", "dev_capture_smoke_game_checkpoint"}
     control_start = {"dev_start_game", "dev_start_emulator"}
     control_stop = {"dev_stop_game", "dev_stop_emulator"}
     control_restart = {"dev_restart_game", "dev_restart_emulator", "dev_restart_adb"}
@@ -112,6 +121,12 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_cancel_smoke",
         "dev_get_smoke_evaluation",
         "dev_submit_smoke_evaluation",
+        "dev_get_game_observation",
+        "dev_capture_smoke_game_checkpoint",
+        "dev_get_smoke_game_observations",
+        "dev_get_database_status",
+        "dev_run_database_check",
+        "dev_preview_database_repair",
         "dev_get_control_operation",
     }
     for tool in tools:
@@ -165,6 +180,12 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
     assert set(evaluation_schema["properties"]) == {"smoke_id", "assertion_id", "verdict", "rationale"}
     assert evaluation_schema["required"] == ["smoke_id", "assertion_id", "verdict", "rationale"]
     assert "external_agent" not in evaluation_schema["properties"]
+    game_schema = next(tool for tool in tools if tool.name == "dev_get_game_observation").input_schema
+    assert game_schema["properties"]["parameters"]["maxProperties"] == 16
+    assert game_schema["properties"]["parameters"]["additionalProperties"] is False
+    assert game_schema["properties"]["parameters"]["patternProperties"]
+    checkpoint_schema = next(tool for tool in tools if tool.name == "dev_capture_smoke_game_checkpoint").input_schema
+    assert checkpoint_schema["properties"]["checkpoint_id"]["not"] == {"enum": ["before", "final"]}
 
 
 def test_server_bootstrap_does_not_construct_runtime_manager() -> None:
@@ -249,6 +270,36 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
             assert contract.structured_content is not None
             assert contract.structured_content["ok"] is True
             assert contract.structured_content["details"]["contract"] == EXPECTED_CONTRACT
+
+            game_capabilities = await session.call_tool(
+                "dev_list_game_observation_capabilities",
+                {},
+            )
+            assert game_capabilities.structured_content is not None
+            assert game_capabilities.structured_content["code"] in {
+                "DEV_GAME_OBSERVATION_CAPABILITIES_READY",
+                "DEV_GAME_OBSERVATION_UNAVAILABLE",
+            }
+            game_observation = await session.call_tool(
+                "dev_get_game_observation",
+                {"capability_id": "resources", "parameters": {}},
+            )
+            assert game_observation.structured_content is not None
+            assert game_observation.structured_content["code"] in {
+                "DEV_GAME_OBSERVATION_READY",
+                "DEV_GAME_OBSERVATION_UNKNOWN",
+                "DEV_GAME_OBSERVATION_UNAVAILABLE",
+                "DEV_TARGET_NOT_CONFIGURED",
+                "DEV_TARGET_DEFAULT_PROFILE_MISSING",
+            }
+            database_checks = await session.call_tool("dev_list_database_checks", {})
+            assert database_checks.structured_content is not None
+            assert database_checks.structured_content["code"] in {
+                "DEV_DATABASE_CHECKS_READY",
+                "DEV_DATABASE_DIAGNOSTICS_UNAVAILABLE",
+                "DEV_TARGET_NOT_CONFIGURED",
+                "DEV_TARGET_DEFAULT_PROFILE_MISSING",
+            }
 
     asyncio.run(asyncio.wait_for(scenario(), timeout=30))
 

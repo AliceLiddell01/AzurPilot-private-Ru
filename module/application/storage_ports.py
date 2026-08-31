@@ -8,6 +8,7 @@ from types import TracebackType
 from typing import Protocol, Self
 from uuid import UUID
 
+from module.application.database_diagnostics import DatabaseDiagnosticsReader
 from module.application.storage_models import (
     CommissionIncome,
     ImportBatch,
@@ -97,3 +98,7 @@ class StorageUnitOfWork(Protocol):
 
 class StorageHealthReader(Protocol):
     def check(self) -> StorageHealth: ...
+
+
+class DatabaseDiagnosticsPort(DatabaseDiagnosticsReader, Protocol):
+    """Read-only catalog boundary for developer diagnostics."""

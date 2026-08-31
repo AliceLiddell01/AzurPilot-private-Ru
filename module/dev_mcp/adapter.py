@@ -18,15 +18,15 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from module.dev_mcp.contract import contract_result
 from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.smoke import SmokeSpec
-from module.dev_runtime.task_sandbox import TaskSandboxError
 from module.dev_runtime.target import DevTargetError, DevTargetRegistry
+from module.dev_runtime.task_sandbox import TaskSandboxError
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,15 @@ DEV_MCP_TOOL_NAMES = (
     "dev_cancel_smoke",
     "dev_get_smoke_evaluation",
     "dev_submit_smoke_evaluation",
+    "dev_list_game_observation_capabilities",
+    "dev_get_game_observation",
+    "dev_capture_smoke_game_checkpoint",
+    "dev_get_smoke_game_observations",
+    "dev_get_database_status",
+    "dev_list_database_checks",
+    "dev_run_database_check",
+    "dev_list_database_repairs",
+    "dev_preview_database_repair",
     "dev_get_runtime_status",
     "dev_start_game",
     "dev_stop_game",
@@ -82,6 +91,9 @@ _NO_ARGUMENT_TOOLS = frozenset(
         "dev_stop_emulator",
         "dev_restart_emulator",
         "dev_restart_adb",
+        "dev_list_game_observation_capabilities",
+        "dev_list_database_checks",
+        "dev_list_database_repairs",
     }
 )
 
@@ -270,6 +282,45 @@ _SAFE_DETAIL_KEYS = frozenset(
         "action",
         "transitions",
         "control_id",
+        "database_status",
+        "database_checks",
+        "database_check",
+        "repairs",
+        "repair",
+        "repair_id",
+        "target_scoped",
+        "target_profile",
+        "target_resolved",
+        "marker_ready",
+        "connectivity",
+        "app_role_ready",
+        "expected_schema_head",
+        "current_schema_head",
+        "schema_marker_version",
+        "required_tables_ready",
+        "domain_consistency",
+        "transaction_ready",
+        "config_match",
+        "observed",
+        "game_observations",
+        "observation",
+        "observations",
+        "summary",
+        "requested",
+        "statuses",
+        "stored",
+        "evidence_refs",
+        "required_complete",
+        "checkpoint_id",
+        "profile_name",
+        "provenance",
+        "payload",
+        "captured_at",
+        "observation_id",
+        "parameters",
+        "owner",
+        "freshness",
+        "reason_code",
     }
 )
 
@@ -300,7 +351,19 @@ _SAFE_CONTRACT_KEYS = frozenset(
     }
 )
 _SAFE_FEATURE_FLAG_KEYS = frozenset(
-    {"task_sandbox", "evidence_api", "universal_smoke_harness", "external_visual_evaluation", "runtime_control", "game_lifecycle", "emulator_lifecycle", "adb_maintenance"}
+    {
+        "task_sandbox",
+        "evidence_api",
+        "universal_smoke_harness",
+        "external_visual_evaluation",
+        "runtime_control",
+        "game_lifecycle",
+        "emulator_lifecycle",
+        "adb_maintenance",
+        "game_observations",
+        "database_diagnostics",
+        "database_repairs",
+    }
 )
 _SAFE_PREFLIGHT_CHECK_KEYS = frozenset({"name", "ok", "code", "message"})
 _SAFE_TASK_LIFECYCLE_KEYS = frozenset(
@@ -431,7 +494,24 @@ _SAFE_SMOKE_CAPABILITY_KEYS = frozenset(
     {"capability_id", "kind", "config_schema", "evidence_source", "deterministic", "external", "available", "description"}
 )
 _SAFE_SMOKE_RESULT_KEYS = frozenset(
-    {"schema_version", "smoke_id", "spec_hash", "outcome", "code", "message", "source", "session_id", "assertions", "cleanup", "primary_failure", "harness_failure", "external_verdict", "finished_at"}
+    {
+        "schema_version",
+        "smoke_id",
+        "spec_hash",
+        "outcome",
+        "code",
+        "message",
+        "source",
+        "session_id",
+        "target_profile",
+        "target_identity",
+        "assertions",
+        "cleanup",
+        "primary_failure",
+        "harness_failure",
+        "external_verdict",
+        "finished_at",
+    }
 )
 _SAFE_RUNTIME_TARGET_KEYS = frozenset({"configured"})
 _SAFE_RUNTIME_EMULATOR_KEYS = frozenset({"detected", "running", "readiness"})
@@ -456,6 +536,103 @@ _SAFE_CONTROL_OPERATION_KEYS = frozenset(
 )
 _SAFE_CONTROL_STATUS_KEYS = frozenset({"active", "operation", "code"})
 _SAFE_CONTROL_TRANSITION_KEYS = frozenset({"timestamp", "state", "code"})
+_SAFE_GAME_PARAMETER_KEYS = frozenset(
+    {"name", "value_type", "required", "minimum", "maximum", "max_items"}
+)
+_SAFE_GAME_CAPABILITY_KEYS = frozenset(
+    {"capability_id", "kind", "description", "source", "parameters"}
+)
+_SAFE_GAME_PROVENANCE_KEYS = frozenset(
+    {"capability_id", "owner", "freshness", "reason_code"}
+)
+_SAFE_GAME_RESOURCE_KEYS = frozenset(
+    {"key", "label", "value", "limit", "total", "last_update"}
+)
+_SAFE_GAME_SLOT_KEYS = frozenset(
+    {
+        "side",
+        "position",
+        "occupied",
+        "identity_status",
+        "canonical_identity_key",
+        "canonical_name",
+        "ship_form",
+        "knowledge",
+        "baseline",
+        "current",
+        "observed_at",
+        "source",
+        "location",
+        "dorm_scan_id",
+    }
+)
+_SAFE_GAME_FLEET_KEYS = frozenset(
+    {"fleet_index", "formation_observation_id", "formation_observed_at", "slots"}
+)
+_SAFE_GAME_PAYLOAD_KEYS = frozenset(
+    {"items", "selection", "projected_at", "fleets"}
+)
+_SAFE_GAME_OBSERVATION_KEYS = frozenset(
+    {
+        "schema_version",
+        "observation_id",
+        "session_id",
+        "smoke_id",
+        "profile_name",
+        "target_identity",
+        "checkpoint_id",
+        "capability_id",
+        "captured_at",
+        "status",
+        "source",
+        "provenance",
+        "payload",
+        "sha256",
+    }
+)
+_SAFE_DATABASE_CHECK_DESCRIPTOR_KEYS = frozenset(
+    {"check_id", "description", "target_scoped", "read_only"}
+)
+_SAFE_DATABASE_CHECK_RESULT_KEYS = frozenset(
+    {"check_id", "status", "code", "message", "observed"}
+)
+_SAFE_DATABASE_STATUS_KEYS = frozenset(
+    {
+        "schema_version",
+        "target_profile",
+        "marker_ready",
+        "connectivity",
+        "app_role_ready",
+        "expected_schema_head",
+        "current_schema_head",
+        "schema_marker_version",
+        "target_resolved",
+        "required_tables_ready",
+        "domain_consistency",
+        "transaction_ready",
+        "config_match",
+        "checks",
+    }
+)
+_SAFE_GAME_SUMMARY_KEYS = frozenset(
+    {
+        "schema_version",
+        "smoke_id",
+        "count",
+        "checkpoints",
+        "capabilities",
+        "statuses",
+        "profile_name",
+        "target_identity",
+        "relative_file",
+        "required_complete",
+        "checkpoint_id",
+        "requested",
+        "stored",
+        "evidence_refs",
+    }
+)
+_SAFE_DATABASE_REPAIR_KEYS = frozenset({"repair_id", "available"})
 
 _CONTRACT_CHILD_SCHEMAS: dict[str, str | None] = {
     "contract_schema_version": "int",
@@ -476,6 +653,9 @@ _FEATURE_FLAG_CHILD_SCHEMAS: dict[str, str | None] = {
     "game_lifecycle": "bool",
     "emulator_lifecycle": "bool",
     "adb_maintenance": "bool",
+    "game_observations": "bool",
+    "database_diagnostics": "bool",
+    "database_repairs": "bool",
 }
 
 _SCHEMA_KEYS = {
@@ -532,6 +712,19 @@ _SCHEMA_KEYS = {
     "control_operation": _SAFE_CONTROL_OPERATION_KEYS,
     "control_status": _SAFE_CONTROL_STATUS_KEYS,
     "control_transition": _SAFE_CONTROL_TRANSITION_KEYS,
+    "game_parameter": _SAFE_GAME_PARAMETER_KEYS,
+    "game_capability": _SAFE_GAME_CAPABILITY_KEYS,
+    "game_provenance": _SAFE_GAME_PROVENANCE_KEYS,
+    "game_resource": _SAFE_GAME_RESOURCE_KEYS,
+    "game_slot": _SAFE_GAME_SLOT_KEYS,
+    "game_fleet": _SAFE_GAME_FLEET_KEYS,
+    "game_payload": _SAFE_GAME_PAYLOAD_KEYS,
+    "game_observation": _SAFE_GAME_OBSERVATION_KEYS,
+    "database_check_descriptor": _SAFE_DATABASE_CHECK_DESCRIPTOR_KEYS,
+    "database_check_result": _SAFE_DATABASE_CHECK_RESULT_KEYS,
+    "database_status": _SAFE_DATABASE_STATUS_KEYS,
+    "game_summary": _SAFE_GAME_SUMMARY_KEYS,
+    "database_repair": _SAFE_DATABASE_REPAIR_KEYS,
 }
 
 _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -669,7 +862,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "verdict": "string",
     "rationale": "string",
     "submitted_at": "string",
-    "capabilities": "smoke_capability_list",
+    "capabilities": "capability_list",
     "capability_id": "string",
     "kind": "string",
     "config_schema": "smoke_schema",
@@ -703,6 +896,43 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "runtime_config_fingerprint": "string",
     "transitions": "control_transition_list",
     "control_id": "string",
+    "database_status": "database_status",
+    "database_checks": "database_check_descriptor_list",
+    "database_check": "database_check_result",
+    "repairs": "database_repair_list",
+    "repair": "database_repair",
+    "repair_id": "string",
+    "target_profile": "string",
+    "target_resolved": "bool",
+    "marker_ready": "bool",
+    "connectivity": "bool",
+    "app_role_ready": "bool",
+    "expected_schema_head": "string",
+    "current_schema_head": "string",
+    "schema_marker_version": "int",
+    "required_tables_ready": "bool",
+    "domain_consistency": "bool",
+    "transaction_ready": "bool",
+    "config_match": "bool",
+    "observed": None,
+    "game_observations": "game_summary",
+    "observation": "game_observation",
+    "observations": "game_observation_list",
+    "summary": "game_summary",
+    "requested": "int",
+    "statuses": "string_list",
+    "stored": "int",
+    "required_complete": "bool",
+    "checkpoint_id": "string",
+    "profile_name": "string",
+    "provenance": "game_provenance",
+    "payload": "game_payload",
+    "captured_at": "string",
+    "observation_id": "string",
+    "parameters": "game_parameter_list",
+    "owner": "string",
+    "freshness": "string",
+    "reason_code": "string",
 }
 
 _RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -1029,12 +1259,132 @@ _SMOKE_RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
     "message": "string",
     "source": "smoke_source",
     "session_id": "session_id",
+    "target_profile": "string",
+    "target_identity": "string",
     "assertions": "smoke_assertion_list",
     "cleanup": "smoke_cleanup",
     "primary_failure": "smoke_failure",
     "harness_failure": "smoke_failure",
     "external_verdict": "smoke_verdict",
     "finished_at": "string",
+}
+_GAME_PARAMETER_CHILD_SCHEMAS: dict[str, str | None] = {
+    "name": "string",
+    "value_type": "string",
+    "required": "bool",
+    "minimum": "int",
+    "maximum": "int",
+    "max_items": "int",
+}
+_GAME_CAPABILITY_CHILD_SCHEMAS: dict[str, str | None] = {
+    "capability_id": "string",
+    "kind": "string",
+    "description": "string",
+    "source": "string",
+    "parameters": "game_parameter_list",
+}
+_GAME_PROVENANCE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "capability_id": "string",
+    "owner": "string",
+    "freshness": "string",
+    "reason_code": "string",
+}
+_GAME_RESOURCE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "key": "string",
+    "label": "string",
+    "value": "game_value",
+    "limit": "game_value",
+    "total": "game_value",
+    "last_update": "game_value",
+}
+_GAME_SLOT_CHILD_SCHEMAS: dict[str, str | None] = {
+    "side": "string",
+    "position": "int",
+    "occupied": "bool",
+    "identity_status": "string",
+    "canonical_identity_key": "string",
+    "canonical_name": "string",
+    "ship_form": "string",
+    "knowledge": "string",
+    "baseline": "game_value",
+    "current": "game_value",
+    "observed_at": "string",
+    "source": "string",
+    "location": "string",
+    "dorm_scan_id": "string",
+}
+_GAME_FLEET_CHILD_SCHEMAS: dict[str, str | None] = {
+    "fleet_index": "int",
+    "formation_observation_id": "string",
+    "formation_observed_at": "string",
+    "slots": "game_slot_list",
+}
+_GAME_PAYLOAD_CHILD_SCHEMAS: dict[str, str | None] = {
+    "items": "game_resource_list",
+    "selection": "int_list",
+    "projected_at": "string",
+    "fleets": "game_fleet_list",
+}
+_GAME_OBSERVATION_CHILD_SCHEMAS: dict[str, str | None] = {
+    "schema_version": "int",
+    "observation_id": "string",
+    "session_id": "session_id",
+    "smoke_id": "session_id",
+    "profile_name": "string",
+    "target_identity": "string",
+    "checkpoint_id": "string",
+    "capability_id": "string",
+    "captured_at": "string",
+    "status": "string",
+    "source": "string",
+    "provenance": "game_provenance",
+    "payload": "game_payload",
+    "sha256": "string",
+}
+_DATABASE_CHECK_DESCRIPTOR_CHILD_SCHEMAS: dict[str, str | None] = {
+    "check_id": "string",
+    "description": "string",
+    "target_scoped": "bool",
+    "read_only": "bool",
+}
+_DATABASE_CHECK_RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
+    "check_id": "string",
+    "status": "string",
+    "code": "string",
+    "message": "string",
+    "observed": "database_observed",
+}
+_DATABASE_STATUS_CHILD_SCHEMAS: dict[str, str | None] = {
+    "schema_version": "int",
+    "target_profile": "string",
+    "marker_ready": "bool",
+    "connectivity": "bool",
+    "app_role_ready": "bool",
+    "expected_schema_head": "string",
+    "current_schema_head": "string",
+    "schema_marker_version": "int",
+    "target_resolved": "bool",
+    "required_tables_ready": "bool",
+    "domain_consistency": "bool",
+    "transaction_ready": "bool",
+    "config_match": "bool",
+    "checks": "database_check_result_list",
+}
+_GAME_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
+    "schema_version": "int",
+    "smoke_id": "session_id",
+    "count": "int",
+    "checkpoints": "string_list",
+    "capabilities": "string_list",
+    "statuses": "string_list",
+    "profile_name": "string",
+    "target_identity": "string",
+    "relative_file": "string",
+    "required_complete": "bool",
+    "checkpoint_id": "string",
+    "requested": "int",
+    "stored": "int",
+    "evidence_refs": "smoke_evidence_ref_list",
 }
 
 _SCHEMA_CHILD_SCHEMAS = {
@@ -1126,6 +1476,22 @@ _SCHEMA_CHILD_SCHEMAS = {
         "state": "string",
         "code": "string",
     },
+    "game_parameter": _GAME_PARAMETER_CHILD_SCHEMAS,
+    "game_capability": _GAME_CAPABILITY_CHILD_SCHEMAS,
+    "game_provenance": _GAME_PROVENANCE_CHILD_SCHEMAS,
+    "game_resource": _GAME_RESOURCE_CHILD_SCHEMAS,
+    "game_slot": _GAME_SLOT_CHILD_SCHEMAS,
+    "game_fleet": _GAME_FLEET_CHILD_SCHEMAS,
+    "game_payload": _GAME_PAYLOAD_CHILD_SCHEMAS,
+    "game_observation": _GAME_OBSERVATION_CHILD_SCHEMAS,
+    "database_check_descriptor": _DATABASE_CHECK_DESCRIPTOR_CHILD_SCHEMAS,
+    "database_check_result": _DATABASE_CHECK_RESULT_CHILD_SCHEMAS,
+    "database_status": _DATABASE_STATUS_CHILD_SCHEMAS,
+    "game_summary": _GAME_SUMMARY_CHILD_SCHEMAS,
+    "database_repair": {
+        "repair_id": "string",
+        "available": "bool",
+    },
 }
 
 
@@ -1190,6 +1556,48 @@ class DevRuntimeManager(Protocol):
         assertion_id: str,
         verdict: str,
         rationale: str,
+    ) -> object: ...
+
+    def list_game_observation_capabilities(self) -> object: ...
+
+    def get_game_observation(
+        self,
+        capability_id: str,
+        parameters: Mapping[str, object] | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> object: ...
+
+    def capture_smoke_game_checkpoint(
+        self,
+        smoke_id: str,
+        checkpoint_id: str,
+    ) -> object: ...
+
+    def get_smoke_game_observations(
+        self,
+        smoke_id: str,
+        checkpoint_id: str | None = None,
+    ) -> object: ...
+
+    def get_database_status(self, *, session_id: str | None = None) -> object: ...
+
+    def list_database_checks(self) -> object: ...
+
+    def run_database_check(
+        self,
+        check_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> object: ...
+
+    def list_database_repairs(self) -> object: ...
+
+    def preview_database_repair(
+        self,
+        repair_id: str,
+        *,
+        session_id: str | None = None,
     ) -> object: ...
 
     def get_runtime_status(self) -> object: ...
@@ -1293,6 +1701,39 @@ class _SmokeEvaluationArguments(_SmokeIdArguments):
     assertion_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
     verdict: Literal["pass", "fail"]
     rationale: str = Field(min_length=1, max_length=1024)
+
+
+class _GameObservationArguments(_SessionArguments):
+    capability_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
+    parameters: dict[str, object] = Field(default_factory=dict, max_length=16)
+
+
+class _SmokeCheckpointArguments(_SmokeIdArguments):
+    checkpoint_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
+
+    @field_validator("checkpoint_id")
+    @classmethod
+    def validate_named_checkpoint(cls, value: str) -> str:
+        if value in {"before", "final"}:
+            raise ValueError("before/final checkpoints принадлежат Smoke Harness")
+        return value
+
+
+class _SmokeObservationsArguments(_SmokeIdArguments):
+    checkpoint_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=_SESSION_ID_PATTERN,
+    )
+
+
+class _DatabaseCheckArguments(_SessionArguments):
+    check_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
+
+
+class _DatabaseRepairArguments(_SessionArguments):
+    repair_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
 
 
 class _ControlIdArguments(BaseModel):
@@ -1440,6 +1881,18 @@ def _safe_value(
             return {}
         return _safe_mapping(value, schema=schema, depth=depth)
     if isinstance(value, (list, tuple)):
+        if schema == "capability_list":
+            if all(isinstance(item, Mapping) and "source" in item for item in value):
+                return _safe_sequence(
+                    list(value),
+                    item_schema="game_capability",
+                    depth=depth,
+                )
+            return _safe_sequence(
+                list(value),
+                item_schema="smoke_capability",
+                depth=depth,
+            )
         if schema == "catalog":
             return _safe_sequence(value, item_schema="string", depth=depth)
         item_schema = {
@@ -1458,6 +1911,16 @@ def _safe_value(
             "smoke_evidence_ref_list": "smoke_evidence_ref",
             "smoke_field_list": "smoke_field",
             "control_transition_list": "control_transition",
+            "game_parameter_list": "game_parameter",
+            "game_capability_list": "game_capability",
+            "game_observation_list": "game_observation",
+            "game_resource_list": "game_resource",
+            "game_slot_list": "game_slot",
+            "game_fleet_list": "game_fleet",
+            "database_check_descriptor_list": "database_check_descriptor",
+            "database_check_result_list": "database_check_result",
+            "database_repair_list": "database_repair",
+            "int_list": "int",
         }.get(schema)
         if schema not in {
             "generic_list",
@@ -1475,6 +1938,17 @@ def _safe_value(
             "smoke_evidence_ref_list",
             "smoke_field_list",
             "control_transition_list",
+            "capability_list",
+            "game_parameter_list",
+            "game_capability_list",
+            "game_observation_list",
+            "game_resource_list",
+            "game_slot_list",
+            "game_fleet_list",
+            "database_check_descriptor_list",
+            "database_check_result_list",
+            "database_repair_list",
+            "int_list",
         }:
             return []
         return _safe_sequence(value, item_schema=item_schema, depth=depth)
@@ -1616,6 +2090,11 @@ class DevMcpAdapter:
         | _LogsArguments
         | _SmokeIdArguments
         | _SmokeEvaluationArguments
+        | _GameObservationArguments
+        | _SmokeCheckpointArguments
+        | _SmokeObservationsArguments
+        | _DatabaseCheckArguments
+        | _DatabaseRepairArguments
         | _ControlIdArguments
         | SmokeSpec
         | None
@@ -1630,6 +2109,16 @@ class DevMcpAdapter:
                 return _SmokeIdArguments.model_validate(raw, strict=True)
             if tool_name == "dev_submit_smoke_evaluation":
                 return _SmokeEvaluationArguments.model_validate(raw, strict=True)
+            if tool_name == "dev_get_game_observation":
+                parsed = _GameObservationArguments.model_validate(raw, strict=True)
+            elif tool_name == "dev_capture_smoke_game_checkpoint":
+                return _SmokeCheckpointArguments.model_validate(raw, strict=True)
+            elif tool_name == "dev_get_smoke_game_observations":
+                return _SmokeObservationsArguments.model_validate(raw, strict=True)
+            elif tool_name == "dev_run_database_check":
+                parsed = _DatabaseCheckArguments.model_validate(raw, strict=True)
+            elif tool_name == "dev_preview_database_repair":
+                parsed = _DatabaseRepairArguments.model_validate(raw, strict=True)
             if tool_name == "dev_get_control_operation":
                 return _ControlIdArguments.model_validate(raw, strict=True)
             if tool_name in {"dev_plan_session", "dev_start_session"}:
@@ -1642,7 +2131,14 @@ class DevMcpAdapter:
                 parsed = _TimelineArguments.model_validate(raw, strict=True)
             elif tool_name == "dev_get_logs":
                 parsed = _LogsArguments.model_validate(raw, strict=True)
-            else:
+            elif tool_name == "dev_get_database_status":
+                parsed = _SessionArguments.model_validate(raw, strict=True)
+            elif tool_name not in {
+                "dev_get_game_observation",
+                "dev_get_database_status",
+                "dev_run_database_check",
+                "dev_preview_database_repair",
+            }:
                 return None
             if parsed.session_id is not None:
                 validate_session_id(parsed.session_id)
@@ -1666,9 +2162,12 @@ class DevMcpAdapter:
             return serialize_dev_result(contract_result())
 
         self._manager_lock.acquire()
+        stdout_redirect = None
         try:
             if self._uses_default_manager:
                 _ensure_legacy_logger_stderr()
+                stdout_redirect = redirect_stdout(sys.stderr)
+                stdout_redirect.__enter__()
             manager = self._get_manager()
             if tool_name == "dev_preflight":
                 result = manager.preflight()
@@ -1747,6 +2246,46 @@ class DevMcpAdapter:
                     parsed.verdict,
                     parsed.rationale,
                 )
+            elif tool_name == "dev_list_game_observation_capabilities":
+                result = manager.list_game_observation_capabilities()
+            elif tool_name == "dev_get_game_observation":
+                assert isinstance(parsed, _GameObservationArguments)
+                result = manager.get_game_observation(
+                    parsed.capability_id,
+                    parsed.parameters,
+                    session_id=parsed.session_id,
+                )
+            elif tool_name == "dev_capture_smoke_game_checkpoint":
+                assert isinstance(parsed, _SmokeCheckpointArguments)
+                result = manager.capture_smoke_game_checkpoint(
+                    parsed.smoke_id,
+                    parsed.checkpoint_id,
+                )
+            elif tool_name == "dev_get_smoke_game_observations":
+                assert isinstance(parsed, _SmokeObservationsArguments)
+                result = manager.get_smoke_game_observations(
+                    parsed.smoke_id,
+                    parsed.checkpoint_id,
+                )
+            elif tool_name == "dev_get_database_status":
+                assert isinstance(parsed, _SessionArguments)
+                result = manager.get_database_status(session_id=parsed.session_id)
+            elif tool_name == "dev_list_database_checks":
+                result = manager.list_database_checks()
+            elif tool_name == "dev_run_database_check":
+                assert isinstance(parsed, _DatabaseCheckArguments)
+                result = manager.run_database_check(
+                    parsed.check_id,
+                    session_id=parsed.session_id,
+                )
+            elif tool_name == "dev_list_database_repairs":
+                result = manager.list_database_repairs()
+            elif tool_name == "dev_preview_database_repair":
+                assert isinstance(parsed, _DatabaseRepairArguments)
+                result = manager.preview_database_repair(
+                    parsed.repair_id,
+                    session_id=parsed.session_id,
+                )
             elif tool_name == "dev_get_runtime_status":
                 result = manager.get_runtime_status()
             elif tool_name == "dev_start_game":
@@ -1818,6 +2357,8 @@ class DevMcpAdapter:
             )
             return _internal_error()
         finally:
+            if stdout_redirect is not None:
+                stdout_redirect.__exit__(None, None, None)
             self._manager_lock.release()
         return serialize_dev_result(result)
 
