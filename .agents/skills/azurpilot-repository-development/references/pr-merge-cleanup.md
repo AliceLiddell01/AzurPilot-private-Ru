@@ -17,6 +17,24 @@
 self-review, ни CodeRabbit не дают разрешение на merge. Не запускай отдельное
 «финальное ревью ChatGPT» самостоятельно.
 
+### Граница состояний CodeRabbit
+
+До финального ChatGPT review rate limit/cooldown CodeRabbit означает: не ждать,
+сохранить последний exact head, выполнить остальные доступные gates и завершить
+pre-merge прогон в `READY_FOR_CHATGPT_REVIEW`. Это исключение не отменяет
+required CI, security/secret scan, обязательный product/live acceptance или
+blocking review threads.
+
+После финального ChatGPT review, но до отдельной текущей команды пользователя,
+нужно только ожидать эту команду. Rate limit не возвращает lifecycle в
+`READY_FOR_CHATGPT_REVIEW` и не меняет состояние `merge-authorized`.
+
+После отдельной команды выполни exact-head revalidation и разрешённый merge,
+затем post-merge verification и cleanup; итоговое состояние — `merged`. Rate
+limit не может перевести merge-authorized или merged lifecycle обратно в
+pre-merge состояние. Если после финального review изменился relevant diff,
+повтори затронутые gates/review и получи новое актуальное разрешение на merge.
+
 ## Merge gate
 
 Merge запрещён, пока нет отдельного текущего сообщения пользователя,
@@ -40,8 +58,3 @@ review. Используй только разрешённый проектом 
 - удали WSL2 Arch CodeRabbit review checkout и только временные ресурсы этой
   задачи;
 - не трогай пользовательские unrelated files.
-
-Если CodeRabbit достиг rate limit, не жди cooldown и не повторяй одну команду в
-цикле. Зафиксируй последний реально проверенный exact head, выполни остальные
-доступные gates и передай draft PR со статусом `READY_FOR_CHATGPT_REVIEW`; это
-не product blocker.

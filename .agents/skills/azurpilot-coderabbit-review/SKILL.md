@@ -1,15 +1,18 @@
 ---
 name: azurpilot-coderabbit-review
-description: "CodeRabbit code review PR, branch or commit в AzurPilot, triage findings, повторный CodeRabbit review, WSL2 Arch review или rate limit. Применяй только при явном review-запросе; не используй для общей подготовки, обычной разработки или read-only объяснения кода."
+description: "CodeRabbit code review PR, branch or commit в AzurPilot, triage findings, повторный CodeRabbit review, WSL2 Arch review или rate limit. Используй при явном CodeRabbit/code-review intent либо при делегации canonical CodeRabbit checkpoint от azurpilot-repository-development; не используй для generic PR preparation или обычной разработки вне такого checkpoint."
 ---
 
 # Независимое CodeRabbit review
 
 Применяй этот skill, когда пользователь явно запрашивает CodeRabbit/code review,
 разбор CodeRabbit findings, повторный review, WSL2 Arch CodeRabbit review или
-работу после rate limit CodeRabbit. Для generic PR preparation, финального
-ChatGPT review и общей разработки без явного CodeRabbit review основным остаётся
-`azurpilot-repository-development`.
+работу после rate limit CodeRabbit, а также когда
+`azurpilot-repository-development` делегирует canonical CodeRabbit review
+checkpoint. Такая делегация является достаточным internal trigger: отдельный
+пользовательский CodeRabbit-запрос не требуется. Для generic PR preparation,
+финального ChatGPT review и обычной разработки вне такого checkpoint основным
+остаётся `azurpilot-repository-development`.
 
 Перед запуском прочитай [review-workflow.md](references/review-workflow.md).
 CodeRabbit — независимый reviewer, а не источник истины: каждый finding сверяй

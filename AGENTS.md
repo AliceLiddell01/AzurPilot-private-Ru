@@ -224,7 +224,11 @@ git gc --prune=now
 
 Нормальная pre-merge конечная точка — `READY_FOR_CHATGPT_REVIEW`: draft PR создан, exact-head gates проверены, открытые blocking findings отсутствуют, а финальное ревью выполняет пользователь через ChatGPT 5.6 Sol. После этого Codex останавливается. Только новое текущее сообщение пользователя, однозначно относящееся к этому PR, разрешает merge; старое разрешение или общая фраза «сделай всё» не подходят. После разрешённого merge Codex самостоятельно выполняет post-merge verification и cleanup.
 
-CodeRabbit rate limit/cooldown не является product blocker: не ждать cooldown и не делать бесконечные retry; зафиксировать последний реально проверенный exact head и завершить доступные gates в состоянии `READY_FOR_CHATGPT_REVIEW`.
+До финального ChatGPT review CodeRabbit rate limit/cooldown не является product blocker:
+не ждать cooldown и не делать бесконечные retry; зафиксировать последний реально
+проверенный exact head и завершить доступные pre-merge gates в состоянии
+`READY_FOR_CHATGPT_REVIEW`. После merge rate limit не возвращает lifecycle в
+pre-merge состояние.
 
 Класс задачи выбирается по риску:
 
@@ -232,7 +236,7 @@ CodeRabbit rate limit/cooldown не является product blocker: не жд�
 - Стандартный — обычное исправление или небольшая функция в одной известной подсистеме.
 - Расширенный — `master`, upstream, `personal/stable`, Start/Update/Repair/Build, зависимости, устройство, OCR, combat, Operation Siren, MCP, безопасность или несколько подсистем.
 
-Если класс неочевиден, выбирай более строгий. Если обязательная продуктовая проверка недоступна, завершай задачу fail-closed со статусом `blocked`, не передавая техническую работу пользователю. Исключение — CodeRabbit rate limit/cooldown: он не является блокером продукта; зафиксируй последний exact head и передай draft PR на `READY_FOR_CHATGPT_REVIEW` после остальных доступных gates.
+Если класс неочевиден, выбирай более строгий. Если обязательная продуктовая проверка недоступна, завершай задачу fail-closed со статусом `blocked`, не передавая техническую работу пользователю. Исключение до финального ChatGPT review — CodeRabbit rate limit/cooldown: он не является блокером продукта; зафиксируй последний exact head и передай draft PR на `READY_FOR_CHATGPT_REVIEW` после остальных доступных gates.
 
 ## 13. Проверки
 

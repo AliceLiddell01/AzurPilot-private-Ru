@@ -50,9 +50,12 @@ read-only задачи без изменения репозитория этот
    syntax, lint, targeted tests, полный связанный набор, browser/live acceptance
    по необходимости и фактический secret scanner перед публикацией. Для точных
    правил используй указанные references и `docs/ci.md`.
-6. Проведи adversarial self-review base→head. Для CodeRabbit используй sibling
-   skill `azurpilot-coderabbit-review` и отдельный WSL2 Arch review checkout; не
-   считай status check или автоматический review источником истины.
+6. Проведи adversarial self-review base→head. На canonical CodeRabbit review
+   checkpoint явно делегируй sibling skill `azurpilot-coderabbit-review`; такая
+   internal delegation является достаточным trigger для sibling skill и не
+   требует повторного пользовательского CodeRabbit-запроса. Используй отдельный
+   WSL2 Arch review checkout; не считай status check или автоматический review
+   источником истины.
 7. После завершения проверок создай содержательный commit, push и **только draft
    PR**. В PR body укажи цель, scope, base SHA, подсистемы, реализацию, фактически
    выполненные проверки, security/secret result, rollback/migration и ограничения.
@@ -61,14 +64,25 @@ read-only задачи без изменения репозитория этот
    готов к финальному ревью ChatGPT 5.6 Sol, и остановись. CI, self-review и
    CodeRabbit не заменяют это финальное ревью.
 
-## После явной команды merge
+## Границы состояний и после явной команды merge
 
-Старое разрешение не переносится на новый PR. Только отдельное текущее сообщение
-пользователя, однозначно относящееся к этому PR, разрешает merge. Перед ним заново
-проверь PR head, required CI, blocking review threads, итоговый diff и secret
-scan; убедись, что после финального ChatGPT review relevant diff перепроверен.
-После разрешённого merge выполни post-merge verification, безопасный возврат
-основного checkout на `personal/stable`, удаление task branch и только
-принадлежащих задаче временных ресурсов. CodeRabbit rate limit не является
-product blocker: не жди cooldown, зафиксируй последний exact head и завершай
-сессию в `READY_FOR_CHATGPT_REVIEW` после остальных доступных gates.
+До финального ChatGPT review CodeRabbit rate limit/cooldown не является product
+blocker: не жди его, зафиксируй последний exact head, выполни остальные
+доступные gates и заверши pre-merge прогон в `READY_FOR_CHATGPT_REVIEW`.
+
+После финального ChatGPT review, но до отдельной текущей команды пользователя,
+ожидай только эту команду. Rate limit не переводит lifecycle обратно в
+`READY_FOR_CHATGPT_REVIEW` и не меняет состояние `merge-authorized`. Если после
+финального review появился relevant diff, повтори затронутые gates и review и
+получи новое актуальное merge authorization.
+
+Только отдельное текущее сообщение пользователя, однозначно относящееся к этому
+PR, разрешает merge. Перед ним заново проверь PR head, required CI, blocking
+review threads, итоговый diff и secret scan; убедись, что после финального
+ChatGPT review relevant diff перепроверен. После отдельной текущей команды
+пользователя:
+выполни exact-head revalidation и разрешённый merge, post-merge verification,
+безопасный возврат основного
+checkout на `personal/stable`, удаление task branch и только принадлежащих
+задаче временных ресурсов. После успешного merge lifecycle имеет состояние
+`merged`; CodeRabbit rate limit не может вернуть его в pre-merge состояние.
