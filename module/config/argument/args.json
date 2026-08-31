@@ -371,7 +371,8 @@
       "OnePushConfig": {
         "type": "textarea",
         "value": "provider: null",
-        "mode": "yaml"
+        "mode": "yaml",
+        "sensitive": true
       },
       "ScreenshotLength": {
         "type": "input",
@@ -407,11 +408,13 @@
       },
       "LlmApiKey": {
         "type": "textarea",
-        "value": ""
+        "value": "",
+        "sensitive": true
       },
       "LlmApiBase": {
         "type": "textarea",
-        "value": ""
+        "value": "",
+        "sensitive": true
       },
       "LlmModel": {
         "type": "input",
@@ -12149,7 +12152,8 @@
       "OpsiOnePushConfig": {
         "type": "textarea",
         "value": "provider: null",
-        "mode": "yaml"
+        "mode": "yaml",
+        "sensitive": true
       },
       "AutoSearchTimeLimit": {
         "type": "input",

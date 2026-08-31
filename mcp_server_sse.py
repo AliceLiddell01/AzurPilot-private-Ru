@@ -1,51 +1,170 @@
-import os
-import logging
+import base64
 import json
-import datetime
-from typing import List, Dict, Any
+import logging
+import threading
+from typing import Any
 
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.cors import CORSMiddleware
 from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
+    ImageContent,
     ListToolsResult,
     TextContent,
-    ImageContent,
     Tool,
 )
-import base64
-import time
-import subprocess
-import threading
-from io import BytesIO
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 
-from module.config.config import AzurLaneConfig
-from module.config.time_source import now as current_time
-from module.config.utils import DEFAULT_CONFIG_NAME, alas_instance
-from module.webui.process_manager import ProcessManager
-from module.config.mcp_helper import McpConfigHelper
-from module.webui.setting import State
+from module.application.errors import ApplicationError, InvalidRequestError
+from module.application.game_models import (
+    ConfigSnapshot,
+    ConfigUpdateRequest,
+    DashboardResources,
+    LifecycleOutcome,
+    MediaFrame,
+    ScheduleTaskRequest,
+    thaw_payload,
+)
+from module.application.game_services import GameControlService, GameReadService
+from module.application.legacy_adapters import (
+    GeneratedTaskCatalogAdapter,
+    LegacyInstanceRuntimeAdapter,
+)
+from module.application.legacy_game_adapters import (
+    LegacyAdbAdapter,
+    LegacyConfigAdapter,
+    LegacyEmulatorAdapter,
+    LegacyProcessManagerAdapter,
+    LegacyRuntimeLogAdapter,
+    LegacyScreenshotAdapter,
+    legacy_current_time,
+)
+from module.application.services import InstanceQueryService, TaskCatalogService
 from module.persistence.runtime import bootstrap_runtime_storage
-
-try:
-    from module.webui.fake_pil_module import remove_fake_pil_module
-except ImportError:
-    remove_fake_pil_module = None
 
 # Инициализация логирования.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("azurpilot-mcp")
 
-# Инициализация помощника конфигурации.
-helper = McpConfigHelper()
+ToolResponse = list[TextContent | ImageContent]
 
-ToolResponse = List[TextContent | ImageContent]
 
-async def list_tools() -> List[Tool]:
+class _LegacyGameBackend:
+    """Собрать application services только при первом вызове legacy tool."""
+
+    def __init__(self) -> None:
+        metadata = GeneratedTaskCatalogAdapter.from_generated_sources()
+        instances = LegacyInstanceRuntimeAdapter()
+        config = LegacyConfigAdapter(metadata)
+        logs = LegacyRuntimeLogAdapter()
+        screenshot = LegacyScreenshotAdapter()
+        lifecycle = LegacyProcessManagerAdapter()
+        emulator = LegacyEmulatorAdapter()
+        adb = LegacyAdbAdapter()
+
+        self.instances = InstanceQueryService(instances)
+        self.tasks = TaskCatalogService(metadata)
+        self.read = GameReadService(
+            instance_reader=instances,
+            config_reader=config,
+            log_reader=logs,
+            screenshot_reader=screenshot,
+            scheduler_tasks=metadata,
+        )
+        self.control = GameControlService(
+            instance_reader=instances,
+            config_schema=metadata,
+            config_writer=config,
+            scheduler_tasks=metadata,
+            lifecycle=lifecycle,
+            emulator=emulator,
+            adb=adb,
+            clock=legacy_current_time,
+        )
+
+
+_backend: _LegacyGameBackend | None = None
+_backend_lock = threading.Lock()
+
+
+def _get_backend() -> _LegacyGameBackend:
+    global _backend
+    if _backend is None:
+        with _backend_lock:
+            if _backend is None:
+                _backend = _LegacyGameBackend()
+    return _backend
+
+
+def _invalid_request(message: str) -> InvalidRequestError:
+    return InvalidRequestError(message)
+
+
+def _required_string(arguments: dict[str, Any], key: str) -> str:
+    try:
+        value = arguments[key]
+    except (KeyError, TypeError):
+        raise _invalid_request("Запрос MCP-инструмента не содержит обязательный параметр.") from None
+    if not isinstance(value, str) or not value.strip():
+        raise _invalid_request("Обязательный параметр MCP-инструмента должен быть строкой.")
+    return value
+
+
+def _config_request(arguments: dict[str, Any]) -> ConfigUpdateRequest:
+    try:
+        return ConfigUpdateRequest(
+            instance=arguments["instance"],
+            task=arguments["task"],
+            group=arguments["group"],
+            argument=arguments["arg"],
+            value=arguments["value"],
+        )
+    except (KeyError, TypeError, ValueError):
+        raise _invalid_request("Запрос изменения конфигурации неполный или некорректный.") from None
+
+
+def _schedule_request(arguments: dict[str, Any]) -> ScheduleTaskRequest:
+    try:
+        return ScheduleTaskRequest(
+            instance=arguments["instance"],
+            task=arguments["task"],
+        )
+    except (KeyError, TypeError, ValueError):
+        raise _invalid_request("Запрос планирования задачи неполный или некорректный.") from None
+
+
+def _resources_payload(resources: DashboardResources) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for resource in resources.items:
+        item: dict[str, object] = {
+            "label": resource.label,
+            "value": thaw_payload(resource.value),
+        }
+        if resource.limit is not None:
+            item["limit"] = thaw_payload(resource.limit)
+        if resource.total is not None:
+            item["total"] = thaw_payload(resource.total)
+        if resource.last_update is not None:
+            item["last_update"] = thaw_payload(resource.last_update)
+        payload[resource.key] = item
+    return payload
+
+
+def _config_payload(snapshot: ConfigSnapshot) -> object:
+    return thaw_payload(snapshot.data)
+
+
+def _mcp_image(frame: MediaFrame) -> ImageContent:
+    return ImageContent(
+        type="image",
+        data=base64.b64encode(frame.data).decode("ascii"),
+        mimeType=frame.media_type,
+    )
+
+async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="list_instances",
@@ -192,269 +311,158 @@ async def list_tools() -> List[Tool]:
         ),
     ]
 
-async def _tool_list_instances(arguments: Dict[str, Any]) -> ToolResponse:
-    instances = alas_instance()
-    return [TextContent(type="text", text=json.dumps(instances, ensure_ascii=False, indent=2, default=str))]
+async def _tool_list_instances(arguments: dict[str, Any]) -> ToolResponse:
+    instances = _get_backend().instances.list_instances()
+    payload = [item.name for item in instances]
+    return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False, indent=2, default=str))]
 
 
-async def _tool_get_status(arguments: Dict[str, Any]) -> ToolResponse:
-    instances = alas_instance()
-    results = []
-    for inst in instances:
-        manager = ProcessManager.get_manager(inst)
-        results.append({"instance": inst, "running": manager.alive, "state": manager.state})
+async def _tool_get_status(arguments: dict[str, Any]) -> ToolResponse:
+    statuses = _get_backend().instances.list_statuses()
+    results = [
+        {
+            "instance": status.name,
+            "running": status.running,
+            "state": status.state.value,
+        }
+        for status in statuses
+    ]
     return [TextContent(type="text", text=json.dumps(results, ensure_ascii=False, indent=2, default=str))]
 
 
-async def _tool_list_tasks(arguments: Dict[str, Any]) -> ToolResponse:
-    tasks = helper.get_tasks()
+async def _tool_list_tasks(arguments: dict[str, Any]) -> ToolResponse:
+    tasks = [task.name for task in _get_backend().tasks.list_tasks()]
     return [TextContent(type="text", text=json.dumps(tasks, ensure_ascii=False, indent=2, default=str))]
 
 
-async def _tool_get_task_help(arguments: Dict[str, Any]) -> ToolResponse:
-    task_name = arguments["task_name"]
-    details = helper.get_task_details(task_name)
+async def _tool_get_task_help(arguments: dict[str, Any]) -> ToolResponse:
+    task_name = _required_string(arguments, "task_name")
+    task = _get_backend().tasks.get_task_metadata(task_name)
+    details = {
+        "task_name": task.name,
+        "display_name": task.display_name,
+        "help": task.help,
+        "groups": {
+            group.name: {
+                "display_name": group.display_name,
+                "help": group.help,
+                "arguments": {
+                    argument.name: {
+                        "display_name": argument.display_name,
+                        "help": argument.help,
+                        "type": argument.input_type,
+                        "default": thaw_payload(argument.default),
+                        "options": (
+                            {
+                                option.value: option.display_name
+                                for option in argument.options
+                            }
+                            if argument.options
+                            else None
+                        ),
+                    }
+                    for argument in group.arguments
+                },
+            }
+            for group in task.groups
+        },
+    }
     return [TextContent(type="text", text=json.dumps(details, ensure_ascii=False, indent=2, default=str))]
 
 
-async def _tool_get_resources(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    config = AzurLaneConfig(inst)
-    res = helper.get_dashboard_resources(config.data)
+async def _tool_get_resources(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    resources = _get_backend().read.get_resources(inst)
+    res = _resources_payload(resources)
     return [TextContent(type="text", text=json.dumps(res, ensure_ascii=False, indent=2, default=str))]
 
 
-async def _tool_get_config(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
+async def _tool_get_config(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
     task = arguments.get("task")
-    config = AzurLaneConfig(inst)
-    data = config.data.get(task, {}) if task else config.data
+    snapshot = _get_backend().read.get_config(inst, task)
+    data = _config_payload(snapshot)
     return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2, default=str))]
 
 
-async def _tool_update_config(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    task = arguments["task"]
-    group = arguments["group"]
-    arg = arguments["arg"]
-    value = arguments["value"]
-    config = AzurLaneConfig(inst)
-    path = f"{task}.{group}.{arg}"
-    config.cross_set(path, value)
-    config.save()
-    return [TextContent(type="text", text=f"Успешно: параметр {path} обновлён на {value}")]
-
-
-async def _tool_get_recent_logs(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    lines_count = arguments.get("lines", 50)
-
-    # Обычно логи AzurPilot называются YYYY-MM-DD_имя-экземпляра.txt.
-    date_str = datetime.date.today().strftime("%Y-%m-%d")
-    log_file = f"./log/{date_str}_{inst}.txt"
-
-    if not os.path.exists(log_file):
-        # Попробовать общий лог без имени экземпляра.
-        log_file_alt = f"./log/{date_str}_alas.txt"
-        if os.path.exists(log_file_alt):
-            log_file = log_file_alt
-
-    if os.path.exists(log_file):
-        try:
-            with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-                # Для больших файлов безопаснее использовать tail; здесь
-                # readlines ограничен только по количеству возвращаемых строк.
-                content = f.readlines()
-                content = content[-lines_count:]
-            return [TextContent(type="text", text="".join(content))]
-        except Exception as exc:
-            logger.error(
-                "Ошибка чтения лога; тип исключения: %s",
-                type(exc).__name__,
-            )
-            return [TextContent(type="text", text="Ошибка чтения лога.")]
-    return [TextContent(type="text", text=f"Файл лога не найден: {log_file}")]
-
-
-async def _tool_start_instance(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    manager = ProcessManager.get_manager(inst)
-    if manager.alive:
-        return [TextContent(type="text", text=f"Ошибка: {inst} уже запущен.")]
-    from module.submodule.utils import get_config_mod
-    func = get_config_mod(inst)
-    manager.start(func=func)
-    return [TextContent(type="text", text=f"Успешно: {inst} запущен ({func})")]
-
-
-async def _tool_stop_instance(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    manager = ProcessManager.get_manager(inst)
-    if not manager.alive:
-        return [TextContent(type="text", text=f"Ошибка: {inst} не запущен.")]
-    manager.stop()
-    return [TextContent(type="text", text=f"Успешно: {inst} остановлен")]
-
-
-async def _tool_get_screenshot(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    if "ALAS_CONFIG_NAME" not in os.environ:
-        os.environ["ALAS_CONFIG_NAME"] = inst
-    if remove_fake_pil_module:
-        remove_fake_pil_module()
-
-    from module.device.device import Device
-    from PIL import Image
-    try:
-        import PIL.JpegImagePlugin  # noqa: F401  # Регистрация JPEG-кодировщика.
-    except ImportError:
-        pass
-
-    try:
-        config = AzurLaneConfig(inst)
-        device = Device(config)
-        image = device.screenshot()
-        image_pil = Image.fromarray(image)
-
-        buffered = BytesIO()
-        image_pil.save(buffered, format="JPEG")
-        img_data = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        return [ImageContent(type="image", data=img_data, mimeType="image/jpeg")]
-    except Exception as exc:
-        logger.error(
-            "Ошибка получения скриншота; тип исключения: %s",
-            type(exc).__name__,
+async def _tool_update_config(arguments: dict[str, Any]) -> ToolResponse:
+    result = _get_backend().control.update_config(_config_request(arguments))
+    return [
+        TextContent(
+            type="text",
+            text=(
+                f"Успешно: параметр {result.request.path} обновлён на "
+                f"{thaw_payload(result.request.value)}"
+            ),
         )
-        return [TextContent(type="text", text="Ошибка получения скриншота.")]
+    ]
 
 
-async def _tool_get_current_running_task(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    manager = ProcessManager.get_manager(inst)
-    if not manager.alive:
-        return [TextContent(type="text", text="Ошибка: экземпляр не запущен.")]
-    task = "Unknown"
-
-    date_str = datetime.date.today().strftime("%Y-%m-%d")
-    log_file = f"./log/{date_str}_{inst}.txt"
-    if not os.path.exists(log_file):
-        log_file = f"./log/{date_str}_alas.txt"
-
-    if os.path.exists(log_file):
-        try:
-            with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
-                for line in reversed(lines):
-                    import re
-                    # Современный формат лога AzurPilot с маркером начала задачи.
-                    m = re.search(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]", line)
-                    if not m:
-                        # Старый или специальный формат: <<< Run task TaskName >>>.
-                        m = re.search(r"<<<\s*Run task\s*(.*?)\s*>>>", line)
-
-                    if m:
-                        task = m.group(1)
-                        break
-        except:
-            pass
-    return [TextContent(type="text", text=task)]
+async def _tool_get_recent_logs(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    lines_count = arguments.get("lines", 50)
+    result = _get_backend().read.get_recent_logs(inst, lines_count)
+    return [TextContent(type="text", text=result.text)]
 
 
-async def _tool_get_scheduler_queue(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    config = AzurLaneConfig(inst)
-    queue_data = []
-    for task_name in config.data:
-        if task_name in ["Alas", "Error", "MUMU", "MumuPlayer12", "EmulatorManagement", "Dashboard"]:
-            continue
-        scheduler = config.data.get(task_name, {}).get("Scheduler", {})
-        if scheduler.get("Enable", False):
-            next_run = scheduler.get("NextRun", "2050-01-01 00:00:00")
-            queue_data.append({"task": task_name, "next_run": str(next_run)})
-    queue_data.sort(key=lambda x: str(x["next_run"]))
+async def _tool_start_instance(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    result = _get_backend().control.start_instance(inst)
+    if result.outcome is LifecycleOutcome.ALREADY_RUNNING:
+        return [TextContent(type="text", text=f"Ошибка: {result.instance} уже запущен.")]
+    return [TextContent(type="text", text=f"Успешно: {result.instance} запущен")]
+
+
+async def _tool_stop_instance(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    result = _get_backend().control.stop_instance(inst)
+    if result.outcome is LifecycleOutcome.ALREADY_STOPPED:
+        return [TextContent(type="text", text=f"Ошибка: {result.instance} не запущен.")]
+    return [TextContent(type="text", text=f"Успешно: {result.instance} остановлен")]
+
+
+async def _tool_get_screenshot(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    frame = _get_backend().read.get_screenshot(inst)
+    return [_mcp_image(frame)]
+
+
+async def _tool_get_current_running_task(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    result = _get_backend().read.get_current_running_task(inst)
+    return [TextContent(type="text", text=result.task)]
+
+
+async def _tool_get_scheduler_queue(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    result = _get_backend().read.get_scheduler_queue(inst)
+    queue_data = [
+        {"task": entry.task, "next_run": str(thaw_payload(entry.next_run))}
+        for entry in result.entries
+    ]
     return [TextContent(type="text", text=json.dumps(queue_data, ensure_ascii=False, indent=2))]
 
 
-async def _tool_trigger_task(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    task = arguments["task"]
-    config = AzurLaneConfig(inst)
-    config.cross_set(f"{task}.Scheduler.Enable", True)
-    now = current_time()
-    config.cross_set(f"{task}.Scheduler.NextRun", str(now))
-    config.save()
-    return [TextContent(type="text", text=f"Успешно: задача {task} запланирована на немедленный запуск.")]
+async def _tool_trigger_task(arguments: dict[str, Any]) -> ToolResponse:
+    result = _get_backend().control.trigger_task(_schedule_request(arguments))
+    return [TextContent(type="text", text=f"Успешно: задача {result.request.task} запланирована на немедленный запуск.")]
 
 
-async def _tool_clear_scheduler_queue(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    config = AzurLaneConfig(inst)
-    cleared = []
-    for task_name in config.data:
-        scheduler = config.data.get(task_name, {}).get("Scheduler", {})
-        if scheduler.get("Enable", False):
-            config.cross_set(f"{task_name}.Scheduler.Enable", False)
-            cleared.append(task_name)
-    if cleared:
-        config.save()
-    return [TextContent(type="text", text=f"Успешно: задачи очищены: {', '.join(cleared)}")]
+async def _tool_clear_scheduler_queue(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    result = _get_backend().control.clear_scheduler_queue(inst)
+    return [TextContent(type="text", text=f"Успешно: задачи очищены: {', '.join(result.cleared_tasks)}")]
 
 
-async def _tool_restart_emulator(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments["instance"]
-    if "ALAS_CONFIG_NAME" not in os.environ:
-        os.environ["ALAS_CONFIG_NAME"] = inst
-    manager = ProcessManager.get_manager(inst)
-    if remove_fake_pil_module:
-        remove_fake_pil_module()
-
-    from module.device.device import Device
-    try:
-        config = AzurLaneConfig(inst)
-        device = Device(config)
-        device.emulator_stop()
-        time.sleep(60)
-        device.emulator_start()
-        return [TextContent(type="text", text=f"Успешно: эмулятор {inst} перезапущен")]
-    except Exception as exc:
-        logger.error(
-            "Ошибка перезапуска эмулятора; тип исключения: %s",
-            type(exc).__name__,
-        )
-        return [TextContent(type="text", text="Ошибка перезапуска эмулятора.")]
+async def _tool_restart_emulator(arguments: dict[str, Any]) -> ToolResponse:
+    inst = _required_string(arguments, "instance")
+    result = _get_backend().control.restart_emulator(inst)
+    return [TextContent(type="text", text=f"Успешно: эмулятор {result.instance} перезапущен")]
 
 
-async def _tool_restart_adb(arguments: Dict[str, Any]) -> ToolResponse:
-    inst = arguments.get("instance", DEFAULT_CONFIG_NAME)
-    try:
-        # Попробовать получить путь к ADB из deploy.yaml.
-        adb_path = State.deploy_config.AdbExecutable
-        if adb_path:
-            adb_path = adb_path.replace('\\', '/')
-
-        if not adb_path or not os.path.exists(adb_path):
-            # Использовать резервный поиск из connection_attr.
-            adb_search_list = [
-                './.venv/Scripts/adb.exe',
-                './.venv/bin/adb',
-                './bin/adb/adb.exe',
-            ]
-            for path in adb_search_list:
-                if os.path.exists(path):
-                    adb_path = os.path.abspath(path)
-                    break
-            else:
-                adb_path = "adb"
-
-        subprocess.run([adb_path, "kill-server"], check=False)
-        subprocess.run([adb_path, "start-server"], check=False)
-        return [TextContent(type="text", text="Успешно: сервис ADB перезапущен.")]
-    except Exception as exc:
-        logger.error(
-            "Ошибка перезапуска сервиса ADB; тип исключения: %s",
-            type(exc).__name__,
-        )
-        return [TextContent(type="text", text="Ошибка перезапуска сервиса ADB.")]
+async def _tool_restart_adb(arguments: dict[str, Any]) -> ToolResponse:
+    _get_backend().control.restart_adb(arguments.get("instance"))
+    return [TextContent(type="text", text="Успешно: сервис ADB перезапущен.")]
 
 
 TOOL_HANDLERS = {
@@ -478,19 +486,37 @@ TOOL_HANDLERS = {
 }
 
 
-async def call_tool(name: str, arguments: Dict[str, Any]) -> ToolResponse:
+async def call_tool(name: str, arguments: dict[str, Any]) -> ToolResponse:
     try:
         handler = TOOL_HANDLERS.get(name)
         if handler is None:
             return [TextContent(type="text", text=f"Неизвестный инструмент: {name}")]
         return await handler(arguments)
-    except Exception as exc:
+    except ApplicationError as exc:
+        logger.warning(
+            "Операция MCP отклонена; код: %s",
+            exc.code,
+        )
+        return [TextContent(type="text", text=_application_error_text(exc))]
+    except Exception as exc:  # noqa: BLE001 - legacy tool boundary has safe fallback.
         logger.error(
             "Ошибка инструмента %s; тип исключения: %s",
             name,
             type(exc).__name__,
         )
         return [TextContent(type="text", text="Внутренняя ошибка MCP-инструмента.")]
+
+
+def _application_error_text(error: ApplicationError) -> str:
+    messages = {
+        "invalid_request": "Некорректный запрос MCP-инструмента.",
+        "not_found": "Запрошенный ресурс не найден.",
+        "instance_not_running": "Ошибка: экземпляр не запущен.",
+        "configuration_invalid": "Значение конфигурации не прошло проверку.",
+        "service_unavailable": "Операция временно недоступна.",
+        "operation_failed": "Операция не выполнена.",
+    }
+    return messages.get(error.code, "Операция отклонена.")
 
 
 async def _list_tools(_context: Any, _params: Any) -> ListToolsResult:
@@ -521,8 +547,8 @@ async def _run_sse(scope, receive, send):
         try:
             options = mcp_server.create_initialization_options()
             await mcp_server.run(read_stream, write_stream, options)
-        except Exception as e:
-            logger.error(f"Ошибка цикла MCP-сервера: {e}", exc_info=True)
+        except Exception:
+            logger.exception("Ошибка цикла MCP-сервера")
         logger.info("Цикл MCP-сервера завершён.")
 
 
@@ -540,7 +566,7 @@ async def _handle_mcp_post(scope, receive, send, method):
         if _is_mcp_client_disconnected(e):
             logger.warning("Клиент MCP отключился во время обработки POST-сообщения.")
         else:
-            logger.error(f"Не удалось обработать сообщение MCP: {e}", exc_info=True)
+            logger.exception("Не удалось обработать сообщение MCP")
 
 
 async def _send_not_found(send):
@@ -568,7 +594,7 @@ async def mcp_asgi_app(scope, receive, send):
         if path.endswith("/sse"):
             await _run_sse(scope, receive, send)
 
-        elif path.endswith("/messages") or path.endswith("/messages/"):
+        elif path.endswith(("/messages", "/messages/")):
             await _handle_mcp_post(scope, receive, send, method)
 
         else:
