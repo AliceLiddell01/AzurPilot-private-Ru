@@ -852,7 +852,7 @@ class RuntimeControlManager:
     def start(self, action: ControlAction | str) -> DevResult:
         try:
             action = ControlAction(action)
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError):
             return self._result(ok=False, code="DEV_CONTROL_ACTION_INVALID", message="Неизвестное действие runtime control", state="failed", details={"outcome": ControlOutcome.PRECONDITION_FAILED.value})
         try:
             operation = self._reserve_operation(action)
@@ -938,7 +938,7 @@ class RuntimeControlManager:
             )
         except RuntimeControlError as exc:
             return self._result(ok=False, code=exc.code, message=str(exc), state="conflict" if exc.outcome is ControlOutcome.CONFLICT else "failed", details={"outcome": exc.outcome.value})
-        except (OSError, TimeoutError) as exc:
+        except (OSError, TimeoutError):
             return self._result(ok=False, code="DEV_CONTROL_STATE_UNAVAILABLE", message="Control operation невозможно сохранить", state="failed", details={"outcome": ControlOutcome.CONTROL_FAILED.value})
 
     def get_operation(self, control_id: str) -> DevResult:
@@ -970,6 +970,31 @@ class RuntimeControlManager:
             return 0 <= age < CONTROL_LAUNCH_GRACE_SECONDS
         except (OverflowError, TypeError, ValueError):
             return False
+
+    def _latest_persisted_operation(
+        self,
+        fallback: DevRuntimeControlOperation,
+    ) -> DevRuntimeControlOperation:
+        try:
+            with self.store.lock():
+                current = self.store.read()
+        except (OSError, RuntimeControlError, TimeoutError):
+            return fallback
+        if current is None or current.control_id != fallback.control_id:
+            return fallback
+        return current
+
+    def _finish_from_latest(
+        self,
+        operation: DevRuntimeControlOperation,
+        *,
+        outcome: ControlOutcome,
+        code: str,
+    ) -> DevRuntimeControlOperation:
+        latest = self._latest_persisted_operation(operation)
+        if latest.state is ControlState.FINISHED:
+            return latest
+        return self._finish(latest, outcome=outcome, code=code)
 
     def _reconcile(self, *, control_id: str | None = None, read_only: bool = False) -> DevRuntimeControlOperation | None:
         with self.store.lock(create=not read_only):
@@ -1214,14 +1239,29 @@ class RuntimeControlManager:
             try:
                 finished = self._execute_action(operation, self._backend_instance())
             except RuntimeControlError as exc:
-                finished = self._finish(operation, outcome=exc.outcome, code=exc.code)
-            except Exception as exc:  # noqa: BLE001
-                finished = self._finish(operation, outcome=ControlOutcome.CONTROL_FAILED, code="DEV_CONTROL_UNEXPECTED_FAILURE")
+                finished = self._finish_from_latest(
+                    operation,
+                    outcome=exc.outcome,
+                    code=exc.code,
+                )
+            except Exception:  # noqa: BLE001
+                finished = self._finish_from_latest(
+                    operation,
+                    outcome=ControlOutcome.CONTROL_FAILED,
+                    code="DEV_CONTROL_UNEXPECTED_FAILURE",
+                )
             with self.store.lock():
                 current = self.store.read()
-                if current is not None and current.state is not ControlState.FINISHED:
+                if current is None or current.control_id != operation.control_id:
+                    return self._result(
+                        ok=False,
+                        code="DEV_CONTROL_STATE_CHANGED",
+                        message="Control operation изменилась до фиксации результата",
+                        state="failed",
+                    )
+                if current.state is not ControlState.FINISHED:
                     self.store.write(finished)
-                elif current is not None:
+                else:
                     finished = current
             result_code = "DEV_CONTROL_FINISHED"
             if finished.state is ControlState.FINISHED and finished.outcome is not ControlOutcome.PASS and finished.transitions:

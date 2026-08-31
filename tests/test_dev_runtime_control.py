@@ -426,6 +426,10 @@ def test_runtime_control_timeout_is_not_reported_as_success(
     assert result.ok is False
     assert result.details["control_operation"]["outcome"] == ControlOutcome.TIMEOUT.value
     assert result.details["control_operation"]["transitions"][-1]["code"] == "DEV_CONTROL_TIMEOUT"
+    assert any(
+        item["state"] == "WAITING_READY"
+        for item in result.details["control_operation"]["transitions"]
+    )
 
 
 def test_runtime_control_sanitizes_backend_failure_and_keeps_operation_record(

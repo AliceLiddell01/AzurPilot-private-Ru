@@ -20,6 +20,7 @@ from module.dev_runtime.contracts import (
     DevStatusKind,
     ProcessIdentity,
 )
+from module.dev_runtime.task_sandbox import TaskSandboxError
 
 _REGISTRY_MAX_BYTES = 1024 * 1024
 _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
@@ -295,7 +296,17 @@ class DevDiagnosticsMixin:
             session_environment = self.environment
             environment_for_session = getattr(self, "_environment_for_session", None)
             if callable(environment_for_session):
-                session_environment = environment_for_session(session)
+                try:
+                    session_environment = environment_for_session(session)
+                except TaskSandboxError as exc:
+                    return self._session_result(
+                        session,
+                        ok=False,
+                        code=exc.code,
+                        message=str(exc),
+                        state=DevStatusKind.FAILED,
+                        details={"error": exc.as_dict()},
+                    )
             ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:
                 return self._session_result(
