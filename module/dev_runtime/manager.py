@@ -1,4 +1,4 @@
-"""Менеджер жизненного цикла фиксированной локальной DevSession профиля ap."""
+"""Менеджер жизненного цикла локальной DevSession назначенного target."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from deploy.atomic import file_write, replace_tmp, to_tmp_file
 from module.dev_runtime.contracts import (
     DEFAULT_READY_TIMEOUT,
     DEFAULT_STOP_TIMEOUT,
-    DEV_PROFILE,
     DevEnvironment,
     DevResult,
     DevSession,
@@ -27,6 +26,7 @@ from module.dev_runtime.contracts import (
     ProcessIdentity,
 )
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
+from module.dev_runtime.control import ControlAction, RuntimeControlManager
 from module.dev_runtime.diagnostics import (
     DevDiagnosticsMixin,
     _default_storage_probe,
@@ -91,6 +91,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         self.screenshot_timeout = screenshot_timeout
         self._evidence_store: EvidenceStore | None = None
         self._smoke_manager = None
+        self._control_manager: RuntimeControlManager | None = None
 
     def _evidence_for_session(self, session_id: str) -> EvidenceStore | None:
         try:
@@ -215,7 +216,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             self._evidence_store = store
             self._evidence_event(
                 "session_created",
-                {"profile": DEV_PROFILE, "task_mode": "task_aware"},
+                {"profile": self.environment.profile_name, "task_mode": "task_aware"},
                 store=store,
             )
             if not EvidenceStore.prune(
@@ -541,6 +542,52 @@ class DevSessionManager(DevDiagnosticsMixin):
     ) -> DevResult:
         return self._get_smoke_manager().submit_smoke_evaluation(smoke_id, assertion_id, verdict, rationale)
 
+    def _get_control_manager(self) -> RuntimeControlManager:
+        control_manager = self._control_manager
+        if control_manager is None:
+            control_manager = RuntimeControlManager(
+                self.environment,
+                session_state_provider=self._control_session_state,
+                smoke_active_provider=self._control_smoke_active,
+                now=self.now,
+            )
+            self._control_manager = control_manager
+        return control_manager
+
+    def _control_session_state(self) -> str | None:
+        session = self._read_session()
+        return None if session is None else session.state.value
+
+    def _control_smoke_active(self) -> bool:
+        return self._get_smoke_manager().has_active_run()
+
+    def get_runtime_status(self) -> DevResult:
+        return self._get_control_manager().status()
+
+    def start_game(self) -> DevResult:
+        return self._get_control_manager().start(ControlAction.START_GAME)
+
+    def stop_game(self) -> DevResult:
+        return self._get_control_manager().start(ControlAction.STOP_GAME)
+
+    def restart_game(self) -> DevResult:
+        return self._get_control_manager().start(ControlAction.RESTART_GAME)
+
+    def start_emulator(self) -> DevResult:
+        return self._get_control_manager().start(ControlAction.START_EMULATOR)
+
+    def stop_emulator(self) -> DevResult:
+        return self._get_control_manager().start(ControlAction.STOP_EMULATOR)
+
+    def restart_emulator(self) -> DevResult:
+        return self._get_control_manager().start(ControlAction.RESTART_EMULATOR)
+
+    def restart_adb(self) -> DevResult:
+        return self._get_control_manager().start(ControlAction.RESTART_ADB)
+
+    def get_control_operation(self, control_id: str) -> DevResult:
+        return self._get_control_manager().get_operation(control_id)
+
     def list_tasks(self) -> DevResult:
         """Вернуть каталог из исходного профиля без изменения состояния."""
 
@@ -548,13 +595,14 @@ class DevSessionManager(DevDiagnosticsMixin):
             catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
+                profile_name=self.environment.profile_name,
             )
         except TaskSandboxError as exc:
             return self._task_error(exc)
         return DevResult(
             ok=True,
             code="DEV_TASK_CATALOG_READY",
-            message="Каталог планируемых задач профиля ap прочитан",
+            message="Каталог планируемых задач development target прочитан",
             state=DevStatusKind.NO_SESSION.value,
             details=catalog.as_dict(),
         )
@@ -847,7 +895,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             session.process = None
             session.updated_at = self._timestamp()
             session.last_code = "DEV_TASK_CLEANUP_COMPLETED"
-            session.last_message = "Состояние планировщика профиля ap очищено"
+            session.last_message = "Состояние планировщика назначенного development target очищено"
             self._write_session(session)
             self._evidence_event(
                 "cleanup_completed",
@@ -885,14 +933,20 @@ class DevSessionManager(DevDiagnosticsMixin):
             catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
+                profile_name=self.environment.profile_name,
             )
-            plan = TaskPlan.from_catalog(catalog, root_tasks, excluded_tasks)
+            plan = TaskPlan.from_catalog(
+                catalog,
+                root_tasks,
+                excluded_tasks,
+                profile_name=self.environment.profile_name,
+            )
         except TaskSandboxError as exc:
             return None, self._task_error(exc)
         return plan, DevResult(
             ok=True,
             code="DEV_TASK_PLAN_READY",
-            message="План профиля ap с учётом задач сформирован",
+            message="План назначенного development target с учётом задач сформирован",
             state=DevStatusKind.NO_SESSION.value,
             details={"plan": plan.as_dict()},
         )
@@ -961,6 +1015,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
+                profile_name=self.environment.profile_name,
             )
             payload = read_profile_payload(
                 self.environment.profile_file,
@@ -984,6 +1039,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             verified_catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
+                profile_name=self.environment.profile_name,
             )
             verified = scheduler_state(
                 read_profile_payload(
@@ -1122,7 +1178,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             from module.logger import logger
 
             logger.warning(
-                "[Dev Runtime] preserve_task_state=True: состояние планировщика профиля ap оставлено без очистки"
+                "[Dev Runtime] preserve_task_state=True: состояние планировщика назначенного development target оставлено без очистки"
             )
             return DevResult(
                 ok=True,
@@ -1154,6 +1210,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             fresh_catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
+                profile_name=self.environment.profile_name,
             )
             payload = read_profile_payload(
                 self.environment.profile_file,
@@ -1174,6 +1231,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             verified_catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
+                profile_name=self.environment.profile_name,
             )
             verified_state = scheduler_state(
                 read_profile_payload(
@@ -1203,7 +1261,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=True,
                 code="DEV_TASK_CLEANUP_COMPLETED",
-                message="Состояние планировщика всех доступных ему задач профиля ap сброшено",
+                message="Состояние планировщика всех доступных ему задач назначенного development target сброшено",
                 state=DevStatusKind.STOPPED.value,
                 details={
                     "cleanup_confirmed": True,
@@ -1504,7 +1562,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     )
                 self._evidence_event(
                     "policy_prepared",
-                    {"profile": DEV_PROFILE, "state": TASK_POLICY_ACTIVE},
+                    {"profile": self.environment.profile_name, "state": TASK_POLICY_ACTIVE},
                 )
                 try:
                     if self._evidence_store is not None:
@@ -1514,7 +1572,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             session.state = DevSessionState.STARTING
             session.updated_at = self._timestamp()
             session.last_code = "DEV_SESSION_STARTING"
-            session.last_message = "Запускается штатный gui.py для профиля ap"
+            session.last_message = "Запускается штатный gui.py для назначенного development target"
             self._write_session(session)
 
             pid: int | None = None
@@ -1711,7 +1769,10 @@ class DevSessionManager(DevDiagnosticsMixin):
             self._write_session(latest)
             self._evidence_event(
                 "session_ready",
-                {"state": DevSessionState.RUNNING.value, "profile": DEV_PROFILE},
+                {
+                    "state": DevSessionState.RUNNING.value,
+                    "profile": self.environment.profile_name,
+                },
             )
             return self._session_result(
                 latest,
@@ -1722,7 +1783,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 details={
                     "host": self.environment.host,
                     "port": self.environment.port,
-                    "profile": DEV_PROFILE,
+                    "profile": self.environment.profile_name,
                     "log": str(self.environment.log_file.relative_to(self.environment.repository_root)),
                 },
             )

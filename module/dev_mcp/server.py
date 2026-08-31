@@ -12,7 +12,7 @@ from typing import Any
 import anyio
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
-from mcp.types import CallToolResult, ImageContent, TextContent, Tool, ToolAnnotations
+from mcp.types import CallToolRequestParams, CallToolResult, ImageContent, ListToolsResult, TextContent, Tool, ToolAnnotations
 
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
 from module.dev_mcp.contract import DEV_MCP_API_VERSION
@@ -34,6 +34,14 @@ _NO_ARGUMENT_TOOLS = frozenset(
         "dev_recover",
         "dev_get_screenshot",
         "dev_list_smoke_capabilities",
+        "dev_get_runtime_status",
+        "dev_start_game",
+        "dev_stop_game",
+        "dev_restart_game",
+        "dev_start_emulator",
+        "dev_stop_emulator",
+        "dev_restart_emulator",
+        "dev_restart_adb",
     }
 )
 
@@ -110,6 +118,19 @@ _SMOKE_EVALUATION_INPUT = {
     "required": ["smoke_id", "assertion_id", "verdict", "rationale"],
     "additionalProperties": False,
 }
+_CONTROL_ID_INPUT = {
+    "type": "object",
+    "properties": {
+        "control_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[a-f0-9]{32}$",
+        }
+    },
+    "required": ["control_id"],
+    "additionalProperties": False,
+}
 _OUTPUT = {
     "type": "object",
     "properties": {
@@ -141,6 +162,24 @@ _ADDITIVE = ToolAnnotations(
     idempotentHint=False,
     openWorldHint=False,
 )
+_CONTROL_START = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+_CONTROL_STOP = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+_CONTROL_RESTART = ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=False,
+    openWorldHint=False,
+)
 
 
 def _tool(
@@ -155,7 +194,7 @@ def _tool(
         inputSchema=input_schema,
         outputSchema=_OUTPUT,
         annotations=annotations,
-        securitySchemes=[{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}],
+        _meta={"securitySchemes": [{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}]},
     )
 
 
@@ -163,19 +202,19 @@ def tool_definitions() -> list[Tool]:
     """Вернуть явный и стабильный публичный набор инструментов."""
 
     descriptions = {
-        "dev_preflight": "Предварительная проверка только для чтения фиксированного профиля Dev Runtime ap.",
-        "dev_doctor": "Диагностика только для чтения фиксированного профиля Dev Runtime ap.",
+        "dev_preflight": "Предварительная проверка только для чтения назначенного development target.",
+        "dev_doctor": "Диагностика только для чтения назначенного development target.",
         "dev_get_contract": "Получить стабильный read-only контракт совместимости AzurPilot Dev MCP.",
-        "dev_list_tasks": "Динамический каталог планируемых задач профиля ap только для чтения.",
-        "dev_plan_session": "Сформировать план задач только для чтения для профиля ap.",
-        "dev_start_session": "Запустить DevSession с учётом задач только для выбранных задач профиля ap.",
-        "dev_status": "Статус DevSession и политики задач профиля ap только для чтения.",
+        "dev_list_tasks": "Динамический каталог планируемых задач development target только для чтения.",
+        "dev_plan_session": "Сформировать план задач только для чтения для development target.",
+        "dev_start_session": "Запустить DevSession с учётом задач только для выбранных задач development target.",
+        "dev_status": "Статус DevSession и политики задач development target только для чтения.",
         "dev_stop_session": (
-            "Остановить DevSession профиля ap; preserve_task_state=true оставляет состояние "
+            "Остановить DevSession; preserve_task_state=true оставляет состояние "
             "планировщика и требует последующей очистки."
         ),
-        "dev_cleanup": "Очистить состояние планировщика профиля ap без запуска новой сессии.",
-        "dev_recover": "Выполнить существующее безопасное восстановление профиля ap с проверкой владения.",
+        "dev_cleanup": "Очистить состояние планировщика development target без запуска новой сессии.",
+        "dev_recover": "Выполнить существующее безопасное восстановление development target с проверкой владения.",
         "dev_get_evidence": "Получить ограниченную сводку диагностики указанной DevSession.",
         "dev_get_timeline": "Получить ограниченную каноническую хронологию выполнения указанной DevSession.",
         "dev_get_logs": "Получить ограниченный журнал указанной DevSession только в пределах её сессии.",
@@ -187,6 +226,15 @@ def tool_definitions() -> list[Tool]:
         "dev_cancel_smoke": "Сохранить проверенный запрос отмены для конкретного SmokeRun и его supervisor.",
         "dev_get_smoke_evaluation": "Получить замороженную визуальную рубрику и точный сохранённый снимок экрана для внешней оценки.",
         "dev_submit_smoke_evaluation": "Добавить один неизменяемый внешний вердикт к ожидающему SmokeRun.",
+        "dev_get_runtime_status": "Получить bounded read-only состояние эмулятора, ADB и приложения без создания full Device.",
+        "dev_start_game": "Асинхронно запустить приложение через существующий AppControl backend.",
+        "dev_stop_game": "Асинхронно остановить приложение через существующий AppControl backend.",
+        "dev_restart_game": "Асинхронно перезапустить приложение через существующий AppControl backend.",
+        "dev_start_emulator": "Асинхронно запустить эмулятор через существующую Platform abstraction.",
+        "dev_stop_emulator": "Асинхронно остановить эмулятор через существующую Platform abstraction.",
+        "dev_restart_emulator": "Асинхронно перезапустить эмулятор через существующую Platform abstraction.",
+        "dev_restart_adb": "Асинхронно перезапустить ADB только при подтверждённом отсутствии неизвестных устройств.",
+        "dev_get_control_operation": "Получить bounded состояние persistent runtime control operation.",
     }
     schemas = {
         **{name: _EMPTY_INPUT for name in _NO_ARGUMENT_TOOLS},
@@ -202,15 +250,25 @@ def tool_definitions() -> list[Tool]:
         "dev_cancel_smoke": _SMOKE_ID_INPUT,
         "dev_get_smoke_evaluation": _SMOKE_ID_INPUT,
         "dev_submit_smoke_evaluation": _SMOKE_EVALUATION_INPUT,
+        "dev_get_control_operation": _CONTROL_ID_INPUT,
     }
     mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover", "dev_cancel_smoke", "dev_start_smoke"}
     additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
+    control_annotations = {
+        "dev_start_game": _CONTROL_START,
+        "dev_start_emulator": _CONTROL_START,
+        "dev_stop_game": _CONTROL_STOP,
+        "dev_stop_emulator": _CONTROL_STOP,
+        "dev_restart_game": _CONTROL_RESTART,
+        "dev_restart_emulator": _CONTROL_RESTART,
+        "dev_restart_adb": _CONTROL_RESTART,
+    }
     return [
         _tool(
             name,
             descriptions[name],
             schemas[name],
-            _MUTATING if name in mutating else _ADDITIVE if name in additive else _READ_ONLY,
+            control_annotations.get(name, _MUTATING if name in mutating else _ADDITIVE if name in additive else _READ_ONLY),
         )
         for name in DEV_MCP_TOOL_NAMES
     ]
@@ -249,18 +307,17 @@ def create_server(
     Local stdio сохраняет ожидание worker по умолчанию.
     """
 
-    server = Server(SERVER_NAME, version=SERVER_VERSION)
     bound_adapter = adapter if adapter is not None else DevMcpAdapter()
 
-    @server.list_tools()
-    async def handle_list_tools() -> list[Tool]:
-        return tool_definitions()
+    async def handle_list_tools(_context: Any, _params: Any) -> ListToolsResult:
+        return ListToolsResult(tools=tool_definitions())
 
-    @server.call_tool()
     async def handle_call_tool(
-        name: str,
-        arguments: dict[str, Any],
-    ) -> dict[str, object] | CallToolResult:
+        _context: Any,
+        params: CallToolRequestParams,
+    ) -> CallToolResult:
+        name = params.name
+        arguments = params.arguments or {}
         response = await anyio.to_thread.run_sync(
             bound_adapter.call,
             name,
@@ -268,10 +325,20 @@ def create_server(
             abandon_on_cancel=abandon_on_cancel,
         )
         if not isinstance(response, DevMcpResponse):
-            return response
+            safe = response if isinstance(response, dict) else {"ok": False, "code": "DEV_MCP_INVALID_RESULT", "message": "Некорректный ответ Dev MCP", "state": "failed", "session_id": None, "details": {}}
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(safe, ensure_ascii=False, separators=(",", ":")))],
+                structuredContent=safe,
+                isError=not bool(safe.get("ok")),
+            )
         return _screenshot_call_result(response)
 
-    return server
+    return Server(
+        SERVER_NAME,
+        version=SERVER_VERSION,
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
 
 
 async def run_server(adapter: DevMcpAdapter | None = None) -> None:

@@ -10,7 +10,7 @@ from pathlib import Path
 import psutil
 import pytest
 
-from module.dev_runtime import DevEnvironment, ProcessBackend, ProcessIdentity
+from module.dev_runtime import DevEnvironment, DevTarget, ProcessBackend, ProcessIdentity
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +109,7 @@ while not stopping:
         environment = DevEnvironment(
             repository_root=root,
             python_executable=synthetic_python,
+            dev_target=DevTarget("ap"),
         )
         backend = ProcessBackend()
         session_id = "ci-real-windows-venv-redirector"

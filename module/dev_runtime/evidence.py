@@ -28,7 +28,6 @@ from types import SimpleNamespace
 
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
 from module.dev_runtime.contracts import (
-    DEV_PROFILE,
     DevEnvironment,
     DevResult,
     DevSession,
@@ -1129,12 +1128,16 @@ def _validate_structured_error(value: object) -> dict[str, object]:
     }
 
 
-def _validate_manifest(value: object, expected_session_id: str) -> dict[str, object]:
+def _validate_manifest(
+    value: object,
+    expected_session_id: str,
+    expected_profile: str,
+) -> dict[str, object]:
     if not isinstance(value, Mapping) or set(value) != _MANIFEST_KEYS:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Манифест имеет неполную или неизвестную структуру")
     if value.get("schema_version") != EVIDENCE_SCHEMA_VERSION:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Манифест имеет неподдерживаемую схему")
-    if value.get("session_id") != expected_session_id or value.get("profile") != DEV_PROFILE:
+    if value.get("session_id") != expected_session_id or value.get("profile") != expected_profile:
         raise EvidenceCorrupt("DEV_EVIDENCE_FOREIGN_SESSION", "Манифест принадлежит другой сессии или профилю")
     validate_session_id(value.get("session_id"))
     timestamps = {
@@ -1356,7 +1359,7 @@ class EvidenceStore:
         manifest: dict[str, object] = {
             "schema_version": EVIDENCE_SCHEMA_VERSION,
             "session_id": store.session_id,
-            "profile": DEV_PROFILE,
+            "profile": environment.profile_name,
             "created_at": _utc_timestamp(timestamp),
             "started_at": _utc_timestamp(timestamp),
             "stopped_at": None,
@@ -1439,7 +1442,7 @@ class EvidenceStore:
 
     def _manifest_locked(self) -> dict[str, object]:
         raw = _read_json(self.manifest_path, max_bytes=_MAX_MANIFEST_BYTES)
-        return _validate_manifest(raw, self.session_id)
+        return _validate_manifest(raw, self.session_id, self.environment.profile_name)
 
     def _timeline_locked(self) -> tuple[list[TimelineEvent], bool]:
         raw = _read_json(self.timeline_path, max_bytes=_MAX_TIMELINE_BYTES)
@@ -1452,7 +1455,7 @@ class EvidenceStore:
         return events, truncated
 
     def _write_manifest_locked(self, manifest: dict[str, object]) -> None:
-        _validate_manifest(manifest, self.session_id)
+        _validate_manifest(manifest, self.session_id, self.environment.profile_name)
         _atomic_json_write(self.manifest_path, manifest)
 
     def _set_health_locked(
@@ -2426,7 +2429,7 @@ class EvidenceStore:
         duration_seconds = max(0, int((end_at.astimezone(UTC) - started_at).total_seconds()))
         return {
             "session_id": self.session_id,
-            "profile": DEV_PROFILE,
+            "profile": self.environment.profile_name,
             "lifecycle": {
                 "created_at": manifest["created_at"],
                 "started_at": manifest["started_at"],
@@ -2701,9 +2704,10 @@ def active_evidence_store() -> EvidenceStore | None:
 
 
 def _active_store_for_config(config_name: object) -> EvidenceStore | None:
-    if config_name != DEV_PROFILE:
+    store = active_evidence_store()
+    if store is None or config_name != store.environment.profile_name:
         return None
-    return active_evidence_store()
+    return store
 
 
 def record_task_started(config_name: object, task: object) -> None:

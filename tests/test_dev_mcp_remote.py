@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.server.auth.provider import AccessToken
+from mcp_types import CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY
 
 from module.dev_mcp.adapter import DevMcpResponse
 from module.dev_mcp.remote import (
@@ -137,18 +138,41 @@ async def _client(app: Any):
         yield client
 
 
-def _headers(*, auth: bool = True, origin: str | None = None) -> dict[str, str]:
+def _headers(
+    *,
+    auth: bool = True,
+    origin: str | None = None,
+    protocol_version: str = "2024-11-05",
+    method: str | None = None,
+    name: str | None = None,
+) -> dict[str, str]:
     headers = {
         "Host": _HOST,
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "MCP-Protocol-Version": "2024-11-05",
+        "MCP-Protocol-Version": protocol_version,
     }
     if auth:
         headers["Authorization"] = "Bearer valid-token"
     if origin is not None:
         headers["Origin"] = origin
+    if method is not None:
+        headers["MCP-Method"] = method
+    if name is not None:
+        headers["MCP-Name"] = name
     return headers
+
+
+def _modern_params(*, protocol_version: str = "2026-07-28", name: str | None = None) -> dict[str, Any]:
+    meta: dict[str, Any] = {
+        PROTOCOL_VERSION_META_KEY: protocol_version,
+        CLIENT_INFO_META_KEY: {"name": "azurpilot-test", "version": "1"},
+        CLIENT_CAPABILITIES_META_KEY: {},
+    }
+    params: dict[str, Any] = {"_meta": meta}
+    if name is not None:
+        params["name"] = name
+    return params
 
 
 def _initialize_payload(request_id: int = 1) -> dict[str, Any]:
@@ -240,7 +264,7 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
             assert len(tools) == len(DEV_MCP_TOOL_NAMES)
             assert tools == [tool.model_dump(by_alias=True, exclude_none=True) for tool in tool_definitions()]
             assert all(
-                tool["securitySchemes"] == [{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}]
+                tool["_meta"]["securitySchemes"] == [{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}]
                 for tool in tools
             )
 
@@ -267,6 +291,57 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
                 "dev_list_smoke_capabilities",
             ]
             assert app.state.session_manager._server_instances == {}
+
+    asyncio.run(scenario())
+
+
+def test_remote_http_modern_discovery_and_tool_call() -> None:
+    async def scenario() -> None:
+        adapter = _RecordingAdapter()
+        app = create_remote_app(
+            adapter,
+            config=_config(),
+            token_verifier=_StaticVerifier(_AUDIENCE),
+        )
+        async with _client(app) as client:
+            discover_headers = _headers(protocol_version="2026-07-28", method="server/discover")
+            discovered = await client.post(
+                "/mcp",
+                headers=discover_headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "server/discover",
+                    "params": _modern_params(),
+                },
+            )
+            assert discovered.status_code == 200
+            assert discovered.json()["result"]["supportedVersions"]
+            assert "2026-07-28" in discovered.json()["result"]["supportedVersions"]
+
+            list_headers = _headers(protocol_version="2026-07-28", method="tools/list")
+            listed = await client.post(
+                "/mcp",
+                headers=list_headers,
+                json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": _modern_params()},
+            )
+            assert listed.status_code == 200
+            assert len(listed.json()["result"]["tools"]) == len(DEV_MCP_TOOL_NAMES)
+
+            call_headers = _headers(protocol_version="2026-07-28", method="tools/call", name="dev_get_contract")
+            called = await client.post(
+                "/mcp",
+                headers=call_headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {**_modern_params(name="dev_get_contract"), "arguments": {}},
+                },
+            )
+            assert called.status_code == 200
+            assert called.json()["result"]["structuredContent"]["code"] == "TEST_OK"
+            assert [name for name, _ in adapter.calls] == ["dev_get_contract"]
 
     asyncio.run(scenario())
 

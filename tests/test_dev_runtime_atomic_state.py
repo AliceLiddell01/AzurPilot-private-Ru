@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from module.dev_runtime import DevEnvironment, DevSession, DevSessionManager, DevSessionState
+from module.dev_runtime import DevEnvironment, DevSession, DevSessionManager, DevSessionState, DevTarget
 from module.dev_runtime import manager as manager_module
 
 
@@ -19,6 +19,7 @@ def test_failed_state_write_removes_owned_temporary_file(
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     manager = DevSessionManager(
         environment,

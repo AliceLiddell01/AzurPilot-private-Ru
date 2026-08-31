@@ -47,10 +47,12 @@ MCP-инструменты делятся на read-only и меняющие с�
 Dev MCP для локальной Codex-интеграции находится в `module/dev_mcp` и работает
 через stdio. Для ChatGPT есть отдельный `module.dev_mcp.remote` с HTTPS
 Streamable HTTP `/mcp`; оба entrypoint-а используют один тонкий adapter к
-существующему `DevSessionManager` с фиксированным профилем `ap`. Remote backend
+существующим `DevSessionManager` и отдельным `RuntimeControlManager` с явно
+настроенным development target. Remote backend
 bind-ится только на `127.0.0.1`, требует внешний OAuth/OIDC access token и не
 добавляет generic shell/config tools или управление production profiles.
-Production MCP и его transport остаются независимыми.
+Production MCP и его transport остаются независимыми; `mcp_server_sse.py`
+получает только минимальную compatibility-адаптацию для общей MCP SDK v2.
 
 ## Canonical Plugin AzurPilot
 
@@ -66,8 +68,9 @@ Codex использует project-scoped `azurpilot-dev` через прямо�
 authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy и
 внешним OAuth/OIDC provider; custom authorization server и Secure MCP Tunnel
 для этого пути не требуются. `module.dev_mcp.contract` публикует read-only boundary с
-версиями API/Smoke schemas, профилем `ap`, required feature flags, capability
-families и result outcomes.
+версиями API/Smoke schemas, required feature flags, capability families и
+result outcomes. Runtime status/control не раскрывают serial, package, пути или
+команды и хранят bounded operation state в ignored `config/state/`.
 Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
 любом несовпадении.
 

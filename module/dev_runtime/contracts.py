@@ -9,7 +9,8 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-DEV_PROFILE = "ap"
+from module.dev_runtime.target import DevTarget, DevTargetError, DevTargetRegistry
+
 DEV_HOST = "127.0.0.1"
 DEV_PORT = 25549
 STATE_SCHEMA_VERSION = 1
@@ -136,6 +137,7 @@ class ProcessIdentity:
         repository_root: Path,
         session_id: str,
         python_executable: Path | None = None,
+        profile_name: str | None = None,
     ) -> bool:
         """Проверить полную сигнатуру процесса одной DevSession."""
 
@@ -153,6 +155,8 @@ class ProcessIdentity:
                 / ".venv"
                 / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
             )
+            if profile_name is None:
+                profile_name = DevTargetRegistry.load(root).profile_name
             allowed_python_paths = _allowed_command_python_paths(expected_python)
             expected_gui = root / "gui.py"
             expected = (
@@ -165,7 +169,7 @@ class ProcessIdentity:
                 "--port",
                 str(DEV_PORT),
                 "--run",
-                DEV_PROFILE,
+                profile_name,
             )
         except (OSError, RuntimeError, ValueError):
             return False
@@ -355,12 +359,17 @@ class DevSession:
 class DevEnvironment:
     repository_root: Path
     python_executable: Path
+    dev_target: DevTarget | None = None
     host: str = DEV_HOST
     port: int = DEV_PORT
 
     def __post_init__(self) -> None:
         if self.host != DEV_HOST or self.port != DEV_PORT:
             raise ValueError("Dev Runtime разрешает только фиксированный локальный адрес и порт")
+        root = Path(self.repository_root).resolve()
+        object.__setattr__(self, "repository_root", root)
+        if self.dev_target is None:
+            object.__setattr__(self, "dev_target", DevTargetRegistry.load(root))
 
     @property
     def state_file(self) -> Path:
@@ -376,7 +385,25 @@ class DevEnvironment:
 
     @property
     def profile_file(self) -> Path:
-        return self.repository_root / "config" / f"{DEV_PROFILE}.json"
+        target = self.dev_target
+        if target is None:  # pragma: no cover - защищено __post_init__
+            raise DevTargetError("DEV_TARGET_NOT_CONFIGURED", "Development target не назначен")
+        return target.profile_file(self.repository_root)
+
+    @property
+    def profile_name(self) -> str:
+        target = self.dev_target
+        if target is None:  # pragma: no cover - защищено __post_init__
+            raise DevTargetError("DEV_TARGET_NOT_CONFIGURED", "Development target не назначен")
+        return target.profile_name
+
+    @property
+    def target_file(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-target.json"
+
+    @property
+    def control_root(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-control"
 
     @property
     def task_policy_file(self) -> Path:
@@ -409,4 +436,5 @@ class DevEnvironment:
             repository_root=root,
             # Не resolve(): POSIX venv обычно использует symlink на базовый Python.
             python_executable=Path(os.path.abspath(sys.executable)),
+            dev_target=DevTargetRegistry.load(root),
         )

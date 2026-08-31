@@ -13,6 +13,7 @@ from module.dev_runtime import (
     DevSessionManager,
     DevSessionState,
     DevStatusKind,
+    DevTarget,
     ProcessIdentity,
 )
 from module.dev_runtime import diagnostics as diagnostics_module
@@ -70,6 +71,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     return DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
 
 

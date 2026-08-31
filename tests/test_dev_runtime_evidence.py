@@ -25,6 +25,7 @@ from module.dev_runtime.evidence import (
     validate_session_id,
 )
 from module.dev_runtime.contracts import DevEnvironment
+from module.dev_runtime.target import DevTarget
 
 
 _TIME = "2026-08-30T00:00:00+00:00"
@@ -44,7 +45,7 @@ def test_event_registry_is_public_and_single_source(tmp_path: Path) -> None:
 def _environment(tmp_path: Path) -> DevEnvironment:
     root = (tmp_path / "checkout").resolve()
     (root / "config" / "state").mkdir(parents=True)
-    return DevEnvironment(root, root / ".venv" / "Scripts" / "python.exe")
+    return DevEnvironment(root, root / ".venv" / "Scripts" / "python.exe", DevTarget("ap"))
 
 
 def _store(tmp_path: Path, session_id: str = "session-1") -> EvidenceStore:

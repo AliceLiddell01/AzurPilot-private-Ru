@@ -7,9 +7,12 @@ from typing import List, Dict, Any
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
-from mcp.server import Server
+from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
     TextContent,
     ImageContent,
     Tool,
@@ -40,12 +43,8 @@ logger = logging.getLogger("azurpilot-mcp")
 # 初始化配置助手
 helper = McpConfigHelper()
 
-# 初始化 MCP 服务器
-mcp_server = Server("AzurPilot-MCP")
-
 ToolResponse = List[TextContent | ImageContent]
 
-@mcp_server.list_tools()
 async def list_tools() -> List[Tool]:
     return [
         Tool(
@@ -467,7 +466,6 @@ TOOL_HANDLERS = {
 }
 
 
-@mcp_server.call_tool()
 async def call_tool(name: str, arguments: Dict[str, Any]) -> ToolResponse:
     try:
         handler = TOOL_HANDLERS.get(name)
@@ -477,6 +475,24 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> ToolResponse:
     except Exception as e:
         logger.exception(f"Ошибка инструмента {name}")
         return [TextContent(type="text", text=f"Ошибка: {str(e)}")]
+
+
+async def _list_tools(_context: Any, _params: Any) -> ListToolsResult:
+    return ListToolsResult(tools=await list_tools())
+
+
+async def _call_tool(_context: Any, params: CallToolRequestParams) -> CallToolResult:
+    content = await call_tool(params.name, params.arguments or {})
+    return CallToolResult(content=content)
+
+
+# MCP v2 использует явные low-level callbacks; server/discover регистрируется SDK.
+mcp_server = Server(
+    "AzurPilot-MCP",
+    version="2",
+    on_list_tools=_list_tools,
+    on_call_tool=_call_tool,
+)
 
 # SSE 传输层初始化 - 固定端点（与 /mcp 挂载点匹配）
 transport = SseServerTransport("/mcp/messages")

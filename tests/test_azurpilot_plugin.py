@@ -70,10 +70,11 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
 
     assert compatibility["product_family"] == runtime["product_family"] == "AzurPilot"
     assert compatibility["plugin_version"] == manifest["version"]
-    assert compatibility["dev_mcp_api_version"] == runtime["dev_mcp_api_version"] == 1
+    assert compatibility["dev_mcp_api_version"] == runtime["dev_mcp_api_version"] == 2
     assert compatibility["smoke_spec_schema_version"] == runtime["smoke_spec_schema_version"] == SMOKE_SCHEMA_VERSION
     assert compatibility["smoke_result_schema_version"] == runtime["smoke_result_schema_version"] == SMOKE_STATE_SCHEMA_VERSION
-    assert compatibility["profile"] == runtime["profile"] == "ap"
+    assert "profile" not in compatibility
+    assert "profile" not in runtime
     assert set(compatibility["required_feature_flags"]).issubset(runtime["feature_flags"])
     assert set(compatibility["required_capability_families"]).issubset(runtime["capability_families"])
     assert set(compatibility["result_outcomes"]).issubset(runtime["result_outcomes"])
@@ -88,7 +89,6 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
         ("dev_mcp_api_version", 0),
         ("smoke_spec_schema_version", 2),
         ("smoke_result_schema_version", 2),
-        ("profile", "alas"),
     ],
 )
 def test_incompatible_contract_values_fail_closed(field: str, value: object) -> None:
@@ -147,6 +147,15 @@ def test_required_development_skill_has_fail_closed_workflow() -> None:
         "dev_get_smoke",
         "dev_get_smoke_evaluation",
         "dev_submit_smoke_evaluation",
+        "dev_get_runtime_status",
+        "dev_start_game",
+        "dev_stop_game",
+        "dev_restart_game",
+        "dev_start_emulator",
+        "dev_stop_emulator",
+        "dev_restart_emulator",
+        "dev_restart_adb",
+        "dev_get_control_operation",
         "PRODUCT_FAILED",
         "HARNESS_FAILED",
         "EVIDENCE_INCOMPLETE",

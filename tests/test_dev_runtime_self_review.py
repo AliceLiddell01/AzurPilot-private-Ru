@@ -14,6 +14,7 @@ from module.dev_runtime import (
     DevSession,
     DevSessionManager,
     DevSessionState,
+    DevTarget,
     ProcessBackend,
     ProcessIdentity,
 )
@@ -31,7 +32,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     )
     python.parent.mkdir(parents=True, exist_ok=True)
     python.write_text("", encoding="utf-8")
-    return DevEnvironment(repository_root=root, python_executable=python)
+    return DevEnvironment(repository_root=root, python_executable=python, dev_target=DevTarget("ap"))
 
 
 def _identity(
@@ -226,7 +227,7 @@ def test_project_python_check_accepts_venv_symlink(
     python = root / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
     python.symlink_to(Path(sys.executable))
-    environment = DevEnvironment(root, python)
+    environment = DevEnvironment(root, python, DevTarget("ap"))
     manager = DevSessionManager(
         environment,
         storage_probe=lambda _environment: (True, "ready"),
@@ -280,4 +281,4 @@ def test_readiness_rejects_ap_worker_outside_devsession_tree(
     ready, reason = manager._default_readiness_probe(environment, identity)
 
     assert ready is False
-    assert "рабочий процесс профиля ap не принадлежит дереву DevSession" in reason
+    assert "рабочий процесс назначенного development target не принадлежит дереву DevSession" in reason

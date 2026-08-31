@@ -11,7 +11,7 @@ import pytest
 from module.dev_runtime import (
     DEV_HOST,
     DEV_PORT,
-    DEV_PROFILE,
+    DevTarget,
     DevEnvironment,
     DevResult,
     DevSession,
@@ -100,6 +100,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     return DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
 
 
@@ -149,10 +150,10 @@ def _session(
     )
 
 
-def test_public_runtime_is_ap_only_and_loopback_only(tmp_path: Path) -> None:
+def test_public_runtime_uses_configured_target_and_loopback_only(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
 
-    assert DEV_PROFILE == "ap"
+    assert environment.profile_name == "ap"
     assert "profile" not in inspect.signature(DevSessionManager.start).parameters
     assert "profile" not in inspect.signature(DevSessionManager.stop).parameters
     command = ProcessBackend.expected_command(environment, "session-token")
@@ -223,7 +224,7 @@ def test_profile_check_accepts_only_structural_local_ap(tmp_path: Path) -> None:
     )
 
     assert manager._profile_check()[0] is True
-    assert "ap" in manager._profile_check()[1]
+    assert "development target" in manager._profile_check()[1]
 
 
 def test_start_persists_created_starting_running_transitions(tmp_path: Path) -> None:

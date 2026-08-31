@@ -1197,13 +1197,13 @@ class ConfigRegistry:
 
     def validate_overrides(self, overrides: Sequence[SmokeConfigOverride], payload: object) -> None:
         if not isinstance(payload, Mapping):
-            raise SmokeStoreError("DEV_SMOKE_PROFILE_INVALID", "config/ap.json должен быть JSON-объектом")
+            raise SmokeStoreError("DEV_SMOKE_PROFILE_INVALID", "Профиль development target должен быть JSON-объектом")
         for override in overrides:
             self.validate_value(override.path, override.value)
             marker = object()
             current = _deep_get(payload, override.path, marker)
             if current is marker:
-                raise SmokeStoreError("DEV_SMOKE_CONFIG_PATH_MISSING", "путь конфигурации отсутствует в профиле ap")
+                raise SmokeStoreError("DEV_SMOKE_CONFIG_PATH_MISSING", "путь конфигурации отсутствует в development target")
             if not self._same_scalar_type(override.value, current):
                 raise SmokeStoreError("DEV_SMOKE_CONFIG_VALUE_INVALID", "переопределение конфигурации не соответствует типу текущего значения")
 
@@ -2632,6 +2632,11 @@ class SmokeRunManager:
                 return record
         return None
 
+    def has_active_run(self) -> bool:
+        """Проверить наличие активного SmokeRun без изменения его состояния."""
+
+        return self._active_record() is not None
+
     def start_smoke(self, spec: object) -> DevResult:
         parsed, source, issues = self._validate_spec_and_preconditions(spec, check_runtime_conflict=True)
         if parsed is None or source is None or issues:
@@ -3337,7 +3342,10 @@ class SmokeRunManager:
             failures.append(f"DEV_SMOKE_CLEANUP_{type(exc).__name__.upper()[:32]}")
         try:
             payload = read_profile_payload(self.environment.profile_file, repository_root=self.environment.repository_root)
-            catalog = TaskCatalog.from_payload(payload)
+            catalog = TaskCatalog.from_payload(
+                payload,
+                profile_name=self.environment.profile_name,
+            )
             state = scheduler_state(payload, catalog)
             scheduler_clean = all(item["enabled"] is False and item["next_run"] == SCHEDULER_RESET_TIME for item in state.values()) and TaskPolicyStore(self.environment).read() is None
             if not scheduler_clean:

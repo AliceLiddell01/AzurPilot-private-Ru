@@ -11,6 +11,7 @@ import pytest
 from module.dev_runtime import smoke
 from module.dev_runtime.contracts import DevEnvironment, DevResult
 from module.dev_runtime.evidence import EvidenceScreenshot, GitSnapshot
+from module.dev_runtime.target import DevTarget
 
 _NOW = datetime(2026, 8, 30, 9, 0, 1, tzinfo=UTC)
 _STARTED_AT = "2026-08-30T09:00:00+00:00"
@@ -84,7 +85,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
         ),
         encoding="utf-8",
     )
-    return DevEnvironment(tmp_path, Path("python"))
+    return DevEnvironment(tmp_path, Path("python"), DevTarget("ap"))
 
 
 def _source() -> GitSnapshot:

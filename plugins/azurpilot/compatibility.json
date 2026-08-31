@@ -2,21 +2,25 @@
   "contract_schema_version": 1,
   "product_family": "AzurPilot",
   "plugin_version": "0.1.0+codex.20260830153249",
-  "dev_mcp_api_version": 1,
+  "dev_mcp_api_version": 2,
   "smoke_spec_schema_version": 1,
   "smoke_result_schema_version": 1,
-  "profile": "ap",
   "required_feature_flags": {
     "task_sandbox": true,
     "evidence_api": true,
     "universal_smoke_harness": true,
-    "external_visual_evaluation": true
+    "external_visual_evaluation": true,
+    "runtime_control": true,
+    "game_lifecycle": true,
+    "emulator_lifecycle": true,
+    "adb_maintenance": true
   },
   "required_capability_families": [
     "diagnostics",
     "evidence",
     "lifecycle",
-    "smoke"
+    "smoke",
+    "runtime_control"
   ],
   "result_outcomes": [
     "PASS",

@@ -24,6 +24,7 @@ from module.dev_mcp.contract import contract_result
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.smoke import SmokeSpec
+from module.dev_runtime.target import DevTargetError
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,15 @@ DEV_MCP_TOOL_NAMES = (
     "dev_cancel_smoke",
     "dev_get_smoke_evaluation",
     "dev_submit_smoke_evaluation",
+    "dev_get_runtime_status",
+    "dev_start_game",
+    "dev_stop_game",
+    "dev_restart_game",
+    "dev_start_emulator",
+    "dev_stop_emulator",
+    "dev_restart_emulator",
+    "dev_restart_adb",
+    "dev_get_control_operation",
 )
 
 _NO_ARGUMENT_TOOLS = frozenset(
@@ -62,6 +72,14 @@ _NO_ARGUMENT_TOOLS = frozenset(
         "dev_recover",
         "dev_get_screenshot",
         "dev_list_smoke_capabilities",
+        "dev_get_runtime_status",
+        "dev_start_game",
+        "dev_stop_game",
+        "dev_restart_game",
+        "dev_start_emulator",
+        "dev_stop_emulator",
+        "dev_restart_emulator",
+        "dev_restart_adb",
     }
 )
 
@@ -106,7 +124,6 @@ _SAFE_DETAIL_KEYS = frozenset(
         "preserve_task_state",
         "preserved_task_state",
         "present",
-        "profile",
         "policy_expected",
         "read_only",
         "reason",
@@ -233,6 +250,24 @@ _SAFE_DETAIL_KEYS = frozenset(
         "external",
         "description",
         "contract",
+        "development_target",
+        "emulator",
+        "adb",
+        "game",
+        "dev_session",
+        "smoke",
+        "control_operation",
+        "operation",
+        "configured",
+        "detected",
+        "readiness",
+        "reachable",
+        "foreground",
+        "unrelated_devices",
+        "active",
+        "action",
+        "transitions",
+        "control_id",
     }
 )
 
@@ -257,14 +292,13 @@ _SAFE_CONTRACT_KEYS = frozenset(
         "dev_mcp_api_version",
         "smoke_spec_schema_version",
         "smoke_result_schema_version",
-        "profile",
         "feature_flags",
         "capability_families",
         "result_outcomes",
     }
 )
 _SAFE_FEATURE_FLAG_KEYS = frozenset(
-    {"task_sandbox", "evidence_api", "universal_smoke_harness", "external_visual_evaluation"}
+    {"task_sandbox", "evidence_api", "universal_smoke_harness", "external_visual_evaluation", "runtime_control", "game_lifecycle", "emulator_lifecycle", "adb_maintenance"}
 )
 _SAFE_PREFLIGHT_CHECK_KEYS = frozenset({"name", "ok", "code", "message"})
 _SAFE_TASK_LIFECYCLE_KEYS = frozenset(
@@ -278,7 +312,6 @@ _SAFE_TASK_POLICY_KEYS = frozenset(
         "code",
         "state",
         "session_id",
-        "profile",
         "root_tasks",
         "excluded_tasks",
         "allowed_tasks",
@@ -294,9 +327,9 @@ _SAFE_TASK_PROVENANCE_KEYS = frozenset(
 _SAFE_TASK_DESCRIPTOR_KEYS = frozenset(
     {"section", "command", "enabled", "next_run"}
 )
-_SAFE_TASK_CATALOG_KEYS = frozenset({"profile", "tasks"})
+_SAFE_TASK_CATALOG_KEYS = frozenset({"tasks"})
 _SAFE_TASK_PLAN_KEYS = frozenset(
-    {"profile", "root_tasks", "excluded_tasks", "catalog"}
+    {"root_tasks", "excluded_tasks", "catalog"}
 )
 _SAFE_ERROR_KEYS = frozenset({"type", "code", "message", "field", "tasks"})
 
@@ -320,7 +353,6 @@ _SAFE_EVENT_FIELDS_KEYS = frozenset(
         "phase",
         "policy_state",
         "preserved",
-        "profile",
         "reason",
         "reason_code",
         "required_by",
@@ -352,7 +384,6 @@ _SAFE_STRUCTURED_ERROR_KEYS = frozenset(
 _SAFE_EVIDENCE_SUMMARY_KEYS = frozenset(
     {
         "session_id",
-        "profile",
         "lifecycle",
         "roots",
         "excluded",
@@ -400,6 +431,17 @@ _SAFE_SMOKE_CAPABILITY_KEYS = frozenset(
 _SAFE_SMOKE_RESULT_KEYS = frozenset(
     {"schema_version", "smoke_id", "spec_hash", "outcome", "code", "message", "source", "session_id", "assertions", "cleanup", "primary_failure", "harness_failure", "external_verdict", "finished_at"}
 )
+_SAFE_RUNTIME_TARGET_KEYS = frozenset({"configured"})
+_SAFE_RUNTIME_EMULATOR_KEYS = frozenset({"detected", "running", "readiness"})
+_SAFE_RUNTIME_ADB_KEYS = frozenset({"reachable", "state", "unrelated_devices"})
+_SAFE_RUNTIME_GAME_KEYS = frozenset({"reachable", "foreground", "running"})
+_SAFE_RUNTIME_SESSION_KEYS = frozenset({"state"})
+_SAFE_RUNTIME_SMOKE_KEYS = frozenset({"active"})
+_SAFE_CONTROL_OPERATION_KEYS = frozenset(
+    {"control_id", "action", "state", "outcome", "created_at", "started_at", "deadline_at", "finished_at", "transitions"}
+)
+_SAFE_CONTROL_STATUS_KEYS = frozenset({"active", "operation", "code"})
+_SAFE_CONTROL_TRANSITION_KEYS = frozenset({"timestamp", "state", "code"})
 
 _CONTRACT_CHILD_SCHEMAS: dict[str, str | None] = {
     "contract_schema_version": "int",
@@ -407,7 +449,6 @@ _CONTRACT_CHILD_SCHEMAS: dict[str, str | None] = {
     "dev_mcp_api_version": "int",
     "smoke_spec_schema_version": "int",
     "smoke_result_schema_version": "int",
-    "profile": "string",
     "feature_flags": "feature_flags",
     "capability_families": "string_list",
     "result_outcomes": "string_list",
@@ -417,6 +458,10 @@ _FEATURE_FLAG_CHILD_SCHEMAS: dict[str, str | None] = {
     "evidence_api": "bool",
     "universal_smoke_harness": "bool",
     "external_visual_evaluation": "bool",
+    "runtime_control": "bool",
+    "game_lifecycle": "bool",
+    "emulator_lifecycle": "bool",
+    "adb_maintenance": "bool",
 }
 
 _SCHEMA_KEYS = {
@@ -464,6 +509,15 @@ _SCHEMA_KEYS = {
     "smoke_schema": _SAFE_SMOKE_SCHEMA_KEYS,
     "smoke_capability": _SAFE_SMOKE_CAPABILITY_KEYS,
     "smoke_result": _SAFE_SMOKE_RESULT_KEYS,
+    "runtime_target": _SAFE_RUNTIME_TARGET_KEYS,
+    "runtime_emulator": _SAFE_RUNTIME_EMULATOR_KEYS,
+    "runtime_adb": _SAFE_RUNTIME_ADB_KEYS,
+    "runtime_game": _SAFE_RUNTIME_GAME_KEYS,
+    "runtime_session": _SAFE_RUNTIME_SESSION_KEYS,
+    "runtime_smoke": _SAFE_RUNTIME_SMOKE_KEYS,
+    "control_operation": _SAFE_CONTROL_OPERATION_KEYS,
+    "control_status": _SAFE_CONTROL_STATUS_KEYS,
+    "control_transition": _SAFE_CONTROL_TRANSITION_KEYS,
 }
 
 _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -536,7 +590,6 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "preserve_task_state": "bool",
     "preserved_task_state": "bool",
     "present": "bool",
-    "profile": "string",
     "read_only": "bool",
     "reason": "string",
     "reasons": "string_list",
@@ -616,6 +669,24 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "description": "string",
     "contract": "contract",
     "result": "result_or_smoke",
+    "development_target": "runtime_target",
+    "emulator": "runtime_emulator",
+    "adb": "runtime_adb",
+    "game": "runtime_game",
+    "dev_session": "runtime_session",
+    "smoke": "runtime_smoke",
+    "control_operation": "control_status",
+    "operation": "control_operation",
+    "configured": "bool",
+    "detected": "bool",
+    "readiness": "bool",
+    "reachable": "bool",
+    "foreground": "bool",
+    "unrelated_devices": "bool",
+    "active": "bool",
+    "action": "string",
+    "transitions": "control_transition_list",
+    "control_id": "string",
 }
 
 _RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -638,7 +709,6 @@ _TASK_POLICY_CHILD_SCHEMAS: dict[str, str | None] = {
     "code": "string",
     "state": "string",
     "session_id": "session_id",
-    "profile": "string",
     "root_tasks": "string_list",
     "excluded_tasks": "string_list",
     "allowed_tasks": "string_list",
@@ -665,12 +735,10 @@ _TASK_DESCRIPTOR_CHILD_SCHEMAS: dict[str, str | None] = {
 }
 
 _TASK_CATALOG_CHILD_SCHEMAS: dict[str, str | None] = {
-    "profile": "string",
     "tasks": "task_descriptor_list",
 }
 
 _TASK_PLAN_CHILD_SCHEMAS: dict[str, str | None] = {
-    "profile": "string",
     "root_tasks": "string_list",
     "excluded_tasks": "string_list",
     "catalog": "string_list",
@@ -686,7 +754,6 @@ _ERROR_CHILD_SCHEMAS: dict[str, str | None] = {
 
 _EVIDENCE_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
     "session_id": "session_id",
-    "profile": "string",
     "lifecycle": "lifecycle",
     "roots": "string_list",
     "excluded": "string_list",
@@ -752,7 +819,6 @@ _EVENT_FIELDS_CHILD_SCHEMAS: dict[str, str | None] = {
     "phase": "string",
     "policy_state": "string",
     "preserved": "bool",
-    "profile": "string",
     "reason": "string",
     "reason_code": "string",
     "required_by": "string",
@@ -1003,6 +1069,45 @@ _SCHEMA_CHILD_SCHEMAS = {
     "smoke_schema": _SMOKE_SCHEMA_CHILD_SCHEMAS,
     "smoke_capability": _SMOKE_CAPABILITY_CHILD_SCHEMAS,
     "smoke_result": _SMOKE_RESULT_CHILD_SCHEMAS,
+    "runtime_target": {"configured": "bool"},
+    "runtime_emulator": {
+        "detected": "bool",
+        "running": "bool",
+        "readiness": "bool",
+    },
+    "runtime_adb": {
+        "reachable": "bool",
+        "state": "string",
+        "unrelated_devices": "bool",
+    },
+    "runtime_game": {
+        "reachable": "bool",
+        "foreground": "bool",
+        "running": "bool",
+    },
+    "runtime_session": {"state": "string"},
+    "runtime_smoke": {"active": "bool"},
+    "control_operation": {
+        "control_id": "string",
+        "action": "string",
+        "state": "string",
+        "outcome": "string",
+        "created_at": "string",
+        "started_at": "string",
+        "deadline_at": "string",
+        "finished_at": "string",
+        "transitions": "control_transition_list",
+    },
+    "control_status": {
+        "active": "bool",
+        "operation": "control_operation",
+        "code": "string",
+    },
+    "control_transition": {
+        "timestamp": "string",
+        "state": "string",
+        "code": "string",
+    },
 }
 
 
@@ -1068,6 +1173,24 @@ class DevRuntimeManager(Protocol):
         verdict: str,
         rationale: str,
     ) -> object: ...
+
+    def get_runtime_status(self) -> object: ...
+
+    def start_game(self) -> object: ...
+
+    def stop_game(self) -> object: ...
+
+    def restart_game(self) -> object: ...
+
+    def start_emulator(self) -> object: ...
+
+    def stop_emulator(self) -> object: ...
+
+    def restart_emulator(self) -> object: ...
+
+    def restart_adb(self) -> object: ...
+
+    def get_control_operation(self, control_id: str) -> object: ...
 
 
 def _default_manager() -> DevRuntimeManager:
@@ -1152,6 +1275,12 @@ class _SmokeEvaluationArguments(_SmokeIdArguments):
     assertion_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
     verdict: Literal["pass", "fail"]
     rationale: str = Field(min_length=1, max_length=1024)
+
+
+class _ControlIdArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    control_id: str = Field(min_length=1, max_length=128, pattern=r"^[a-f0-9]{32}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1255,6 +1384,11 @@ def _safe_value(
             child_schema = "result" if "ok" in value else "smoke_result"
             return _safe_mapping(value, schema=child_schema, depth=depth)
         return None
+    if schema == "control_status":
+        if isinstance(value, Mapping):
+            child_schema = "control_operation" if "control_id" in value else "control_status"
+            return _safe_mapping(value, schema=child_schema, depth=depth)
+        return None
     if schema == "session_id":
         try:
             return validate_session_id(value)
@@ -1305,6 +1439,7 @@ def _safe_value(
             "smoke_assertion_list": "smoke_assertion",
             "smoke_evidence_ref_list": "smoke_evidence_ref",
             "smoke_field_list": "smoke_field",
+            "control_transition_list": "control_transition",
         }.get(schema)
         if schema not in {
             "generic_list",
@@ -1321,6 +1456,7 @@ def _safe_value(
             "smoke_assertion_list",
             "smoke_evidence_ref_list",
             "smoke_field_list",
+            "control_transition_list",
         }:
             return []
         return _safe_sequence(value, item_schema=item_schema, depth=depth)
@@ -1439,6 +1575,7 @@ class DevMcpAdapter:
         | _LogsArguments
         | _SmokeIdArguments
         | _SmokeEvaluationArguments
+        | _ControlIdArguments
         | SmokeSpec
         | None
     ):
@@ -1452,6 +1589,8 @@ class DevMcpAdapter:
                 return _SmokeIdArguments.model_validate(raw, strict=True)
             if tool_name == "dev_submit_smoke_evaluation":
                 return _SmokeEvaluationArguments.model_validate(raw, strict=True)
+            if tool_name == "dev_get_control_operation":
+                return _ControlIdArguments.model_validate(raw, strict=True)
             if tool_name in {"dev_plan_session", "dev_start_session"}:
                 return _TaskArguments.model_validate(raw, strict=True)
             if tool_name == "dev_stop_session":
@@ -1566,6 +1705,25 @@ class DevMcpAdapter:
                     parsed.verdict,
                     parsed.rationale,
                 )
+            elif tool_name == "dev_get_runtime_status":
+                result = manager.get_runtime_status()
+            elif tool_name == "dev_start_game":
+                result = manager.start_game()
+            elif tool_name == "dev_stop_game":
+                result = manager.stop_game()
+            elif tool_name == "dev_restart_game":
+                result = manager.restart_game()
+            elif tool_name == "dev_start_emulator":
+                result = manager.start_emulator()
+            elif tool_name == "dev_stop_emulator":
+                result = manager.stop_emulator()
+            elif tool_name == "dev_restart_emulator":
+                result = manager.restart_emulator()
+            elif tool_name == "dev_restart_adb":
+                result = manager.restart_adb()
+            elif tool_name == "dev_get_control_operation":
+                assert isinstance(parsed, _ControlIdArguments)
+                result = manager.get_control_operation(parsed.control_id)
             else:
                 assert tool_name == "dev_get_screenshot"
                 screenshot = manager.get_screenshot()
@@ -1577,6 +1735,15 @@ class DevMcpAdapter:
                 ):
                     return DevMcpResponse(safe_result, screenshot.image, screenshot.mime_type)
                 return safe_result
+        except DevTargetError as exc:
+            return {
+                "ok": False,
+                "code": exc.code,
+                "message": "Development target не настроен или не прошёл безопасную проверку",
+                "state": "failed",
+                "session_id": None,
+                "details": {"development_target": {"configured": False}},
+            }
         except Exception as exc:  # noqa: BLE001 — граница обязана очищать ошибки выполнения
             logger.error(
                 "[Dev MCP] инструмент %s завершился неожиданной ошибкой: %s",

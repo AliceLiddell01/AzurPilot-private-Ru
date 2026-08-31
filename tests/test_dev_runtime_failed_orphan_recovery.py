@@ -10,6 +10,7 @@ from module.dev_runtime import (
     DevSessionManager,
     DevSessionState,
     DevStatusKind,
+    DevTarget,
     ProcessIdentity,
 )
 
@@ -51,6 +52,7 @@ def test_failed_session_rechecks_orphan_under_start_lock(tmp_path: Path) -> None
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     identity = ProcessIdentity(
         pid=8801,

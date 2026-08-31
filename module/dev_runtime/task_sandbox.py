@@ -16,7 +16,7 @@ from pathlib import Path
 from deploy.atomic import atomic_remove, file_write, replace_tmp, to_tmp_file
 from module.config.time_sentinel import LEGACY_DEFAULT_TIME
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
-from module.dev_runtime.contracts import DEV_PROFILE, DevEnvironment, DevSession
+from module.dev_runtime.contracts import DevEnvironment, DevSession
 
 TASK_POLICY_SCHEMA_VERSION = 1
 TASK_POLICY_ACTIVE = "active"
@@ -300,6 +300,7 @@ class TaskDescriptor:
 @dataclass(frozen=True, slots=True)
 class TaskCatalog:
     tasks: tuple[TaskDescriptor, ...]
+    profile_name: str | None = None
 
     @property
     def commands(self) -> tuple[str, ...]:
@@ -307,7 +308,6 @@ class TaskCatalog:
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "profile": DEV_PROFILE,
             "tasks": [task.as_dict() for task in self.tasks],
         }
 
@@ -316,17 +316,23 @@ class TaskCatalog:
 
     @classmethod
     def from_path(
-        cls, path: Path, *, repository_root: Path | None = None
+        cls,
+        path: Path,
+        *,
+        repository_root: Path | None = None,
+        profile_name: str | None = None,
     ) -> TaskCatalog:
         if repository_root is not None:
             path = _ensure_scoped_path(path, repository_root, label="profile path")
         payload = _read_json(path, max_bytes=_MAX_PROFILE_BYTES, missing_ok=False)
-        return cls.from_payload(payload)
+        return cls.from_payload(payload, profile_name=profile_name)
 
     @classmethod
-    def from_payload(cls, payload: object) -> TaskCatalog:
+    def from_payload(
+        cls, payload: object, *, profile_name: str | None = None
+    ) -> TaskCatalog:
         if not isinstance(payload, Mapping):
-            raise TaskSandboxError("DEV_TASK_CATALOG_INVALID", "config/ap.json должен быть JSON-объектом")
+            raise TaskSandboxError("DEV_TASK_CATALOG_INVALID", "Профиль development target должен быть JSON-объектом")
         descriptors: list[TaskDescriptor] = []
         for section, section_payload in payload.items():
             if not isinstance(section, str):
@@ -402,9 +408,9 @@ class TaskCatalog:
             seen.add(folded)
         if not descriptors:
             raise TaskSandboxError(
-                "DEV_TASK_CATALOG_EMPTY", "В config/ap.json не найдено schedulable task sections"
+                "DEV_TASK_CATALOG_EMPTY", "В профиле development target не найдено schedulable task sections"
             )
-        return cls(tasks=tuple(descriptors))
+        return cls(tasks=tuple(descriptors), profile_name=profile_name)
 
 
 def read_profile_payload(
@@ -452,6 +458,8 @@ class TaskPlan:
         catalog: TaskCatalog,
         root_tasks: Iterable[str] | str | None,
         excluded_tasks: Iterable[str] | str | None,
+        *,
+        profile_name: str | None = None,
     ) -> TaskPlan:
         roots = _selector_values(root_tasks, field="root_tasks")
         excluded = _selector_values(excluded_tasks, field="excluded_tasks")
@@ -481,8 +489,14 @@ class TaskPlan:
             raise TaskSandboxError(
                 "DEV_TASK_ROOTS_EMPTY", "Task-aware DevSession требует хотя бы один root task"
             )
+        selected_profile = profile_name or catalog.profile_name
+        if not isinstance(selected_profile, str) or not selected_profile:
+            raise TaskSandboxError(
+                "DEV_TARGET_NOT_CONFIGURED",
+                "План задач не связан с назначенным development target",
+            )
         return cls(
-            profile=DEV_PROFILE,
+            profile=selected_profile,
             root_tasks=roots,
             excluded_tasks=excluded,
             catalog=catalog,
@@ -619,7 +633,13 @@ class TaskPolicy:
         return TaskAuthorization(True, True, "DEV_TASK_DEPENDENCY_ALLOWED", reason, caller_root)
 
     @classmethod
-    def from_payload(cls, payload: object, *, expected_root: Path | None = None) -> TaskPolicy:
+    def from_payload(
+        cls,
+        payload: object,
+        *,
+        expected_root: Path | None = None,
+        expected_profile: str | None = None,
+    ) -> TaskPolicy:
         if not isinstance(payload, Mapping) or payload.get("schema_version") != TASK_POLICY_SCHEMA_VERSION:
             raise TaskSandboxError("DEV_TASK_POLICY_CORRUPT", "task policy имеет неподдерживаемую schema")
         session_id = _safe_session_id(payload.get("session_id"))
@@ -631,7 +651,9 @@ class TaskPolicy:
         if expected_root is not None and not _same_path(repository_root, expected_root):
             raise TaskSandboxError("DEV_TASK_POLICY_FOREIGN_REPOSITORY", "task policy принадлежит другой рабочей копии")
         profile = payload.get("profile")
-        if profile != DEV_PROFILE:
+        if not isinstance(profile, str) or not profile:
+            raise TaskSandboxError("DEV_TASK_POLICY_CORRUPT", "task policy не содержит профиль")
+        if expected_profile is not None and profile != expected_profile:
             raise TaskSandboxError("DEV_TASK_POLICY_FOREIGN_PROFILE", "task policy принадлежит другому профилю")
         state = payload.get("state")
         if not isinstance(state, str) or state not in TASK_POLICY_STATES:
@@ -761,7 +783,11 @@ class TaskPolicyStore:
         payload = _read_json(path, max_bytes=_MAX_POLICY_BYTES, missing_ok=True)
         if payload is None:
             return None
-        return TaskPolicy.from_payload(payload, expected_root=self.environment.repository_root)
+        return TaskPolicy.from_payload(
+            payload,
+            expected_root=self.environment.repository_root,
+            expected_profile=self.environment.profile_name,
+        )
 
     def inspect(self) -> dict[str, object]:
         try:
@@ -783,12 +809,15 @@ class TaskPolicyStore:
         }
 
     def create(self, plan: TaskPlan, *, session_id: str, timestamp: str) -> TaskPolicy:
-        if plan.profile != DEV_PROFILE or not plan.root_tasks:
-            raise TaskSandboxError("DEV_TASK_POLICY_INVALID", "task policy требует профиль ap и root task")
+        if plan.profile != self.environment.profile_name or not plan.root_tasks:
+            raise TaskSandboxError(
+                "DEV_TASK_POLICY_INVALID",
+                "task policy требует назначенный development target и root task",
+            )
         policy = TaskPolicy(
             session_id=_safe_session_id(session_id),
             repository_root=str(self.environment.repository_root),
-            profile=DEV_PROFILE,
+            profile=self.environment.profile_name,
             state=TASK_POLICY_ACTIVE,
             root_tasks=plan.root_tasks,
             excluded_tasks=plan.excluded_tasks,
@@ -798,7 +827,9 @@ class TaskPolicyStore:
             updated_at=_safe_timestamp(timestamp, field="updated_at"),
         )
         TaskPolicy.from_payload(
-            policy.as_dict(), expected_root=self.environment.repository_root
+            policy.as_dict(),
+            expected_root=self.environment.repository_root,
+            expected_profile=self.environment.profile_name,
         )
         path, lock_path = self._scoped_paths()
         with _policy_thread_lock, _exclusive_policy_lock(lock_path):
@@ -806,7 +837,11 @@ class TaskPolicyStore:
         return policy
 
     def write(self, policy: TaskPolicy) -> None:
-        TaskPolicy.from_payload(policy.as_dict(), expected_root=self.environment.repository_root)
+        TaskPolicy.from_payload(
+            policy.as_dict(),
+            expected_root=self.environment.repository_root,
+            expected_profile=self.environment.profile_name,
+        )
         path, lock_path = self._scoped_paths()
         with _policy_thread_lock, _exclusive_policy_lock(lock_path):
             _atomic_json_write(path, policy.as_dict())
@@ -942,8 +977,6 @@ def _read_session(environment: DevEnvironment) -> DevSession | None:
 
 
 def _active_policy_context(config_name: object) -> TaskPolicyContext:
-    if config_name != DEV_PROFILE:
-        return TaskPolicyContext(False, None, "DEV_TASK_POLICY_INACTIVE_PROFILE")
     env_values = (
         os.environ.get(TASK_POLICY_SESSION_ENV),
         os.environ.get(TASK_POLICY_ROOT_ENV),
@@ -951,11 +984,16 @@ def _active_policy_context(config_name: object) -> TaskPolicyContext:
     )
     if not any(value is not None for value in env_values):
         return TaskPolicyContext(False, None, "DEV_TASK_POLICY_NO_CONTEXT")
+    try:
+        environment = DevEnvironment.current()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return TaskPolicyContext(True, None, "DEV_TARGET_NOT_CONFIGURED")
+    if config_name != environment.profile_name:
+        return TaskPolicyContext(False, None, "DEV_TASK_POLICY_INACTIVE_PROFILE")
     session_id, root_value, policy_value = env_values
     if not all(isinstance(value, str) and value for value in env_values):
         return TaskPolicyContext(True, None, "DEV_TASK_POLICY_CONTEXT_INCOMPLETE")
     try:
-        environment = DevEnvironment.current()
         _safe_session_id(session_id)
         if not _same_path(root_value, environment.repository_root):
             return TaskPolicyContext(True, None, "DEV_TASK_POLICY_FOREIGN_REPOSITORY")
@@ -967,11 +1005,12 @@ def _active_policy_context(config_name: object) -> TaskPolicyContext:
         if session.state.value not in {"starting", "running", "stopping"}:
             return TaskPolicyContext(True, None, "DEV_TASK_SESSION_NOT_ACTIVE")
         policy = TaskPolicyStore(environment).read()
-    except TaskSandboxError as exc:
-        return TaskPolicyContext(True, None, exc.code)
+    except (TaskSandboxError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        code = exc.code if isinstance(exc, TaskSandboxError) else "DEV_TASK_POLICY_CONTEXT_INVALID"
+        return TaskPolicyContext(True, None, code)
     if policy is None:
         return TaskPolicyContext(True, None, "DEV_TASK_POLICY_MISSING")
-    if policy.session_id != session_id or policy.profile != DEV_PROFILE:
+    if policy.session_id != session_id or policy.profile != environment.profile_name:
         return TaskPolicyContext(True, None, "DEV_TASK_POLICY_CONTEXT_MISMATCH")
     if policy.state != TASK_POLICY_ACTIVE:
         return TaskPolicyContext(True, policy, "DEV_TASK_POLICY_NOT_ACTIVE")
@@ -1072,7 +1111,7 @@ def scheduler_time_text(value: datetime) -> str:
 
 def reset_scheduler_state(payload: object, catalog: TaskCatalog) -> dict[str, object]:
     if not isinstance(payload, Mapping):
-        raise TaskSandboxError("DEV_TASK_PROFILE_INVALID", "config/ap.json должен быть JSON-объектом")
+        raise TaskSandboxError("DEV_TASK_PROFILE_INVALID", "Профиль development target должен быть JSON-объектом")
     result = copy.deepcopy(dict(payload))
     for descriptor in catalog.tasks:
         section = result.get(descriptor.section)
@@ -1101,7 +1140,7 @@ def apply_task_plan(
         if not isinstance(section, dict) or not isinstance(section.get("Scheduler"), dict):
             raise TaskSandboxError(
                 "DEV_TASK_SCHEDULER_MALFORMED",
-                f"Root task {task} исчезла из config/ap.json",
+                f"Root task {task} исчезла из профиля development target",
                 task=task,
             )
         scheduler = section["Scheduler"]
@@ -1112,7 +1151,7 @@ def apply_task_plan(
 
 def scheduler_state(payload: object, catalog: TaskCatalog) -> dict[str, dict[str, object]]:
     if not isinstance(payload, Mapping):
-        raise TaskSandboxError("DEV_TASK_PROFILE_INVALID", "config/ap.json должен быть JSON-объектом")
+        raise TaskSandboxError("DEV_TASK_PROFILE_INVALID", "Профиль development target должен быть JSON-объектом")
     state: dict[str, dict[str, object]] = {}
     for descriptor in catalog.tasks:
         section = payload.get(descriptor.section)

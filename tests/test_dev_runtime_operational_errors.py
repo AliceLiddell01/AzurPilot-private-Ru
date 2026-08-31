@@ -14,6 +14,7 @@ from module.dev_runtime import (
     DevSessionManager,
     DevSessionState,
     DevStatusKind,
+    DevTarget,
     ProcessIdentity,
 )
 
@@ -50,6 +51,7 @@ def test_stop_converts_mid_stop_runtime_error_to_fail_closed_result(tmp_path: Pa
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     identity = ProcessIdentity(
         pid=9911,

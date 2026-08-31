@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from module.dev_runtime.contracts import DEV_PROFILE
 from module.dev_runtime.smoke import (
     SMOKE_SCHEMA_VERSION,
     SMOKE_STATE_SCHEMA_VERSION,
@@ -12,7 +11,7 @@ from module.dev_runtime.smoke import (
 )
 
 CONTRACT_SCHEMA_VERSION = 1
-DEV_MCP_API_VERSION = 1
+DEV_MCP_API_VERSION = 2
 PRODUCT_FAMILY = "AzurPilot"
 
 DEV_MCP_FEATURE_FLAGS = {
@@ -20,8 +19,18 @@ DEV_MCP_FEATURE_FLAGS = {
     "evidence_api": True,
     "universal_smoke_harness": True,
     "external_visual_evaluation": True,
+    "runtime_control": True,
+    "game_lifecycle": True,
+    "emulator_lifecycle": True,
+    "adb_maintenance": True,
 }
-DEV_MCP_CAPABILITY_FAMILIES = ("diagnostics", "evidence", "lifecycle", "smoke")
+DEV_MCP_CAPABILITY_FAMILIES = (
+    "diagnostics",
+    "evidence",
+    "lifecycle",
+    "smoke",
+    "runtime_control",
+)
 DEV_MCP_RESULT_OUTCOMES = tuple(outcome.value for outcome in SmokeOutcome)
 
 
@@ -34,7 +43,6 @@ def contract_payload() -> dict[str, object]:
         "dev_mcp_api_version": DEV_MCP_API_VERSION,
         "smoke_spec_schema_version": SMOKE_SCHEMA_VERSION,
         "smoke_result_schema_version": SMOKE_STATE_SCHEMA_VERSION,
-        "profile": DEV_PROFILE,
         "feature_flags": dict(DEV_MCP_FEATURE_FLAGS),
         "capability_families": list(DEV_MCP_CAPABILITY_FAMILIES),
         "result_outcomes": list(DEV_MCP_RESULT_OUTCOMES),
@@ -66,7 +74,6 @@ def contract_compatibility_issues(
         "dev_mcp_api_version",
         "smoke_spec_schema_version",
         "smoke_result_schema_version",
-        "profile",
     ):
         expected_value = expected.get(field)
         actual_value = actual.get(field)

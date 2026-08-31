@@ -53,8 +53,10 @@ PostgreSQL, ADB и emulator не публикуются. Обязательны�
 
 ## Контракт и smoke
 
-`compatibility.json` фиксирует ожидаемые версии API/Smoke schemas, профиль
-`ap`, required feature flags, capability families и result outcomes. Skill сначала вызывает
+`compatibility.json` фиксирует ожидаемые версии API/Smoke schemas, required
+feature flags, capability families и result outcomes. Development Runtime
+работает только с явно настроенным development target; его имя не передаётся
+через MCP и не выбирается автоматически. Skill сначала вызывает
 `dev_get_contract`; любое несовпадение даёт `PLUGIN_RUNTIME_INCOMPATIBLE` и
 запрещает mutating calls.
 
@@ -70,6 +72,21 @@ PASS требует одновременно PASS-result, exact source, подт
 `EVIDENCE_INCOMPLETE`, `TIMEOUT`, `INVALIDATED`, `CANCELLED` и
 `PRECONDITION_FAILED` маршрутизируются по skill без auto-retry и без изменения
 исходного SmokeSpec.
+
+## Runtime Control
+
+`dev_get_runtime_status` возвращает ограниченный read-only снимок настроенного
+development target: состояние эмулятора, ADB, приложения, DevSession, SmokeRun
+и текущей control operation. Отдельные typed tools управляют только настроенной
+средой через штатные `Platform` и `AppControl`: запуск, остановка и перезапуск
+игры, запуск, остановка и перезапуск эмулятора и перезапуск ADB.
+
+Mutating runtime control не выполняется при активном SmokeRun или DevSession и
+не допускает вторую активную operation. Долгие действия быстро возвращают
+`control_id`; итог читается через `dev_get_control_operation`. При
+`PRECONDITION_FAILED`, `CONFLICT`, `TIMEOUT` или `ABORTED` не повторяй тот же
+запрос автоматически. После подтверждённого восстановления создай новый
+SmokeRun с новой immutable спецификацией.
 
 ## Граница Game capability
 

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from dev_tools import dev_runtime as cli_module
-from module.dev_runtime import DevEnvironment, DevSessionManager, ProcessBackend
+from module.dev_runtime import DevEnvironment, DevSessionManager, DevTarget, ProcessBackend
 from module.dev_runtime import diagnostics as diagnostics_module
 from module.dev_runtime import process as process_module
 
@@ -22,7 +22,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     )
     python.parent.mkdir(parents=True, exist_ok=True)
     python.write_text("", encoding="utf-8")
-    return DevEnvironment(repository_root=root, python_executable=python)
+    return DevEnvironment(repository_root=root, python_executable=python, dev_target=DevTarget("ap"))
 
 
 def test_cli_converts_manager_value_error_to_structured_json(

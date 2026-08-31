@@ -1,7 +1,8 @@
 # Dev Runtime: Task Sandbox
 
-Dev Runtime запускает только штатный `gui.py --run ap` с фиксированными локальными
-параметрами и точным владением процессом. Task Sandbox добавляет API с учётом задач поверх
+Dev Runtime запускает только штатный `gui.py --run <configured-target>` с фиксированными локальными
+параметрами и точным владением процессом. Development target назначается локальным
+repository-scoped marker после структурной проверки профиля. Task Sandbox добавляет API с учётом задач поверх
 этого жизненного цикла, не меняя обычный рабочий планировщик. Для Codex и ChatGPT
 предусмотрены разные transport boundaries поверх одного adapter.
 
@@ -13,14 +14,14 @@ Dev MCP добавляет отдельный адаптер только для
 Codex
   → локальный stdio Dev MCP
   → DevSessionManager
-  → фиксированный профиль ap
+  → настроенный development target
 ```
 
 Dev MCP для Codex использует локальный транспорт stdio. Для ChatGPT существует
 отдельный `module.dev_mcp.remote` с authenticated HTTPS Streamable HTTP на `/mcp`;
 он не переиспользует `mcp_server_sse.py`. Production MCP остаётся отдельным и
 не импортируется адаптером. Запуск обоих Dev MCP entrypoint-ов не создаёт
-`DevSessionManager`, не читает `config/ap.json`, не запускает WebUI и не требует
+`DevSessionManager`, не читает целевой профиль, не запускает WebUI и не требует
 PostgreSQL, эмулятор или ADB. Менеджер создаётся лениво при первом вызове инструмента.
 
 Регистрация в пределах проекта находится в `.codex/config.toml` и использует
@@ -37,7 +38,7 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
-Базовые инструменты Dev Runtime (без Smoke Harness): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
+Базовые инструменты Dev Runtime (без Smoke Harness и Runtime Control): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
 `dev_get_logs` и `dev_get_screenshot`. Только для чтения работают `preflight`,
@@ -51,7 +52,7 @@ tool_timeout_sec = 180
 
 Инструменты Universal Smoke Harness описаны в отдельном разделе ниже.
 
-Каждый инструмент использует только фиксированный `ap`: MCP не принимает
+Каждый инструмент использует только явно настроенный development target: MCP не принимает
 `profile`, `instance`, `path`, установщик конфигурации или команду оболочки. Входные схемы строгие и
 запрещают неизвестные свойства. Ответ проходит отдельную сериализацию по разрешённому списку
 полей `DevResult`; пути, команды, окружение, учётные данные и стек вызовов не выдаются.
@@ -62,14 +63,14 @@ tool_timeout_sec = 180
 `code`, `message`; вложенный `DevResult` в `doctor` сохраняет свои поля; `status`
 сохраняет `task_lifecycle` (`mode`, `phase`, `cleanup_required`,
 `policy_expected`) и безопасный снимок `task_policy` (`present`, `valid`,
-`state`, `session_id`, `profile`, селекторы и происхождение зависимостей).
+`state`, `session_id`, селекторы и происхождение зависимостей).
 Каждый контекст использует собственный разрешённый список: неизвестные поля удаляются
 на любой вложенности, а значения проходят ограничение глубины, числа элементов и длины текста,
 после чего очищаются от чувствительных данных.
 
 `dev_get_contract` — read-only граница совместимости для canonical-пакета
 `AzurPilot`. Она возвращает только `contract_schema_version`, семейство продукта,
-версии Dev MCP/Smoke schemas, фиксированный профиль `ap`, feature flags,
+версии Dev MCP/Smoke schemas, feature flags,
 capability families и result outcomes. В контракте нет путей, секретов или
 сведений об окружении;
 плагин сравнивает его с `plugins/azurpilot/compatibility.json` и при любом
@@ -84,7 +85,7 @@ capability families и result outcomes. В контракте нет путей,
 `config/state/dev-runtime-runs/<session-id>/`. В нём хранятся только ограниченные
 `manifest.json`, атомарный `timeline.json`, метаданные границы общего журнала и
 локальные PNG/метаданные явных запросов снимка экрана. Диагностика привязана к текущей
-рабочей копии, точному `session_id` и фиксированному профилю `ap`; MCP не принимает
+рабочей копии, точному `session_id` и настроенному development target; MCP не принимает
 пути, `profile`, `instance` или произвольные имена файлов. Хранение ограничено
 числом сессий, возрастом и общим размером и не удаляет активную сессию.
 
@@ -122,9 +123,10 @@ capability families и result outcomes. В контракте нет путей,
 `ImageContent`, без base64 в обычном JSON.
 
 Обработчик MCP остаётся тонким: он валидирует строгую схему и вызывает единый
-API `DevSessionManager`. Чтение артефактов, Git, журнала, владения и снимка экрана
+API `DevSessionManager` и отдельный `RuntimeControlManager`. Чтение артефактов, Git, журнала, владения и снимка экрана
 делается внутри слоя выполнения и диагностики. В обычном рабочем процессе перехватчики —
-лёгкая пустая операция; рабочий `mcp_server_sse.py`, транспорт и база данных не меняются.
+лёгкая пустая операция; `mcp_server_sse.py` сохраняет свой production/general surface и
+получает только необходимую compatibility-адаптацию для MCP SDK v2.
 
 Evidence API не добавляет `run_task_smoke`, автоматическую оценку игрового PASS/FAIL,
 координацию повторов и ожидания, периодические снимки, произвольную оболочку,
@@ -134,7 +136,7 @@ Evidence API не добавляет `run_task_smoke`, автоматическ�
 
 ## Каталог и план
 
-`DevSessionManager.list_tasks()` читает только `config/ap.json` и обнаруживает
+`DevSessionManager.list_tasks()` читает только файл настроенного development target и обнаруживает
 секции, содержащие корректный `Scheduler` с `Command`, совпадающим с именем
 верхнеуровневой секции. `manager.plan(root_tasks=[...], excluded_tasks=[...])`
 возвращает машиночитаемый план. Неизвестные, небезопасные и конфликтующие селекторы
@@ -143,7 +145,7 @@ Evidence API не добавляет `run_task_smoke`, автоматическ�
 ## Политика и происхождение
 
 Запуск с учётом задач сначала сбрасывает поля состояния планировщика всех доступных
-планировщику задач `ap`, затем включает только корневые задачи и атомарно создаёт
+планировщику задач настроенного development target, затем включает только корневые задачи и атомарно создаёт
 `config/state/dev-runtime-task-policy.json`. Рабочий процесс получает контекст сессии
 через наследуемое окружение процесса, но политика считается активной только при
 совпадении профиля, маркера сессии, корня рабочей копии и точного пути политики.
@@ -156,20 +158,20 @@ Evidence API не добавляет `run_task_smoke`, автоматическ�
 ## Очистка
 
 Обычный `stop()`, восстановление устаревшего/осиротевшего состояния, неудачный запуск/переход к готовности и следующий
-безопасный запуск очищают состояние планировщика всех текущих доступных ему задач профиля `ap`:
+безопасный запуск очищают состояние планировщика всех текущих доступных ему задач настроенного target:
 `Scheduler.Enable=False`, `Scheduler.NextRun` получает каноническое значение сброса.
 Остальные поля профиля не изменяются. Очистка атомарна, проверяется
 повторным чтением и идемпотентна.
 
 `DevSession` с учётом задач записывает постоянный маркер жизненного цикла до первой мутации
-`config/ap.json`. Маркер различает подготовку, активную сессию, явное сохранение,
+файл настроенного target. Маркер различает подготовку, активную сессию, явное сохранение,
 ожидающую очистку и подтверждённое чистое состояние. Если отдельный файл политики
 потерян или повреждён, восстановление не считает очистку ненужной: каталог текущего
 профиля перечитывается, состояние планировщика сбрасывается и результат проверяется.
 `status`, `preflight` и `doctor` безопасно отказывают при неподтверждённом состоянии политики.
 
 `dev_start_session` запускает выбранные задачи обычным путём планировщика. Поэтому
-проверка с учётом задач может выполнить унаследованную из `ap` политику ожидания,
+проверка с учётом задач может выполнить унаследованную из target политику ожидания,
 включая остановку локального эмулятора при длительном ожидании следующей задачи.
 Для проверки следует выбирать низкорисковую существующую задачу и заранее убедиться,
 что окружение контролируемое; `Restart` не является безопасным выбором для
@@ -189,14 +191,47 @@ uv run --locked python dev_tools/dev_runtime.py cleanup
 ```
 
 `cleanup` сбрасывает состояние планировщика после явно сохранённого
-`preserve_task_state` и не останавливает живой процесс. Команды печатают UTF-8 JSON и не выводят полную конфигурацию `ap`. Транспорт MCP,
+`preserve_task_state` и не останавливает живой процесс. Команды печатают UTF-8 JSON и не выводят полную конфигурацию target. Транспорт MCP,
 общее управление профилями и PowerShell-запускатель в Task Sandbox не добавляются.
+
+## Development Runtime Control
+
+Runtime Control — отдельный bounded слой для текущего настроенного development
+target. `dev_get_runtime_status` выполняет только read-only probe через
+`adbutils`: он не создаёт `Device`, не запускает эмулятор и не изменяет
+конфигурацию. Ответ содержит только категории состояния эмулятора, ADB и
+приложения, а также состояние DevSession, SmokeRun и control operation; serial,
+package, executable и пользовательские пути наружу не выдаются.
+
+Публичная поверхность намеренно состоит из отдельных typed tools:
+`dev_start_game`, `dev_stop_game`, `dev_restart_game`,
+`dev_start_emulator`, `dev_stop_emulator`, `dev_restart_emulator` и
+`dev_restart_adb`. Эмулятор управляется только существующим `Platform`, а
+жизненный цикл приложения — существующим ADB/AppControl backend. MCP не
+принимает произвольную команду, профиль, serial, package или путь.
+
+Действие не блокирует MCP request на время запуска. После проверки конфликтов
+создаётся одна repository-scoped operation в
+`config/state/dev-runtime-control/operation.json`, возвращается `control_id`, а
+фиксированный project Python supervisor выполняет bounded state machine:
+`CREATED` → `RUNNING` → `WAITING_READY` → `FINISHED`. Operation хранит deadline,
+машиночитаемый outcome (`PASS`, `PRECONDITION_FAILED`, `CONFLICT`, `TIMEOUT`,
+`CONTROL_FAILED` или `ABORTED`) и ограниченный журнал переходов. Проверка PID и
+времени создания supervisor предотвращает ложный PASS после падения или
+перезапуска процесса; состояние остаётся читаемым после рестарта MCP.
+
+Разрешена только одна активная control operation. Активный SmokeRun блокирует
+все runtime mutations; активная DevSession блокирует управление эмулятором,
+ADB и приложением, пока безопасная изоляция не доказана. Smoke Harness не
+вызывает Runtime Control и не выполняет автоматическое восстановление. После
+`PASS` control operation можно создать новый SmokeRun; существующая SmokeSpec
+не изменяется и не переиспользуется для автоматического retry.
 
 ## Universal Smoke Harness
 
 Smoke Harness предоставляет декларативные `SmokeSpec` и
-`SmokeRun`. Спецификация описывает только наблюдаемые условия: фиксированную
-область задач `ap`, ограниченные переопределения конфигурации и типизированные
+`SmokeRun`. Спецификация описывает только наблюдаемые условия: область задач
+настроенного development target, ограниченные переопределения конфигурации и типизированные
 утверждения. Это не DSL: запрещены shell, Python/eval, произвольные пути,
 HTTP/SQL, ADB, ввод, `sleep`, повторные попытки и patch. Неизвестные поля
 запрещены, значения и массивы ограничены; после нормализации сохраняются
@@ -262,8 +297,9 @@ Smoke Harness расширяет локальный stdio Dev MCP ровно с�
 `dev_submit_smoke_evaluation`. `dev_start_smoke` быстро возвращает `smoke_id`,
 не удерживая MCP request; результат читается через polling `dev_get_smoke`.
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для
-MCP protocol. Production `mcp_server_sse.py`, MCP SDK и обычный gameplay path
-не изменяются. Remote entrypoint использует зафиксированный в проекте `mcp==1.29.1`
+MCP protocol. Production `mcp_server_sse.py` сохраняет свой tool surface и
+transport contract; его compatibility-слой использует поддержанную MCP SDK v2
+low-level API. Remote entrypoint использует зафиксированный в проекте `mcp==2.1.1`
 и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
 HTTP request повторно проходит auth и не оставляет серверных session records.
 
@@ -277,7 +313,7 @@ Tunnel:
   → HTTPS :443 /mcp
   → Caddy с автоматическим сертификатом
   → 127.0.0.1:8765 remote Dev MCP
-  → тот же DevMcpAdapter и профиль ap
+  → тот же DevMcpAdapter и настроенный development target
 ```
 
 Backend намеренно принимает только `127.0.0.1` и не должен публиковаться через

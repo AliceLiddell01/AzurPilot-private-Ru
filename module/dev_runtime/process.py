@@ -10,7 +10,8 @@ from pathlib import Path
 
 import psutil
 
-from module.dev_runtime.contracts import DEV_PROFILE, DevEnvironment, ProcessIdentity
+from module.dev_runtime.contracts import DevEnvironment, ProcessIdentity
+from module.dev_runtime.target import DevTarget, DevTargetRegistry
 from module.dev_runtime.task_sandbox import (
     TASK_POLICY_FILE_ENV,
     TASK_POLICY_ROOT_ENV,
@@ -85,7 +86,7 @@ class ProcessBackend:
             "--port",
             str(environment.port),
             "--run",
-            DEV_PROFILE,
+            environment.profile_name,
         ]
 
     @staticmethod
@@ -98,6 +99,7 @@ class ProcessBackend:
             environment.repository_root,
             session_id,
             environment.python_executable,
+            environment.profile_name,
         )
 
     def _identity_is_destructively_trusted(self, identity: ProcessIdentity) -> bool:
@@ -108,7 +110,11 @@ class ProcessBackend:
         session_id = identity.command_session_id()
         if session_id is None:
             return False
-        return identity.matches_dev_contract(Path(identity.cwd), session_id)
+        try:
+            profile_name = DevTargetRegistry.load(Path(identity.cwd)).profile_name
+        except ValueError:
+            return False
+        return identity.matches_dev_contract(Path(identity.cwd), session_id, profile_name=profile_name)
 
     def _abort_unverified_launch(self, pid: int) -> bool:
         """Остановить только что созданный процесс через принадлежащий нам Popen handle."""
@@ -417,7 +423,18 @@ class ProcessBackend:
             return None
         root = Path(identity.cwd)
         expected_python = root / ".venv" / "Scripts" / "python.exe"
-        if not identity.matches_dev_contract(root, session_id, expected_python):
+        try:
+            run_index = identity.command_line.index("--run")
+            profile_name = identity.command_line[run_index + 1]
+            target = DevTarget(profile_name)
+        except (IndexError, ValueError):
+            return None
+        if not identity.matches_dev_contract(
+            root,
+            session_id,
+            expected_python,
+            profile_name=profile_name,
+        ):
             return None
 
         if (
@@ -445,7 +462,11 @@ class ProcessBackend:
         # repository/cwd/session, поэтому для group owner проверяем exact
         # executable и argv launcher.
         if not self._is_redirector_launcher_signature(
-            DevEnvironment(repository_root=root, python_executable=expected_python),
+            DevEnvironment(
+                repository_root=root,
+                python_executable=expected_python,
+                dev_target=target,
+            ),
             session_id,
             launcher_identity,
         ):

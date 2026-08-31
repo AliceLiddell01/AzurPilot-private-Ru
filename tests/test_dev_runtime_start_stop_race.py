@@ -10,6 +10,7 @@ from module.dev_runtime import (
     DevSessionManager,
     DevSessionState,
     DevStatusKind,
+    DevTarget,
     ProcessBackend,
     ProcessIdentity,
 )
@@ -81,6 +82,7 @@ def test_concurrent_stop_wins_over_stale_start_readiness(tmp_path: Path) -> None
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     backend = _RaceBackend()
     readiness_entered = threading.Event()

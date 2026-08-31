@@ -3,7 +3,6 @@
 from module.dev_runtime.contracts import (
     DEV_HOST,
     DEV_PORT,
-    DEV_PROFILE,
     DevEnvironment,
     DevResult,
     DevSession,
@@ -13,7 +12,27 @@ from module.dev_runtime.contracts import (
     DevStatusKind,
     ProcessIdentity,
 )
+from module.dev_runtime.target import (
+    DEV_TARGET_FILE_NAME,
+    DEV_TARGET_SCHEMA_VERSION,
+    DevTarget,
+    DevTargetError,
+    DevTargetRegistry,
+)
 from module.dev_runtime.process import ProcessBackend
+from module.dev_runtime.control import (
+    CONTROL_POLL_SECONDS,
+    CONTROL_SCHEMA_VERSION,
+    ConfiguredRuntimeBackend,
+    ControlAction,
+    ControlOutcome,
+    ControlState,
+    ControlStore,
+    DevRuntimeControlOperation,
+    RuntimeControlError,
+    RuntimeControlManager,
+    RuntimeSnapshot,
+)
 from module.dev_runtime.manager import DevSessionManager
 from module.dev_runtime.evidence import (
     EVIDENCE_EVENT_TYPES,
@@ -49,7 +68,11 @@ from module.dev_runtime.task_sandbox import (
 __all__ = [
     "DEV_HOST",
     "DEV_PORT",
-    "DEV_PROFILE",
+    "DEV_TARGET_FILE_NAME",
+    "DEV_TARGET_SCHEMA_VERSION",
+    "DevTarget",
+    "DevTargetError",
+    "DevTargetRegistry",
     "DevEnvironment",
     "DevResult",
     "DevSession",
@@ -59,6 +82,17 @@ __all__ = [
     "DevTaskPhase",
     "DevStatusKind",
     "ProcessBackend",
+    "CONTROL_POLL_SECONDS",
+    "CONTROL_SCHEMA_VERSION",
+    "ConfiguredRuntimeBackend",
+    "ControlAction",
+    "ControlOutcome",
+    "ControlState",
+    "ControlStore",
+    "DevRuntimeControlOperation",
+    "RuntimeControlError",
+    "RuntimeControlManager",
+    "RuntimeSnapshot",
     "ProcessIdentity",
     "EVIDENCE_EVENT_TYPES",
     "EVIDENCE_HEALTH_COMPLETE",

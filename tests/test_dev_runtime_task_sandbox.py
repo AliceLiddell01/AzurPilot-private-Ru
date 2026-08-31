@@ -16,6 +16,7 @@ from module.dev_runtime import (
     DevSessionState,
     DevTaskMode,
     DevTaskPhase,
+    DevTarget,
     ProcessBackend,
     ProcessIdentity,
     TaskCatalog,
@@ -78,6 +79,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     return DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
 
 
@@ -176,7 +178,7 @@ def _manager(environment: DevEnvironment, backend: _Backend) -> DevSessionManage
 
 def test_catalog_is_dynamic_and_excludes_non_task_sections(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
-    catalog = TaskCatalog.from_path(environment.profile_file)
+    catalog = TaskCatalog.from_path(environment.profile_file, profile_name=environment.profile_name)
 
     assert catalog.commands == (
         "DependencyTask",
@@ -250,7 +252,7 @@ def test_plan_is_read_only_and_rejects_unknown_or_conflicting_selectors(tmp_path
 def test_policy_provenance_supports_transitive_and_excluded_dependencies(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     _write_session(environment)
-    catalog = TaskCatalog.from_path(environment.profile_file)
+    catalog = TaskCatalog.from_path(environment.profile_file, profile_name=environment.profile_name)
     plan = TaskPlan.from_catalog(
         catalog,
         root_tasks=["RootTask"],
@@ -631,7 +633,7 @@ def test_cleanup_does_not_reset_policy_when_marker_has_no_process_but_worker_is_
         encoding="utf-8",
     )
     catalog = TaskCatalog.from_path(environment.profile_file)
-    plan = TaskPlan.from_catalog(catalog, ["RootTask"], [])
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], [], profile_name=environment.profile_name)
     TaskPolicyStore(environment).create(
         plan,
         session_id="sandbox-session",
@@ -746,8 +748,8 @@ def test_scheduler_filter_blocks_enabled_unrelated_tasks_under_active_policy(
 ) -> None:
     from module.config.config import AzurLaneConfig
 
-    catalog = TaskCatalog.from_payload(_profile())
-    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"])
+    catalog = TaskCatalog.from_payload(_profile(), profile_name="ap")
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"], profile_name="ap")
     policy = task_sandbox.TaskPolicy(
         session_id="sandbox-session",
         repository_root=str(tmp_path.resolve()),
@@ -881,8 +883,8 @@ def test_task_call_force_does_not_bypass_policy_and_records_override(
 
     environment = _environment(tmp_path)
     _write_session(environment)
-    catalog = TaskCatalog.from_path(environment.profile_file)
-    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"])
+    catalog = TaskCatalog.from_path(environment.profile_file, profile_name=environment.profile_name)
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"], profile_name=environment.profile_name)
     store = TaskPolicyStore(environment)
     store.create(plan, session_id="sandbox-session", timestamp="2026-08-29T00:00:00+00:00")
     policy = store.read()
@@ -926,8 +928,8 @@ def test_task_call_does_not_leave_provenance_when_config_update_fails(
 
     environment = _environment(tmp_path)
     _write_session(environment)
-    catalog = TaskCatalog.from_path(environment.profile_file)
-    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"])
+    catalog = TaskCatalog.from_path(environment.profile_file, profile_name=environment.profile_name)
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"], profile_name=environment.profile_name)
     store = TaskPolicyStore(environment)
     store.create(plan, session_id="sandbox-session", timestamp="2026-08-29T00:00:00+00:00")
     policy = store.read()
@@ -996,8 +998,8 @@ def test_task_call_preserves_update_failure_when_provenance_rollback_fails(
 
     environment = _environment(tmp_path)
     _write_session(environment)
-    catalog = TaskCatalog.from_path(environment.profile_file)
-    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"])
+    catalog = TaskCatalog.from_path(environment.profile_file, profile_name=environment.profile_name)
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"], profile_name=environment.profile_name)
     store = TaskPolicyStore(environment)
     store.create(plan, session_id="sandbox-session", timestamp="2026-08-29T00:00:00+00:00")
     policy = store.read()
@@ -1041,8 +1043,8 @@ def test_task_call_does_not_mutate_profile_when_provenance_registration_fails(
     environment = _environment(tmp_path)
     original_profile = json.loads(environment.profile_file.read_text(encoding="utf-8"))
     _write_session(environment)
-    catalog = TaskCatalog.from_path(environment.profile_file)
-    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"])
+    catalog = TaskCatalog.from_path(environment.profile_file, profile_name=environment.profile_name)
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], ["ExcludedTask"], profile_name=environment.profile_name)
     store = TaskPolicyStore(environment)
     store.create(plan, session_id="sandbox-session", timestamp="2026-08-29T00:00:00+00:00")
     policy = store.read()
@@ -1086,8 +1088,8 @@ def test_policy_context_requires_exact_session_and_is_neutral_for_production(
 ) -> None:
     environment = _environment(tmp_path)
     _write_session(environment)
-    catalog = TaskCatalog.from_path(environment.profile_file)
-    plan = TaskPlan.from_catalog(catalog, ["RootTask"], [])
+    catalog = TaskCatalog.from_path(environment.profile_file, profile_name=environment.profile_name)
+    plan = TaskPlan.from_catalog(catalog, ["RootTask"], [], profile_name=environment.profile_name)
     store = TaskPolicyStore(environment)
     store.create(plan, session_id="sandbox-session", timestamp="2026-08-29T00:00:00+00:00")
     monkeypatch.setattr(task_sandbox.DevEnvironment, "current", lambda: environment)
