@@ -261,8 +261,7 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     if shutil.which("bash"):
         subprocess.run(
             ["bash", "-n"],
-            input=docker_deploy,
-            text=True,
+            input=docker_deploy.encode("utf-8"),
             check=True,
         )
     assert "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git" in docker_deploy
