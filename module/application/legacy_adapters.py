@@ -151,12 +151,12 @@ class GeneratedTaskCatalogAdapter:
             return None
         raw_type = argument_data.get("type", "input")
         input_type = raw_type if isinstance(raw_type, str) else "input"
-        raw_options = argument_data.get("option", ())
-        options = tuple(
-            freeze_payload(option, field_name="config option")
-            for option in _options(raw_options)
-        )
         try:
+            raw_options = argument_data.get("option", ())
+            options = tuple(
+                freeze_payload(option, field_name="config option")
+                for option in _options(raw_options)
+            )
             default = freeze_payload(
                 argument_data.get("value"),
                 field_name="config default",
@@ -166,7 +166,9 @@ class GeneratedTaskCatalogAdapter:
                 field_name="config validation",
             )
         except TypeError:
-            raise TypeError("generated config default имеет неподдерживаемый тип") from None
+            raise TypeError(
+                "generated config metadata имеет неподдерживаемый тип"
+            ) from None
         return ConfigArgumentDefinition(
             task=task,
             group=group,

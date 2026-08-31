@@ -89,7 +89,7 @@ class GameControlService:
                 "Не удалось проверить metadata конфигурации."
             ) from None
         if not isinstance(definition, ConfigArgumentDefinition):
-            raise InvalidRequestError("Параметр конфигурации не найден.")
+            raise ResourceNotFoundError("Параметр конфигурации не найден.")
         if (
             definition.task != task
             or definition.group != group

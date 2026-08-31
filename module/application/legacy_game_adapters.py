@@ -22,12 +22,11 @@ from module.application.game_models import (
     thaw_payload,
 )
 from module.application.game_ports import GameConfigMetadata
-from module.application.game_validation import UNKNOWN_TASK
+from module.application.game_validation import INVALID_NAME_CHARS, UNKNOWN_TASK
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
-_INVALID_INSTANCE_CHARS = frozenset("./\\\x00:*?\"<>|")
 _TASK_LOG_PATTERNS = (
     re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
     re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
@@ -63,7 +62,7 @@ def _safe_instance_name(value: object) -> str:
         not value
         or value in {".", ".."}
         or len(value) > 128
-        or any(char in _INVALID_INSTANCE_CHARS for char in value)
+        or any(char in INVALID_NAME_CHARS for char in value)
     ):
         raise ValueError("instance содержит недопустимое значение")
     return value
@@ -76,7 +75,7 @@ def _safe_segment(value: object) -> str:
     if (
         not value
         or value in {".", ".."}
-        or any(char in _INVALID_INSTANCE_CHARS for char in value)
+        or any(char in INVALID_NAME_CHARS for char in value)
         or len(value) > 128
     ):
         raise ValueError("segment содержит недопустимое значение")

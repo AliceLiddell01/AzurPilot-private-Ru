@@ -26,6 +26,7 @@ from module.application import (
     ServiceUnavailableError,
 )
 from module.application.ports import RuntimeSnapshot
+from module.application.game_validation import validate_config_value
 
 
 class _Instances:
@@ -335,6 +336,10 @@ def test_control_service_fails_closed_for_invalid_config_and_state_results():
         service.update_config(ConfigUpdateRequest("ap", "Main", "General", "Mode", "unsafe"))
     with pytest.raises(ConfigurationValidationError):
         service.update_config(ConfigUpdateRequest("ap", "Main", "Error", "ApiKey", "new"))
+    with pytest.raises(ResourceNotFoundError):
+        service.update_config(
+            ConfigUpdateRequest("ap", "Main", "Fleet", "Missing", 4)
+        )
     with pytest.raises(ConfigurationValidationError):
         service.update_config(
             ConfigUpdateRequest(
@@ -366,6 +371,20 @@ def test_control_service_preserves_valid_datetime_string_for_legacy_parser():
     )
 
     assert config.updated[-1].value == value
+
+
+def test_config_validation_rejects_non_numeric_range_without_raw_type_error():
+    definition = ConfigArgumentDefinition(
+        task="Main",
+        group="General",
+        argument="Range",
+        input_type="input",
+        default="",
+        validation=(1, 6),
+    )
+
+    with pytest.raises(ConfigurationValidationError, match="числовое"):
+        validate_config_value(definition, "not-a-number")
 
 
 def test_control_service_sanitizes_writer_failure_without_internal_details():

@@ -221,7 +221,14 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="update_config",
-            description="Изменить параметр конфигурации указанного экземпляра. Формат пути: task.group.arg",
+            description=(
+                "Изменить параметр конфигурации указанного экземпляра. "
+                "Формат пути: task.group.arg. Параметры "
+                "Error.OnePushConfig, Error.LlmApiKey и "
+                "OpsiGeneral.OpsiOnePushConfig являются sensitive: их значения "
+                "скрываются при чтении, а запись через этот MCP-инструмент запрещена. "
+                "Настройте их через WebUI конфигурации экземпляра."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -500,7 +507,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> ToolResponse:
         return await handler(arguments)
     except ApplicationError as exc:
         logger.warning(
-            "Операция MCP отклонена; код: %s",
+            "Операция MCP отклонена; инструмент: %s; код: %s",
+            name,
             exc.code,
         )
         return [TextContent(type="text", text=_application_error_text(exc))]

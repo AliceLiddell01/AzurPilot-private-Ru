@@ -20,7 +20,7 @@ from module.application.ports import InstanceRuntimeReader
 MAX_RECENT_LOG_LINES = 10_000
 MAX_SCHEDULABLE_TASKS = 512
 UNKNOWN_TASK = "Unknown"
-_INVALID_NAME_CHARS = frozenset("./\\\x00:*?\"<>|")
+INVALID_NAME_CHARS = frozenset("./\\\x00:*?\"<>|")
 
 
 def validated_name(value: object, *, resource: str) -> str:
@@ -30,7 +30,7 @@ def validated_name(value: object, *, resource: str) -> str:
     if (
         not normalized
         or normalized in {".", ".."}
-        or any(char in _INVALID_NAME_CHARS for char in normalized)
+        or any(char in INVALID_NAME_CHARS for char in normalized)
         or len(normalized) > 128
     ):
         raise InvalidRequestError(f"Имя {resource} содержит недопустимое значение.")
@@ -50,7 +50,7 @@ def known_instance(reader: InstanceRuntimeReader, value: object) -> str:
             or name != name.strip()
             or not name
             or name in {".", ".."}
-            or any(char in _INVALID_NAME_CHARS for char in name)
+            or any(char in INVALID_NAME_CHARS for char in name)
             for name in names
         ):
             raise TypeError("reader вернул некорректный список экземпляров")
@@ -73,7 +73,7 @@ def scheduler_tasks(reader: SchedulerTaskReader) -> tuple[str, ...]:
             or task != task.strip()
             or not task
             or task in {".", ".."}
-            or any(char in _INVALID_NAME_CHARS for char in task)
+            or any(char in INVALID_NAME_CHARS for char in task)
             for task in tasks
         ):
             raise TypeError("registry вернул некорректные задачи")
@@ -210,17 +210,19 @@ def validate_config_value(
         isinstance(validation, tuple)
         and len(validation) == 2
         and all(type(item) in {int, float} for item in validation)
-        and (
-            type(frozen) not in {int, float}
-            or not validation[0] <= frozen <= validation[1]
-        )
     ):
-        raise ConfigurationValidationError(
-            "Значение конфигурации вне допустимого диапазона."
-        )
+        if type(frozen) not in {int, float}:
+            raise ConfigurationValidationError(
+                "Для этого параметра требуется числовое значение."
+            )
+        if not validation[0] <= frozen <= validation[1]:
+            raise ConfigurationValidationError(
+                "Значение конфигурации вне допустимого диапазона."
+            )
 
 
 __all__ = [
+    "INVALID_NAME_CHARS",
     "MAX_RECENT_LOG_LINES",
     "MAX_SCHEDULABLE_TASKS",
     "UNKNOWN_TASK",
