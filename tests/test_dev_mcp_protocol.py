@@ -243,6 +243,7 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
                 "DEV_TASK_STATE_MISSING",
                 "DEV_TASK_CATALOG_READY",
                 "DEV_TARGET_NOT_CONFIGURED",
+                "DEV_TARGET_DEFAULT_PROFILE_MISSING",
             }
             contract = await session.call_tool("dev_get_contract", {})
             assert contract.structured_content is not None
@@ -350,6 +351,7 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
                 "DEV_NO_SESSION",
                 "DEV_SESSION_STOPPED",
                 "DEV_TARGET_NOT_CONFIGURED",
+                "DEV_TARGET_DEFAULT_PROFILE_MISSING",
             }
         finally:
             if process.stdin is not None:

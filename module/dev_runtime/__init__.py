@@ -14,9 +14,12 @@ from module.dev_runtime.contracts import (
 )
 from module.dev_runtime.target import (
     DEV_TARGET_FILE_NAME,
+    DEV_TARGET_POLICY_FILE_NAME,
+    DEV_TARGET_POLICY_SCHEMA_VERSION,
     DEV_TARGET_SCHEMA_VERSION,
     DevTarget,
     DevTargetError,
+    DevTargetPolicy,
     DevTargetRegistry,
 )
 from module.dev_runtime.process import ProcessBackend
@@ -69,9 +72,12 @@ __all__ = [
     "DEV_HOST",
     "DEV_PORT",
     "DEV_TARGET_FILE_NAME",
+    "DEV_TARGET_POLICY_FILE_NAME",
+    "DEV_TARGET_POLICY_SCHEMA_VERSION",
     "DEV_TARGET_SCHEMA_VERSION",
     "DevTarget",
     "DevTargetError",
+    "DevTargetPolicy",
     "DevTargetRegistry",
     "DevEnvironment",
     "DevResult",

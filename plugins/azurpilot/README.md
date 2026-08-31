@@ -55,8 +55,10 @@ PostgreSQL, ADB и emulator не публикуются. Обязательны�
 
 `compatibility.json` фиксирует ожидаемые версии API/Smoke schemas, required
 feature flags, capability families и result outcomes. Development Runtime
-работает только с явно настроенным development target; его имя не передаётся
-через MCP и не выбирается автоматически. Skill сначала вызывает
+разрешает target через канонический registry: при отсутствии локального marker
+используется профиль по умолчанию из target policy (`ap` при успешной
+структурной проверке), а смена target требует явного согласия пользователя.
+Имя target не передаётся через MCP. Skill сначала вызывает
 `dev_get_contract`; любое несовпадение даёт `PLUGIN_RUNTIME_INCOMPATIBLE` и
 запрещает mutating calls.
 

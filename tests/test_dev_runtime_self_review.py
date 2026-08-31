@@ -204,7 +204,11 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
         (config / f"{profile_name}.json").write_text(
             json.dumps(profile_payload), encoding="utf-8"
         )
-    target_a = DevTargetRegistry.configure(root, profile_name="profile-a")
+    target_a = DevTargetRegistry.configure(
+        root,
+        profile_name="profile-a",
+        explicit_consent=True,
+    )
     environment_a = DevEnvironment(
         root,
         root / ".venv" / "Scripts" / "python.exe",
@@ -231,7 +235,11 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(session.as_dict()), encoding="utf-8")
 
-    DevTargetRegistry.configure(root, profile_name="profile-b")
+    DevTargetRegistry.configure(
+        root,
+        profile_name="profile-b",
+        explicit_consent=True,
+    )
     environment_b = DevEnvironment(
         root,
         root / ".venv" / "Scripts" / "python.exe",

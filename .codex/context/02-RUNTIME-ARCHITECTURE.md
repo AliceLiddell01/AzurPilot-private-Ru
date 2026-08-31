@@ -101,10 +101,12 @@ Foreground Start, который сам создал backend, сохраняет
 ## Dev Runtime Foundation
 
 Локальный developer runtime живёт в импортируемом пакете `module.dev_runtime` и
-работает с явно назначенным development target, loopback `127.0.0.1` и отдельным
+работает с target из канонического registry, loopback `127.0.0.1` и отдельным
 портом `25549`. Target хранится в repository-scoped marker под `config/state/`,
-проверяется структурным profile discovery и не выбирается автоматически.
-Публичный lifecycle API не принимает произвольный профиль.
+проверяется структурным profile discovery; при отсутствии marker read-only
+разрешается default из tracked target policy (`ap` после проверки профиля).
+Переключение target требует явного согласия пользователя, а публичный lifecycle
+API не принимает произвольный профиль.
 
 Обычный runtime запускается только через project `.venv` Python и штатный
 `gui.py --run <configured-target>`. Preflight требует уже подготовленное окружение: наличие
@@ -147,8 +149,8 @@ MCP не должен становиться обходом конфигурац
 - отключаемость интеграции.
 
 `module/dev_mcp` — отдельный stdio-адаптер только для разработки поверх
-`DevSessionManager` и `RuntimeControlManager`. Он использует только явно
-настроенный development target, создаёт
+`DevSessionManager` и `RuntimeControlManager`. Он использует только target,
+разрешённый registry (включая policy default при отсутствии marker), создаёт
 менеджер лениво и не связан с рабочим `mcp_server_sse.py`. Запуск не должен
 читать профиль или запускать runtime; схема и безопасная сериализация остаются
 границей адаптера, а владение, политика задач и очистка принадлежат

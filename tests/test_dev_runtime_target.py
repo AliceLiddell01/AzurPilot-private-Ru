@@ -41,7 +41,11 @@ def _error_code(error: pytest.ExceptionInfo[DevTargetError]) -> str:
 def test_configured_target_round_trips_against_one_structural_profile(tmp_path: Path) -> None:
     _write_profile(tmp_path)
 
-    configured = DevTargetRegistry.configure(tmp_path, profile_name=_TARGET_NAME)
+    configured = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name=_TARGET_NAME,
+        explicit_consent=True,
+    )
     loaded = DevTargetRegistry.load(tmp_path)
 
     assert configured == DevTarget(_TARGET_NAME)
@@ -55,16 +59,54 @@ def test_configured_target_round_trips_against_one_structural_profile(tmp_path: 
     }
 
 
-def test_target_resolution_fails_closed_without_marker_or_profile(tmp_path: Path) -> None:
+def test_missing_marker_fails_closed_when_default_profile_is_missing(tmp_path: Path) -> None:
     _write_profile(tmp_path)
 
     with pytest.raises(DevTargetError) as missing_marker:
         DevTargetRegistry.load(tmp_path)
-    assert _error_code(missing_marker) == "DEV_TARGET_NOT_CONFIGURED"
+    assert _error_code(missing_marker) == "DEV_TARGET_DEFAULT_PROFILE_MISSING"
 
     with pytest.raises(DevTargetError) as missing_profile:
         DevTargetRegistry.configure(tmp_path, profile_name="other-target")
     assert _error_code(missing_profile) == "DEV_TARGET_PROFILE_MISSING"
+
+
+def test_missing_marker_defaults_to_ap_without_writing_marker(tmp_path: Path) -> None:
+    _write_profile(tmp_path, "ap")
+
+    loaded = DevTargetRegistry.load(tmp_path)
+
+    assert loaded == DevTarget("ap")
+    assert not (tmp_path / "config" / "state" / "dev-runtime-target.json").exists()
+
+
+def test_target_change_requires_explicit_consent(tmp_path: Path) -> None:
+    _write_profile(tmp_path, "ap")
+    _write_profile(tmp_path, _TARGET_NAME)
+
+    assert DevTargetRegistry.configure(tmp_path, profile_name="ap") == DevTarget("ap")
+    marker = tmp_path / "config" / "state" / "dev-runtime-target.json"
+    before = marker.read_text(encoding="utf-8")
+    with pytest.raises(DevTargetError) as denied:
+        DevTargetRegistry.configure(tmp_path, profile_name=_TARGET_NAME)
+    assert _error_code(denied) == "DEV_TARGET_CHANGE_REQUIRES_CONSENT"
+    assert marker.read_text(encoding="utf-8") == before
+
+    changed = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name=_TARGET_NAME,
+        explicit_consent=True,
+    )
+    assert changed == DevTarget(_TARGET_NAME)
+
+
+def test_repeating_current_default_does_not_require_consent(tmp_path: Path) -> None:
+    _write_profile(tmp_path, "ap")
+
+    first = DevTargetRegistry.configure(tmp_path)
+    second = DevTargetRegistry.configure(tmp_path, profile_name="ap")
+
+    assert first == second == DevTarget("ap")
 
 
 @pytest.mark.parametrize(
@@ -88,7 +130,11 @@ def test_target_marker_rejects_invalid_assignment(tmp_path: Path, payload: dict[
 
 def test_target_marker_rejects_missing_structural_profile(tmp_path: Path) -> None:
     _write_profile(tmp_path)
-    DevTargetRegistry.configure(tmp_path, profile_name=_TARGET_NAME)
+    DevTargetRegistry.configure(
+        tmp_path,
+        profile_name=_TARGET_NAME,
+        explicit_consent=True,
+    )
     marker = tmp_path / "config" / "state" / "dev-runtime-target.json"
     marker.write_text(
         json.dumps({"schema_version": 1, "profile_name": "missing-target", "mod_name": "alas"}),
@@ -100,7 +146,11 @@ def test_target_marker_rejects_missing_structural_profile(tmp_path: Path) -> Non
     assert _error_code(error) == "DEV_TARGET_PROFILE_MISSING"
 def test_target_marker_symlink_is_rejected_when_supported(tmp_path: Path) -> None:
     _write_profile(tmp_path)
-    target = DevTargetRegistry.configure(tmp_path, profile_name=_TARGET_NAME)
+    target = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name=_TARGET_NAME,
+        explicit_consent=True,
+    )
     marker = tmp_path / "config" / "state" / "dev-runtime-target.json"
     replacement = tmp_path / "replacement.json"
     replacement.write_text(json.dumps(target.as_dict()), encoding="utf-8")

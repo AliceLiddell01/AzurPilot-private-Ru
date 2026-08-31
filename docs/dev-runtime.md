@@ -1,8 +1,10 @@
 # Dev Runtime: Task Sandbox
 
 Dev Runtime запускает только штатный `gui.py --run <configured-target>` с фиксированными локальными
-параметрами и точным владением процессом. Development target назначается локальным
-repository-scoped marker после структурной проверки профиля. Task Sandbox добавляет API с учётом задач поверх
+параметрами и точным владением процессом. Development target обычно сохраняется в локальном
+repository-scoped marker после структурной проверки профиля. Если marker отсутствует, registry
+read-only разрешает профиль из tracked `module/dev_runtime/target_policy.json` по умолчанию;
+сейчас это `ap`, если такой профиль проходит структурную проверку. Task Sandbox добавляет API с учётом задач поверх
 этого жизненного цикла, не меняя обычный рабочий планировщик. Для Codex и ChatGPT
 предусмотрены разные transport boundaries поверх одного adapter.
 
@@ -52,8 +54,10 @@ tool_timeout_sec = 180
 
 Инструменты Universal Smoke Harness описаны в отдельном разделе ниже.
 
-Каждый инструмент использует только явно настроенный development target: MCP не принимает
-`profile`, `instance`, `path`, установщик конфигурации или команду оболочки. Входные схемы строгие и
+Каждый инструмент использует только target, разрешённый каноническим registry: при отсутствии marker
+работает безопасный default из target policy, а MCP не принимает `profile`, `instance`, `path`,
+установщик конфигурации или команду оболочки. Смена target локальным registry требует явного
+подтверждения пользователя; входные схемы MCP строгие и
 запрещают неизвестные свойства. Ответ проходит отдельную сериализацию по разрешённому списку
 полей `DevResult`; пути, команды, окружение, учётные данные и стек вызовов не выдаются.
 
@@ -186,12 +190,19 @@ Evidence API не добавляет `run_task_smoke`, автоматическ�
 ## CLI
 
 ```text
+uv run --locked python -m module.dev_runtime.target
+uv run --locked python -m module.dev_runtime.target <profile>
+uv run --locked python -m module.dev_runtime.target <profile> --confirm-profile-change
 uv run --locked python dev_tools/dev_runtime.py list
 uv run --locked python dev_tools/dev_runtime.py plan --task <TaskCommand>
 uv run --locked python dev_tools/dev_runtime.py task-smoke --task <TaskCommand>
 uv run --locked python dev_tools/dev_runtime.py cleanup
 ```
 
+Без positional `<profile>` используется профиль из target policy. Идемпотентное
+подтверждение текущего target не требует флага; любое переключение на другой
+профиль останавливается с `DEV_TARGET_CHANGE_REQUIRES_CONSENT` без записи marker,
+пока не передан `--confirm-profile-change`. Read-only `load()` marker не создаёт.
 `cleanup` сбрасывает состояние планировщика после явно сохранённого
 `preserve_task_state` и не останавливает живой процесс. Команды печатают UTF-8 JSON и не выводят полную конфигурацию target. Транспорт MCP,
 общее управление профилями и PowerShell-запускатель в Task Sandbox не добавляются.

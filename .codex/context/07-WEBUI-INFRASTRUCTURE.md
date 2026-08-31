@@ -47,8 +47,9 @@ MCP-инструменты делятся на read-only и меняющие с�
 Dev MCP для локальной Codex-интеграции находится в `module/dev_mcp` и работает
 через stdio. Для ChatGPT есть отдельный `module.dev_mcp.remote` с HTTPS
 Streamable HTTP `/mcp`; оба entrypoint-а используют один тонкий adapter к
-существующим `DevSessionManager` и отдельным `RuntimeControlManager` с явно
-настроенным development target. Remote backend
+существующим `DevSessionManager` и отдельным `RuntimeControlManager` с target,
+разрешённым каноническим registry (default policy применяется только при
+отсутствии marker). Remote backend
 bind-ится только на `127.0.0.1`, требует внешний OAuth/OIDC access token и не
 добавляет generic shell/config tools или управление production profiles.
 Production MCP и его transport остаются независимыми; `mcp_server_sse.py`

@@ -1,4 +1,4 @@
-"""Типизированный каталог задач и fail-closed policy для Dev Runtime профиля ``ap``."""
+"""Типизированный каталог задач и fail-closed policy для Dev Runtime target."""
 
 from __future__ import annotations
 

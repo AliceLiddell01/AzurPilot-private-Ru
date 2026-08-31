@@ -60,8 +60,11 @@ HTTP, SQL, ADB/input, искусственных sleep/retry, patch-команд
 
 ## Runtime Control и восстановление
 
-`dev_get_runtime_status` — read-only источник текущего состояния явно
-настроенного development target. Если SmokeRun не может продолжиться из-за
+`dev_get_runtime_status` — read-only источник текущего состояния target,
+разрешённого каноническим registry. При отсутствии marker registry использует
+профиль по умолчанию из target policy (`ap` после структурной проверки).
+Смена target требует явного согласия пользователя через локальный registry CLI
+или API; MCP не предоставляет для этого `profile`-аргумент. Если SmokeRun не может продолжиться из-за
 недоступного эмулятора, ADB или приложения:
 
 1. Не меняй существующую `SmokeSpec` и не повторяй тот же `SmokeRun`.
