@@ -19,7 +19,7 @@ class CiHeartbeatTestCase(unittest.TestCase):
             output = io.StringIO()
 
             exit_code = run_command(
-                [sys.executable, "-c", "print('готово')"],
+                [sys.executable, "-X", "utf8", "-c", "print('готово')"],
                 label="Тестовая команда",
                 heartbeat_seconds=0,
                 log_file=log_file,
