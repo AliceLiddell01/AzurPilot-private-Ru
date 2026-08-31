@@ -94,12 +94,16 @@ def runtime_coordination_lock(environment: DevEnvironment) -> Iterator[None]:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                     acquired = True
                     break
-                except OSError as exc:
+                except BlockingIOError as exc:
                     if time.monotonic() >= deadline:
                         raise RuntimeCoordinationError(
                             "Истекло время ожидания общей runtime-блокировки"
                         ) from exc
                     time.sleep(COORDINATION_LOCK_RETRY_SECONDS)
+                except OSError as exc:
+                    raise RuntimeCoordinationError(
+                        "Общая runtime-блокировка недоступна на этой файловой системе"
+                    ) from exc
         yield
     finally:
         if acquired:

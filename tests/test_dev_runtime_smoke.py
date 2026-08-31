@@ -324,6 +324,16 @@ def test_smoke_spec_is_strict_canonical_and_rejects_malformed_paths() -> None:
         smoke.SmokeSpec.model_validate({**spec.canonical_dict(), "unexpected": True}, strict=True)
     with pytest.raises(ValueError):
         smoke.SmokeConfigOverride(path="Reward..Enable", value=True)
+    with pytest.raises(ValueError):
+        smoke.SmokeSourceSnapshot(
+            head="a" * 40,
+            branch="main",
+            detached=False,
+            dirty=True,
+            changed_paths=[r"\external.txt"],
+            available=True,
+            fingerprint="b" * 64,
+        )
 
 
 def test_profile_digest_accepts_materialized_registered_defaults(tmp_path: Path) -> None:

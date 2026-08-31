@@ -27,7 +27,12 @@ from module.dev_runtime.contracts import (
     ProcessIdentity,
 )
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
-from module.dev_runtime.control import ControlAction, ControlStore, RuntimeControlManager
+from module.dev_runtime.control import (
+    ControlAction,
+    ControlStore,
+    RuntimeControlManager,
+    RuntimeSessionState,
+)
 from module.dev_runtime.coordination import (
     RuntimeCoordinationError,
     runtime_coordination_lock,
@@ -45,7 +50,7 @@ from module.dev_runtime.evidence import (
     validate_session_id,
 )
 from module.dev_runtime.process import ProcessBackend, _same_path
-from module.dev_runtime.target import DevTarget
+from module.dev_runtime.target import DevTarget, DevTargetRegistry
 from module.dev_runtime.task_sandbox import (
     SCHEDULER_RESET_TIME,
     TASK_POLICY_ACTIVE,
@@ -98,6 +103,22 @@ class DevSessionManager(DevDiagnosticsMixin):
         self._evidence_store: EvidenceStore | None = None
         self._smoke_manager = None
         self._control_manager: RuntimeControlManager | None = None
+
+    def _refresh_target(self) -> None:
+        """Обновить target перед новым вызовом долгоживущего manager."""
+
+        current_target = DevTargetRegistry.load_for_environment(
+            self.environment.repository_root,
+            fallback=self.environment.dev_target,
+        )
+        if current_target == self.environment.dev_target:
+            return
+        self.environment = replace(self.environment, dev_target=current_target)
+        # Эти фасады держат environment внутри себя; после смены registry они
+        # не должны продолжать новые операции с прежним target.
+        self._evidence_store = None
+        self._smoke_manager = None
+        self._control_manager = None
 
     def _session_profile_name(self, session: DevSession) -> str | None:
         return session.profile_name or (
@@ -561,6 +582,7 @@ class DevSessionManager(DevDiagnosticsMixin):
     def _get_smoke_manager(self):
         """Лениво создать Smoke facade, не меняя startup обычного runtime."""
 
+        self._refresh_target()
         smoke_manager = self._smoke_manager
         if smoke_manager is not None:
             return smoke_manager
@@ -598,6 +620,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         return self._get_smoke_manager().submit_smoke_evaluation(smoke_id, assertion_id, verdict, rationale)
 
     def _get_control_manager(self) -> RuntimeControlManager:
+        self._refresh_target()
         control_manager = self._control_manager
         if control_manager is None:
             control_manager = RuntimeControlManager(
@@ -609,9 +632,17 @@ class DevSessionManager(DevDiagnosticsMixin):
             self._control_manager = control_manager
         return control_manager
 
-    def _control_session_state(self) -> str | None:
+    def _control_session_state(self) -> RuntimeSessionState | None:
         session = self._read_session()
-        return None if session is None else session.state.value
+        if session is None:
+            return None
+        process_alive = None
+        if session.process is not None:
+            try:
+                process_alive = self.process_backend.matches(session.process)
+            except RuntimeError:
+                process_alive = None
+        return RuntimeSessionState(session.state.value, process_alive)
 
     def _control_smoke_active(self) -> bool:
         return self._get_smoke_manager().has_active_run()
@@ -646,6 +677,7 @@ class DevSessionManager(DevDiagnosticsMixin):
     def list_tasks(self) -> DevResult:
         """Вернуть каталог из исходного профиля без изменения состояния."""
 
+        self._refresh_target()
         try:
             catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
@@ -665,6 +697,7 @@ class DevSessionManager(DevDiagnosticsMixin):
     def status(self) -> DevResult:
         """Вернуть статус Dev Runtime и безопасный снимок политики задач только для чтения."""
 
+        self._refresh_target()
         try:
             result = super().status()
         except TaskSandboxError as exc:
@@ -770,6 +803,7 @@ class DevSessionManager(DevDiagnosticsMixin):
     ) -> DevResult:
         """Сформировать план задач только для чтения будущей сессии с учётом задач."""
 
+        self._refresh_target()
         _plan, result = self._build_task_plan(root_tasks, excluded_tasks)
         return result
 
@@ -854,6 +888,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         )
 
     def cleanup(self) -> DevResult:
+        self._refresh_target()
         try:
             return self._cleanup_impl()
         except RuntimeCoordinationError as exc:
@@ -1587,6 +1622,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         root_tasks: Iterable[str] | str | None = None,
         excluded_tasks: Iterable[str] | str | None = None,
     ) -> DevResult:
+        self._refresh_target()
         task_aware = root_tasks is not None or excluded_tasks is not None
         if not task_aware:
             try:
@@ -1962,6 +1998,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
 
     def stop(self, *, preserve_task_state: bool = False) -> DevResult:
+        self._refresh_target()
         try:
             return self._stop_impl(preserve_task_state=preserve_task_state)
         except RuntimeCoordinationError as exc:
@@ -2077,6 +2114,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
 
     def recover(self) -> DevResult:
+        self._refresh_target()
         try:
             with self._locked_state():
                 return self._recover_locked()

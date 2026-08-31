@@ -442,7 +442,6 @@ _SAFE_CONTROL_OPERATION_KEYS = frozenset(
     {
         "control_id",
         "action",
-        "target_profile_name",
         "target_identity",
         "runtime_config_fingerprint",
         "state",
@@ -699,7 +698,6 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "unrelated_devices": "bool",
     "active": "bool",
     "action": "string",
-    "target_profile_name": "string",
     "target_identity": "string",
     "runtime_config_fingerprint": "string",
     "transitions": "control_transition_list",
@@ -1107,7 +1105,6 @@ _SCHEMA_CHILD_SCHEMAS = {
     "control_operation": {
         "control_id": "string",
         "action": "string",
-        "target_profile_name": "string",
         "target_identity": "string",
         "runtime_config_fingerprint": "string",
         "state": "string",
@@ -1566,7 +1563,10 @@ class DevMcpAdapter:
         self._manager_factory = manager_factory or _default_manager
         self._uses_default_manager = manager_factory is None
         self._manager: DevRuntimeManager | None = None
-        self._manager_lock = threading.Lock()
+        # Блокировка охватывает выбор manager и первый вызов операции. Иначе
+        # смена repository-scoped target между быстрым cache check и dispatch
+        # могла бы оставить новый MCP вызов на устаревшем manager.
+        self._manager_lock = threading.RLock()
 
     @staticmethod
     def _target_changed(manager: DevRuntimeManager) -> bool:
@@ -1582,9 +1582,6 @@ class DevMcpAdapter:
         return current != environment.dev_target
 
     def _get_manager(self) -> DevRuntimeManager:
-        manager = self._manager
-        if manager is not None and not self._target_changed(manager):
-            return manager
         with self._manager_lock:
             manager = self._manager
             if manager is None or self._target_changed(manager):
@@ -1667,6 +1664,7 @@ class DevMcpAdapter:
         if tool_name == "dev_get_contract":
             return serialize_dev_result(contract_result())
 
+        self._manager_lock.acquire()
         try:
             if self._uses_default_manager:
                 _ensure_legacy_logger_stderr()
@@ -1796,6 +1794,8 @@ class DevMcpAdapter:
                 type(exc).__name__,
             )
             return _internal_error()
+        finally:
+            self._manager_lock.release()
         return serialize_dev_result(result)
 
 

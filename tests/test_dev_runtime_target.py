@@ -330,3 +330,32 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     restored = DevSession.from_dict(json.loads(state_path.read_text(encoding="utf-8")))
     assert restored.state is DevSessionState.STOPPED
     assert restored.profile_name == "profile-a"
+
+
+def test_long_lived_manager_refreshes_target_before_new_read_only_call(
+    tmp_path: Path,
+) -> None:
+    _write_profile(tmp_path, "profile-a")
+    _write_profile(tmp_path, "profile-b")
+    target_a = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name="profile-a",
+        explicit_consent=True,
+    )
+    environment = DevEnvironment(tmp_path, Path("python"), target_a)
+    manager = DevSessionManager(
+        environment,
+        storage_probe=lambda _environment: (True, "ready"),
+        port_probe=lambda _host, _port: False,
+    )
+
+    DevTargetRegistry.configure(
+        tmp_path,
+        profile_name="profile-b",
+        explicit_consent=True,
+    )
+
+    result = manager.list_tasks()
+
+    assert result.ok is True
+    assert manager.environment.profile_name == "profile-b"

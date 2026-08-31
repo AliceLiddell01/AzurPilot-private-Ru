@@ -16,6 +16,7 @@ from module.dev_runtime import (
     DevEnvironment,
     DevTarget,
     RuntimeControlManager,
+    RuntimeSessionState,
     RuntimeSnapshot,
 )
 from module.dev_runtime import control as control_module
@@ -178,7 +179,7 @@ def _manager(
     environment: DevEnvironment,
     backend: _FakeRuntimeBackend,
     *,
-    session_state: str | None = None,
+    session_state: RuntimeSessionState | str | None = None,
     smoke_active: bool = False,
     sleep=None,
     monotonic=None,
@@ -483,6 +484,23 @@ def test_runtime_control_sanitizes_backend_failure_and_keeps_operation_record(
     assert "synthetic" not in json.dumps(result.as_dict(), ensure_ascii=False)
 
 
+def test_runtime_control_reports_backend_false_failure(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = _FakeRuntimeBackend()
+    backend.fail = "start_game"
+    manager = _manager(environment, backend)
+
+    result = _finish(manager, _accepted(manager, ControlAction.START_GAME))
+
+    assert result.ok is False
+    assert result.code == "DEV_CONTROL_GAME_START_FAILED"
+    assert result.details["control_operation"]["outcome"] == ControlOutcome.CONTROL_FAILED.value
+    assert backend.calls == ["start_game"]
+
+
 def test_runtime_control_conflicts_with_session_smoke_and_second_operation(
     tmp_path: Path,
     supervisor_identity: None,
@@ -507,6 +525,31 @@ def test_runtime_control_conflicts_with_session_smoke_and_second_operation(
     assert second_result.code == "DEV_CONTROL_ACTIVE_CONFLICT"
     assert second_result.state == "conflict"
     assert second_result.details["outcome"] == ControlOutcome.CONFLICT.value
+
+
+@pytest.mark.parametrize(
+    "session_state",
+    [
+        RuntimeSessionState("stale"),
+        RuntimeSessionState("failed", process_alive=True),
+        RuntimeSessionState("stopped", process_alive=True),
+    ],
+)
+def test_runtime_control_treats_stale_or_live_terminal_session_as_active(
+    tmp_path: Path,
+    supervisor_identity: None,
+    session_state: RuntimeSessionState,
+) -> None:
+    environment = _environment(tmp_path)
+    result = _manager(
+        environment,
+        _FakeRuntimeBackend(),
+        session_state=session_state,
+    ).start(ControlAction.START_GAME)
+
+    assert result.ok is False
+    assert result.code == "DEV_CONTROL_CONFLICT_DEV_SESSION"
+    assert result.details["outcome"] == ControlOutcome.CONFLICT.value
 
 
 def test_control_operation_survives_manager_reinstantiation_and_disconnect(

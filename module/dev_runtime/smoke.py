@@ -647,7 +647,7 @@ class SmokeSourceSnapshot(_StrictModel):
         for value in values:
             value = _text(value, field_name="source.changed_paths", maximum=260)
             if (
-                value.startswith(("/", "../", "..\\"))
+                value.startswith(("/", "\\", "../", "..\\"))
                 or re.match(r"^[A-Za-z]:[/\\]", value)
                 or value == ".."
                 or "/../" in value
@@ -2692,22 +2692,6 @@ class SmokeRunManager:
                 state=SmokeState.FINISHED.value,
                 details=self._validation_details(parsed, source, issues),
             )
-        # Повторная полная проверка остаётся вне общей lock: под lock должны
-        # выполняться только короткие проверки durable owner reservations.
-        fresh, fresh_source, fresh_issues = self._validate_spec_and_preconditions(
-            parsed,
-            check_runtime_conflict=True,
-        )
-        if fresh is None or fresh_source is None or fresh_issues:
-            return self._result(
-                ok=False,
-                code="DEV_SMOKE_PRECONDITION_FAILED",
-                message="SmokeRun не создан: предварительная проверка условий не пройдена",
-                state=SmokeState.FINISHED.value,
-                details=self._validation_details(fresh, fresh_source, fresh_issues),
-            )
-        parsed = fresh
-        source = fresh_source
         try:
             with runtime_coordination_lock(self.environment):
                 self.store.prune(now=self.now())

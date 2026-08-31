@@ -46,6 +46,7 @@ CONTROL_MAX_BYTES = 256 * 1024
 CONTROL_LOCK_TIMEOUT = 10.0
 CONTROL_LOCK_RETRY_SECONDS = 0.05
 CONTROL_LAUNCH_GRACE_SECONDS = 10.0
+CONTROL_BINDING_RECHECK_SECONDS = 2.0
 
 
 class ControlAction(StrEnum):
@@ -95,6 +96,21 @@ class RuntimeControlError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.outcome = outcome
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSessionState:
+    """Снимок marker DevSession для проверки owner с учётом процесса."""
+
+    state: str | None
+    process_alive: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _RuntimeConfigSnapshot:
+    serial: str
+    package: str
+    fingerprint: str
 
 
 def _runtime_profile_payload(environment: DevEnvironment) -> Mapping[str, object]:
@@ -155,6 +171,41 @@ def runtime_config_fingerprint(environment: DevEnvironment) -> str:
     """Получить fingerprint критической runtime-конфигурации без раскрытия значений."""
 
     return _runtime_config_fingerprint_from_payload(_runtime_profile_payload(environment))
+
+
+def _runtime_profile_value(payload: Mapping[str, object], path: str) -> object:
+    current: object = payload
+    for part in path.split("."):
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _runtime_config_snapshot(environment: DevEnvironment) -> _RuntimeConfigSnapshot:
+    payload = _runtime_profile_payload(environment)
+    fingerprint = _runtime_config_fingerprint_from_payload(payload)
+    serial = _runtime_profile_value(payload, "Alas.Emulator.Serial")
+    package = _runtime_profile_value(payload, "Alas.Emulator.PackageName")
+    if not isinstance(serial, str) or not serial.strip() or serial.strip().casefold() == "auto":
+        raise RuntimeControlError(
+            "DEV_TARGET_ENDPOINT_AMBIGUOUS",
+            "ADB endpoint development target не определён однозначно",
+            outcome=ControlOutcome.PRECONDITION_FAILED,
+        )
+    if not isinstance(package, str) or not package.strip() or package.strip().casefold() == "auto":
+        raise RuntimeControlError(
+            "DEV_TARGET_PACKAGE_UNCONFIGURED",
+            "Пакет приложения development target не задан",
+            outcome=ControlOutcome.PRECONDITION_FAILED,
+        )
+    from module.device.connection_attr import ConnectionAttr
+
+    return _RuntimeConfigSnapshot(
+        serial=ConnectionAttr.revise_serial(serial),
+        package=package.strip(),
+        fingerprint=fingerprint,
+    )
 
 
 def _environment_target(environment: DevEnvironment) -> DevTarget:
@@ -611,35 +662,17 @@ class ConfiguredRuntimeBackend:
         self._configuration_cache: tuple[str, str] | None = None
         self._runtime_config_fingerprint: str | None = None
 
-    @staticmethod
-    def _deep_get(payload: object, path: str) -> object:
-        current = payload
-        for part in path.split("."):
-            if not isinstance(current, Mapping):
-                return None
-            current = current.get(part)
-        return current
-
-    def _configuration(self) -> tuple[str, str]:
-        payload = _runtime_profile_payload(self.environment)
-        fingerprint = _runtime_config_fingerprint_from_payload(payload)
-        if fingerprint != self._runtime_config_fingerprint:
+    def _configuration(self, *, prepared: _RuntimeConfigSnapshot | None = None) -> tuple[str, str]:
+        configuration = prepared or _runtime_config_snapshot(self.environment)
+        if configuration.fingerprint != self._runtime_config_fingerprint:
             self._configuration_cache = None
             self._platform = None
             self._app = None
-            self._runtime_config_fingerprint = fingerprint
+            self._runtime_config_fingerprint = configuration.fingerprint
         if self._configuration_cache is not None:
             return self._configuration_cache
 
-        serial = self._deep_get(payload, "Alas.Emulator.Serial")
-        package = self._deep_get(payload, "Alas.Emulator.PackageName")
-        if not isinstance(serial, str) or not serial.strip() or serial.strip().casefold() == "auto":
-            raise RuntimeControlError("DEV_TARGET_ENDPOINT_AMBIGUOUS", "ADB endpoint development target не определён однозначно", outcome=ControlOutcome.PRECONDITION_FAILED)
-        if not isinstance(package, str) or not package.strip() or package.strip().casefold() == "auto":
-            raise RuntimeControlError("DEV_TARGET_PACKAGE_UNCONFIGURED", "Пакет приложения development target не задан", outcome=ControlOutcome.PRECONDITION_FAILED)
-        from module.device.connection_attr import ConnectionAttr
-
-        self._configuration_cache = (ConnectionAttr.revise_serial(serial), package.strip())
+        self._configuration_cache = (configuration.serial, configuration.package)
         return self._configuration_cache
 
     @staticmethod
@@ -688,9 +721,9 @@ class ConfiguredRuntimeBackend:
             return None
         return bool(re.search(r"\b\d+\b", str(output)))
 
-    def snapshot(self) -> RuntimeSnapshot:
+    def snapshot(self, *, prepared: _RuntimeConfigSnapshot | None = None) -> RuntimeSnapshot:
         try:
-            serial, package = self._configuration()
+            serial, package = self._configuration(prepared=prepared)
             client = self._adb_client()
             devices = list(client.device_list())
         except RuntimeControlError:
@@ -847,7 +880,7 @@ class RuntimeControlManager:
         environment: DevEnvironment,
         *,
         backend_factory: Callable[[DevEnvironment], RuntimeBackend] | None = None,
-        session_state_provider: Callable[[], str | None] | None = None,
+        session_state_provider: Callable[[], RuntimeSessionState | str | None] | None = None,
         smoke_active_provider: Callable[[], bool] | None = None,
         supervisor_launcher: Callable[[DevEnvironment, str], object] | None = None,
         now: Callable[[], datetime] | None = None,
@@ -906,8 +939,13 @@ class RuntimeControlManager:
             )
         return replace(self.environment, dev_target=target)
 
-    def _assert_operation_binding(self, operation: DevRuntimeControlOperation) -> DevEnvironment:
-        """Проверить target и config binding перед чтением или мутацией runtime."""
+    def _assert_operation_binding_details(
+        self,
+        operation: DevRuntimeControlOperation,
+        *,
+        include_configuration: bool = False,
+    ) -> tuple[DevEnvironment, _RuntimeConfigSnapshot | None]:
+        """Проверить binding и, при необходимости, вернуть уже прочитанную config."""
 
         operation_environment = self._operation_environment(operation)
         current_target = _environment_target(self.environment)
@@ -922,16 +960,31 @@ class RuntimeControlManager:
                 outcome=ControlOutcome.PRECONDITION_FAILED,
             )
         current_environment = replace(self.environment, dev_target=current_target)
-        current_config_fingerprint = runtime_config_fingerprint(current_environment)
+        configuration = (
+            _runtime_config_snapshot(current_environment)
+            if include_configuration
+            else None
+        )
+        current_config_fingerprint = (
+            configuration.fingerprint
+            if configuration is not None
+            else runtime_config_fingerprint(current_environment)
+        )
         if current_config_fingerprint != operation.runtime_config_fingerprint:
             raise RuntimeControlError(
                 "DEV_CONTROL_CONFIG_CHANGED",
                 "Критическая конфигурация development target изменилась после принятия control operation",
                 outcome=ControlOutcome.PRECONDITION_FAILED,
             )
-        return operation_environment
+        return operation_environment, configuration
 
-    def _default_session_state(self) -> str | None:
+    def _assert_operation_binding(self, operation: DevRuntimeControlOperation) -> DevEnvironment:
+        """Проверить target и config binding перед чтением или мутацией runtime."""
+
+        environment, _configuration = self._assert_operation_binding_details(operation)
+        return environment
+
+    def _default_session_state(self) -> RuntimeSessionState | None:
         try:
             raw = read_bounded_bytes(self.environment.state_file, max_bytes=64 * 1024)
         except FileNotFoundError:
@@ -944,7 +997,10 @@ class RuntimeControlManager:
             session = DevSession.from_dict(json.loads(raw.decode("utf-8")))
         except Exception as exc:
             raise RuntimeControlError("DEV_CONTROL_SESSION_STATE_CORRUPT", "Состояние DevSession повреждено", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
-        return session.state.value
+        process_alive = None
+        if session.process is not None:
+            process_alive = _process_matches(session.process.pid, session.process.created_at)
+        return RuntimeSessionState(session.state.value, process_alive)
 
     def _default_smoke_active(self) -> bool:
         try:
@@ -957,8 +1013,16 @@ class RuntimeControlManager:
             raise RuntimeControlError("DEV_CONTROL_SMOKE_STATE_UNAVAILABLE", "Состояние SmokeRun невозможно проверить", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
 
     @staticmethod
-    def _active_session(state: str | None) -> bool:
-        return state in {"created", "starting", "running", "stopping"}
+    def _active_session(state: RuntimeSessionState | str | None) -> bool:
+        if isinstance(state, RuntimeSessionState):
+            lifecycle = state.state
+            process_alive = state.process_alive
+        else:
+            lifecycle = state
+            process_alive = None
+        if lifecycle in {"created", "starting", "running", "stopping", "stale"}:
+            return True
+        return lifecycle in {"failed", "stopped"} and process_alive is True
 
     @staticmethod
     def _requires_idle_session(action: ControlAction) -> bool:
@@ -1063,7 +1127,9 @@ class RuntimeControlManager:
             status_code = exc.code
             message = str(exc)
         details = snapshot.as_dict()
-        details["dev_session"] = {"state": session_state}
+        details["dev_session"] = {
+            "state": session_state.state if isinstance(session_state, RuntimeSessionState) else session_state
+        }
         details["smoke"] = {"active": smoke_active}
         details["control_operation"] = control_details
         return self._result(ok=status_ok, code=status_code, message=message, state="ready" if status_ok else "failed", details=details)
@@ -1374,11 +1440,30 @@ class RuntimeControlManager:
         except (TypeError, ValueError):
             return False
 
+    @staticmethod
+    def _backend_snapshot(
+        backend: RuntimeBackend,
+        prepared: _RuntimeConfigSnapshot | None,
+    ) -> RuntimeSnapshot:
+        if prepared is not None and isinstance(backend, ConfiguredRuntimeBackend):
+            return backend.snapshot(prepared=prepared)
+        return backend.snapshot()
+
     def _wait_for(self, operation: DevRuntimeControlOperation, backend: RuntimeBackend, predicate: Callable[[RuntimeSnapshot], bool]) -> tuple[DevRuntimeControlOperation, RuntimeSnapshot]:
         operation = self._transition(operation, ControlState.WAITING_READY, "DEV_CONTROL_WAITING_READY")
+        prepared: _RuntimeConfigSnapshot | None = None
+        binding_checked = False
+        next_binding_check = float("-inf")
         while self._before_deadline(operation):
-            self._assert_operation_binding(operation)
-            snapshot = backend.snapshot()
+            now = self.monotonic()
+            if not binding_checked or now >= next_binding_check:
+                _environment, prepared = self._assert_operation_binding_details(
+                    operation,
+                    include_configuration=isinstance(backend, ConfiguredRuntimeBackend),
+                )
+                binding_checked = True
+                next_binding_check = now + CONTROL_BINDING_RECHECK_SECONDS
+            snapshot = self._backend_snapshot(backend, prepared)
             if predicate(snapshot):
                 return operation, snapshot
             self.sleep(min(self.poll_seconds, 0.5))
@@ -1397,11 +1482,18 @@ class RuntimeControlManager:
     def _execute_action(self, operation: DevRuntimeControlOperation, backend: RuntimeBackend) -> DevRuntimeControlOperation:
         if not self._before_deadline(operation):
             raise _ControlFailure("DEV_CONTROL_TIMEOUT", "Control operation истекла до запуска", outcome=ControlOutcome.TIMEOUT)
-        self._assert_operation_binding(operation)
+        prepared: _RuntimeConfigSnapshot | None = None
+        if isinstance(backend, ConfiguredRuntimeBackend):
+            _environment, prepared = self._assert_operation_binding_details(
+                operation,
+                include_configuration=True,
+            )
+        else:
+            self._assert_operation_binding(operation)
         if operation.state is ControlState.CREATED:
             operation = self._transition(operation, ControlState.RUNNING, "DEV_CONTROL_STARTED")
         action = operation.action
-        snapshot = backend.snapshot()
+        snapshot = self._backend_snapshot(backend, prepared)
         if action is ControlAction.START_EMULATOR:
             if snapshot.emulator_running is True and snapshot.emulator_ready is True:
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_ALREADY_READY")
@@ -1584,6 +1676,7 @@ __all__ = [
     "RuntimeBackend",
     "RuntimeControlError",
     "RuntimeControlManager",
+    "RuntimeSessionState",
     "RuntimeSnapshot",
     "control_operation_path",
     "is_reparse_point",

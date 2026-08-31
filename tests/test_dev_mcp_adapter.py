@@ -627,7 +627,7 @@ def test_serializer_preserves_control_target_binding_without_internal_fields() -
     )
 
     operation = result["details"]["control_operation"]["operation"]
-    assert operation["target_profile_name"] == "ap"
+    assert "target_profile_name" not in operation
     assert operation["target_identity"] == "b" * 64
     assert operation["runtime_config_fingerprint"] == "c" * 64
     assert "supervisor_pid" not in operation
