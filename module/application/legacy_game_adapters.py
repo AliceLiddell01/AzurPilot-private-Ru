@@ -375,9 +375,13 @@ class LegacyScreenshotAdapter:
         *,
         device_factory: Callable[[str], object] | None = None,
         frame_encoder: Callable[[object], bytes] | None = None,
+        media_type: str = "image/jpeg",
     ) -> None:
+        if not isinstance(media_type, str) or not media_type:
+            raise ValueError("media_type должен быть непустой строкой")
         self._device_factory = device_factory
         self._frame_encoder = frame_encoder or self._encode_jpeg
+        self._media_type = media_type
 
     def read_frame(self, instance: str) -> MediaFrame:
         instance = _safe_instance_name(instance)
@@ -385,7 +389,7 @@ class LegacyScreenshotAdapter:
         data = self._frame_encoder(device.screenshot())  # type: ignore[attr-defined]
         if not isinstance(data, bytes) or not data:
             raise TypeError("encoder вернул пустой кадр")
-        return MediaFrame(data=data, media_type="image/jpeg")
+        return MediaFrame(data=data, media_type=self._media_type)
 
     def _make_device(self, instance: str) -> object:
         if self._device_factory is not None:
@@ -671,7 +675,10 @@ class LegacyAdbAdapter:
         ):
             if candidate.is_file():
                 return str(candidate.resolve())
-        return shutil.which("adb") or "adb"
+        discovered = shutil.which("adb")
+        if discovered:
+            return str(Path(discovered).resolve())
+        raise ValueError("Исполняемый файл ADB не найден.")
 
 
 __all__ = [

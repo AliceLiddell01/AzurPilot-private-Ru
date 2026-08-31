@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 
 from module.application.errors import (
-    ApplicationError,
     ConfigurationValidationError,
     InvalidRequestError,
     OperationFailedError,
@@ -56,8 +55,6 @@ def known_instance(reader: InstanceRuntimeReader, value: object) -> str:
             raise TypeError("reader вернул некорректный список экземпляров")
         if len(names) != len(set(names)):
             raise TypeError("reader вернул повторяющиеся экземпляры")
-    except ApplicationError:
-        raise ServiceUnavailableError("Не удалось проверить экземпляр.") from None
     except Exception:  # noqa: BLE001 - application boundary sanitizes legacy failures.
         raise ServiceUnavailableError("Не удалось проверить экземпляр.") from None
     if instance not in names:
@@ -80,10 +77,6 @@ def scheduler_tasks(reader: SchedulerTaskReader) -> tuple[str, ...]:
         if len(tasks) != len(set(tasks)):
             raise TypeError("registry вернул повторяющиеся задачи")
         return tasks
-    except ApplicationError:
-        raise ServiceUnavailableError(
-            "Не удалось получить реестр задач scheduler."
-        ) from None
     except Exception:  # noqa: BLE001
         raise ServiceUnavailableError(
             "Не удалось получить реестр задач scheduler."
@@ -93,8 +86,6 @@ def scheduler_tasks(reader: SchedulerTaskReader) -> tuple[str, ...]:
 def safe_read(operation: str, callback: Callable[[], object]) -> object:
     try:
         return callback()
-    except ApplicationError:
-        raise ServiceUnavailableError(f"Не удалось выполнить чтение: {operation}.") from None
     except Exception:  # noqa: BLE001 - public result must not expose adapter details.
         raise ServiceUnavailableError(f"Не удалось выполнить чтение: {operation}.") from None
 
@@ -102,8 +93,6 @@ def safe_read(operation: str, callback: Callable[[], object]) -> object:
 def safe_control(operation: str, callback: Callable[[], object]) -> object:
     try:
         return callback()
-    except ApplicationError:
-        raise OperationFailedError(f"Не удалось выполнить операцию: {operation}.") from None
     except Exception:  # noqa: BLE001 - public result must not expose adapter details.
         raise OperationFailedError(f"Не удалось выполнить операцию: {operation}.") from None
 

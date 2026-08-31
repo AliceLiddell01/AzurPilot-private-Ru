@@ -81,28 +81,6 @@ class ConfigGenerationTests(unittest.TestCase):
             "sensitive",
             self.generated_args["Alas"]["Error"]["LlmApiBase"],
         )
-        for name, source_data, generated_data in (
-            (
-                "Error.OnePushConfig",
-                self.argument_source["Error"]["OnePushConfig"],
-                self.generated_args["Alas"]["Error"]["OnePushConfig"],
-            ),
-            (
-                "Error.LlmApiKey",
-                self.argument_source["Error"]["LlmApiKey"],
-                self.generated_args["Alas"]["Error"]["LlmApiKey"],
-            ),
-            (
-                "OpsiGeneral.OpsiOnePushConfig",
-                self.argument_source["OpsiGeneral"]["OpsiOnePushConfig"],
-                self.generated_args["OpsiGeneral"]["OpsiGeneral"][
-                    "OpsiOnePushConfig"
-                ],
-            ),
-        ):
-            with self.subTest(name=name):
-                self.assertIs(source_data.get("sensitive"), True)
-                self.assertIs(generated_data.get("sensitive"), True)
 
     def test_sensitive_metadata_is_kept_in_source_and_generated_config(self) -> None:
         source_paths = {

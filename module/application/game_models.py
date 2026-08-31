@@ -334,13 +334,11 @@ class EmulatorRestartResult:
 
 @dataclass(frozen=True, slots=True)
 class AdbRestartResult:
-    instance: str | None
+    instance: str
 
     def __post_init__(self) -> None:
-        if self.instance is not None and (
-            not isinstance(self.instance, str) or not self.instance
-        ):
-            raise ValueError("instance должен быть непустой строкой или None")
+        if not isinstance(self.instance, str) or not self.instance:
+            raise ValueError("instance должен быть непустой строкой")
 
 
 @dataclass(frozen=True, slots=True)

@@ -243,9 +243,10 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     screenshot = LegacyScreenshotAdapter(
         device_factory=lambda instance: Device(),
         frame_encoder=lambda image: b"encoded",
+        media_type="image/png",
     )
     monkeypatch.delenv("ALAS_CONFIG_NAME", raising=False)
-    assert screenshot.read_frame("secondary") == MediaFrame(b"encoded", "image/jpeg")
+    assert screenshot.read_frame("secondary") == MediaFrame(b"encoded", "image/png")
     assert "ALAS_CONFIG_NAME" not in os.environ
 
     class Manager:
@@ -302,7 +303,9 @@ def _make_adb_adapter(
     def runner(argv: tuple[str, ...]) -> _CommandResult:
         calls.append(argv)
         if argv[-1] == "devices":
-            return _CommandResult(0, next(inventory_iter))
+            inventory = next(inventory_iter, None)
+            assert inventory is not None, "адаптер запросил инвентарь лишний раз"
+            return _CommandResult(0, inventory)
         return _CommandResult(0)
 
     adapter = LegacyAdbAdapter(

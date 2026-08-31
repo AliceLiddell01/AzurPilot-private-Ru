@@ -372,7 +372,7 @@ def test_control_service_rejects_unscoped_adb_restart_before_adapter_call():
     )
 
     with pytest.raises(InvalidRequestError):
-        service.restart_adb()
+        service.restart_adb(None)  # type: ignore[arg-type]
     assert adb.calls == []
 
 

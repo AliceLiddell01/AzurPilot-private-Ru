@@ -229,7 +229,7 @@ class GameControlService:
             raise OperationFailedError("Эмулятор не подтвердил перезапуск.")
         return EmulatorRestartResult(instance=instance)
 
-    def restart_adb(self, instance: str | None = None) -> AdbRestartResult:
+    def restart_adb(self, instance: str) -> AdbRestartResult:
         if instance is None:
             raise InvalidRequestError("Перезапуск ADB требует имя экземпляра.")
         instance = known_instance(self._instance_reader, instance)

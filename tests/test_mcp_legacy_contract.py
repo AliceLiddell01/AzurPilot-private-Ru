@@ -25,6 +25,7 @@ from module.application import (
     LifecycleOutcome,
     LifecycleResult,
     MediaFrame,
+    OperationFailedError,
     RuntimeLogTail,
     RuntimeState,
     SchedulerEntry,
