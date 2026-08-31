@@ -204,6 +204,9 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
         (config / f"{profile_name}.json").write_text(
             json.dumps(profile_payload), encoding="utf-8"
         )
+    python = root / ".venv" / ("Scripts" if os.name == "nt" else "bin") / (
+        "python.exe" if os.name == "nt" else "python"
+    )
     target_a = DevTargetRegistry.configure(
         root,
         profile_name="profile-a",
@@ -211,7 +214,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     )
     environment_a = DevEnvironment(
         root,
-        root / ".venv" / "Scripts" / "python.exe",
+        python,
         target_a,
     )
     identity = _identity(environment_a, "recorded-target-session", pid=7401)
@@ -242,7 +245,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     )
     environment_b = DevEnvironment(
         root,
-        root / ".venv" / "Scripts" / "python.exe",
+        python,
         DevTarget("profile-b"),
     )
     backend = ProcessBackend()
@@ -319,6 +322,18 @@ def test_dev_environment_keeps_venv_symlink_path(
     root = tmp_path.resolve()
     (root / "module").mkdir()
     (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    config = root / "config"
+    config.mkdir()
+    (config / "ap.json").write_text(
+        json.dumps(
+            {
+                "Alas": {"Emulator": {}},
+                "General": {},
+                "SyntheticTask": {"Scheduler": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
     python = root / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
     python.symlink_to(Path(sys.executable))
