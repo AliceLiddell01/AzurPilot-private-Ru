@@ -106,7 +106,10 @@ Foreground Start, который сам создал backend, сохраняет
 проверяется структурным profile discovery; при отсутствии marker read-only
 разрешается default из tracked target policy (`ap` после проверки профиля).
 Переключение target требует явного согласия пользователя, а публичный lifecycle
-API не принимает произвольный профиль.
+API не принимает произвольный профиль. Adapter перепривязывает новые вызовы к
+текущему registry target, а уже принятая control operation сохраняет immutable
+target identity и fingerprint критической конфигурации; mismatch не может
+молча перенаправить мутацию на другой профиль и завершается fail-closed.
 
 Обычный runtime запускается только через project `.venv` Python и штатный
 `gui.py --run <configured-target>`. Preflight требует уже подготовленное окружение: наличие
@@ -151,7 +154,9 @@ MCP не должен становиться обходом конфигурац
 `module/dev_mcp` — отдельный stdio-адаптер только для разработки поверх
 `DevSessionManager` и `RuntimeControlManager`. Он использует только target,
 разрешённый registry (включая policy default при отсутствии marker), создаёт
-менеджер лениво и не связан с рабочим `mcp_server_sse.py`. Запуск не должен
+менеджер лениво и не связан с рабочим `mcp_server_sse.py`. При смене marker
+создаётся новый manager только для новых операций; старые DevSession/Evidence
+разрешают записанный profile. Запуск не должен
 читать профиль или запускать runtime; схема и безопасная сериализация остаются
 границей адаптера, а владение, политика задач и очистка принадлежат
 `DevSessionManager`; runtime control владеет отдельными persistent operations.

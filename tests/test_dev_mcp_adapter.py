@@ -18,6 +18,7 @@ from module.dev_runtime import (
     DevSessionManager,
     DevStatusKind,
     DevTarget,
+    DevTargetRegistry,
     EvidenceScreenshot,
     EvidenceStore,
     ProcessBackend,
@@ -176,6 +177,12 @@ class _FakeManager:
         return _result("DEV_CONTROL_OPERATION_READY")
 
 
+class _TargetAwareFakeManager(_FakeManager):
+    def __init__(self, environment: DevEnvironment) -> None:
+        super().__init__()
+        self.environment = environment
+
+
 def _adapter_with_factory() -> tuple[DevMcpAdapter, _FakeManager, list[int]]:
     manager = _FakeManager()
     factory_calls: list[int] = []
@@ -197,6 +204,48 @@ def test_contract_is_static_safe_and_does_not_construct_runtime_manager() -> Non
     assert result["details"]["contract"] == EXPECTED_CONTRACT
     assert factory_calls == []
     assert manager.calls == []
+
+
+def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) -> None:
+    root = tmp_path.resolve()
+    config = root / "config"
+    config.mkdir(parents=True)
+    for profile_name in ("adapter-a", "adapter-b"):
+        (config / f"{profile_name}.json").write_text(
+            json.dumps(
+                {
+                    "Alas": {"Emulator": {}},
+                    "General": {},
+                    "SyntheticTask": {"Scheduler": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+    DevTargetRegistry.configure(
+        root,
+        profile_name="adapter-a",
+        explicit_consent=True,
+    )
+    python = root / ".venv" / "Scripts" / "python.exe"
+    environment_a = DevEnvironment(root, python, DevTarget("adapter-a"))
+    environment_b = DevEnvironment(root, python, DevTarget("adapter-b"))
+    manager_a = _TargetAwareFakeManager(environment_a)
+    manager_b = _TargetAwareFakeManager(environment_b)
+    managers = iter((manager_a, manager_b))
+    adapter = DevMcpAdapter(lambda: next(managers))
+
+    first = adapter.call("dev_status", {})
+    DevTargetRegistry.configure(
+        root,
+        profile_name="adapter-b",
+        explicit_consent=True,
+    )
+    second = adapter.call("dev_status", {})
+
+    assert first["code"] == "DEV_SESSION_STOPPED"
+    assert second["code"] == "DEV_SESSION_STOPPED"
+    assert manager_a.calls == [("status", None)]
+    assert manager_b.calls == [("status", None)]
 
 
 class _SyntheticProcessBackend:
@@ -546,6 +595,40 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
         "smoke_id": "smoke-1",
         "outcome": "PASS",
     }
+
+
+def test_serializer_preserves_control_target_binding_without_internal_fields() -> None:
+    result = serialize_dev_result(
+        {
+            "ok": True,
+            "code": "DEV_CONTROL_ACCEPTED",
+            "message": "принято",
+            "state": "created",
+            "details": {
+                "control_operation": {
+                    "active": True,
+                    "operation": {
+                        "control_id": "a" * 32,
+                        "action": "start_game",
+                        "target_profile_name": "ap",
+                        "target_identity": "b" * 64,
+                        "runtime_config_fingerprint": "c" * 64,
+                        "state": "created",
+                        "outcome": None,
+                        "created_at": "2026-08-31T00:00:00+00:00",
+                        "transitions": [],
+                        "supervisor_pid": 1234,
+                    },
+                }
+            },
+        }
+    )
+
+    operation = result["details"]["control_operation"]["operation"]
+    assert operation["target_profile_name"] == "ap"
+    assert operation["target_identity"] == "b" * 64
+    assert operation["runtime_config_fingerprint"] == "c" * 64
+    assert "supervisor_pid" not in operation
 
 
 def test_serializer_preserves_canonical_smoke_evaluation_source_only() -> None:

@@ -21,10 +21,11 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from module.dev_mcp.contract import contract_result
+from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.smoke import SmokeSpec
-from module.dev_runtime.target import DevTargetError
+from module.dev_runtime.target import DevTargetError, DevTargetRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -438,7 +439,20 @@ _SAFE_RUNTIME_GAME_KEYS = frozenset({"reachable", "foreground", "running"})
 _SAFE_RUNTIME_SESSION_KEYS = frozenset({"state"})
 _SAFE_RUNTIME_SMOKE_KEYS = frozenset({"active"})
 _SAFE_CONTROL_OPERATION_KEYS = frozenset(
-    {"control_id", "action", "state", "outcome", "created_at", "started_at", "deadline_at", "finished_at", "transitions"}
+    {
+        "control_id",
+        "action",
+        "target_profile_name",
+        "target_identity",
+        "runtime_config_fingerprint",
+        "state",
+        "outcome",
+        "created_at",
+        "started_at",
+        "deadline_at",
+        "finished_at",
+        "transitions",
+    }
 )
 _SAFE_CONTROL_STATUS_KEYS = frozenset({"active", "operation", "code"})
 _SAFE_CONTROL_TRANSITION_KEYS = frozenset({"timestamp", "state", "code"})
@@ -685,6 +699,9 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "unrelated_devices": "bool",
     "active": "bool",
     "action": "string",
+    "target_profile_name": "string",
+    "target_identity": "string",
+    "runtime_config_fingerprint": "string",
     "transitions": "control_transition_list",
     "control_id": "string",
 }
@@ -1090,6 +1107,9 @@ _SCHEMA_CHILD_SCHEMAS = {
     "control_operation": {
         "control_id": "string",
         "action": "string",
+        "target_profile_name": "string",
+        "target_identity": "string",
+        "runtime_config_fingerprint": "string",
         "state": "string",
         "outcome": "string",
         "created_at": "string",
@@ -1532,7 +1552,12 @@ def _internal_error() -> dict[str, object]:
 
 
 class DevMcpAdapter:
-    """Передавать MCP-инструменты одному лениво создаваемому Dev Runtime manager."""
+    """Передавать MCP-инструменты target-bound Dev Runtime manager.
+
+    Manager сохраняется между вызовами только пока repository-scoped target
+    остаётся тем же. Уже созданные DevSession/evidence state не переносятся и
+    продолжают разрешать собственный записанный profile через manager API.
+    """
 
     def __init__(
         self,
@@ -1543,14 +1568,32 @@ class DevMcpAdapter:
         self._manager: DevRuntimeManager | None = None
         self._manager_lock = threading.Lock()
 
+    @staticmethod
+    def _target_changed(manager: DevRuntimeManager) -> bool:
+        environment = getattr(manager, "environment", None)
+        if not isinstance(environment, DevEnvironment):
+            # Синтетические manager implementations могут не владеть runtime
+            # environment; для них сохраняется прежний factory contract.
+            return False
+        current = DevTargetRegistry.load_for_environment(
+            environment.repository_root,
+            fallback=environment.dev_target,
+        )
+        return current != environment.dev_target
+
     def _get_manager(self) -> DevRuntimeManager:
         manager = self._manager
-        if manager is not None:
+        if manager is not None and not self._target_changed(manager):
             return manager
         with self._manager_lock:
             manager = self._manager
-            if manager is None:
+            if manager is None or self._target_changed(manager):
                 manager = self._manager_factory()
+                if self._target_changed(manager):
+                    raise DevTargetError(
+                        "DEV_TARGET_REBIND_FAILED",
+                        "Новый Dev Runtime manager не соответствует назначенному development target",
+                    )
                 self._manager = manager
             return manager
 

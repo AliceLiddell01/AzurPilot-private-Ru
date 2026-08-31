@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -65,7 +65,7 @@ def test_stop_converts_mid_stop_runtime_error_to_fail_closed_result(tmp_path: Pa
     manager = DevSessionManager(
         environment,
         process_backend=backend,
-        now=lambda: datetime(2026, 8, 29, tzinfo=timezone.utc),
+        now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
         stop_timeout=0.01,
     )
     manager._write_session(
@@ -111,6 +111,47 @@ def test_cli_converts_manager_runtime_error_to_structured_json(
     assert payload["code"] == "DEV_CLI_FAILED"
     assert payload["state"] == DevStatusKind.FAILED.value
     assert "RuntimeError" in payload["message"]
+
+
+def test_cli_converts_manager_value_error_to_structured_json(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class BrokenManager:
+        def status(self):
+            raise ValueError("synthetic unsafe state")
+
+    monkeypatch.setattr(cli_module, "DevSessionManager", BrokenManager)
+    monkeypatch.setattr(sys, "argv", ["dev_runtime.py", "status"])
+
+    exit_code = cli_module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["code"] == "DEV_CLI_FAILED"
+    assert payload["state"] == "failed"
+    assert "ValueError" in payload["message"]
+
+
+def test_cli_rejects_task_arguments_for_non_task_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli_module,
+        "DevSessionManager",
+        lambda: pytest.fail("manager must not be constructed for invalid arguments"),
+    )
+    monkeypatch.setattr(sys, "argv", ["dev_runtime.py", "smoke", "--task", "RootTask"])
+
+    exit_code = cli_module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["code"] == "DEV_CLI_ARGUMENTS_INVALID"
+    assert payload["state"] == "failed"
 
 
 @pytest.mark.parametrize("operation", ["stop", "cleanup", "recover"])

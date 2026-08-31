@@ -232,7 +232,13 @@ package, executable и пользовательские пути наружу н
 машиночитаемый outcome (`PASS`, `PRECONDITION_FAILED`, `CONFLICT`, `TIMEOUT`,
 `CONTROL_FAILED` или `ABORTED`) и ограниченный журнал переходов. Проверка PID и
 времени создания supervisor предотвращает ложный PASS после падения или
-перезапуска процесса; состояние остаётся читаемым после рестарта MCP.
+перезапуска процесса; состояние остаётся читаемым после рестарта MCP. В schema 2
+каждая operation также сохраняет target profile, непрозрачную `target_identity` и
+`runtime_config_fingerprint`. Перед исполнением supervisor и manager сверяют
+marker target и критическую конфигурацию с принятой operation; смена target или
+конфигурации завершается соответственно `DEV_CONTROL_TARGET_CHANGED` или
+`DEV_CONTROL_CONFIG_CHANGED` без вызова backend. Неполный или устаревший state
+отбрасывается fail-closed.
 
 Разрешена только одна активная control operation. Создание control operation,
 SmokeRun и DevSession проходит через общую repository-scoped coordination lock;

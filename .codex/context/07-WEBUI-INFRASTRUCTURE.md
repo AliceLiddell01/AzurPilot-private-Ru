@@ -71,7 +71,9 @@ authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy и
 для этого пути не требуются. `module.dev_mcp.contract` публикует read-only boundary с
 версиями API/Smoke schemas, required feature flags, capability families и
 result outcomes. Runtime status/control не раскрывают serial, package, пути или
-команды и хранят bounded operation state в ignored `config/state/`.
+команды и хранят bounded operation state в ignored `config/state/`; control
+operation сохраняет target identity и fingerprint критической конфигурации и
+fail-closed при их изменении.
 Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
 любом несовпадении.
 

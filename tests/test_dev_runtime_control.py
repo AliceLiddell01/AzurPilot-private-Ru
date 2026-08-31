@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from module.dev_runtime import (
+    ConfiguredRuntimeBackend,
     ControlAction,
     ControlOutcome,
     DevEnvironment,
@@ -19,7 +20,6 @@ from module.dev_runtime import (
 )
 from module.dev_runtime import control as control_module
 
-
 _TARGET_NAME = "synthetic-target"
 _NOW = datetime(2026, 8, 31, tzinfo=UTC)
 
@@ -27,7 +27,23 @@ _NOW = datetime(2026, 8, 31, tzinfo=UTC)
 def _environment(tmp_path: Path) -> DevEnvironment:
     root = tmp_path.resolve()
     (root / "module").mkdir(parents=True)
-    (root / "config").mkdir()
+    config = root / "config"
+    config.mkdir()
+    (config / f"{_TARGET_NAME}.json").write_text(
+        json.dumps(
+            {
+                "Alas": {
+                    "Emulator": {
+                        "Serial": "127.0.0.1:5555",
+                        "PackageName": "com.example.azurpilot",
+                    }
+                },
+                "General": {},
+                "SyntheticTask": {"Scheduler": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
     (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
     return DevEnvironment(
         repository_root=root,
@@ -223,7 +239,7 @@ def test_runtime_status_does_not_persist_orphan_reconciliation(
 ) -> None:
     environment = _environment(tmp_path)
     manager = _manager(environment, _FakeRuntimeBackend())
-    control_id = _accepted(manager, ControlAction.START_GAME)
+    _accepted(manager, ControlAction.START_GAME)
     before = manager.store.operation_path.read_bytes()
     monkeypatch.setattr(control_module, "_process_matches", lambda _pid, _created_at: False)
 
@@ -509,7 +525,125 @@ def test_control_operation_survives_manager_reinstantiation_and_disconnect(
     persisted = second_manager.get_operation(control_id)
     assert persisted.ok is True
     assert persisted.details["control_operation"]["outcome"] == ControlOutcome.PASS.value
+    stored = second_manager.store.read()
+    assert stored is not None
+    assert stored.target_profile_name == _TARGET_NAME
+    assert len(persisted.details["control_operation"]["target_identity"]) == 64
+    assert len(persisted.details["control_operation"]["runtime_config_fingerprint"]) == 64
     assert "supervisor_pid" not in json.dumps(persisted.as_dict(), ensure_ascii=False)
+
+
+def test_control_operation_fails_closed_after_registry_target_switch(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    target_b = "target-b"
+    (environment.repository_root / "config" / f"{target_b}.json").write_text(
+        json.dumps(
+            {
+                "Alas": {
+                    "Emulator": {
+                        "Serial": "127.0.0.1:5556",
+                        "PackageName": "com.example.azurpilot",
+                    }
+                },
+                "General": {},
+                "SyntheticTask": {"Scheduler": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    backend = _FakeRuntimeBackend()
+    manager = _manager(environment, backend)
+    control_id = _accepted(manager, ControlAction.START_GAME)
+
+    from module.dev_runtime.target import DevTargetRegistry
+
+    DevTargetRegistry.configure(
+        environment.repository_root,
+        profile_name=target_b,
+        explicit_consent=True,
+    )
+
+    result = manager.execute(control_id)
+
+    assert result.ok is False
+    assert result.code == "DEV_CONTROL_TARGET_CHANGED"
+    assert result.details["control_operation"]["outcome"] == ControlOutcome.PRECONDITION_FAILED.value
+    assert result.details["control_operation"]["transitions"][-1]["code"] == "DEV_CONTROL_TARGET_CHANGED"
+    assert backend.calls == []
+
+
+def test_control_operation_fails_closed_after_critical_config_change(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = _FakeRuntimeBackend()
+    manager = _manager(environment, backend)
+    control_id = _accepted(manager, ControlAction.START_GAME)
+    profile_path = environment.profile_file
+    payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    payload["Alas"]["Emulator"]["Serial"] = "127.0.0.1:5556"
+    profile_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = manager.execute(control_id)
+
+    assert result.ok is False
+    assert result.code == "DEV_CONTROL_CONFIG_CHANGED"
+    assert result.details["control_operation"]["outcome"] == ControlOutcome.PRECONDITION_FAILED.value
+    assert result.details["control_operation"]["transitions"][-1]["code"] == "DEV_CONTROL_CONFIG_CHANGED"
+    assert backend.calls == []
+
+
+def test_control_operation_without_target_identity_is_corrupt(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _FakeRuntimeBackend())
+    control_id = _accepted(manager, ControlAction.START_GAME)
+    payload = json.loads(manager.store.operation_path.read_text(encoding="utf-8"))
+    payload.pop("target_identity")
+    manager.store.operation_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = manager.execute(control_id)
+
+    assert result.ok is False
+    assert result.code == "DEV_CONTROL_STATE_CORRUPT"
+
+
+def test_control_config_fingerprint_changes_when_profile_changes(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    before = control_module.runtime_config_fingerprint(environment)
+    payload = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+    payload["Alas"]["Emulator"]["PackageName"] = "com.example.changed"
+    environment.profile_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert control_module.runtime_config_fingerprint(environment) != before
+
+
+def test_configured_backend_invalidates_cached_configuration_on_profile_change(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = ConfiguredRuntimeBackend(environment)
+    assert backend._configuration() == ("127.0.0.1:5555", "com.example.azurpilot")
+    backend._platform = object()
+    backend._app = object()
+
+    payload = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+    payload["Alas"]["Emulator"]["Serial"] = "127.0.0.1:5556"
+    environment.profile_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert backend._configuration() == ("127.0.0.1:5556", "com.example.azurpilot")
+    assert backend._platform is None
+    assert backend._app is None
 
 
 def test_supervisor_crash_is_reconciled_as_aborted(

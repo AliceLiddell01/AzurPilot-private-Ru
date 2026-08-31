@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -167,6 +169,18 @@ class DevTarget:
         }
 
 
+def target_identity(target: DevTarget) -> str:
+    """Получить стабильную непрозрачную identity канонического target."""
+
+    canonical = json.dumps(
+        target.as_dict(),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 class DevTargetRegistry:
     """Разрешает target и атомарно записывает repository-scoped marker."""
 
@@ -272,6 +286,26 @@ class DevTargetRegistry:
             ) from exc
 
         return cls._resolve(repository_root, target)
+
+    @classmethod
+    def load_for_environment(
+        cls,
+        repository_root: Path,
+        *,
+        fallback: DevTarget | None = None,
+    ) -> DevTarget:
+        """Разрешить marker target, сохранив явно внедрённый target без marker.
+
+        ``DevEnvironment`` допускает явный target для изолированных тестов и
+        composition roots. Если repository-scoped marker отсутствует, такой
+        target уже является назначением среды. Как только marker появляется,
+        канонический registry имеет приоритет и его ошибки не скрываются.
+        """
+
+        path = _target_file(repository_root)
+        if fallback is not None and not os.path.lexists(path):
+            return fallback
+        return cls.load(repository_root)
 
     @classmethod
     def configure(
@@ -385,6 +419,7 @@ __all__ = [
     "DevTargetError",
     "DevTargetPolicy",
     "DevTargetRegistry",
+    "target_identity",
 ]
 
 

@@ -36,11 +36,11 @@ try:
 except ImportError:
     remove_fake_pil_module = None
 
-# 初始化日志
+# Инициализация логирования.
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("azurpilot-mcp")
 
-# 初始化配置助手
+# Инициализация помощника конфигурации.
 helper = McpConfigHelper()
 
 ToolResponse = List[TextContent | ImageContent]
@@ -242,19 +242,19 @@ async def _tool_update_config(arguments: Dict[str, Any]) -> ToolResponse:
     path = f"{task}.{group}.{arg}"
     config.cross_set(path, value)
     config.save()
-    return [TextContent(type="text", text=f"Success: Updated {path} to {value}")]
+    return [TextContent(type="text", text=f"Успешно: параметр {path} обновлён на {value}")]
 
 
 async def _tool_get_recent_logs(arguments: Dict[str, Any]) -> ToolResponse:
     inst = arguments["instance"]
     lines_count = arguments.get("lines", 50)
 
-    # AzurPilot 日志命名规则通常是 YYYY-MM-DD_实例名.txt
+    # Обычно логи AzurPilot называются YYYY-MM-DD_имя-экземпляра.txt.
     date_str = datetime.date.today().strftime("%Y-%m-%d")
     log_file = f"./log/{date_str}_{inst}.txt"
 
     if not os.path.exists(log_file):
-        # 尝试不带实例名的通用日志
+        # Попробовать общий лог без имени экземпляра.
         log_file_alt = f"./log/{date_str}_alas.txt"
         if os.path.exists(log_file_alt):
             log_file = log_file_alt
@@ -262,34 +262,34 @@ async def _tool_get_recent_logs(arguments: Dict[str, Any]) -> ToolResponse:
     if os.path.exists(log_file):
         try:
             with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-                # 对于超大文件，使用 tail 逻辑更安全
-                # 为了简单这里仍使用 readlines，但限制读取范围
+                # Для больших файлов безопаснее использовать tail; здесь
+                # readlines ограничен только по количеству возвращаемых строк.
                 content = f.readlines()
                 content = content[-lines_count:]
             return [TextContent(type="text", text="".join(content))]
         except Exception as e:
-            return [TextContent(type="text", text=f"Error reading log: {str(e)}")]
-    return [TextContent(type="text", text=f"Log file not found: {log_file}")]
+            return [TextContent(type="text", text=f"Ошибка чтения лога: {str(e)}")]
+    return [TextContent(type="text", text=f"Файл лога не найден: {log_file}")]
 
 
 async def _tool_start_instance(arguments: Dict[str, Any]) -> ToolResponse:
     inst = arguments["instance"]
     manager = ProcessManager.get_manager(inst)
     if manager.alive:
-        return [TextContent(type="text", text=f"Error: {inst} is already running.")]
+        return [TextContent(type="text", text=f"Ошибка: {inst} уже запущен.")]
     from module.submodule.utils import get_config_mod
     func = get_config_mod(inst)
     manager.start(func=func)
-    return [TextContent(type="text", text=f"Success: Started {inst} ({func})")]
+    return [TextContent(type="text", text=f"Успешно: {inst} запущен ({func})")]
 
 
 async def _tool_stop_instance(arguments: Dict[str, Any]) -> ToolResponse:
     inst = arguments["instance"]
     manager = ProcessManager.get_manager(inst)
     if not manager.alive:
-        return [TextContent(type="text", text=f"Error: {inst} is not running.")]
+        return [TextContent(type="text", text=f"Ошибка: {inst} не запущен.")]
     manager.stop()
-    return [TextContent(type="text", text=f"Success: Stopped {inst}")]
+    return [TextContent(type="text", text=f"Успешно: {inst} остановлен")]
 
 
 async def _tool_get_screenshot(arguments: Dict[str, Any]) -> ToolResponse:
@@ -302,7 +302,7 @@ async def _tool_get_screenshot(arguments: Dict[str, Any]) -> ToolResponse:
     from module.device.device import Device
     from PIL import Image
     try:
-        import PIL.JpegImagePlugin  # noqa: F401  # 确保 JPEG 编码器已注册。
+        import PIL.JpegImagePlugin  # noqa: F401  # Регистрация JPEG-кодировщика.
     except ImportError:
         pass
 
@@ -318,7 +318,7 @@ async def _tool_get_screenshot(arguments: Dict[str, Any]) -> ToolResponse:
         return [ImageContent(type="image", data=img_data, mimeType="image/jpeg")]
     except Exception as e:
         import traceback
-        error_msg = f"Error getting screenshot: {str(e)}\n{traceback.format_exc()}"
+        error_msg = f"Ошибка получения скриншота: {str(e)}\n{traceback.format_exc()}"
         return [TextContent(type="text", text=error_msg)]
 
 
@@ -326,7 +326,7 @@ async def _tool_get_current_running_task(arguments: Dict[str, Any]) -> ToolRespo
     inst = arguments["instance"]
     manager = ProcessManager.get_manager(inst)
     if not manager.alive:
-        return [TextContent(type="text", text="Error: Instance is not running.")]
+        return [TextContent(type="text", text="Ошибка: экземпляр не запущен.")]
     task = "Unknown"
 
     date_str = datetime.date.today().strftime("%Y-%m-%d")
@@ -340,10 +340,10 @@ async def _tool_get_current_running_task(arguments: Dict[str, Any]) -> ToolRespo
                 lines = f.readlines()
                 for line in reversed(lines):
                     import re
-                    # 适配现代 AzurPilot 日志格式: 调度器: 开始任务 `TaskName`
+                    # Современный формат лога AzurPilot с маркером начала задачи.
                     m = re.search(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]", line)
                     if not m:
-                        # 适配旧版或特殊格式: <<< Run task TaskName >>>
+                        # Старый или специальный формат: <<< Run task TaskName >>>.
                         m = re.search(r"<<<\s*Run task\s*(.*?)\s*>>>", line)
 
                     if m:
@@ -377,7 +377,7 @@ async def _tool_trigger_task(arguments: Dict[str, Any]) -> ToolResponse:
     now = current_time()
     config.cross_set(f"{task}.Scheduler.NextRun", str(now))
     config.save()
-    return [TextContent(type="text", text=f"Success: Task {task} scheduled for immediately.")]
+    return [TextContent(type="text", text=f"Успешно: задача {task} запланирована на немедленный запуск.")]
 
 
 async def _tool_clear_scheduler_queue(arguments: Dict[str, Any]) -> ToolResponse:
@@ -391,7 +391,7 @@ async def _tool_clear_scheduler_queue(arguments: Dict[str, Any]) -> ToolResponse
             cleared.append(task_name)
     if cleared:
         config.save()
-    return [TextContent(type="text", text=f"Success: Cleared tasks: {', '.join(cleared)}")]
+    return [TextContent(type="text", text=f"Успешно: задачи очищены: {', '.join(cleared)}")]
 
 
 async def _tool_restart_emulator(arguments: Dict[str, Any]) -> ToolResponse:
@@ -409,23 +409,23 @@ async def _tool_restart_emulator(arguments: Dict[str, Any]) -> ToolResponse:
         device.emulator_stop()
         time.sleep(60)
         device.emulator_start()
-        return [TextContent(type="text", text=f"Success: Restarted emulator for {inst}")]
+        return [TextContent(type="text", text=f"Успешно: эмулятор {inst} перезапущен")]
     except Exception as e:
         import traceback
-        error_msg = f"Error restarting emulator: {str(e)}\n{traceback.format_exc()}"
+        error_msg = f"Ошибка перезапуска эмулятора: {str(e)}\n{traceback.format_exc()}"
         return [TextContent(type="text", text=error_msg)]
 
 
 async def _tool_restart_adb(arguments: Dict[str, Any]) -> ToolResponse:
     inst = arguments.get("instance", DEFAULT_CONFIG_NAME)
     try:
-        # 尝试从 deploy.yaml 获取 ADB 路径
+        # Попробовать получить путь к ADB из deploy.yaml.
         adb_path = State.deploy_config.AdbExecutable
         if adb_path:
             adb_path = adb_path.replace('\\', '/')
 
         if not adb_path or not os.path.exists(adb_path):
-            # 回退到 connection_attr 的查找逻辑
+            # Использовать резервный поиск из connection_attr.
             adb_search_list = [
                 './.venv/Scripts/adb.exe',
                 './.venv/bin/adb',
@@ -440,9 +440,9 @@ async def _tool_restart_adb(arguments: Dict[str, Any]) -> ToolResponse:
 
         subprocess.run([adb_path, "kill-server"], check=False)
         subprocess.run([adb_path, "start-server"], check=False)
-        return [TextContent(type="text", text=f"Success: Restarted ADB service using {adb_path}.")]
+        return [TextContent(type="text", text=f"Успешно: сервис ADB перезапущен через {adb_path}.")]
     except Exception as e:
-        return [TextContent(type="text", text=f"Error: {str(e)}")]
+        return [TextContent(type="text", text=f"Ошибка: {str(e)}")]
 
 
 TOOL_HANDLERS = {
@@ -494,7 +494,7 @@ mcp_server = Server(
     on_call_tool=_call_tool,
 )
 
-# SSE 传输层初始化 - 固定端点（与 /mcp 挂载点匹配）
+# Инициализация SSE-транспорта с фиксированным endpoint, соответствующим /mcp.
 transport = SseServerTransport("/mcp/messages")
 
 
@@ -520,7 +520,7 @@ async def _handle_mcp_post(scope, receive, send, method):
         await transport.handle_post_message(scope, receive, send)
         logger.info("POST-сообщение MCP обработано.")
     except Exception as e:
-        # 捕获常见的断开连接错误，避免服务器崩溃
+        # Обработать типичные ошибки отключения клиента, чтобы сервер не падал.
         if _is_mcp_client_disconnected(e):
             logger.warning("Клиент MCP отключился во время обработки POST-сообщения.")
         else:
@@ -528,7 +528,7 @@ async def _handle_mcp_post(scope, receive, send, method):
 
 
 async def _send_not_found(send):
-    # 未匹配路由，返回 404
+    # Для неизвестного маршрута вернуть 404.
     await send({
         'type': 'http.response.start',
         'status': 404,
@@ -541,14 +541,14 @@ async def _send_not_found(send):
 
 
 async def mcp_asgi_app(scope, receive, send):
-    """MCP 服务的纯 ASGI 应用，带增强日志记录。"""
+    """Чистое ASGI-приложение MCP с расширенным логированием."""
     path = scope.get("path", "")
     method = scope.get("method", "")
 
     if scope["type"] == "http":
         logger.info(f"Входящий запрос ASGI HTTP: {method} {path}")
 
-        # 路由逻辑 - 使用末尾匹配以兼容各种挂载路径和斜线组合
+        # Маршрутизация по окончанию пути совместима с разными mount path и слешами.
         if path.endswith("/sse"):
             await _run_sse(scope, receive, send)
 

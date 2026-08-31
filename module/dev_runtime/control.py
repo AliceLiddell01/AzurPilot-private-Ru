@@ -9,12 +9,12 @@ repository-scoped marker и исполняется фиксированным su
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
 import re
 import subprocess
-import sys
 import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping
@@ -32,8 +32,14 @@ from module.dev_runtime.coordination import (
     RuntimeCoordinationError,
     runtime_coordination_lock,
 )
+from module.dev_runtime.target import (
+    DevTarget,
+    DevTargetError,
+    DevTargetRegistry,
+    target_identity,
+)
 
-CONTROL_SCHEMA_VERSION = 1
+CONTROL_SCHEMA_VERSION = 2
 CONTROL_POLL_SECONDS = 0.25
 CONTROL_MAX_TRANSITIONS = 128
 CONTROL_MAX_BYTES = 256 * 1024
@@ -69,6 +75,7 @@ class ControlOutcome(StrEnum):
 
 
 _SAFE_CONTROL_ID = re.compile(r"^[a-f0-9]{32}$")
+_SAFE_FINGERPRINT = re.compile(r"^[a-f0-9]{64}$")
 _SAFE_ADB_STATES = frozenset({"device", "offline", "unauthorized", "unknown", "unavailable"})
 _ACTION_TIMEOUTS = {
     ControlAction.START_GAME: 60.0,
@@ -88,6 +95,89 @@ class RuntimeControlError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.outcome = outcome
+
+
+def _runtime_profile_payload(environment: DevEnvironment) -> Mapping[str, object]:
+    from module.dev_runtime.task_sandbox import read_profile_payload
+
+    try:
+        payload = read_profile_payload(
+            environment.profile_file,
+            repository_root=environment.repository_root,
+        )
+    except Exception as exc:
+        raise RuntimeControlError(
+            "DEV_CONTROL_CONFIG_UNAVAILABLE",
+            "Критическую конфигурацию development target невозможно прочитать",
+            outcome=ControlOutcome.PRECONDITION_FAILED,
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise RuntimeControlError(
+            "DEV_CONTROL_CONFIG_INVALID",
+            "Профиль development target имеет некорректную структуру",
+            outcome=ControlOutcome.PRECONDITION_FAILED,
+        )
+    return payload
+
+
+def _runtime_config_fingerprint_from_payload(
+    payload: Mapping[str, object],
+) -> str:
+    alas = payload.get("Alas")
+    if not isinstance(alas, Mapping):
+        raise RuntimeControlError(
+            "DEV_CONTROL_CONFIG_INVALID",
+            "Профиль development target не содержит Alas-конфигурацию",
+            outcome=ControlOutcome.PRECONDITION_FAILED,
+        )
+    relevant = {
+        "alas": alas,
+        "adb_server_port": os.environ.get("ANDROID_ADB_SERVER_PORT", "5037"),
+    }
+    try:
+        canonical = json.dumps(
+            relevant,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise RuntimeControlError(
+            "DEV_CONTROL_CONFIG_INVALID",
+            "Профиль development target нельзя канонизировать",
+            outcome=ControlOutcome.PRECONDITION_FAILED,
+        ) from exc
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def runtime_config_fingerprint(environment: DevEnvironment) -> str:
+    """Получить fingerprint критической runtime-конфигурации без раскрытия значений."""
+
+    return _runtime_config_fingerprint_from_payload(_runtime_profile_payload(environment))
+
+
+def _environment_target(environment: DevEnvironment) -> DevTarget:
+    try:
+        return DevTargetRegistry.load_for_environment(
+            environment.repository_root,
+            fallback=environment.dev_target,
+        )
+    except DevTargetError as exc:
+        raise RuntimeControlError(
+            "DEV_CONTROL_TARGET_UNAVAILABLE",
+            "Назначенный development target невозможно безопасно разрешить",
+            outcome=ControlOutcome.PRECONDITION_FAILED,
+        ) from exc
+
+
+def _safe_fingerprint(value: object, field: str) -> str:
+    if not isinstance(value, str) or not _SAFE_FINGERPRINT.fullmatch(value):
+        raise RuntimeControlError(
+            "DEV_CONTROL_STATE_CORRUPT",
+            f"{field} control operation имеет недопустимый формат",
+        )
+    return value
 
 
 def _timestamp(value: datetime | None = None) -> str:
@@ -177,6 +267,9 @@ class RuntimeBackend(Protocol):
 class DevRuntimeControlOperation:
     control_id: str
     action: ControlAction
+    target_profile_name: str
+    target_identity: str
+    runtime_config_fingerprint: str
     state: ControlState
     outcome: ControlOutcome | None
     created_at: str
@@ -189,6 +282,19 @@ class DevRuntimeControlOperation:
 
     def __post_init__(self) -> None:
         _safe_control_id(self.control_id)
+        try:
+            target = DevTarget(self.target_profile_name)
+        except (DevTargetError, TypeError, ValueError) as exc:
+            raise RuntimeControlError(
+                "DEV_CONTROL_STATE_CORRUPT",
+                "Control operation содержит некорректный target profile",
+            ) from exc
+        if target_identity(target) != _safe_fingerprint(self.target_identity, "target_identity"):
+            raise RuntimeControlError(
+                "DEV_CONTROL_STATE_CORRUPT",
+                "Control operation содержит несовпадающую target identity",
+            )
+        _safe_fingerprint(self.runtime_config_fingerprint, "runtime_config_fingerprint")
         if len(self.transitions) > CONTROL_MAX_TRANSITIONS:
             raise RuntimeControlError("DEV_CONTROL_STATE_CORRUPT", "Слишком много переходов control operation")
         if self.state is ControlState.FINISHED and self.outcome is None:
@@ -208,6 +314,8 @@ class DevRuntimeControlOperation:
         payload: dict[str, object] = {
             "control_id": self.control_id,
             "action": self.action.value,
+            "target_identity": self.target_identity,
+            "runtime_config_fingerprint": self.runtime_config_fingerprint,
             "state": self.state.value,
             "outcome": self.outcome.value if self.outcome is not None else None,
             "created_at": self.created_at,
@@ -217,6 +325,7 @@ class DevRuntimeControlOperation:
             "transitions": [dict(item) for item in self.transitions],
         }
         if include_internal:
+            payload["target_profile_name"] = self.target_profile_name
             payload["supervisor_pid"] = self.supervisor_pid
             payload["supervisor_created_at"] = self.supervisor_created_at
         return payload
@@ -227,6 +336,9 @@ class DevRuntimeControlOperation:
             "schema_version",
             "control_id",
             "action",
+            "target_profile_name",
+            "target_identity",
+            "runtime_config_fingerprint",
             "state",
             "outcome",
             "created_at",
@@ -247,6 +359,29 @@ class DevRuntimeControlOperation:
         except (KeyError, ValueError, TypeError) as exc:
             raise RuntimeControlError("DEV_CONTROL_STATE_CORRUPT", "Control operation содержит неизвестное состояние") from exc
         control_id = _safe_control_id(payload.get("control_id"))
+        target_profile_name = payload.get("target_profile_name")
+        if not isinstance(target_profile_name, str):
+            raise RuntimeControlError(
+                "DEV_CONTROL_STATE_CORRUPT",
+                "Control operation не содержит target profile",
+            )
+        try:
+            target_profile_name = DevTarget(target_profile_name).profile_name
+        except (DevTargetError, TypeError, ValueError) as exc:
+            raise RuntimeControlError(
+                "DEV_CONTROL_STATE_CORRUPT",
+                "Control operation содержит некорректный target profile",
+            ) from exc
+        target_identity_value = _safe_fingerprint(payload.get("target_identity"), "target_identity")
+        runtime_config_fingerprint_value = _safe_fingerprint(
+            payload.get("runtime_config_fingerprint"),
+            "runtime_config_fingerprint",
+        )
+        if target_identity(DevTarget(target_profile_name)) != target_identity_value:
+            raise RuntimeControlError(
+                "DEV_CONTROL_STATE_CORRUPT",
+                "Control operation содержит несовпадающую target identity",
+            )
         created_at = _parse_timestamp(payload.get("created_at"))
         started_at = _parse_timestamp(payload.get("started_at"), allow_none=True)
         deadline_at = _parse_timestamp(payload.get("deadline_at"))
@@ -300,6 +435,9 @@ class DevRuntimeControlOperation:
         return cls(
             control_id=control_id,
             action=action,
+            target_profile_name=target_profile_name,
+            target_identity=target_identity_value,
+            runtime_config_fingerprint=runtime_config_fingerprint_value,
             state=state,
             outcome=outcome,
             created_at=created_at or "",
@@ -465,6 +603,7 @@ class ConfiguredRuntimeBackend:
         self._app: object | None = None
         self._platform: object | None = None
         self._configuration_cache: tuple[str, str] | None = None
+        self._runtime_config_fingerprint: str | None = None
 
     @staticmethod
     def _deep_get(payload: object, path: str) -> object:
@@ -476,11 +615,16 @@ class ConfiguredRuntimeBackend:
         return current
 
     def _configuration(self) -> tuple[str, str]:
+        payload = _runtime_profile_payload(self.environment)
+        fingerprint = _runtime_config_fingerprint_from_payload(payload)
+        if fingerprint != self._runtime_config_fingerprint:
+            self._configuration_cache = None
+            self._platform = None
+            self._app = None
+            self._runtime_config_fingerprint = fingerprint
         if self._configuration_cache is not None:
             return self._configuration_cache
-        from module.dev_runtime.task_sandbox import read_profile_payload
 
-        payload = read_profile_payload(self.environment.profile_file, repository_root=self.environment.repository_root)
         serial = self._deep_get(payload, "Alas.Emulator.Serial")
         package = self._deep_get(payload, "Alas.Emulator.PackageName")
         if not isinstance(serial, str) or not serial.strip() or serial.strip().casefold() == "auto":
@@ -512,7 +656,7 @@ class ConfiguredRuntimeBackend:
         client = self._adb_client()
         try:
             devices = list(client.device_list())
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise RuntimeControlError("DEV_RUNTIME_ADB_UNREACHABLE", "ADB server недоступен", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
         for device in devices:
             if str(getattr(device, "serial", "")) == serial:
@@ -545,7 +689,7 @@ class ConfiguredRuntimeBackend:
             devices = list(client.device_list())
         except RuntimeControlError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise RuntimeControlError("DEV_RUNTIME_STATUS_UNAVAILABLE", "Снимок runtime status недоступен", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
         target = next((item for item in devices if str(getattr(item, "serial", "")) == serial), None)
         if target is None:
@@ -563,7 +707,7 @@ class ConfiguredRuntimeBackend:
             )
         try:
             raw_state = str(getattr(target, "get_state", lambda: "unknown")())
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise RuntimeControlError(
                 "DEV_RUNTIME_ADB_STATE_UNAVAILABLE",
                 "Состояние назначенного ADB устройства недоступно",
@@ -597,6 +741,7 @@ class ConfiguredRuntimeBackend:
         )
 
     def _platform_for_mutation(self) -> object:
+        self._configuration()
         if self._platform is None:
             from module.config.config import AzurLaneConfig
             from module.device.platform import Platform
@@ -606,6 +751,7 @@ class ConfiguredRuntimeBackend:
         return self._platform
 
     def _app_controller(self) -> object:
+        self._configuration()
         if self._app is None:
             device, _devices, serial, package, client = self._adb_device()
             from module.device.app_control import AppControl
@@ -650,6 +796,7 @@ class ConfiguredRuntimeBackend:
         return self._app_controller().app_stop_adb()
 
     def restart_adb(self) -> object:
+        self._configuration()
         client = self._adb_client()
         try:
             result = client.server_kill()
@@ -657,7 +804,7 @@ class ConfiguredRuntimeBackend:
             # и даёт циклу управления реальный сигнал готовности.
             self._adb_client().device_list()
             self._app = None
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise RuntimeControlError(
                 "DEV_CONTROL_ADB_RESTART_FAILED",
                 "ADB не перезапустился через штатный клиент",
@@ -717,12 +864,66 @@ class RuntimeControlManager:
         if action_timeouts:
             self.action_timeouts.update({ControlAction(key): min(max(float(value), 0.01), 600.0) for key, value in action_timeouts.items()})
         self._backend: RuntimeBackend | None = None
+        self._backend_environment: DevEnvironment | None = None
         self._execution_deadline: float | None = None
 
-    def _backend_instance(self) -> RuntimeBackend:
-        if self._backend is None:
-            self._backend = self.backend_factory(self.environment)
+    def _backend_instance(self, environment: DevEnvironment | None = None) -> RuntimeBackend:
+        selected_environment = environment or self.environment
+        if self._backend is None or self._backend_environment != selected_environment:
+            self._backend = self.backend_factory(selected_environment)
+            self._backend_environment = selected_environment
         return self._backend
+
+    def _refresh_environment(self) -> DevEnvironment:
+        """Перепривязать новые операции к актуальному registry target."""
+
+        current_target = _environment_target(self.environment)
+        if current_target != self.environment.dev_target:
+            self.environment = replace(self.environment, dev_target=current_target)
+            self.store = ControlStore(self.environment)
+            self._backend = None
+            self._backend_environment = None
+        return self.environment
+
+    def _operation_environment(self, operation: DevRuntimeControlOperation) -> DevEnvironment:
+        try:
+            target = DevTarget(operation.target_profile_name)
+        except (DevTargetError, TypeError, ValueError) as exc:
+            raise RuntimeControlError(
+                "DEV_CONTROL_STATE_CORRUPT",
+                "Control operation содержит некорректный target profile",
+            ) from exc
+        if target_identity(target) != operation.target_identity:
+            raise RuntimeControlError(
+                "DEV_CONTROL_STATE_CORRUPT",
+                "Control operation содержит несовпадающую target identity",
+            )
+        return replace(self.environment, dev_target=target)
+
+    def _assert_operation_binding(self, operation: DevRuntimeControlOperation) -> DevEnvironment:
+        """Проверить target и config binding перед чтением или мутацией runtime."""
+
+        operation_environment = self._operation_environment(operation)
+        current_target = _environment_target(self.environment)
+        current_identity = target_identity(current_target)
+        if (
+            current_target.profile_name != operation.target_profile_name
+            or current_identity != operation.target_identity
+        ):
+            raise RuntimeControlError(
+                "DEV_CONTROL_TARGET_CHANGED",
+                "Development target изменился после принятия control operation",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            )
+        current_environment = replace(self.environment, dev_target=current_target)
+        current_config_fingerprint = runtime_config_fingerprint(current_environment)
+        if current_config_fingerprint != operation.runtime_config_fingerprint:
+            raise RuntimeControlError(
+                "DEV_CONTROL_CONFIG_CHANGED",
+                "Критическая конфигурация development target изменилась после принятия control operation",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            )
+        return operation_environment
 
     def _default_session_state(self) -> str | None:
         try:
@@ -735,7 +936,7 @@ class RuntimeControlManager:
 
         try:
             session = DevSession.from_dict(json.loads(raw.decode("utf-8")))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise RuntimeControlError("DEV_CONTROL_SESSION_STATE_CORRUPT", "Состояние DevSession повреждено", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
         return session.state.value
 
@@ -746,7 +947,7 @@ class RuntimeControlManager:
             return SmokeRunManager(environment=self.environment).has_active_run()
         except RuntimeControlError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise RuntimeControlError("DEV_CONTROL_SMOKE_STATE_UNAVAILABLE", "Состояние SmokeRun невозможно проверить", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
 
     @staticmethod
@@ -772,7 +973,7 @@ class RuntimeControlManager:
             session_state = self.session_state_provider()
         except RuntimeControlError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise RuntimeControlError("DEV_CONTROL_PRECONDITION_UNKNOWN", "Нельзя подтвердить отсутствие активного runtime владельца", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
         if self._requires_idle_session(action) and self._active_session(session_state):
             return RuntimeControlError("DEV_CONTROL_CONFLICT_DEV_SESSION", "Runtime control запрещён при активной DevSession", outcome=ControlOutcome.CONFLICT)
@@ -788,6 +989,7 @@ class RuntimeControlManager:
         """Атомарно проверить владельцев и создать persistent control reservation."""
 
         with runtime_coordination_lock(self.environment):
+            environment = self._refresh_environment()
             conflict = self._conflict(action)
             if conflict is not None:
                 raise conflict
@@ -798,9 +1000,19 @@ class RuntimeControlManager:
             now = self.now()
             created_at = _timestamp(now)
             deadline_at = _timestamp(now + timedelta(seconds=self.action_timeouts[action]))
+            target = environment.dev_target
+            if target is None:  # pragma: no cover - защищено DevEnvironment
+                raise RuntimeControlError(
+                    "DEV_CONTROL_TARGET_UNAVAILABLE",
+                    "Development target не назначен",
+                    outcome=ControlOutcome.PRECONDITION_FAILED,
+                )
             operation = DevRuntimeControlOperation(
                 control_id=uuid.uuid4().hex,
                 action=action,
+                target_profile_name=target.profile_name,
+                target_identity=target_identity(target),
+                runtime_config_fingerprint=runtime_config_fingerprint(environment),
                 state=ControlState.CREATED,
                 outcome=None,
                 created_at=created_at,
@@ -814,7 +1026,8 @@ class RuntimeControlManager:
 
     def status(self) -> DevResult:
         try:
-            snapshot = self._backend_instance().snapshot()
+            environment = self._refresh_environment()
+            snapshot = self._backend_instance(environment).snapshot()
             status_ok = True
             status_code = "DEV_RUNTIME_STATUS_READY"
             message = "Текущий runtime status development target прочитан"
@@ -996,6 +1209,27 @@ class RuntimeControlManager:
             return latest
         return self._finish(latest, outcome=outcome, code=code)
 
+    def _invalidate_operation(
+        self,
+        operation: DevRuntimeControlOperation,
+        error: RuntimeControlError,
+    ) -> DevRuntimeControlOperation:
+        """Зафиксировать fail-closed binding mismatch без вызова backend."""
+
+        with self.store.lock():
+            current = self.store.read()
+            if current is None or current.control_id != operation.control_id:
+                return operation
+            if current.state is ControlState.FINISHED:
+                return current
+            finished = self._finish(
+                current,
+                outcome=error.outcome,
+                code=error.code,
+            )
+            self.store.write(finished)
+            return finished
+
     def _reconcile(self, *, control_id: str | None = None, read_only: bool = False) -> DevRuntimeControlOperation | None:
         with self.store.lock(create=not read_only):
             operation = self.store.read()
@@ -1088,26 +1322,28 @@ class RuntimeControlManager:
                     message="Control operation уже завершена",
                     ok=current.outcome is ControlOutcome.PASS,
                 )
-            if current.supervisor_pid is not None:
-                if current.supervisor_pid != pid or current.supervisor_created_at != created_at:
-                    if _process_matches(current.supervisor_pid, current.supervisor_created_at):
-                        return self._operation_result(
-                            current,
-                            code="DEV_CONTROL_IN_PROGRESS",
-                            message="Control operation уже выполняется другим supervisor",
-                        )
-                    current = self._finish(
-                        current,
-                        outcome=ControlOutcome.ABORTED,
-                        code="DEV_CONTROL_SUPERVISOR_CRASHED",
-                    )
-                    self.store.write(current)
+            if (
+                current.supervisor_pid is not None
+                and (current.supervisor_pid != pid or current.supervisor_created_at != created_at)
+            ):
+                if _process_matches(current.supervisor_pid, current.supervisor_created_at):
                     return self._operation_result(
                         current,
-                        ok=False,
-                        code="DEV_CONTROL_SUPERVISOR_CRASHED",
-                        message="Предыдущий supervisor control operation завершился аварийно",
+                        code="DEV_CONTROL_IN_PROGRESS",
+                        message="Control operation уже выполняется другим supervisor",
                     )
+                current = self._finish(
+                    current,
+                    outcome=ControlOutcome.ABORTED,
+                    code="DEV_CONTROL_SUPERVISOR_CRASHED",
+                )
+                self.store.write(current)
+                return self._operation_result(
+                    current,
+                    ok=False,
+                    code="DEV_CONTROL_SUPERVISOR_CRASHED",
+                    message="Предыдущий supervisor control operation завершился аварийно",
+                )
             claimed = replace(current, supervisor_pid=pid, supervisor_created_at=created_at)
             self.store.write(claimed)
             return claimed
@@ -1126,6 +1362,7 @@ class RuntimeControlManager:
     def _wait_for(self, operation: DevRuntimeControlOperation, backend: RuntimeBackend, predicate: Callable[[RuntimeSnapshot], bool]) -> tuple[DevRuntimeControlOperation, RuntimeSnapshot]:
         operation = self._transition(operation, ControlState.WAITING_READY, "DEV_CONTROL_WAITING_READY")
         while self._before_deadline(operation):
+            self._assert_operation_binding(operation)
             snapshot = backend.snapshot()
             if predicate(snapshot):
                 return operation, snapshot
@@ -1145,6 +1382,7 @@ class RuntimeControlManager:
     def _execute_action(self, operation: DevRuntimeControlOperation, backend: RuntimeBackend) -> DevRuntimeControlOperation:
         if not self._before_deadline(operation):
             raise _ControlFailure("DEV_CONTROL_TIMEOUT", "Control operation истекла до запуска", outcome=ControlOutcome.TIMEOUT)
+        self._assert_operation_binding(operation)
         if operation.state is ControlState.CREATED:
             operation = self._transition(operation, ControlState.RUNNING, "DEV_CONTROL_STARTED")
         action = operation.action
@@ -1157,6 +1395,7 @@ class RuntimeControlManager:
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_READY")
             if snapshot.emulator_running is None:
                 raise _ControlFailure("DEV_CONTROL_EMULATOR_STATE_UNKNOWN", "Нельзя безопасно подтвердить, что эмулятор остановлен", outcome=ControlOutcome.PRECONDITION_FAILED)
+            self._assert_operation_binding(operation)
             self._call(backend.start_emulator(), "DEV_CONTROL_EMULATOR_START_FAILED", "Platform не запустила эмулятор")
             operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_READY")
@@ -1164,13 +1403,16 @@ class RuntimeControlManager:
             if snapshot.emulator_running is False and snapshot.emulator_detected is False:
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_ALREADY_STOPPED")
             self._require(snapshot.emulator_running is True or snapshot.emulator_detected is True, "DEV_CONTROL_EMULATOR_STATE_UNKNOWN", "Нельзя безопасно подтвердить состояние эмулятора")
+            self._assert_operation_binding(operation)
             self._call(backend.stop_emulator(), "DEV_CONTROL_EMULATOR_STOP_FAILED", "Platform не остановила эмулятор")
             operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is False and item.emulator_detected is False)
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_STOPPED")
         if action is ControlAction.RESTART_EMULATOR:
             self._require(snapshot.emulator_running, "DEV_CONTROL_EMULATOR_NOT_RUNNING", "Перезапуск требует подтверждённого работающего эмулятора")
+            self._assert_operation_binding(operation)
             self._call(backend.stop_emulator(), "DEV_CONTROL_EMULATOR_STOP_FAILED", "Platform не остановила эмулятор")
             operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is False and item.emulator_detected is False)
+            self._assert_operation_binding(operation)
             self._call(backend.start_emulator(), "DEV_CONTROL_EMULATOR_START_FAILED", "Platform не запустила эмулятор")
             operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_RESTARTED")
@@ -1184,6 +1426,7 @@ class RuntimeControlManager:
         if action is ControlAction.START_GAME:
             if snapshot.game_foreground is True:
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_GAME_ALREADY_FOREGROUND")
+            self._assert_operation_binding(operation)
             self._call(backend.start_game(), "DEV_CONTROL_GAME_START_FAILED", "AppControl не запустила приложение")
             operation, _ = self._wait_for(operation, backend, lambda item: item.game_foreground is True)
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_GAME_READY")
@@ -1191,17 +1434,21 @@ class RuntimeControlManager:
             if snapshot.game_running is False:
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_GAME_ALREADY_STOPPED")
             self._require(snapshot.game_running is True, "DEV_CONTROL_GAME_STATE_UNKNOWN", "Нельзя безопасно подтвердить состояние приложения")
+            self._assert_operation_binding(operation)
             self._call(backend.stop_game(), "DEV_CONTROL_GAME_STOP_FAILED", "AppControl не остановила приложение")
             operation, _ = self._wait_for(operation, backend, lambda item: item.game_running is False)
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_GAME_STOPPED")
         if action is ControlAction.RESTART_GAME:
             self._require(snapshot.game_running is True, "DEV_CONTROL_GAME_STATE_UNKNOWN", "Нельзя безопасно подтвердить состояние приложения")
+            self._assert_operation_binding(operation)
             self._call(backend.stop_game(), "DEV_CONTROL_GAME_STOP_FAILED", "AppControl не остановила приложение")
             operation, _ = self._wait_for(operation, backend, lambda item: item.game_running is False)
+            self._assert_operation_binding(operation)
             self._call(backend.start_game(), "DEV_CONTROL_GAME_START_FAILED", "AppControl не запустила приложение")
             operation, _ = self._wait_for(operation, backend, lambda item: item.game_foreground is True)
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_GAME_RESTARTED")
         self._require(snapshot.unrelated_adb_devices is False, "DEV_CONTROL_ADB_UNRELATED_DEVICES", "Перезапуск ADB затронет неизвестные устройства")
+        self._assert_operation_binding(operation)
         self._call(backend.restart_adb(), "DEV_CONTROL_ADB_RESTART_FAILED", "ADB не перезапустился")
         operation, _ = self._wait_for(operation, backend, lambda item: item.adb_reachable is True)
         return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_ADB_READY")
@@ -1213,6 +1460,23 @@ class RuntimeControlManager:
                 operation = self.store.read()
             if operation is None or operation.control_id != control_id:
                 return self._result(ok=False, code="DEV_CONTROL_NOT_FOUND", message="Control operation не найдена", state=ControlState.FINISHED.value)
+            if operation.state is ControlState.FINISHED:
+                return self._operation_result(
+                    operation,
+                    code="DEV_CONTROL_OPERATION_READY",
+                    message="Control operation уже завершена",
+                    ok=operation.outcome is ControlOutcome.PASS,
+                )
+            try:
+                self._assert_operation_binding(operation)
+            except RuntimeControlError as exc:
+                finished = self._invalidate_operation(operation, exc)
+                return self._operation_result(
+                    finished,
+                    ok=False,
+                    code=exc.code,
+                    message=str(exc),
+                )
             claimed = self._claim_supervisor(operation)
             if isinstance(claimed, DevResult):
                 return claimed
@@ -1224,6 +1488,17 @@ class RuntimeControlManager:
                 operation = current
                 if operation.state is ControlState.FINISHED:
                     return self._operation_result(operation, code="DEV_CONTROL_OPERATION_READY", message="Control operation уже завершена", ok=operation.outcome is ControlOutcome.PASS)
+                try:
+                    self._assert_operation_binding(operation)
+                except RuntimeControlError as exc:
+                    finished = self._finish(operation, outcome=exc.outcome, code=exc.code)
+                    self.store.write(finished)
+                    return self._operation_result(
+                        finished,
+                        ok=False,
+                        code=exc.code,
+                        message=str(exc),
+                    )
                 started_at = _timestamp(self.now())
                 operation = replace(
                     operation,
@@ -1242,7 +1517,11 @@ class RuntimeControlManager:
                 except (TypeError, ValueError):
                     self._execution_deadline = self.monotonic()
             try:
-                finished = self._execute_action(operation, self._backend_instance())
+                execution_environment = self._assert_operation_binding(operation)
+                finished = self._execute_action(
+                    operation,
+                    self._backend_instance(execution_environment),
+                )
             except RuntimeControlError as exc:
                 finished = self._finish_from_latest(
                     operation,
@@ -1291,4 +1570,5 @@ __all__ = [
     "RuntimeControlError",
     "RuntimeControlManager",
     "RuntimeSnapshot",
+    "runtime_config_fingerprint",
 ]

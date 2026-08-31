@@ -10,14 +10,21 @@ from pathlib import Path
 import psutil
 import pytest
 
-from module.dev_runtime import DevEnvironment, DevTarget, ProcessBackend, ProcessIdentity
-
+from module.dev_runtime import (
+    DevEnvironment,
+    DevTarget,
+    ProcessBackend,
+    ProcessIdentity,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
-pytestmark = pytest.mark.skipif(
-    os.name != "nt",
-    reason="Интеграция требует настоящий Windows venv redirector",
-)
+pytestmark = [
+    pytest.mark.windows_integration,
+    pytest.mark.skipif(
+        os.name != "nt",
+        reason="Интеграция требует настоящий Windows venv redirector",
+    ),
+]
 
 
 def _same_path(left: str | Path, right: str | Path) -> bool:
