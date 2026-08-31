@@ -2447,7 +2447,7 @@ class EvidenceStore:
         duration_seconds = max(0, int((end_at.astimezone(UTC) - started_at).total_seconds()))
         return {
             "session_id": self.session_id,
-            "profile": self.environment.profile_name,
+            "profile": self.expected_profile,
             "lifecycle": {
                 "created_at": manifest["created_at"],
                 "started_at": manifest["started_at"],

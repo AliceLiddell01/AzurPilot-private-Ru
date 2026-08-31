@@ -208,7 +208,8 @@ package, executable и пользовательские пути наружу н
 Публичная поверхность намеренно состоит из отдельных typed tools:
 `dev_start_game`, `dev_stop_game`, `dev_restart_game`,
 `dev_start_emulator`, `dev_stop_emulator`, `dev_restart_emulator` и
-`dev_restart_adb`. Эмулятор управляется только существующим `Platform`, а
+`dev_restart_adb`. Состояние operation читается через
+`dev_get_control_operation` по `control_id`. Эмулятор управляется только существующим `Platform`, а
 жизненный цикл приложения — существующим ADB/AppControl backend. MCP не
 принимает произвольную команду, профиль, serial, package или путь.
 

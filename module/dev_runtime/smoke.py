@@ -2689,7 +2689,16 @@ class SmokeRunManager:
                         session_id=active.session_id,
                         details={"conflict_state": active.state.value},
                     )
-                if self._control_reservation_active():
+                try:
+                    control_active = self._control_reservation_active()
+                except Exception as exc:  # noqa: BLE001 — неизвестное состояние owner блокирует запуск
+                    return self._result(
+                        ok=False,
+                        code="DEV_RUNTIME_OWNER_STATE_UNAVAILABLE",
+                        message=f"Нельзя подтвердить отсутствие control operation: {type(exc).__name__}",
+                        state=SmokeState.FINISHED.value,
+                    )
+                if control_active:
                     return self._result(
                         ok=False,
                         code="DEV_SMOKE_CONTROL_CONFLICT",

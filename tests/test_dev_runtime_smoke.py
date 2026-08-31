@@ -655,6 +655,21 @@ def test_cross_surface_reservation_blocks_smoke_and_session_during_control_start
     assert not smoke_manager.has_active_run()
 
 
+def test_control_owner_read_failure_blocks_smoke_start(tmp_path: Path, clean_source: None) -> None:
+    manager = _manager(tmp_path, _Runtime())
+
+    def unavailable() -> bool:
+        raise OSError("state unavailable")
+
+    manager._control_reservation_active = unavailable
+
+    result = manager.start_smoke(_spec())
+
+    assert result.ok is False
+    assert result.code == "DEV_RUNTIME_OWNER_STATE_UNAVAILABLE"
+    assert not manager.has_active_run()
+
+
 def test_config_registry_rejects_wrong_type_and_unknown_path(tmp_path: Path, clean_source: None) -> None:
     manager = _manager(tmp_path, _Runtime())
     wrong_type = manager.validate_smoke(
