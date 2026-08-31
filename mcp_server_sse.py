@@ -117,6 +117,17 @@ def _required_string(arguments: dict[str, Any], key: str) -> str:
     return value
 
 
+def _optional_string(arguments: dict[str, Any], key: str) -> str | None:
+    if key not in arguments:
+        return None
+    value = arguments[key]
+    if not isinstance(value, str) or not value.strip():
+        raise _invalid_request(
+            f"Параметр MCP-инструмента «{key}» должен быть непустой строкой."
+        )
+    return value
+
+
 def _config_request(arguments: dict[str, Any]) -> ConfigUpdateRequest:
     try:
         return ConfigUpdateRequest(
@@ -396,7 +407,8 @@ async def _tool_get_config(arguments: dict[str, Any]) -> ToolResponse:
 
 
 async def _tool_update_config(arguments: dict[str, Any]) -> ToolResponse:
-    result = _get_backend().control.update_config(_config_request(arguments))
+    request = _config_request(arguments)
+    result = _get_backend().control.update_config(request)
     return [
         TextContent(
             type="text",
@@ -454,7 +466,8 @@ async def _tool_get_scheduler_queue(arguments: dict[str, Any]) -> ToolResponse:
 
 
 async def _tool_trigger_task(arguments: dict[str, Any]) -> ToolResponse:
-    result = _get_backend().control.trigger_task(_schedule_request(arguments))
+    request = _schedule_request(arguments)
+    result = _get_backend().control.trigger_task(request)
     return [TextContent(type="text", text=f"Успешно: задача {result.request.task} запланирована на немедленный запуск.")]
 
 
@@ -473,7 +486,7 @@ async def _tool_restart_emulator(arguments: dict[str, Any]) -> ToolResponse:
 
 
 async def _tool_restart_adb(arguments: dict[str, Any]) -> ToolResponse:
-    instance = _required_string(arguments, "instance")
+    instance = _optional_string(arguments, "instance")
     _get_backend().control.restart_adb(instance)
     return [TextContent(type="text", text="Успешно: сервис ADB перезапущен.")]
 

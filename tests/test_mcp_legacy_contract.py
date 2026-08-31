@@ -22,10 +22,10 @@ from module.application import (
     EmulatorRestartResult,
     InstanceReference,
     InstanceStatus,
+    InvalidRequestError,
     LifecycleOutcome,
     LifecycleResult,
     MediaFrame,
-    OperationFailedError,
     RuntimeLogTail,
     RuntimeState,
     SchedulerEntry,
@@ -380,20 +380,24 @@ def test_legacy_mcp_success_responses_route_all_tools_through_application(monkey
         ("restart_emulator", {}),
     ),
 )
-def test_legacy_mcp_rejects_missing_required_arguments(name, arguments):
+def test_legacy_mcp_rejects_missing_required_arguments(name, arguments, monkeypatch):
+    def _forbidden_backend():
+        raise AssertionError("backend запрошен до валидации аргументов")
+
+    monkeypatch.setattr(mcp_server_sse, "_get_backend", _forbidden_backend)
     result = asyncio.run(mcp_server_sse.call_tool(name, arguments))
 
     assert "Некорректный запрос" in result[0].text
     assert "KeyError" not in result[0].text
 
 
-def test_legacy_mcp_rejects_unscoped_adb_restart_without_running_adapter(monkeypatch):
+def test_legacy_mcp_rejects_unscoped_adb_restart_at_application_boundary(monkeypatch):
     calls: list[str | None] = []
 
     class Control:
         def restart_adb(self, instance: str | None = None):
             calls.append(instance)
-            raise OperationFailedError("host-global ADB restart is forbidden")
+            raise InvalidRequestError("Перезапуск ADB требует имя экземпляра.")
 
     class Backend:
         control = Control()
@@ -402,7 +406,7 @@ def test_legacy_mcp_rejects_unscoped_adb_restart_without_running_adapter(monkeyp
     result = asyncio.run(mcp_server_sse.call_tool("restart_adb", {}))
 
     assert result[0].text == "Некорректный запрос MCP-инструмента."
-    assert calls == []
+    assert calls == [None]
 
 
 @pytest.mark.parametrize("name", LEGACY_TOOL_NAMES)
@@ -422,6 +426,8 @@ def test_mcp_image_conversion_is_the_only_base64_media_boundary():
     content = mcp_server_sse._mcp_image(MediaFrame(b"frame", "image/png"))
     assert content.mime_type == "image/png"
     assert base64.b64decode(content.data) == b"frame"
+    source = Path(mcp_server_sse.__file__).resolve().read_text(encoding="utf-8")
+    assert source.count("b64encode") == 1
 
 
 def test_mcp_delegates_errors_to_safe_application_text(monkeypatch):

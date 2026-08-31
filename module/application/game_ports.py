@@ -105,7 +105,7 @@ class EmulatorController(Protocol):
 
 
 class AdbController(Protocol):
-    def restart_adb(self, instance: str) -> bool: ...
+    def restart_adb(self, instance: str | None) -> bool: ...
 
 
 __all__ = [

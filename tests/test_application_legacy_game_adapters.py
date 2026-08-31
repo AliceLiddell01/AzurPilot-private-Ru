@@ -293,6 +293,14 @@ class _CommandResult:
     stdout: str = ""
 
 
+_EXPECTED_RESTART_CALLS = (
+    ("adb", "devices"),
+    ("adb", "kill-server"),
+    ("adb", "start-server"),
+    ("adb", "devices"),
+)
+
+
 def _make_adb_adapter(
     *inventories: str,
     target_serial: str | None = "serial-a",
@@ -333,12 +341,7 @@ def test_legacy_adb_adapter_confirms_offline_target_recovers_to_device():
     )
 
     assert adapter.restart_adb("secondary") is True
-    assert calls == [
-        ("adb", "devices"),
-        ("adb", "kill-server"),
-        ("adb", "start-server"),
-        ("adb", "devices"),
-    ]
+    assert tuple(calls) == _EXPECTED_RESTART_CALLS
 
 
 def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline():
@@ -348,7 +351,7 @@ def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline():
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert len(calls) == 4
+    assert tuple(calls) == _EXPECTED_RESTART_CALLS
 
 
 def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state():
@@ -358,7 +361,7 @@ def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state():
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert len(calls) == 4
+    assert tuple(calls) == _EXPECTED_RESTART_CALLS
 
 
 def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart():
@@ -368,7 +371,7 @@ def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart():
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert len(calls) == 4
+    assert tuple(calls) == _EXPECTED_RESTART_CALLS
 
 
 def test_legacy_adb_adapter_rejects_unsupported_state_before_restart():
@@ -442,7 +445,7 @@ def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory():
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert len(calls) == 4
+    assert tuple(calls) == _EXPECTED_RESTART_CALLS
 
 
 def test_legacy_adb_adapter_rejects_unscoped_restart_without_touching_adb():
