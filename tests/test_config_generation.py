@@ -20,6 +20,20 @@ ACTIVE_TEMPLATES = (
 
 
 class ConfigGenerationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.argument_source = yaml.safe_load(
+            (ROOT / "module/config/argument/argument.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        cls.generated_args = json.loads(
+            (ROOT / "module/config/argument/args.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
     def test_generation_uses_one_ui_locale_and_explicit_event_source(self) -> None:
         source = (ROOT / "module/config/config_updater.py").read_text(encoding="utf-8")
         generate = source[source.index("    def generate(self):") :]
@@ -52,41 +66,38 @@ class ConfigGenerationTests(unittest.TestCase):
                 self.assertEqual(data["Deploy"]["Webui"]["Language"], UI_LOCALE)
 
     def test_smoke_override_capability_is_carried_into_generated_args(self) -> None:
-        source = yaml.safe_load((ROOT / "module/config/argument/argument.yaml").read_text(encoding="utf-8"))
-        generated = json.loads((ROOT / "module/config/argument/args.json").read_text(encoding="utf-8"))
-
-        self.assertTrue(source["Reward"]["CollectMission"]["smoke_override"])
-        self.assertTrue(generated["Reward"]["Reward"]["CollectMission"]["smoke_override"])
+        self.assertTrue(
+            self.argument_source["Reward"]["CollectMission"]["smoke_override"]
+        )
+        self.assertTrue(
+            self.generated_args["Reward"]["Reward"]["CollectMission"][
+                "smoke_override"
+            ]
+        )
 
     def test_llm_api_base_remains_editable_in_generated_metadata(self) -> None:
-        source = yaml.safe_load(
-            (ROOT / "module/config/argument/argument.yaml").read_text(
-                encoding="utf-8"
-            )
+        self.assertNotIn("sensitive", self.argument_source["Error"]["LlmApiBase"])
+        self.assertNotIn(
+            "sensitive",
+            self.generated_args["Alas"]["Error"]["LlmApiBase"],
         )
-        generated = json.loads(
-            (ROOT / "module/config/argument/args.json").read_text(
-                encoding="utf-8"
-            )
-        )
-
-        self.assertNotIn("sensitive", source["Error"]["LlmApiBase"])
-        self.assertNotIn("sensitive", generated["Alas"]["Error"]["LlmApiBase"])
         for name, source_data, generated_data in (
             (
                 "Error.OnePushConfig",
-                source["Error"]["OnePushConfig"],
-                generated["Alas"]["Error"]["OnePushConfig"],
+                self.argument_source["Error"]["OnePushConfig"],
+                self.generated_args["Alas"]["Error"]["OnePushConfig"],
             ),
             (
                 "Error.LlmApiKey",
-                source["Error"]["LlmApiKey"],
-                generated["Alas"]["Error"]["LlmApiKey"],
+                self.argument_source["Error"]["LlmApiKey"],
+                self.generated_args["Alas"]["Error"]["LlmApiKey"],
             ),
             (
                 "OpsiGeneral.OpsiOnePushConfig",
-                source["OpsiGeneral"]["OpsiOnePushConfig"],
-                generated["OpsiGeneral"]["OpsiGeneral"]["OpsiOnePushConfig"],
+                self.argument_source["OpsiGeneral"]["OpsiOnePushConfig"],
+                self.generated_args["OpsiGeneral"]["OpsiGeneral"][
+                    "OpsiOnePushConfig"
+                ],
             ),
         ):
             with self.subTest(name=name):

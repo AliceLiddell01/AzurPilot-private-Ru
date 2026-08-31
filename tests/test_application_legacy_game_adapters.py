@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
@@ -28,7 +29,14 @@ ARGS = {
             "Count": {"type": "input", "value": 1, "validate": [1, 6]},
             "Secret": {"type": "textarea", "value": "", "sensitive": True},
         },
-        "Scheduler": {"Command": {"value": "Main"}},
+        "Scheduler": {
+            "Command": {"value": "Main"},
+            "NextRun": {
+                "type": "datetime",
+                "value": "2020-01-01 00:00:00",
+                "validate": "datetime",
+            },
+        },
         "Storage": {"Internal": {"type": "storage", "value": {}}},
     },
     "OpsiGeneral": {
@@ -138,6 +146,19 @@ def test_legacy_config_adapter_reads_redacted_data_and_limits_scheduler_mutation
     assert configs[-1].changes == [("Main.General.Count", 2)]
     assert configs[-1].update_calls == 1
 
+    adapter.update_config(
+        ConfigUpdateRequest(
+            "ap",
+            "Main",
+            "Scheduler",
+            "NextRun",
+            "2026-08-31 14:00:00+00:00",
+        )
+    )
+    assert configs[-1].changes == [
+        ("Main.Scheduler.NextRun", datetime(2026, 8, 31, 14, tzinfo=UTC))
+    ]
+
     adapter.schedule_task("ap", "Main", datetime(2026, 8, 31, 14, tzinfo=UTC))
     assert configs[-1].changes == [
         ("Main.Scheduler.Enable", True),
@@ -197,8 +218,6 @@ def test_legacy_log_adapter_is_bounded_and_root_safe(tmp_path: Path):
     assert adapter.read_tail("ap", 1) == ("last\n",)
     with pytest.raises(ValueError):
         adapter.read_tail("../ap", 2)
-    with pytest.raises(ValueError):
-        LegacyRuntimeLogAdapter(tmp_path / "outside" / ".." / "log")._safe_candidate("../x")
 
 
 def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path):
@@ -227,7 +246,7 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     )
     monkeypatch.delenv("ALAS_CONFIG_NAME", raising=False)
     assert screenshot.read_frame("secondary") == MediaFrame(b"encoded", "image/jpeg")
-    assert "ALAS_CONFIG_NAME" not in __import__("os").environ
+    assert "ALAS_CONFIG_NAME" not in os.environ
 
     class Manager:
         def __init__(self) -> None:

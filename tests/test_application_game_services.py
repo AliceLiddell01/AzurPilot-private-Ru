@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
@@ -200,6 +201,7 @@ def _control_service(
     config: _Config | None = None,
     metadata: _Metadata | None = None,
     lifecycle: _Lifecycle | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> tuple[GameControlService, _Config, _Lifecycle]:
     instances = instances or _Instances()
     config = config or _Config()
@@ -214,7 +216,7 @@ def _control_service(
             lifecycle,
             _Emulator(),
             _Adb(),
-            clock=lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC),
+            clock=clock or (lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC)),
         ),
         config,
         lifecycle,
@@ -379,10 +381,10 @@ def test_control_service_sanitizes_writer_failure_without_internal_details():
 
 
 def test_control_service_sanitizes_clock_failure():
-    service, _config, _lifecycle = _control_service()
-    service._clock = lambda: (_ for _ in ()).throw(
-        RuntimeError("C:/private/clock secret=token")
-    )
+    def broken_clock() -> datetime:
+        raise RuntimeError("C:/private/clock secret=token")
+
+    service, _config, _lifecycle = _control_service(clock=broken_clock)
 
     with pytest.raises(OperationFailedError) as failure:
         service.trigger_task(ScheduleTaskRequest("ap", "Event"))

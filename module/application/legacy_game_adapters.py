@@ -152,10 +152,31 @@ class LegacyConfigAdapter:
         return tuple(sorted(entries, key=_scheduler_sort_key))
 
     def update_config(self, request: ConfigUpdateRequest) -> None:
+        task = _safe_segment(request.task)
+        group = _safe_segment(request.group)
+        argument = _safe_segment(request.argument)
+        metadata = self._metadata.read_argument_metadata(task, group, argument)
+        if metadata is None:
+            raise ValueError("metadata конфигурации не найдено")
+        from module.config.utils import parse_value
+
+        raw_value = thaw_payload(request.value)
+        value = parse_value(raw_value, data=metadata)
+        raw_type = metadata.get("type", "input")
+        input_type = raw_type.casefold() if isinstance(raw_type, str) else "input"
+        if (
+            input_type != "datetime"
+            and isinstance(raw_value, str)
+            and (
+                metadata.get("valuetype") == "str"
+                or isinstance(metadata.get("value"), str)
+            )
+        ):
+            value = raw_value
         config = self._make_config(request.instance)
         self._commit_changes(
             config,
-            ((request.path, thaw_payload(request.value)),),
+            ((f"{task}.{group}.{argument}", value),),
         )
 
     def schedule_task(
@@ -252,18 +273,20 @@ class LegacyRuntimeLogAdapter:
 
     def read_current_task(self, instance: str) -> str:
         try:
-            self._find_log_file(instance)
+            for window in (500, _MAX_LOG_LINES):
+                lines = self.read_tail(instance, window)
+                for line in reversed(lines):
+                    for pattern in _TASK_LOG_PATTERNS:
+                        match = pattern.search(line)
+                        if match:
+                            candidate = match.group(1).strip(" `'\"")
+                            if candidate:
+                                return candidate
+                            break
+                if len(lines) < window:
+                    break
         except FileNotFoundError:
             return UNKNOWN_TASK
-
-        for line in reversed(self.read_tail(instance, _MAX_LOG_LINES)):
-            for pattern in _TASK_LOG_PATTERNS:
-                match = pattern.search(line)
-                if match:
-                    candidate = match.group(1).strip(" `'\"")
-                    if candidate:
-                        return candidate
-                    break
         return UNKNOWN_TASK
 
     def _find_log_file(self, instance: str) -> Path:

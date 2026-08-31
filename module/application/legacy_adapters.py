@@ -119,13 +119,13 @@ class GeneratedTaskCatalogAdapter:
     def read_task_metadata(self, name: str) -> TaskMetadata | None:
         return self._by_name.get(name)
 
-    def read_argument_definition(
+    def read_argument_metadata(
         self,
         task: str,
         group: str,
         argument: str,
-    ) -> ConfigArgumentDefinition | None:
-        """Вернуть typed definition из того же generated args snapshot."""
+    ) -> Mapping[str, Any] | None:
+        """Вернуть raw metadata из того же generated args snapshot."""
         if group in self._excluded_groups:
             return None
         task_data = self._args_data.get(task)
@@ -136,6 +136,18 @@ class GeneratedTaskCatalogAdapter:
             return None
         argument_data = group_data.get(argument)
         if not isinstance(argument_data, Mapping):
+            return None
+        return argument_data
+
+    def read_argument_definition(
+        self,
+        task: str,
+        group: str,
+        argument: str,
+    ) -> ConfigArgumentDefinition | None:
+        """Вернуть typed definition из того же generated args snapshot."""
+        argument_data = self.read_argument_metadata(task, group, argument)
+        if argument_data is None:
             return None
         raw_type = argument_data.get("type", "input")
         input_type = raw_type if isinstance(raw_type, str) else "input"

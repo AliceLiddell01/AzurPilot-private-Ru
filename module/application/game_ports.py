@@ -51,6 +51,13 @@ class GameConfigWriter(Protocol):
 class GameConfigMetadata(Protocol):
     """Контракт metadata, необходимый legacy config adapter."""
 
+    def read_argument_metadata(
+        self,
+        task: str,
+        group: str,
+        argument: str,
+    ) -> Mapping[str, object] | None: ...
+
     def redact_config(
         self,
         config_data: Mapping[str, object],

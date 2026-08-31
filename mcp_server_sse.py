@@ -107,9 +107,13 @@ def _required_string(arguments: dict[str, Any], key: str) -> str:
     try:
         value = arguments[key]
     except (KeyError, TypeError):
-        raise _invalid_request("Запрос MCP-инструмента не содержит обязательный параметр.") from None
+        raise _invalid_request(
+            f"Запрос MCP-инструмента не содержит обязательный параметр «{key}»."
+        ) from None
     if not isinstance(value, str) or not value.strip():
-        raise _invalid_request("Обязательный параметр MCP-инструмента должен быть строкой.")
+        raise _invalid_request(
+            f"Параметр MCP-инструмента «{key}» должен быть непустой строкой."
+        )
     return value
 
 
