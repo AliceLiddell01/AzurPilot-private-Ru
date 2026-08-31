@@ -384,6 +384,32 @@ def test_stale_marker_with_dead_process_recovers_without_kill(tmp_path: Path) ->
     assert backend.request_stop_count == 0
 
 
+def test_cleanup_uses_recorded_session_target_for_process_lookup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager, backend = _manager(tmp_path)
+    session = _session(
+        manager.environment,
+        state=DevSessionState.RUNNING,
+        session_id="recorded-target-cleanup",
+    )
+    session.profile_name = "historical-target"
+    manager._write_session(session)
+    calls: list[tuple[str, str]] = []
+
+    def find_by_session(environment: DevEnvironment, session_id: str):
+        calls.append((environment.profile_name, session_id))
+        return ()
+
+    monkeypatch.setattr(backend, "find_by_session", find_by_session)
+
+    result = manager.cleanup()
+
+    assert result.ok is True
+    assert calls == [("historical-target", "recorded-target-cleanup")]
+
+
 def test_pid_reuse_mismatch_refuses_to_kill(tmp_path: Path) -> None:
     manager, backend = _manager(tmp_path)
     backend.alive = True

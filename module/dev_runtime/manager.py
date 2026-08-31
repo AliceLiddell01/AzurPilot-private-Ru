@@ -854,6 +854,12 @@ class DevSessionManager(DevDiagnosticsMixin):
         )
 
     def cleanup(self) -> DevResult:
+        try:
+            return self._cleanup_impl()
+        except RuntimeCoordinationError as exc:
+            return self._coordination_error(exc)
+
+    def _cleanup_impl(self) -> DevResult:
         """Явно завершить очистку планировщика, не останавливая рабочий процесс."""
 
         with self._locked_state():
@@ -913,7 +919,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             elif session is not None and session.state is not DevSessionState.STOPPED:
                 try:
                     candidates = self.process_backend.find_by_session(
-                        self.environment, session.session_id
+                        cleanup_environment, session.session_id
                     )
                 except RuntimeError as exc:
                     return self._session_result(
@@ -1037,6 +1043,15 @@ class DevSessionManager(DevDiagnosticsMixin):
             message=str(exc),
             state=DevStatusKind.FAILED.value,
             details={"error": exc.as_dict()},
+        )
+
+    @staticmethod
+    def _coordination_error(exc: RuntimeCoordinationError) -> DevResult:
+        return DevResult(
+            ok=False,
+            code=exc.code,
+            message=str(exc),
+            state=DevStatusKind.FAILED.value,
         )
 
     def _cleanup_leftover_task_state_locked(self) -> DevResult:
@@ -1577,24 +1592,14 @@ class DevSessionManager(DevDiagnosticsMixin):
             try:
                 return self._start_core()
             except RuntimeCoordinationError as exc:
-                return DevResult(
-                    ok=False,
-                    code=exc.code,
-                    message=str(exc),
-                    state=DevStatusKind.FAILED.value,
-                )
+                return self._coordination_error(exc)
         plan, plan_result = self._build_task_plan(root_tasks, excluded_tasks)
         if plan is None:
             return plan_result
         try:
             return self._start_core(plan)
         except RuntimeCoordinationError as exc:
-            return DevResult(
-                ok=False,
-                code=exc.code,
-                message=str(exc),
-                state=DevStatusKind.FAILED.value,
-            )
+            return self._coordination_error(exc)
 
     def _runtime_start_conflict(self) -> DevResult | None:
         """Проверить durable reservations control и Smoke под общей lock."""
@@ -1957,6 +1962,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
 
     def stop(self, *, preserve_task_state: bool = False) -> DevResult:
+        try:
+            return self._stop_impl(preserve_task_state=preserve_task_state)
+        except RuntimeCoordinationError as exc:
+            return self._coordination_error(exc)
+
+    def _stop_impl(self, *, preserve_task_state: bool = False) -> DevResult:
         with self._locked_state():
             try:
                 session = self._read_session()
@@ -2066,8 +2077,11 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
 
     def recover(self) -> DevResult:
-        with self._locked_state():
-            return self._recover_locked()
+        try:
+            with self._locked_state():
+                return self._recover_locked()
+        except RuntimeCoordinationError as exc:
+            return self._coordination_error(exc)
 
     def smoke(self) -> DevResult:
         steps: list[dict[str, object]] = []

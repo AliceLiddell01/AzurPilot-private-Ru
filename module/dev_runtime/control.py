@@ -1174,8 +1174,13 @@ class RuntimeControlManager:
             self._call(backend.start_emulator(), "DEV_CONTROL_EMULATOR_START_FAILED", "Platform не запустила эмулятор")
             operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_RESTARTED")
-        self._require(snapshot.emulator_ready, "DEV_CONTROL_EMULATOR_NOT_READY", "Эмулятор не готов для управления приложением")
-        self._require(snapshot.adb_reachable, "DEV_CONTROL_ADB_UNREACHABLE", "ADB недоступен для управления приложением")
+        if action in {
+            ControlAction.START_GAME,
+            ControlAction.STOP_GAME,
+            ControlAction.RESTART_GAME,
+        }:
+            self._require(snapshot.emulator_ready, "DEV_CONTROL_EMULATOR_NOT_READY", "Эмулятор не готов для управления приложением")
+            self._require(snapshot.adb_reachable, "DEV_CONTROL_ADB_UNREACHABLE", "ADB недоступен для управления приложением")
         if action is ControlAction.START_GAME:
             if snapshot.game_foreground is True:
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_GAME_ALREADY_FOREGROUND")

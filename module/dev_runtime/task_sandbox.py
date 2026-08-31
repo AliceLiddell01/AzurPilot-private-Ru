@@ -36,7 +36,17 @@ _MAX_SELECTOR_LENGTH = 128
 _MAX_SESSION_LENGTH = 128
 _POLICY_LOCK_TIMEOUT = 10.0
 _POLICY_LOCK_RETRY_INTERVAL = 0.05
+_POLICY_ENV_CACHE_TTL = 0.5
 _policy_thread_lock = threading.RLock()
+_policy_environment_cache_lock = threading.Lock()
+_policy_environment_cache: tuple[
+    str,
+    int,
+    tuple[tuple[int, ...] | None, tuple[int, ...] | None, tuple[int, ...] | None],
+    float,
+    DevEnvironment | None,
+    str,
+] | None = None
 
 
 class TaskSandboxError(ValueError):
@@ -976,6 +986,74 @@ def _read_session(environment: DevEnvironment) -> DevSession | None:
     return session
 
 
+def _policy_path_marker(path: Path) -> tuple[int, ...] | None:
+    try:
+        stat_result = path.lstat()
+    except OSError:
+        return None
+    return (
+        int(stat_result.st_dev),
+        int(stat_result.st_ino),
+        int(stat_result.st_mode),
+        int(stat_result.st_mtime_ns),
+        int(stat_result.st_ctime_ns),
+        int(stat_result.st_size),
+    )
+
+
+def _policy_environment_marker() -> tuple[
+    tuple[int, ...] | None,
+    tuple[int, ...] | None,
+    tuple[int, ...] | None,
+]:
+    root = Path(__file__).resolve().parents[2]
+    config_dir = root / "config"
+    state_dir = config_dir / "state"
+    return (
+        _policy_path_marker(config_dir),
+        _policy_path_marker(state_dir),
+        _policy_path_marker(state_dir / "dev-runtime-target.json"),
+    )
+
+
+def _current_policy_environment() -> tuple[DevEnvironment | None, str]:
+    """Разрешить окружение с коротким fail-closed кэшем и меткой target marker."""
+
+    global _policy_environment_cache
+    configured_root = os.environ.get(TASK_POLICY_ROOT_ENV)
+    root_key = configured_root if isinstance(configured_root, str) else ""
+    loader_key = id(vars(DevEnvironment).get("current"))
+    marker = _policy_environment_marker()
+    now = time.monotonic()
+    with _policy_environment_cache_lock:
+        cached = _policy_environment_cache
+        if (
+            cached is not None
+            and cached[0] == root_key
+            and cached[1] == loader_key
+            and cached[2] == marker
+            and now < cached[3]
+        ):
+            return cached[4], cached[5]
+    try:
+        environment = DevEnvironment.current()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        environment = None
+        error_code = "DEV_TARGET_NOT_CONFIGURED"
+    else:
+        error_code = ""
+    with _policy_environment_cache_lock:
+        _policy_environment_cache = (
+            root_key,
+            loader_key,
+            marker,
+            now + _POLICY_ENV_CACHE_TTL,
+            environment,
+            error_code,
+        )
+    return environment, error_code
+
+
 def _active_policy_context(config_name: object) -> TaskPolicyContext:
     env_values = (
         os.environ.get(TASK_POLICY_SESSION_ENV),
@@ -984,10 +1062,9 @@ def _active_policy_context(config_name: object) -> TaskPolicyContext:
     )
     if not any(value is not None for value in env_values):
         return TaskPolicyContext(False, None, "DEV_TASK_POLICY_NO_CONTEXT")
-    try:
-        environment = DevEnvironment.current()
-    except (OSError, RuntimeError, TypeError, ValueError):
-        return TaskPolicyContext(True, None, "DEV_TARGET_NOT_CONFIGURED")
+    environment, environment_error = _current_policy_environment()
+    if environment is None:
+        return TaskPolicyContext(True, None, environment_error)
     if config_name != environment.profile_name:
         return TaskPolicyContext(False, None, "DEV_TASK_POLICY_INACTIVE_PROFILE")
     session_id, root_value, policy_value = env_values

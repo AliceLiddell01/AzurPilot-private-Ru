@@ -223,7 +223,7 @@ class DevTargetRegistry:
         try:
             raw = read_bounded_bytes(path, max_bytes=_MAX_TARGET_BYTES)
         except FileNotFoundError:
-            # Read-only resolution deliberately does not materialize a marker.
+            # Разрешение только для чтения намеренно не создаёт маркер.
             return cls._load_default(repository_root)
         except BoundedReadTooLarge as exc:
             raise DevTargetError(
@@ -305,7 +305,6 @@ class DevTargetRegistry:
             current_target = cls.load(repository_root)
         except DevTargetError as exc:
             if exc.code not in {
-                "DEV_TARGET_NOT_CONFIGURED",
                 "DEV_TARGET_DEFAULT_PROFILE_MISSING",
                 "DEV_TARGET_STATE_CORRUPT",
                 "DEV_TARGET_STATE_TOO_LARGE",

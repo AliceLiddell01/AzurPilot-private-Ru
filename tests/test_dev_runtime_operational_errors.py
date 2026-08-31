@@ -17,6 +17,7 @@ from module.dev_runtime import (
     DevTarget,
     ProcessIdentity,
 )
+from module.dev_runtime.coordination import RuntimeCoordinationError
 
 
 class _StopErrorBackend:
@@ -110,3 +111,32 @@ def test_cli_converts_manager_runtime_error_to_structured_json(
     assert payload["code"] == "DEV_CLI_FAILED"
     assert payload["state"] == DevStatusKind.FAILED.value
     assert "RuntimeError" in payload["message"]
+
+
+@pytest.mark.parametrize("operation", ["stop", "cleanup", "recover"])
+def test_lifecycle_operations_convert_coordination_errors_to_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    root = tmp_path.resolve()
+    (root / "module").mkdir(parents=True)
+    (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
+    environment = DevEnvironment(
+        repository_root=root,
+        python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
+    )
+    manager = DevSessionManager(environment)
+
+    def unavailable_lock():
+        raise RuntimeCoordinationError("synthetic coordination failure")
+
+    monkeypatch.setattr(manager, "_locked_state", unavailable_lock)
+
+    result = getattr(manager, operation)()
+
+    assert result.ok is False
+    assert result.code == RuntimeCoordinationError.code
+    assert result.message == "synthetic coordination failure"
+    assert result.state == DevStatusKind.FAILED.value

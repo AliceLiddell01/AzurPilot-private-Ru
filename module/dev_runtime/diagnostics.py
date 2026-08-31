@@ -16,6 +16,7 @@ from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_byte
 from module.dev_runtime.contracts import (
     DevEnvironment,
     DevResult,
+    DevSession,
     DevSessionState,
     DevStatusKind,
     ProcessIdentity,
@@ -35,6 +36,9 @@ _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
 
 
 class DevDiagnosticsMixin:
+    def _environment_for_session(self, session: DevSession) -> DevEnvironment:
+        raise NotImplementedError("DevDiagnosticsMixin требует разрешения окружения сессии")
+
     def preflight(self) -> DevResult:
         checks: list[dict[str, object]] = []
         blockers: list[str] = []
@@ -293,20 +297,17 @@ class DevDiagnosticsMixin:
             )
 
         if session.state is DevSessionState.RUNNING:
-            session_environment = self.environment
-            environment_for_session = getattr(self, "_environment_for_session", None)
-            if callable(environment_for_session):
-                try:
-                    session_environment = environment_for_session(session)
-                except TaskSandboxError as exc:
-                    return self._session_result(
-                        session,
-                        ok=False,
-                        code=exc.code,
-                        message=str(exc),
-                        state=DevStatusKind.FAILED,
-                        details={"error": exc.as_dict()},
-                    )
+            try:
+                session_environment = self._environment_for_session(session)
+            except TaskSandboxError as exc:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code=exc.code,
+                    message=str(exc),
+                    state=DevStatusKind.FAILED,
+                    details={"error": exc.as_dict()},
+                )
             ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:
                 return self._session_result(

@@ -362,6 +362,24 @@ def test_adb_restart_waits_for_reachability_without_using_app_target(
     assert backend.calls == ["restart_adb"]
 
 
+def test_adb_restart_does_not_require_emulator_readiness(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = _FakeRuntimeBackend(
+        emulator_ready=False,
+        adb_reachable=False,
+    )
+    manager = _manager(environment, backend)
+
+    result = _finish(manager, _accepted(manager, ControlAction.RESTART_ADB))
+
+    assert result.ok is True
+    assert result.details["control_operation"]["outcome"] == ControlOutcome.PASS.value
+    assert backend.calls == ["restart_adb"]
+
+
 @pytest.mark.parametrize(
     ("action", "backend_kwargs", "expected_code"),
     [
