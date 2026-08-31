@@ -71,6 +71,7 @@ from module.dev_runtime.task_sandbox import (
     TaskProvenance,
     TaskRollbackResult,
     TaskSandboxError,
+    reset_policy_environment_cache,
     rollback_task_dependency,
 )
 
@@ -122,6 +123,7 @@ __all__ = [
     "RuntimeControlManager",
     "RuntimeSessionState",
     "RuntimeSnapshot",
+    "reset_policy_environment_cache",
     "TaskAuthorization",
     "TaskCatalog",
     "TaskDescriptor",

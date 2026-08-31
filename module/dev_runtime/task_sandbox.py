@@ -1002,12 +1002,22 @@ def _policy_path_marker(path: Path) -> tuple[int, ...] | None:
     )
 
 
+def _policy_environment_root() -> Path:
+    configured_root = os.environ.get(TASK_POLICY_ROOT_ENV)
+    if isinstance(configured_root, str) and configured_root.strip():
+        try:
+            return Path(configured_root).resolve()
+        except (OSError, RuntimeError, TypeError, ValueError):
+            pass
+    return Path(__file__).resolve().parents[2]
+
+
 def _policy_environment_marker() -> tuple[
     tuple[int, ...] | None,
     tuple[int, ...] | None,
     tuple[int, ...] | None,
 ]:
-    root = Path(__file__).resolve().parents[2]
+    root = _policy_environment_root()
     config_dir = root / "config"
     state_dir = config_dir / "state"
     return (
@@ -1015,6 +1025,14 @@ def _policy_environment_marker() -> tuple[
         _policy_path_marker(state_dir),
         _policy_path_marker(state_dir / "dev-runtime-target.json"),
     )
+
+
+def reset_policy_environment_cache() -> None:
+    """Сбросить кэш разрешения окружения для тестов и composition roots."""
+
+    global _policy_environment_cache
+    with _policy_environment_cache_lock:
+        _policy_environment_cache = None
 
 
 def _current_policy_environment() -> tuple[DevEnvironment | None, str]:
@@ -1265,6 +1283,7 @@ __all__ = [
     "read_profile_payload",
     "register_task_dependency",
     "reset_scheduler_state",
+    "reset_policy_environment_cache",
     "rollback_task_dependency",
     "scheduler_state",
     "scheduler_time_text",

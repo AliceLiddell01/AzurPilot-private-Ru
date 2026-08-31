@@ -73,7 +73,11 @@ def _policy_file() -> Path:
 
 @dataclass(frozen=True, slots=True)
 class DevTargetPolicy:
-    """Проверяемая политика выбора и смены development target."""
+    """Проверяемая политика выбора target с обязательным explicit consent.
+
+    ``profile_change_requires_explicit_consent`` — обязательный инвариант, а не
+    настраиваемый переключатель.
+    """
 
     default_profile_name: str
     profile_change_requires_explicit_consent: bool

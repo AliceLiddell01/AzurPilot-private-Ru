@@ -28,6 +28,13 @@ from module.dev_runtime import (
 from module.dev_runtime import manager as manager_module
 
 
+@pytest.fixture(autouse=True)
+def _reset_policy_environment_cache():
+    task_sandbox.reset_policy_environment_cache()
+    yield
+    task_sandbox.reset_policy_environment_cache()
+
+
 def _profile() -> dict[str, object]:
     return {
         "Alas": {"Emulator": {}, "General": {}, "RuntimeOnly": "service"},
@@ -123,6 +130,25 @@ def test_policy_environment_cache_reloads_replaced_current_loader(
     assert first_error == ""
     assert second is environment_b
     assert second_error == ""
+
+
+def test_policy_environment_marker_follows_configured_repository_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_dir = tmp_path / "config"
+    state_dir = config_dir / "state"
+    state_dir.mkdir(parents=True)
+    (state_dir / "dev-runtime-target.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv(task_sandbox.TASK_POLICY_ROOT_ENV, str(tmp_path))
+
+    marker = task_sandbox._policy_environment_marker()
+
+    assert marker == (
+        task_sandbox._policy_path_marker(config_dir),
+        task_sandbox._policy_path_marker(state_dir),
+        task_sandbox._policy_path_marker(state_dir / "dev-runtime-target.json"),
+    )
 
 
 class _Backend:

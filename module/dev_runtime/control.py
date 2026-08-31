@@ -591,16 +591,22 @@ class ControlStore:
 
     @contextmanager
     def lock(self, *, create: bool = True) -> Iterator[None]:
+        operation_exists = False
         if create:
             self._ensure_root()
         else:
             self._check_paths()
-            if not self.root.exists() or not self.lock_path.exists():
+            operation_exists = self.operation_path.exists()
+            if not self.root.exists() or (
+                not self.lock_path.exists() and not operation_exists
+            ):
                 yield
                 return
-        handle = self.lock_path.open("a+b" if create else "r+b")
+        handle = self.lock_path.open(
+            "a+b" if create or operation_exists else "r+b"
+        )
         try:
-            if create and self.lock_path.stat().st_size == 0:
+            if (create or operation_exists) and self.lock_path.stat().st_size == 0:
                 handle.write(b"\0")
                 handle.flush()
                 os.fsync(handle.fileno())
@@ -867,7 +873,7 @@ def _process_matches(pid: int | None, created_at: float | None) -> bool:
         import psutil
 
         process = psutil.Process(pid)
-        return process.is_running() and abs(float(process.create_time()) - created_at) < 1.0
+        return process.is_running() and abs(float(process.create_time()) - created_at) < 0.01
     except Exception:  # noqa: BLE001
         return False
 

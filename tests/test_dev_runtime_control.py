@@ -234,6 +234,22 @@ def test_runtime_status_is_read_only_and_reports_bounded_state(
     assert not environment.control_root.exists()
 
 
+def test_existing_control_operation_without_lock_file_is_read_under_lock(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _FakeRuntimeBackend())
+    control_id = _accepted(manager, ControlAction.START_GAME)
+    manager.store.lock_path.unlink()
+
+    with manager.store.lock(create=False):
+        operation = manager.store.read()
+
+    assert operation is not None
+    assert operation.control_id == control_id
+    assert manager.store.lock_path.exists()
+
+
 @pytest.mark.parametrize(
     "provider_error",
     [
