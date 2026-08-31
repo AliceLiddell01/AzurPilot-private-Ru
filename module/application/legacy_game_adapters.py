@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from typing import NamedTuple
 
 from module.application.game_models import (
     ConfigUpdateRequest,
@@ -27,10 +28,18 @@ from module.application.game_validation import INVALID_NAME_CHARS, UNKNOWN_TASK
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
+_ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
 _TASK_LOG_PATTERNS = (
     re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
     re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
 )
+
+
+class _AdbDevice(NamedTuple):
+    """Одна запись inventory ADB с serial и подтверждённым состоянием."""
+
+    serial: str
+    state: str
 
 
 def _scheduler_sort_key(entry: SchedulerEntry) -> tuple[int, float, str]:
@@ -92,6 +101,19 @@ def _safe_serial(value: object) -> str:
         or any(char.isspace() or ord(char) < 32 for char in value)
     ):
         raise ValueError("serial содержит недопустимое значение")
+    return value
+
+
+def _safe_adb_state(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("state должен быть строкой")
+    value = value.strip()
+    if (
+        not value
+        or len(value) > 64
+        or any(char.isspace() or ord(char) < 32 for char in value)
+    ):
+        raise ValueError("state содержит недопустимое значение")
     return value
 
 
@@ -484,8 +506,12 @@ class LegacyAdbAdapter:
         self._target_serial_provider = target_serial_provider or self._default_target_serial
 
     def restart_adb(self, instance: str | None = None) -> bool:
-        if instance is not None:
-            instance = _safe_instance_name(instance)
+        # `adb kill-server` является host-global операцией. Без доказанной
+        # принадлежности конкретному экземпляру она может оборвать чужие
+        # устройства и потому запрещена до любого обращения к ADB.
+        if instance is None:
+            return False
+        instance = _safe_instance_name(instance)
         adb = self._adb_path_provider()
         if not isinstance(adb, str) or not adb:
             raise ValueError("ADB path не определён")
@@ -495,26 +521,18 @@ class LegacyAdbAdapter:
         devices = self._parse_devices(inventory)
         if devices is None:
             return False
-        target_serial = (
-            self._target_serial_provider(instance)
-            if instance is not None
-            else None
-        )
+        target_serial = self._target_serial_provider(instance)
         if target_serial is not None:
             target_serial = _safe_serial(target_serial)
-        auto_target = instance is not None and target_serial is None
+        auto_target = target_serial is None
         if not self._inventory_is_safe(
             devices,
             target_serial,
             allow_singleton=auto_target,
-            allow_any=instance is None,
         ):
             return False
         if auto_target:
-            target_serial = devices[0]
-        target_present_before = (
-            target_serial is not None and target_serial in devices
-        )
+            target_serial = devices[0].serial
         kill = self._runner((adb, "kill-server"))
         start = self._runner((adb, "start-server"))
         ready = self._runner((adb, "devices"))
@@ -526,17 +544,12 @@ class LegacyAdbAdapter:
             and self._inventory_is_safe(
                 ready_devices,
                 target_serial,
-                allow_any=instance is None,
             )
-            and (
-                instance is not None
-                or set(ready_devices) == set(devices)
-            )
-            and (not target_present_before or target_serial in ready_devices)
+            and self._target_is_ready(ready_devices, target_serial)
         )
 
     @staticmethod
-    def _parse_devices(result: object) -> tuple[str, ...] | None:
+    def _parse_devices(result: object) -> tuple[_AdbDevice, ...] | None:
         output = getattr(result, "stdout", None)
         if not isinstance(output, str):
             return None
@@ -546,33 +559,58 @@ class LegacyAdbAdapter:
             if not line or line.startswith(("List of devices attached", "*")):
                 continue
             fields = line.split()
-            if len(fields) < 2:
+            if len(fields) != 2:
                 return None
             try:
-                devices.append(_safe_serial(fields[0]))
+                devices.append(
+                    _AdbDevice(
+                        serial=_safe_serial(fields[0]),
+                        state=_safe_adb_state(fields[1]),
+                    )
+                )
             except (TypeError, ValueError):
                 return None
         return tuple(devices)
 
     @staticmethod
     def _inventory_is_safe(
-        devices: Sequence[str],
+        devices: Sequence[_AdbDevice],
         target_serial: str | None,
         *,
         allow_singleton: bool = False,
-        allow_any: bool = False,
     ) -> bool:
         try:
-            normalized = tuple(_safe_serial(serial) for serial in devices)
+            normalized = tuple(
+                _AdbDevice(
+                    serial=_safe_serial(device.serial),
+                    state=_safe_adb_state(device.state),
+                )
+                for device in devices
+            )
         except (TypeError, ValueError):
             return False
         if normalized != tuple(devices) or len(devices) != len(set(devices)):
             return False
+        if not devices or any(device.state not in _ADB_DEVICE_STATES for device in devices):
+            return False
+        serials = tuple(device.serial for device in devices)
+        if len(serials) != len(set(serials)):
+            return False
         if target_serial is None:
-            if allow_any:
-                return True
-            return len(normalized) == 1 if allow_singleton else not normalized
-        return all(serial == target_serial for serial in devices)
+            return allow_singleton and len(devices) == 1
+        return len(devices) == 1 and serials[0] == target_serial
+
+    @staticmethod
+    def _target_is_ready(
+        devices: Sequence[_AdbDevice],
+        target_serial: str | None,
+    ) -> bool:
+        return (
+            target_serial is not None
+            and len(devices) == 1
+            and devices[0].serial == target_serial
+            and devices[0].state == "device"
+        )
 
     @staticmethod
     def _returncode(result: object) -> int:

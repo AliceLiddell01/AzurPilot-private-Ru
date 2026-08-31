@@ -292,20 +292,43 @@ class _CommandResult:
     stdout: str = ""
 
 
-def test_legacy_adb_adapter_requires_target_only_inventory_before_restart():
+def _make_adb_adapter(
+    *inventories: str,
+    target_serial: str | None = "serial-a",
+) -> tuple[LegacyAdbAdapter, list[tuple[str, ...]]]:
     calls: list[tuple[str, ...]] = []
+    inventory_iter = iter(inventories)
 
     def runner(argv: tuple[str, ...]) -> _CommandResult:
         calls.append(argv)
         if argv[-1] == "devices":
-            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
+            return _CommandResult(0, next(inventory_iter))
         return _CommandResult(0)
 
     adapter = LegacyAdbAdapter(
         runner=runner,
         adb_path_provider=lambda: "adb",
-        target_serial_provider=lambda instance: "serial-a",
+        target_serial_provider=lambda instance: target_serial,
     )
+    return adapter, calls
+
+
+def test_legacy_adb_adapter_preserves_device_state_in_inventory():
+    parsed = LegacyAdbAdapter._parse_devices(
+        _CommandResult(0, "List of devices attached\nserial-a\toffline\n")
+    )
+
+    assert parsed is not None
+    assert parsed[0].serial == "serial-a"
+    assert parsed[0].state == "offline"
+
+
+def test_legacy_adb_adapter_confirms_offline_target_recovers_to_device():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\toffline\n",
+        "List of devices attached\nserial-a\tdevice\n",
+    )
+
     assert adapter.restart_adb("secondary") is True
     assert calls == [
         ("adb", "devices"),
@@ -314,48 +337,80 @@ def test_legacy_adb_adapter_requires_target_only_inventory_before_restart():
         ("adb", "devices"),
     ]
 
-    foreign_calls: list[tuple[str, ...]] = []
 
-    def foreign_runner(argv: tuple[str, ...]) -> _CommandResult:
-        foreign_calls.append(argv)
-        return _CommandResult(0, "List of devices attached\nforeign\tdevice\n")
+def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\toffline\n",
+        "List of devices attached\nserial-a\toffline\n",
+    )
 
-    foreign = LegacyAdbAdapter(
-        runner=foreign_runner,
-        adb_path_provider=lambda: "adb",
-        target_serial_provider=lambda instance: "serial-a",
+    assert adapter.restart_adb("secondary") is False
+    assert len(calls) == 4
+
+
+def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\n",
+        "List of devices attached\nserial-a\tunauthorized\n",
+    )
+
+    assert adapter.restart_adb("secondary") is False
+    assert len(calls) == 4
+
+
+def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\n",
+        "List of devices attached\n",
+    )
+
+    assert adapter.restart_adb("secondary") is False
+    assert len(calls) == 4
+
+
+def test_legacy_adb_adapter_rejects_unsupported_state_before_restart():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tunknown\n",
+    )
+
+    assert adapter.restart_adb("secondary") is False
+    assert calls == [("adb", "devices")]
+
+
+def test_legacy_adb_adapter_rejects_malformed_inventory_before_restart():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\n",
+    )
+
+    assert adapter.restart_adb("secondary") is False
+    assert calls == [("adb", "devices")]
+
+
+def test_legacy_adb_adapter_requires_explicit_target_only_inventory():
+    foreign, foreign_calls = _make_adb_adapter(
+        "List of devices attached\nforeign\tdevice\n",
     )
     assert foreign.restart_adb("secondary") is False
     assert foreign_calls == [("adb", "devices")]
 
-    malformed = LegacyAdbAdapter(
-        runner=lambda argv: type("Result", (), {"returncode": 0})(),
-        adb_path_provider=lambda: "adb",
-        target_serial_provider=lambda instance: "serial-a",
+    multiple, multiple_calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\nforeign\tdevice\n",
     )
-    assert malformed.restart_adb("secondary") is False
+    assert multiple.restart_adb("secondary") is False
+    assert multiple_calls == [("adb", "devices")]
 
-    malformed_inventory = LegacyAdbAdapter(
-        runner=lambda argv: _CommandResult(0, "List of devices attached\nbroken\n"),
-        adb_path_provider=lambda: "adb",
-        target_serial_provider=lambda instance: "broken",
+    missing, missing_calls = _make_adb_adapter(
+        "List of devices attached\n",
     )
-    assert malformed_inventory.restart_adb("secondary") is False
+    assert missing.restart_adb("secondary") is False
+    assert missing_calls == [("adb", "devices")]
 
 
 def test_legacy_adb_adapter_allows_only_singleton_auto_target():
-    calls: list[tuple[str, ...]] = []
-
-    def runner(argv: tuple[str, ...]) -> _CommandResult:
-        calls.append(argv)
-        if argv[-1] == "devices":
-            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
-        return _CommandResult(0)
-
-    adapter = LegacyAdbAdapter(
-        runner=runner,
-        adb_path_provider=lambda: "adb",
-        target_serial_provider=lambda instance: None,
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\toffline\n",
+        "List of devices attached\nserial-a\tdevice\n",
+        target_serial=None,
     )
 
     assert adapter.restart_adb("secondary") is True
@@ -366,77 +421,34 @@ def test_legacy_adb_adapter_allows_only_singleton_auto_target():
         ("adb", "devices"),
     ]
 
-    no_device_calls: list[tuple[str, ...]] = []
 
-    def no_device_runner(argv: tuple[str, ...]) -> _CommandResult:
-        no_device_calls.append(argv)
-        return _CommandResult(0, "List of devices attached\n")
-
-    no_device = LegacyAdbAdapter(
-        runner=no_device_runner,
-        adb_path_provider=lambda: "adb",
-        target_serial_provider=lambda instance: None,
+def test_legacy_adb_adapter_rejects_multiple_devices_for_auto_target():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\nserial-b\tdevice\n",
+        target_serial=None,
     )
 
-    assert no_device.restart_adb("secondary") is False
-    assert no_device_calls == [("adb", "devices")]
+    assert adapter.restart_adb("secondary") is False
+    assert calls == [("adb", "devices")]
 
 
-def test_legacy_adb_adapter_preserves_global_inventory():
-    calls: list[tuple[str, ...]] = []
-    inventories = iter(
-        (
-            "List of devices attached\nserial-a\tdevice\nserial-b\tdevice\n",
-            "List of devices attached\nserial-b\tdevice\nserial-a\tdevice\n",
-        )
+def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\n",
+        "List of devices attached\nserial-b\tdevice\n",
     )
 
-    def runner(argv: tuple[str, ...]) -> _CommandResult:
-        calls.append(argv)
-        if argv[-1] == "devices":
-            return _CommandResult(0, next(inventories))
-        return _CommandResult(0)
-
-    adapter = LegacyAdbAdapter(
-        runner=runner,
-        adb_path_provider=lambda: "adb",
-    )
-
-    assert adapter.restart_adb() is True
-    assert calls == [
-        ("adb", "devices"),
-        ("adb", "kill-server"),
-        ("adb", "start-server"),
-        ("adb", "devices"),
-    ]
+    assert adapter.restart_adb("secondary") is False
+    assert len(calls) == 4
 
 
-def test_legacy_adb_adapter_rejects_changed_global_inventory():
+def test_legacy_adb_adapter_rejects_unscoped_restart_without_touching_adb():
     calls: list[tuple[str, ...]] = []
 
-    def runner(argv: tuple[str, ...]) -> _CommandResult:
-        calls.append(argv)
-        if len(calls) == 1:
-            return _CommandResult(
-                0,
-                "List of devices attached\nserial-a\tdevice\n",
-            )
-        if argv[-1] == "devices":
-            return _CommandResult(
-                0,
-                "List of devices attached\nserial-b\tdevice\n",
-            )
-        return _CommandResult(0)
-
     adapter = LegacyAdbAdapter(
-        runner=runner,
+        runner=lambda argv: calls.append(tuple(argv)) or _CommandResult(0),
         adb_path_provider=lambda: "adb",
     )
 
     assert adapter.restart_adb() is False
-    assert calls == [
-        ("adb", "devices"),
-        ("adb", "kill-server"),
-        ("adb", "start-server"),
-        ("adb", "devices"),
-    ]
+    assert calls == []

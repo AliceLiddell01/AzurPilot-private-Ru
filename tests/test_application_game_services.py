@@ -25,8 +25,8 @@ from module.application import (
     ScheduleTaskRequest,
     ServiceUnavailableError,
 )
-from module.application.ports import RuntimeSnapshot
 from module.application.game_validation import validate_config_value
+from module.application.ports import RuntimeSnapshot
 
 
 class _Instances:
@@ -176,7 +176,11 @@ class _Emulator:
 
 
 class _Adb:
+    def __init__(self) -> None:
+        self.calls: list[str | None] = []
+
     def restart_adb(self, instance: str | None = None) -> bool:
+        self.calls.append(instance)
         return True
 
 
@@ -325,6 +329,24 @@ def test_control_service_validates_config_scheduler_and_lifecycle_postconditions
         "status",
         "status",
     ]
+
+
+def test_control_service_rejects_unscoped_adb_restart_before_adapter_call():
+    instances = _Instances()
+    adb = _Adb()
+    service = GameControlService(
+        instances,
+        _Metadata(),
+        _Config(),
+        _Metadata(),
+        _Lifecycle(),
+        _Emulator(),
+        adb,
+    )
+
+    with pytest.raises(OperationFailedError):
+        service.restart_adb()
+    assert adb.calls == []
 
 
 def test_control_service_fails_closed_for_invalid_config_and_state_results():

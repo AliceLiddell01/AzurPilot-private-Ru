@@ -230,8 +230,9 @@ class GameControlService:
         return EmulatorRestartResult(instance=instance)
 
     def restart_adb(self, instance: str | None = None) -> AdbRestartResult:
-        if instance is not None:
-            instance = known_instance(self._instance_reader, instance)
+        if instance is None:
+            raise OperationFailedError("Перезапуск ADB без экземпляра запрещён.")
+        instance = known_instance(self._instance_reader, instance)
         result = require_bool(
             safe_control(
                 "перезапуска ADB",
