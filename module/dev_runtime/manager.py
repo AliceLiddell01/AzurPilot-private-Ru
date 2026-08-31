@@ -110,8 +110,11 @@ class DevSessionManager(DevDiagnosticsMixin):
             return self.environment
         try:
             target = DevTarget(profile_name)
-        except ValueError:
-            return self.environment
+        except ValueError as exc:
+            raise TaskSandboxError(
+                "DEV_TARGET_INVALID",
+                "Профиль DevSession нельзя безопасно разрешить в development target",
+            ) from exc
         return replace(self.environment, dev_target=target)
 
     def _evidence_for_session(
@@ -659,7 +662,10 @@ class DevSessionManager(DevDiagnosticsMixin):
     def status(self) -> DevResult:
         """Вернуть статус Dev Runtime и безопасный снимок политики задач только для чтения."""
 
-        result = super().status()
+        try:
+            result = super().status()
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         try:
             session = self._read_session()
         except (OSError, ValueError):
@@ -668,9 +674,14 @@ class DevSessionManager(DevDiagnosticsMixin):
         details = dict(result.details)
         if session is not None:
             details["task_lifecycle"] = session.task_lifecycle_as_dict()
-        task_policy_environment = (
-            self._environment_for_session(session) if session is not None else self.environment
-        )
+        try:
+            task_policy_environment = (
+                self._environment_for_session(session)
+                if session is not None
+                else self.environment
+            )
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         task_policy = TaskPolicyStore(task_policy_environment).inspect()
         if task_policy.get("present") is not True:
             if session is not None and session.task_cleanup_needed:
@@ -852,6 +863,14 @@ class DevSessionManager(DevDiagnosticsMixin):
                     message=f"Маркер повреждён; cleanup запрещен: {exc}",
                     state=DevStatusKind.CORRUPT.value,
                 )
+            try:
+                cleanup_environment = (
+                    self._environment_for_session(session)
+                    if session is not None
+                    else self.environment
+                )
+            except TaskSandboxError as exc:
+                return self._task_error(exc)
             evidence_store = (
                 self._evidence_for_session(
                     session.session_id,
@@ -922,11 +941,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             cleanup = self._cleanup_task_state_locked(
                 expected_session_id=session.session_id if session is not None else None,
                 session=session,
-                environment=(
-                    self._environment_for_session(session)
-                    if session is not None
-                    else self.environment
-                ),
+                environment=cleanup_environment,
             )
             if not cleanup.ok:
                 if session is not None:
@@ -1207,14 +1222,17 @@ class DevSessionManager(DevDiagnosticsMixin):
         preserve_task_state: bool = False,
         environment: DevEnvironment | None = None,
     ) -> DevResult:
-        cleanup_environment = (
-            environment
-            or (
-                self._environment_for_session(session)
-                if session is not None
-                else self.environment
+        try:
+            cleanup_environment = (
+                environment
+                or (
+                    self._environment_for_session(session)
+                    if session is not None
+                    else self.environment
+                )
             )
-        )
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         store = TaskPolicyStore(cleanup_environment)
         try:
             policy = store.read()
@@ -1403,14 +1421,17 @@ class DevSessionManager(DevDiagnosticsMixin):
     ) -> DevResult:
         """Заблокировать политику, если владение процессом нельзя подтвердить."""
 
-        cleanup_environment = (
-            environment
-            or (
-                self._environment_for_session(session)
-                if session is not None
-                else self.environment
+        try:
+            cleanup_environment = (
+                environment
+                or (
+                    self._environment_for_session(session)
+                    if session is not None
+                    else self.environment
+                )
             )
-        )
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         pending = False
         try:
             pending = (
@@ -1453,6 +1474,10 @@ class DevSessionManager(DevDiagnosticsMixin):
         message: str,
         preserve_task_state: bool,
     ) -> DevResult:
+        try:
+            cleanup_environment = self._environment_for_session(session)
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         was_stopped = session.state is DevSessionState.STOPPED and session.process is None
         evidence_store = self._evidence_store
         if evidence_store is None and session.is_task_aware:
@@ -1477,7 +1502,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             expected_session_id=session.session_id,
             session=session,
             preserve_task_state=preserve_task_state,
-            environment=self._environment_for_session(session),
+            environment=cleanup_environment,
         )
         if not cleanup.ok:
             session.state = DevSessionState.FAILED
@@ -2112,6 +2137,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                 message="DevSession отсутствует",
                 state=DevStatusKind.NO_SESSION.value,
             )
+        try:
+            session_environment = self._environment_for_session(session)
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         if session.state is DevSessionState.STOPPED and session.process is None:
             return self._finish_stopped_locked(
                 session,
@@ -2124,7 +2153,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         if identity is None:
             try:
                 candidates = self.process_backend.find_by_session(
-                    self._environment_for_session(session), session.session_id
+                    session_environment, session.session_id
                 )
             except RuntimeError as exc:
                 return self._session_result(

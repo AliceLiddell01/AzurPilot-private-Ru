@@ -6,7 +6,7 @@ import json
 import os
 import subprocess
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -682,6 +682,29 @@ def test_retention_keeps_active_session_and_ignores_foreign_directory(tmp_path: 
     assert active.root.exists()
     assert not old.root.exists()
     assert (foreign / "do-not-touch.txt").exists()
+
+
+def test_retention_prunes_historical_session_after_target_switch(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    historical_environment = replace(
+        environment,
+        dev_target=DevTarget("historical-target"),
+    )
+    historical = EvidenceStore.create(
+        historical_environment,
+        session_id="historical",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    old_time = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
+    os.utime(historical.root, (old_time, old_time))
+
+    assert EvidenceStore.prune(
+        environment,
+        now=lambda: datetime(2026, 8, 30, tzinfo=UTC),
+    ) is True
+    assert not historical.root.exists()
 
 
 def test_retention_evicts_oldest_session_when_bytes_exceed_limit(

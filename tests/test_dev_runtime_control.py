@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -233,6 +233,27 @@ def test_runtime_status_does_not_persist_orphan_reconciliation(
     assert result.details["control_operation"]["active"] is False
     assert result.details["control_operation"]["operation"]["outcome"] == ControlOutcome.ABORTED.value
     assert manager.store.operation_path.read_bytes() == before
+
+
+def test_created_control_operation_survives_supervisor_launch_grace(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _FakeRuntimeBackend())
+    operation = manager._reserve_operation(ControlAction.START_GAME)
+
+    during_launch = manager.get_operation(operation.control_id)
+
+    assert during_launch.ok is True
+    assert during_launch.details["control_operation"]["state"] == "CREATED"
+    assert during_launch.details["control_operation"]["outcome"] is None
+
+    manager.now = lambda: _NOW + timedelta(seconds=11)
+    after_grace = manager.get_operation(operation.control_id)
+
+    assert after_grace.ok is False
+    assert after_grace.details["control_operation"]["outcome"] == ControlOutcome.ABORTED.value
 
 
 def test_new_control_request_reconciles_crashed_previous_supervisor(

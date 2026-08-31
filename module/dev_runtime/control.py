@@ -39,6 +39,7 @@ CONTROL_MAX_TRANSITIONS = 128
 CONTROL_MAX_BYTES = 256 * 1024
 CONTROL_LOCK_TIMEOUT = 10.0
 CONTROL_LOCK_RETRY_SECONDS = 0.05
+CONTROL_LAUNCH_GRACE_SECONDS = 10.0
 
 
 class ControlAction(StrEnum):
@@ -955,12 +956,27 @@ class RuntimeControlManager:
         except RuntimeControlError as exc:
             return self._result(ok=False, code=exc.code, message=str(exc), state="failed", details={"outcome": exc.outcome.value})
 
+    def _within_launch_grace(self, operation: DevRuntimeControlOperation) -> bool:
+        if operation.state is not ControlState.CREATED or operation.supervisor_pid is not None:
+            return False
+        try:
+            created_at = datetime.fromisoformat(operation.created_at)
+            current = self.now()
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=UTC)
+            else:
+                current = current.astimezone(UTC)
+            age = (current - created_at).total_seconds()
+            return 0 <= age < CONTROL_LAUNCH_GRACE_SECONDS
+        except (OverflowError, TypeError, ValueError):
+            return False
+
     def _reconcile(self, *, control_id: str | None = None, read_only: bool = False) -> DevRuntimeControlOperation | None:
         with self.store.lock(create=not read_only):
             operation = self.store.read()
             if operation is None or (control_id is not None and operation.control_id != control_id):
                 return None
-            if operation.active and (
+            if operation.active and not self._within_launch_grace(operation) and (
                 operation.supervisor_pid is None
                 or not _process_matches(operation.supervisor_pid, operation.supervisor_created_at)
             ):

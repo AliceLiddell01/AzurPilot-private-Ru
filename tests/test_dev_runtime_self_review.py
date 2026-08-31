@@ -259,6 +259,31 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     assert restored.profile_name == "profile-a"
 
 
+def test_invalid_recorded_target_blocks_status_and_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    session = DevSession(
+        session_id="invalid-target-session",
+        state=DevSessionState.STOPPED,
+        repository_root=str(environment.repository_root),
+        created_at="2026-08-31T00:00:00+00:00",
+        updated_at="2026-08-31T00:00:00+00:00",
+        profile_name="invalid/profile",
+    )
+    manager = DevSessionManager(environment)
+    monkeypatch.setattr(manager, "_read_session", lambda: session)
+
+    status = manager.status()
+    cleanup = manager.cleanup()
+
+    assert status.ok is False
+    assert status.code == "DEV_TARGET_INVALID"
+    assert cleanup.ok is False
+    assert cleanup.code == "DEV_TARGET_INVALID"
+
+
 def test_acceptance_cli_exposes_diagnostics_task_commands_and_cleanup() -> None:
     parser = cli_module._parser()
 

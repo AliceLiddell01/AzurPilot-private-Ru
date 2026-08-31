@@ -1317,17 +1317,21 @@ class EvidenceStore:
         *,
         now: Callable[[], datetime] | None = None,
         profile_name: str | None = None,
+        validate_profile: bool = True,
     ) -> None:
         self.environment = environment
         self.session_id = validate_session_id(session_id)
         self.now = now or (lambda: datetime.now(UTC))
-        expected_profile = (
-            profile_name if profile_name is not None else environment.profile_name
-        )
-        try:
-            self.expected_profile = DevTarget(expected_profile).profile_name
-        except ValueError as exc:
-            raise EvidenceError("DEV_EVIDENCE_PROFILE_INVALID", "Профиль диагностики имеет недопустимый формат") from exc
+        if validate_profile:
+            expected_profile = (
+                profile_name if profile_name is not None else environment.profile_name
+            )
+            try:
+                self.expected_profile = DevTarget(expected_profile).profile_name
+            except ValueError as exc:
+                raise EvidenceError("DEV_EVIDENCE_PROFILE_INVALID", "Профиль диагностики имеет недопустимый формат") from exc
+        else:
+            self.expected_profile = None
         self.root = _ensure_scoped_path(
             environment.evidence_root / self.session_id,
             environment.repository_root,
@@ -2481,11 +2485,13 @@ class EvidenceStore:
         session_id: str,
         *,
         profile_name: str | None = None,
+        validate_profile: bool = True,
     ) -> EvidenceStore:
         return cls(
             environment,
             validate_session_id(session_id),
             profile_name=profile_name,
+            validate_profile=validate_profile,
         )
 
     @classmethod
@@ -2517,7 +2523,11 @@ class EvidenceStore:
                         continue
                     try:
                         session_id = validate_session_id(path.name)
-                        store = cls.for_session(environment, session_id)
+                        store = cls.for_session(
+                            environment,
+                            session_id,
+                            validate_profile=False,
+                        )
                         manifest = store._manifest_locked()
                         events, timeline_truncated = store._timeline_locked()
                         if manifest["timeline"] != _timeline_metadata(events, truncated=timeline_truncated):
