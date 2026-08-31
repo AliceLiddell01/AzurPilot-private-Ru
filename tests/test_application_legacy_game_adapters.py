@@ -201,6 +201,21 @@ def test_legacy_log_adapter_is_bounded_and_root_safe(tmp_path: Path):
         LegacyRuntimeLogAdapter(tmp_path / "outside" / ".." / "log")._safe_candidate("../x")
 
 
+def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path):
+    log_root = tmp_path / "log"
+    log_root.mkdir()
+    (log_root / "2026-08-30_ap.txt").write_text(
+        "<<< Run task Main >>>\n",
+        encoding="utf-8",
+    )
+    adapter = LegacyRuntimeLogAdapter(
+        log_root,
+        date_provider=lambda: date(2026, 8, 31),
+    )
+
+    assert adapter.read_current_task("ap") == "Main"
+
+
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):
     class Device:
         def screenshot(self) -> object:
@@ -346,3 +361,63 @@ def test_legacy_adb_adapter_allows_only_singleton_auto_target():
 
     assert no_device.restart_adb("secondary") is False
     assert no_device_calls == [("adb", "devices")]
+
+
+def test_legacy_adb_adapter_preserves_global_inventory():
+    calls: list[tuple[str, ...]] = []
+    inventories = iter(
+        (
+            "List of devices attached\nserial-a\tdevice\nserial-b\tdevice\n",
+            "List of devices attached\nserial-b\tdevice\nserial-a\tdevice\n",
+        )
+    )
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if argv[-1] == "devices":
+            return _CommandResult(0, next(inventories))
+        return _CommandResult(0)
+
+    adapter = LegacyAdbAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+    )
+
+    assert adapter.restart_adb() is True
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "kill-server"),
+        ("adb", "start-server"),
+        ("adb", "devices"),
+    ]
+
+
+def test_legacy_adb_adapter_rejects_changed_global_inventory():
+    calls: list[tuple[str, ...]] = []
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if len(calls) == 1:
+            return _CommandResult(
+                0,
+                "List of devices attached\nserial-a\tdevice\n",
+            )
+        if argv[-1] == "devices":
+            return _CommandResult(
+                0,
+                "List of devices attached\nserial-b\tdevice\n",
+            )
+        return _CommandResult(0)
+
+    adapter = LegacyAdbAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+    )
+
+    assert adapter.restart_adb() is False
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "kill-server"),
+        ("adb", "start-server"),
+        ("adb", "devices"),
+    ]

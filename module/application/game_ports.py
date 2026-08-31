@@ -49,7 +49,7 @@ class GameConfigWriter(Protocol):
 
 
 class GameConfigMetadata(Protocol):
-    """Metadata contract required by the legacy config adapter."""
+    """Контракт metadata, необходимый legacy config adapter."""
 
     def redact_config(
         self,

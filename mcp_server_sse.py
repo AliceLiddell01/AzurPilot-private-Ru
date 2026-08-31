@@ -451,6 +451,8 @@ async def _tool_trigger_task(arguments: dict[str, Any]) -> ToolResponse:
 async def _tool_clear_scheduler_queue(arguments: dict[str, Any]) -> ToolResponse:
     inst = _required_string(arguments, "instance")
     result = _get_backend().control.clear_scheduler_queue(inst)
+    if not result.cleared_tasks:
+        return [TextContent(type="text", text="Успешно: очередь задач уже пуста.")]
     return [TextContent(type="text", text=f"Успешно: задачи очищены: {', '.join(result.cleared_tasks)}")]
 
 

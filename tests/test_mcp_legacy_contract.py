@@ -7,6 +7,7 @@ import inspect
 import mcp_server_sse
 from module.application import (
     MediaFrame,
+    SchedulerQueueClearResult,
     ServiceUnavailableError,
 )
 
@@ -78,6 +79,25 @@ def test_mcp_rejects_missing_required_arguments_without_raw_exception():
     result = asyncio.run(mcp_server_sse.call_tool("get_resources", {}))
     assert "Некорректный запрос" in result[0].text
     assert "KeyError" not in result[0].text
+
+
+def test_mcp_clear_scheduler_queue_has_explicit_empty_queue_message(monkeypatch):
+    class Control:
+        def clear_scheduler_queue(self, instance: str) -> SchedulerQueueClearResult:
+            return SchedulerQueueClearResult(instance=instance, cleared_tasks=())
+
+    class Backend:
+        control = Control()
+
+    monkeypatch.setattr(mcp_server_sse, "_get_backend", lambda: Backend())
+    result = asyncio.run(
+        mcp_server_sse.call_tool(
+            "clear_scheduler_queue",
+            {"instance": "ap"},
+        )
+    )
+
+    assert result[0].text == "Успешно: очередь задач уже пуста."
 
 
 def test_mcp_handlers_are_thin_and_do_not_reintroduce_legacy_owners():

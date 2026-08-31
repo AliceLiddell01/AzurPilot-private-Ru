@@ -72,6 +72,26 @@ class ConfigGenerationTests(unittest.TestCase):
 
         self.assertNotIn("sensitive", source["Error"]["LlmApiBase"])
         self.assertNotIn("sensitive", generated["Alas"]["Error"]["LlmApiBase"])
+        for name, source_data, generated_data in (
+            (
+                "Error.OnePushConfig",
+                source["Error"]["OnePushConfig"],
+                generated["Alas"]["Error"]["OnePushConfig"],
+            ),
+            (
+                "Error.LlmApiKey",
+                source["Error"]["LlmApiKey"],
+                generated["Alas"]["Error"]["LlmApiKey"],
+            ),
+            (
+                "OpsiGeneral.OpsiOnePushConfig",
+                source["OpsiGeneral"]["OpsiOnePushConfig"],
+                generated["OpsiGeneral"]["OpsiGeneral"]["OpsiOnePushConfig"],
+            ),
+        ):
+            with self.subTest(name=name):
+                self.assertIs(source_data.get("sensitive"), True)
+                self.assertIs(generated_data.get("sensitive"), True)
 
 
 if __name__ == "__main__":

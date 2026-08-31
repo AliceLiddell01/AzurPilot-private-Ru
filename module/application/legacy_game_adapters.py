@@ -10,7 +10,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -22,6 +22,7 @@ from module.application.game_models import (
     thaw_payload,
 )
 from module.application.game_ports import GameConfigMetadata
+from module.application.game_validation import UNKNOWN_TASK
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -253,7 +254,7 @@ class LegacyRuntimeLogAdapter:
         try:
             self._find_log_file(instance)
         except FileNotFoundError:
-            return "Unknown"
+            return UNKNOWN_TASK
 
         for line in reversed(self.read_tail(instance, _MAX_LOG_LINES)):
             for pattern in _TASK_LOG_PATTERNS:
@@ -263,7 +264,7 @@ class LegacyRuntimeLogAdapter:
                     if candidate:
                         return candidate
                     break
-        return "Unknown"
+        return UNKNOWN_TASK
 
     def _find_log_file(self, instance: str) -> Path:
         instance = _safe_instance_name(instance)
@@ -271,8 +272,10 @@ class LegacyRuntimeLogAdapter:
         if not isinstance(current_date, date):
             raise TypeError("date_provider вернул не date")
         date_prefix = current_date.strftime("%Y-%m-%d")
+        previous_prefix = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
         candidates = (
             self._safe_candidate(f"{date_prefix}_{instance}.txt"),
+            self._safe_candidate(f"{previous_prefix}_{instance}.txt"),
         )
         for candidate in candidates:
             if candidate.is_file():
@@ -482,6 +485,7 @@ class LegacyAdbAdapter:
             devices,
             target_serial,
             allow_singleton=auto_target,
+            allow_any=instance is None,
         ):
             return False
         if auto_target:
@@ -497,7 +501,15 @@ class LegacyAdbAdapter:
         ready_devices = self._parse_devices(ready)
         return (
             ready_devices is not None
-            and self._inventory_is_safe(ready_devices, target_serial)
+            and self._inventory_is_safe(
+                ready_devices,
+                target_serial,
+                allow_any=instance is None,
+            )
+            and (
+                instance is not None
+                or set(ready_devices) == set(devices)
+            )
             and (not target_present_before or target_serial in ready_devices)
         )
 
@@ -526,6 +538,7 @@ class LegacyAdbAdapter:
         target_serial: str | None,
         *,
         allow_singleton: bool = False,
+        allow_any: bool = False,
     ) -> bool:
         try:
             normalized = tuple(_safe_serial(serial) for serial in devices)
@@ -534,6 +547,8 @@ class LegacyAdbAdapter:
         if normalized != tuple(devices) or len(devices) != len(set(devices)):
             return False
         if target_serial is None:
+            if allow_any:
+                return True
             return len(normalized) == 1 if allow_singleton else not normalized
         return all(serial == target_serial for serial in devices)
 
