@@ -86,7 +86,20 @@
 6. Новый внешний review нужен, если после прошлого checkpoint появился существенный новый code diff, изменился контракт/архитектура/безопасность или предыдущий reviewer явно требует повторной проверки.
 7. Незначительные правки документации, тестовых ожиданий или механические fixes сами по себе не запускают полный внешний review заново.
 
-Если обязательный внешний reviewer упёрся в rate limit/cooldown, **не ждать cooldown внутри активного прогона**. Сохранить состояние и завершить текущий прогон как ожидающий review; продолжение выполняется новым прогоном после доступности reviewer.
+Если обязательный внешний reviewer упёрся в rate limit/cooldown, **не ждать cooldown внутри активного прогона**. Для CodeRabbit это не product blocker: зафиксировать последний exact head, продолжить остальные gates и передать draft PR в состоянии `READY_FOR_CHATGPT_REVIEW` с явной пометкой об ограничении. Другой внешний gate считать `blocked`, если его нельзя безопасно подтвердить.
+
+## Pre-merge и post-merge outcomes
+
+Pre-merge Definition of Done заканчивается после commit/push draft PR, проверки
+required `Python`, `Windows`, `Security` на exact head, secret scan, self-review
+и разрешения blocking review threads. Итоговый статус —
+`READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь через
+ChatGPT 5.6 Sol, а merge не выполняется без отдельной текущей команды пользователя.
+
+Post-merge verification и cleanup являются отдельным этапом и выполняются только
+после подтверждённого merge. Перед ним нужно повторно проверить exact head,
+required CI, relevant diff и review blockers. Успешный CI или CodeRabbit сам по
+себе не является разрешением на merge.
 
 ## Типовая матрица
 
@@ -191,6 +204,8 @@ Production/network acceptance выполняется после реализац
 
 ## Definition of Done
 
+### Pre-merge `READY_FOR_CHATGPT_REVIEW`
+
 - правильная ветка и base SHA;
 - минимальный связный diff;
 - архитектурные границы соблюдены;
@@ -202,10 +217,20 @@ Production/network acceptance выполняется после реализац
 - полный suite не повторялся без существенного изменения или диагностической причины;
 - secret scan выполнен на финальном relevant diff;
 - Codex adversarial self-review завершён;
-- внешний reviewer прошёл необходимые milestone/final checkpoints;
+- необходимые доступные внешние milestone/final checkpoints обработаны; ограничения CodeRabbit явно зафиксированы;
 - security review завершён в требуемом объёме;
 - открытые blocking review threads отсутствуют;
 - документация обновлена;
-- post-merge verification завершён для слитой задачи;
+- draft PR создан или обновлён и содержит актуальный scope, base SHA, gates и ограничения;
+- финальное ревью ChatGPT 5.6 Sol ожидает пользователя;
+- merge не выполнялся без отдельной текущей команды пользователя;
 - ограничения перечислены;
 - от пользователя не требуется рутинных технических действий.
+
+### Post-merge completion
+
+После отдельной текущей команды пользователя дополнительно обязательны:
+
+- exact-head preflight и merge разрешённой стратегией;
+- post-merge verification завершён для слитой задачи;
+- cleanup только принадлежащих задаче веток, checkout и временных ресурсов.
