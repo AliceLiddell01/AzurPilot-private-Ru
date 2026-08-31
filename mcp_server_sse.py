@@ -473,7 +473,8 @@ async def _tool_restart_emulator(arguments: dict[str, Any]) -> ToolResponse:
 
 
 async def _tool_restart_adb(arguments: dict[str, Any]) -> ToolResponse:
-    _get_backend().control.restart_adb(arguments.get("instance"))
+    instance = _required_string(arguments, "instance")
+    _get_backend().control.restart_adb(instance)
     return [TextContent(type="text", text="Успешно: сервис ADB перезапущен.")]
 
 

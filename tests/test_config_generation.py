@@ -113,18 +113,26 @@ class ConfigGenerationTests(unittest.TestCase):
             if isinstance(argument_data, dict)
             and argument_data.get("sensitive") is True
         }
-        generated_paths = {
-            (group, argument)
-            for task_data in self.generated_args.values()
+        generated_occurrences = [
+            (task, group, argument, argument_data.get("sensitive"))
+            for task, task_data in self.generated_args.items()
             if isinstance(task_data, dict)
             for group, group_data in task_data.items()
             if isinstance(group_data, dict)
             for argument, argument_data in group_data.items()
             if isinstance(argument_data, dict)
-            and argument_data.get("sensitive") is True
+        ]
+        generated_paths = {
+            (group, argument)
+            for _task, group, argument, sensitive in generated_occurrences
+            if sensitive is True
         }
 
         self.assertEqual(generated_paths, source_paths)
+        for task, group, argument, sensitive in generated_occurrences:
+            if (group, argument) in source_paths:
+                with self.subTest(path=f"{task}.{group}.{argument}"):
+                    self.assertIs(sensitive, True)
 
 
 if __name__ == "__main__":

@@ -93,6 +93,30 @@ class _Metadata:
         return self.definitions.get((task, group, argument))
 
 
+class _ConfigSchema:
+    def __init__(
+        self,
+        definitions: dict[tuple[str, str, str], ConfigArgumentDefinition],
+    ) -> None:
+        self.definitions = definitions
+
+    def read_argument_definition(
+        self,
+        task: str,
+        group: str,
+        argument: str,
+    ) -> ConfigArgumentDefinition | None:
+        return self.definitions.get((task, group, argument))
+
+
+class _SchedulerTasks:
+    def __init__(self, tasks: tuple[str, ...]) -> None:
+        self.tasks = tasks
+
+    def list_schedulable_task_names(self) -> tuple[str, ...]:
+        return self.tasks
+
+
 class _Config:
     def __init__(self) -> None:
         self.updated: list[ConfigUpdateRequest] = []
@@ -102,7 +126,7 @@ class _Config:
     def read_config(self, instance: str, task: str | None = None) -> dict[str, object]:
         data: dict[str, object] = {
             "Main": {"Fleet": {"Count": 1}},
-            "Error": {"ApiKey": "secret"},
+            "Error": {"ApiKey": "opaque-value"},
         }
         return data[task] if task else data  # type: ignore[return-value]
 
@@ -212,15 +236,17 @@ def _control_service(
     config = config or _Config()
     metadata = metadata or _Metadata()
     lifecycle = lifecycle or _Lifecycle()
+    config_schema = _ConfigSchema(metadata.definitions)
+    scheduler_tasks = _SchedulerTasks(metadata.tasks)
     return (
         GameControlService(
-            instances,
-            metadata,
-            config,
-            metadata,
-            lifecycle,
-            _Emulator(),
-            _Adb(),
+            instance_reader=instances,
+            config_schema=config_schema,
+            config_writer=config,
+            scheduler_tasks=scheduler_tasks,
+            lifecycle=lifecycle,
+            emulator=_Emulator(),
+            adb=_Adb(),
             clock=clock or (lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC)),
         ),
         config,
@@ -259,12 +285,12 @@ def test_read_service_rejects_invalid_unknown_and_not_running_instances():
 def test_read_service_sanitizes_malformed_adapter_results_and_exceptions():
     class BrokenConfig(_Config):
         def read_resources(self, instance: str) -> DashboardResources:
-            raise RuntimeError("C:/private/config.json token=secret")
+            raise RuntimeError("internal config adapter detail")
 
     with pytest.raises(ServiceUnavailableError) as failure:
         _read_service(config=BrokenConfig()).get_resources("ap")
-    assert "private" not in str(failure.value)
-    assert "secret" not in str(failure.value)
+    assert "internal" not in str(failure.value)
+    assert "detail" not in str(failure.value)
     assert failure.value.__cause__ is None
 
     class TooManyLogs(_Logs):
@@ -285,22 +311,22 @@ def test_read_service_sanitizes_malformed_adapter_results_and_exceptions():
 def test_application_boundaries_sanitize_application_errors_from_ports():
     class BrokenInstances(_Instances):
         def list_instance_names(self) -> tuple[str, ...]:
-            raise ServiceUnavailableError("C:/private/instances.json token=secret")
+            raise ServiceUnavailableError("internal instances adapter detail")
 
     with pytest.raises(ServiceUnavailableError) as read_failure:
         _read_service(instances=BrokenInstances()).get_config("ap")
-    assert "private" not in str(read_failure.value)
-    assert "secret" not in str(read_failure.value)
+    assert "internal" not in str(read_failure.value)
+    assert "detail" not in str(read_failure.value)
 
     class BrokenWriter(_Config):
         def update_config(self, request: ConfigUpdateRequest) -> None:
-            raise ServiceUnavailableError("C:/private/profile.json token=secret")
+            raise ServiceUnavailableError("internal profile adapter detail")
 
     service, _config, _lifecycle = _control_service(config=BrokenWriter())
     with pytest.raises(OperationFailedError) as control_failure:
         service.update_config(ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 2))
-    assert "private" not in str(control_failure.value)
-    assert "secret" not in str(control_failure.value)
+    assert "internal" not in str(control_failure.value)
+    assert "detail" not in str(control_failure.value)
 
 
 def test_control_service_validates_config_scheduler_and_lifecycle_postconditions():
@@ -334,17 +360,18 @@ def test_control_service_validates_config_scheduler_and_lifecycle_postconditions
 def test_control_service_rejects_unscoped_adb_restart_before_adapter_call():
     instances = _Instances()
     adb = _Adb()
+    metadata = _Metadata()
     service = GameControlService(
-        instances,
-        _Metadata(),
-        _Config(),
-        _Metadata(),
-        _Lifecycle(),
-        _Emulator(),
-        adb,
+        instance_reader=instances,
+        config_schema=_ConfigSchema(metadata.definitions),
+        config_writer=_Config(),
+        scheduler_tasks=_SchedulerTasks(metadata.tasks),
+        lifecycle=_Lifecycle(),
+        emulator=_Emulator(),
+        adb=adb,
     )
 
-    with pytest.raises(OperationFailedError):
+    with pytest.raises(InvalidRequestError):
         service.restart_adb()
     assert adb.calls == []
 
@@ -412,22 +439,22 @@ def test_config_validation_rejects_non_numeric_range_without_raw_type_error():
 def test_control_service_sanitizes_writer_failure_without_internal_details():
     class BrokenConfig(_Config):
         def update_config(self, request: ConfigUpdateRequest) -> None:
-            raise RuntimeError("C:/private/profile.json password=secret")
+            raise RuntimeError("internal profile adapter detail")
 
     service, _config, _lifecycle = _control_service(config=BrokenConfig())
     with pytest.raises(OperationFailedError) as failure:
         service.update_config(ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 2))
-    assert "private" not in str(failure.value)
-    assert "secret" not in str(failure.value)
+    assert "internal" not in str(failure.value)
+    assert "detail" not in str(failure.value)
 
 
 def test_control_service_sanitizes_clock_failure():
     def broken_clock() -> datetime:
-        raise RuntimeError("C:/private/clock secret=token")
+        raise RuntimeError("internal clock adapter detail")
 
     service, _config, _lifecycle = _control_service(clock=broken_clock)
 
     with pytest.raises(OperationFailedError) as failure:
         service.trigger_task(ScheduleTaskRequest("ap", "Event"))
-    assert "private" not in str(failure.value)
-    assert "token" not in str(failure.value)
+    assert "internal" not in str(failure.value)
+    assert "detail" not in str(failure.value)

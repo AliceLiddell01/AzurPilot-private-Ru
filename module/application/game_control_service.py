@@ -231,7 +231,7 @@ class GameControlService:
 
     def restart_adb(self, instance: str | None = None) -> AdbRestartResult:
         if instance is None:
-            raise OperationFailedError("Перезапуск ADB без экземпляра запрещён.")
+            raise InvalidRequestError("Перезапуск ADB требует имя экземпляра.")
         instance = known_instance(self._instance_reader, instance)
         result = require_bool(
             safe_control(

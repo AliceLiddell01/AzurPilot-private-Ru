@@ -25,7 +25,6 @@ from module.application import (
     LifecycleOutcome,
     LifecycleResult,
     MediaFrame,
-    OperationFailedError,
     RuntimeLogTail,
     RuntimeState,
     SchedulerEntry,
@@ -401,21 +400,21 @@ def test_legacy_mcp_rejects_unscoped_adb_restart_without_running_adapter(monkeyp
     monkeypatch.setattr(mcp_server_sse, "_get_backend", lambda: Backend())
     result = asyncio.run(mcp_server_sse.call_tool("restart_adb", {}))
 
-    assert result[0].text == "Операция не выполнена."
-    assert calls == [None]
+    assert result[0].text == "Некорректный запрос MCP-инструмента."
+    assert calls == []
 
 
 @pytest.mark.parametrize("name", LEGACY_TOOL_NAMES)
 def test_legacy_mcp_sanitizes_application_errors_for_every_tool(monkeypatch, name):
     async def broken(_arguments):
-        raise ServiceUnavailableError("C:/private token=secret")
+        raise ServiceUnavailableError("internal adapter detail")
 
     monkeypatch.setitem(mcp_server_sse.TOOL_HANDLERS, name, broken)
     result = asyncio.run(mcp_server_sse.call_tool(name, {}))
 
     assert result[0].text == "Операция временно недоступна."
-    assert "private" not in result[0].text
-    assert "secret" not in result[0].text
+    assert "internal" not in result[0].text
+    assert "detail" not in result[0].text
 
 
 def test_mcp_image_conversion_is_the_only_base64_media_boundary():
@@ -427,7 +426,7 @@ def test_mcp_image_conversion_is_the_only_base64_media_boundary():
 def test_mcp_delegates_errors_to_safe_application_text(monkeypatch):
     class BrokenRead:
         def get_recent_logs(self, instance: str, limit: int):
-            raise ServiceUnavailableError("C:/private/log token=secret")
+            raise ServiceUnavailableError("internal log adapter detail")
 
     class Backend:
         read = BrokenRead()
@@ -438,8 +437,8 @@ def test_mcp_delegates_errors_to_safe_application_text(monkeypatch):
     )
     assert len(result) == 1
     assert "временно недоступна" in result[0].text
-    assert "private" not in result[0].text
-    assert "secret" not in result[0].text
+    assert "internal" not in result[0].text
+    assert "detail" not in result[0].text
 
 
 def test_mcp_rejects_missing_required_arguments_without_raw_exception(caplog):
