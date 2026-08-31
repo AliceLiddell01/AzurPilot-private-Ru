@@ -104,8 +104,7 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     remote_access = (ROOT / "module/webui/remote_access.py").read_text(
         encoding="utf-8"
     )
-    docker_deploy_path = ROOT / "deploy/docker/deploy-image.sh"
-    docker_deploy = docker_deploy_path.read_text(encoding="utf-8")
+    docker_deploy = (ROOT / "deploy/docker/deploy-image.sh").read_text(encoding="utf-8")
     maa_argument = (
         ROOT / "submodule/AlasMaaBridge/module/config/argument/argument.yaml"
     ).read_text(encoding="utf-8")
@@ -260,7 +259,12 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
 
     # Docker helper сохраняет развёртывание, но больше не зависит от китайских repo/image/mirror/IP endpoints.
     if shutil.which("bash"):
-        subprocess.run(["bash", "-n", str(docker_deploy_path)], check=True)
+        subprocess.run(
+            ["bash", "-n"],
+            input=docker_deploy,
+            text=True,
+            check=True,
+        )
     assert "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git" in docker_deploy
     assert 'BRANCH="${BRANCH:-personal/stable}"' in docker_deploy
     assert "https://download.docker.com/linux/" in docker_deploy
@@ -320,6 +324,7 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "ReportToYiTuLiu: false" in maa_argument
     assert '"report_to_penguin": self.config.MaaRecord_ReportToPenguin' in maa_handler
     assert '"report_to_yituliu": self.config.MaaRecord_ReportToYiTuLiu' in maa_handler
+
 
 def test_global_only_fork_has_no_cn_uncensored_tool():
     token = "AzurLane" + "Uncensored"
