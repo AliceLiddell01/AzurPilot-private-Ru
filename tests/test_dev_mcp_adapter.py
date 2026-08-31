@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -873,6 +874,30 @@ def test_historical_evidence_lookup_does_not_replace_active_store(tmp_path: Path
     ).timeline_page(limit=100)["events"]
     assert "process_stopped" in [event["type"] for event in active_events]
     assert historical_events == []
+
+
+def test_historical_evidence_uses_manifest_profile_after_target_switch(tmp_path: Path) -> None:
+    manager, _backend = _real_runtime_manager(tmp_path)
+    historical_environment = replace(
+        manager.environment,
+        dev_target=DevTarget("historical-target"),
+    )
+    historical = EvidenceStore.create(
+        historical_environment,
+        session_id="historical-profile-session",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp="2026-08-29T00:00:00+00:00",
+    )
+    historical.finalize(
+        stopped_at="2026-08-29T00:00:00+00:00",
+        cleanup_confirmed=True,
+    )
+
+    result = manager.get_evidence(session_id="historical-profile-session")
+
+    assert result.ok is True
+    assert result.details["profile"] == "historical-target"
 
 
 def test_serializer_drops_unknown_fields_in_known_nested_structures() -> None:

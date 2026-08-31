@@ -653,8 +653,8 @@ class ConfiguredRuntimeBackend:
         client = self._adb_client()
         try:
             result = client.server_kill()
-            # The first fresh device query asks adbutils to bring the client
-            # back and gives the control loop a real readiness signal.
+            # Первый новый запрос устройств возвращает клиент adbutils
+            # и даёт циклу управления реальный сигнал готовности.
             self._adb_client().device_list()
             self._app = None
         except Exception as exc:  # noqa: BLE001
@@ -867,9 +867,9 @@ class RuntimeControlManager:
                             if current.state is ControlState.FINISHED:
                                 operation = current
                             elif current.supervisor_pid is not None:
-                                # The child may claim the operation before the
-                                # launching process observes its PID. Never
-                                # overwrite that claim with the parent PID.
+                                # Дочерний процесс может зарегистрировать операцию
+                                # до того, как запускающий процесс увидит его PID.
+                                # Не перезаписываем эту регистрацию PID родителя.
                                 operation = current
                             elif supervisor_created_at is not None:
                                 operation = replace(

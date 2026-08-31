@@ -122,12 +122,14 @@ class DevSessionManager(DevDiagnosticsMixin):
         session_id: str,
         *,
         profile_name: str | None = None,
+        validate_profile: bool = True,
     ) -> EvidenceStore | None:
         try:
             store = EvidenceStore.for_session(
                 self.environment,
                 session_id,
                 profile_name=profile_name,
+                validate_profile=validate_profile,
             )
         except (EvidenceError, ValueError):
             return None
@@ -316,6 +318,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 if target_session is not None
                 else None
             ),
+            validate_profile=target_session is not None,
         )
         if store is None:
             return current, None, DevResult(
@@ -542,7 +545,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     DevStatusKind.FAILED.value,
                 )
             )
-        store = self._evidence_for_session(target_id)
+        store = self._evidence_for_session(target_id, validate_profile=False)
         if store is None:
             return EvidenceScreenshot(
                 DevResult(

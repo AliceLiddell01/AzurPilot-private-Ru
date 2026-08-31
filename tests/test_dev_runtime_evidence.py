@@ -101,6 +101,29 @@ def test_evidence_store_reopens_and_keeps_session_scoped_lifecycle(tmp_path: Pat
     assert all(event["timestamp"].endswith("+00:00") for event in timeline["events"])
 
 
+def test_unbound_evidence_summary_reports_profile_from_manifest(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    historical_environment = replace(
+        environment,
+        dev_target=DevTarget("historical-target"),
+    )
+    EvidenceStore.create(
+        historical_environment,
+        session_id="historical-session",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+
+    reopened = EvidenceStore.for_session(
+        environment,
+        "historical-session",
+        validate_profile=False,
+    )
+
+    assert reopened.summary()["profile"] == "historical-target"
+
+
 def test_evidence_store_rejects_unsafe_identity_and_corrupt_manifest(tmp_path: Path) -> None:
     for value in ("../foreign", "..", "", "session/path", "session\\path"):
         with pytest.raises(ValueError):

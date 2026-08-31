@@ -186,7 +186,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
 ) -> None:
     root = tmp_path.resolve()
     (root / "module").mkdir(parents=True)
-    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (root / "gui.py").write_text("# синтетический gui\n", encoding="utf-8")
     config = root / "config"
     config.mkdir()
     profile_payload = {
@@ -321,7 +321,7 @@ def test_dev_environment_keeps_venv_symlink_path(
 ) -> None:
     root = tmp_path.resolve()
     (root / "module").mkdir()
-    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (root / "gui.py").write_text("# синтетический gui\n", encoding="utf-8")
     config = root / "config"
     config.mkdir()
     (config / "ap.json").write_text(
@@ -352,7 +352,7 @@ def test_project_python_check_accepts_venv_symlink(
 ) -> None:
     root = tmp_path.resolve()
     (root / "module").mkdir()
-    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (root / "gui.py").write_text("# синтетический gui\n", encoding="utf-8")
     python = root / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
     python.symlink_to(Path(sys.executable))

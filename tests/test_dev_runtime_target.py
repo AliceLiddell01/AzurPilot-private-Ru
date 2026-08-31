@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from module.dev_runtime import DevTarget, DevTargetError, DevTargetRegistry
+from module.dev_runtime import target as target_module
 
 
 _TARGET_NAME = "synthetic-target"
@@ -144,6 +145,73 @@ def test_target_marker_rejects_missing_structural_profile(tmp_path: Path) -> Non
     with pytest.raises(DevTargetError) as error:
         DevTargetRegistry.load(tmp_path)
     assert _error_code(error) == "DEV_TARGET_PROFILE_MISSING"
+
+
+@pytest.mark.parametrize("marker_state", ["corrupt", "too_large", "missing_profile"])
+def test_configure_recovers_invalid_marker_with_explicit_target_consent(
+    tmp_path: Path,
+    marker_state: str,
+) -> None:
+    _write_profile(tmp_path, "ap")
+    _write_profile(tmp_path, _TARGET_NAME)
+    marker = tmp_path / "config" / "state" / "dev-runtime-target.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    if marker_state == "corrupt":
+        marker.write_text("{", encoding="utf-8")
+    elif marker_state == "too_large":
+        marker.write_bytes(b"x" * (target_module._MAX_TARGET_BYTES + 1))
+    else:
+        marker.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "profile_name": "missing-target",
+                    "mod_name": "alas",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    with pytest.raises(DevTargetError) as denied:
+        DevTargetRegistry.configure(tmp_path, profile_name=_TARGET_NAME)
+    assert _error_code(denied) == "DEV_TARGET_CHANGE_REQUIRES_CONSENT"
+
+    configured = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name=_TARGET_NAME,
+        explicit_consent=True,
+    )
+
+    assert configured == DevTarget(_TARGET_NAME)
+
+
+def test_configure_recovers_unreadable_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_profile(tmp_path, "ap")
+    _write_profile(tmp_path, _TARGET_NAME)
+    marker = tmp_path / "config" / "state" / "dev-runtime-target.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("{}", encoding="utf-8")
+    original_read = target_module.read_bounded_bytes
+
+    def read_bounded_bytes(path: Path, *, max_bytes: int) -> bytes:
+        if Path(path).name == target_module.DEV_TARGET_FILE_NAME:
+            raise OSError("synthetic unreadable marker")
+        return original_read(path, max_bytes=max_bytes)
+
+    monkeypatch.setattr(target_module, "read_bounded_bytes", read_bounded_bytes)
+
+    configured = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name=_TARGET_NAME,
+        explicit_consent=True,
+    )
+
+    assert configured == DevTarget(_TARGET_NAME)
+
+
 def test_target_marker_symlink_is_rejected_when_supported(tmp_path: Path) -> None:
     _write_profile(tmp_path)
     target = DevTargetRegistry.configure(
@@ -158,7 +226,7 @@ def test_target_marker_symlink_is_rejected_when_supported(tmp_path: Path) -> Non
     try:
         marker.symlink_to(replacement)
     except (OSError, NotImplementedError) as exc:
-        pytest.skip(f"symlink creation unavailable: {type(exc).__name__}")
+        pytest.skip(f"создание символьной ссылки недоступно: {type(exc).__name__}")
 
     with pytest.raises(DevTargetError) as error:
         DevTargetRegistry.load(tmp_path)

@@ -304,7 +304,14 @@ class DevTargetRegistry:
         try:
             current_target = cls.load(repository_root)
         except DevTargetError as exc:
-            if exc.code not in {"DEV_TARGET_NOT_CONFIGURED", "DEV_TARGET_DEFAULT_PROFILE_MISSING"}:
+            if exc.code not in {
+                "DEV_TARGET_NOT_CONFIGURED",
+                "DEV_TARGET_DEFAULT_PROFILE_MISSING",
+                "DEV_TARGET_STATE_CORRUPT",
+                "DEV_TARGET_STATE_TOO_LARGE",
+                "DEV_TARGET_STATE_UNREADABLE",
+                "DEV_TARGET_PROFILE_MISSING",
+            }:
                 raise
             current_target = None
 
