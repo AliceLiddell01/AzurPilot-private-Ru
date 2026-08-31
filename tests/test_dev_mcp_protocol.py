@@ -250,7 +250,7 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
             assert contract.structured_content["ok"] is True
             assert contract.structured_content["details"]["contract"] == EXPECTED_CONTRACT
 
-    asyncio.run(scenario())
+    asyncio.run(asyncio.wait_for(scenario(), timeout=30))
 
 
 async def _raw_request(
@@ -386,4 +386,4 @@ def test_modern_client_discovers_2026_server_and_calls_tool() -> None:
             assert result.structured_content is not None
             assert result.structured_content["code"] == "DEV_MCP_CONTRACT_READY"
 
-    asyncio.run(scenario())
+    asyncio.run(asyncio.wait_for(scenario(), timeout=30))

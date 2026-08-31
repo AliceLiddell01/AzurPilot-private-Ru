@@ -234,6 +234,34 @@ def test_runtime_status_is_read_only_and_reports_bounded_state(
     assert not environment.control_root.exists()
 
 
+@pytest.mark.parametrize(
+    "provider_error",
+    [
+        ValueError("synthetic value error"),
+        OSError("synthetic OS error"),
+        TimeoutError("synthetic timeout"),
+    ],
+)
+def test_runtime_status_fails_closed_for_non_control_provider_errors(
+    tmp_path: Path,
+    provider_error: Exception,
+) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _FakeRuntimeBackend())
+
+    def broken_session_state() -> RuntimeSessionState:
+        raise provider_error
+
+    manager.session_state_provider = broken_session_state
+
+    result = manager.status()
+
+    assert result.ok is False
+    assert result.code == "DEV_CONTROL_PRECONDITION_UNKNOWN"
+    assert result.details["dev_session"]["state"] is None
+    assert result.details["smoke"]["active"] is None
+
+
 def test_runtime_status_does_not_persist_orphan_reconciliation(
     tmp_path: Path,
     supervisor_identity: None,

@@ -1124,7 +1124,11 @@ class RuntimeControlManager:
             session_state = None
             smoke_active = None
             status_ok = False
-            status_code = exc.code
+            status_code = (
+                exc.code
+                if isinstance(exc, RuntimeControlError)
+                else "DEV_CONTROL_PRECONDITION_UNKNOWN"
+            )
             message = str(exc)
         details = snapshot.as_dict()
         details["dev_session"] = {

@@ -267,8 +267,12 @@ async def _tool_get_recent_logs(arguments: Dict[str, Any]) -> ToolResponse:
                 content = f.readlines()
                 content = content[-lines_count:]
             return [TextContent(type="text", text="".join(content))]
-        except Exception as e:
-            return [TextContent(type="text", text=f"Ошибка чтения лога: {str(e)}")]
+        except Exception as exc:
+            logger.error(
+                "Ошибка чтения лога; тип исключения: %s",
+                type(exc).__name__,
+            )
+            return [TextContent(type="text", text="Ошибка чтения лога.")]
     return [TextContent(type="text", text=f"Файл лога не найден: {log_file}")]
 
 
@@ -316,10 +320,12 @@ async def _tool_get_screenshot(arguments: Dict[str, Any]) -> ToolResponse:
         image_pil.save(buffered, format="JPEG")
         img_data = base64.b64encode(buffered.getvalue()).decode("utf-8")
         return [ImageContent(type="image", data=img_data, mimeType="image/jpeg")]
-    except Exception as e:
-        import traceback
-        error_msg = f"Ошибка получения скриншота: {str(e)}\n{traceback.format_exc()}"
-        return [TextContent(type="text", text=error_msg)]
+    except Exception as exc:
+        logger.error(
+            "Ошибка получения скриншота; тип исключения: %s",
+            type(exc).__name__,
+        )
+        return [TextContent(type="text", text="Ошибка получения скриншота.")]
 
 
 async def _tool_get_current_running_task(arguments: Dict[str, Any]) -> ToolResponse:
@@ -410,10 +416,12 @@ async def _tool_restart_emulator(arguments: Dict[str, Any]) -> ToolResponse:
         time.sleep(60)
         device.emulator_start()
         return [TextContent(type="text", text=f"Успешно: эмулятор {inst} перезапущен")]
-    except Exception as e:
-        import traceback
-        error_msg = f"Ошибка перезапуска эмулятора: {str(e)}\n{traceback.format_exc()}"
-        return [TextContent(type="text", text=error_msg)]
+    except Exception as exc:
+        logger.error(
+            "Ошибка перезапуска эмулятора; тип исключения: %s",
+            type(exc).__name__,
+        )
+        return [TextContent(type="text", text="Ошибка перезапуска эмулятора.")]
 
 
 async def _tool_restart_adb(arguments: Dict[str, Any]) -> ToolResponse:
@@ -440,9 +448,13 @@ async def _tool_restart_adb(arguments: Dict[str, Any]) -> ToolResponse:
 
         subprocess.run([adb_path, "kill-server"], check=False)
         subprocess.run([adb_path, "start-server"], check=False)
-        return [TextContent(type="text", text=f"Успешно: сервис ADB перезапущен через {adb_path}.")]
-    except Exception as e:
-        return [TextContent(type="text", text=f"Ошибка: {str(e)}")]
+        return [TextContent(type="text", text="Успешно: сервис ADB перезапущен.")]
+    except Exception as exc:
+        logger.error(
+            "Ошибка перезапуска сервиса ADB; тип исключения: %s",
+            type(exc).__name__,
+        )
+        return [TextContent(type="text", text="Ошибка перезапуска сервиса ADB.")]
 
 
 TOOL_HANDLERS = {
@@ -472,9 +484,13 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> ToolResponse:
         if handler is None:
             return [TextContent(type="text", text=f"Неизвестный инструмент: {name}")]
         return await handler(arguments)
-    except Exception as e:
-        logger.exception(f"Ошибка инструмента {name}")
-        return [TextContent(type="text", text=f"Ошибка: {str(e)}")]
+    except Exception as exc:
+        logger.error(
+            "Ошибка инструмента %s; тип исключения: %s",
+            name,
+            type(exc).__name__,
+        )
+        return [TextContent(type="text", text="Внутренняя ошибка MCP-инструмента.")]
 
 
 async def _list_tools(_context: Any, _params: Any) -> ListToolsResult:
