@@ -129,7 +129,14 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
     review_reference = review_dir / "references" / "review-workflow.md"
     assert review_reference.is_file()
     assert "references/review-workflow.md" in review_content
-    for required in ("exact commit", "WSL2 Arch", "false positive", "rate limit", "READY_FOR_CHATGPT_REVIEW"):
+    for required in (
+        "exact commit",
+        "если PR существует",
+        "WSL2 Arch",
+        "false positive",
+        "rate limit",
+        "READY_FOR_CHATGPT_REVIEW",
+    ):
         assert required.lower() in review_content.lower()
     reference_content = review_reference.read_text(encoding="utf-8").lower()
     assert "другой canonical review checkout" not in reference_content

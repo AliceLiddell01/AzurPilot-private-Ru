@@ -17,7 +17,8 @@ CodeRabbit — независимый reviewer, а не источник ист�
 
 ## Обязательные границы
 
-- Получай live base/head и PR state; review должен проверять exact commit.
+- Получай live base/head и проверяй exact commit; если PR существует,
+  дополнительно получай и проверяй его state.
 - Выполняй CodeRabbit CLI в отдельном обычном WSL2 Arch review checkout. Это не
   implementation worktree: product fixes вносятся только в основной checkout.
 - Не копируй в review checkout secrets, cookies, локальные config, dumps или
