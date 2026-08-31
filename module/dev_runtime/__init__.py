@@ -24,6 +24,8 @@ from module.dev_runtime.control import (
     RuntimeControlError,
     RuntimeControlManager,
     RuntimeSnapshot,
+    control_operation_path,
+    is_reparse_point,
     runtime_config_fingerprint,
 )
 from module.dev_runtime.evidence import (
@@ -129,6 +131,8 @@ __all__ = [
     "TaskRollbackResult",
     "TaskSandboxError",
     "TimelineEvent",
+    "control_operation_path",
+    "is_reparse_point",
     "rollback_task_dependency",
     "runtime_config_fingerprint",
     "target_identity",

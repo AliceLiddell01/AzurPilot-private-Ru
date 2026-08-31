@@ -13,7 +13,8 @@ from module.dev_runtime.control import (
     CONTROL_MAX_BYTES,
     DevRuntimeControlOperation,
     RuntimeControlManager,
-    _is_reparse_point,
+    control_operation_path,
+    is_reparse_point,
 )
 from module.dev_runtime.target import DevTarget
 
@@ -22,14 +23,14 @@ def _operation_environment(operation_id: str) -> DevEnvironment:
     """Создать bootstrap environment из persisted binding, а не из registry."""
 
     repository_root = Path.cwd().resolve()
-    operation_path = repository_root / "config" / "state" / "dev-runtime-control" / "operation.json"
+    operation_path = control_operation_path(repository_root)
     for path in (
         repository_root / "config",
         repository_root / "config" / "state",
         operation_path.parent,
         operation_path,
     ):
-        if _is_reparse_point(path):
+        if is_reparse_point(path):
             raise RuntimeError("control operation path is unsafe")
     payload = json.loads(read_bounded_bytes(operation_path, max_bytes=CONTROL_MAX_BYTES).decode("utf-8"))
     operation = DevRuntimeControlOperation.from_payload(payload)

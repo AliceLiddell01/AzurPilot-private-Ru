@@ -16,6 +16,7 @@ from module.dev_runtime import (
     ControlAction,
     DevEnvironment,
     DevResult,
+    DevSession,
     DevSessionManager,
     RuntimeControlManager,
     RuntimeSnapshot,
@@ -667,6 +668,29 @@ def test_control_owner_read_failure_blocks_smoke_start(tmp_path: Path, clean_sou
 
     assert result.ok is False
     assert result.code == "DEV_RUNTIME_OWNER_STATE_UNAVAILABLE"
+    assert not manager.has_active_run()
+
+
+def test_active_dev_session_marker_blocks_smoke_start(tmp_path: Path, clean_source: None) -> None:
+    manager = _manager(tmp_path, _Runtime())
+    session = DevSession(
+        session_id="active-session",
+        state=smoke.DevSessionState.RUNNING,
+        repository_root=str(manager.environment.repository_root),
+        created_at=_STARTED_AT,
+        updated_at=_STARTED_AT,
+    )
+    manager.environment.state_file.parent.mkdir(parents=True, exist_ok=True)
+    manager.environment.state_file.write_text(
+        json.dumps(session.as_dict(), ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+    result = manager.start_smoke(_spec())
+
+    assert result.ok is False
+    assert result.code == "DEV_SMOKE_PRECONDITION_FAILED"
+    assert result.details["issues"][0]["code"] == "DEV_SMOKE_RUNTIME_ACTIVE"
     assert not manager.has_active_run()
 
 

@@ -383,6 +383,7 @@ def test_modern_client_discovers_2026_server_and_calls_tool() -> None:
             assert {tool.name for tool in tools.tools} == set(DEV_MCP_TOOL_NAMES)
             result = await client.call_tool("dev_get_contract", {})
             assert result.is_error is False
+            assert result.structured_content is not None
             assert result.structured_content["code"] == "DEV_MCP_CONTRACT_READY"
 
     asyncio.run(scenario())

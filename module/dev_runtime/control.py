@@ -456,7 +456,13 @@ def _operation_payload(operation: DevRuntimeControlOperation) -> dict[str, objec
     return payload
 
 
-def _is_reparse_point(path: Path) -> bool:
+def control_operation_path(repository_root: Path) -> Path:
+    """Вернуть единственный путь persisted control operation для репозитория."""
+
+    return Path(repository_root) / "config" / "state" / "dev-runtime-control" / "operation.json"
+
+
+def is_reparse_point(path: Path) -> bool:
     try:
         return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
     except OSError as exc:
@@ -468,20 +474,20 @@ class ControlStore:
 
     def __init__(self, environment: DevEnvironment) -> None:
         self.environment = environment
-        self.root = environment.control_root
-        self.operation_path = self.root / "operation.json"
+        self.operation_path = control_operation_path(environment.repository_root)
+        self.root = self.operation_path.parent
         self.lock_path = self.root / "operation.lock"
         self._check_paths()
 
     def _check_paths(self) -> None:
         root = self.environment.repository_root
         state = root / "config" / "state"
-        if _is_reparse_point(root / "config") or _is_reparse_point(state):
+        if is_reparse_point(root / "config") or is_reparse_point(state):
             raise RuntimeControlError("DEV_CONTROL_UNSAFE_PATH", "Каталог control state не должен быть ссылкой или junction")
-        if self.root.exists() and _is_reparse_point(self.root):
+        if self.root.exists() and is_reparse_point(self.root):
             raise RuntimeControlError("DEV_CONTROL_UNSAFE_PATH", "Корень control state не должен быть ссылкой или junction")
         for path in (self.operation_path, self.lock_path):
-            if os.path.lexists(path) and _is_reparse_point(path):
+            if os.path.lexists(path) and is_reparse_point(path):
                 raise RuntimeControlError("DEV_CONTROL_UNSAFE_PATH", "Файл control state не должен быть ссылкой или junction")
 
     def _ensure_root(self) -> None:
@@ -1257,15 +1263,24 @@ class RuntimeControlManager:
             "--operation-id",
             _safe_control_id(control_id),
         ]
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        creationflags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+        kwargs: dict[str, object] = {
+            "cwd": str(environment.repository_root),
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "close_fds": True,
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = creationflags
+        else:
+            kwargs["start_new_session"] = True
         return subprocess.Popen(
             command,
-            cwd=str(environment.repository_root),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            creationflags=creationflags,
+            **kwargs,
         )
 
     def _finish(self, operation: DevRuntimeControlOperation, *, outcome: ControlOutcome, code: str) -> DevRuntimeControlOperation:
@@ -1570,5 +1585,7 @@ __all__ = [
     "RuntimeControlError",
     "RuntimeControlManager",
     "RuntimeSnapshot",
+    "control_operation_path",
+    "is_reparse_point",
     "runtime_config_fingerprint",
 ]

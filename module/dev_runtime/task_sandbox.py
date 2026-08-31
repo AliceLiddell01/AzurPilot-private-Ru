@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import os
 import threading
@@ -41,7 +42,7 @@ _policy_thread_lock = threading.RLock()
 _policy_environment_cache_lock = threading.Lock()
 _policy_environment_cache: tuple[
     str,
-    int,
+    object | None,
     tuple[tuple[int, ...] | None, tuple[int, ...] | None, tuple[int, ...] | None],
     float,
     DevEnvironment | None,
@@ -1022,7 +1023,7 @@ def _current_policy_environment() -> tuple[DevEnvironment | None, str]:
     global _policy_environment_cache
     configured_root = os.environ.get(TASK_POLICY_ROOT_ENV)
     root_key = configured_root if isinstance(configured_root, str) else ""
-    loader_key = id(vars(DevEnvironment).get("current"))
+    loader = inspect.getattr_static(DevEnvironment, "current", None)
     marker = _policy_environment_marker()
     now = time.monotonic()
     with _policy_environment_cache_lock:
@@ -1030,7 +1031,7 @@ def _current_policy_environment() -> tuple[DevEnvironment | None, str]:
         if (
             cached is not None
             and cached[0] == root_key
-            and cached[1] == loader_key
+            and cached[1] is loader
             and cached[2] == marker
             and now < cached[3]
         ):
@@ -1045,7 +1046,7 @@ def _current_policy_environment() -> tuple[DevEnvironment | None, str]:
     with _policy_environment_cache_lock:
         _policy_environment_cache = (
             root_key,
-            loader_key,
+            loader,
             marker,
             now + _POLICY_ENV_CACHE_TTL,
             environment,
@@ -1263,8 +1264,8 @@ __all__ = [
     "authorize_task_call",
     "read_profile_payload",
     "register_task_dependency",
-    "rollback_task_dependency",
     "reset_scheduler_state",
+    "rollback_task_dependency",
     "scheduler_state",
     "scheduler_time_text",
     "task_policy_context",

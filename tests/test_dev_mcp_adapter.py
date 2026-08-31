@@ -235,6 +235,7 @@ def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) ->
     adapter = DevMcpAdapter(lambda: next(managers))
 
     first = adapter.call("dev_status", {})
+    same_target = adapter.call("dev_status", {})
     DevTargetRegistry.configure(
         root,
         profile_name="adapter-b",
@@ -243,8 +244,9 @@ def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) ->
     second = adapter.call("dev_status", {})
 
     assert first["code"] == "DEV_SESSION_STOPPED"
+    assert same_target["code"] == "DEV_SESSION_STOPPED"
     assert second["code"] == "DEV_SESSION_STOPPED"
-    assert manager_a.calls == [("status", None)]
+    assert manager_a.calls == [("status", None), ("status", None)]
     assert manager_b.calls == [("status", None)]
 
 

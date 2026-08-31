@@ -102,6 +102,29 @@ def _write_session(
     )
 
 
+def test_policy_environment_cache_reloads_replaced_current_loader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment_a = _environment(tmp_path)
+    environment_b = DevEnvironment(
+        repository_root=environment_a.repository_root,
+        python_executable=environment_a.python_executable,
+        dev_target=DevTarget("ap"),
+    )
+    monkeypatch.delenv(task_sandbox.TASK_POLICY_ROOT_ENV, raising=False)
+    monkeypatch.setattr(task_sandbox.DevEnvironment, "current", lambda: environment_a)
+
+    first, first_error = task_sandbox._current_policy_environment()
+
+    monkeypatch.setattr(task_sandbox.DevEnvironment, "current", lambda: environment_b)
+    second, second_error = task_sandbox._current_policy_environment()
+
+    assert first is environment_a
+    assert first_error == ""
+    assert second is environment_b
+    assert second_error == ""
+
+
 class _Backend:
     def __init__(self) -> None:
         self.alive = False
