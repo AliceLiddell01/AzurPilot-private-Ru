@@ -28,7 +28,6 @@ from types import SimpleNamespace
 
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
 from module.dev_runtime.contracts import (
-    DEV_PROFILE,
     DevEnvironment,
     DevResult,
     DevSession,
@@ -43,6 +42,7 @@ from module.dev_runtime.task_sandbox import (
     TASK_POLICY_SESSION_ENV,
     TaskPolicyStore,
 )
+from module.dev_runtime.target import DevTarget
 
 EVIDENCE_SCHEMA_VERSION = 2
 TIMELINE_SCHEMA_VERSION = 1
@@ -1129,12 +1129,25 @@ def _validate_structured_error(value: object) -> dict[str, object]:
     }
 
 
-def _validate_manifest(value: object, expected_session_id: str) -> dict[str, object]:
+def _validate_manifest(
+    value: object,
+    expected_session_id: str,
+    expected_profile: str | None,
+) -> dict[str, object]:
     if not isinstance(value, Mapping) or set(value) != _MANIFEST_KEYS:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Манифест имеет неполную или неизвестную структуру")
     if value.get("schema_version") != EVIDENCE_SCHEMA_VERSION:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Манифест имеет неподдерживаемую схему")
-    if value.get("session_id") != expected_session_id or value.get("profile") != DEV_PROFILE:
+    profile = value.get("profile")
+    if not isinstance(profile, str):
+        raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Манифест не содержит корректный профиль")
+    try:
+        DevTarget(profile)
+    except ValueError as exc:
+        raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Манифест содержит недопустимый профиль") from exc
+    if value.get("session_id") != expected_session_id or (
+        expected_profile is not None and profile != expected_profile
+    ):
         raise EvidenceCorrupt("DEV_EVIDENCE_FOREIGN_SESSION", "Манифест принадлежит другой сессии или профилю")
     validate_session_id(value.get("session_id"))
     timestamps = {
@@ -1303,10 +1316,22 @@ class EvidenceStore:
         session_id: str,
         *,
         now: Callable[[], datetime] | None = None,
+        profile_name: str | None = None,
+        validate_profile: bool = True,
     ) -> None:
         self.environment = environment
         self.session_id = validate_session_id(session_id)
         self.now = now or (lambda: datetime.now(UTC))
+        if validate_profile:
+            expected_profile = (
+                profile_name if profile_name is not None else environment.profile_name
+            )
+            try:
+                self.expected_profile = DevTarget(expected_profile).profile_name
+            except ValueError as exc:
+                raise EvidenceError("DEV_EVIDENCE_PROFILE_INVALID", "Профиль диагностики имеет недопустимый формат") from exc
+        else:
+            self.expected_profile = None
         self.root = _ensure_scoped_path(
             environment.evidence_root / self.session_id,
             environment.repository_root,
@@ -1356,7 +1381,7 @@ class EvidenceStore:
         manifest: dict[str, object] = {
             "schema_version": EVIDENCE_SCHEMA_VERSION,
             "session_id": store.session_id,
-            "profile": DEV_PROFILE,
+            "profile": environment.profile_name,
             "created_at": _utc_timestamp(timestamp),
             "started_at": _utc_timestamp(timestamp),
             "stopped_at": None,
@@ -1439,7 +1464,7 @@ class EvidenceStore:
 
     def _manifest_locked(self) -> dict[str, object]:
         raw = _read_json(self.manifest_path, max_bytes=_MAX_MANIFEST_BYTES)
-        return _validate_manifest(raw, self.session_id)
+        return _validate_manifest(raw, self.session_id, self.expected_profile)
 
     def _timeline_locked(self) -> tuple[list[TimelineEvent], bool]:
         raw = _read_json(self.timeline_path, max_bytes=_MAX_TIMELINE_BYTES)
@@ -1452,7 +1477,7 @@ class EvidenceStore:
         return events, truncated
 
     def _write_manifest_locked(self, manifest: dict[str, object]) -> None:
-        _validate_manifest(manifest, self.session_id)
+        _validate_manifest(manifest, self.session_id, self.expected_profile)
         _atomic_json_write(self.manifest_path, manifest)
 
     def _set_health_locked(
@@ -2426,7 +2451,7 @@ class EvidenceStore:
         duration_seconds = max(0, int((end_at.astimezone(UTC) - started_at).total_seconds()))
         return {
             "session_id": self.session_id,
-            "profile": DEV_PROFILE,
+            "profile": manifest["profile"],
             "lifecycle": {
                 "created_at": manifest["created_at"],
                 "started_at": manifest["started_at"],
@@ -2454,8 +2479,20 @@ class EvidenceStore:
         }
 
     @classmethod
-    def for_session(cls, environment: DevEnvironment, session_id: str) -> EvidenceStore:
-        return cls(environment, validate_session_id(session_id))
+    def for_session(
+        cls,
+        environment: DevEnvironment,
+        session_id: str,
+        *,
+        profile_name: str | None = None,
+        validate_profile: bool = True,
+    ) -> EvidenceStore:
+        return cls(
+            environment,
+            validate_session_id(session_id),
+            profile_name=profile_name,
+            validate_profile=validate_profile,
+        )
 
     @classmethod
     def prune(
@@ -2486,7 +2523,11 @@ class EvidenceStore:
                         continue
                     try:
                         session_id = validate_session_id(path.name)
-                        store = cls.for_session(environment, session_id)
+                        store = cls.for_session(
+                            environment,
+                            session_id,
+                            validate_profile=False,
+                        )
                         manifest = store._manifest_locked()
                         events, timeline_truncated = store._timeline_locked()
                         if manifest["timeline"] != _timeline_metadata(events, truncated=timeline_truncated):
@@ -2701,9 +2742,10 @@ def active_evidence_store() -> EvidenceStore | None:
 
 
 def _active_store_for_config(config_name: object) -> EvidenceStore | None:
-    if config_name != DEV_PROFILE:
+    store = active_evidence_store()
+    if store is None or config_name != store.environment.profile_name:
         return None
-    return active_evidence_store()
+    return store
 
 
 def record_task_started(config_name: object, task: object) -> None:

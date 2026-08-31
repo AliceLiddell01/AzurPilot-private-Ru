@@ -6,7 +6,7 @@ import json
 import os
 import subprocess
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -25,6 +25,7 @@ from module.dev_runtime.evidence import (
     validate_session_id,
 )
 from module.dev_runtime.contracts import DevEnvironment
+from module.dev_runtime.target import DevTarget
 
 
 _TIME = "2026-08-30T00:00:00+00:00"
@@ -44,7 +45,7 @@ def test_event_registry_is_public_and_single_source(tmp_path: Path) -> None:
 def _environment(tmp_path: Path) -> DevEnvironment:
     root = (tmp_path / "checkout").resolve()
     (root / "config" / "state").mkdir(parents=True)
-    return DevEnvironment(root, root / ".venv" / "Scripts" / "python.exe")
+    return DevEnvironment(root, root / ".venv" / "Scripts" / "python.exe", DevTarget("ap"))
 
 
 def _store(tmp_path: Path, session_id: str = "session-1") -> EvidenceStore:
@@ -98,6 +99,29 @@ def test_evidence_store_reopens_and_keeps_session_scoped_lifecycle(tmp_path: Pat
     ]
     assert [event["sequence"] for event in timeline["events"]] == [1, 2, 3, 4]
     assert all(event["timestamp"].endswith("+00:00") for event in timeline["events"])
+
+
+def test_unbound_evidence_summary_reports_profile_from_manifest(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    historical_environment = replace(
+        environment,
+        dev_target=DevTarget("historical-target"),
+    )
+    EvidenceStore.create(
+        historical_environment,
+        session_id="historical-session",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+
+    reopened = EvidenceStore.for_session(
+        environment,
+        "historical-session",
+        validate_profile=False,
+    )
+
+    assert reopened.summary()["profile"] == "historical-target"
 
 
 def test_evidence_store_rejects_unsafe_identity_and_corrupt_manifest(tmp_path: Path) -> None:
@@ -681,6 +705,29 @@ def test_retention_keeps_active_session_and_ignores_foreign_directory(tmp_path: 
     assert active.root.exists()
     assert not old.root.exists()
     assert (foreign / "do-not-touch.txt").exists()
+
+
+def test_retention_prunes_historical_session_after_target_switch(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    historical_environment = replace(
+        environment,
+        dev_target=DevTarget("historical-target"),
+    )
+    historical = EvidenceStore.create(
+        historical_environment,
+        session_id="historical",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    old_time = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
+    os.utime(historical.root, (old_time, old_time))
+
+    assert EvidenceStore.prune(
+        environment,
+        now=lambda: datetime(2026, 8, 30, tzinfo=UTC),
+    ) is True
+    assert not historical.root.exists()
 
 
 def test_retention_evicts_oldest_session_when_bytes_exceed_limit(

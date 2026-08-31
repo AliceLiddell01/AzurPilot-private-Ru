@@ -649,6 +649,8 @@ jobs:
               $uvExecutable
               'sync'
               '--locked'
+              '--group'
+              'ci'
           )
           & $pythonExecutable @runnerArguments
           $runnerExitCode = $LASTEXITCODE
@@ -864,6 +866,40 @@ jobs:
 
           if ($runnerExitCode -ne 0) {
               throw ('Windows-регрессии завершились с кодом {0}.' -f $runnerExitCode)
+          }
+
+          $capabilityLogPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/windows-capabilities.log'
+          $runnerArguments = @(
+              $runnerPath
+              '--label'
+              'Windows capability tests'
+              '--heartbeat-seconds'
+              '60'
+              '--log-file'
+              $capabilityLogPath
+              '--'
+              $uvExecutable
+              'run'
+              '--locked'
+              '--group'
+              'ci'
+              'python'
+              '-m'
+              'pytest'
+              '-q'
+              '-m'
+              'windows_integration'
+              'tests'
+          )
+          # Маркер выбирает тесты только из одного файла; общий file-sharding
+          # иначе получает пустые shard-ы с pytest exit 5.
+          $env:AZURPILOT_PYTEST_PARALLEL = '0'
+          & $pythonExecutable @runnerArguments
+          $runnerExitCode = $LASTEXITCODE
+          Remove-Item Env:AZURPILOT_PYTEST_PARALLEL -ErrorAction SilentlyContinue
+
+          if ($runnerExitCode -ne 0) {
+              throw ('Windows capability tests завершились с кодом {0}.' -f $runnerExitCode)
           }
 
           $pwshCommand = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1

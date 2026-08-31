@@ -8,6 +8,7 @@ from module.dev_runtime import (
     DevSessionManager,
     DevSessionState,
     DevStatusKind,
+    DevTarget,
     ProcessIdentity,
 )
 
@@ -45,6 +46,7 @@ def test_failed_marker_with_live_owned_process_blocks_second_start(tmp_path: Pat
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     identity = ProcessIdentity(
         pid=777,
@@ -105,6 +107,7 @@ def test_failed_live_process_blocks_start_after_stale_preflight(tmp_path: Path) 
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     identity = ProcessIdentity(
         pid=778,
@@ -153,6 +156,7 @@ def test_stopped_marker_with_live_process_is_not_treated_as_safe(tmp_path: Path)
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     identity = ProcessIdentity(
         pid=779,

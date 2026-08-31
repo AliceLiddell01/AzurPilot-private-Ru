@@ -2,15 +2,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from module.dev_runtime import smoke
-from module.dev_runtime.contracts import DevEnvironment, DevResult
+from module.dev_runtime import (
+    ControlAction,
+    DevEnvironment,
+    DevResult,
+    DevSession,
+    DevSessionManager,
+    RuntimeControlManager,
+    RuntimeSnapshot,
+)
 from module.dev_runtime.evidence import EvidenceScreenshot, GitSnapshot
+from module.dev_runtime.target import DevTarget
 
 _NOW = datetime(2026, 8, 30, 9, 0, 1, tzinfo=UTC)
 _STARTED_AT = "2026-08-30T09:00:00+00:00"
@@ -84,7 +96,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
         ),
         encoding="utf-8",
     )
-    return DevEnvironment(tmp_path, Path("python"))
+    return DevEnvironment(tmp_path, Path("python"), DevTarget("ap"))
 
 
 def _source() -> GitSnapshot:
@@ -244,6 +256,22 @@ class _Runtime:
         return False
 
 
+class _ControlBackend:
+    def snapshot(self) -> RuntimeSnapshot:
+        return RuntimeSnapshot(
+            target_configured=True,
+            emulator_detected=True,
+            emulator_running=True,
+            emulator_ready=True,
+            adb_reachable=True,
+            adb_state="device",
+            game_reachable=True,
+            game_foreground=False,
+            game_running=False,
+            unrelated_adb_devices=False,
+        )
+
+
 @pytest.fixture
 def clean_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(smoke, "capture_git_snapshot", lambda _: _source())
@@ -296,6 +324,16 @@ def test_smoke_spec_is_strict_canonical_and_rejects_malformed_paths() -> None:
         smoke.SmokeSpec.model_validate({**spec.canonical_dict(), "unexpected": True}, strict=True)
     with pytest.raises(ValueError):
         smoke.SmokeConfigOverride(path="Reward..Enable", value=True)
+    with pytest.raises(ValueError):
+        smoke.SmokeSourceSnapshot(
+            head="a" * 40,
+            branch="main",
+            detached=False,
+            dirty=True,
+            changed_paths=[r"\external.txt"],
+            available=True,
+            fingerprint="b" * 64,
+        )
 
 
 def test_profile_digest_accepts_materialized_registered_defaults(tmp_path: Path) -> None:
@@ -568,6 +606,102 @@ def test_active_run_conflict_is_fail_closed(tmp_path: Path, clean_source: None) 
     assert started.ok is True
     assert conflict.ok is False
     assert conflict.code == "DEV_SMOKE_ACTIVE_CONFLICT"
+
+
+def test_cross_surface_reservation_blocks_smoke_and_session_during_control_start(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    environment = _environment(tmp_path)
+    runtime = _Runtime()
+    smoke_manager = smoke.SmokeRunManager(
+        environment,
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        now=lambda: _NOW,
+    )
+    launcher_entered = threading.Event()
+    release_launcher = threading.Event()
+
+    def blocked_launcher(_environment: DevEnvironment, _control_id: str) -> object:
+        launcher_entered.set()
+        assert release_launcher.wait(timeout=2)
+        return SimpleNamespace(pid=os.getpid())
+
+    control_manager = RuntimeControlManager(
+        environment,
+        backend_factory=lambda _environment: _ControlBackend(),
+        supervisor_launcher=blocked_launcher,
+        now=lambda: _NOW,
+    )
+    control_result: list[DevResult] = []
+    control_thread = threading.Thread(
+        target=lambda: control_result.append(control_manager.start(ControlAction.START_GAME))
+    )
+    control_thread.start()
+    assert launcher_entered.wait(timeout=2)
+
+    smoke_result = smoke_manager.start_smoke(_spec())
+    session_manager = DevSessionManager(
+        environment,
+        storage_probe=lambda _environment: (True, "ready"),
+        port_probe=lambda _host, _port: False,
+    )
+    session_manager.preflight = lambda: DevResult(
+        True,
+        "DEV_PREFLIGHT_OK",
+        "Предварительная проверка пройдена",
+        "no_session",
+    )
+    session_result = session_manager.start()
+
+    release_launcher.set()
+    control_thread.join(timeout=3)
+
+    assert smoke_result.ok is False
+    assert smoke_result.code == "DEV_SMOKE_CONTROL_CONFLICT"
+    assert session_result.ok is False
+    assert session_result.code == "DEV_SESSION_CONFLICT_CONTROL"
+    assert control_result and control_result[0].ok is True
+    assert not smoke_manager.has_active_run()
+
+
+def test_control_owner_read_failure_blocks_smoke_start(tmp_path: Path, clean_source: None) -> None:
+    manager = _manager(tmp_path, _Runtime())
+
+    def unavailable() -> bool:
+        raise OSError("state unavailable")
+
+    manager._control_reservation_active = unavailable
+
+    result = manager.start_smoke(_spec())
+
+    assert result.ok is False
+    assert result.code == "DEV_RUNTIME_OWNER_STATE_UNAVAILABLE"
+    assert not manager.has_active_run()
+
+
+def test_active_dev_session_marker_blocks_smoke_start(tmp_path: Path, clean_source: None) -> None:
+    manager = _manager(tmp_path, _Runtime())
+    session = DevSession(
+        session_id="active-session",
+        state=smoke.DevSessionState.RUNNING,
+        repository_root=str(manager.environment.repository_root),
+        created_at=_STARTED_AT,
+        updated_at=_STARTED_AT,
+    )
+    manager.environment.state_file.parent.mkdir(parents=True, exist_ok=True)
+    manager.environment.state_file.write_text(
+        json.dumps(session.as_dict(), ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+    result = manager.start_smoke(_spec())
+
+    assert result.ok is False
+    assert result.code == "DEV_SMOKE_PRECONDITION_FAILED"
+    assert result.details["issues"][0]["code"] == "DEV_SMOKE_RUNTIME_ACTIVE"
+    assert not manager.has_active_run()
 
 
 def test_config_registry_rejects_wrong_type_and_unknown_path(tmp_path: Path, clean_source: None) -> None:

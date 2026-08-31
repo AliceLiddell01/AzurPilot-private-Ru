@@ -48,6 +48,10 @@ from module.dev_runtime.contracts import (
     DevSessionState,
     DevStatusKind,
 )
+from module.dev_runtime.coordination import (
+    RuntimeCoordinationError,
+    runtime_coordination_lock,
+)
 from module.dev_runtime.evidence import (
     EVIDENCE_EVENT_TYPES,
     EVIDENCE_HEALTH_COMPLETE,
@@ -67,6 +71,7 @@ from module.dev_runtime.task_sandbox import (
     _ensure_scoped_path,
     _exclusive_policy_lock,
     _is_reparse_point,
+    _read_session,
     read_profile_payload,
     scheduler_state,
     write_profile_payload,
@@ -642,11 +647,9 @@ class SmokeSourceSnapshot(_StrictModel):
         for value in values:
             value = _text(value, field_name="source.changed_paths", maximum=260)
             if (
-                value.startswith("/")
+                value.startswith(("/", "\\", "../", "..\\"))
                 or re.match(r"^[A-Za-z]:[/\\]", value)
                 or value == ".."
-                or value.startswith("../")
-                or value.startswith("..\\")
                 or "/../" in value
                 or "\\..\\" in value
             ):
@@ -1197,13 +1200,13 @@ class ConfigRegistry:
 
     def validate_overrides(self, overrides: Sequence[SmokeConfigOverride], payload: object) -> None:
         if not isinstance(payload, Mapping):
-            raise SmokeStoreError("DEV_SMOKE_PROFILE_INVALID", "config/ap.json должен быть JSON-объектом")
+            raise SmokeStoreError("DEV_SMOKE_PROFILE_INVALID", "Профиль development target должен быть JSON-объектом")
         for override in overrides:
             self.validate_value(override.path, override.value)
             marker = object()
             current = _deep_get(payload, override.path, marker)
             if current is marker:
-                raise SmokeStoreError("DEV_SMOKE_CONFIG_PATH_MISSING", "путь конфигурации отсутствует в профиле ap")
+                raise SmokeStoreError("DEV_SMOKE_CONFIG_PATH_MISSING", "путь конфигурации отсутствует в development target")
             if not self._same_scalar_type(override.value, current):
                 raise SmokeStoreError("DEV_SMOKE_CONFIG_VALUE_INVALID", "переопределение конфигурации не соответствует типу текущего значения")
 
@@ -2632,6 +2635,53 @@ class SmokeRunManager:
                 return record
         return None
 
+    def has_active_run(self) -> bool:
+        """Проверить наличие активного SmokeRun без изменения его состояния."""
+
+        return self._active_record() is not None
+
+    def _control_reservation_active(self) -> bool:
+        from module.dev_runtime.control import ControlStore
+
+        store = ControlStore(self.environment)
+        with store.lock(create=False):
+            operation = store.read()
+        return operation is not None and operation.active
+
+    def _session_owner_issue(self) -> SmokeValidationIssue | None:
+        """Проверить marker DevSession без повторной полной диагностики runtime."""
+
+        try:
+            session = _read_session(self.environment)
+        except TaskSandboxError as exc:
+            return SmokeValidationIssue(code=exc.code, message=str(exc))
+        except (OSError, ValueError) as exc:
+            return SmokeValidationIssue(
+                code="DEV_SMOKE_RUNTIME_UNAVAILABLE",
+                message=f"Состояние DevSession невозможно безопасно проверить: {type(exc).__name__}",
+            )
+        if session is None:
+            return None
+        if session.state in {
+            DevSessionState.CREATED,
+            DevSessionState.STARTING,
+            DevSessionState.RUNNING,
+            DevSessionState.STOPPING,
+            DevSessionState.STALE,
+        } or (session.state in {DevSessionState.FAILED, DevSessionState.STOPPED} and session.process is not None):
+            code = (
+                "DEV_SMOKE_RUNTIME_ACTIVE"
+                if session.state in {DevSessionState.STARTING, DevSessionState.RUNNING, DevSessionState.STOPPING}
+                else "DEV_SMOKE_RUNTIME_STALE"
+            )
+            message = (
+                "Уже существует активная DevSession"
+                if code == "DEV_SMOKE_RUNTIME_ACTIVE"
+                else "Сначала требуется явное безопасное восстановление DevSession"
+            )
+            return SmokeValidationIssue(code=code, message=message)
+        return None
+
     def start_smoke(self, spec: object) -> DevResult:
         parsed, source, issues = self._validate_spec_and_preconditions(spec, check_runtime_conflict=True)
         if parsed is None or source is None or issues:
@@ -2643,26 +2693,68 @@ class SmokeRunManager:
                 details=self._validation_details(parsed, source, issues),
             )
         try:
-            self.store.prune(now=self.now())
-            active = self._active_record()
-        except SmokeStoreError as exc:
-            return self._result(ok=False, code=exc.code, message=str(exc), state=SmokeState.FINISHED.value)
-        if active is not None:
+            with runtime_coordination_lock(self.environment):
+                self.store.prune(now=self.now())
+                active = self._active_record()
+                if active is not None:
+                    return self._result(
+                        ok=False,
+                        code="DEV_SMOKE_ACTIVE_CONFLICT",
+                        message="Новый SmokeRun запрещён, пока предыдущий запуск не завершён или не отменён явно",
+                        state=active.state.value,
+                        smoke_id=active.smoke_id,
+                        session_id=active.session_id,
+                        details={"conflict_state": active.state.value},
+                    )
+                try:
+                    control_active = self._control_reservation_active()
+                except Exception as exc:  # noqa: BLE001 — неизвестное состояние owner блокирует запуск
+                    return self._result(
+                        ok=False,
+                        code="DEV_RUNTIME_OWNER_STATE_UNAVAILABLE",
+                        message=f"Нельзя подтвердить отсутствие control operation: {type(exc).__name__}",
+                        state=SmokeState.FINISHED.value,
+                    )
+                if control_active:
+                    return self._result(
+                        ok=False,
+                        code="DEV_SMOKE_CONTROL_CONFLICT",
+                        message="SmokeRun запрещён при активной control operation",
+                        state=SmokeState.FINISHED.value,
+                        details={"outcome": "CONFLICT"},
+                    )
+                session_issue = self._session_owner_issue()
+                if session_issue is not None:
+                    return self._result(
+                        ok=False,
+                        code="DEV_SMOKE_PRECONDITION_FAILED",
+                        message="SmokeRun не создан: предварительная проверка условий не пройдена",
+                        state=SmokeState.FINISHED.value,
+                        details={"issues": [_safe_model_json(session_issue)]},
+                    )
+                created_at = _timestamp_now(self.now)
+                deadline_at = _add_seconds(created_at, float(parsed.timeout_seconds))
+                record = self.store.create(
+                    parsed,
+                    source,
+                    created_at=created_at,
+                    deadline_at=deadline_at,
+                )
+                record = self.store.update(
+                    record.smoke_id,
+                    {"state": SmokeState.PREPARING, "started_at": created_at},
+                )
+        except RuntimeCoordinationError as exc:
             return self._result(
                 ok=False,
-                code="DEV_SMOKE_ACTIVE_CONFLICT",
-                message="Новый SmokeRun запрещён, пока предыдущий запуск не завершён или не отменён явно",
-                state=active.state.value,
-                smoke_id=active.smoke_id,
-                session_id=active.session_id,
-                details={"conflict_state": active.state.value},
+                code=exc.code,
+                message=str(exc),
+                state=SmokeState.FINISHED.value,
             )
-        created_at = _timestamp_now(self.now)
-        deadline_at = _add_seconds(created_at, float(parsed.timeout_seconds))
+        except SmokeStoreError as exc:
+            return self._result(ok=False, code=exc.code, message=str(exc), state=SmokeState.FINISHED.value)
         supervisor: SmokeSupervisorIdentity | None = None
         try:
-            record = self.store.create(parsed, source, created_at=created_at, deadline_at=deadline_at)
-            record = self.store.update(record.smoke_id, {"state": SmokeState.PREPARING, "started_at": created_at})
             supervisor = self.supervisor_backend.launch(self.environment, record.smoke_id)
             record = self.store.update(record.smoke_id, {"supervisor": supervisor})
         except (SmokeStoreError, OSError, RuntimeError) as exc:
@@ -3337,7 +3429,10 @@ class SmokeRunManager:
             failures.append(f"DEV_SMOKE_CLEANUP_{type(exc).__name__.upper()[:32]}")
         try:
             payload = read_profile_payload(self.environment.profile_file, repository_root=self.environment.repository_root)
-            catalog = TaskCatalog.from_payload(payload)
+            catalog = TaskCatalog.from_payload(
+                payload,
+                profile_name=self.environment.profile_name,
+            )
             state = scheduler_state(payload, catalog)
             scheduler_clean = all(item["enabled"] is False and item["next_run"] == SCHEDULER_RESET_TIME for item in state.values()) and TaskPolicyStore(self.environment).read() is None
             if not scheduler_clean:

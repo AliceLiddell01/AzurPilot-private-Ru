@@ -9,6 +9,7 @@ import zlib
 from pathlib import Path
 
 import pytest
+from mcp.client.client import Client
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -45,7 +46,7 @@ def _server_parameters() -> StdioServerParameters:
     )
 
 
-def test_tool_definitions_are_strict_and_ap_only() -> None:
+def test_tool_definitions_are_strict_and_target_neutral() -> None:
     tools = tool_definitions()
     names = [tool.name for tool in tools]
 
@@ -71,6 +72,15 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         "dev_cancel_smoke",
         "dev_get_smoke_evaluation",
         "dev_submit_smoke_evaluation",
+        "dev_get_runtime_status",
+        "dev_start_game",
+        "dev_stop_game",
+        "dev_restart_game",
+        "dev_start_emulator",
+        "dev_stop_emulator",
+        "dev_restart_emulator",
+        "dev_restart_adb",
+        "dev_get_control_operation",
     ]
     assert names == expected_names
     assert tuple(names) == DEV_MCP_TOOL_NAMES
@@ -85,50 +95,73 @@ def test_tool_definitions_are_strict_and_ap_only() -> None:
         "dev_start_smoke",
     }
     additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
+    control_start = {"dev_start_game", "dev_start_emulator"}
+    control_stop = {"dev_stop_game", "dev_stop_emulator"}
+    control_restart = {"dev_restart_game", "dev_restart_emulator", "dev_restart_adb"}
+    control_mutating = control_start | control_stop | control_restart
+    argument_tools = {
+        "dev_plan_session",
+        "dev_start_session",
+        "dev_stop_session",
+        "dev_get_evidence",
+        "dev_get_timeline",
+        "dev_get_logs",
+        "dev_validate_smoke",
+        "dev_start_smoke",
+        "dev_get_smoke",
+        "dev_cancel_smoke",
+        "dev_get_smoke_evaluation",
+        "dev_submit_smoke_evaluation",
+        "dev_get_control_operation",
+    }
     for tool in tools:
         assert tool.description
         assert tool.annotations is not None
-        assert not _FORBIDDEN_INPUT_FIELDS.intersection(tool.inputSchema.get("properties", {}))
-        assert tool.inputSchema["additionalProperties"] is False
-        assert tool.outputSchema is not None
-        assert tool.securitySchemes == [{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}]
-        assert tool.outputSchema["additionalProperties"] is False
-        assert tool.annotations.readOnlyHint is (tool.name not in (mutating | additive))
-        assert tool.annotations.destructiveHint is (tool.name in mutating)
-        assert tool.annotations.idempotentHint is (tool.name not in (mutating | additive))
-        if tool.name not in {
-            "dev_plan_session",
-            "dev_start_session",
-            "dev_stop_session",
-            "dev_get_evidence",
-            "dev_get_timeline",
-            "dev_get_logs",
-            "dev_validate_smoke",
-            "dev_start_smoke",
-            "dev_get_smoke",
-            "dev_cancel_smoke",
-            "dev_get_smoke_evaluation",
-            "dev_submit_smoke_evaluation",
-        }:
-            assert tool.inputSchema["properties"] == {}
-            assert "required" not in tool.inputSchema
+        assert not _FORBIDDEN_INPUT_FIELDS.intersection(tool.input_schema.get("properties", {}))
+        assert tool.input_schema["additionalProperties"] is False
+        assert tool.output_schema is not None
+        assert tool.meta == {"securitySchemes": [{"type": "oauth2", "scopes": [DEV_MCP_REQUIRED_SCOPE]}]}
+        assert tool.output_schema["additionalProperties"] is False
+        assert tool.annotations.read_only_hint is (tool.name not in (mutating | additive | control_mutating))
+        assert tool.annotations.destructive_hint is (tool.name in (mutating | control_stop | control_restart))
+        expected_idempotent = tool.name not in (mutating | additive | control_restart)
+        assert tool.annotations.idempotent_hint is expected_idempotent
+        if tool.name not in argument_tools:
+            assert tool.input_schema["properties"] == {}
+            assert "required" not in tool.input_schema
 
     for name in additive:
         tool = next(tool for tool in tools if tool.name == name)
-        assert tool.annotations.readOnlyHint is False
-        assert tool.annotations.destructiveHint is False
-        assert tool.annotations.idempotentHint is False
+        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.destructive_hint is False
+        assert tool.annotations.idempotent_hint is False
 
-    task_schema = next(tool for tool in tools if tool.name == "dev_plan_session").inputSchema
+    for name in control_start:
+        tool = next(tool for tool in tools if tool.name == name)
+        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.destructive_hint is False
+        assert tool.annotations.idempotent_hint is True
+    for name in control_stop:
+        tool = next(tool for tool in tools if tool.name == name)
+        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.destructive_hint is True
+        assert tool.annotations.idempotent_hint is True
+    for name in control_restart:
+        tool = next(tool for tool in tools if tool.name == name)
+        assert tool.annotations.read_only_hint is False
+        assert tool.annotations.destructive_hint is True
+        assert tool.annotations.idempotent_hint is False
+
+    task_schema = next(tool for tool in tools if tool.name == "dev_plan_session").input_schema
     assert task_schema["required"] == ["root_tasks"]
     assert task_schema["properties"]["root_tasks"]["minItems"] == 1
-    evidence_schema = next(tool for tool in tools if tool.name == "dev_get_evidence").inputSchema
+    evidence_schema = next(tool for tool in tools if tool.name == "dev_get_evidence").input_schema
     assert set(evidence_schema["properties"]) == {"session_id"}
-    timeline_schema = next(tool for tool in tools if tool.name == "dev_get_timeline").inputSchema
+    timeline_schema = next(tool for tool in tools if tool.name == "dev_get_timeline").input_schema
     assert timeline_schema["properties"]["limit"]["maximum"] == 200
-    logs_schema = next(tool for tool in tools if tool.name == "dev_get_logs").inputSchema
+    logs_schema = next(tool for tool in tools if tool.name == "dev_get_logs").input_schema
     assert logs_schema["properties"]["cursor"]["maxLength"] == 2048
-    evaluation_schema = next(tool for tool in tools if tool.name == "dev_submit_smoke_evaluation").inputSchema
+    evaluation_schema = next(tool for tool in tools if tool.name == "dev_submit_smoke_evaluation").input_schema
     assert set(evaluation_schema["properties"]) == {"smoke_id", "assertion_id", "verdict", "rationale"}
     assert evaluation_schema["required"] == ["smoke_id", "assertion_id", "verdict", "rationale"]
     assert "external_agent" not in evaluation_schema["properties"]
@@ -182,11 +215,11 @@ def test_screenshot_response_uses_mcp_image_content_without_json_base64() -> Non
         )
     )
 
-    assert response.isError is False
-    assert response.structuredContent is not None
-    assert response.structuredContent["details"]["screenshot"]["mime"] == "image/png"
+    assert response.is_error is False
+    assert response.structured_content is not None
+    assert response.structured_content["details"]["screenshot"]["mime"] == "image/png"
     assert response.content[0].type == "image"
-    assert response.content[0].mimeType == "image/png"
+    assert response.content[0].mime_type == "image/png"
     assert base64.b64decode(response.content[0].data) == image_data
     assert response.content[1].type == "text"
     assert "base64" not in response.content[1].text
@@ -200,44 +233,24 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
             ClientSession(read_stream, write_stream) as session,
         ):
             initialized = await session.initialize()
-            assert initialized.serverInfo.name == SERVER_NAME
+            assert initialized.server_info.name == SERVER_NAME
             tools = await session.list_tools()
-            assert {tool.name for tool in tools.tools} == {
-                "dev_preflight",
-                "dev_doctor",
-                "dev_get_contract",
-                "dev_list_tasks",
-                "dev_plan_session",
-                "dev_start_session",
-                "dev_status",
-                "dev_stop_session",
-                "dev_cleanup",
-                "dev_recover",
-                "dev_get_evidence",
-                "dev_get_timeline",
-            "dev_get_logs",
-            "dev_get_screenshot",
-            "dev_list_smoke_capabilities",
-            "dev_validate_smoke",
-            "dev_start_smoke",
-            "dev_get_smoke",
-            "dev_cancel_smoke",
-            "dev_get_smoke_evaluation",
-            "dev_submit_smoke_evaluation",
-        }
+            assert {tool.name for tool in tools.tools} == set(DEV_MCP_TOOL_NAMES)
             result = await session.call_tool("dev_list_tasks", {})
-            assert result.structuredContent is not None
-            assert isinstance(result.structuredContent["ok"], bool)
-            assert result.structuredContent["code"] in {
+            assert result.structured_content is not None
+            assert isinstance(result.structured_content["ok"], bool)
+            assert result.structured_content["code"] in {
                 "DEV_TASK_STATE_MISSING",
                 "DEV_TASK_CATALOG_READY",
+                "DEV_TARGET_NOT_CONFIGURED",
+                "DEV_TARGET_DEFAULT_PROFILE_MISSING",
             }
             contract = await session.call_tool("dev_get_contract", {})
-            assert contract.structuredContent is not None
-            assert contract.structuredContent["ok"] is True
-            assert contract.structuredContent["details"]["contract"] == EXPECTED_CONTRACT
+            assert contract.structured_content is not None
+            assert contract.structured_content["ok"] is True
+            assert contract.structured_content["details"]["contract"] == EXPECTED_CONTRACT
 
-    asyncio.run(scenario())
+    asyncio.run(asyncio.wait_for(scenario(), timeout=30))
 
 
 async def _raw_request(
@@ -337,6 +350,8 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
             assert after_error["result"]["structuredContent"]["code"] in {
                 "DEV_NO_SESSION",
                 "DEV_SESSION_STOPPED",
+                "DEV_TARGET_NOT_CONFIGURED",
+                "DEV_TARGET_DEFAULT_PROFILE_MISSING",
             }
         finally:
             if process.stdin is not None:
@@ -354,3 +369,21 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
             assert process.returncode == 0
 
     asyncio.run(scenario())
+
+
+def test_modern_client_discovers_2026_server_and_calls_tool() -> None:
+    async def scenario() -> None:
+        async with Client(_server_parameters(), mode="auto") as client:
+            assert client.protocol_version == "2026-07-28"
+            assert client.server_info is not None
+            assert client.server_info.name == SERVER_NAME
+            assert client.session.discover_result is not None
+            assert "2026-07-28" in client.session.discover_result.supported_versions
+            tools = await client.list_tools()
+            assert {tool.name for tool in tools.tools} == set(DEV_MCP_TOOL_NAMES)
+            result = await client.call_tool("dev_get_contract", {})
+            assert result.is_error is False
+            assert result.structured_content is not None
+            assert result.structured_content["code"] == "DEV_MCP_CONTRACT_READY"
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=30))

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from module.dev_runtime import DevEnvironment, ProcessBackend, ProcessIdentity
+from module.dev_runtime import DevEnvironment, DevTarget, ProcessBackend, ProcessIdentity
 from module.dev_runtime import contracts as contracts_module
 from module.dev_runtime import process as process_module
 
@@ -17,7 +17,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     python = root / ".venv" / "Scripts" / "python.exe"
     python.parent.mkdir(parents=True)
     python.write_text("", encoding="utf-8")
-    return DevEnvironment(repository_root=root, python_executable=python)
+    return DevEnvironment(repository_root=root, python_executable=python, dev_target=DevTarget("ap"))
 
 
 class _LaunchHandle:

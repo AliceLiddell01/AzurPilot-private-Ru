@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "default_profile_name": "ap",
+  "profile_change_requires_explicit_consent": true
+}

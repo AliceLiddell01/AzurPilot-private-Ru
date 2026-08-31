@@ -101,23 +101,34 @@ Foreground Start, который сам создал backend, сохраняет
 ## Dev Runtime Foundation
 
 Локальный developer runtime живёт в импортируемом пакете `module.dev_runtime` и
-на Stage 1 фиксирован на скрытом профиле `ap`, loopback `127.0.0.1` и отдельном
-порту `25549`. Публичный lifecycle API не принимает произвольный профиль.
+работает с target из канонического registry, loopback `127.0.0.1` и отдельным
+портом `25549`. Target хранится в repository-scoped marker под `config/state/`,
+проверяется структурным profile discovery; при отсутствии marker read-only
+разрешается default из tracked target policy (`ap` после проверки профиля).
+Переключение target требует явного согласия пользователя, а публичный lifecycle
+API не принимает произвольный профиль. Adapter перепривязывает новые вызовы к
+текущему registry target, а уже принятая control operation сохраняет immutable
+target identity и fingerprint критической конфигурации; mismatch не может
+молча перенаправить мутацию на другой профиль и завершается fail-closed.
 
 Обычный runtime запускается только через project `.venv` Python и штатный
-`gui.py --run ap`. Preflight требует уже подготовленное окружение: наличие
+`gui.py --run <configured-target>`. Preflight требует уже подготовленное окружение: наличие
 pending dependency-sync marker блокирует старт, поэтому Dev Runtime сам не
 запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером,
 а связкой exact-owned root process → WebUI owner из read-only registry snapshot
-→ принадлежность локального listen socket → worker `ap` → HTTP readiness.
+→ принадлежность локального listen socket → worker настроенного target → HTTP readiness.
 
-DevSession хранит repository-scoped marker и lock под `config/state/`. Ownership
+DevSession хранит repository-scoped marker и lock под `config/state/`. Marker
+также сохраняет назначенный profile сессии: уже запущенный процесс и его Evidence
+не перепривязываются к новому target marker до завершения старой сессии. Ownership
 процесса включает PID, время создания, executable, command line и cwd; PID или
 занятый порт сами по себе не дают права на остановку. `stop`/`recover` работают
 fail-closed и не завершают процесс при неоднозначном владении. `status` и
 `doctor` не мигрируют worker registry и не создают его lock-файлы. Повреждённый
 или stale marker классифицируется отдельно; повторный старт разрешён только
-после безопасного доказанного восстановления.
+после безопасного доказанного восстановления. Создание DevSession, SmokeRun и
+control operation сериализуется общей repository-scoped coordination lock, а
+каждый собственный marker служит durable reservation до завершения владельца.
 
 Этот слой остаётся основой Dev MCP и не меняет жизненный цикл рабочего MCP.
 Stage 4 добавляет подтверждающие данные в пределах сессии в отдельном
@@ -126,7 +137,7 @@ Stage 4 добавляет подтверждающие данные в пред
 межпроцессную блокировку, ограниченное хранение и типизированное состояние. Снимок Git,
 каноническая хронология, происхождение задач и зависимостей, граница журнала сессии,
 структурированные ошибки и явный запрос снимка принадлежат точной рабочей копии,
-`session_id` и профилю `ap`.
+`session_id` и настроенному development target.
 
 ## MCP
 
@@ -141,16 +152,26 @@ MCP не должен становиться обходом конфигурац
 - отключаемость интеграции.
 
 `module/dev_mcp` — отдельный stdio-адаптер только для разработки поверх
-`DevSessionManager`. Он использует только фиксированный профиль `ap`, создаёт
-менеджер лениво и не связан с рабочим `mcp_server_sse.py`. Запуск не должен
+`DevSessionManager` и `RuntimeControlManager`. Он использует только target,
+разрешённый registry (включая policy default при отсутствии marker), создаёт
+менеджер лениво и не связан с рабочим `mcp_server_sse.py`. При смене marker
+создаётся новый manager только для новых операций; старые DevSession/Evidence
+разрешают записанный profile. Запуск не должен
 читать профиль или запускать runtime; схема и безопасная сериализация остаются
 границей адаптера, а владение, политика задач и очистка принадлежат
-`DevSessionManager`. Диагностические инструменты вызывают API менеджера для
+`DevSessionManager`; runtime control владеет отдельными persistent operations.
+Диагностические инструменты вызывают API менеджера для
 подтверждающих данных, хронологии, ограниченного журнала сессии и явного снимка экрана.
 Обработчик MCP не читает артефакты, не запускает Git и не создаёт второй
 `Device`; рабочий процесс снимка экрана обслуживает только явный запрос текущим кадром
 уже существующего runtime. Обычный рабочий процесс без проверенной активной DevSession не
 создаёт подтверждающие данные.
+
+MCP server использует официальную low-level API установленной стабильной MCP
+SDK v2 для общей регистрации tools в stdio и Streamable HTTP. Один и тот же
+adapter обслуживает modern protocol `2026-07-28` и legacy negotiation; native
+MCP Tasks не эмулируются. `SmokeRun` и `DevRuntimeControlOperation` остаются
+application-level persistent entities.
 
 Не фиксировать в документации точное количество инструментов: оно меняется. Источник истины — регистрация tools в текущем коде.
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,12 +17,15 @@ from module.dev_runtime import (
     DevResult,
     DevSessionManager,
     DevStatusKind,
+    DevTarget,
+    DevTargetRegistry,
     EvidenceScreenshot,
     EvidenceStore,
     ProcessBackend,
     ProcessIdentity,
 )
 from module.dev_runtime.smoke import SmokeSpec
+from module.dev_runtime.task_sandbox import TaskSandboxError
 from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
 
 
@@ -137,6 +141,53 @@ class _FakeManager:
         self.calls.append(("submit_smoke_evaluation", (smoke_id, assertion_id, verdict, rationale)))
         return _result("DEV_SMOKE_PASS")
 
+    def get_runtime_status(self) -> DevResult:
+        self.calls.append(("get_runtime_status", None))
+        return _result("DEV_RUNTIME_STATUS_READY")
+
+    def start_game(self) -> DevResult:
+        self.calls.append(("start_game", None))
+        return _result("DEV_CONTROL_ACCEPTED")
+
+    def stop_game(self) -> DevResult:
+        self.calls.append(("stop_game", None))
+        return _result("DEV_CONTROL_ACCEPTED")
+
+    def restart_game(self) -> DevResult:
+        self.calls.append(("restart_game", None))
+        return _result("DEV_CONTROL_ACCEPTED")
+
+    def start_emulator(self) -> DevResult:
+        self.calls.append(("start_emulator", None))
+        return _result("DEV_CONTROL_ACCEPTED")
+
+    def stop_emulator(self) -> DevResult:
+        self.calls.append(("stop_emulator", None))
+        return _result("DEV_CONTROL_ACCEPTED")
+
+    def restart_emulator(self) -> DevResult:
+        self.calls.append(("restart_emulator", None))
+        return _result("DEV_CONTROL_ACCEPTED")
+
+    def restart_adb(self) -> DevResult:
+        self.calls.append(("restart_adb", None))
+        return _result("DEV_CONTROL_ACCEPTED")
+
+    def get_control_operation(self, control_id: str) -> DevResult:
+        self.calls.append(("get_control_operation", control_id))
+        return _result("DEV_CONTROL_OPERATION_READY")
+
+
+class _TargetAwareFakeManager(_FakeManager):
+    def __init__(self, environment: DevEnvironment) -> None:
+        super().__init__()
+        self.environment = environment
+
+
+class _TaskSandboxErrorManager(_FakeManager):
+    def status(self) -> DevResult:
+        raise TaskSandboxError("DEV_TASK_STATE_CORRUPT", "synthetic task state error")
+
 
 def _adapter_with_factory() -> tuple[DevMcpAdapter, _FakeManager, list[int]]:
     manager = _FakeManager()
@@ -159,6 +210,58 @@ def test_contract_is_static_safe_and_does_not_construct_runtime_manager() -> Non
     assert result["details"]["contract"] == EXPECTED_CONTRACT
     assert factory_calls == []
     assert manager.calls == []
+
+
+def test_adapter_serializes_task_sandbox_error_from_manager() -> None:
+    result = DevMcpAdapter(lambda: _TaskSandboxErrorManager()).call("dev_status", {})
+
+    assert result["ok"] is False
+    assert result["code"] == "DEV_TASK_STATE_CORRUPT"
+    assert result["details"]["error"]["code"] == "DEV_TASK_STATE_CORRUPT"
+
+
+def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) -> None:
+    root = tmp_path.resolve()
+    config = root / "config"
+    config.mkdir(parents=True)
+    for profile_name in ("adapter-a", "adapter-b"):
+        (config / f"{profile_name}.json").write_text(
+            json.dumps(
+                {
+                    "Alas": {"Emulator": {}},
+                    "General": {},
+                    "SyntheticTask": {"Scheduler": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+    DevTargetRegistry.configure(
+        root,
+        profile_name="adapter-a",
+        explicit_consent=True,
+    )
+    python = root / ".venv" / "Scripts" / "python.exe"
+    environment_a = DevEnvironment(root, python, DevTarget("adapter-a"))
+    environment_b = DevEnvironment(root, python, DevTarget("adapter-b"))
+    manager_a = _TargetAwareFakeManager(environment_a)
+    manager_b = _TargetAwareFakeManager(environment_b)
+    managers = iter((manager_a, manager_b))
+    adapter = DevMcpAdapter(lambda: next(managers))
+
+    first = adapter.call("dev_status", {})
+    same_target = adapter.call("dev_status", {})
+    DevTargetRegistry.configure(
+        root,
+        profile_name="adapter-b",
+        explicit_consent=True,
+    )
+    second = adapter.call("dev_status", {})
+
+    assert first["code"] == "DEV_SESSION_STOPPED"
+    assert same_target["code"] == "DEV_SESSION_STOPPED"
+    assert second["code"] == "DEV_SESSION_STOPPED"
+    assert manager_a.calls == [("status", None), ("status", None)]
+    assert manager_b.calls == [("status", None)]
 
 
 class _SyntheticProcessBackend:
@@ -238,6 +341,7 @@ def _real_runtime_manager(
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     backend = _SyntheticProcessBackend()
     manager = DevSessionManager(
@@ -317,6 +421,18 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
             "rationale": "Проверено",
         },
     )["ok"] is True
+    assert adapter.call("dev_get_runtime_status", {})["ok"] is True
+    for tool_name in (
+        "dev_start_game",
+        "dev_stop_game",
+        "dev_restart_game",
+        "dev_start_emulator",
+        "dev_stop_emulator",
+        "dev_restart_emulator",
+        "dev_restart_adb",
+    ):
+        assert adapter.call(tool_name, {})["ok"] is True
+    assert adapter.call("dev_get_control_operation", {"control_id": "a" * 32})["ok"] is True
 
     assert len(factory_calls) == 1
     assert manager.calls == [
@@ -341,6 +457,15 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         ("cancel_smoke", "smoke-1"),
         ("get_smoke_evaluation", "smoke-1"),
         ("submit_smoke_evaluation", ("smoke-1", "visual", "pass", "Проверено")),
+        ("get_runtime_status", None),
+        ("start_game", None),
+        ("stop_game", None),
+        ("restart_game", None),
+        ("start_emulator", None),
+        ("stop_emulator", None),
+        ("restart_emulator", None),
+        ("restart_adb", None),
+        ("get_control_operation", "a" * 32),
     ]
 
 
@@ -455,10 +580,7 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
     )
 
     assert result["message"] == "готово [путь скрыт]"
-    assert result["details"] == {
-        "profile": "ap",
-        "relative_log": "config/state/dev-runtime-gui.log",
-    }
+    assert result["details"] == {"relative_log": "config/state/dev-runtime-gui.log"}
     assert "api_key" not in result["details"]
     assert "apiKey" not in result["details"]
     assert "x-api-key" not in result["details"]
@@ -489,6 +611,40 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
         "smoke_id": "smoke-1",
         "outcome": "PASS",
     }
+
+
+def test_serializer_preserves_control_target_binding_without_internal_fields() -> None:
+    result = serialize_dev_result(
+        {
+            "ok": True,
+            "code": "DEV_CONTROL_ACCEPTED",
+            "message": "принято",
+            "state": "created",
+            "details": {
+                "control_operation": {
+                    "active": True,
+                    "operation": {
+                        "control_id": "a" * 32,
+                        "action": "start_game",
+                        "target_profile_name": "ap",
+                        "target_identity": "b" * 64,
+                        "runtime_config_fingerprint": "c" * 64,
+                        "state": "created",
+                        "outcome": None,
+                        "created_at": "2026-08-31T00:00:00+00:00",
+                        "transitions": [],
+                        "supervisor_pid": 1234,
+                    },
+                }
+            },
+        }
+    )
+
+    operation = result["details"]["control_operation"]["operation"]
+    assert "target_profile_name" not in operation
+    assert operation["target_identity"] == "b" * 64
+    assert operation["runtime_config_fingerprint"] == "c" * 64
+    assert "supervisor_pid" not in operation
 
 
 def test_serializer_preserves_canonical_smoke_evaluation_source_only() -> None:
@@ -617,14 +773,13 @@ def test_serializer_rejects_invalid_session_id_in_public_fields() -> None:
             details={
                 "evidence": {
                     "session_id": "../foreign",
-                    "profile": "ap",
                 }
             },
         )
     )
 
     assert result["session_id"] is None
-    assert result["details"] == {"evidence": {"session_id": None, "profile": "ap"}}
+    assert result["details"] == {"evidence": {"session_id": None}}
 
 
 @pytest.mark.parametrize(
@@ -703,7 +858,6 @@ def test_real_status_preserves_task_lifecycle_and_policy_snapshot(tmp_path: Path
             "valid": True,
             "state": "active",
             "session_id": "sandbox-session",
-            "profile": "ap",
             "root_tasks": ["RootTask"],
             "excluded_tasks": [],
             "allowed_tasks": ["RootTask"],
@@ -728,7 +882,7 @@ def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: 
     try:
         evidence = adapter.call("dev_get_evidence")
         assert evidence["ok"] is True
-        assert evidence["details"]["profile"] == "ap"
+        assert "profile" not in evidence["details"]
         assert evidence["details"]["git_snapshot"]["available"] is False
         assert evidence["details"]["logs"]["available"] is True
         assert evidence["details"]["current_task"] is None
@@ -821,6 +975,30 @@ def test_historical_evidence_lookup_does_not_replace_active_store(tmp_path: Path
     assert historical_events == []
 
 
+def test_historical_evidence_uses_manifest_profile_after_target_switch(tmp_path: Path) -> None:
+    manager, _backend = _real_runtime_manager(tmp_path)
+    historical_environment = replace(
+        manager.environment,
+        dev_target=DevTarget("historical-target"),
+    )
+    historical = EvidenceStore.create(
+        historical_environment,
+        session_id="historical-profile-session",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp="2026-08-29T00:00:00+00:00",
+    )
+    historical.finalize(
+        stopped_at="2026-08-29T00:00:00+00:00",
+        cleanup_confirmed=True,
+    )
+
+    result = manager.get_evidence(session_id="historical-profile-session")
+
+    assert result.ok is True
+    assert result.details["profile"] == "historical-target"
+
+
 def test_serializer_drops_unknown_fields_in_known_nested_structures() -> None:
     result = serialize_dev_result(
         {
@@ -879,6 +1057,7 @@ def test_serializer_drops_unknown_fields_in_known_nested_structures() -> None:
         "cleanup_required": True,
         "policy_expected": True,
     }
+    assert "profile" not in result["details"]["task_policy"]
     assert "repository_root" not in result["details"]["task_policy"]
     assert "policy_file" not in result["details"]["task_policy"]
     assert "unexpected" not in result["details"]
@@ -909,6 +1088,7 @@ def test_read_only_tools_leave_profile_and_runtime_state_unchanged(tmp_path: Pat
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
     manager = DevSessionManager(
         environment,
@@ -941,7 +1121,6 @@ def test_read_only_tools_leave_profile_and_runtime_state_unchanged(tmp_path: Pat
     assert results[3]["code"] == "DEV_TASK_PLAN_READY"
     assert results[4]["code"] == "DEV_NO_SESSION"
     assert results[2]["details"] == {
-        "profile": "ap",
         "tasks": [
             {
                 "section": "RootTask",
@@ -952,7 +1131,6 @@ def test_read_only_tools_leave_profile_and_runtime_state_unchanged(tmp_path: Pat
         ],
     }
     assert results[3]["details"]["plan"] == {
-        "profile": "ap",
         "root_tasks": ["RootTask"],
         "excluded_tasks": [],
         "catalog": ["RootTask"],

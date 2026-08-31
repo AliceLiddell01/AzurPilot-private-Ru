@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -13,6 +13,7 @@ from module.dev_runtime import (
     DevSessionManager,
     DevSessionState,
     DevStatusKind,
+    DevTarget,
     ProcessIdentity,
 )
 from module.dev_runtime import diagnostics as diagnostics_module
@@ -70,6 +71,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     return DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",
+        dev_target=DevTarget("ap"),
     )
 
 
@@ -83,7 +85,7 @@ def _manager(
         process_backend=backend or _Backend(),
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=lambda _host, _port: False,
-        now=lambda: datetime(2026, 8, 29, tzinfo=timezone.utc),
+        now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
     )
     manager._project_python_is_supported = lambda: True
     manager._profile_check = lambda: (True, "profile ready")
@@ -229,7 +231,7 @@ def test_failed_live_process_remains_blocked_after_preflight_race(
         process_backend=backend,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
-        now=lambda: datetime(2026, 8, 29, tzinfo=timezone.utc),
+        now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
     )
     manager._write_session(
         DevSession(
@@ -258,3 +260,53 @@ def test_failed_live_process_remains_blocked_after_preflight_race(
     assert backend.launch_count == 0
     assert backend.request_stop_count == 0
     assert backend.force_stop_count == 0
+
+
+def test_readiness_rejects_ap_worker_outside_devsession_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    identity = ProcessIdentity(
+        pid=7301,
+        created_at=73.01,
+        executable=str(environment.python_executable),
+        command_line=("python", "gui.py"),
+        cwd=str(environment.repository_root),
+    )
+    registry = environment.repository_root / "cache" / "webui-workers.json"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(
+        json.dumps(
+            {
+                "owner_pid": 7302,
+                "owner_created_at": 73.02,
+                "workers": {"ap": {"pid": 7303, "created_at": 73.03}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class TreeBackend:
+        def is_descendant(self, child_pid: int, _parent: ProcessIdentity) -> bool:
+            return child_pid == 7302
+
+        def listens_on(self, pid: int, host: str, port: int) -> bool:
+            return pid == 7302 and host == environment.host and port == environment.port
+
+    manager = DevSessionManager(
+        environment,
+        process_backend=TreeBackend(),
+        storage_probe=lambda _environment: (True, "ready"),
+        port_probe=lambda _host, _port: False,
+    )
+
+    from module.webui import worker_registry
+
+    monkeypatch.setattr(worker_registry, "process_matches", lambda _record: True)
+    monkeypatch.setattr(diagnostics_module, "_http_ready", lambda _host, _port: True)
+
+    ready, reason = manager._default_readiness_probe(environment, identity)
+
+    assert ready is False
+    assert "рабочий процесс назначенного development target не принадлежит дереву DevSession" in reason

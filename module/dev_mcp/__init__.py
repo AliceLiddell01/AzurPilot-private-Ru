@@ -1,4 +1,4 @@
-"""Локальный адаптер Dev MCP для фиксированного профиля ``ap``."""
+"""Локальный адаптер Dev MCP для настроенного development target."""
 
 from module.dev_mcp.adapter import DevMcpAdapter, serialize_dev_result
 

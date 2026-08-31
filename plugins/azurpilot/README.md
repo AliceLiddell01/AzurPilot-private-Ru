@@ -53,8 +53,12 @@ PostgreSQL, ADB и emulator не публикуются. Обязательны�
 
 ## Контракт и smoke
 
-`compatibility.json` фиксирует ожидаемые версии API/Smoke schemas, профиль
-`ap`, required feature flags, capability families и result outcomes. Skill сначала вызывает
+`compatibility.json` фиксирует ожидаемые версии API/Smoke schemas, required
+feature flags, capability families и result outcomes. Development Runtime
+разрешает target через канонический registry: при отсутствии локального marker
+используется профиль по умолчанию из target policy (`ap` при успешной
+структурной проверке), а смена target требует явного согласия пользователя.
+Имя target не передаётся через MCP. Skill сначала вызывает
 `dev_get_contract`; любое несовпадение даёт `PLUGIN_RUNTIME_INCOMPATIBLE` и
 запрещает mutating calls.
 
@@ -70,6 +74,23 @@ PASS требует одновременно PASS-result, exact source, подт
 `EVIDENCE_INCOMPLETE`, `TIMEOUT`, `INVALIDATED`, `CANCELLED` и
 `PRECONDITION_FAILED` маршрутизируются по skill без auto-retry и без изменения
 исходного SmokeSpec.
+
+## Runtime Control
+
+`dev_get_runtime_status` возвращает ограниченный read-only снимок настроенного
+development target: состояние эмулятора, ADB, приложения, DevSession, SmokeRun
+и текущей control operation. Отдельные typed tools управляют только настроенной
+средой через штатные `Platform` и `AppControl`: запуск, остановка и перезапуск
+игры, запуск, остановка и перезапуск эмулятора и перезапуск ADB.
+
+Mutating runtime control не выполняется при активном SmokeRun или DevSession и
+не допускает вторую активную operation. Долгие действия быстро возвращают
+`control_id`; итог читается через `dev_get_control_operation`. При
+`PRECONDITION_FAILED`, `CONFLICT`, `CONTROL_FAILED`, `TIMEOUT` или `ABORTED` не повторяй тот же
+запрос автоматически. После подтверждённого восстановления создай новый
+control operation с новой immutable спецификацией. Создание всех трёх runtime owners
+сериализуется общей repository-scoped coordination lock; собственный marker
+остаётся durable reservation после сбоя запуска до явного fail-closed recovery.
 
 ## Граница Game capability
 

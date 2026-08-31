@@ -9,7 +9,8 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-DEV_PROFILE = "ap"
+from module.dev_runtime.target import DevTarget, DevTargetError, DevTargetRegistry
+
 DEV_HOST = "127.0.0.1"
 DEV_PORT = 25549
 STATE_SCHEMA_VERSION = 1
@@ -131,11 +132,27 @@ class ProcessIdentity:
         session_id = self.command_line[index + 1]
         return session_id if session_id else None
 
+    def command_profile_name(self) -> str | None:
+        """Вернуть профиль из exact CLI signature, не читая текущий target marker."""
+
+        if self.command_line.count("--run") != 1:
+            return None
+        index = self.command_line.index("--run")
+        if index + 1 >= len(self.command_line):
+            return None
+        profile_name = self.command_line[index + 1]
+        try:
+            DevTarget(profile_name)
+        except ValueError:
+            return None
+        return profile_name
+
     def matches_dev_contract(
         self,
         repository_root: Path,
         session_id: str,
         python_executable: Path | None = None,
+        profile_name: str | None = None,
     ) -> bool:
         """Проверить полную сигнатуру процесса одной DevSession."""
 
@@ -153,6 +170,8 @@ class ProcessIdentity:
                 / ".venv"
                 / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
             )
+            if profile_name is None:
+                profile_name = DevTargetRegistry.load(root).profile_name
             allowed_python_paths = _allowed_command_python_paths(expected_python)
             expected_gui = root / "gui.py"
             expected = (
@@ -165,7 +184,7 @@ class ProcessIdentity:
                 "--port",
                 str(DEV_PORT),
                 "--run",
-                DEV_PROFILE,
+                profile_name,
             )
         except (OSError, RuntimeError, ValueError):
             return False
@@ -239,6 +258,7 @@ class DevSession:
     task_phase: DevTaskPhase = DevTaskPhase.NONE
     task_cleanup_required: bool = False
     task_policy_expected: bool = False
+    profile_name: str | None = None
 
     @property
     def is_task_aware(self) -> bool:
@@ -265,6 +285,7 @@ class DevSession:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "process": self.process.as_dict() if self.process is not None else None,
+            "profile_name": self.profile_name,
             "last_code": self.last_code,
             "last_message": self.last_message,
             "task_mode": self.task_mode.value,
@@ -296,6 +317,23 @@ class DevSession:
             process_session_id = process.command_session_id()
             if process_session_id is not None and process_session_id != session_id:
                 raise ValueError("process принадлежит другой DevSession")
+        profile_name = payload.get("profile_name")
+        if profile_name is not None:
+            if not isinstance(profile_name, str):
+                raise ValueError("profile_name должен быть строкой или null")
+            try:
+                profile_name = DevTarget(profile_name).profile_name
+            except ValueError as exc:
+                raise ValueError("profile_name имеет недопустимый формат") from exc
+        process_profile_name = process.command_profile_name() if process is not None else None
+        if (
+            profile_name is not None
+            and process_profile_name is not None
+            and profile_name != process_profile_name
+        ):
+            raise ValueError("process принадлежит другому development target")
+        if profile_name is None:
+            profile_name = process_profile_name
         try:
             state = DevSessionState(str(payload["state"]))
         except (KeyError, ValueError) as exc:
@@ -348,6 +386,7 @@ class DevSession:
             task_phase=task_phase,
             task_cleanup_required=task_cleanup_required,
             task_policy_expected=task_policy_expected,
+            profile_name=profile_name,
         )
 
 
@@ -355,12 +394,17 @@ class DevSession:
 class DevEnvironment:
     repository_root: Path
     python_executable: Path
+    dev_target: DevTarget | None = None
     host: str = DEV_HOST
     port: int = DEV_PORT
 
     def __post_init__(self) -> None:
         if self.host != DEV_HOST or self.port != DEV_PORT:
             raise ValueError("Dev Runtime разрешает только фиксированный локальный адрес и порт")
+        root = Path(self.repository_root).resolve()
+        object.__setattr__(self, "repository_root", root)
+        if self.dev_target is None:
+            object.__setattr__(self, "dev_target", DevTargetRegistry.load(root))
 
     @property
     def state_file(self) -> Path:
@@ -376,7 +420,29 @@ class DevEnvironment:
 
     @property
     def profile_file(self) -> Path:
-        return self.repository_root / "config" / f"{DEV_PROFILE}.json"
+        target = self.dev_target
+        if target is None:  # pragma: no cover - защищено __post_init__
+            raise DevTargetError("DEV_TARGET_NOT_CONFIGURED", "Development target не назначен")
+        return target.profile_file(self.repository_root)
+
+    @property
+    def profile_name(self) -> str:
+        target = self.dev_target
+        if target is None:  # pragma: no cover - защищено __post_init__
+            raise DevTargetError("DEV_TARGET_NOT_CONFIGURED", "Development target не назначен")
+        return target.profile_name
+
+    @property
+    def target_file(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-target.json"
+
+    @property
+    def coordination_lock_file(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-coordination.lock"
+
+    @property
+    def control_root(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-control"
 
     @property
     def task_policy_file(self) -> Path:
@@ -409,4 +475,5 @@ class DevEnvironment:
             repository_root=root,
             # Не resolve(): POSIX venv обычно использует symlink на базовый Python.
             python_executable=Path(os.path.abspath(sys.executable)),
+            dev_target=DevTargetRegistry.load(root),
         )

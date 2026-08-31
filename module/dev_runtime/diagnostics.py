@@ -14,13 +14,14 @@ from pathlib import Path
 from module.config.profile import ProfileDiscoveryError, classify_profile_config
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.contracts import (
-    DEV_PROFILE,
     DevEnvironment,
     DevResult,
+    DevSession,
     DevSessionState,
     DevStatusKind,
     ProcessIdentity,
 )
+from module.dev_runtime.task_sandbox import TaskSandboxError
 
 _REGISTRY_MAX_BYTES = 1024 * 1024
 _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
@@ -35,6 +36,9 @@ _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
 
 
 class DevDiagnosticsMixin:
+    def _environment_for_session(self, session: DevSession) -> DevEnvironment:
+        raise NotImplementedError("DevDiagnosticsMixin требует разрешения окружения сессии")
+
     def preflight(self) -> DevResult:
         checks: list[dict[str, object]] = []
         blockers: list[str] = []
@@ -65,7 +69,7 @@ class DevDiagnosticsMixin:
         )
 
         profile_ok, profile_message = self._profile_check()
-        add("profile", profile_ok, "DEV_PROFILE_INVALID", profile_message)
+        add("development_target", profile_ok, "DEV_TARGET_INVALID", profile_message)
 
         storage_ok, storage_message = self.storage_probe(self.environment)
         add("storage", storage_ok, "DEV_STORAGE_NOT_READY", storage_message)
@@ -165,7 +169,11 @@ class DevDiagnosticsMixin:
             state=(
                 DevStatusKind.NO_SESSION.value if ok else DevStatusKind.FAILED.value
             ),
-            details={"profile": DEV_PROFILE, "checks": checks, "blockers": blockers},
+            details={
+                "development_target": {"configured": profile_ok},
+                "checks": checks,
+                "blockers": blockers,
+            },
         )
 
     def doctor(self) -> DevResult:
@@ -289,7 +297,18 @@ class DevDiagnosticsMixin:
             )
 
         if session.state is DevSessionState.RUNNING:
-            ready, reason = self.readiness_probe(self.environment, identity)
+            try:
+                session_environment = self._environment_for_session(session)
+            except TaskSandboxError as exc:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code=exc.code,
+                    message=str(exc),
+                    state=DevStatusKind.FAILED,
+                    details={"error": exc.as_dict()},
+                )
+            ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:
                 return self._session_result(
                     session,
@@ -341,19 +360,19 @@ class DevDiagnosticsMixin:
                 owner_pid, environment.host, environment.port
             ):
                 return False, "локальный порт не принадлежит подтверждённому владельцу WebUI"
-            worker = workers.get(DEV_PROFILE)
+            worker = workers.get(environment.profile_name)
             if worker is None:
-                return False, "рабочий процесс профиля ap ещё не зарегистрирован"
+                return False, "рабочий процесс development target ещё не зарегистрирован"
             if worker_registry.process_matches(worker) is not True:
-                return False, "рабочий процесс профиля ap не подтверждён"
+                return False, "рабочий процесс development target не подтверждён"
             worker_pid = int(worker["pid"])
             if not self.process_backend.is_descendant(worker_pid, identity):
-                return False, "рабочий процесс профиля ap не принадлежит дереву DevSession"
+                return False, "рабочий процесс назначенного development target не принадлежит дереву DevSession"
         except Exception as exc:
             return False, f"реестр рабочих процессов не готов: {type(exc).__name__}"
         if not _http_ready(environment.host, environment.port):
             return False, "Принадлежащий DevSession WebUI ещё не отвечает через локальный интерфейс"
-        return True, "WebUI и рабочий процесс ap готовы, владение подтверждено"
+        return True, "WebUI и рабочий процесс development target готовы, владение подтверждено"
 
     def _project_python_is_supported(self) -> bool:
         version_ok = (3, 14, 6) <= sys.version_info[:3] < (3, 15, 0)
@@ -372,16 +391,20 @@ class DevDiagnosticsMixin:
 
     def _profile_check(self) -> tuple[bool, str]:
         config_dir = self.environment.repository_root / "config"
-        profile_path = config_dir / f"{DEV_PROFILE}.json"
+        profile_path = self.environment.profile_file
         if not profile_path.exists():
-            return False, "Локальный скрытый профиль config/ap.json отсутствует"
+            return False, "Назначенный development target отсутствует"
         try:
             profile = classify_profile_config(profile_path, config_dir, strict=True)
         except ProfileDiscoveryError as exc:
-            return False, f"Профиль ap небезопасен: {exc.code}"
-        if profile is None or profile.name != DEV_PROFILE or profile.mod_name != "alas":
-            return False, "config/ap.json не соответствует структурному контракту профиля AzurPilot"
-        return True, "Локальный профиль ap существует и структурно допустим"
+            return False, f"Development target небезопасен: {exc.code}"
+        if (
+            profile is None
+            or profile.name != self.environment.profile_name
+            or profile.mod_name != "alas"
+        ):
+            return False, "Назначенный development target не соответствует структурному контракту AzurPilot"
+        return True, "Назначенный development target существует и структурно допустим"
 
     def _webui_registry_check(self) -> tuple[bool, str]:
         try:
