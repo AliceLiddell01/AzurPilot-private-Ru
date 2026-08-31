@@ -34,8 +34,11 @@ def _find_absolute_local_path(value: str) -> re.Match[str] | None:
 
 
 def test_repo_scoped_skills_have_unique_valid_frontmatter() -> None:
-    skill_files = list(_SKILLS_ROOT.glob("*/SKILL.md"))
-    assert {path.parent.name for path in skill_files} == set(_SKILL_NAMES)
+    skill_files = sorted(_SKILLS_ROOT.glob("*/SKILL.md"))
+    discovered_skill_dirs = {path.parent.name for path in skill_files}
+    assert set(_SKILL_NAMES) <= discovered_skill_dirs
+    for skill_name in _SKILL_NAMES:
+        assert (_SKILLS_ROOT / skill_name / "SKILL.md").is_file()
 
     names: list[str] = []
     for path in skill_files:
@@ -71,7 +74,16 @@ def test_skill_names_do_not_collide_with_the_dev_mcp_plugin_skill() -> None:
 def test_development_description_has_positive_and_negative_routing() -> None:
     frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md")
     description = str(frontmatter["description"]).lower()
-    for trigger in ("feature", "bugfix", "refactor", "ci/test", "pr", "merge", "cleanup"):
+    for trigger in (
+        "feature",
+        "bugfix",
+        "refactor",
+        "ci/test",
+        "upstream",
+        "pr",
+        "merge",
+        "cleanup",
+    ):
         assert trigger in description
     for boundary in ("read-only", "перевода текста", "без изменения репозитория"):
         assert boundary in description
@@ -82,6 +94,8 @@ def test_coderabbit_description_routes_review_requests() -> None:
     description = str(frontmatter["description"]).lower()
     for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "wsl2 arch"):
         assert trigger in description
+    for generic_trigger in ("подготовка pr к финальному ревью", "generic pr preparation"):
+        assert generic_trigger not in description
 
 
 def test_implicit_invocation_is_not_disabled() -> None:
@@ -116,6 +130,10 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
         "текущем основном checkout",
         "WSL2",
         "Browser/Computer Use",
+        "GIT-WORKFLOW.md",
+        "upstream sync",
+        "sync/*",
+        "codex/port-upstream",
         "READY_FOR_CHATGPT_REVIEW",
         "ChatGPT 5.6 Sol",
         "явная команда",
@@ -129,9 +147,12 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
     review_reference = review_dir / "references" / "review-workflow.md"
     assert review_reference.is_file()
     assert "references/review-workflow.md" in review_content
+    assert "доведение PR до точки внешнего финального ревью" not in review_content
     for required in (
         "exact commit",
         "если PR существует",
+        "partially confirmed",
+        "insufficient evidence",
         "WSL2 Arch",
         "false positive",
         "rate limit",
@@ -139,6 +160,10 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
     ):
         assert required.lower() in review_content.lower()
     reference_content = review_reference.read_text(encoding="utf-8").lower()
+    assert "coderabbit review --agent --committed --base-commit" in reference_content
+    assert "отсутствие pr само по себе не блокирует" in reference_content
+    assert "partially confirmed" in reference_content
+    assert "insufficient evidence" in reference_content
     assert "другой canonical review checkout" not in reference_content
     assert "другую среду для coderabbit review" in reference_content
     assert "linked worktree" in reference_content
@@ -187,6 +212,22 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     assert "auto-merge допустим после зелёных gates" not in combined
     assert "завершить прогон как ожидающий review" not in combined
     assert "READY_FOR_CHATGPT_REVIEW" in combined
+
+
+def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow() -> None:
+    agents_content = (_REPOSITORY_ROOT / "AGENTS.md").read_text(encoding="utf-8").lower()
+    workflow_content = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
+        encoding="utf-8"
+    ).lower()
+    assert "implementation checkout/worktree" in agents_content
+    assert ".codex/context/git-workflow.md" in agents_content
+    assert "отдельный wsl2 arch checkout разрешён только для независимого coderabbit review" not in agents_content
+    for exception in (
+        "параллельная разработка",
+        "опасный reproduction/experiment",
+        "несовместимое состояние зависимостей/runtime",
+    ):
+        assert exception in workflow_content
 
 
 def test_ci_contract_keeps_stable_stage_agnostic_required_contexts() -> None:

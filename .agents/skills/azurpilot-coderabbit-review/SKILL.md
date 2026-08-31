@@ -1,14 +1,15 @@
 ---
 name: azurpilot-coderabbit-review
-description: "CodeRabbit review PR, branch or commit в AzurPilot, triage review findings, повторный review после fixes, WSL2 Arch review checkout и подготовка PR к финальному ревью. Применяй также при rate limit CodeRabbit; не используй для обычного read-only объяснения кода без review-запроса."
+description: "CodeRabbit code review PR, branch or commit в AzurPilot, triage findings, повторный CodeRabbit review, WSL2 Arch review или rate limit. Применяй только при явном review-запросе; не используй для общей подготовки, обычной разработки или read-only объяснения кода."
 ---
 
 # Независимое CodeRabbit review
 
-Применяй этот skill, когда пользователь просит CodeRabbit review, review PR,
-разбор findings, повторную проверку после fixes, review в WSL2 Arch или доведение
-PR до точки внешнего финального ревью. Для общей разработки без review-запроса
-основным остаётся `azurpilot-repository-development`.
+Применяй этот skill, когда пользователь явно запрашивает CodeRabbit/code review,
+разбор CodeRabbit findings, повторный review, WSL2 Arch CodeRabbit review или
+работу после rate limit CodeRabbit. Для generic PR preparation, финального
+ChatGPT review и общей разработки без явного CodeRabbit review основным остаётся
+`azurpilot-repository-development`.
 
 Перед запуском прочитай [review-workflow.md](references/review-workflow.md).
 CodeRabbit — независимый reviewer, а не источник истины: каждый finding сверяй
@@ -23,7 +24,10 @@ CodeRabbit — независимый reviewer, а не источник ист�
   implementation worktree: product fixes вносятся только в основной checkout.
 - Не копируй в review checkout secrets, cookies, локальные config, dumps или
   пользовательские identifiers без доказанной необходимости.
-- Разбирай каждый finding как `confirmed`, `false positive` или `needs evidence`.
+- Разбирай каждый finding как `confirmed`, `partially confirmed`, `false
+  positive` или `insufficient evidence`. Для `partially confirmed` отдельно
+  фиксируй: проблема или риск подтверждены, но root cause либо suggested fix
+  не принимаются автоматически; исправляй по текущей архитектуре.
   Подтверждённые findings исправляй минимальным diff и повторяй релевантные
   checks; false positive не закрывай фиктивным кодом.
 - Парси фактический результат CLI, отделяя findings от status-сообщений. Не

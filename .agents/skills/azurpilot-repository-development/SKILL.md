@@ -29,10 +29,14 @@ read-only задачи без изменения репозитория этот
 1. Выполни preflight: подтверди repository root, remotes, текущую ветку,
    tracking/upstream, base branch/SHA и staged/unstaged/untracked состояние.
    Пользовательские изменения не stash/drop/reset и не включай в свой diff.
-2. Для новой задачи обнови `origin/personal/stable` разрешённым способом и
-   создай `codex/<task>` в текущем основном checkout. Однозначно относящуюся к
-   задаче опубликованную ветку/PR продолжай после проверки exact head. Не создавай
-   implementation worktree или второй clone без специальной причины.
+2. Для новой задачи сначала определи Git-модель по
+   `.codex/context/GIT-WORKFLOW.md`. Для обычной fork-задачи обнови
+   `origin/personal/stable` разрешённым способом и создай `codex/<task>` в
+   текущем основном checkout. Для upstream sync используй модель `sync/*`, а
+   для переноса upstream в `personal/stable` — `codex/port-upstream-*` и
+   соответствующую процедуру canonical workflow. Однозначно относящуюся к
+   задаче опубликованную ветку/PR продолжай после проверки exact head. Не
+   создавай implementation worktree или второй clone без специальной причины.
 3. Проследи call sites, тесты, конфигурацию и ближайшие архитектурные границы.
    Не зашивай task-specific данные в production, CI или permanent tests.
    Текущие продуктовые тесты и CI остаются stage-agnostic: они проверяют
